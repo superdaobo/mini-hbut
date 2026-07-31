@@ -554,6 +554,20 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
       return { data, fromCache: false, timestamp: Date.now() }
     }
 
+    // 离线回退数据（Rust 端网络失败时返回的缓存快照）：结构有效且带真实 sync_time，
+    // 允许写入本地缓存（剥离 offline 标记），避免每次进入页面都重新请求并重复失败。
+    if (data && data.success && data.offline && requestOptions.cacheOfflinePayload) {
+      const { offline: _drop, ...cacheable } = data
+      setCachedData(key, cacheable)
+      recordRequestMetric(key, {
+        source: 'remote-offline',
+        start: remoteStart,
+        priority,
+        error: data?.error || data?.msg || data?.message || 'offline-payload'
+      })
+      return { data, fromCache: false, timestamp: Date.now() }
+    }
+
     const stale = getBestCachedEntry(key)
     const message = String(data?.error || data?.msg || data?.message || '')
     const shouldFallback =

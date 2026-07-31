@@ -15,6 +15,7 @@ const props = defineProps({
 const emit = defineEmits(['back', 'logout'])
 
 const loading = ref(true)
+const refreshing = ref(false)
 const accessLoading = ref(false)
 const error = ref('')
 const infoError = ref('')
@@ -164,9 +165,9 @@ const normalizeLoginAccess = (payload, fallbackPage = 1, fallbackPageSize = 10) 
   }
 }
 
-const fetchStudentInfo = async () => {
+const fetchStudentInfo = async (force = false) => {
   try {
-    const { data } = await fetchWithCache(
+    const result = await fetchWithCache(
       `studentinfo:${props.studentId}`,
       async () => {
         const res = await axios.post(`${API_BASE}/v2/student_info`, {
@@ -174,13 +175,15 @@ const fetchStudentInfo = async () => {
         })
         return res.data
       },
-      EXTRA_LONG_TTL
+      EXTRA_LONG_TTL,
+      { cacheOfflinePayload: true, forceRemote: force }
     )
-
+    const data = result?.data
     if (data?.success) {
       info.value = data.data || {}
       infoError.value = ''
-      return data
+      // 标记数据来源，供 offline 横幅判定区分"缓存回源"与"本次请求失败"
+      return { ...data, _fromCache: !!result?.fromCache, _stale: !!result?.stale }
     }
 
     infoError.value = data?.error || '获取基本信息失败'
@@ -296,25 +299,57 @@ const hasOrientationBlocks = computed(
     dormKvRows.value.length > 0
 )
 
-const refreshData = async () => {
-  loading.value = true
+const refreshData = async (options = {}) => {
+  const force = !!options.force
+  if (force) {
+    refreshing.value = true
+  } else {
+    loading.value = true
+  }
   error.value = ''
 
   const [basicRes, accessRes] = await Promise.all([
-    fetchStudentInfo(),
+    fetchStudentInfo(force),
     fetchLoginAccess(1, accessPageSize.value, { showLoading: false }),
     fetchOrientationBlocks()
   ])
 
-  offline.value = !!(basicRes?.offline || accessRes?.offline)
-  const timeList = [basicRes?.sync_time, accessRes?.sync_time].filter(Boolean)
-  syncTime.value = timeList.length ? timeList.sort().at(-1) : ''
+  // 离线判定：仅当数据非缓存回源（本次请求确实失败且无可用缓存）时展示离线横幅，
+  // 避免"每次进入都显示离线数据"的误报。
+  const basicOffline = !!basicRes?.offline && !basicRes?._fromCache && !basicRes?._stale
+  const accessOffline = !!accessRes?.offline
+  offline.value = basicOffline || accessOffline
+
+  // sync_time：离线时取离线数据自身的真实更新时间，避免被其他接口的"刚刚"覆盖
+  if (offline.value) {
+    if (basicOffline && basicRes?.sync_time) {
+      syncTime.value = basicRes.sync_time
+    } else if (accessOffline && accessRes?.sync_time) {
+      syncTime.value = accessRes.sync_time
+    } else {
+      syncTime.value = ''
+    }
+  } else {
+    const timeList = [basicRes?.sync_time, accessRes?.sync_time].filter(Boolean)
+    syncTime.value = timeList.length ? timeList.sort().at(-1) : ''
+  }
 
   if (!basicRes && !accessRes) {
     error.value = '个人信息与登录记录均获取失败'
   }
 
   loading.value = false
+  refreshing.value = false
+}
+
+const handleManualRefresh = async () => {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await refreshData({ force: true })
+  } catch {
+    refreshing.value = false
+  }
 }
 
 const basicRows = computed(() => {
@@ -459,7 +494,9 @@ onMounted(() => {
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
       <h1 class="header-title">个人信息</h1>
-      <div class="header-spacer"></div>
+      <button class="header-icon-btn" type="button" aria-label="刷新" :disabled="refreshing" @click="handleManualRefresh">
+        <span class="material-symbols-outlined" :class="{ spinning: refreshing }">refresh</span>
+      </button>
     </header>
 
     <div v-if="offline" class="offline-banner">
@@ -697,17 +734,25 @@ onMounted(() => {
   background: var(--md-sys-color-surface-container-low, #f0f4f8);
 }
 
+.header-icon-btn:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.header-icon-btn .material-symbols-outlined.spinning {
+  animation: refreshSpin 0.8s linear infinite;
+}
+
+@keyframes refreshSpin {
+  to { transform: rotate(360deg); }
+}
+
 .header-title {
   font-size: 18px;
   line-height: 24px;
   font-weight: 700;
   color: var(--md-sys-color-on-surface, #171c1f);
   margin: 0;
-}
-
-.header-spacer {
-  width: 2.5rem;
-  height: 2.5rem;
 }
 
 /* Offline Banner */
