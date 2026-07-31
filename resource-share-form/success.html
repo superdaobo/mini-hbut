@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>提交成功</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --surface: #131313;
+        --on-surface: #e5e2e1;
+        --on-surface-variant: #d0c6ab;
+        --outline-variant: #4d4732;
+        --primary-fixed: #e9c400;
+        --primary: #ffd700;
+        --on-primary: #3a3000;
+        --grid-line: rgba(46, 204, 113, 0.04);
+        --gutter: 16px;
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--surface);
+        color: var(--on-surface);
+        font-family: Geist, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        display: grid;
+        place-items: center;
+        padding: calc(20px + var(--safe-top)) var(--gutter) calc(20px + var(--safe-bottom));
+        position: relative;
+      }
+      .grid-bg {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+          linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+      .card {
+        position: relative;
+        z-index: 1;
+        width: min(420px, 100%);
+        border: 1px solid var(--outline-variant);
+        background: rgba(14, 14, 14, 0.9);
+        padding: 28px 20px;
+        text-align: center;
+      }
+      .chip {
+        display: inline-block;
+        margin-bottom: 14px;
+        padding: 3px 8px;
+        background: var(--primary);
+        color: #1a1400;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        -webkit-text-fill-color: #1a1400;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-family: "Playfair Display", Georgia, serif;
+        font-size: 32px;
+        font-weight: 700;
+        color: var(--primary-fixed);
+        text-shadow: 0 0 20px rgba(255, 215, 0, 0.2);
+      }
+      p {
+        margin: 0 0 20px;
+        color: var(--on-surface-variant);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 10px 18px;
+        border: 1px solid var(--outline-variant);
+        color: var(--on-surface);
+        text-decoration: none;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      a:hover {
+        border-color: var(--primary-fixed);
+        color: var(--primary-fixed);
+      }
+      .foot {
+        margin-top: 18px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px 14px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px;
+      }
+      .foot a {
+        min-height: auto;
+        padding: 0;
+        border: 0;
+        color: var(--on-surface-variant);
+        letter-spacing: 0.06em;
+      }
+      .foot a:hover { color: var(--primary-fixed); border: 0; }
+      .foot-sep {
+        width: 3px;
+        height: 3px;
+        margin-top: 7px;
+        border-radius: 999px;
+        background: var(--outline-variant);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid-bg" aria-hidden="true"></div>
+    <div class="card">
+      <div class="chip">OK</div>
+      <h1>已提交</h1>
+      <p>收到了，后续如有需要会联系你。</p>
+      <a href="/">返回</a>
+      <div class="foot">
+        <a href="https://hbut.6661111.xyz/" target="_blank" rel="noopener noreferrer">项目官网</a>
+        <span class="foot-sep" aria-hidden="true"></span>
+        <a href="https://github.com/superdaobo/mini-hbut" target="_blank" rel="noopener noreferrer">开源地址</a>
+      </div>
+    </div>
+  </body>
+</html>
