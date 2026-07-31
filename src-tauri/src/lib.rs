@@ -4081,6 +4081,86 @@ async fn restore_latest_session(state: State<'_, AppState>) -> Result<UserInfo, 
     Ok(user_info)
 }
 
+/// 解析本地可恢复的门户凭据（DB 会话密码 + 密钥环双键），供自动重登判定。
+/// 说明：login 命令无条件把密码写入 SQLite user_sessions（与前端「记住密码」勾选无关），
+/// 因此前端 localStorage 标志为 false 时后端仍可能具备恢复能力，需以本函数为准。
+fn resolve_stored_portal_password(student_id: &str) -> Option<String> {
+    let sid = student_id.trim();
+    if sid.is_empty() {
+        return None;
+    }
+    // 1) DB 会话密码（login 时无条件保存，密钥环可用时存 __keyring__ 标记）
+    if let Ok(Some(session)) = db::get_user_session(DB_FILENAME, sid) {
+        if !session.password.is_empty() {
+            return Some(session.password);
+        }
+    }
+    // 2) 密钥环：学号键（旧键）/ hbut: 学号键（记住密码键）
+    if let Some(p) = credential_store::load_session_password(sid) {
+        if !p.is_empty() {
+            return Some(p);
+        }
+    }
+    if let Some(p) = credential_store::load_remembered_credential(&format!("hbut:{}", sid)) {
+        if !p.is_empty() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// 查询本地是否存在可恢复的门户凭据（DB 密码 / 密钥环），供前端消除「未保存密码」误报。
+#[tauri::command]
+async fn has_restorable_credentials(
+    state: State<'_, AppState>,
+    student_id: String,
+) -> Result<bool, String> {
+    let _ = state.client.read().await;
+    Ok(resolve_stored_portal_password(&student_id).is_some())
+}
+
+/// 使用本地存储的门户凭据自动重登（DB 密码走完整 CAS 登录），恢复教务会话。
+/// 与手动 login 命令一致：成功后写会话 DB、密钥环双写、持久化 cookies。
+#[tauri::command]
+async fn auto_relogin_from_stored(
+    state: State<'_, AppState>,
+    student_id: String,
+) -> Result<UserInfo, String> {
+    let sid = student_id.trim().to_string();
+    if sid.is_empty() {
+        return Err("学号为空，无法自动重登".to_string());
+    }
+    let password = resolve_stored_portal_password(&sid)
+        .ok_or_else(|| "本地未找到可用的门户密码，无法自动重登".to_string())?;
+
+    let mut client = state.client.write().await;
+    client.set_credentials(sid.clone(), password.clone());
+    let user_info = client
+        .login(&sid, &password, "", "", "")
+        .await
+        .map_err(|e| e.to_string())?;
+    client.set_chaoxing_login_mode(false);
+
+    let session_key = if user_info.student_id.trim().is_empty() {
+        sid.clone()
+    } else {
+        user_info.student_id.clone()
+    };
+    client.persist_session_cookies(&session_key);
+    let _ = db::save_user_session(
+        DB_FILENAME,
+        &session_key,
+        &client.get_cookies(),
+        &password,
+        "",
+        Some(""),
+        Some(""),
+    );
+    let _ = credential_store::save_password(&session_key, &password);
+    let _ = credential_store::save_remembered_credential(&format!("hbut:{}", session_key), &password);
+    Ok(user_info)
+}
+
 #[tauri::command]
 async fn set_offline_user_context(
     state: State<'_, AppState>,
@@ -7114,6 +7194,8 @@ pub fn run() {
             commands::campus_network::campus_network_logout,
             restore_session,
             restore_latest_session,
+            has_restorable_credentials,
+            auto_relogin_from_stored,
             set_offline_user_context,
             get_cookies,
             refresh_session,
