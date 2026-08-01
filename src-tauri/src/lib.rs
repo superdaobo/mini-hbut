@@ -4156,7 +4156,8 @@ async fn auto_relogin_from_stored(
         Some(""),
     );
     let _ = credential_store::save_password(&session_key, &password);
-    let _ = credential_store::save_remembered_credential(&format!("hbut:{}", session_key), &password);
+    let _ =
+        credential_store::save_remembered_credential(&format!("hbut:{}", session_key), &password);
     Ok(user_info)
 }
 

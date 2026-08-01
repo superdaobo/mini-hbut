@@ -10,8 +10,12 @@ import {
 describe('App Store download links (#466)', () => {
   it('centralizes App Store id and official URLs', () => {
     expect(APP_STORE_APP_ID).toBe('6787857278')
-    expect(APP_STORE_LINKS.itmsApps).toBe('itms-apps://apps.apple.com/app/id6787857278')
-    expect(APP_STORE_LINKS.https).toBe('https://apps.apple.com/app/id6787857278')
+    expect(APP_STORE_LINKS.itmsApps).toBe(
+      'itms-apps://apps.apple.com/cn/app/mini-hbut/id6787857278',
+    )
+    expect(APP_STORE_LINKS.https).toBe(
+      'https://apps.apple.com/cn/app/mini-hbut/id6787857278',
+    )
     expect(APP_STORE_LINKS.testFlight).toContain(APP_STORE_APP_ID)
     expect(DOWNLOAD_ANDROID_ANCHOR).toBe('download-android')
     expect(DOWNLOAD_IOS_ANCHOR).toBe('download-ios')

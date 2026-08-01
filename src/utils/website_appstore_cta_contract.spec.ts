@@ -17,8 +17,9 @@ describe('website App Store dual CTA (#466)', () => {
   it('centralizes store links and anchors in home-content', () => {
     const content = read('data/home-content.ts')
     expect(content).toMatch(/export const APP_STORE_APP_ID\s*=\s*['"]6787857278['"]/)
-    expect(content).toMatch(/itms-apps:\/\/apps\.apple\.com\/app\/id\$\{APP_STORE_APP_ID\}/)
-    expect(content).toMatch(/https:\/\/apps\.apple\.com\/app\/id\$\{APP_STORE_APP_ID\}/)
+    expect(content).toMatch(/itms-apps:\/\/apps\.apple\.com\/\$\{APP_STORE_PAGE_PATH\}/)
+    expect(content).toMatch(/https:\/\/apps\.apple\.com\/\$\{APP_STORE_PAGE_PATH\}/)
+    expect(content).toMatch(/APP_STORE_PAGE_PATH\s*=\s*`cn\/app\/mini-hbut\/id\$\{APP_STORE_APP_ID\}`/)
     expect(content).toMatch(/DOWNLOAD_ANDROID_ANCHOR/)
     expect(content).toMatch(/export function resolveAppStoreOpenUrl/)
   })
@@ -51,8 +52,8 @@ describe('website App Store dual CTA (#466)', () => {
     expect(idMatch?.[1]).toBe('6787857278')
     const APP_STORE_APP_ID = idMatch![1]
     const APP_STORE_LINKS = {
-      itmsApps: `itms-apps://apps.apple.com/app/id${APP_STORE_APP_ID}`,
-      https: `https://apps.apple.com/app/id${APP_STORE_APP_ID}`,
+      itmsApps: `itms-apps://apps.apple.com/cn/app/mini-hbut/id${APP_STORE_APP_ID}`,
+      https: `https://apps.apple.com/cn/app/mini-hbut/id${APP_STORE_APP_ID}`,
     }
     // 与源文件 resolveAppStoreOpenUrl 同构的最小实现：若源文件改了分支，合同字符串也会失败
     expect(src).toContain('/iPhone|iPad|iPod/i')
@@ -63,9 +64,9 @@ describe('website App Store dual CTA (#466)', () => {
     }
     const iphone =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'
-    expect(resolve(iphone)).toBe('itms-apps://apps.apple.com/app/id6787857278')
+    expect(resolve(iphone)).toBe('itms-apps://apps.apple.com/cn/app/mini-hbut/id6787857278')
     expect(resolve('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(
-      'https://apps.apple.com/app/id6787857278',
+      'https://apps.apple.com/cn/app/mini-hbut/id6787857278',
     )
   })
 })

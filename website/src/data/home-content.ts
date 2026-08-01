@@ -22,11 +22,13 @@ export const SITE_URL = 'https://hbut.6661111.xyz';
 
 /** App Store / TestFlight 集中配置（#466）— 避免 Hero/Download 散落魔法字符串 */
 export const APP_STORE_APP_ID = '6787857278';
+/** App Store 商店页完整路径（#522）：带国家区 + App 名称，避免无路径重定向异常 */
+export const APP_STORE_PAGE_PATH = `cn/app/mini-hbut/id${APP_STORE_APP_ID}`;
 export const APP_STORE_LINKS = {
   /** iOS 系统优先打开的 App Store 深链 */
-  itmsApps: `itms-apps://apps.apple.com/app/id${APP_STORE_APP_ID}`,
+  itmsApps: `itms-apps://apps.apple.com/${APP_STORE_PAGE_PATH}`,
   /** 桌面/失败回退的网页商店页 */
-  https: `https://apps.apple.com/app/id${APP_STORE_APP_ID}`,
+  https: `https://apps.apple.com/${APP_STORE_PAGE_PATH}`,
   /** 次要：TestFlight（非首页主 CTA） */
   testFlight: `itms-beta://beta.itunes.apple.com/v1/app/${APP_STORE_APP_ID}`,
 } as const;
