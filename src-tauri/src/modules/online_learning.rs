@@ -2389,7 +2389,8 @@ fn parse_cards_attachments(html: &str) -> Vec<Value> {
     };
     let arr_start = marker_pos + marker.len() + arr_start_rel;
     let bytes = html.as_bytes();
-    let mut depth = 0i32;
+    // bracket 深度：arr 自身 `[` 计入（从 0 开始，遇 `[` +1）；跟踪 [] 配对避免内嵌数组提前截断
+    let mut depth_bracket = 0i32;
     let mut in_str = false;
     let mut i = arr_start;
     while i < bytes.len() {
@@ -2405,11 +2406,13 @@ fn parse_cards_attachments(html: &str) -> Vec<Value> {
         } else {
             match c {
                 b'"' => in_str = true,
-                b'{' => depth += 1,
-                b'}' => depth -= 1,
-                b']' if depth == 0 => {
-                    let arr_text = &html[arr_start..=i];
-                    return serde_json::from_str(arr_text).unwrap_or_default();
+                b'[' => depth_bracket += 1,
+                b']' => {
+                    depth_bracket -= 1;
+                    if depth_bracket == 0 {
+                        let arr_text = &html[arr_start..=i];
+                        return serde_json::from_str(arr_text).unwrap_or_default();
+                    }
                 }
                 _ => {}
             }
@@ -2420,21 +2423,23 @@ fn parse_cards_attachments(html: &str) -> Vec<Value> {
 }
 
 /// 统计单个知识节点（knowledge）的任务点完成情况
-/// 返回 (任务点总数, 已完成数)
+/// 返回 (任务点总数, 已完成数, 是否完整统计)
 /// completed 语义：attachment.isPassed === true 才算完成（缺省视为未完成）
 /// —— 视频/文档等任务点由学习通服务端标记 isPassed，比章节页 orangeNew 准确
+/// ok=false 表示中途请求失败（分页未取完），调用方不得据此判定节点完成
 async fn chaoxing_node_completion(
     client: &HbutClient,
     course_id: &str,
     clazz_id: &str,
     knowledge_id: &str,
     cpi: &str,
-) -> (usize, usize) {
+) -> (usize, usize, bool) {
     let study_referer = format!(
         "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudy?chapterId={knowledge_id}&courseId={course_id}&clazzid={clazz_id}&cpi={cpi}&mooc2=1"
     );
     let mut total = 0usize;
     let mut passed = 0usize;
+    let mut ok = true;
     for num in 0..16u32 {
         let num_s = num.to_string();
         let url = format!(
@@ -2450,11 +2455,18 @@ async fn chaoxing_node_completion(
             .await
         {
             Ok(r) => r,
-            Err(_) => break,
+            Err(_) => {
+                ok = false;
+                break;
+            }
         };
         let html = resp.text().await.unwrap_or_default();
         let atts = parse_cards_attachments(&html);
         if atts.is_empty() {
+            // 首页为空：可能是无任务点或页面结构异常；保守标记不完整
+            if num == 0 {
+                ok = false;
+            }
             break;
         }
         total += atts.len();
@@ -2471,7 +2483,7 @@ async fn chaoxing_node_completion(
             break;
         }
     }
-    (total, passed)
+    (total, passed, ok)
 }
 
 /// 用任务点级完成状态（isPassed）升级大纲：
@@ -2511,15 +2523,21 @@ async fn enrich_outline_with_task_completion(
             async move { chaoxing_node_completion(client, &cid, &clz, &k, &cp).await }
         })
         .collect();
-    let results: Vec<(usize, usize)> = futures::stream::iter(tasks)
-        .buffer_unordered(8)
+    let results: Vec<(usize, usize, bool)> = futures::stream::iter(tasks)
+        .buffered(8)
         .collect()
         .await;
 
-    let mut completion: std::collections::HashMap<String, (usize, usize)> =
+    let mut completion: std::collections::HashMap<String, (usize, usize, bool)> =
         std::collections::HashMap::new();
     for (kid, res) in knowledge_ids.iter().zip(results.iter()) {
         completion.insert(kid.clone(), *res);
+    }
+
+    // 全量统计失败（如会话失效）时回退到章节页 orangeNew 估算，避免进度归零误导
+    let any_ok = results.iter().any(|(_, _, ok)| *ok);
+    if !any_ok {
+        return outline;
     }
 
     let mut completed_count = 0usize;
@@ -2532,17 +2550,19 @@ async fn enrich_outline_with_task_completion(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let (total, passed) = completion.get(&kid).copied().unwrap_or((0, 0));
-            // 节点完成：有任务点且全部通过（无任务点的节点不算完成，避免误报）
-            let done = total > 0 && passed == total;
+            let (total, passed, ok) = completion.get(&kid).copied().unwrap_or((0, 0, false));
+            // 节点完成：统计完整且有任务点且全部通过（无任务点/未完整统计不算完成，避免误报）
+            let done = ok && total > 0 && passed == total;
             node["completed"] = json!(done);
             node["task_total"] = json!(total);
             node["task_passed"] = json!(passed);
             if done {
                 completed_count += 1;
             }
-            task_total += total;
-            task_passed += passed;
+            if ok {
+                task_total += total;
+                task_passed += passed;
+            }
         }
     }
     // 课程级统计采用「任务点粒度」（与网页端 unfinishCount/publishJobNum 口径一致）

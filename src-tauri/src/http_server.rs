@@ -4338,11 +4338,21 @@ async fn chaoxing_video_proxy(
         .map(|s| s.into_owned())
         .unwrap_or(target_raw);
     // 安全白名单：仅允许学习通视频 CDN 域名（防 SSRF 拉取内网/任意地址）
-    let lower = target.to_ascii_lowercase();
-    let host_ok = ["cldisk.com", "chaoxing.com"]
-        .iter()
-        .any(|d| lower.contains(d));
-    if !host_ok || !(lower.starts_with("http://") || lower.starts_with("https://")) {
+    // 精确 host 匹配（拒绝 userinfo 混淆、子串伪域如 evilchaoxing.com）
+    let host_ok = match reqwest::Url::parse(&target) {
+        Ok(u) => {
+            let has_userinfo = !u.username().is_empty() || u.password().is_some();
+            let host = u.host_str().unwrap_or("");
+            let scheme_ok = matches!(u.scheme(), "http" | "https");
+            let host_ok = host == "cldisk.com"
+                || host.ends_with(".cldisk.com")
+                || host == "chaoxing.com"
+                || host.ends_with(".chaoxing.com");
+            !has_userinfo && scheme_ok && host_ok
+        }
+        Err(_) => false,
+    };
+    if !host_ok {
         return Err(err(
             StatusCode::BAD_REQUEST,
             "参数错误",
