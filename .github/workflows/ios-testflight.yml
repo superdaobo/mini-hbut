@@ -11,6 +11,14 @@ on:
         description: "TestFlight build number. Empty uses GitHub run number."
         required: false
         type: string
+      whats_new:
+        description: "TestFlight 测试说明（What to Test）。留空自动从 git 提交 + 测试账号生成。支持 \\n 换行。"
+        required: false
+        type: string
+      beta_group:
+        description: "TestFlight 测试组名称。留空自动选择第一个内部测试组（= 自动提交内部测试）。"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -398,6 +406,27 @@ jobs:
             --file "$IPA_PATH" \
             --apiKey "$APPSTORE_KEY_ID" \
             --apiIssuer "$APPSTORE_ISSUER_ID"
+
+      - name: Fill TestFlight info and submit for testing
+        shell: bash
+        env:
+          APPLE_APP_ID: ${{ env.VITE_APPLE_APP_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          TESTFLIGHT_WHATS_NEW: ${{ inputs.whats_new }}
+          TESTFLIGHT_BETA_GROUP: ${{ inputs.beta_group }}
+        run: |
+          set -euo pipefail
+          # 复用上方 "Install App Store Connect API key" 步骤写入的 .p8 私钥
+          PRIVATE_KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          if [ ! -f "$PRIVATE_KEY_PATH" ]; then
+            echo "::error::App Store Connect private key not found at $PRIVATE_KEY_PATH"
+            exit 1
+          fi
+          # 自动完成：等构建处理完成 → 填测试说明（手动优先/自动生成）→ 加入测试组提交
+          APPSTORE_PRIVATE_KEY_PATH="$PRIVATE_KEY_PATH" node tools/ci/submit_testflight.mjs
 
       - name: Report iOS package size
         if: always()
