@@ -25,6 +25,29 @@ Body: courseType=1&courseFolderId=0&superstarClass=0
 → HTML 片段（课程卡片）
 ```
 
+### 课程中心学期筛选（fyportal，2026-08-01 实测）
+
+湖工大定制平台（`fycourse.fanya.chaoxing.com`）的课程中心支持真实学期筛选，App 课程中心已对接：
+
+1. **学期列表**：`GET https://fycourse.fanya.chaoxing.com/fyportal/courselist/course?version=1&s=null`（带 `.chaoxing.com` cookie）返回的 HTML 中，`<select name="xq">` 服务端渲染全部学期：
+
+```html
+<select name="xq" class="dept_select">
+  <option value="0">全部</option>
+  <option value="43811" semesternum="20261" selected="true">2026-2027第一学期</option>
+  <option value="38370" semesternum="20252">2025-2026第二学期</option>
+  ...
+</select>
+```
+
+- `value` = sectionId（切换学期请求参数）
+- `semesternum` = 学年学期码（20261/20252/20251…）
+- `getFolderList?type=1` 接口返回 `{"data":[]}`，**不可用**，学期数据源是页面 HTML
+
+2. **切换学期**：`GET https://fycourse.fanya.chaoxing.com/fyportal/courselist/getStudyCourse?sectionId={sectionId}&semesterNum=&coursesource=0&coursename=&searchkkstatus=0&belongSchoolId=0` → HTML 课程卡片 `<li class="w_couritem" state="0|1" cid courseId classid clazzId personId=cpi ckenc cname>`；同一课程可出现在多个学期，归属由服务端按 sectionId 决定。
+
+Rust 实现：`online_learning.rs` `fetch_fyportal_semester_options` / `fetch_fyportal_courses_by_section` / `parse_fyportal_*`，在 `fetch_chaoxing_courses_remote` 中与 backclazzdata 结果按 `courseId:clazzId` 合并，返回 `semesters` + 每课 `semester`。
+
 ---
 
 ## Auth（门户 SSO，禁止二次登录）
@@ -166,6 +189,13 @@ Response JSON:
   1. `ananas/status/{objectId}` 返回的 `http(s)` 直链
   2. 带会话 cookie 下载 `downloadData` 转 `data:image/...;base64,...` 用 `<img>` 直显
   3. 勿对图片只塞黑底 iframe 加载 `objectshowpreview`
+
+### 视频播放（2026-08-01 实测修正）
+
+1. **状态接口**：`GET https://mooc1.chaoxing.com/ananas/status/{objectId}?k={fid}&flag=normal&ro=0&_dc={ts}`，返回 `http` 字段 = 带签名直链（`sd.mp4?at_=..&ak_=..&ad_=..`）+ `dtoken`（进度上报用）+ `download` 字段
+2. **⚠️ 直链有 Referer 防盗链**：cldisk CDN 无 chaoxing Referer 时返回 **403**。App WebView `<video>` 直链播放必失败 → 必须经 Rust 本地代理 `http_server.rs /proxy/video?url={直链}`（带学习通 cookie + `Referer: mooc1.chaoxing.com`，透传 Range）播放
+3. **⚠️ 官方 ananas 播放器带参 URL 已废弃**：`index.html?objectid=&fid=&isPhone=true` 在新版 JS（v2026-0710+）初始化即抛 TypeError、零请求、永久「正在为您加载文件」。网页端现在用**无参** `index.html?v=2026-0721-1025` + 父页 postMessage 传数据（`knowledge/cards` 页内嵌）。App 不再兜底官方播放器
+4. 播放中伴随请求：`richvideo/initdatawithviewerV2?mid=&cpi=&classid=&courseid=`（可能返回 `[]`）、`ananas/getpoints`、`richvideo/allsubtitle`、`multimedia/log`（进度上报，`dtoken` + `enc` 签名）
 - **SSO 缓存**：`chaoxing_sso` 进程内 TTL 与浏览器「关浏览器才丢 cookie」不同；cookie 仍有效时应探针复用，勿短 TTL 误杀
 
 可预览类型（JS `previewType`）：  
