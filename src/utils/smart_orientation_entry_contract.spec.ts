@@ -8,20 +8,21 @@ const read = (rel: string) => readFileSync(resolve(root, rel), 'utf8')
 
 /**
  * #481：智慧迎新只读完整能力
- * - 首页资源分组入口（需登录）
- * - SmartOrientationView 成绩风格只读页
+ * - 首页资源分组入口已移除（内容并入个人信息页 #485/#516，避免重复入口）
+ * - SmartOrientationView 成绩风格只读页（保留，仍可通过页面路由访问）
  * - 个人信息仍可读取 profile_blocks（#485 并入保留）
  * - 后端仅只读命令
  */
 describe('smart_orientation entry + readonly wiring (#481)', () => {
-  it('Dashboard 资源区挂 smart_orientation 入口且 requiresLogin', () => {
+  it('Dashboard 资源区不再挂 smart_orientation 入口（内容已并入个人信息页）', () => {
     const dash = read('components/Dashboard.vue')
-    expect(dash).toContain("id: 'smart_orientation'")
-    expect(dash).toMatch(/id:\s*'smart_orientation'[\s\S]{0,260}requiresLogin:\s*true/)
-    expect(dash).toMatch(/title:\s*'资源'[\s\S]{0,220}smart_orientation/)
-    expect(dash).toContain(
+    expect(dash).not.toContain("id: 'smart_orientation'")
+    expect(dash).not.toContain(
       "['library', 'campus_map', 'resource_share', 'towergo', 'smart_orientation', 'ai']"
     )
+    // 个人信息页保留 profile_blocks 读取能力（#485）
+    const view = read('components/StudentInfoView.vue')
+    expect(view).toContain("invokeNative('smart_orientation_profile_blocks'")
   })
 
   it('App.vue 懒加载 SmartOrientationView', () => {
