@@ -4418,7 +4418,8 @@ async fn chaoxing_video_proxy(
 
 async fn campus_map_direction_proxy(
     RawQuery(query): RawQuery,
-) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {    let query_text = query.unwrap_or_default();
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let query_text = query.unwrap_or_default();
     if query_text.trim().is_empty() {
         return Err(err(
             StatusCode::BAD_REQUEST,
