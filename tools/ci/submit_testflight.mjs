@@ -257,16 +257,14 @@ async function main() {
     commits,
     account,
   })
-  // 日志只打印不含测试账号的版本（凭据不落 workflow 日志，PATCH 内容不受影响）
-  const logSafe = buildWhatsNew({
-    manual: TESTFLIGHT_WHATS_NEW,
-    versionName: VERSION_NAME,
-    buildNumber: BUILD_NUMBER,
-    commits,
-    account: null,
-  })
+  // 日志打印不含测试账号的版本（凭据不落 workflow 日志；说明全文见 TestFlight）
+  const logLines = [`v${VERSION_NAME}（build ${BUILD_NUMBER}）`]
+  if (commits.length > 0) {
+    logLines.push('', '本次更新：')
+    for (const commit of commits.slice(0, 10)) logLines.push(`- ${commit}`)
+  }
   console.log('📝 测试说明（What to Test）：')
-  console.log(logSafe.split('\n').map((line) => `   ${line}`).join('\n'))
+  console.log(logLines.map((line) => `   ${line}`).join('\n'))
   console.log('   （演示测试账号已自动附于说明中，详见 TestFlight）')
   await apiRequest(token, `/builds/${buildId}`, {
     method: 'PATCH',
