@@ -131,6 +131,17 @@ describe("TestFlight 自动化提交契约", () => {
     });
 
     expect(manual).toBe("重点回归登录与课表。\n第二行说明。");
+
+    // 手动输入超长时同样截断到 4000 字符，避免 PATCH 被拒
+    const tooLong = buildWhatsNew({
+      manual: "y".repeat(5000),
+      versionName: "1.4.3",
+      buildNumber: "42",
+      commits: [],
+      account: null,
+    });
+    expect(tooLong.length).toBeLessThanOrEqual(4000);
+    expect(tooLong.endsWith("…")).toBe(true);
   });
 
   it("buildWhatsNew 留空时自动生成：git 提交 + 测试账号", () => {

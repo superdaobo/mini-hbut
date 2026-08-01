@@ -71,7 +71,8 @@ export function parseTestAccount(source) {
 export function buildWhatsNew({ manual, versionName, buildNumber, commits = [], account }) {
   if (manual && manual.trim()) {
     // workflow_dispatch 输入是单行文本框，支持字面 \n 转义为换行
-    return manual.replace(/\\n/g, '\n').trim()
+    const text = manual.replace(/\\n/g, '\n').trim()
+    return text.length > WHATS_NEW_MAX_LENGTH ? `${text.slice(0, WHATS_NEW_MAX_LENGTH - 1)}…` : text
   }
   const lines = [`v${versionName}（build ${buildNumber}）`]
   if (commits.length > 0) {
@@ -89,29 +90,48 @@ export function buildWhatsNew({ manual, versionName, buildNumber, commits = [], 
 /* 内部工具                                                             */
 /* ------------------------------------------------------------------ */
 
-async function apiRequest(token, pathname, { method = 'GET', body } = {}) {
-  const res = await fetch(`${API_BASE}${pathname}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  const text = await res.text()
-  let json = null
-  try {
-    json = JSON.parse(text)
-  } catch {
-    /* 非 JSON 响应，保留原文用于报错 */
+async function apiRequest(token, pathname, { method = 'GET', body } = {}, retries = 2) {
+  let lastError
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${API_BASE}${pathname}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      })
+      const text = await res.text()
+      let json = null
+      try {
+        json = JSON.parse(text)
+      } catch {
+        /* 非 JSON 响应，保留原文用于报错 */
+      }
+      if (!res.ok) {
+        const detail =
+          json?.errors?.map((e) => `${e.code}: ${e.detail || e.title}`).join('; ') ||
+          text.slice(0, 500)
+        // 服务端瞬时错误（5xx）与限流（429）时重试，客户端错误（4xx）不重试
+        if ((res.status >= 500 || res.status === 429) && attempt < retries) {
+          await sleep(3_000)
+          continue
+        }
+        throw new Error(`App Store Connect API ${method} ${pathname} 失败（HTTP ${res.status}）：${detail}`)
+      }
+      return json
+    } catch (err) {
+      lastError = err
+      if (attempt < retries && err instanceof Error && !err.message.includes('HTTP')) {
+        // 网络层异常（fetch 失败/超时）时短暂等待后重试
+        await sleep(3_000)
+        continue
+      }
+      throw err
+    }
   }
-  if (!res.ok) {
-    const detail =
-      json?.errors?.map((e) => `${e.code}: ${e.detail || e.title}`).join('; ') ||
-      text.slice(0, 500)
-    throw new Error(`App Store Connect API ${method} ${pathname} 失败（HTTP ${res.status}）：${detail}`)
-  }
-  return json
+  throw lastError
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
