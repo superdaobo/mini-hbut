@@ -1104,7 +1104,7 @@ fn write_chaoxing_course_progress_fallback(
     let message = if role_type == 1 {
         "教师视角课程，暂不统计学习进度"
     } else {
-        "官方进度暂不可用"
+        "暂无章节任务点"
     };
     if let Some(map) = course.as_object_mut() {
         map.insert("progress_text".to_string(), json!(message));
@@ -1806,6 +1806,201 @@ fn extract_folder_array(v: &Value) -> Vec<Value> {
     Vec::new()
 }
 
+/// 解析课程中心页 HTML 中的学期下拉（<select name="xq">，服务端渲染）
+/// 返回 (section_id, semester_num, label)，如 ("43811", "20261", "2026-2027第一学期")
+/// 对应网页端真实学期筛选：切换学期即 getStudyCourse?sectionId={section_id}
+/// 注意：
+/// - 必须限定 name="xq" 的 select，页面还有院系/部门等多个下拉（否则混入噪声 label）
+/// - 真实 HTML 属性名是驼峰 `semesterNum`（部分场景小写），需两者兼容
+/// - 排除 value=0 的「全部」占位项（前端会自行提供「全部」tab）
+fn parse_fyportal_semester_options(html: &str) -> Vec<(String, String, String)> {
+    let re_select = regex::Regex::new(
+        r#"(?is)<select\s+name=["']xq["'][^>]*>(.*?)</select>"#,
+    )
+    .expect("fyportal xq select regex");
+    let re_option = regex::Regex::new(
+        r#"(?i)<option\s+value="(\d+)"(?:\s+semesternum="(\d+)")?[^>]*>([^<]{2,40})</option>"#,
+    )
+    .expect("fyportal semester option regex");
+    let mut out = Vec::new();
+    for cap in re_select.captures_iter(html) {
+        let inner = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        for opt in re_option.captures_iter(inner) {
+            let value = match opt.get(1) {
+                Some(m) => m.as_str().to_string(),
+                None => continue,
+            };
+            let sem = opt
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let label = opt
+                .get(3)
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default();
+            // 排除「全部」(value=0) 与占位文本，避免污染学期 tab
+            if value == "0" || label == "全部" || label.contains("请选择") {
+                continue;
+            }
+            if label.is_empty() {
+                continue;
+            }
+            out.push((value, sem, label));
+        }
+    }
+    out
+}
+
+/// 解析 fyportal 课程卡片 HTML（<ul class="course-list"><li class="w_couritem ...">）
+/// 每张卡片属性：state(0进行中/1已结课)、cid、classid、personId(=cpi)、ckenc、cname、封面图
+fn parse_fyportal_course_cards(html: &str, semester_label: &str) -> Vec<Value> {
+    let re_li = regex::Regex::new(
+        r#"(?is)<li\s+class="[^"]*w_couritem[^"]*"([^>]*)>(.*?)</li>"#,
+    )
+    .expect("fyportal course li regex");
+    let re_attr = regex::Regex::new(
+        r#"(?i)(cid|classid|personid|ckenc|kcenc|clazzenc|cname|state|source)="([^"]*)""#,
+    )
+    .expect("fyportal course attr regex");
+    let re_img = regex::Regex::new(r#"(?i)<img\s+src="([^"]*)""#).expect("fyportal img regex");
+    let mut out = Vec::new();
+    for cap in re_li.captures_iter(html) {
+        // capture(1) = li 开标签属性段（cid/classid/cname 等），capture(2) = inner HTML（封面图）
+        let attrs_html = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        let inner = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+        let mut attrs = std::collections::HashMap::new();
+        for a in re_attr.captures_iter(attrs_html) {
+            if let (Some(k), Some(v)) = (a.get(1), a.get(2)) {
+                attrs.insert(
+                    k.as_str().to_ascii_lowercase(),
+                    v.as_str().trim().to_string(),
+                );
+            }
+        }
+        let course_id = attrs.get("cid").cloned().unwrap_or_default();
+        let clazz_id = attrs.get("classid").cloned().unwrap_or_default();
+        if course_id.is_empty() || clazz_id.is_empty() {
+            continue;
+        }
+        let cname = attrs
+            .get("cname")
+            .cloned()
+            .unwrap_or_else(|| format!("课程 {course_id}"));
+        let cpi = attrs.get("personid").cloned().unwrap_or_default();
+        let state = attrs.get("state").cloned().unwrap_or_default();
+        let image_url = re_img
+            .captures(inner)
+            .and_then(|m| m.get(1))
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let course_url = format!(
+            "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudycourselist?courseId={course_id}&chapterId=0&clazzid={clazz_id}&cpi={cpi}&mooc2=1&isMicroCourse=false"
+        );
+        out.push(json!({
+            "id": format!("{course_id}:{clazz_id}"),
+            "course_id": course_id,
+            "clazz_id": clazz_id,
+            "cpi": cpi,
+            "name": cname,
+            "title": cname,
+            "teacher": "",
+            "image_url": image_url,
+            "course_url": course_url,
+            "role_type": 3,
+            "role_label": "student",
+            "auto_supported": true,
+            "semester": semester_label,
+            "state": state,
+            "source": "fyportal",
+        }));
+    }
+    out
+}
+
+/// 从 fyportal 课程中心页面拉取学期下拉（服务端渲染在 HTML 里）
+async fn fetch_fyportal_semester_options(client: &HbutClient) -> Vec<(String, String, String)> {
+    let url = "https://fycourse.fanya.chaoxing.com/fyportal/courselist/course?version=1&s=null";
+    let resp = match client
+        .client
+        .get(url)
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Referer", "https://i.chaoxing.com/base")
+        .timeout(Duration::from_secs(12))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            crate::hbut_session_log!("ChaoxingCourses", "fyportal 学期页请求失败: {}", e);
+            return Vec::new();
+        }
+    };
+    let final_url = resp.url().to_string();
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    let opts = parse_fyportal_semester_options(&text);
+    crate::hbut_session_log!(
+        "ChaoxingCourses",
+        "fyportal 学期页 status={} final={} len={} options={}",
+        status.as_u16(),
+        final_url,
+        text.len(),
+        opts.len()
+    );
+    opts
+}
+
+/// 按学期（sectionId）拉取 fyportal 课程卡片（返回 HTML 课程列表）
+async fn fetch_fyportal_courses_by_section(
+    client: &HbutClient,
+    section_id: &str,
+    semester_label: &str,
+) -> Vec<Value> {
+    let url = format!(
+        "https://fycourse.fanya.chaoxing.com/fyportal/courselist/getStudyCourse?sectionId={}&semesterNum=&coursesource=0&coursename=&searchkkstatus=0&belongSchoolId=0",
+        section_id
+    );
+    let resp = match client
+        .client
+        .get(&url)
+        .header("Accept", "text/html, */*")
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header(
+            "Referer",
+            "https://fycourse.fanya.chaoxing.com/fyportal/courselist/course?version=1&s=null",
+        )
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            crate::hbut_session_log!(
+                "ChaoxingCourses",
+                "fyportal 学期课程页请求失败 section={} err={}",
+                section_id,
+                e
+            );
+            return Vec::new();
+        }
+    };
+    let final_url = resp.url().to_string();
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    let cards = parse_fyportal_course_cards(&text, semester_label);
+    crate::hbut_session_log!(
+        "ChaoxingCourses",
+        "fyportal 学期课程 section={} label={} status={} final={} len={} cards={}",
+        section_id,
+        semester_label,
+        status.as_u16(),
+        final_url,
+        text.len(),
+        cards.len()
+    );
+    cards
+}
+
 async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, DynError> {
     let url = "https://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1";
     let resp = client
@@ -1996,28 +2191,86 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
                 courses.len()
             );
 
-            // 再拉课程文件夹（历史学期），合并去重
-            let mut folder_extra = 0usize;
-            match fetch_chaoxing_folder_courses(client, &mut seen).await {
-                Ok(extra) => {
-                    folder_extra = extra.len();
-                    for c in extra {
-                        courses.push(c);
+            // fyportal 定制平台学期数据（湖工大网络教学平台）：学期下拉 + 各学期课程，
+            // 与网页端课程中心完全同源；成功时优于文件夹试探（文件夹名不是真实学期）
+            let mut fyportal_semesters: Vec<String> = Vec::new();
+            let mut fyportal_matched = 0usize;
+            let mut fyportal_added = 0usize;
+            let sem_meta = fetch_fyportal_semester_options(client).await;
+            let fyportal_ok = !sem_meta.is_empty();
+            if fyportal_ok {
+                fyportal_semesters = sem_meta
+                    .iter()
+                    .map(|(_, _, label)| label.clone())
+                    .collect();
+                // 逐学期拉课程（串行：量小且避免触发风控），标记学期归属
+                for (section_id, _, label) in sem_meta.iter() {
+                    let items = fetch_fyportal_courses_by_section(client, section_id, label).await;
+                    if items.is_empty() {
+                        continue;
+                    }
+                    for c in items {
+                        let key = format!(
+                            "{}:{}",
+                            json_str_field(&c, &["course_id"]),
+                            json_str_field(&c, &["clazz_id"])
+                        );
+                        if let Some(existing) = courses.iter_mut().find(|e| {
+                            format!(
+                                "{}:{}",
+                                json_str_field(e, &["course_id"]),
+                                json_str_field(e, &["clazz_id"])
+                            ) == key
+                        }) {
+                            fyportal_matched += 1;
+                            // 以网页端学期归属覆盖猜测值
+                            existing["semester"] = c
+                                .get("semester")
+                                .cloned()
+                                .unwrap_or_else(|| json!("未分学期"));
+                        } else {
+                            fyportal_added += 1;
+                            courses.push(c);
+                        }
                     }
                 }
-                Err(e) => {
-                    println!("[调试] fetch_chaoxing_folder_courses failed: {e}");
+                println!(
+                    "[调试] fyportal semesters={:?} matched={} added={}",
+                    fyportal_semesters, fyportal_matched, fyportal_added
+                );
+            }
+
+            // 再拉课程文件夹（历史学期），合并去重。
+            // fyportal 学期数据可用时跳过：文件夹名不是真实学期，且 16 个试探请求拖慢加载
+            let mut folder_extra = 0usize;
+            if !fyportal_ok {
+                match fetch_chaoxing_folder_courses(client, &mut seen).await {
+                    Ok(extra) => {
+                        folder_extra = extra.len();
+                        for c in extra {
+                            courses.push(c);
+                        }
+                    }
+                    Err(e) => {
+                        println!("[调试] fetch_chaoxing_folder_courses failed: {e}");
+                    }
                 }
             }
 
-            let mut semesters: Vec<String> = courses
-                .iter()
-                .filter_map(|c| {
-                    c.get("semester")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                })
-                .collect();
+            let mut semesters: Vec<String> = if !fyportal_semesters.is_empty() {
+                // fyportal 学期列表保持网页端顺序（最新在前）
+                fyportal_semesters
+            } else {
+                // 回退：从课程自身收集
+                courses
+                    .iter()
+                    .filter_map(|c| {
+                        c.get("semester")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .collect()
+            };
             semesters.sort();
             semesters.dedup();
             // 本学期优先，其次带「年/学期」的标签
@@ -2123,7 +2376,206 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
     }))
 }
 
-async fn fetch_chaoxing_course_progress_remote(
+/// 从 knowledge/cards 页 HTML 提取 attachments 数组（任务点列表）
+/// 容错解析：mArg 整体可能含 JS 语法，只提取 `"attachments":[...]` 数组
+fn parse_cards_attachments(html: &str) -> Vec<Value> {
+    let marker = "\"attachments\":";
+    let Some(marker_pos) = html.find(marker) else {
+        return Vec::new();
+    };
+    let after = &html[marker_pos + marker.len()..];
+    let Some(arr_start_rel) = after.find('[') else {
+        return Vec::new();
+    };
+    let arr_start = marker_pos + marker.len() + arr_start_rel;
+    let bytes = html.as_bytes();
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut i = arr_start;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_str {
+            if c == b'\\' {
+                i += 2;
+                continue;
+            }
+            if c == b'"' {
+                in_str = false;
+            }
+        } else {
+            match c {
+                b'"' => in_str = true,
+                b'{' => depth += 1,
+                b'}' => depth -= 1,
+                b']' if depth == 0 => {
+                    let arr_text = &html[arr_start..=i];
+                    return serde_json::from_str(arr_text).unwrap_or_default();
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    Vec::new()
+}
+
+/// 统计单个知识节点（knowledge）的任务点完成情况
+/// 返回 (任务点总数, 已完成数)
+/// completed 语义：attachment.isPassed === true 才算完成（缺省视为未完成）
+/// —— 视频/文档等任务点由学习通服务端标记 isPassed，比章节页 orangeNew 准确
+async fn chaoxing_node_completion(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    knowledge_id: &str,
+    cpi: &str,
+) -> (usize, usize) {
+    let study_referer = format!(
+        "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudy?chapterId={knowledge_id}&courseId={course_id}&clazzid={clazz_id}&cpi={cpi}&mooc2=1"
+    );
+    let mut total = 0usize;
+    let mut passed = 0usize;
+    for num in 0..16u32 {
+        let num_s = num.to_string();
+        let url = format!(
+            "https://mooc1.chaoxing.com/mooc-ans/knowledge/cards?clazzid={clazz_id}&courseid={course_id}&knowledgeid={knowledge_id}&num={num_s}&ut=s&cpi={cpi}&v=2025-0424-1038-3&mooc2=1&isMicroCourse=false&editorPreview=0"
+        );
+        let resp = match client
+            .client
+            .get(&url)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Referer", &study_referer)
+            .timeout(Duration::from_secs(12))
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => break,
+        };
+        let html = resp.text().await.unwrap_or_default();
+        let atts = parse_cards_attachments(&html);
+        if atts.is_empty() {
+            break;
+        }
+        total += atts.len();
+        passed += atts
+            .iter()
+            .filter(|a| {
+                a.get("isPassed")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            })
+            .count();
+        // 一页未满说明没有下一页
+        if atts.len() < 30 {
+            break;
+        }
+    }
+    (total, passed)
+}
+
+/// 用任务点级完成状态（isPassed）升级大纲：
+/// 节点 completed = 该节点有任务点且全部通过；并重算课程级统计
+/// 修复「二级显示已完成但三级视频未看完」的误判（orangeNew 不统计视频）
+async fn enrich_outline_with_task_completion(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+    mut outline: Value,
+) -> Value {
+    let nodes = outline
+        .get("nodes")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let knowledge_ids: Vec<String> = nodes
+        .iter()
+        .filter_map(|n| {
+            n.get("knowledge_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+    if knowledge_ids.is_empty() {
+        return outline;
+    }
+    // 并发拉取每个节点的任务点完成状态（限流避免触发风控）
+    let tasks: Vec<_> = knowledge_ids
+        .iter()
+        .map(|kid| {
+            let cid = course_id.to_string();
+            let clz = clazz_id.to_string();
+            let cp = cpi.to_string();
+            let k = kid.clone();
+            async move { chaoxing_node_completion(client, &cid, &clz, &k, &cp).await }
+        })
+        .collect();
+    let results: Vec<(usize, usize)> = futures::stream::iter(tasks)
+        .buffer_unordered(8)
+        .collect()
+        .await;
+
+    let mut completion: std::collections::HashMap<String, (usize, usize)> =
+        std::collections::HashMap::new();
+    for (kid, res) in knowledge_ids.iter().zip(results.iter()) {
+        completion.insert(kid.clone(), *res);
+    }
+
+    let mut completed_count = 0usize;
+    let mut task_total = 0usize;
+    let mut task_passed = 0usize;
+    if let Some(arr) = outline.get_mut("nodes").and_then(|v| v.as_array_mut()) {
+        for node in arr.iter_mut() {
+            let kid = node
+                .get("knowledge_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let (total, passed) = completion.get(&kid).copied().unwrap_or((0, 0));
+            // 节点完成：有任务点且全部通过（无任务点的节点不算完成，避免误报）
+            let done = total > 0 && passed == total;
+            node["completed"] = json!(done);
+            node["task_total"] = json!(total);
+            node["task_passed"] = json!(passed);
+            if done {
+                completed_count += 1;
+            }
+            task_total += total;
+            task_passed += passed;
+        }
+    }
+    // 课程级统计采用「任务点粒度」（与网页端 unfinishCount/publishJobNum 口径一致）
+    outline["completed_count"] = json!(task_passed);
+    outline["total_count"] = json!(task_total);
+    outline["pending_count"] = json!(task_total.saturating_sub(task_passed));
+    outline["task_total"] = json!(task_total);
+    outline["task_passed"] = json!(task_passed);
+    outline["task_percent"] = json!(if task_total == 0 {
+        0.0
+    } else {
+        task_passed as f64 * 100.0 / task_total as f64
+    });
+    outline["progress_percent"] = json!(if task_total == 0 {
+        0.0
+    } else {
+        task_passed as f64 * 100.0 / task_total as f64
+    });
+    outline["progress_text"] = json!(format!("已完成 {} / {}", task_passed, task_total));
+    outline["completed_nodes"] = json!(completed_count);
+    outline["total_nodes"] = json!(
+        outline
+            .get("nodes")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
+    );
+    outline
+}
+
+/// 列表页快速进度估算（仅解析章节页 orangeNew，不发 knowledge/cards 请求）
+/// 用于课程列表批量展示；详情页用 fetch_chaoxing_course_progress_remote（任务点精确）
+async fn fetch_chaoxing_course_progress_fast(
     client: &HbutClient,
     course_id: &str,
     clazz_id: &str,
@@ -2156,6 +2608,53 @@ async fn fetch_chaoxing_course_progress_remote(
         "pending_count": total_count.saturating_sub(completed_count),
         "progress_percent": if total_count == 0 { 0.0 } else { completed_count as f64 * 100.0 / total_count as f64 },
         "progress_text": format!("已完成 {} / {}", completed_count, total_count),
+        "nodes": nodes
+    }))
+}
+
+async fn fetch_chaoxing_course_progress_remote(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+    course_url: Option<&str>,
+) -> Result<Value, DynError> {
+    let outline =
+        fetch_chaoxing_outline_remote(client, course_id, clazz_id, cpi, course_url).await?;
+    // 任务点级精确统计（isPassed），替代 orangeNew 估算
+    let outline = enrich_outline_with_task_completion(client, course_id, clazz_id, cpi, outline)
+        .await;
+    let nodes = outline
+        .get("nodes")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let task_total = outline
+        .get("task_total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    let task_passed = outline
+        .get("task_passed")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    let task_percent = if task_total == 0 {
+        0.0
+    } else {
+        task_passed as f64 * 100.0 / task_total as f64
+    };
+    Ok(json!({
+        "success": true,
+        "course_id": course_id,
+        "clazz_id": clazz_id,
+        "cpi": cpi,
+        "total_count": task_total,
+        "completed_count": task_passed,
+        "pending_count": task_total.saturating_sub(task_passed),
+        "task_total": task_total,
+        "task_passed": task_passed,
+        "task_percent": task_percent,
+        "progress_percent": task_percent,
+        "progress_text": format!("已完成 {} / {}", task_passed, task_total),
         "nodes": nodes
     }))
 }
@@ -2217,7 +2716,7 @@ async fn enrich_chaoxing_courses_with_progress(
         };
 
         if progress_payload.is_none() && allow_live_fetch {
-            match fetch_chaoxing_course_progress_remote(
+            match fetch_chaoxing_course_progress_fast(
                 client,
                 &course_id,
                 &clazz_id,
@@ -2270,7 +2769,13 @@ pub async fn chaoxing_fetch_courses(
                 .and_then(|v| v.as_array())
                 .map(|a| a.len())
                 .unwrap_or(0);
-            if count > 0 {
+            // schema=2：含真实学期数据（fyportal）。旧缓存（无学期）直接跳过走远程
+            let schema_ok = cached
+                .get("schema")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                >= 2;
+            if count > 0 && schema_ok {
                 crate::hbut_session_log!(
                     "ChaoxingCourses",
                     "命中缓存 {} 门课 force=false，跳过会话探测与远程拉取",
@@ -2278,6 +2783,13 @@ pub async fn chaoxing_fetch_courses(
                 );
                 timer.finish(Some(json!({ "from_cache": true, "count": count })));
                 return Ok(crate::attach_sync_time(cached, &sync_time, true));
+            }
+            if count > 0 {
+                crate::hbut_session_log!(
+                    "ChaoxingCourses",
+                    "缓存 schema 过旧（无学期数据）count={}，忽略缓存走远程",
+                    count
+                );
             }
         }
     } else {
@@ -2324,6 +2836,7 @@ pub async fn chaoxing_fetch_courses(
                 "courses": courses,
                 "semesters": payload.get("semesters").cloned().unwrap_or(json!([])),
                 "pending_count": pending_count,
+                "schema": 2,
                 "platform_status": {
                     "platform": PLATFORM_CHAOXING,
                     "connected": true,
@@ -2454,7 +2967,7 @@ pub fn assemble_chaoxing_outline_from_html(
 
     let raw_leaves = extract_chaoxing_catalog_leaves(html);
     let mut leaves: Vec<(usize, Value)> = Vec::new();
-    for (pos, knowledge_id, title, cap_course_id, cap_clazz_id, cur_id) in raw_leaves {
+    for (pos, knowledge_id, title, cap_course_id, cap_clazz_id, cur_id, completed) in raw_leaves {
         let chapter_id = if cur_id.is_empty() {
             knowledge_id.clone()
         } else {
@@ -2481,7 +2994,7 @@ pub fn assemble_chaoxing_outline_from_html(
                 "cpi": cpi,
                 "chapter_id": chapter_id,
                 "knowledge_id": knowledge_id,
-                "completed": false,
+                "completed": completed,
                 "task_type": "knowledge",
                 "type": "knowledge",
                 "children": [],
@@ -2506,6 +3019,14 @@ pub fn assemble_chaoxing_outline_from_html(
     if section_marks.is_empty() {
         let tasks: Vec<Value> = leaves.into_iter().map(|(_, v)| v).collect();
         let total = tasks.len();
+        let completed = tasks
+            .iter()
+            .filter(|t| {
+                t.get("completed")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            })
+            .count();
         sections.push(json!({
             "id": "all",
             "title": "全部章节",
@@ -2517,8 +3038,8 @@ pub fn assemble_chaoxing_outline_from_html(
             "sections": sections,
             "nodes": sections[0]["tasks"].clone(),
             "total_count": total,
-            "completed_count": 0,
-            "pending_count": total,
+            "completed_count": completed,
+            "pending_count": total.saturating_sub(completed),
             "course_id": course_id,
             "clazz_id": clazz_id,
             "cpi": cpi,
@@ -2584,17 +3105,27 @@ pub fn assemble_chaoxing_outline_from_html(
             total_count += arr.len();
         }
     }
+    // 完成状态统计：节点 completed 来自章节页 orangeNew 数字（0 = 已完成）
+    let nodes: Vec<Value> = sections
+        .iter()
+        .flat_map(|s| s.get("tasks").and_then(|t| t.as_array()).cloned().unwrap_or_default())
+        .collect();
+    let completed_count = nodes
+        .iter()
+        .filter(|n| {
+            n.get("completed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
+        .count();
 
     Ok(json!({
         "success": true,
         "sections": sections,
-        "nodes": sections
-            .iter()
-            .flat_map(|s| s.get("tasks").and_then(|t| t.as_array()).cloned().unwrap_or_default())
-            .collect::<Vec<_>>(),
+        "nodes": nodes,
         "total_count": total_count,
-        "completed_count": 0,
-        "pending_count": total_count,
+        "completed_count": completed_count,
+        "pending_count": total_count.saturating_sub(completed_count),
         "course_id": course_id,
         "clazz_id": clazz_id,
         "cpi": cpi,
@@ -2624,6 +3155,10 @@ pub async fn chaoxing_fetch_course_outline(
         .await
     {
         Ok(payload) => {
+            // 任务点级精确完成状态（isPassed）：修复「二级显示完成但三级任务未看完」
+            let payload =
+                enrich_outline_with_task_completion(client, course_id, clazz_id, cpi, payload)
+                    .await;
             save_cache(CACHE_CHAOXING_OUTLINE, &cache_id, &payload);
             Ok(crate::attach_sync_time(payload, &now_sync_time(), false))
         }
@@ -4126,15 +4661,17 @@ pub fn chaoxing_video_status_candidate_urls(
 }
 
 /// 从章节页 HTML 提取 knowledge 叶子（纯函数）
-/// 返回 (pos, knowledge_id, title, course_id, clazz_id, chapter_cur_id)
+/// 返回 (pos, knowledge_id, title, course_id, clazz_id, chapter_cur_id, completed)
+/// completed：节点内 `orangeNew` 数字（服务端渲染的未完成任务点数），0 = 已完成
 pub fn extract_chaoxing_catalog_leaves(
     html: &str,
-) -> Vec<(usize, String, String, String, String, String)> {
+) -> Vec<(usize, String, String, String, String, String, bool)> {
     let re_leaf = regex::Regex::new(
         r#"id="cur(\d+)"[\s\S]{0,2500}?getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
     )
     .expect("regex leaf");
     let re_leaf_title = regex::Regex::new(r#"title="\s*([^"]*?)\s*""#).expect("regex leaf title");
+    let re_orange = regex::Regex::new(r#"class="orangeNew">(\d+)<"#).expect("regex orangeNew");
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for cap in re_leaf.captures_iter(html) {
@@ -4156,7 +4693,22 @@ pub fn extract_chaoxing_catalog_leaves(
             .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| format!("小节 {knowledge_id}"));
-        out.push((pos, knowledge_id, title, course_id, clazz_id, cur_id));
+        // 完成状态：orangeNew 数字 = 该节点未完成任务点数；0 = 已完成
+        let completed = re_orange
+            .captures(block)
+            .and_then(|c| c.get(1))
+            .and_then(|m| m.as_str().parse::<u32>().ok())
+            .map(|n| n == 0)
+            .unwrap_or(false);
+        out.push((
+            pos,
+            knowledge_id,
+            title,
+            course_id,
+            clazz_id,
+            cur_id,
+            completed,
+        ));
     }
     if out.is_empty() {
         let re_ajax =
@@ -4174,6 +4726,12 @@ pub fn extract_chaoxing_catalog_leaves(
                 .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
                 .filter(|t| !t.is_empty())
                 .unwrap_or_else(|| format!("小节 {knowledge_id}"));
+            let completed = re_orange
+                .captures(window)
+                .and_then(|c| c.get(1))
+                .and_then(|m| m.as_str().parse::<u32>().ok())
+                .map(|n| n == 0)
+                .unwrap_or(false);
             out.push((
                 pos,
                 knowledge_id,
@@ -4181,6 +4739,7 @@ pub fn extract_chaoxing_catalog_leaves(
                 cap[1].to_string(),
                 cap[2].to_string(),
                 String::new(),
+                completed,
             ));
         }
     }
@@ -4541,15 +5100,20 @@ mod catalog_and_video_tests {
     fn extract_leaves_from_realistic_html() {
         let html = r#"
         <div class="posCatalog_select firstLayer" id="1" title="第一章 绪论"></div>
-        <div id="cur1001" class="posCatalog_name" title=" 1.1 电路模型" onclick="getTeacherAjax('2288','3399','100239488')"></div>
-        <div id="cur1002" title="1.2 电源" onclick="getTeacherAjax('2288','3399','100239489')"></div>
+        <div id="cur1001" class="posCatalog_name" title=" 1.1 电路模型" onclick="getTeacherAjax('2288','3399','100239488')"><span class="orangeNew">0</span></div>
+        <div id="cur1002" title="1.2 电源" onclick="getTeacherAjax('2288','3399','100239489')"><span class="orangeNew">2</span></div>
         "#;
         let leaves = extract_chaoxing_catalog_leaves(html);
         assert!(leaves.len() >= 2, "expected >=2 leaves, got {:?}", leaves);
         assert!(leaves
             .iter()
-            .any(|(_, kid, title, _, _, _)| kid == "100239488" && title.contains("电路")));
-        assert!(leaves.iter().any(|(_, kid, _, _, _, _)| kid == "100239489"));
+            .any(|(_, kid, title, _, _, _, _)| kid == "100239488" && title.contains("电路")));
+        assert!(leaves.iter().any(|(_, kid, _, _, _, _, _)| kid == "100239489"));
+        // 完成状态：orangeNew=0 → 已完成；orangeNew=2 → 未完成
+        let leaf1 = leaves.iter().find(|(_, kid, _, _, _, _, _)| kid == "100239488").unwrap();
+        let leaf2 = leaves.iter().find(|(_, kid, _, _, _, _, _)| kid == "100239489").unwrap();
+        assert!(leaf1.6, "orangeNew=0 应标记已完成");
+        assert!(!leaf2.6, "orangeNew=2 应标记未完成");
     }
 
     #[test]
@@ -4561,8 +5125,8 @@ mod catalog_and_video_tests {
     fn assemble_outline_drives_extract_leaves() {
         let html = r#"
         <div class="posCatalog_select firstLayer" id="1" title="第一章 绪论"></div>
-        <div id="cur1001" title=" 1.1 电路模型" onclick="getTeacherAjax('2288','3399','100239488')"></div>
-        <div id="cur1002" title="1.2 电源" onclick="getTeacherAjax('2288','3399','100239489')"></div>
+        <div id="cur1001" title=" 1.1 电路模型" onclick="getTeacherAjax('2288','3399','100239488')"><span class="orangeNew">0</span></div>
+        <div id="cur1002" title="1.2 电源" onclick="getTeacherAjax('2288','3399','100239489')"><span class="orangeNew">1</span></div>
         "#;
         let out = assemble_chaoxing_outline_from_html(
             html,
@@ -4575,6 +5139,9 @@ mod catalog_and_video_tests {
         assert_eq!(out["success"], true);
         let total = out["total_count"].as_u64().unwrap_or(0);
         assert!(total >= 2, "total={total} out={out}");
+        // completed_count 应统计 orangeNew=0 的节点
+        let completed = out["completed_count"].as_u64().unwrap_or(0);
+        assert_eq!(completed, 1, "completed_count={completed} out={out}");
         let leaves = extract_chaoxing_catalog_leaves(html);
         assert_eq!(leaves.len() as u64, total);
     }
@@ -4641,5 +5208,111 @@ mod catalog_and_video_tests {
         let arr = extract_folder_array(&v);
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["id"], 1);
+    }
+
+    #[test]
+    fn fyportal_semester_options_parse_realistic_select() {
+        // 对齐网页端实测结构：value=sectionId + semesterNum(驼峰) + selected
+        // 同时包含干扰 select（院系/部门），验证只解析 name="xq"
+        let html = r#"
+        <select name="xq" data-placeholder="全部" style="width: 240px; display: none;" class="dept_select">
+            <option value="0">全部</option>
+            <option value="43811" semesterNum="20261" selected="true">2026-2027第一学期</option>
+            <option value="38370" semesterNum="20252">2025-2026第二学期</option>
+            <option value="35140" semesterNum="20251">2025-2026第一学期</option>
+            <option value="2618" semesterNum="20191">2019-2020第二学期</option>
+        </select>
+        <select name="dept">
+            <option value="0">请选择开课院系</option>
+            <option value="123">马克思主义学院</option>
+            <option value="456">电气与电子工程学院</option>
+        </select>
+        "#;
+        let opts = parse_fyportal_semester_options(html);
+        // 只保留真实学期：排除 value=0「全部」与干扰 select 的院系/占位
+        assert_eq!(opts.len(), 4);
+        assert_eq!(opts[0], ("43811".into(), "20261".into(), "2026-2027第一学期".into()));
+        assert_eq!(opts[1], ("38370".into(), "20252".into(), "2025-2026第二学期".into()));
+        assert_eq!(opts[3], ("2618".into(), "20191".into(), "2019-2020第二学期".into()));
+        assert!(!opts.iter().any(|(_, _, l)| l.contains("院系") || l.contains("学院") || l == "全部"));
+    }
+
+    #[test]
+    fn fyportal_semester_options_empty_html() {
+        assert!(parse_fyportal_semester_options("<html></html>").is_empty());
+        assert!(parse_fyportal_semester_options("").is_empty());
+    }
+
+    #[test]
+    fn fyportal_course_cards_parse_realistic_li() {
+        // 对齐网页端实测课程卡片结构
+        let html = r#"
+        <ul class="course-list">
+            <li class="w_couritem clearfix" state="0" kcenc="abc" ckenc="ck123" clazzenc="ce1"
+                personId="487811746" iswzy="0" micid="" cid="254673763" classid="125938817"
+                cname="军事理论" source="0">
+                <div class="course-cover">
+                    <a href='/fyportal/courselist/entercoursenewfy?role=3&courseId=254673763&clazzId=125938817&cpi=487811746&ckenc=ck123' target="_blank">
+                        <img src="https://p.ananas.chaoxing.com/star3/origin/abc.jpg">
+                    </a>
+                </div>
+                <div class="course-info">
+                    <h3><span class="course-name">军事理论</span></h3>
+                    <p class="line2 color3">李海燕</p>
+                </div>
+            </li>
+            <li class="w_couritem clearfix" state="1" personId="487811746"
+                cid="254918439" classid="126631792" cname="人工智能通识课" source="0">
+                <div class="course-cover"><a href='/x'><img src="http://p.ananas.chaoxing.com/x.jpg"></a></div>
+            </li>
+        </ul>
+        "#;
+        let cards = parse_fyportal_course_cards(html, "2026-2027第一学期");
+        assert_eq!(cards.len(), 2);
+        let first = &cards[0];
+        assert_eq!(first["course_id"], "254673763");
+        assert_eq!(first["clazz_id"], "125938817");
+        assert_eq!(first["cpi"], "487811746");
+        assert_eq!(first["name"], "军事理论");
+        assert_eq!(first["semester"], "2026-2027第一学期");
+        assert_eq!(first["state"], "0");
+        assert!(first["image_url"]
+            .as_str()
+            .unwrap_or("")
+            .contains("p.ananas.chaoxing.com"));
+        assert_eq!(cards[1]["state"], "1");
+        assert_eq!(cards[1]["name"], "人工智能通识课");
+    }
+
+    #[test]
+    fn fyportal_course_cards_skip_invalid() {
+        let html = r#"<ul class="course-list"><li class="w_couritem" cname="无id课程"></li></ul>"#;
+        assert!(parse_fyportal_course_cards(html, "2025-2026第一学期").is_empty());
+    }
+
+    #[test]
+    fn parse_cards_attachments_extracts_array() {
+        // 模拟 knowledge/cards 的 mArg（attachments 数组）
+        let html = r#"<html>mArg = {"hiddenConfig":false,"attachments":[
+            {"otherInfo":"nodeId_1-cpi_1","isPassed":false,"type":"video","property":{"name":"a.mp4"}},
+            {"otherInfo":"nodeId_2-cpi_1","isPassed":true,"type":"document","job":true}
+        ],"coursename":"x"};</html>"#;
+        let atts = parse_cards_attachments(html);
+        assert_eq!(atts.len(), 2);
+        assert!(!atts[0]["isPassed"].as_bool().unwrap_or(true));
+        assert!(atts[1]["isPassed"].as_bool().unwrap_or(false));
+        assert_eq!(atts[1]["type"], "document");
+    }
+
+    #[test]
+    fn parse_cards_attachments_handles_escaped_and_no_marker() {
+        // 含转义引号与嵌套
+        let html = r#"<html>mArg = {"attachments":[{"otherInfo":"a\"b","isPassed":true}]};</html>"#;
+        let atts = parse_cards_attachments(html);
+        assert_eq!(atts.len(), 1);
+        assert!(atts[0]["isPassed"].as_bool().unwrap_or(false));
+        // 无 attachments 标记
+        assert!(parse_cards_attachments("<html>mArg = {};</html>").is_empty());
+        assert!(parse_cards_attachments("").is_empty());
     }
 }

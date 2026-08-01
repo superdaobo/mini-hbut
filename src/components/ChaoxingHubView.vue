@@ -653,6 +653,18 @@ const collectDocUrls = (st = {}, top = {}) => {
   return list
 }
 
+/**
+ * 视频直链 → 本地代理地址：
+ * cldisk CDN 有 Referer 防盗链（无 chaoxing Referer 返回 403），且 WebView 与
+ * Rust cookie jar 不共享；Tauri 下必须经 http_server 的 /proxy/video 流式代理播放。
+ * 非 Tauri（dev 浏览器）退回原直链尽力播放。
+ */
+const toVideoProxyUrl = (u) => {
+  if (!u || !u.startsWith('http')) return u
+  if (!isTauriRuntime()) return u
+  return `http://127.0.0.1:4399/proxy/video?url=${encodeURIComponent(u)}`
+}
+
 const openVideo = async (course, section, knowledge, task, meta) => {
   if (!task.objectId) {
     showToast('该任务没有可播放资源')
@@ -669,12 +681,10 @@ const openVideo = async (course, section, knowledge, task, meta) => {
     if (disposed) return
     if (res?.success === false) throw new Error(res?.error || '视频状态失败')
     const st = res?.data && typeof res.data === 'object' ? res.data : res
-    const playUrls = collectPlayUrls(st, res || {})
-    const playerUrl = preferHttps(
-      safeText(res?.player_url || st.player_url || '') ||
-        `https://mooc1.chaoxing.com/ananas/modules/video/index.html?objectid=${encodeURIComponent(task.objectId)}&fid=${encodeURIComponent(meta?.fid || '0')}&isPhone=true`
-    )
-    if (!playUrls.length && !playerUrl) {
+    // 直链经本地代理播放（绕过 cldisk Referer 防盗链）；官方 ananas 播放器
+    // 带参 URL 已被学习通新版前端废弃（会永久卡「正在为您加载文件」），不再兜底
+    const playUrls = collectPlayUrls(st, res || {}).map(toVideoProxyUrl)
+    if (!playUrls.length) {
       throw new Error(
         st.status && st.status !== 'success'
           ? `视频不可用（${st.status}）`
@@ -689,8 +699,6 @@ const openVideo = async (course, section, knowledge, task, meta) => {
       task,
       src: playUrls[0] || '',
       playUrls,
-      playerUrl,
-      usePlayer: !playUrls.length,
       poster: preferHttps(safeText(st.screenshot || st.thumb || '')),
       filename: safeText(st.filename || task.title),
       duration: safeNumber(st.duration)
@@ -776,12 +784,8 @@ const onVideoError = (ev) => {
     videoError.value = `线路 ${videoSrcIndex.value + 1}/${urls.length} 失败，切换备用地址…`
     return
   }
-  // 直链耗尽：尝试官方 ananas 播放器页
-  if (frame?.playerUrl && !frame.usePlayer) {
-    frame.usePlayer = true
-    videoError.value = '直链播放失败，已切换学习通官方播放器…'
-    return
-  }
+  // 直链全部失败：官方 ananas 播放器带参 URL 已被学习通废弃（永久卡「正在为您加载文件」），
+  // 不再切换，直接给出可操作提示
   const detail = mediaErrorMessage(ev)
   videoError.value = detail
     ? `视频播放失败：${detail}。请重试、切换线路或重新登录学习通`
@@ -1244,17 +1248,7 @@ onUnmounted(() => {
           <p class="crumb">{{ current.knowledge?.title }}</p>
           <h3 class="video-title">{{ current.filename || current.task?.title }}</h3>
           <p v-if="current.duration" class="hint">时长 {{ formatDuration(current.duration) }}</p>
-          <iframe
-            v-if="current.usePlayer && current.playerUrl"
-            :key="'player-' + current.playerUrl"
-            class="video-el doc-frame"
-            :src="current.playerUrl"
-            title="学习通视频播放器"
-            allow="autoplay; fullscreen"
-            referrerpolicy="no-referrer-when-downgrade"
-          />
           <video
-            v-else
             :key="activeVideoSrc"
             class="video-el"
             controls
@@ -1272,7 +1266,7 @@ onUnmounted(() => {
               重新加载
             </button>
             <button
-              v-if="(current.playUrls || []).length > 1 && !current.usePlayer"
+              v-if="(current.playUrls || []).length > 1"
               type="button"
               class="chip-btn ghost light"
               @click="
@@ -1282,21 +1276,8 @@ onUnmounted(() => {
             >
               切换线路 {{ videoSrcIndex + 1 }}/{{ current.playUrls.length }}
             </button>
-            <button
-              v-if="current.playerUrl && !current.usePlayer"
-              type="button"
-              class="chip-btn ghost light"
-              @click="
-                current.usePlayer = true;
-                videoError = ''
-              "
-            >
-              官方播放器
-            </button>
           </div>
-          <p class="hint">
-            {{ current.usePlayer ? '官方 ananas 播放器（应用内）' : '直链播放，失败可切换官方播放器' }}
-          </p>
+          <p class="hint">直链经本地代理播放，失败可切换线路或重新加载</p>
         </section>
       </template>
 

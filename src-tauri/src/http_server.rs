@@ -1011,6 +1011,8 @@ async fn run_http_server(
         .route("/school-website/*path", any(school_website_proxy))
         .route("/resource_share/direct_url", get(resource_share_direct_url))
         .route("/resource_share/proxy", get(resource_share_proxy))
+        // 学习通视频直链本地代理（绕过 cldisk Referer 防盗链 + WebView cookie 不共享）
+        .route("/proxy/video", get(chaoxing_video_proxy))
         .route(
             "/electricity_query_location",
             post(electricity_query_location),
@@ -4304,10 +4306,109 @@ async fn towergo_proxy(
     Ok(response)
 }
 
+/// 学习通视频直链本地代理：
+/// 绕过 cldisk 视频 CDN 的 Referer 防盗链（App WebView 播直链会被 403 拒绝），
+/// 以及 WebView 与 Rust reqwest CookieJar 不共享导致的官方播放器失效问题。
+///
+/// GET /proxy/video?url={encodeURIComponent(ananas/status 返回的签名直链)}
+/// - 用主会话 client（自带 .chaoxing.com cookie jar）请求直链
+/// - 强制 Referer/Origin 为 mooc1.chaoxing.com 通过防盗链校验
+/// - 透传 Range / Content-Range / Accept-Ranges，支持 `<video>` 进度拖动
+/// - 域名白名单（chaoxing.com / cldisk.com）防 SSRF
+async fn chaoxing_video_proxy(
+    State(state): State<HttpState>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let target_raw = query
+        .as_deref()
+        .unwrap_or("")
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("url="))
+        .unwrap_or("")
+        .to_string();
+    if target_raw.is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "缺少 url 参数".to_string(),
+        ));
+    }
+    let target = urlencoding::decode(&target_raw)
+        .map(|s| s.into_owned())
+        .unwrap_or(target_raw);
+    // 安全白名单：仅允许学习通视频 CDN 域名（防 SSRF 拉取内网/任意地址）
+    let lower = target.to_ascii_lowercase();
+    let host_ok = ["cldisk.com", "chaoxing.com"]
+        .iter()
+        .any(|d| lower.contains(d));
+    if !host_ok || !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "代理目标不在允许的域名内".to_string(),
+        ));
+    }
+
+    let client = state.client.read().await;
+    let mut builder = client
+        .client
+        .get(&target)
+        .header("Referer", "https://mooc1.chaoxing.com/")
+        .header("Origin", "https://mooc1.chaoxing.com");
+    if let Some(range) = headers.get("range") {
+        builder = builder.header("Range", range.clone());
+    }
+    let upstream = match builder.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return Err(err(
+                StatusCode::BAD_GATEWAY,
+                "代理错误",
+                format!("视频代理请求失败: {e}"),
+            ));
+        }
+    };
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    // 2xx 流式透传（<video> 边下边播）；非 2xx 收集响应体原样回放
+    let mut response = if status.is_success() {
+        let stream = upstream
+            .bytes_stream()
+            .map(|chunk| chunk.map_err(|e| std::io::Error::new(ErrorKind::Other, e.to_string())));
+        let mut resp = Response::new(Body::from_stream(stream));
+        *resp.status_mut() = status;
+        resp
+    } else {
+        let body_bytes = upstream.bytes().await.unwrap_or_default();
+        let mut resp = Response::new(Body::from(body_bytes));
+        *resp.status_mut() = status;
+        resp
+    };
+    // 透传媒体相关响应头（Range 拖动、类型、长度）
+    for (name, value) in upstream_headers.iter() {
+        let lower = name.as_str().to_ascii_lowercase();
+        if matches!(
+            lower.as_str(),
+            "content-type"
+                | "content-length"
+                | "accept-ranges"
+                | "content-range"
+                | "content-disposition"
+                | "etag"
+                | "last-modified"
+                | "cache-control"
+        ) {
+            response.headers_mut().insert(name.clone(), value.clone());
+        }
+    }
+    Ok(response)
+}
+
 async fn campus_map_direction_proxy(
     RawQuery(query): RawQuery,
-) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let query_text = query.unwrap_or_default();
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {    let query_text = query.unwrap_or_default();
     if query_text.trim().is_empty() {
         return Err(err(
             StatusCode::BAD_REQUEST,
