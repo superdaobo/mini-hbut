@@ -248,15 +248,26 @@ async function main() {
   const buildId = build.id
 
   // 2) 组装并填写测试说明
+  const commits = recentCommits()
+  const account = loadTestAccount()
   const whatsNew = buildWhatsNew({
     manual: TESTFLIGHT_WHATS_NEW,
     versionName: VERSION_NAME,
     buildNumber: BUILD_NUMBER,
-    commits: recentCommits(),
-    account: loadTestAccount(),
+    commits,
+    account,
+  })
+  // 日志只打印不含测试账号的版本（凭据不落 workflow 日志，PATCH 内容不受影响）
+  const logSafe = buildWhatsNew({
+    manual: TESTFLIGHT_WHATS_NEW,
+    versionName: VERSION_NAME,
+    buildNumber: BUILD_NUMBER,
+    commits,
+    account: null,
   })
   console.log('📝 测试说明（What to Test）：')
-  console.log(whatsNew.split('\n').map((line) => `   ${line}`).join('\n'))
+  console.log(logSafe.split('\n').map((line) => `   ${line}`).join('\n'))
+  console.log('   （演示测试账号已自动附于说明中，详见 TestFlight）')
   await apiRequest(token, `/builds/${buildId}`, {
     method: 'PATCH',
     body: { data: { type: 'builds', id: buildId, attributes: { whatsNew } } },
