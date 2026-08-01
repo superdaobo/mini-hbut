@@ -5335,4 +5335,17 @@ mod catalog_and_video_tests {
         assert!(parse_cards_attachments("<html>mArg = {};</html>").is_empty());
         assert!(parse_cards_attachments("").is_empty());
     }
+
+    #[test]
+    fn parse_cards_attachments_handles_nested_arrays() {
+        // 附件含内嵌数组字段（如 jumpTimePointList:[]），不得提前截断
+        let html = r#"<html>mArg = {"attachments":[
+            {"otherInfo":"n1","isPassed":false,"jumpTimePointList":[],"randomFaceCaptureTimeList":[],"type":"video"},
+            {"otherInfo":"n2","isPassed":true,"type":"document"}
+        ]};</html>"#;
+        let atts = parse_cards_attachments(html);
+        assert_eq!(atts.len(), 2, "内嵌数组不应导致提前截断: {:?}", atts);
+        assert!(!atts[0]["isPassed"].as_bool().unwrap_or(true));
+        assert!(atts[1]["isPassed"].as_bool().unwrap_or(false));
+    }
 }
