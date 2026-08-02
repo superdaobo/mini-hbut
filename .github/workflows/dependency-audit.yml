@@ -1,0 +1,64 @@
+name: Dependency Audit
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - website/package.json
+      - website/package-lock.json
+      - website/modules-src/**/package.json
+      - website/modules-src/**/package-lock.json
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - scripts/check_dependency_alignment.mjs
+      - scripts/audit_dependencies.mjs
+      - .github/workflows/dependency-audit.yml
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - package-lock.json
+      - website/package.json
+      - website/package-lock.json
+      - website/modules-src/**/package.json
+      - website/modules-src/**/package-lock.json
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - scripts/check_dependency_alignment.mjs
+      - scripts/audit_dependencies.mjs
+      - .github/workflows/dependency-audit.yml
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-lockfiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            website/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit
+      - run: npm run check:dependency-alignment
+      - run: npm run audit:dependencies
+
+  rustsec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: src-tauri
+          ignore: RUSTSEC-2024-0429,RUSTSEC-2026-0097
