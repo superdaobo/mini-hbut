@@ -99,7 +99,7 @@ const scriptIndex = [
 
 const artifactIndex = [
     ['website/modules-src', '模块源码根目录，每个模块包含 module.json 和 source_dir。'],
-    ['website/public/modules', '模块发布产物根目录，按 main、dev、latest 渠道保存 catalog 和模块包。'],
+    ['website/public/modules', '由 scripts/build_website_modules.mjs 从 website/modules-src 生成并被 Git 忽略的模块发布产物，按 main、dev、latest 渠道保存 catalog 和模块包。'],
 ];
 
 const readingOrder = [
@@ -250,8 +250,9 @@ const ReferenceIndex = () => (
             <article className="rounded-xl border border-cyan/30 bg-cyan/[0.06] p-6">
                 <h2 className="text-2xl font-bold text-white">路径存在性检查</h2>
                 <p className="mt-4 text-sm leading-7 text-gray-200">
-                    `website/scripts/test-docs-developer-content.mjs` 会读取本页，并用 existsSync 检查本页关键路径确实存在于仓库。
-                    如果后续文件迁移、重命名或删除，契约会失败，防止引用索引变成陈旧清单。
+                    `website/scripts/test-docs-developer-content.mjs` 会读取本页：受 Git 管理的关键路径使用 existsSync 检查；
+                    `website/public/modules` 等生成产物则检查源码目录、生成脚本、脚本声明的输出目录和 .gitignore 边界。
+                    如果后续文件迁移、生成关系变化或忽略规则丢失，契约会失败，防止引用索引变成陈旧清单。
                 </p>
             </article>
             <article className="rounded-xl border border-purple/30 bg-purple/[0.06] p-6">
