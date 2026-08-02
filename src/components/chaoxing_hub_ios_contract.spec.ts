@@ -22,9 +22,22 @@ describe('ChaoxingHubView iOS 崩溃防护契约', () => {
   })
 
   it('首帧小批 + rAF 逐批递增', () => {
-    expect(source).toMatch(/courseRenderLimit\.value = Math\.min\(IOS_SAFE_COURSE_BATCH, 6\)/)
+    expect(source).toMatch(/Math\.min\(INITIAL_COURSE_BATCH, IOS_PROGRESSIVE_FIRST_BATCH\)/)
     expect(source).toMatch(/requestAnimationFrame\(step\)/)
     expect(source).toMatch(/courseRenderLimit\.value \+ 3/)
+  })
+
+  it('所有平台分批渲染：visibleCourses 无平台分支，以 courseRenderLimit 截断', () => {
+    expect(source).toMatch(/slice\(0, courseRenderLimit\.value\)/)
+    // 不再有「非 iOS 全量渲染」分支
+    expect(source).not.toMatch(/if \(!isIOSLikeDevice\) return filteredCourses\.value/)
+  })
+
+  it('滚动自动加载：IntersectionObserver 哨兵 + 防抖', () => {
+    expect(source).toMatch(/IntersectionObserver/)
+    expect(source).toMatch(/loadMoreSentinelRef/)
+    expect(source).toMatch(/lastCourseAutoLoadAt < 300/)
+    expect(source).toMatch(/courseRenderLimit\.value \+= COURSE_LOAD_MORE_STEP/)
   })
 
   it('iOS loading 退场延后一帧（与列表首渲染错帧）', () => {

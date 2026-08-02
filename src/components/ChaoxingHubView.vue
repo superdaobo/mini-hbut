@@ -28,7 +28,11 @@ const videoError = ref('')
 const videoSrcIndex = ref(0)
 
 const PIE_COLORS = ['#2563eb', '#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#ec4899']
-const IOS_SAFE_COURSE_BATCH = 12
+// 课程列表分批渲染（所有平台）：先渲染 INITIAL_COURSE_BATCH 门，滚动到底自动扩展
+const INITIAL_COURSE_BATCH = 20
+const COURSE_LOAD_MORE_STEP = 20
+// iOS 渐进首帧：再分小批 rAF 递增，平滑「列表加载完成瞬间」的渲染峰值
+const IOS_PROGRESSIVE_FIRST_BATCH = 6
 // 课程列表上限：防止异常超大数据一次性 normalize/渲染导致 iOS 内存暴涨
 const MAX_COURSE_LIST_SIZE = 500
 const isIOSLikeDevice = (() => {
@@ -38,7 +42,9 @@ const isIOSLikeDevice = (() => {
   const maxTouchPoints = Number(navigator.maxTouchPoints || 0)
   return /iPhone|iPad|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
 })()
-const courseRenderLimit = ref(IOS_SAFE_COURSE_BATCH)
+const courseRenderLimit = ref(
+  isIOSLikeDevice ? IOS_PROGRESSIVE_FIRST_BATCH : INITIAL_COURSE_BATCH
+)
 const shouldRenderRemoteCourseCovers = !isIOSLikeDevice
 
 // 卸载守卫：仅在组件卸载时置位（导航栈 pop/jumpTo 不置位），
@@ -137,9 +143,9 @@ const scheduleProgressiveCourseRender = () => {
   if (progressiveRenderRaf) cancelAnimationFrame(progressiveRenderRaf)
   const step = () => {
     if (disposed) return
-    if (courseRenderLimit.value < IOS_SAFE_COURSE_BATCH) {
+    if (courseRenderLimit.value < INITIAL_COURSE_BATCH) {
       courseRenderLimit.value = Math.min(
-        IOS_SAFE_COURSE_BATCH,
+        INITIAL_COURSE_BATCH,
         courseRenderLimit.value + 3
       )
       progressiveRenderRaf = requestAnimationFrame(step)
@@ -236,13 +242,12 @@ const filteredCourses = computed(() => {
 })
 
 const visibleCourses = computed(() => {
-  if (!isIOSLikeDevice) return filteredCourses.value
-  // 渐进渲染：以 courseRenderLimit 为准（loadList 首帧 6 → rAF 递增到 12）
+  // 所有平台分批渲染：先渲染 courseRenderLimit 门，滚动到底自动扩展
   return filteredCourses.value.slice(0, courseRenderLimit.value)
 })
 
-const hasMoreCourses = computed(() =>
-  isIOSLikeDevice && visibleCourses.value.length < filteredCourses.value.length
+const hasMoreCourses = computed(
+  () => visibleCourses.value.length < filteredCourses.value.length
 )
 
 const resetCourseRenderLimit = () => {
@@ -250,12 +255,51 @@ const resetCourseRenderLimit = () => {
     cancelAnimationFrame(progressiveRenderRaf)
     progressiveRenderRaf = 0
   }
-  courseRenderLimit.value = IOS_SAFE_COURSE_BATCH
+  courseRenderLimit.value = isIOSLikeDevice
+    ? IOS_PROGRESSIVE_FIRST_BATCH
+    : INITIAL_COURSE_BATCH
 }
 
+/** 滚动自动扩展：防抖（300ms）避免快速滚到底时一次性加载全部 */
+let lastCourseAutoLoadAt = 0
 const loadMoreCourses = () => {
-  courseRenderLimit.value += IOS_SAFE_COURSE_BATCH
+  if (!hasMoreCourses.value) return
+  const now = Date.now()
+  if (now - lastCourseAutoLoadAt < 300) return
+  lastCourseAutoLoadAt = now
+  courseRenderLimit.value += COURSE_LOAD_MORE_STEP
 }
+
+// 滚动哨兵：列表末尾元素进入视口 → 自动加载下一批（IntersectionObserver）
+const loadMoreSentinelRef = ref(null)
+let loadMoreObserver = null
+let loadMoreObserverTarget = null
+
+const ensureLoadMoreObserver = () => {
+  if (loadMoreObserver || typeof IntersectionObserver === 'undefined') return
+  loadMoreObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) loadMoreCourses()
+      }
+    },
+    { rootMargin: '240px 0px' }
+  )
+}
+
+watch(hasMoreCourses, (hasMore) => {
+  if (!hasMore) return
+  ensureLoadMoreObserver()
+  nextTick(() => {
+    const el = loadMoreSentinelRef.value
+    if (!el || !loadMoreObserver) return
+    if (loadMoreObserverTarget && loadMoreObserverTarget !== el) {
+      loadMoreObserver.unobserve(loadMoreObserverTarget)
+    }
+    loadMoreObserverTarget = el
+    loadMoreObserver.observe(el)
+  })
+})
 
 /** 成绩饼图切片（权重） */
 const scoreSlices = computed(() => {
@@ -390,7 +434,7 @@ const loadList = async ({ silent = false, force = false } = {}) => {
     courses.value = list.map(normalizeCourse).filter((c) => c.courseId && c.clazzId)
     // iOS：首帧小批渲染 + rAF 逐批递增，平滑「列表加载完成瞬间」的渲染峰值
     if (isIOSLikeDevice) {
-      courseRenderLimit.value = Math.min(IOS_SAFE_COURSE_BATCH, 6)
+      courseRenderLimit.value = Math.min(INITIAL_COURSE_BATCH, IOS_PROGRESSIVE_FIRST_BATCH)
       scheduleProgressiveCourseRender()
     }
     pushDebugLog(
@@ -920,7 +964,7 @@ const onIosMemoryWarning = () => {
     cancelAnimationFrame(progressiveRenderRaf)
     progressiveRenderRaf = 0
   }
-  courseRenderLimit.value = IOS_SAFE_COURSE_BATCH
+  courseRenderLimit.value = INITIAL_COURSE_BATCH
   pushDebugLog('ChaoxingHub', '收到 iOS 内存告警，收缩课程渲染批量', 'warn')
 }
 
@@ -937,6 +981,11 @@ onUnmounted(() => {
   if (progressiveRenderRaf) {
     cancelAnimationFrame(progressiveRenderRaf)
     progressiveRenderRaf = 0
+  }
+  if (loadMoreObserver) {
+    loadMoreObserver.disconnect()
+    loadMoreObserver = null
+    loadMoreObserverTarget = null
   }
   window.removeEventListener('iosMemoryWarning', onIosMemoryWarning)
 })
@@ -1004,8 +1053,11 @@ onUnmounted(() => {
             <div class="stat"><span>待办</span><b>{{ totalPending }}</b></div>
           </div>
           <p v-if="error" class="err">{{ error }}</p>
-          <p v-if="isIOSLikeDevice && filteredCourses.length > visibleCourses.length" class="hint">
-            iOS 为降低进入课程中心时的闪退风险，首次仅渲染部分课程，可继续加载其余课程。
+          <p
+            v-if="filteredCourses.length > visibleCourses.length"
+            class="hint"
+          >
+            已显示 {{ visibleCourses.length }} / {{ filteredCourses.length }} 门课程，下滑自动加载更多。
           </p>
         </section>
 
@@ -1083,6 +1135,8 @@ onUnmounted(() => {
           </div>
           <span class="material-symbols-outlined chev">expand_more</span>
         </button>
+        <!-- 滚动哨兵：进入视口自动加载下一批（IntersectionObserver） -->
+        <div v-if="hasMoreCourses" ref="loadMoreSentinelRef" class="course-load-sentinel" aria-hidden="true" />
       </template>
 
       <!-- 2. 课程 → 章列表 -->
@@ -1701,6 +1755,11 @@ onUnmounted(() => {
 }
 .course-load-more {
   justify-content: center;
+}
+/* 滚动哨兵占位：触发 IntersectionObserver 自动加载下一批 */
+.course-load-sentinel {
+  height: 1px;
+  width: 100%;
 }
 .row-card.menu:hover {
   border-color: #93c5fd;
