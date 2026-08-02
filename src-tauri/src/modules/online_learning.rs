@@ -2436,7 +2436,9 @@ async fn chaoxing_node_completion(
     let mut total = 0usize;
     let mut passed = 0usize;
     let mut ok = true;
-    for num in 0..16u32 {
+    // 页数上限：单节点最多 6 页（附件满 30/页 ≈ 180 任务点），
+    // 防止异常超大节点发起十几页请求拖垮会话与触发风控
+    for num in 0..6u32 {
         let num_s = num.to_string();
         let url = format!(
             "https://mooc1.chaoxing.com/mooc-ans/knowledge/cards?clazzid={clazz_id}&courseid={course_id}&knowledgeid={knowledge_id}&num={num_s}&ut=s&cpi={cpi}&v=2025-0424-1038-3&mooc2=1&isMicroCourse=false&editorPreview=0"
@@ -2519,7 +2521,7 @@ async fn enrich_outline_with_task_completion(
         })
         .collect();
     let results: Vec<(usize, usize, bool)> =
-        futures::stream::iter(tasks).buffered(8).collect().await;
+        futures::stream::iter(tasks).buffered(6).collect().await;
 
     let mut completion: std::collections::HashMap<String, (usize, usize, bool)> =
         std::collections::HashMap::new();

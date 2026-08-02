@@ -96,6 +96,17 @@ const preferHttps = (url) => {
   return u
 }
 
+/**
+ * 课程封面统一转缩略图：origin 原图 → 150x150c 缩略图
+ * 列表场景数百张卡片同时渲染时，原图（可能数 MB）会拖垮 WebView 内存
+ * （协议规则：https://p.ananas.chaoxing.com/star3/150_150c/{objectId}）
+ */
+const normalizeCourseCover = (url) => {
+  const u = safeText(url)
+  if (!u) return ''
+  return u.replace('/star3/origin/', '/star3/150_150c/')
+}
+
 const normalizeCourse = (item = {}) => {
   const raw = item && typeof item === 'object' ? item : {}
   const courseId = safeText(raw.course_id || raw.courseId || '')
@@ -108,7 +119,7 @@ const normalizeCourse = (item = {}) => {
     cpi,
     title: safeText(raw.title || raw.name || raw.course_name || '未命名课程'),
     teacher: safeText(raw.teacher || raw.teacher_name || raw.teacherfactor || ''),
-    imageUrl: safeText(raw.image_url || raw.imageUrl || raw.cover || ''),
+    imageUrl: normalizeCourseCover(raw.image_url || raw.imageUrl || raw.cover || ''),
     progressText: safeText(raw.progress_text || raw.progressText || ''),
     progressRate: safeNumber(
       raw.progress_rate ?? raw.progressRate ?? raw.progress_percent ?? raw.percent
@@ -118,6 +129,25 @@ const normalizeCourse = (item = {}) => {
     // 缺省用「未分学期」，避免全量标成「本学期」掩盖多学期问题
     semester: safeText(raw.semester || raw.term || '未分学期') || '未分学期'
   }
+}
+
+/** iOS 渐进渲染：首帧小批插入，rAF 逐批递增，平滑「列表加载完成瞬间」的渲染峰值 */
+let progressiveRenderRaf = 0
+const scheduleProgressiveCourseRender = () => {
+  if (progressiveRenderRaf) cancelAnimationFrame(progressiveRenderRaf)
+  const step = () => {
+    if (disposed) return
+    if (courseRenderLimit.value < IOS_SAFE_COURSE_BATCH) {
+      courseRenderLimit.value = Math.min(
+        IOS_SAFE_COURSE_BATCH,
+        courseRenderLimit.value + 3
+      )
+      progressiveRenderRaf = requestAnimationFrame(step)
+    } else {
+      progressiveRenderRaf = 0
+    }
+  }
+  progressiveRenderRaf = requestAnimationFrame(step)
 }
 
 const typeMetaOf = (typeRaw) => {
@@ -207,7 +237,8 @@ const filteredCourses = computed(() => {
 
 const visibleCourses = computed(() => {
   if (!isIOSLikeDevice) return filteredCourses.value
-  return filteredCourses.value.slice(0, Math.max(IOS_SAFE_COURSE_BATCH, courseRenderLimit.value))
+  // 渐进渲染：以 courseRenderLimit 为准（loadList 首帧 6 → rAF 递增到 12）
+  return filteredCourses.value.slice(0, courseRenderLimit.value)
 })
 
 const hasMoreCourses = computed(() =>
@@ -215,6 +246,10 @@ const hasMoreCourses = computed(() =>
 )
 
 const resetCourseRenderLimit = () => {
+  if (progressiveRenderRaf) {
+    cancelAnimationFrame(progressiveRenderRaf)
+    progressiveRenderRaf = 0
+  }
   courseRenderLimit.value = IOS_SAFE_COURSE_BATCH
 }
 
@@ -353,6 +388,11 @@ const loadList = async ({ silent = false, force = false } = {}) => {
       list = list.slice(0, MAX_COURSE_LIST_SIZE)
     }
     courses.value = list.map(normalizeCourse).filter((c) => c.courseId && c.clazzId)
+    // iOS：首帧小批渲染 + rAF 逐批递增，平滑「列表加载完成瞬间」的渲染峰值
+    if (isIOSLikeDevice) {
+      courseRenderLimit.value = Math.min(IOS_SAFE_COURSE_BATCH, 6)
+      scheduleProgressiveCourseRender()
+    }
     pushDebugLog(
       'ChaoxingHub',
       `课程列表完成 count=${courses.value.length} from_cache=${!!courseRes?.from_cache} (${Date.now() - t0}ms)`,
@@ -396,8 +436,17 @@ const loadList = async ({ silent = false, force = false } = {}) => {
     error.value = safeText(e?.message || e) || '加载失败'
   } finally {
     if (!disposed) {
-      loading.value = false
-      refreshing.value = false
+      // iOS：loading 退场延后一帧，避免「列表首渲染 + 移除加载动画」同帧峰值
+      if (isIOSLikeDevice) {
+        requestAnimationFrame(() => {
+          if (disposed) return
+          loading.value = false
+          refreshing.value = false
+        })
+      } else {
+        loading.value = false
+        refreshing.value = false
+      }
     }
   }
 }
@@ -867,6 +916,10 @@ watch([activeSemester, searchQuery], () => {
 
 /** iOS 原生层内存告警：立即收缩课程渲染批量，降低 DOM 与内存压力 */
 const onIosMemoryWarning = () => {
+  if (progressiveRenderRaf) {
+    cancelAnimationFrame(progressiveRenderRaf)
+    progressiveRenderRaf = 0
+  }
   courseRenderLimit.value = IOS_SAFE_COURSE_BATCH
   pushDebugLog('ChaoxingHub', '收到 iOS 内存告警，收缩课程渲染批量', 'warn')
 }
@@ -881,6 +934,10 @@ onMounted(() => {
 onUnmounted(() => {
   // 仅在组件卸载时置位；导航栈内 pop/jumpTo 切换不触发
   disposed = true
+  if (progressiveRenderRaf) {
+    cancelAnimationFrame(progressiveRenderRaf)
+    progressiveRenderRaf = 0
+  }
   window.removeEventListener('iosMemoryWarning', onIosMemoryWarning)
 })
 </script>
