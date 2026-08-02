@@ -119,7 +119,7 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain('HOME_SCROLL_STORAGE_KEY')
     expect(source).toContain('readStoredHomeScrollTop')
     expect(source).toContain('returningHome')
-    expect(source).toMatch(/goToView\('home', \{ restoreScroll: true(?:, direction: 'back')?\s*\}\)/)
+    expect(source).toContain("goToView('home', { restoreScroll: true })")
     expect(source).toContain('recoverViewportAfterTransition({ scrollToTop: false')
     // 系统返回键 / popstate：落地首页时必须 scrollToTop:false 并 restore，不可冲掉位置
     // （非首页落地仍可用 scrollToTop:true 校正视口，故不能用跨语句贪心正则一刀切）
