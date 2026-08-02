@@ -464,6 +464,41 @@ const repairModuleHostSession = async (payload) => {
 // 视图状态: home, schedule, me, grades...
 const currentView = ref(initialView)
 const activeTab = ref(initialTab)
+// 视图切换方向（iOS 风格：前进 slide-up / 返回 slide-down / replace 淡入）
+const navDirection = ref('forward')
+// 视图过渡 class：按方向切换
+// - back → module-fade-back-*（下滑返回）
+// - forward → module-fade-fwd-*（上滑前进）
+// - none（replace/tab）→ 不传自定义类，回落 name="module-fade" 的纯淡入，
+//   同时保证 module-fade-* 类出现在 DOM 供 isCurrentViewDomHealthy 识别过渡态
+const viewTransitionEnterActive = computed(() =>
+  navDirection.value === 'back'
+    ? 'module-fade-back-enter-active'
+    : navDirection.value === 'forward'
+      ? 'module-fade-fwd-enter-active'
+      : undefined
+)
+const viewTransitionLeaveActive = computed(() =>
+  navDirection.value === 'back'
+    ? 'module-fade-back-leave-active'
+    : navDirection.value === 'forward'
+      ? 'module-fade-fwd-leave-active'
+      : undefined
+)
+const viewTransitionEnterFrom = computed(() =>
+  navDirection.value === 'back'
+    ? 'module-fade-back-enter-from'
+    : navDirection.value === 'forward'
+      ? 'module-fade-fwd-enter-from'
+      : undefined
+)
+const viewTransitionLeaveTo = computed(() =>
+  navDirection.value === 'back'
+    ? 'module-fade-back-leave-to'
+    : navDirection.value === 'forward'
+      ? 'module-fade-fwd-leave-to'
+      : undefined
+)
 const gradeData = ref([])
 const studentId = ref(String(initialRouteSnapshot?.sid || '').trim())
 const userUuid = ref('')
@@ -1025,7 +1060,10 @@ const isCurrentViewDomHealthy = (view = currentView.value) => {
     if (!transitionRoot) return false
 
     // leave/enter 过渡中子树可能短暂为空，勿判死
-    const leaving = transitionRoot.querySelector('.v-leave-active, .v-enter-active, .module-fade-leave-active, .module-fade-enter-active')
+    // 兼容三套过渡类：name 兜底（module-fade-*）、方向类（module-fade-fwd/back-*）、Vue 基础 v-*
+    const leaving = transitionRoot.querySelector(
+      '.v-leave-active, .v-enter-active, .module-fade-leave-active, .module-fade-enter-active, .module-fade-fwd-leave-active, .module-fade-fwd-enter-active, .module-fade-back-leave-active, .module-fade-back-enter-active'
+    )
     if (leaving) return true
 
     const expectedSelector = VIEW_HEALTH_SELECTOR_MAP[normalizeViewName(view)]
@@ -1622,9 +1660,11 @@ const ensureLoginRequiredViewAccess = (view) => {
   return false
 }
 
-const goToViewInternal = (view, { push = true, restoreScroll = false, scrollToTop } = {}) => {
+const goToViewInternal = (view, { push = true, restoreScroll = false, scrollToTop, direction } = {}) => {
   const normalized = normalizeViewName(view)
   const fromView = currentView.value
+  // 视图切换方向：显式指定优先（返回链传 'back'）；否则 push 视为前进、replace 视为无方向淡入
+  navDirection.value = direction || (push ? 'forward' : 'none')
   // 离开首页前记住滚动位置
   if (fromView === 'home' && normalized !== 'home') {
     rememberHomeScrollPosition()
@@ -1651,7 +1691,7 @@ const goToViewInternal = (view, { push = true, restoreScroll = false, scrollToTo
   void trackViewNavigation(fromView, normalized)
 }
 
-const goToView = (view, { push = true, restoreScroll = false } = {}) => {
+const goToView = (view, { push = true, restoreScroll = false, direction } = {}) => {
   const normalized = normalizeViewName(view)
   // App Store 合规：统一拒绝已禁用 view（宫格/深链/通知/历史恢复共用）
   if (!isViewAllowed(normalized)) {
@@ -1679,7 +1719,7 @@ const goToView = (view, { push = true, restoreScroll = false } = {}) => {
   if (!ensureProtectedViewAccess(normalized, { push, fallbackView: currentView.value })) {
     return false
   }
-  goToViewInternal(normalized, { push, restoreScroll })
+  goToViewInternal(normalized, { push, restoreScroll, direction })
   return true
 }
 
@@ -1698,7 +1738,11 @@ const resolveParentView = (view) => {
 const goToParentView = () => {
   const parentView = resolveParentView(currentView.value)
   if (!parentView) return false
-  goToViewInternal(parentView, { push: false, restoreScroll: parentView === 'home' })
+  goToViewInternal(parentView, {
+    push: false,
+    restoreScroll: parentView === 'home',
+    direction: 'back'
+  })
   return true
 }
 
@@ -1894,7 +1938,7 @@ const handleNavigate = async (target) => {
 
 // 处理返回仪表盘
 const handleBackToDashboard = () => {
-  goToView('home', { restoreScroll: true })
+  goToView('home', { restoreScroll: true, direction: 'back' })
 }
 
 const isTemporaryLoginSession = () => {
@@ -3129,7 +3173,7 @@ const handlePopState = async () => {
     const handled = goToParentView()
     if (!handled) {
       // 无父级时回首页并恢复滚动
-      goToViewInternal('home', { push: false, restoreScroll: true })
+      goToViewInternal('home', { push: false, restoreScroll: true, direction: 'back' })
       return
     }
     // goToParentView 已处理首页恢复；勿再 forceScrollTop 冲掉位置
@@ -3146,6 +3190,7 @@ const handlePopState = async () => {
   }
 
   const prev = currentView.value
+  navDirection.value = 'back'
   await syncFromHash({ scrollToTop: false })
   if (currentView.value === 'home' && prev !== 'home') {
     recoverViewportAfterTransition({ scrollToTop: false, blurActive: true })
@@ -3166,9 +3211,10 @@ const installCloseInterceptor = async () => {
       if (currentView.value !== 'home') {
         event.preventDefault()
         if ((window.history.length > 1) && (window.location.hash || '#/') !== '#/') {
+          navDirection.value = 'back'
           window.history.back()
         } else {
-          goToView('home', { restoreScroll: true })
+          goToView('home', { restoreScroll: true, direction: 'back' })
         }
         return
       }
@@ -3610,7 +3656,14 @@ onBeforeUnmount(() => {
     ref="appShellRef"
   >
     <DemoModeBanner v-if="isLoggedIn && isTestAccountSession()" />
-    <Transition name="module-fade" mode="out-in">
+    <Transition
+      name="module-fade"
+      mode="out-in"
+      :enter-active-class="viewTransitionEnterActive"
+      :leave-active-class="viewTransitionLeaveActive"
+      :enter-from-class="viewTransitionEnterFrom"
+      :leave-to-class="viewTransitionLeaveTo"
+    >
       <div :key="`${currentView}:${viewRenderNonce}`" class="view-transition-root">
       <!-- 首页 -->
       <Dashboard 
@@ -4033,12 +4086,15 @@ onBeforeUnmount(() => {
     />
   </section>
 
+  <Transition name="modal-pop">
   <div v-if="showLoginPrompt" class="login-mask">
-    <div class="login-mask-card">请先在个人中心登录</div>
+    <div class="login-mask-card modal-pop-card">请先在个人中心登录</div>
   </div>
+  </Transition>
 
+  <Transition name="modal-pop">
   <div v-if="showDailyAccessDialog" class="daily-access-overlay">
-    <div class="daily-access-card">
+    <div class="daily-access-card modal-pop-card">
       <h3>输入今日秘钥</h3>
       <p class="daily-access-desc">
         {{ protectedViewPromptTitle }} 已启用访问门禁，请输入根据当天日期生成的秘钥后再进入。
@@ -4065,9 +4121,11 @@ onBeforeUnmount(() => {
       </form>
     </div>
   </div>
+  </Transition>
 
+  <Transition name="modal-pop">
   <div v-if="showExitDialog" class="exit-dialog-overlay">
-    <div class="exit-dialog-card">
+    <div class="exit-dialog-card modal-pop-card">
       <h3>退出应用</h3>
       <p>是否退出 Mini-HBUT？</p>
       <div class="exit-dialog-actions">
@@ -4078,6 +4136,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+  </Transition>
 
   <!-- 版本更新对话框 -->
   <UpdateDialog 
@@ -4086,8 +4145,9 @@ onBeforeUnmount(() => {
   />
 
   <!-- 强制更新覆盖层 -->
+  <Transition name="modal-pop">
   <div v-if="showForceUpdate" class="force-update-overlay">
-    <div class="force-update-card">
+    <div class="force-update-card modal-pop-card">
       <h3>需要更新</h3>
       <p class="force-update-message">
         {{ forceUpdateInfo?.message || '当前版本过低，请更新后继续使用。' }}
@@ -4102,10 +4162,12 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+  </Transition>
 
   <!-- 公告详情弹窗 -->
+  <Transition name="modal-pop">
   <div v-if="showAnnouncementModal" class="notice-modal-overlay" @click.self="closeAnnouncement">
-    <div class="notice-modal">
+    <div class="notice-modal modal-pop-card">
       <div class="notice-modal-header">
         <h3>{{ activeAnnouncement?.title }}</h3>
         <button class="notice-close" @click="closeAnnouncement">×</button>
@@ -4128,10 +4190,12 @@ onBeforeUnmount(() => {
       </a>
     </div>
   </div>
+  </Transition>
 
   <!-- 确认公告弹窗 -->
+  <Transition name="modal-pop">
   <div v-if="showBlockingAnnouncement" class="notice-confirm-overlay">
-    <div class="notice-confirm-card">
+    <div class="notice-confirm-card modal-pop-card">
       <h3>重要公告</h3>
       <p class="notice-confirm-title">{{ blockingAnnouncement?.title }}</p>
       <div class="notice-confirm-content" v-html="blockingAnnouncementHtml"></div>
@@ -4141,6 +4205,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+  </Transition>
     
   <!-- 全局提示 -->
   <WorkspaceLayoutEditor
@@ -4219,6 +4284,40 @@ onBeforeUnmount(() => {
   min-height: 100%;
 }
 
+/* 视图切换动效（iOS 风格方向感知）：
+   - 前进（push）：内容从下方滑入，离开时轻微上移淡出
+   - 返回（back）：内容从上方滑入，离开时轻微下移淡出
+   保留 name="module-fade" 类名（Vue 自动生成），兼容 isCurrentViewDomHealthy 检查 */
+.module-fade-fwd-enter-active,
+.module-fade-fwd-leave-active,
+.module-fade-back-enter-active,
+.module-fade-back-leave-active {
+  transition:
+    opacity calc(var(--ui-duration-normal) * var(--ui-motion-scale)) var(--ui-ease-out),
+    transform calc(var(--ui-duration-normal) * var(--ui-motion-scale)) var(--ui-ease-out);
+}
+
+.module-fade-fwd-enter-from {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+.module-fade-fwd-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.module-fade-back-enter-from {
+  opacity: 0;
+  transform: translateY(-14px);
+}
+
+.module-fade-back-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+/* 兜底：无方向（replace/tab 切换）保持原纯淡入，避免 class 未覆盖时硬切 */
 .module-fade-enter-active,
 .module-fade-leave-active {
   transition:
@@ -4233,6 +4332,10 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .module-fade-fwd-enter-active,
+  .module-fade-fwd-leave-active,
+  .module-fade-back-enter-active,
+  .module-fade-back-leave-active,
   .module-fade-enter-active,
   .module-fade-leave-active {
     transition: none;

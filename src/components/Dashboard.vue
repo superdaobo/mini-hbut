@@ -1861,8 +1861,9 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 
     <!-- Quick Entry Editor Modal -->
     <Teleport to="body">
-      <div v-if="showQuickEntryEditor" class="quick-entry-editor-overlay fixed inset-0 z-[200] flex items-end justify-center bg-black/40" @click.self="showQuickEntryEditor = false">
-        <div class="quick-entry-editor-panel w-full max-w-md bg-white rounded-t-3xl p-6 animate-slide-up max-h-[80vh] overflow-y-auto">
+      <Transition name="modal-pop">
+        <div v-if="showQuickEntryEditor" class="quick-entry-editor-overlay fixed inset-0 z-[200] flex items-end justify-center bg-black/40" @click.self="showQuickEntryEditor = false">
+          <div class="quick-entry-editor-panel modal-pop-card w-full max-w-md bg-white rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-bold text-lg text-gray-800">编辑快捷入口</h3>
             <button class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center" @click="showQuickEntryEditor = false">
@@ -1901,6 +1902,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
           </button>
         </div>
       </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
@@ -2012,17 +2014,8 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
   to { transform: scale(1); opacity: 1; }
 }
 
-@keyframes slide-up {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-
 .animate-scale-in {
   animation: scale-in 0.25s ease-out;
-}
-
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
 }
 
 .scrollbar-hide {
