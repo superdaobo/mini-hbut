@@ -466,18 +466,38 @@ const currentView = ref(initialView)
 const activeTab = ref(initialTab)
 // 视图切换方向（iOS 风格：前进 slide-up / 返回 slide-down / replace 淡入）
 const navDirection = ref('forward')
-// 视图过渡 class：按方向切换（保留 name="module-fade" 兼容健康检查类名）
+// 视图过渡 class：按方向切换
+// - back → module-fade-back-*（下滑返回）
+// - forward → module-fade-fwd-*（上滑前进）
+// - none（replace/tab）→ 不传自定义类，回落 name="module-fade" 的纯淡入，
+//   同时保证 module-fade-* 类出现在 DOM 供 isCurrentViewDomHealthy 识别过渡态
 const viewTransitionEnterActive = computed(() =>
-  navDirection.value === 'back' ? 'module-fade-back-enter-active' : 'module-fade-fwd-enter-active'
+  navDirection.value === 'back'
+    ? 'module-fade-back-enter-active'
+    : navDirection.value === 'forward'
+      ? 'module-fade-fwd-enter-active'
+      : undefined
 )
 const viewTransitionLeaveActive = computed(() =>
-  navDirection.value === 'back' ? 'module-fade-back-leave-active' : 'module-fade-fwd-leave-active'
+  navDirection.value === 'back'
+    ? 'module-fade-back-leave-active'
+    : navDirection.value === 'forward'
+      ? 'module-fade-fwd-leave-active'
+      : undefined
 )
 const viewTransitionEnterFrom = computed(() =>
-  navDirection.value === 'back' ? 'module-fade-back-enter-from' : 'module-fade-fwd-enter-from'
+  navDirection.value === 'back'
+    ? 'module-fade-back-enter-from'
+    : navDirection.value === 'forward'
+      ? 'module-fade-fwd-enter-from'
+      : undefined
 )
 const viewTransitionLeaveTo = computed(() =>
-  navDirection.value === 'back' ? 'module-fade-back-leave-to' : 'module-fade-fwd-leave-to'
+  navDirection.value === 'back'
+    ? 'module-fade-back-leave-to'
+    : navDirection.value === 'forward'
+      ? 'module-fade-fwd-leave-to'
+      : undefined
 )
 const gradeData = ref([])
 const studentId = ref(String(initialRouteSnapshot?.sid || '').trim())
@@ -1040,7 +1060,10 @@ const isCurrentViewDomHealthy = (view = currentView.value) => {
     if (!transitionRoot) return false
 
     // leave/enter 过渡中子树可能短暂为空，勿判死
-    const leaving = transitionRoot.querySelector('.v-leave-active, .v-enter-active, .module-fade-leave-active, .module-fade-enter-active')
+    // 兼容三套过渡类：name 兜底（module-fade-*）、方向类（module-fade-fwd/back-*）、Vue 基础 v-*
+    const leaving = transitionRoot.querySelector(
+      '.v-leave-active, .v-enter-active, .module-fade-leave-active, .module-fade-enter-active, .module-fade-fwd-leave-active, .module-fade-fwd-enter-active, .module-fade-back-leave-active, .module-fade-back-enter-active'
+    )
     if (leaving) return true
 
     const expectedSelector = VIEW_HEALTH_SELECTOR_MAP[normalizeViewName(view)]
@@ -1715,8 +1738,11 @@ const resolveParentView = (view) => {
 const goToParentView = () => {
   const parentView = resolveParentView(currentView.value)
   if (!parentView) return false
-  navDirection.value = 'back'
-  goToViewInternal(parentView, { push: false, restoreScroll: parentView === 'home' })
+  goToViewInternal(parentView, {
+    push: false,
+    restoreScroll: parentView === 'home',
+    direction: 'back'
+  })
   return true
 }
 
@@ -1912,7 +1938,6 @@ const handleNavigate = async (target) => {
 
 // 处理返回仪表盘
 const handleBackToDashboard = () => {
-  navDirection.value = 'back'
   goToView('home', { restoreScroll: true, direction: 'back' })
 }
 
@@ -3148,8 +3173,7 @@ const handlePopState = async () => {
     const handled = goToParentView()
     if (!handled) {
       // 无父级时回首页并恢复滚动
-      navDirection.value = 'back'
-      goToViewInternal('home', { push: false, restoreScroll: true })
+      goToViewInternal('home', { push: false, restoreScroll: true, direction: 'back' })
       return
     }
     // goToParentView 已处理首页恢复；勿再 forceScrollTop 冲掉位置
