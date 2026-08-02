@@ -4,7 +4,10 @@ import { resolve } from "node:path";
 import crypto from "node:crypto";
 import {
   buildWhatsNew,
+  createBetaBuildLocalizationBody,
   createJwt,
+  createPrereleaseBuildsPath,
+  createPrereleaseLookupPath,
   parseTestAccount,
 } from "../../tools/ci/submit_testflight.mjs";
 
@@ -13,6 +16,10 @@ const workflowPath = resolve(
   ".github/workflows/ios-testflight.yml",
 );
 const scriptPath = resolve(process.cwd(), "tools/ci/submit_testflight.mjs");
+const finalizeWorkflowPath = resolve(
+  process.cwd(),
+  ".github/workflows/ios-testflight-finalize.yml",
+);
 
 const readWorkflow = () => {
   expect(existsSync(workflowPath), "ios-testflight workflow should exist").toBe(
@@ -53,9 +60,15 @@ describe("TestFlight 自动化提交契约", () => {
     const script = readScript();
 
     expect(script).toContain("api.appstoreconnect.apple.com");
-    // 填写测试说明：PATCH /v1/builds/{id} attributes.whatsNew
-    expect(script).toContain("attributes: { whatsNew }");
+    // 营销版本和 build 号按 Apple 的 prerelease/build 资源模型定位。
+    expect(script).toContain("/preReleaseVersions?");
+    expect(script).toContain("/preReleaseVersions/${encodeURIComponent(preReleaseVersionId)}/builds");
+    expect(script).not.toContain("filter[buildNumber]");
+    // What to Test 属于 betaBuildLocalizations，不是 Build.attributes。
+    expect(script).toContain("/betaBuildLocalizations");
+    expect(script).toContain("type: 'betaBuildLocalizations'");
     expect(script).toContain("method: 'PATCH'");
+    expect(script).toContain("method: 'POST'");
     // 加入测试组：POST /v1/builds/{id}/relationships/betaGroups
     expect(script).toContain("relationships/betaGroups");
     expect(script).toContain("type: 'betaGroups'");
@@ -63,6 +76,53 @@ describe("TestFlight 自动化提交契约", () => {
     expect(script).toContain("betaAppReviewSubmissions");
     // 测试说明留空时从源码自动提取演示测试账号
     expect(script).toContain("src/utils/test_account.js");
+  });
+
+  it("构建定位路径区分营销版本与 CFBundleVersion", () => {
+    const prereleasePath = createPrereleaseLookupPath({
+      appId: "6787857278",
+      versionName: "1.4.5",
+    });
+    const prereleaseUrl = new URL(`https://example.test${prereleasePath}`);
+    expect(prereleaseUrl.pathname).toBe("/preReleaseVersions");
+    expect(prereleaseUrl.searchParams.get("filter[app]")).toBe("6787857278");
+    expect(prereleaseUrl.searchParams.get("filter[version]")).toBe("1.4.5");
+    expect(prereleaseUrl.searchParams.get("filter[platform]")).toBe("IOS");
+    expect(prereleaseUrl.searchParams.has("filter[buildNumber]")).toBe(false);
+
+    const buildsPath = createPrereleaseBuildsPath("pre release/id");
+    const buildsUrl = new URL(`https://example.test${buildsPath}`);
+    expect(buildsUrl.pathname).toBe("/preReleaseVersions/pre%20release%2Fid/builds");
+    expect(buildsUrl.searchParams.get("fields[builds]")).toContain("version");
+    expect(buildsUrl.searchParams.get("limit")).toBe("200");
+  });
+
+  it("What to Test 创建体使用 betaBuildLocalizations 与 build 关系", () => {
+    expect(
+      createBetaBuildLocalizationBody({
+        buildId: "build-25",
+        locale: "zh-Hans",
+        whatsNew: "重点测试课程中心",
+      }),
+    ).toEqual({
+      data: {
+        type: "betaBuildLocalizations",
+        attributes: { locale: "zh-Hans", whatsNew: "重点测试课程中心" },
+        relationships: {
+          build: { data: { type: "builds", id: "build-25" } },
+        },
+      },
+    });
+  });
+
+  it("仅后处理 workflow 不重新构建或上传 IPA", () => {
+    expect(existsSync(finalizeWorkflowPath)).toBe(true);
+    const workflow = readFileSync(finalizeWorkflowPath, "utf8");
+    expect(workflow).toContain("version_name:");
+    expect(workflow).toContain("build_number:");
+    expect(workflow).toContain("node tools/ci/submit_testflight.mjs");
+    expect(workflow).toContain("secrets.APPSTORE_PRIVATE_KEY");
+    expect(workflow).not.toMatch(/tauri build|xcodebuild|altool|upload-app/);
   });
 
   it("createJwt 生成可被公钥验证的 ES256 JWT", () => {

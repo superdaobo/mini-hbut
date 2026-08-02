@@ -1,0 +1,93 @@
+name: Finalize Existing TestFlight Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Marketing version already uploaded (for example 1.4.5)
+        required: true
+        type: string
+      build_number:
+        description: CFBundleVersion already uploaded (for example 25)
+        required: true
+        type: string
+      whats_new:
+        description: What to Test text; literal \n is converted to line breaks
+        required: false
+        type: string
+      beta_group:
+        description: Optional beta group name; blank selects the first internal group
+        required: false
+        type: string
+      locale:
+        description: TestFlight localization locale
+        required: false
+        default: zh-Hans
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight-finalize-${{ inputs.version_name }}-${{ inputs.build_number }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  APPLE_APP_ID: "6787857278"
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify App Store Connect secrets
+        shell: bash
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$APPSTORE_KEY_ID"
+          test -n "$APPSTORE_ISSUER_ID"
+          test -n "$APPSTORE_PRIVATE_KEY"
+
+      - name: Install temporary App Store Connect API key
+        id: api_key
+        shell: bash
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPSTORE_KEY_ID}.p8"
+          printf '%s' "$APPSTORE_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "path=$KEY_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Fill TestFlight info and submit existing build
+        shell: bash
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_PRIVATE_KEY_PATH: ${{ steps.api_key.outputs.path }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          TESTFLIGHT_WHATS_NEW: ${{ inputs.whats_new }}
+          TESTFLIGHT_BETA_GROUP: ${{ inputs.beta_group }}
+          TESTFLIGHT_LOCALE: ${{ inputs.locale }}
+        run: node tools/ci/submit_testflight.mjs
+
+      - name: Cleanup App Store Connect API key
+        if: always()
+        shell: bash
+        run: rm -f "${{ steps.api_key.outputs.path }}"

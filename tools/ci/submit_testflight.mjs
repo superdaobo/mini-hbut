@@ -24,6 +24,7 @@ import { resolve } from 'node:path'
 
 const API_BASE = 'https://api.appstoreconnect.apple.com/v1'
 const WHATS_NEW_MAX_LENGTH = 4000
+const DEFAULT_TESTFLIGHT_LOCALE = 'zh-Hans'
 
 /* ------------------------------------------------------------------ */
 /* 纯函数（可单测）                                                     */
@@ -144,6 +145,35 @@ async function apiRequest(token, pathname, { method = 'GET', body } = {}, retrie
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+export function createPrereleaseLookupPath({ appId, versionName }) {
+  const qs = new URLSearchParams({
+    'filter[app]': appId,
+    'filter[version]': versionName,
+    'filter[platform]': 'IOS',
+    'fields[preReleaseVersions]': 'version,platform',
+    limit: '1',
+  })
+  return `/preReleaseVersions?${qs}`
+}
+
+export function createPrereleaseBuildsPath(preReleaseVersionId) {
+  const qs = new URLSearchParams({
+    'fields[builds]': 'version,processingState,uploadedDate,expired',
+    limit: '200',
+  })
+  return `/preReleaseVersions/${encodeURIComponent(preReleaseVersionId)}/builds?${qs}`
+}
+
+export function createBetaBuildLocalizationBody({ buildId, locale, whatsNew }) {
+  return {
+    data: {
+      type: 'betaBuildLocalizations',
+      attributes: { locale, whatsNew },
+      relationships: { build: { data: { type: 'builds', id: buildId } } },
+    },
+  }
+}
+
 function recentCommits(max = 8) {
   try {
     const out = execFileSync('git', ['log', '--no-merges', '--pretty=format:%h %s', '-n', String(max)], {
@@ -169,40 +199,90 @@ function loadTestAccount() {
 /* ------------------------------------------------------------------ */
 
 async function waitForBuild(token, { appId, versionName, buildNumber }) {
-  // 上传后构建需要几分钟处理，轮询最多 30 次 × 20 秒 = 10 分钟
+  // Apple models the marketing version as preReleaseVersions.version and the
+  // CFBundleVersion/build number as builds.version. Uploaded builds can take
+  // several minutes to appear and transition from PROCESSING to VALID.
   const MAX_ATTEMPTS = 30
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const qs = new URLSearchParams({
-      'filter[app]': appId,
-      'filter[version]': versionName,
-      'filter[buildNumber]': buildNumber,
-      'fields[builds]': 'processingState',
-      limit: '1',
-    })
-    const data = await apiRequest(token, `/builds?${qs}`)
-    const build = data.data?.[0]
+    const prereleaseData = await apiRequest(
+      token,
+      createPrereleaseLookupPath({ appId, versionName }),
+    )
+    const prereleaseVersion = prereleaseData.data?.[0]
+    let build
+    if (prereleaseVersion) {
+      const buildsData = await apiRequest(
+        token,
+        createPrereleaseBuildsPath(prereleaseVersion.id),
+      )
+      build = (buildsData.data || []).find(
+        (item) => String(item.attributes?.version || '') === String(buildNumber),
+      )
+    }
+
     if (build) {
       const state = build.attributes?.processingState
-      if (state === 'PROCESSING_COMPLETE') {
+      if (state === 'VALID' || state === 'PROCESSING_COMPLETE') {
         console.log(`✅ 构建 ${versionName} (${buildNumber}) 处理完成，build id=${build.id}`)
         return build
       }
-      if (state === 'PROCESSING_FAILED' || state === 'VALIDATION_FAILED') {
+      if (
+        state === 'FAILED' ||
+        state === 'INVALID' ||
+        state === 'PROCESSING_FAILED' ||
+        state === 'VALIDATION_FAILED'
+      ) {
         throw new Error(`构建处理失败（processingState=${state}），请到 App Store Connect 查看原因`)
       }
-      console.log(`⏳ 构建处理中（${state}），第 ${attempt}/${MAX_ATTEMPTS} 次轮询，20 秒后重试…`)
+      console.log(`⏳ 构建处理中（${state || 'UNKNOWN'}），第 ${attempt}/${MAX_ATTEMPTS} 次轮询，20 秒后重试…`)
     } else {
       console.log(`⏳ 构建记录尚未可见（第 ${attempt}/${MAX_ATTEMPTS} 次轮询），20 秒后重试…`)
     }
     await sleep(20_000)
   }
-  throw new Error('等待构建处理完成超时（10 分钟）。可稍后手动到 App Store Connect 查看，或重试本 workflow')
+  throw new Error('等待构建处理完成超时（10 分钟）。可稍后重试仅后处理 workflow')
+}
+
+async function upsertBetaBuildLocalization(token, { buildId, locale, whatsNew }) {
+  const qs = new URLSearchParams({
+    'fields[betaBuildLocalizations]': 'locale,whatsNew',
+    limit: '200',
+  })
+  const existingData = await apiRequest(
+    token,
+    `/builds/${encodeURIComponent(buildId)}/betaBuildLocalizations?${qs}`,
+  )
+  const existing = (existingData.data || []).find(
+    (item) => item.attributes?.locale === locale,
+  )
+
+  if (existing) {
+    await apiRequest(token, `/betaBuildLocalizations/${encodeURIComponent(existing.id)}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'betaBuildLocalizations',
+          id: existing.id,
+          attributes: { whatsNew },
+        },
+      },
+    })
+    console.log(`✅ 已更新 ${locale} 测试说明`)
+    return existing.id
+  }
+
+  const created = await apiRequest(token, '/betaBuildLocalizations', {
+    method: 'POST',
+    body: createBetaBuildLocalizationBody({ buildId, locale, whatsNew }),
+  })
+  console.log(`✅ 已创建 ${locale} 测试说明`)
+  return created?.data?.id
 }
 
 async function findBetaGroup(token, { appId, groupName }) {
   const qs = new URLSearchParams({
     'filter[app]': appId,
-    'fields[betaGroups]': 'name,isInternalGroup',
+    'fields[betaGroups]': 'name,isInternalGroup,hasAccessToAllBuilds',
     limit: '200',
   })
   const data = await apiRequest(token, `/betaGroups?${qs}`)
@@ -234,6 +314,7 @@ async function main() {
     BUILD_NUMBER,
     TESTFLIGHT_WHATS_NEW = '',
     TESTFLIGHT_BETA_GROUP = '',
+    TESTFLIGHT_LOCALE = DEFAULT_TESTFLIGHT_LOCALE,
   } = process.env
 
   for (const [name, value] of Object.entries({
@@ -274,19 +355,24 @@ async function main() {
   console.log('📝 测试说明（What to Test）：')
   console.log(logLines.map((line) => `   ${line}`).join('\n'))
   console.log('   （演示测试账号已自动附于说明中，详见 TestFlight）')
-  await apiRequest(token, `/builds/${buildId}`, {
-    method: 'PATCH',
-    body: { data: { type: 'builds', id: buildId, attributes: { whatsNew } } },
+  await upsertBetaBuildLocalization(token, {
+    buildId,
+    locale: TESTFLIGHT_LOCALE,
+    whatsNew,
   })
   console.log('✅ 测试说明已填写')
 
   // 3) 加入测试组（内部组 = 自动提交；外部组需要 Beta App Review）
   const group = await findBetaGroup(token, { appId: APPLE_APP_ID, groupName: TESTFLIGHT_BETA_GROUP })
-  await apiRequest(token, `/builds/${buildId}/relationships/betaGroups`, {
-    method: 'POST',
-    body: { data: [{ type: 'betaGroups', id: group.id }] },
-  })
-  console.log(`✅ 构建已加入测试组「${group.attributes?.name}」`)
+  if (group.attributes?.hasAccessToAllBuilds === true) {
+    console.log(`✅ 测试组「${group.attributes?.name}」已配置自动访问所有构建，无需重复关联`)
+  } else {
+    await apiRequest(token, `/builds/${buildId}/relationships/betaGroups`, {
+      method: 'POST',
+      body: { data: [{ type: 'betaGroups', id: group.id }] },
+    })
+    console.log(`✅ 构建已加入测试组「${group.attributes?.name}」`)
+  }
 
   if (group.attributes?.isInternalGroup === false) {
     try {
