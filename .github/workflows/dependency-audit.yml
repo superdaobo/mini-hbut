@@ -1,0 +1,80 @@
+name: Dependency Audit
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - website/package.json
+      - website/package-lock.json
+      - website/modules-src/**/package.json
+      - website/modules-src/**/package-lock.json
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - scripts/check_dependency_alignment.mjs
+      - scripts/audit_dependencies.mjs
+      - scripts/verify_rustsec_acceptances.mjs
+      - docs/release-readiness/dependency-audit.md
+      - .github/workflows/dependency-audit.yml
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - package-lock.json
+      - website/package.json
+      - website/package-lock.json
+      - website/modules-src/**/package.json
+      - website/modules-src/**/package-lock.json
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - scripts/check_dependency_alignment.mjs
+      - scripts/audit_dependencies.mjs
+      - scripts/verify_rustsec_acceptances.mjs
+      - docs/release-readiness/dependency-audit.md
+      - .github/workflows/dependency-audit.yml
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-lockfiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            website/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit
+      - run: npm run check:dependency-alignment
+      - run: npm run audit:dependencies
+
+  rustsec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned cargo-audit
+        run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Verify accepted advisory scopes
+        run: node scripts/verify_rustsec_acceptances.mjs
+      - name: Audit Rust lockfile
+        run: >-
+          cargo audit --file src-tauri/Cargo.lock
+          --ignore RUSTSEC-2024-0429
+          --ignore RUSTSEC-2026-0097
+          --ignore RUSTSEC-2026-0194
+          --ignore RUSTSEC-2026-0195

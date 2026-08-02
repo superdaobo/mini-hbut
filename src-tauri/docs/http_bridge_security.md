@@ -14,11 +14,13 @@
 | 级别 | 示例 | 要求 |
 | --- | --- | --- |
 | `PublicHealth` | `GET /health` | 仅用于进程健康探测，不返回凭证 |
-| `PublicEmbed` | 模块包静态内容、学校官网只读嵌入 | 仅 `GET/HEAD`；显式不可信 Origin 仍拒绝 |
+| `PublicEmbed` | 导出的日历文件、模块包静态内容、学校官网只读嵌入 | 仅 `GET/HEAD`；显式不可信 Origin 仍拒绝 |
 | `Protected` | 登录、成绩、课表、选课、学习、AI、代理和写操作 | 可信 WebView/Loopback Origin，或有效 Bearer / `X-Local-Token` |
 | `DebugOnly` | `/debug/*`、`/campus-guide-debug/*` | 仅 Debug Router 注册，并继续要求运行时调试开关和统一访问控制 |
 
 所有未知路由默认归入 `Protected`，新增路由不能因为遗漏登记而自动变成公开接口。
+
+公开只读路由仅用于浏览器顶层导航或内嵌资源：`/exports/*`、`/module_bundle/content/*` 与 `/school-website/*`。对应的创建、下载准备、代理和写入接口仍属于 `Protected`。
 
 ## Origin 白名单
 

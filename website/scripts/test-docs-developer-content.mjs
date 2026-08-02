@@ -33,6 +33,23 @@ const expectRepoPathsExist = (label, repoPaths) => {
   }
 };
 
+const expectGeneratedRepoPath = (label, { outputPath, sourcePath, producerPath }) => {
+  expectRepoPathsExist(label, [sourcePath, producerPath, '.gitignore']);
+
+  const producer = readFileSync(path.join(repoRoot, producerPath), 'utf8').replace(/\r\n?/g, '\n');
+  if (!producer.includes(sourcePath)) {
+    failures.push(`${label} 生成脚本未声明源码目录: ${sourcePath}`);
+  }
+  if (!producer.includes(outputPath)) {
+    failures.push(`${label} 生成脚本未声明输出目录: ${outputPath}`);
+  }
+
+  const gitignore = readFileSync(path.join(repoRoot, '.gitignore'), 'utf8').replace(/\r\n?/g, '\n');
+  if (!gitignore.split('\n').some((line) => line.trim() === `${outputPath}/`)) {
+    failures.push(`${label} 生成产物未被 .gitignore 隔离: ${outputPath}/`);
+  }
+};
+
 expectIncludes(developerOverview, 'DeveloperOverview', [
   '开发者架构总览',
   '入口层',
@@ -613,8 +630,13 @@ expectRepoPathsExist('ReferenceIndex', [
   'website/scripts/test-docs-user-content.mjs',
   'website/scripts/test-docs-developer-content.mjs',
   'website/modules-src',
-  'website/public/modules',
 ]);
+
+expectGeneratedRepoPath('ReferenceIndex 模块生成产物', {
+  outputPath: 'website/public/modules',
+  sourcePath: 'website/modules-src',
+  producerPath: 'scripts/build_website_modules.mjs',
+});
 
 if (failures.length > 0) {
   console.error('docs developer content contract failed:');
