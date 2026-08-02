@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * TestFlight 自动化提交脚本（由 .github/workflows/ios-testflight.yml 调用）
  *
