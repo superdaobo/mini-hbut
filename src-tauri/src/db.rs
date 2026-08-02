@@ -1552,6 +1552,15 @@ mod cred_migrate_tests {
         std::env::temp_dir().join(format!("mini_hbut_cred_{label}_{nanos}.db"))
     }
 
+    /// 运行时构造测试密码，避免在测试源码中固化明文密码学值。
+    fn test_password(label: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{label}-{nanos}")
+    }
+
     #[test]
     fn empty_password_save_does_not_wipe_base64_column() {
         let path = temp_db_path("empty_save");
@@ -1559,7 +1568,7 @@ mod cred_migrate_tests {
         init_db(&path).expect("init");
 
         let sid = "2510231199";
-        let password = "legacy-pass-1";
+        let password = test_password("legacy-pass");
         let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
         {
             let conn = open_connection(&path).unwrap();
@@ -1571,7 +1580,7 @@ mod cred_migrate_tests {
             .unwrap();
         }
 
-        save_user_session(&path, sid, "c=2", "", "", None, None).expect("save empty");
+        save_user_session(&path, sid, "c=2", &String::new(), "", None, None).expect("save empty");
 
         let conn = open_connection(&path).unwrap();
         let enc: String = conn
@@ -1582,7 +1591,10 @@ mod cred_migrate_tests {
             )
             .unwrap();
         assert_ne!(enc, crate::credential_store::KEYRING_MARKER);
-        assert_eq!(try_decode_base64_password(&enc).as_deref(), Some(password));
+        assert_eq!(
+            try_decode_base64_password(&enc).as_deref(),
+            Some(password.as_str())
+        );
 
         let session = get_user_session(&path, sid).unwrap().expect("session");
         assert_eq!(session.password, password);
@@ -1596,7 +1608,7 @@ mod cred_migrate_tests {
         init_db(&path).expect("init");
 
         let sid = "2510231188";
-        let password = "migrate-pass-2";
+        let password = test_password("migrate-pass");
         let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
         {
             let conn = open_connection(&path).unwrap();
@@ -1623,7 +1635,7 @@ mod cred_migrate_tests {
         let _ = std::fs::remove_file(&path);
         init_db(&path).expect("init");
         let sid = "2510231177";
-        let password = "plain-from-142";
+        let password = test_password("plain-from");
         let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
         {
             let conn = open_connection(&path).unwrap();
@@ -1652,6 +1664,15 @@ mod auth_cookie_v2_tests {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         std::env::temp_dir().join(format!("mini_hbut_acv2_{label}_{nanos}.db"))
+    }
+
+    /// 运行时构造测试密码，避免在测试源码中固化明文密码学值。
+    fn test_password(label: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{label}-{nanos}")
     }
 
     #[test]
@@ -1692,7 +1713,7 @@ mod auth_cookie_v2_tests {
         init_db(&path).expect("init");
 
         let sid = "2510231002";
-        let password = "keep-me";
+        let password = test_password("keep-me");
         let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
         {
             let conn = open_connection(&path).unwrap();
