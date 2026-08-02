@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import GuidePageLayout from '../components/GuidePageLayout.vue'
-import { CAMPUS_GUIDE_VIEWS } from '../navigation'
 import { reportCampusSearchKeyword } from '../services/search-service'
 import { useCampusGuideStore } from '../store/campus-guide-store'
 import type { CampusSpot } from '../types'

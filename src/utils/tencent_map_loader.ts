@@ -1,8 +1,22 @@
-/** 腾讯地图 GL JS 脚本加载器（TowerGo / 校园地图共用） */
+/** 腾讯地图 GL 脚本加载器（TowerGo / 校园地图共用） */
 
 export const TENCENT_MAP_SCRIPT_ATTR = 'data-tencent-map'
 
-export type TencentMapNamespace = typeof window extends { TMap: infer T } ? T : unknown
+/**
+ * 腾讯地图 GL JS 全局命名空间（按实际使用面精确声明，避免推断为 unknown）。
+ * 其他成员可经索引签名访问，业务侧按需收窄。
+ */
+export interface TencentMapNamespace {
+  Map: new (container: HTMLElement, options: Record<string, unknown>) => unknown
+  LatLng: new (lat: number, lng: number) => unknown
+  LatLngBounds: new (sw: unknown, ne: unknown) => unknown
+  MultiMarker: new (options: Record<string, unknown>) => unknown
+  MultiPolyline: new (options: Record<string, unknown>) => unknown
+  MultiPolygon: new (options: Record<string, unknown>) => unknown
+  MarkerStyle: new (options: Record<string, unknown>) => unknown
+  PolylineStyle: new (options: Record<string, unknown>) => unknown
+  [key: string]: unknown
+}
 
 const getGlobalTMap = (): TencentMapNamespace | null => {
   if (typeof window === 'undefined') return null

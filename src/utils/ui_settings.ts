@@ -7,6 +7,7 @@ import {
   SYSTEM_UI_SETTINGS,
   UI_PRESETS
 } from '../config/ui_settings'
+import type { UiSettingsProfile, WorkspaceLayout } from '../config/ui_settings'
 import { isNightModeEnabled, NIGHT_MODE_CHANGED_EVENT } from './night_mode'
 import { isCustomJavaScriptAllowed } from '../config/app_store_policy'
 
@@ -24,11 +25,16 @@ const DECOR_STYLES = ['mesh', 'grain', 'none']
 const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional', 'class']
 const STARTUP_PAGES = ['home', 'schedule']
 
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+type UiSettingsState = typeof SYSTEM_UI_SETTINGS
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object'
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const cloneWorkspaceLayout = (layout = buildDefaultWorkspaceLayout()) =>
   JSON.parse(JSON.stringify(layout))
 
-const hexToRgb = (hex) => {
+const hexToRgb = (hex: string) => {
   if (!hex || typeof hex !== 'string') return null
   const normalized = hex.replace('#', '').trim()
   if (normalized.length !== 6) return null
@@ -39,15 +45,15 @@ const hexToRgb = (hex) => {
   return { r, g, b }
 }
 
-const makeRgba = (hex, alpha) => {
+const makeRgba = (hex: string, alpha: number) => {
   const rgb = hexToRgb(hex)
   if (!rgb) return `rgba(59, 130, 246, ${alpha})`
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`
 }
 
-const normalizeProfile = (profile = {}) => {
+const normalizeProfile = (profile: Partial<UiSettingsProfile> | null | undefined = {}) => {
   const base = { ...SYSTEM_UI_SETTINGS.profile }
-  const next = { ...base, ...(profile || {}) }
+  const next: UiSettingsProfile = { ...base, ...(profile || {}) }
   if (!CARD_STYLES.includes(next.cardStyle)) next.cardStyle = base.cardStyle
   if (!NAV_STYLES.includes(next.navStyle)) next.navStyle = base.navStyle
   if (!DENSITY_STYLES.includes(next.density)) next.density = base.density
@@ -56,7 +62,7 @@ const normalizeProfile = (profile = {}) => {
   return next
 }
 
-const isProfileEqual = (a = {}, b = {}) =>
+const isProfileEqual = (a: UiSettingsProfile, b: UiSettingsProfile) =>
   CARD_STYLES.includes(a.cardStyle) &&
   NAV_STYLES.includes(a.navStyle) &&
   DENSITY_STYLES.includes(a.density) &&
@@ -68,14 +74,14 @@ const isProfileEqual = (a = {}, b = {}) =>
   a.iconStyle === b.iconStyle &&
   a.decor === b.decor
 
-const normalizeOrderedKeys = (rawList, defaults) => {
-  const seen = new Set()
-  const output = []
+const normalizeOrderedKeys = <T extends string>(rawList: unknown, defaults: readonly T[]): T[] => {
+  const seen = new Set<string>()
+  const output: T[] = []
   ;(Array.isArray(rawList) ? rawList : []).forEach((item) => {
     const key = String(item || '').trim()
-    if (!key || !defaults.includes(key) || seen.has(key)) return
+    if (!key || !(defaults as readonly string[]).includes(key) || seen.has(key)) return
     seen.add(key)
-    output.push(key)
+    output.push(key as T)
   })
   defaults.forEach((key) => {
     if (seen.has(key)) return
@@ -85,43 +91,45 @@ const normalizeOrderedKeys = (rawList, defaults) => {
   return output
 }
 
-const normalizeWorkspaceLayout = (raw) => {
+const normalizeWorkspaceLayout = (raw: unknown): WorkspaceLayout => {
   const base = buildDefaultWorkspaceLayout()
-  if (!raw || typeof raw !== 'object') return base
+  if (!isRecord(raw)) return base
+  const homeRaw = isRecord(raw.home) ? raw.home : {}
+  const notificationsRaw = isRecord(raw.notifications) ? raw.notifications : {}
 
   return {
     version: 1,
     home: {
       widgetsOrder: normalizeOrderedKeys(
-        raw?.home?.widgetsOrder,
+        homeRaw.widgetsOrder,
         [...HOME_WIDGET_ORDER_DEFAULT]
       ),
       moduleOrder: normalizeOrderedKeys(
-        raw?.home?.moduleOrder,
+        homeRaw.moduleOrder,
         [...HOME_MODULE_ORDER_DEFAULT]
       )
     },
     notifications: {
       cardsOrder: normalizeOrderedKeys(
-        raw?.notifications?.cardsOrder,
+        notificationsRaw.cardsOrder,
         [...NOTIFICATION_CARD_ORDER_DEFAULT]
       )
     }
   }
 }
 
-const normalizeSettings = (raw) => {
+const normalizeSettings = (raw: unknown): UiSettingsState => {
   const base = {
     ...SYSTEM_UI_SETTINGS,
     profile: { ...SYSTEM_UI_SETTINGS.profile },
     workspaceLayout: cloneWorkspaceLayout(SYSTEM_UI_SETTINGS.workspaceLayout)
   }
-  if (!raw || typeof raw !== 'object') return base
+  if (!isRecord(raw)) return base
 
-  const merged = {
+  const merged: UiSettingsState = {
     ...base,
-    ...raw,
-    profile: normalizeProfile(raw.profile),
+    ...(raw as Partial<UiSettingsState>),
+    profile: normalizeProfile(raw.profile as Partial<UiSettingsProfile> | undefined),
     workspaceLayout: normalizeWorkspaceLayout(raw.workspaceLayout)
   }
 
@@ -160,7 +168,7 @@ const loadStoredSettings = () => {
   }
 }
 
-const storeSettings = (settings) => {
+const storeSettings = (settings: UiSettingsState) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
   } catch {
@@ -168,7 +176,7 @@ const storeSettings = (settings) => {
   }
 }
 
-const applyCustomCode = (settings) => {
+const applyCustomCode = (settings: UiSettingsState) => {
   if (typeof document === 'undefined') return
 
   const cssId = 'custom-theme-css'
@@ -198,7 +206,7 @@ const applyCustomCode = (settings) => {
   }
 }
 
-const applyUiSettings = (settings) => {
+const applyUiSettings = (settings: UiSettingsState) => {
   if (typeof document === 'undefined') return
   const root = document.documentElement
   const currentPreset = UI_PRESETS[settings.preset] || UI_PRESETS[SYSTEM_UI_SETTINGS.preset]
@@ -266,11 +274,12 @@ const applyUiSettings = (settings) => {
 const flushUiSettings = () => {
   const normalized = normalizeSettings(state)
   let needsPatch = false
+  const stateRecord = state as Record<string, unknown>
   for (const key of Object.keys(normalized)) {
     if (key === 'profile' || key === 'workspaceLayout') continue
-    if (normalized[key] !== state[key]) {
+    if (stateRecord[key] !== normalized[key as keyof UiSettingsState]) {
       needsPatch = true
-      state[key] = normalized[key]
+      stateRecord[key] = normalized[key as keyof UiSettingsState]
     }
   }
   if (!isProfileEqual(normalized.profile, state.profile)) {
@@ -311,10 +320,11 @@ const initUiSettings = () => {
   scope.run(() => {
     const sync = () => {
       const normalized = normalizeSettings(state)
+      const stateRecord = state as Record<string, unknown>
       for (const key of Object.keys(normalized)) {
         if (key === 'profile' || key === 'workspaceLayout') continue
-        if (normalized[key] !== state[key]) {
-          state[key] = normalized[key]
+        if (stateRecord[key] !== normalized[key as keyof UiSettingsState]) {
+          stateRecord[key] = normalized[key as keyof UiSettingsState]
         }
       }
       if (!isProfileEqual(normalized.profile, state.profile)) {
@@ -333,7 +343,7 @@ const initUiSettings = () => {
 
 const useUiSettings = () => state
 
-const applyPreset = (presetKey) => {
+const applyPreset = (presetKey: string) => {
   const preset = UI_PRESETS[presetKey]
   if (!preset) return
   state.preset = presetKey
@@ -355,7 +365,7 @@ const resetUiSettings = () => {
   flushUiSettings()
 }
 
-const applyUiSettingsSnapshot = (raw) => {
+const applyUiSettingsSnapshot = (raw: unknown) => {
   const normalized = normalizeSettings(raw)
   Object.assign(state, normalized)
   state.profile = { ...normalized.profile }
