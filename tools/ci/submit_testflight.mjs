@@ -40,8 +40,17 @@ export function createJwt({ keyId, issuerId, privateKeyPem, now = Math.floor(Dat
   const encode = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
   const signingInput = `${encode(header)}.${encode(payload)}`
   const key = crypto.createPrivateKey({ key: privateKeyPem, format: 'pem' })
-  const signature = crypto.sign('sha256', Buffer.from(signingInput), key).toString('base64url')
-  return `${signingInput}.${signature}`
+  // RFC 7515 / JWS requires ES256 signatures as the fixed-width 64-byte R || S
+  // representation. Node's ECDSA default is ASN.1 DER, which verifies locally but
+  // is rejected by App Store Connect with HTTP 401.
+  const signatureBytes = crypto.sign('sha256', Buffer.from(signingInput), {
+    key,
+    dsaEncoding: 'ieee-p1363',
+  })
+  if (signatureBytes.length !== 64) {
+    throw new Error(`ES256 signature must be 64 bytes, got ${signatureBytes.length}`)
+  }
+  return `${signingInput}.${signatureBytes.toString('base64url')}`
 }
 
 /**

@@ -96,12 +96,14 @@ describe("TestFlight 自动化提交契约", () => {
       exp: now + 1200,
     });
 
-    // 用公钥验签，确认签名有效
+    // JWS ES256 必须使用固定 64 字节的 IEEE-P1363 R || S 编码，而不是 DER。
+    const signatureBytes = Buffer.from(signature, "base64url");
+    expect(signatureBytes).toHaveLength(64);
     const verified = crypto.verify(
       "sha256",
       Buffer.from(`${header}.${payload}`),
-      publicKey,
-      Buffer.from(signature, "base64url"),
+      { key: publicKey, dsaEncoding: "ieee-p1363" },
+      signatureBytes,
     );
     expect(verified).toBe(true);
   });
