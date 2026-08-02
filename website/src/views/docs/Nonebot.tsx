@@ -1,4 +1,4 @@
-﻿import { Plug, Terminal, Shield, Send } from 'lucide-react';
+import { Plug, Terminal, Shield, Send } from 'lucide-react';
 
 const Nonebot = () => {
     return (
@@ -28,7 +28,7 @@ const Nonebot = () => {
                     </div>
                 </div>
                 <p className="text-sm text-gray-400">
-                    推荐在本机调用；若需跨设备访问，请通过安全通道转发并增加鉴权。
+                    Bridge 固定监听本机。除健康检查外，外部脚本必须在启动应用前配置 HBUT_BRIDGE_TOKEN，并发送同值 Bearer Token。
                 </p>
             </section>
 
@@ -39,8 +39,8 @@ const Nonebot = () => {
                 </h2>
                 <pre className="bg-black/60 rounded-xl p-5 text-xs text-gray-300 overflow-x-auto border border-gray-800">
 {`GET  http://127.0.0.1:4399/health
-POST http://127.0.0.1:4399/login
-POST http://127.0.0.1:4399/fetch_grades`}
+POST http://127.0.0.1:4399/login        Authorization: Bearer $HBUT_BRIDGE_TOKEN
+POST http://127.0.0.1:4399/sync_grades  Authorization: Bearer $HBUT_BRIDGE_TOKEN`}
                 </pre>
                 <p className="text-sm text-gray-400">完整接口清单请参考「Tauri API 手册」。</p>
             </section>
@@ -51,18 +51,24 @@ POST http://127.0.0.1:4399/fetch_grades`}
                     NoneBot 调用示例
                 </h2>
                 <pre className="bg-black/60 rounded-xl p-5 text-xs text-gray-300 overflow-x-auto border border-gray-800">
-{`import httpx
+{`import os
+import httpx
 from nonebot import on_command
 
 cmd = on_command("成绩")
+token = os.environ["HBUT_BRIDGE_TOKEN"]
 
 @cmd.handle()
 async def handle():
+    headers = {"Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient() as client:
-        resp = await client.get("http://127.0.0.1:4399/fetch_grades")
-        if resp.status_code == 200:
-            data = resp.json()
-            await cmd.finish(f"GPA: {data.get('data', {}).get('gpa', '-')}")`}
+        resp = await client.post(
+            "http://127.0.0.1:4399/sync_grades",
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        await cmd.finish(f"课程数: {len(data.get('data', {}).get('grades', []))}")`}
                 </pre>
             </section>
 
@@ -72,8 +78,9 @@ async def handle():
                     安全与限频
                 </h2>
                 <ul className="list-disc list-inside text-gray-400 space-y-2">
-                    <li>桥接端口仅监听 127.0.0.1，外网访问需自行转发。</li>
-                    <li>涉及缓存读取的接口需要 JWT 或本地信任策略。</li>
+                    <li>Bridge 固定监听 127.0.0.1，不接受局域网或公网绑定。</li>
+                    <li>除 /health 和只读嵌入资源外，脚本请求必须携带 HBUT_BRIDGE_TOKEN。</li>
+                    <li>缓存 API 还会按接口要求校验 JWT scope。</li>
                     <li>高频任务建议加本地缓存，避免触发登录频率限制。</li>
                 </ul>
             </section>

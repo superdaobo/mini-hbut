@@ -127,15 +127,15 @@ npm run tauri ios build`}</code>
                         </div>
                     </div>
                     <p className="text-sm text-gray-400 mt-2">
-                        Bridge 仅监听本机，若需跨设备访问请通过安全通道转发并增加鉴权。
+                        Bridge 固定监听本机；除健康检查外，外部程序必须配置并发送 HBUT_BRIDGE_TOKEN。
                     </p>
 
                     <h3 className="text-lg font-bold text-white mt-4">常用接口</h3>
                     <pre className="bg-black/60 rounded-lg p-4 text-xs text-gray-300 overflow-x-auto">
                         <code>{`GET  /health          — 检查 Bridge 是否在线
 POST /login           — 触发登录
-POST /fetch_grades    — 获取最新成绩
-POST /fetch_schedule  — 获取课表
+POST /sync_grades     — 获取最新成绩
+POST /sync_schedule   — 获取课表
 POST /fetch_exams     — 获取考试安排
 POST /fetch_ranking   — 获取绩点排名`}</code>
                     </pre>
@@ -145,18 +145,24 @@ POST /fetch_ranking   — 获取绩点排名`}</code>
                         NoneBot 调用示例
                     </h3>
                     <pre className="bg-black/60 rounded-lg p-4 text-xs text-gray-300 overflow-x-auto">
-                        <code>{`import httpx
+                        <code>{`import os
+import httpx
 from nonebot import on_command
 
 cmd = on_command("成绩")
+token = os.environ["HBUT_BRIDGE_TOKEN"]
 
 @cmd.handle()
 async def handle():
+    headers = {"Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient() as client:
-        resp = await client.get("http://127.0.0.1:4399/fetch_grades")
-        if resp.status_code == 200:
-            data = resp.json()
-            await cmd.finish(f"GPA: {data.get('data', {}).get('gpa', '-')}")`}</code>
+        resp = await client.post(
+            "http://127.0.0.1:4399/sync_grades",
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        await cmd.finish(f"课程数: {len(data.get('data', {}).get('grades', []))}")`}</code>
                     </pre>
 
                     <h3 className="text-lg font-bold text-white mt-4">
@@ -167,11 +173,12 @@ async def handle():
                         <code>{`# 检查服务状态
 curl http://127.0.0.1:4399/health
 
-# 获取成绩
-curl -X POST http://127.0.0.1:4399/fetch_grades
+# 受保护接口：应用启动前需配置同值 HBUT_BRIDGE_TOKEN
+curl -X POST http://127.0.0.1:4399/sync_grades \
+  -H "Authorization: Bearer $HBUT_BRIDGE_TOKEN"
 
-# 获取课表
-curl -X POST http://127.0.0.1:4399/fetch_schedule`}</code>
+curl -X POST http://127.0.0.1:4399/sync_schedule \
+  -H "Authorization: Bearer $HBUT_BRIDGE_TOKEN"`}</code>
                     </pre>
 
                     <h3 className="text-lg font-bold text-white mt-4">
@@ -179,8 +186,9 @@ curl -X POST http://127.0.0.1:4399/fetch_schedule`}</code>
                         安全与限频
                     </h3>
                     <ul className="list-disc list-inside text-gray-300 space-y-1 text-sm">
-                        <li>Bridge 端口仅监听 127.0.0.1，外网访问需自行转发。</li>
-                        <li>涉及缓存读取的接口需要 JWT 或本地信任策略。</li>
+                        <li>Bridge 固定监听 127.0.0.1，不接受局域网或公网绑定。</li>
+                        <li>除 /health 和只读嵌入资源外，脚本必须携带 HBUT_BRIDGE_TOKEN。</li>
+                        <li>缓存 API 还会按接口要求校验 JWT scope。</li>
                         <li>高频任务建议加本地缓存，避免触发登录频率限制。</li>
                     </ul>
                 </div>

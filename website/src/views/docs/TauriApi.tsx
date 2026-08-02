@@ -1,4 +1,4 @@
-﻿import { Server, Shield, FileText, Database } from 'lucide-react';
+import { Server, Shield, FileText, Database } from 'lucide-react';
 
 const TauriApi = () => {
     return (
@@ -20,6 +20,8 @@ const TauriApi = () => {
                 <div className="p-6 rounded-xl bg-gray-900/60 border border-gray-800 space-y-2 text-gray-300">
                     <div>默认地址：<span className="text-cyan">http://127.0.0.1:4399</span></div>
                     <div>接口统一返回 ApiResponse：success / data / error / time。</div>
+                    <div><span className="text-cyan">/health</span> 可公开探测；其余业务接口要求可信应用 Origin，或 <span className="font-mono text-white">Authorization: Bearer $HBUT_BRIDGE_TOKEN</span>。</div>
+                    <div>外部脚本必须在启动应用前配置 HBUT_BRIDGE_TOKEN，并在每个受保护请求中发送同值令牌。</div>
                     <div>前端统一使用 /v2 语义调用，内部映射至 Bridge。</div>
                     <div>新增模块（图书/资料分享）已接入同一 Bridge 层，便于统一鉴权和日志追踪。</div>
                 </div>

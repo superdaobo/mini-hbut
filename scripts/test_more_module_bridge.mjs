@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
 const bridgeBase = process.env.BRIDGE_BASE || 'http://127.0.0.1:4399'
+const bridgeToken = String(process.env.HBUT_BRIDGE_TOKEN || process.env.DEBUG_TOKEN || '').trim()
 const moduleBase = process.env.MODULE_CDN_BASE || 'https://hbut.6661111.xyz/modules'
 const channel = process.env.MODULE_CHANNEL || 'latest'
 const moduleId = process.env.MODULE_ID || 'hecheng_hugongda'
@@ -112,6 +113,10 @@ const resolvePackageUrl = (manifestUrl, manifest) => {
 }
 
 const main = async () => {
+  assert.ok(
+    bridgeToken,
+    '受保护 Bridge 接口需要 HBUT_BRIDGE_TOKEN（或兼容的 DEBUG_TOKEN）'
+  )
   const catalogPayload = await fetchJson(`${moduleCatalogUrl}?ts=${Date.now()}`)
   const modules = Array.isArray(catalogPayload?.modules) ? catalogPayload.modules : []
   const target = modules.find((item) => item?.id === moduleId)
@@ -124,7 +129,10 @@ const main = async () => {
 
   const preparePayload = await fetchJson(`${bridgeBase}/module_bundle/prepare`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${bridgeToken}`
+    },
     body: JSON.stringify({
       channel,
       moduleId,

@@ -42,7 +42,7 @@ node scripts/check-design-tokens.mjs
 
 - 业务逻辑优先放在 `http_client/`、`modules/`，避免继续膨胀 `lib.rs`
 - 数据库访问集中在 `db.rs`；密码走 `credential_store.rs`
-- 新增 HTTP Bridge 路由必须评估鉴权（`HBUT_BRIDGE_TOKEN`）
+- 新增 HTTP Bridge 路由必须登记访问级别（PublicHealth / PublicEmbed / Protected / DebugOnly），默认按 Protected 处理
 - `cargo fmt` 后再提交；Clippy 全绿为长期目标，勿在未修复存量告警时强行 `-D warnings`
 
 ### 前端（`src/`）
@@ -65,7 +65,8 @@ node scripts/check-design-tokens.mjs
 | 变量 | 用途 |
 |------|------|
 | `HBUT_HTTP_BRIDGE_ENABLED=1` | 桌面 Release 下启动本地 Bridge；Tauri iOS Release 默认已开启 |
-| `HBUT_BRIDGE_TOKEN` | Bridge 敏感 API Bearer 令牌 |
+| `HBUT_BRIDGE_TOKEN` | CLI/自动化访问 Protected Bridge 路由时使用的兼容 Bearer 令牌；应用内 WebView 走可信 Origin |
+| `HBUT_HTTP_BRIDGE_PORT` | 调整 Loopback Bridge 端口；监听地址始终固定为 `127.0.0.1` |
 | `MINI_HBUT_INSECURE_TLS=1` | 禁用 TLS 校验（仅排障） |
 
 详见 [SECURITY.md](./SECURITY.md)。

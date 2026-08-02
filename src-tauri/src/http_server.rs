@@ -10,7 +10,9 @@
 //! - 返回体固定为 { success, data, error, time }
 
 use axum::body::{Body, Bytes};
+use axum::extract::Request;
 use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{
@@ -148,43 +150,28 @@ fn ensure_debug_bridge_enabled(
 }
 
 /// 登录、cookie 导出等敏感 Bridge 路由鉴权。
+///
+/// Router 中间件会先执行同一套策略；这里保留二次校验，避免未来将敏感 handler
+/// 挂载到未受保护的 Router 时静默失守。
 fn ensure_sensitive_bridge_auth(
     headers: &HeaderMap,
     state: &HttpState,
 ) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    if cfg!(debug_assertions) && debug_bridge::is_bridge_tools_enabled(&state.app) {
+    if has_explicit_untrusted_origin(headers) {
+        return Err(bridge_auth_error(
+            StatusCode::FORBIDDEN,
+            "请求 Origin 不在 Bridge 白名单",
+        ));
+    }
+
+    if has_trusted_bridge_context(headers) || bridge_token_matches(headers, state) {
         return Ok(());
     }
 
-    let expected = std::env::var("HBUT_BRIDGE_TOKEN")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-
-    let Some(expected) = expected else {
-        return Err(err(
-            StatusCode::FORBIDDEN,
-            "权限不足",
-            "敏感桥接 API 已禁用：请设置 HBUT_BRIDGE_TOKEN".to_string(),
-        ));
-    };
-
-    let token = extract_bearer(headers).ok_or_else(|| {
-        err(
-            StatusCode::UNAUTHORIZED,
-            "权限不足",
-            "缺少桥接令牌（Authorization: Bearer … 或 X-Local-Token）".to_string(),
-        )
-    })?;
-
-    if token != expected {
-        return Err(err(
-            StatusCode::UNAUTHORIZED,
-            "权限不足",
-            "桥接令牌无效".to_string(),
-        ));
-    }
-    Ok(())
+    Err(bridge_auth_error(
+        StatusCode::UNAUTHORIZED,
+        "缺少可信 WebView Origin 或有效 Bridge 令牌",
+    ))
 }
 
 fn is_allowed_cache_table(table: &str) -> bool {
@@ -272,23 +259,224 @@ use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use rand::Rng;
+use rand::{Rng, RngCore};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::ErrorKind;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, RwLock};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 
 #[derive(Clone)]
 struct HttpState {
     client: Arc<RwLock<HbutClient>>,
     local_api_key: Option<DecodingKey>,
+    bridge_token: Arc<str>,
     app: AppHandle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BridgeRoutePolicy {
+    PublicHealth,
+    PublicEmbed,
+    Protected,
+    DebugOnly,
+}
+
+fn bridge_route_policy(path: &str) -> BridgeRoutePolicy {
+    if path == "/health" {
+        BridgeRoutePolicy::PublicHealth
+    } else if path.starts_with("/module_bundle/content/")
+        || path == "/school-website"
+        || path == "/school-website/"
+        || path.starts_with("/school-website/")
+    {
+        // 这些 URL 会作为子 WebView 的顶层导航地址，请求可能没有 Origin。
+        // 仅允许 GET/HEAD，且不得携带显式不可信 Origin。
+        BridgeRoutePolicy::PublicEmbed
+    } else if path.starts_with("/debug/") || path.starts_with("/campus-guide-debug/") {
+        BridgeRoutePolicy::DebugOnly
+    } else {
+        BridgeRoutePolicy::Protected
+    }
+}
+
+fn generate_bridge_session_token() -> Arc<str> {
+    let mut bytes = [0_u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    Arc::<str>::from(general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn tokens_equal(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.as_bytes()
+        .iter()
+        .zip(right.as_bytes())
+        .fold(0_u8, |diff, (a, b)| diff | (a ^ b))
+        == 0
+}
+
+fn configured_bridge_token() -> Option<String> {
+    std::env::var("HBUT_BRIDGE_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn is_trusted_bridge_origin(raw: &str) -> bool {
+    let value = raw.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("null") {
+        return false;
+    }
+
+    let Ok(url) = url::Url::parse(value) else {
+        return false;
+    };
+    let scheme = url.scheme().to_ascii_lowercase();
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+
+    match scheme.as_str() {
+        "tauri" | "capacitor" => host == "localhost",
+        "http" | "https" => matches!(
+            host.as_str(),
+            "localhost" | "127.0.0.1" | "::1" | "tauri.localhost"
+        ),
+        _ => false,
+    }
+}
+
+fn has_explicit_untrusted_origin(headers: &HeaderMap) -> bool {
+    headers
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| !is_trusted_bridge_origin(origin))
+}
+
+fn has_trusted_bridge_context(headers: &HeaderMap) -> bool {
+    if let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) {
+        return is_trusted_bridge_origin(origin);
+    }
+
+    headers
+        .get("referer")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(is_trusted_bridge_origin)
+}
+
+fn bridge_token_matches(headers: &HeaderMap, state: &HttpState) -> bool {
+    let Some(provided) = extract_bearer(headers) else {
+        return false;
+    };
+
+    tokens_equal(&provided, state.bridge_token.as_ref())
+        || configured_bridge_token()
+            .as_deref()
+            .is_some_and(|expected| tokens_equal(&provided, expected))
+}
+
+fn bridge_auth_error(
+    status: StatusCode,
+    message: &str,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    err(status, "权限不足", message.to_string())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BridgeAccessDecision {
+    Allow,
+    Unauthorized,
+    ForbiddenOrigin,
+    DebugRouteUnavailable,
+}
+
+fn decide_bridge_access(
+    policy: BridgeRoutePolicy,
+    method: &Method,
+    headers: &HeaderMap,
+    token_valid: bool,
+    debug_build: bool,
+) -> BridgeAccessDecision {
+    if policy == BridgeRoutePolicy::PublicHealth && matches!(*method, Method::GET | Method::HEAD) {
+        return BridgeAccessDecision::Allow;
+    }
+
+    if policy == BridgeRoutePolicy::DebugOnly && !debug_build {
+        return BridgeAccessDecision::DebugRouteUnavailable;
+    }
+
+    if has_explicit_untrusted_origin(headers) {
+        return BridgeAccessDecision::ForbiddenOrigin;
+    }
+
+    if policy == BridgeRoutePolicy::PublicEmbed && matches!(*method, Method::GET | Method::HEAD) {
+        return BridgeAccessDecision::Allow;
+    }
+
+    if has_trusted_bridge_context(headers) || token_valid {
+        BridgeAccessDecision::Allow
+    } else {
+        BridgeAccessDecision::Unauthorized
+    }
+}
+
+async fn bridge_access_middleware(
+    State(state): State<HttpState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path().to_string();
+    let method = request.method().clone();
+    let policy = bridge_route_policy(&path);
+
+    let token_valid = bridge_token_matches(request.headers(), &state);
+    match decide_bridge_access(
+        policy,
+        &method,
+        request.headers(),
+        token_valid,
+        cfg!(debug_assertions),
+    ) {
+        BridgeAccessDecision::Allow => next.run(request).await,
+        BridgeAccessDecision::Unauthorized => bridge_auth_error(
+            StatusCode::UNAUTHORIZED,
+            "缺少可信 WebView Origin 或有效 Bridge 令牌",
+        )
+        .into_response(),
+        BridgeAccessDecision::ForbiddenOrigin => {
+            bridge_auth_error(StatusCode::FORBIDDEN, "请求 Origin 不在 Bridge 白名单")
+                .into_response()
+        }
+        BridgeAccessDecision::DebugRouteUnavailable => {
+            bridge_auth_error(StatusCode::NOT_FOUND, "调试路由在 Release 构建中不存在")
+                .into_response()
+        }
+    }
+}
+
+fn bridge_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+            origin
+                .to_str()
+                .map(is_trusted_bridge_origin)
+                .unwrap_or(false)
+        }))
+        .allow_methods([
+            Method::GET,
+            Method::HEAD,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(AllowHeaders::mirror_request())
 }
 
 #[derive(Debug, Deserialize)]
@@ -556,17 +744,17 @@ pub fn is_http_bridge_enabled() -> bool {
             .unwrap_or(false)
 }
 
-/// 解析 Bridge 监听地址（默认 `127.0.0.1:4399`）。
+/// 解析 Bridge 监听地址（固定 Loopback，端口默认 `4399`）。
+///
+/// `HBUT_HTTP_BRIDGE_HOST` 已被有意忽略，避免 Release 或误配置将 Bridge 暴露到
+/// 局域网/公网。端口仍可通过 `HBUT_HTTP_BRIDGE_PORT` 调整。
 pub fn bridge_listen_addr() -> SocketAddr {
     let port = std::env::var("HBUT_HTTP_BRIDGE_PORT")
         .ok()
-        .and_then(|v| v.parse::<u16>().ok())
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|port| *port != 0)
         .unwrap_or(4399);
-    let host = std::env::var("HBUT_HTTP_BRIDGE_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let ip: IpAddr = host
-        .parse()
-        .unwrap_or_else(|_| IpAddr::from([127, 0, 0, 1]));
-    SocketAddr::from((ip, port))
+    SocketAddr::from(([127, 0, 0, 1], port))
 }
 
 /// `ensure_http_bridge` / 前端 resume 探测共用的状态字段。
@@ -657,6 +845,7 @@ pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
     let state = HttpState {
         client,
         local_api_key: load_local_api_public_key(),
+        bridge_token: generate_bridge_session_token(),
         app,
     };
     let gen = life
@@ -771,6 +960,35 @@ pub async fn ensure_http_bridge(
     })
 }
 
+#[cfg(debug_assertions)]
+fn debug_routes() -> Router<HttpState> {
+    Router::new()
+        .route(
+            "/debug/custom_schedule/upsert",
+            post(debug_custom_schedule_upsert),
+        )
+        .route("/debug/navigate", post(debug_navigate))
+        .route("/debug/open_module", post(debug_open_module))
+        .route("/debug/reset_more_modules", post(debug_reset_more_modules))
+        .route("/debug/screenshot", post(debug_screenshot))
+        .route("/debug/dom_screenshot", post(debug_dom_screenshot))
+        .route("/debug/state", get(debug_state))
+        .route("/debug/save_export_file", post(debug_save_export_file))
+        .route("/debug/logs", get(debug_logs_get).delete(debug_logs_clear))
+        .route("/debug/logs/query", post(debug_logs_query))
+        .route("/debug/logs/push", post(debug_logs_push))
+        .route("/debug/diag", get(debug_diag))
+        .route("/debug/routes", get(debug_routes_list))
+        .route("/debug/chaoxing/session", post(debug_chaoxing_session))
+        .route("/debug/chaoxing/courses", post(debug_chaoxing_courses))
+        .route("/debug/inbox", post(debug_inbox_fetch))
+        .route("/campus-guide-debug/probe", post(campus_guide_debug_probe))
+        .route(
+            "/campus-guide-debug/field-matrix",
+            get(campus_guide_debug_field_matrix),
+        )
+}
+
 async fn run_http_server(
     state: HttpState,
     generation: u64,
@@ -778,7 +996,7 @@ async fn run_http_server(
     let addr = bridge_listen_addr();
     let life = bridge_lifecycle();
 
-    let app = Router::new()
+    let app: Router<HttpState> = Router::new()
         .route("/health", get(health))
         .route("/login", post(login))
         .route("/restore_session", post(restore_session))
@@ -791,26 +1009,6 @@ async fn run_http_server(
         .route("/schedule/custom/add", post(schedule_custom_add))
         .route("/schedule/custom/delete", post(schedule_custom_delete))
         .route("/schedule/custom/update", post(schedule_custom_update))
-        .route(
-            "/debug/custom_schedule/upsert",
-            post(debug_custom_schedule_upsert),
-        )
-        .route("/debug/navigate", post(debug_navigate))
-        .route("/debug/open_module", post(debug_open_module))
-        .route("/debug/reset_more_modules", post(debug_reset_more_modules))
-        .route("/debug/screenshot", post(debug_screenshot))
-        .route("/debug/dom_screenshot", post(debug_dom_screenshot))
-        .route("/debug/state", get(debug_state))
-        .route("/debug/save_export_file", post(debug_save_export_file))
-        // 运行时调试日志 / 诊断（本机 agent / curl 直接拉）
-        .route("/debug/logs", get(debug_logs_get).delete(debug_logs_clear))
-        .route("/debug/logs/query", post(debug_logs_query))
-        .route("/debug/logs/push", post(debug_logs_push))
-        .route("/debug/diag", get(debug_diag))
-        .route("/debug/routes", get(debug_routes_list))
-        .route("/debug/chaoxing/session", post(debug_chaoxing_session))
-        .route("/debug/chaoxing/courses", post(debug_chaoxing_courses))
-        .route("/debug/inbox", post(debug_inbox_fetch))
         .route("/module_bundle/prepare", post(module_bundle_prepare))
         .route("/module_bundle/open", post(module_bundle_open))
         .route(
@@ -1001,11 +1199,6 @@ async fn run_http_server(
         .route("/towergo/*path", any(towergo_proxy))
         .route("/campus-map/direction", get(campus_map_direction_proxy))
         .route("/campus-guide/*path", any(campus_guide_proxy))
-        .route("/campus-guide-debug/probe", post(campus_guide_debug_probe))
-        .route(
-            "/campus-guide-debug/field-matrix",
-            get(campus_guide_debug_field_matrix),
-        )
         .route("/school-website", any(school_website_proxy_root))
         .route("/school-website/", any(school_website_proxy_root))
         .route("/school-website/*path", any(school_website_proxy))
@@ -1036,14 +1229,18 @@ async fn run_http_server(
         .route("/ai_chat_session/new", post(ai_chat_session_new))
         .route("/ai_chat_session/history", post(ai_chat_session_history))
         .route("/ai_chat_session/messages", post(ai_chat_session_messages))
-        .route("/ai_chat_session/delete", post(ai_chat_session_delete))
-        .with_state(state)
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        );
+        .route("/ai_chat_session/delete", post(ai_chat_session_delete));
+
+    #[cfg(debug_assertions)]
+    let app = app.merge(debug_routes());
+
+    let app = app
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(
+            state,
+            bridge_access_middleware,
+        ))
+        .layer(bridge_cors_layer());
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => listener,
@@ -1087,18 +1284,155 @@ async fn run_http_server(
 
 #[cfg(test)]
 mod ensure_http_bridge_tests {
-    use super::{bridge_listen_addr, is_http_bridge_enabled, EnsureHttpBridgeResult};
+    use super::{
+        bridge_listen_addr, bridge_route_policy, decide_bridge_access, is_http_bridge_enabled,
+        is_trusted_bridge_origin, tokens_equal, BridgeAccessDecision, BridgeRoutePolicy,
+        EnsureHttpBridgeResult,
+    };
+    use axum::http::Method;
+    use reqwest::header::{HeaderMap, HeaderValue};
 
     #[test]
     fn bridge_listen_addr_defaults_to_loopback_4399() {
         let addr = bridge_listen_addr();
         assert!(addr.port() > 0, "bridge port must be non-zero");
-        let _ = addr.ip();
+        assert!(addr.ip().is_loopback(), "bridge must stay on loopback");
+        assert_eq!(addr.ip().to_string(), "127.0.0.1");
     }
 
     #[test]
     fn is_http_bridge_enabled_is_deterministic_bool() {
         let _ = is_http_bridge_enabled();
+    }
+
+    #[test]
+    fn trusted_origins_are_limited_to_app_and_loopback_contexts() {
+        for origin in [
+            "tauri://localhost",
+            "capacitor://localhost",
+            "http://localhost:5173",
+            "http://127.0.0.1:4399",
+            "https://tauri.localhost",
+        ] {
+            assert!(
+                is_trusted_bridge_origin(origin),
+                "expected trusted: {origin}"
+            );
+        }
+        for origin in [
+            "null",
+            "https://example.com",
+            "http://192.168.1.10:5173",
+            "file:///tmp/index.html",
+        ] {
+            assert!(
+                !is_trusted_bridge_origin(origin),
+                "expected rejected: {origin}"
+            );
+        }
+    }
+
+    #[test]
+    fn route_policy_protects_data_and_marks_debug_routes() {
+        assert_eq!(
+            bridge_route_policy("/health"),
+            BridgeRoutePolicy::PublicHealth
+        );
+        assert_eq!(
+            bridge_route_policy("/module_bundle/content/stable/demo/1/index.html"),
+            BridgeRoutePolicy::PublicEmbed
+        );
+        assert_eq!(
+            bridge_route_policy("/sync_grades"),
+            BridgeRoutePolicy::Protected
+        );
+        assert_eq!(
+            bridge_route_policy("/course_selection/select"),
+            BridgeRoutePolicy::Protected
+        );
+        assert_eq!(
+            bridge_route_policy("/debug/state"),
+            BridgeRoutePolicy::DebugOnly
+        );
+    }
+
+    #[test]
+    fn access_decision_rejects_unauthorized_and_untrusted_requests() {
+        let empty = HeaderMap::new();
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::POST,
+                &empty,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::Unauthorized
+        );
+
+        let mut hostile = HeaderMap::new();
+        hostile.insert(
+            "origin",
+            HeaderValue::from_static("https://attacker.example"),
+        );
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::POST,
+                &hostile,
+                true,
+                true,
+            ),
+            BridgeAccessDecision::ForbiddenOrigin
+        );
+    }
+
+    #[test]
+    fn access_decision_accepts_trusted_origin_or_valid_token() {
+        let mut trusted = HeaderMap::new();
+        trusted.insert("origin", HeaderValue::from_static("tauri://localhost"));
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::POST,
+                &trusted,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::Allow
+        );
+
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::POST,
+                &HeaderMap::new(),
+                true,
+                true,
+            ),
+            BridgeAccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn access_decision_hides_debug_routes_in_release() {
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::DebugOnly,
+                &Method::GET,
+                &HeaderMap::new(),
+                true,
+                false,
+            ),
+            BridgeAccessDecision::DebugRouteUnavailable
+        );
+    }
+
+    #[test]
+    fn bridge_token_comparison_checks_length_and_content() {
+        assert!(tokens_equal("same-token", "same-token"));
+        assert!(!tokens_equal("same-token", "other-token"));
+        assert!(!tokens_equal("short", "longer"));
     }
 
     #[test]
@@ -2180,11 +2514,7 @@ async fn debug_open_module(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_bridge_enabled(&state)?;
-    if state.local_api_key.is_some() {
-        ensure_local_cache_auth(&headers, &state)?;
-    } else {
-        eprintln!("[DebugBridge] debug_open_module skipped auth: local_api_key not configured");
-    }
+    ensure_sensitive_bridge_auth(&headers, &state)?;
     match debug_bridge::request_debug_open_module(&state.app, req, 12_000).await {
         Ok(()) => Ok(ok(serde_json::json!({
             "opened": true
@@ -2212,11 +2542,7 @@ async fn debug_screenshot(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_bridge_enabled(&state)?;
-    if state.local_api_key.is_some() {
-        ensure_local_cache_auth(&headers, &state)?;
-    } else {
-        eprintln!("[DebugBridge] debug_screenshot skipped auth: local_api_key not configured");
-    }
+    ensure_sensitive_bridge_auth(&headers, &state)?;
 
     match debug_bridge::capture_native_debug_screenshot(&state.app, req) {
         Ok(result) => Ok(ok(serde_json::json!({
@@ -2238,11 +2564,7 @@ async fn debug_dom_screenshot(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_bridge_enabled(&state)?;
-    if state.local_api_key.is_some() {
-        ensure_local_cache_auth(&headers, &state)?;
-    } else {
-        eprintln!("[DebugBridge] debug_screenshot skipped auth: local_api_key not configured");
-    }
+    ensure_sensitive_bridge_auth(&headers, &state)?;
     match debug_bridge::request_debug_screenshot(&state.app, req, 15_000).await {
         Ok(result) => {
             eprintln!(
@@ -2287,12 +2609,16 @@ struct DebugLogsQuery {
     q: Option<String>,
 }
 
-/// 调试接口：默认在 debug 构建可用；release 仍要求 enable_bridge_tools
+/// 调试接口只会在 debug 构建的 Router 中注册。
 fn ensure_debug_or_dev(
     state: &HttpState,
 ) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    if cfg!(debug_assertions) {
-        return Ok(());
+    if !cfg!(debug_assertions) {
+        return Err(err(
+            StatusCode::NOT_FOUND,
+            "调试接口不可用",
+            "Debug routes are not compiled into the Release router".to_string(),
+        ));
     }
     ensure_debug_bridge_enabled(state)
 }
@@ -2519,11 +2845,7 @@ async fn debug_state(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_bridge_enabled(&state)?;
-    if state.local_api_key.is_some() {
-        ensure_local_cache_auth(&headers, &state)?;
-    } else {
-        eprintln!("[DebugBridge] debug_state skipped auth: local_api_key not configured");
-    }
+    ensure_sensitive_bridge_auth(&headers, &state)?;
 
     match debug_bridge::request_debug_state(&state.app, DebugStateRequest::default(), 8_000).await {
         Ok(result) => Ok(ok(result.state)),
@@ -2552,13 +2874,7 @@ async fn debug_reset_more_modules(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_bridge_enabled(&state)?;
-    if state.local_api_key.is_some() {
-        ensure_local_cache_auth(&headers, &state)?;
-    } else {
-        eprintln!(
-            "[DebugBridge] debug_reset_more_modules skipped auth: local_api_key not configured"
-        );
-    }
+    ensure_sensitive_bridge_auth(&headers, &state)?;
 
     let request = payload
         .map(|json| json.0)
@@ -2623,11 +2939,7 @@ async fn debug_navigate(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_bridge_enabled(&state)?;
-    if state.local_api_key.is_some() {
-        ensure_local_cache_auth(&headers, &state)?;
-    } else {
-        eprintln!("[DebugBridge] debug_navigate skipped auth: local_api_key not configured");
-    }
+    ensure_sensitive_bridge_auth(&headers, &state)?;
 
     let view = req.view.trim().to_string();
     if view.is_empty() {
@@ -2677,13 +2989,7 @@ async fn debug_save_export_file(
     (StatusCode, Json<ApiResponse<serde_json::Value>>),
 > {
     ensure_debug_bridge_enabled(&state)?;
-    if state.local_api_key.is_some() {
-        ensure_local_cache_auth(&headers, &state)?;
-    } else {
-        eprintln!(
-            "[DebugBridge] debug_save_export_file skipped auth: local_api_key not configured"
-        );
-    }
+    ensure_sensitive_bridge_auth(&headers, &state)?;
 
     crate::save_export_file_impl(state.app.clone(), req)
         .map(ok)

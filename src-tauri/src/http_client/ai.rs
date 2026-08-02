@@ -20,6 +20,7 @@ impl HbutClient {
             "https%3A%2F%2Fhub.17wanxiao.com%2Fbsacs%2Fdklight.action%3Fstate%3Dbjdk_hbgy_dk_echar",
         ];
 
+        #[cfg(debug_assertions)]
         fn find_entry_url_in_text(text: &str) -> Option<String> {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
                 if let Some(arr) = json.as_array() {
@@ -70,11 +71,14 @@ impl HbutClient {
         fn load_entry_url_template() -> Option<String> {
             let mut dir = std::env::current_dir().ok()?;
             for _ in 0..=6 {
-                let candidate = dir.join("captured_requests.json");
-                if candidate.exists() {
-                    if let Ok(text) = std::fs::read_to_string(candidate) {
-                        if let Some(url) = find_entry_url_in_text(&text) {
-                            return Some(url);
+                #[cfg(debug_assertions)]
+                {
+                    let candidate = dir.join("captured_requests.json");
+                    if candidate.exists() {
+                        if let Ok(text) = std::fs::read_to_string(candidate) {
+                            if let Some(url) = find_entry_url_in_text(&text) {
+                                return Some(url);
+                            }
                         }
                     }
                 }

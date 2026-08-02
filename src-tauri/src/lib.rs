@@ -6900,6 +6900,7 @@ pub fn run() {
                 eprintln!("初始化数据库失败: {}", e);
             }
 
+            #[cfg(debug_assertions)]
             fn find_file_in_parents(
                 file_name: &str,
                 max_depth: usize,
@@ -6929,6 +6930,7 @@ pub fn run() {
                 }
             }
 
+            #[cfg(debug_assertions)]
             fn clean_cookie_string(raw: &str) -> String {
                 raw.replace("Code:", "")
                     .replace("Auth:", "")
@@ -6938,6 +6940,7 @@ pub fn run() {
                     .to_string()
             }
 
+            #[cfg(debug_assertions)]
             fn read_access_token_from_capture(paths: &[std::path::PathBuf]) -> Option<String> {
                 let token_re = regex::Regex::new(r#"\"accessToken\"\s*:\s*\"([^\"]+)\""#).ok()?;
                 let auth_re = regex::Regex::new(r#"\"authorization\"\s*:\s*\"([^\"]+)\""#).ok()?;
@@ -7042,6 +7045,7 @@ pub fn run() {
                     client.hydrate_session_cookies_from_store(None);
                 });
             }
+            #[cfg(debug_assertions)]
             if !restored_any {
                 if let Some(path) = find_file_in_parents("rust_backend_session.json", 6) {
                     if let Ok(text) = std::fs::read_to_string(path) {
@@ -7108,6 +7112,7 @@ pub fn run() {
                     }
                 }
             }
+            #[cfg(debug_assertions)]
             if !token_loaded {
                 let mut capture_paths: Vec<std::path::PathBuf> = Vec::new();
                 if let Some(path) = find_file_in_parents("captured_requests1.json", 6) {
@@ -7124,7 +7129,10 @@ pub fn run() {
                     });
                 }
             }
-            // 启动本地 HTTP 测试桥接服务（用于外部 Python 验证脚本）
+            #[cfg(not(debug_assertions))]
+            let _ = (restored_any, token_loaded);
+
+            // 启动本地 HTTP Bridge 服务；具体平台/构建开关由 http_server 统一判断。
             let client = app.state::<AppState>().client.clone();
             crate::http_server::spawn_http_server(client, app.handle().clone());
             Ok(())
