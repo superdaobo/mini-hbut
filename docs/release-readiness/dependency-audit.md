@@ -43,6 +43,11 @@ GitHub Dependabot 在阶段开始时报告 29 条开放告警：
 
 - `rqrr` 从 `0.9.3` 升级到 `0.10.1`，使 `lru` 从 `0.12.5` 升级到 `0.16.4`，修复 RUSTSEC 对应的迭代器别名问题。
 - `rand 0.9.2` 升级到 `0.9.3`。
+- `crossbeam-epoch 0.9.18` 升级到 `0.9.20`，修复 RUSTSEC-2026-0204。
+- `anyhow 1.0.100`、`event-listener 5.4.1`、`memmap2 0.9.10` 分别升级到 `1.0.103`、`5.4.2`、`0.9.11`，消除对应的 unsound 告警。
+- `plist 1.8.0` 升级到 `1.10.0`，将其 XML 解析器升级到 `quick-xml 0.41.0`。
+- `wayland-scanner 0.31.8` 升级到 `0.31.11`，将 Wayland 构建期 XML 解析器升级到 `quick-xml 0.41.0`。
+- 使用官方预编译并校验 SHA-256 的 `cargo-audit 0.22.2` 对 788 个锁定依赖复核：应用四项精确接受后无未接受 vulnerability；当前 advisory 数据库另报告 18 条 `unmaintained` 维护性警告，主要来自 Tauri Linux GTK3 与旧文本处理传递链，继续由每周审计跟踪。
 
 ## 临时接受的 Rust 传递风险
 
@@ -62,13 +67,23 @@ GitHub Dependabot 在阶段开始时报告 29 条开放告警：
 - 原因：仅为构建依赖，应用运行时直接使用的 rand 已为 0.8.7/0.9.3；上游旧选择器链尚未迁移。
 - 缓解：不使用自定义 logger 调用该构建依赖的 `rand::rng()`；持续跟随 Tauri 工具链升级。
 
-上述两项使用明确 RustSec ID 配置在审计工作流中，任何新增 advisory 仍会使 CI 失败。
+### RUSTSEC-2026-0194 与 RUSTSEC-2026-0195
+
+- 依赖：`quick-xml 0.30.0`，唯一父依赖为 Linux `xcb 1.7.0` 的 build-dependency。
+- 作用域：仅在编译 `xcb` 时解析 crate 自带的 XCB 协议 XML，不接触用户或网络输入。
+- 依赖：`quick-xml 0.37.5`，唯一父依赖为 `tauri-winrt-notification 0.7.2`。
+- 作用域：该版本在通知库中只调用 `quick_xml::escape::escape` 生成 Toast XML，不调用受影响的 Reader、Attributes 或 Namespace 解析路径。
+- 已消除的解析链：`plist` 与 `wayland-scanner` 均已升级并统一使用 `quick-xml 0.41.0`。
+- 退出条件：`xcb` 发布使用 `quick-xml >= 0.41` 的版本，或 `notify-rust` 迁移到已移除 quick-xml 的 `tauri-winrt-notification >= 0.8.1` 后立即删除接受项。
+
+四项接受均使用明确 RustSec ID。`scripts/verify_rustsec_acceptances.mjs` 同时冻结受影响版本、唯一父链和 build/normal 边类型；若依赖图新增其他使用方、旧解析器重新出现或修复版本回退，CI 会在运行 `cargo audit` 前失败。
 
 ## 自动化门禁
 
 - `npm run check:dependency-alignment`：验证平台工具链版本、锁文件实际版本和最低安全版本。
 - `npm run audit:dependencies`：依次审计根目录、官网和 12 个模块锁文件。
-- `.github/workflows/dependency-audit.yml`：PR、main、每周定时和手动触发，执行 NPM 全锁文件审计与 RustSec。
+- `npm run check:rustsec-acceptances`：通过 Cargo 元数据验证补丁版本、临时接受版本和唯一父链。
+- `.github/workflows/dependency-audit.yml`：PR、main、每周定时和手动触发，使用固定 `cargo-audit 0.22.2` 执行 NPM 全锁文件审计与 RustSec；工作流不申请 Check 写权限。
 
 ## 发布约束
 

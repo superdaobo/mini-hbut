@@ -3,6 +3,7 @@ import { runCheckPlan, runCommand, runNode, runNpm, rustChecksEnabled, repoRoot 
 
 const steps = [
   () => runNpm('Dependency alignment', ['run', 'check:dependency-alignment']),
+  () => runNpm('RustSec acceptance scope', ['run', 'check:rustsec-acceptances']),
   () => runNpm('Frontend production build', ['run', 'build']),
   () => runNpm('Frontend test suite', ['run', 'test:ci']),
   () => runNpm('Vue CI typecheck', ['exec', '--', 'vue-tsc', '--noEmit', '-p', 'tsconfig.ci.json']),

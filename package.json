@@ -37,6 +37,7 @@
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios",
     "check:dependency-alignment": "node scripts/check_dependency_alignment.mjs",
+    "check:rustsec-acceptances": "node scripts/verify_rustsec_acceptances.mjs",
     "audit:dependencies": "node scripts/audit_dependencies.mjs",
     "check:all": "node scripts/check_all.mjs",
     "check:release": "node scripts/check_release.mjs",
