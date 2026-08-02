@@ -21,8 +21,10 @@
 
 - **密码存储**：用户密码保存在操作系统密钥环（`keyring`），SQLite 不保存可逆密码。
 - **TLS**：Release 构建默认校验证书；仅 Debug 或显式设置 `MINI_HBUT_INSECURE_TLS=1` 时放宽。
-- **本地 HTTP Bridge（:4399）**：桌面 Release 默认不启动，启用需 `HBUT_HTTP_BRIDGE_ENABLED=1`；**Tauri iOS Release 为内嵌小游戏/学校官网默认开启** loopback Bridge。敏感路由需 `HBUT_BRIDGE_TOKEN`。
-- **调试接口**：`debug.enable_bridge_tools` 等能力仅在受控调试环境使用，勿在生产分发包中开启。
+- **本地 HTTP Bridge（:4399）**：固定绑定 `127.0.0.1`，忽略外部 Host 配置；桌面 Release 默认不启动，Tauri iOS Release 因内嵌页面依赖可启用。除健康检查和受控的只读嵌入资源外，请求必须来自可信 Tauri/Capacitor/Loopback Origin，或携带有效 Bridge Bearer 令牌。
+- **Bridge CORS**：仅回显 `tauri://localhost`、`capacitor://localhost` 和 Loopback 开发 Origin；任意公网、局域网和 `null` Origin 均被拒绝。
+- **调试接口**：`/debug/*` 与 `/campus-guide-debug/*` 只在 Debug Router 中注册，Release Router 不包含这些路由；抓包文件和 `rust_backend_session.json` 也只允许 Debug 构建读取。
+- **WebView 安全**：Tauri CSP 明确限制脚本、连接、Frame、对象和表单来源；Capability 仅授予主窗口实际使用的通知、外链和子 WebView 权限。
 - **签名密钥**：Android 发布密钥仅通过 CI Secrets 注入，勿提交 `.jks` / `keystore-base64.txt`。
 
 ## 质量门禁（DevSecOps）
