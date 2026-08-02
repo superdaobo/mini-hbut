@@ -50,6 +50,7 @@ EXCLUDE_GLOBS = [
     "AGENTS.md",
 ]
 EXCLUDE_DIRS = [
+    ".reasonix",
     "tools",
     "src-tauri/exports",
 ]
@@ -229,6 +230,17 @@ def get_current_version() -> str:
     return str(data.get("version", "1.0.0"))
 
 
+def replace_version_once(
+    path: Path, pattern: str, replacement: str, *, label: str, flags: int = 0
+) -> None:
+    content = read_text(path)
+    updated, count = re.subn(pattern, replacement, content, count=1, flags=flags)
+    if count != 1:
+        raise RuntimeError(f"{label} 版本字段匹配数量异常: {count}")
+    write_text(path, updated)
+    print(f"  [OK] {label}")
+
+
 def update_version_files(new_version: str) -> None:
     print(f"\n[STEP] 更新版本号到 {new_version}")
 
@@ -238,23 +250,39 @@ def update_version_files(new_version: str) -> None:
     write_json(package_json, package_data)
     print("  [OK] package.json")
 
+    package_lock = PROJECT_DIR / "package-lock.json"
+    package_lock_data = read_json(package_lock)
+    package_lock_data["version"] = new_version
+    root_package = package_lock_data.setdefault("packages", {}).setdefault("", {})
+    root_package["version"] = new_version
+    write_json(package_lock, package_lock_data)
+    print("  [OK] package-lock.json")
+
     tauri_conf = PROJECT_DIR / "src-tauri" / "tauri.conf.json"
     tauri_data = read_json(tauri_conf)
     tauri_data["version"] = new_version
     write_json(tauri_conf, tauri_data)
     print("  [OK] src-tauri/tauri.conf.json")
 
-    cargo_toml = PROJECT_DIR / "src-tauri" / "Cargo.toml"
-    cargo_text = read_text(cargo_toml)
-    cargo_text = re.sub(
+    replace_version_once(
+        PROJECT_DIR / "src-tauri" / "Cargo.toml",
         r'^version\s*=\s*"[^"]+"',
         f'version = "{new_version}"',
-        cargo_text,
-        count=1,
+        label="src-tauri/Cargo.toml",
         flags=re.MULTILINE,
     )
-    write_text(cargo_toml, cargo_text)
-    print("  [OK] src-tauri/Cargo.toml")
+    replace_version_once(
+        PROJECT_DIR / "src-tauri" / "Cargo.lock",
+        r'(\[\[package\]\]\r?\nname = "hbut-helper"\r?\nversion = ")[^"]+("\r?\n)',
+        rf'\g<1>{new_version}\g<2>',
+        label="src-tauri/Cargo.lock",
+    )
+    replace_version_once(
+        PROJECT_DIR / "scripts" / "verify_release_config.mjs",
+        r"const expected = '[^']+'",
+        f"const expected = '{new_version}'",
+        label="scripts/verify_release_config.mjs",
+    )
 
 
 def collect_excluded_paths() -> list[str]:

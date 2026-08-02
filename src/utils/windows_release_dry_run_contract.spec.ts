@@ -4,6 +4,7 @@ import path from 'node:path'
 
 const root = process.cwd()
 const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n?/g, '\n')
+const frozenVersion = read('scripts/verify_release_config.mjs').match(/const expected = '([^']+)'/)?.[1]
 
 describe('Windows release dry run', () => {
   it('builds a release-profile NSIS artifact with read-only repository permissions', () => {
@@ -49,12 +50,13 @@ describe('Windows release dry run', () => {
     expect(smoke).not.toContain("Get-Process -Name 'hbut-helper'")
   })
 
-  it('keeps all release version sources frozen at 1.4.4', () => {
+  it('keeps all release version sources synchronized with the tracked frozen version', () => {
     const packageJson = JSON.parse(read('package.json'))
     const tauriConfig = JSON.parse(read('src-tauri/tauri.conf.json'))
     const cargoToml = read('src-tauri/Cargo.toml')
-    expect(packageJson.version).toBe('1.4.4')
-    expect(tauriConfig.version).toBe('1.4.4')
-    expect(cargoToml).toMatch(/^version\s*=\s*"1\.4\.4"/m)
+    expect(frozenVersion).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(packageJson.version).toBe(frozenVersion)
+    expect(tauriConfig.version).toBe(frozenVersion)
+    expect(cargoToml).toContain(`version = "${frozenVersion}"`)
   })
 })

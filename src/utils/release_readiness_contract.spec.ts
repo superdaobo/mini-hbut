@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 const root = process.cwd()
 const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), 'utf8')
 const temporaryDirectories: string[] = []
+const frozenVersion = read('scripts/verify_release_config.mjs').match(/const expected = '([^']+)'/)?.[1]
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -15,11 +16,17 @@ afterEach(() => {
 })
 
 describe('release readiness gates', () => {
-  it('publishes unified check commands without changing the app version', () => {
+  it('publishes unified check commands and keeps all app versions synchronized', () => {
     const packageJson = JSON.parse(read('package.json'))
     const tauriConfig = JSON.parse(read('src-tauri/tauri.conf.json'))
-    expect(packageJson.version).toBe('1.4.4')
-    expect(tauriConfig.version).toBe('1.4.4')
+    const cargoToml = read('src-tauri/Cargo.toml')
+    const packageLock = JSON.parse(read('package-lock.json'))
+    expect(frozenVersion).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(packageJson.version).toBe(frozenVersion)
+    expect(packageLock.version).toBe(frozenVersion)
+    expect(packageLock.packages[''].version).toBe(frozenVersion)
+    expect(tauriConfig.version).toBe(frozenVersion)
+    expect(cargoToml).toContain(`version = "${frozenVersion}"`)
     expect(packageJson.scripts['check:all']).toBe('node scripts/check_all.mjs')
     expect(packageJson.scripts['check:release']).toBe('node scripts/check_release.mjs')
     expect(packageJson.scripts['check:release-config']).toBe('node scripts/verify_release_config.mjs')
@@ -31,6 +38,11 @@ describe('release readiness gates', () => {
     expect(releaseConfig).toContain('https://hbut.6661111.xyz')
     expect(releaseConfig).toContain('https://superdaobo.github.io/mini-hbut')
     expect(releaseConfig).not.toContain('website/public/releases/')
+    const releaseScript = read('release.py')
+    expect(releaseScript).toContain('package-lock.json')
+    expect(releaseScript).toContain('src-tauri/Cargo.lock')
+    expect(releaseScript).toContain('verify_release_config.mjs')
+    expect(releaseScript).toContain('".reasonix"')
   })
 
   it('bounds dist cleanup instead of sleeping through every stale directory', () => {
