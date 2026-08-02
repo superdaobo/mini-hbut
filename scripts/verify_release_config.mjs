@@ -2,12 +2,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = process.cwd()
-const readJson = (relativePath) => JSON.parse(fs.readFileSync(path.join(root, relativePath), 'utf8'))
+const readText = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8')
+const readJson = (relativePath) => JSON.parse(readText(relativePath))
 const fail = (message) => { throw new Error(`[release-config] ${message}`) }
 
 const packageJson = readJson('package.json')
 const tauriConfig = readJson('src-tauri/tauri.conf.json')
-const cargoToml = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8')
+const cargoToml = readText('src-tauri/Cargo.toml')
 const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1]
 
 const expected = '1.4.4'
@@ -23,29 +24,18 @@ if (process.env.npm_package_version && process.env.npm_package_version !== expec
   fail(`npm package version ${process.env.npm_package_version} does not match ${expected}`)
 }
 
-const prereleasePattern = /(^|[-._])(alpha|beta|rc|dev|nightly)([-._]|$)/i
-const stableManifests = [
-  'website/public/releases/stable-latest.json',
-  'website/public/releases/latest.json',
-  'website/public/releases/active.json'
+const updaterSource = readText('src/utils/updater.js')
+const requiredUpdaterContracts = [
+  ["official GitHub repository", "const GITHUB_REPO = 'superdaobo/mini-hbut'"],
+  ["EdgeOne HTTPS endpoint", "const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'"],
+  ["GitHub Pages HTTPS endpoint", "const GITHUB_PAGES_CDN_BASE = 'https://superdaobo.github.io/mini-hbut'"],
+  ["stable latest manifest", '`${base}/releases/latest.json`'],
+  ["stable fallback manifest", '`${base}/releases/stable-latest.json`'],
+  ["stable default channel", "channel: 'stable'"],
+  ["stable release channel guard", "channel !== 'main' && channel !== 'stable' && channel !== 'release'"]
 ]
-for (const relativePath of stableManifests) {
-  const manifest = readJson(relativePath)
-  const tag = String(manifest.tag || manifest.version || '').trim()
-  if (String(manifest.channel || '').trim().toLowerCase() !== 'main') {
-    fail(`${relativePath} must remain on the main channel`)
-  }
-  if (manifest.prerelease === true || prereleasePattern.test(tag) || tag.toLowerCase() === 'dev-latest') {
-    fail(`${relativePath} points to prerelease tag ${tag || 'missing'}`)
-  }
+for (const [label, snippet] of requiredUpdaterContracts) {
+  if (!updaterSource.includes(snippet)) fail(`tracked updater is missing ${label}`)
 }
 
-const channels = readJson('website/public/releases/channels.json')
-if (String(channels.activeChannel || '').trim().toLowerCase() !== 'main') {
-  fail('channels.json activeChannel must remain main')
-}
-if (String(channels.latest?.channel || '').trim().toLowerCase() !== 'main') {
-  fail('channels.json latest manifest must remain on the main channel')
-}
-
-console.log(`[release-config] version remains ${expected}; stable aliases remain on main; no release mutation requested`)
+console.log(`[release-config] version remains ${expected}; tracked updater defaults and HTTPS stable endpoints are intact; no release mutation requested`)

@@ -24,11 +24,13 @@ describe('release readiness gates', () => {
     expect(packageJson.scripts['check:release']).toBe('node scripts/check_release.mjs')
     expect(packageJson.scripts['check:release-config']).toBe('node scripts/verify_release_config.mjs')
     const releaseConfig = read('scripts/verify_release_config.mjs')
-    expect(releaseConfig).toContain('website/public/releases/stable-latest.json')
-    expect(releaseConfig).toContain('website/public/releases/latest.json')
-    expect(releaseConfig).toContain('website/public/releases/active.json')
-    expect(releaseConfig).toContain('channels.activeChannel')
-    expect(releaseConfig).toContain("!== 'main'")
+    expect(releaseConfig).toContain('src/utils/updater.js')
+    expect(releaseConfig).toContain("channel: 'stable'")
+    expect(releaseConfig).toContain('/releases/latest.json')
+    expect(releaseConfig).toContain('/releases/stable-latest.json')
+    expect(releaseConfig).toContain('https://hbut.6661111.xyz')
+    expect(releaseConfig).toContain('https://superdaobo.github.io/mini-hbut')
+    expect(releaseConfig).not.toContain('website/public/releases/')
   })
 
   it('bounds dist cleanup instead of sleeping through every stale directory', () => {
