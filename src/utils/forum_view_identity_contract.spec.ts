@@ -3,7 +3,7 @@ import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 
 const root = process.cwd()
-const readSource = (relativePath: string) => readFileSync(join(root, relativePath), 'utf-8')
+const readSource = (relativePath: string) => readFileSync(join(root, relativePath), 'utf-8').replace(/\r\n?/g, '\n')
 
 describe('forum view identity contract', () => {
   it('receives the current Tauri student id from App.vue', () => {
