@@ -290,7 +290,8 @@ enum BridgeRoutePolicy {
 fn bridge_route_policy(path: &str) -> BridgeRoutePolicy {
     if path == "/health" {
         BridgeRoutePolicy::PublicHealth
-    } else if path.starts_with("/module_bundle/content/")
+    } else if path.starts_with("/exports/")
+        || path.starts_with("/module_bundle/content/")
         || path == "/school-website"
         || path == "/school-website/"
         || path.starts_with("/school-website/")
@@ -1339,8 +1340,20 @@ mod ensure_http_bridge_tests {
             BridgeRoutePolicy::PublicHealth
         );
         assert_eq!(
+            bridge_route_policy("/exports/schedule_demo.ics"),
+            BridgeRoutePolicy::PublicEmbed
+        );
+        assert_eq!(
             bridge_route_policy("/module_bundle/content/stable/demo/1/index.html"),
             BridgeRoutePolicy::PublicEmbed
+        );
+        assert_eq!(
+            bridge_route_policy("/school-website/news/info/1"),
+            BridgeRoutePolicy::PublicEmbed
+        );
+        assert_eq!(
+            bridge_route_policy("/module_bundle/prepare"),
+            BridgeRoutePolicy::Protected
         );
         assert_eq!(
             bridge_route_policy("/sync_grades"),
@@ -1356,6 +1369,119 @@ mod ensure_http_bridge_tests {
         );
     }
 
+    #[test]
+    fn public_embed_routes_are_read_only_and_reject_hostile_origins() {
+        let empty = HeaderMap::new();
+        for method in [Method::GET, Method::HEAD] {
+            assert_eq!(
+                decide_bridge_access(BridgeRoutePolicy::PublicEmbed, &method, &empty, false, true,),
+                BridgeAccessDecision::Allow
+            );
+        }
+
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::PublicEmbed,
+                &Method::POST,
+                &empty,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::Unauthorized
+        );
+
+        let mut hostile = HeaderMap::new();
+        hostile.insert(
+            "origin",
+            HeaderValue::from_static("https://attacker.example"),
+        );
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::PublicEmbed,
+                &Method::GET,
+                &hostile,
+                true,
+                true,
+            ),
+            BridgeAccessDecision::ForbiddenOrigin
+        );
+    }
+
+    #[test]
+    fn runtime_origins_cover_tauri_vite_and_capacitor_without_trusting_lan_hosts() {
+        for origin in [
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "http://localhost:1420",
+            "http://localhost:5173",
+            "capacitor://localhost",
+            "http://localhost",
+            "https://localhost",
+            "http://127.0.0.1:4399",
+        ] {
+            assert!(
+                is_trusted_bridge_origin(origin),
+                "expected trusted: {origin}"
+            );
+        }
+
+        for origin in [
+            "https://localhost.example.com",
+            "http://127.0.0.2:4399",
+            "http://192.168.0.2:5173",
+            "capacitor://example.com",
+        ] {
+            assert!(
+                !is_trusted_bridge_origin(origin),
+                "expected rejected: {origin}"
+            );
+        }
+    }
+
+    #[test]
+    fn event_stream_post_is_allowed_for_trusted_origin_or_bearer_context() {
+        let mut capacitor = HeaderMap::new();
+        capacitor.insert("origin", HeaderValue::from_static("capacitor://localhost"));
+        capacitor.insert("content-type", HeaderValue::from_static("application/json"));
+        capacitor.insert("accept", HeaderValue::from_static("text/event-stream"));
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::POST,
+                &capacitor,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::Allow
+        );
+
+        let mut vite = HeaderMap::new();
+        vite.insert(
+            "referer",
+            HeaderValue::from_static("http://localhost:5173/"),
+        );
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::POST,
+                &vite,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::Allow
+        );
+
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::POST,
+                &HeaderMap::new(),
+                true,
+                true,
+            ),
+            BridgeAccessDecision::Allow
+        );
+    }
     #[test]
     fn access_decision_rejects_unauthorized_and_untrusted_requests() {
         let empty = HeaderMap::new();
