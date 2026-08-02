@@ -237,7 +237,8 @@ const filteredCourses = computed(() => {
 
 const visibleCourses = computed(() => {
   if (!isIOSLikeDevice) return filteredCourses.value
-  return filteredCourses.value.slice(0, Math.max(IOS_SAFE_COURSE_BATCH, courseRenderLimit.value))
+  // 渐进渲染：以 courseRenderLimit 为准（loadList 首帧 6 → rAF 递增到 12）
+  return filteredCourses.value.slice(0, courseRenderLimit.value)
 })
 
 const hasMoreCourses = computed(() =>
