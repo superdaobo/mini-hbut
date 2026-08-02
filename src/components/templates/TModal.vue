@@ -101,22 +101,36 @@ const onOverlayClick = () => {
   border-top: 1px solid rgba(148, 163, 184, 0.18);
 }
 
+/* 弹窗过渡（iOS 风格：遮罩淡入 + 内容轻微回弹缩放上滑，含离场） */
 .t-modal-enter-active,
 .t-modal-leave-active {
-  transition: opacity calc(0.2s * var(--ui-motion-scale)) ease;
+  transition: opacity calc(var(--ui-duration-normal) * var(--ui-motion-scale)) var(--ui-ease-out);
 }
 .t-modal-enter-active .t-modal__container,
 .t-modal-leave-active .t-modal__container {
-  transition: transform calc(0.2s * var(--ui-motion-scale)) ease;
+  transition:
+    transform calc(var(--ui-duration-normal) * var(--ui-motion-scale)) var(--ui-ease-spring),
+    opacity calc(var(--ui-duration-fast) * var(--ui-motion-scale)) var(--ui-ease-out);
 }
 .t-modal-enter-from,
 .t-modal-leave-to {
   opacity: 0;
 }
 .t-modal-enter-from .t-modal__container {
-  transform: scale(0.92) translateY(12px);
+  transform: scale(0.94) translateY(14px);
+  opacity: 0;
 }
 .t-modal-leave-to .t-modal__container {
-  transform: scale(0.95) translateY(6px);
+  transform: scale(0.97) translateY(8px);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-modal-enter-active,
+  .t-modal-leave-active,
+  .t-modal-enter-active .t-modal__container,
+  .t-modal-leave-active .t-modal__container {
+    transition: none;
+  }
 }
 </style>

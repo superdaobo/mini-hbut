@@ -17,6 +17,13 @@
   --ui-font-scale: 1;
   --ui-space-scale: 1;
   --ui-motion-scale: 1;
+  /* 动效规范（iOS 风格：温和缓入 + 轻微弹性） */
+  --ui-duration-fast: 0.15s;
+  --ui-duration-normal: 0.24s;
+  --ui-duration-slow: 0.35s;
+  --ui-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ui-ease-spring: cubic-bezier(0.34, 1.3, 0.5, 1);
+  --ui-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ui-danger: #ef4444;
   --ui-success: #10b981;
   --ui-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.12);
@@ -67,7 +74,41 @@
   }
 }
 
-/* shadcn-vue theme variables */
+/* ============================================================
+   通用模态过渡（iOS 风格：遮罩淡入 + 内容轻微回弹缩放上滑）
+   用法：<Transition name="modal-pop"> 包裹 v-if 弹窗根节点；
+   卡片层加 .modal-pop-card 标记以命中内容动画
+   ============================================================ */
+.modal-pop-enter-active,
+.modal-pop-leave-active {
+  transition: opacity calc(var(--ui-duration-normal) * var(--ui-motion-scale)) var(--ui-ease-out);
+}
+.modal-pop-enter-active .modal-pop-card,
+.modal-pop-leave-active .modal-pop-card {
+  transition:
+    transform calc(var(--ui-duration-normal) * var(--ui-motion-scale)) var(--ui-ease-spring),
+    opacity calc(var(--ui-duration-fast) * var(--ui-motion-scale)) var(--ui-ease-out);
+}
+.modal-pop-enter-from,
+.modal-pop-leave-to {
+  opacity: 0;
+}
+.modal-pop-enter-from .modal-pop-card {
+  transform: scale(0.94) translateY(16px);
+  opacity: 0;
+}
+.modal-pop-leave-to .modal-pop-card {
+  transform: scale(0.97) translateY(8px);
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-pop-enter-active,
+  .modal-pop-leave-active,
+  .modal-pop-enter-active .modal-pop-card,
+  .modal-pop-leave-active .modal-pop-card {
+    transition: none !important;
+  }
+}
 @layer base {
   :root {
     --background: 0 0% 100%;

@@ -575,8 +575,9 @@ watch(
 
     <!-- 详情弹窗 -->
     <Teleport to="body">
-      <div v-if="showDetail" class="modal-overlay" @click="closeDetail">
-        <div class="modal-content" @click.stop>
+      <Transition name="modal-pop">
+        <div v-if="showDetail" class="modal-overlay" @click="closeDetail">
+          <div class="modal-content modal-pop-card" @click.stop>
           <button class="modal-close" @click="closeDetail">×</button>
           
           <div class="detail-header">
@@ -658,6 +659,7 @@ watch(
           </div>
         </div>
       </div>
+      </Transition>
     </Teleport>
       </template>
     </main>
@@ -1150,20 +1152,8 @@ watch(
   max-height: min(80vh, 680px);
   overflow: auto;
   position: relative;
-  animation: slideUp 0.3s ease;
   border: 1px solid var(--ui-surface-border);
   box-shadow: var(--ui-shadow-strong);
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .modal-close {

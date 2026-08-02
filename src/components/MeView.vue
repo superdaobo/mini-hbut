@@ -403,9 +403,10 @@ const handleShowLegal = async (tab) => {
     </footer>
 
     <!-- 开源说明弹窗 -->
-    <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
-      <div class="modal-card" @click.stop>
-        <h3><span class="material-symbols-outlined opensource-title-icon">menu_book</span> 开源说明</h3>
+    <Transition name="modal-pop">
+      <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
+        <div class="modal-card modal-pop-card" @click.stop>
+          <h3><span class="material-symbols-outlined opensource-title-icon">menu_book</span> 开源说明</h3>
         <p class="intro">Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
         <div class="section">
           <p class="label">项目地址</p>
@@ -433,15 +434,17 @@ const handleShowLegal = async (tab) => {
           <button class="btn-primary" @click="showOpenSourceModal = false">知道了</button>
         </div>
       </div>
-    </div>
+      </div>
+    </Transition>
 
     <!-- 赞助弹窗（合规包 guest/demo 不挂载） -->
-    <div
-      v-if="showSponsorModal && showSponsorEntry"
-      class="modal-mask"
-      @click="showSponsorModal = false"
-    >
-      <div class="modal-card sponsor-modal" @click.stop>
+    <Transition name="modal-pop">
+      <div
+        v-if="showSponsorModal && showSponsorEntry"
+        class="modal-mask"
+        @click="showSponsorModal = false"
+      >
+        <div class="modal-card sponsor-modal modal-pop-card" @click.stop>
         <h3>❤️ 赞助支持</h3>
         <p class="intro">如果 Mini-HBUT 对你有帮助，欢迎请作者喝杯咖啡 ☕</p>
         <div class="sponsor-qr-container">
@@ -458,7 +461,8 @@ const handleShowLegal = async (tab) => {
           <button class="btn-primary" @click="showSponsorModal = false">关闭</button>
         </div>
       </div>
-    </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
