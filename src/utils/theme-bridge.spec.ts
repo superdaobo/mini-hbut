@@ -7,7 +7,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { hexToHsl, transformPresetToAppleDesign, applyThemePreset, initThemeBridge } from './theme-bridge'
 import { UI_PRESETS } from '@/config/ui_settings'
-import type { UiPreset } from '@/config/ui_settings'
 
 // ============================================================
 // hexToHsl 测试
