@@ -4,7 +4,7 @@ param(
   [string]$ReleaseRoot = 'src-tauri/target/release',
   [string]$BundleRoot = 'src-tauri/target/release/bundle/nsis',
   [string]$EvidenceRoot = 'dist-dry-run',
-  [string]$HealthUrl = 'http://127.0.0.1:4399/health',
+  [int]$BridgePort = 0,
   [int]$HealthTimeoutSeconds = 45
 )
 
@@ -14,6 +14,16 @@ $ErrorActionPreference = 'Stop'
 function Resolve-RepoPath([string]$PathValue) {
   if ([IO.Path]::IsPathRooted($PathValue)) { return $PathValue }
   return Join-Path $RepoRoot $PathValue
+}
+
+function Get-FreeLoopbackPort {
+  $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+  try {
+    $listener.Start()
+    return ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+  } finally {
+    $listener.Stop()
+  }
 }
 
 function Read-AppVersions {
@@ -55,8 +65,17 @@ $commit = if ($env:GITHUB_SHA) { $env:GITHUB_SHA } else { (git -C $RepoRoot rev-
 $startedAt = [DateTimeOffset]::UtcNow
 $process = $null
 $healthStatus = 0
+$resolvedBridgePort = if ($BridgePort -gt 0) { $BridgePort } else { Get-FreeLoopbackPort }
+$healthUrl = "http://127.0.0.1:$resolvedBridgePort/health"
+$previousBridgeEnabled = $env:HBUT_HTTP_BRIDGE_ENABLED
+$previousBridgePort = $env:HBUT_HTTP_BRIDGE_PORT
 
 try {
+  # Desktop release builds intentionally keep the Bridge disabled by default.
+  # The dry run enables it only for this child process so /health can prove that
+  # the release binary initialized its Tauri runtime and loopback Bridge.
+  $env:HBUT_HTTP_BRIDGE_ENABLED = '1'
+  $env:HBUT_HTTP_BRIDGE_PORT = [string]$resolvedBridgePort
   $process = Start-Process -FilePath $rawFile.FullName -WorkingDirectory $rawFile.DirectoryName -PassThru
   $deadline = [DateTimeOffset]::UtcNow.AddSeconds($HealthTimeoutSeconds)
   do {
@@ -66,7 +85,7 @@ try {
       throw "Release executable exited before Bridge health became ready (exit code $($process.ExitCode))"
     }
     try {
-      $response = Invoke-WebRequest -Uri $HealthUrl -Method Get -TimeoutSec 2 -UseBasicParsing
+      $response = Invoke-WebRequest -Uri $healthUrl -Method Get -TimeoutSec 2 -UseBasicParsing
       $healthStatus = [int]$response.StatusCode
     } catch {
       $healthStatus = 0
@@ -74,7 +93,7 @@ try {
   } while ($healthStatus -ne 200 -and [DateTimeOffset]::UtcNow -lt $deadline)
 
   if ($healthStatus -ne 200) {
-    throw "Bridge health did not return HTTP 200 within $HealthTimeoutSeconds seconds"
+    throw "Bridge health did not return HTTP 200 at $healthUrl within $HealthTimeoutSeconds seconds"
   }
 
   $observedAt = [DateTimeOffset]::UtcNow
@@ -98,8 +117,10 @@ try {
       sha256 = $artifactHash
     }
     smoke = [ordered]@{
-      health_url = $HealthUrl
+      health_url = $healthUrl
       status_code = $healthStatus
+      bridge_enabled_by_test = $true
+      bridge_port = $resolvedBridgePort
       observed_at_utc = $observedAt.ToString('o')
     }
     non_publish_guarantees = [ordered]@{
@@ -112,11 +133,16 @@ try {
 
   $evidencePath = Join-Path $evidenceDirectory 'windows-release-dry-run-evidence.json'
   $evidence | ConvertTo-Json -Depth 8 | Set-Content -Path $evidencePath -Encoding utf8
-  Write-Host "[windows-release-smoke] health=$healthStatus version=$($versionInfo.Version)"
+  Write-Host "[windows-release-smoke] health=$healthStatus url=$healthUrl version=$($versionInfo.Version)"
   Write-Host "[windows-release-smoke] artifact=$artifactPath sha256=$artifactHash"
   Write-Host "[windows-release-smoke] evidence=$evidencePath"
 } finally {
-  Get-Process -Name 'hbut-helper' -ErrorAction SilentlyContinue | ForEach-Object {
-    & taskkill.exe /PID $_.Id /T /F 2>$null | Out-Null
+  if ($null -ne $process) {
+    $process.Refresh()
+    if (-not $process.HasExited) {
+      & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
+    }
   }
+  $env:HBUT_HTTP_BRIDGE_ENABLED = $previousBridgeEnabled
+  $env:HBUT_HTTP_BRIDGE_PORT = $previousBridgePort
 }

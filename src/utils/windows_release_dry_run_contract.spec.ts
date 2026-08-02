@@ -29,7 +29,13 @@ describe('Windows release dry run', () => {
   it('launches the raw release executable and records reproducible smoke evidence', () => {
     const smoke = read('scripts/ci/windows_release_smoke.ps1')
     expect(smoke).toContain("'hbut-helper.exe'")
-    expect(smoke).toContain('http://127.0.0.1:4399/health')
+    expect(smoke).toContain('Get-FreeLoopbackPort')
+    expect(smoke).toContain('http://127.0.0.1:$resolvedBridgePort/health')
+    expect(smoke).toContain("$env:HBUT_HTTP_BRIDGE_ENABLED = '1'")
+    expect(smoke).toContain('$env:HBUT_HTTP_BRIDGE_PORT = [string]$resolvedBridgePort')
+    expect(smoke).toContain('bridge_enabled_by_test = $true')
+    expect(smoke).toContain('$env:HBUT_HTTP_BRIDGE_ENABLED = $previousBridgeEnabled')
+    expect(smoke).toContain('$env:HBUT_HTTP_BRIDGE_PORT = $previousBridgePort')
     expect(smoke).toContain('Start-Process')
     expect(smoke).toContain('Get-FileHash')
     expect(smoke).toContain('-Algorithm SHA256')
@@ -39,6 +45,8 @@ describe('Windows release dry run', () => {
     expect(smoke).toContain('version_mutated = $false')
     expect(smoke).toContain("artifact_scope = 'ci-only'")
     expect(smoke).toContain('taskkill.exe')
+    expect(smoke).toContain('/PID $process.Id')
+    expect(smoke).not.toContain("Get-Process -Name 'hbut-helper'")
   })
 
   it('keeps all release version sources frozen at 1.4.4', () => {
