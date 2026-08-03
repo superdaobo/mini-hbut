@@ -24,6 +24,8 @@ const manualChunks = (id: string) => {
   if (
     normalized.includes('/node_modules/marked/') ||
     normalized.includes('/node_modules/dompurify/') ||
+    normalized.includes('/node_modules/katex/') ||
+    normalized.includes('/node_modules/marked-katex-extension/') ||
     normalized.includes('/src/utils/markdown.js')
   ) {
     return 'markdown'

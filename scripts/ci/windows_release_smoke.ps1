@@ -27,6 +27,50 @@ function Get-FreeLoopbackPort {
   }
 }
 
+function Set-TemporaryRegistryStringValue {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$Value
+  )
+
+  $keyExisted = Test-Path $Path
+  if (-not $keyExisted) {
+    New-Item -Path $Path -Force | Out-Null
+  }
+  $propertyNames = @((Get-ItemProperty -Path $Path).PSObject.Properties.Name)
+  $valueExisted = $propertyNames -contains $Name
+  $previousValue = if ($valueExisted) {
+    [string](Get-ItemPropertyValue -Path $Path -Name $Name)
+  } else {
+    $null
+  }
+  New-ItemProperty -Path $Path -Name $Name -PropertyType String -Value $Value -Force | Out-Null
+  return [pscustomobject]@{
+    Path = $Path
+    Name = $Name
+    KeyExisted = $keyExisted
+    ValueExisted = $valueExisted
+    PreviousValue = $previousValue
+  }
+}
+
+function Restore-TemporaryRegistryStringValue {
+  param([Parameter(Mandatory = $true)]$State)
+
+  if ($State.ValueExisted) {
+    New-ItemProperty -Path $State.Path -Name $State.Name -PropertyType String -Value ([string]$State.PreviousValue) -Force | Out-Null
+  } else {
+    Remove-ItemProperty -Path $State.Path -Name $State.Name -ErrorAction SilentlyContinue
+  }
+  if (-not $State.KeyExisted -and (Test-Path $State.Path)) {
+    $remaining = @((Get-Item $State.Path).Property)
+    if ($remaining.Count -eq 0) {
+      Remove-Item -Path $State.Path -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 function Read-AppVersions {
   $packageJson = Get-Content (Join-Path $RepoRoot 'package.json') -Raw | ConvertFrom-Json
   $tauriConfig = Get-Content (Join-Path $RepoRoot 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
@@ -76,6 +120,11 @@ $webviewEvidencePath = Join-Path $evidenceDirectory 'windows-webview-mount-evide
 $previousBridgeEnabled = $env:HBUT_HTTP_BRIDGE_ENABLED
 $previousBridgePort = $env:HBUT_HTTP_BRIDGE_PORT
 $previousWebViewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+$tauriConfig = Get-Content (Join-Path $RepoRoot 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
+$webViewPolicyPath = 'HKLM:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+$webViewPolicyNames = @($rawFile.Name, [string]$tauriConfig.identifier) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+$webViewPolicyStates = @()
+$hostIsElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 try {
   # Desktop release builds intentionally keep the Bridge disabled by default.
@@ -89,6 +138,26 @@ try {
   } else {
     "$previousWebViewArguments $cdpArgument"
   }
+  # GitHub's Windows runner can launch the host elevated. WebView2 ignores
+  # environment and HKCU browser-argument overrides for elevated hosts, so try
+  # the machine policy that WebView2 explicitly honors at High Integrity Level.
+  # Ordinary local runs may not write HKLM; they keep the environment override.
+  try {
+    foreach ($policyName in $webViewPolicyNames) {
+      $webViewPolicyStates += Set-TemporaryRegistryStringValue -Path $webViewPolicyPath -Name $policyName -Value $cdpArgument
+    }
+  } catch {
+    for ($index = $webViewPolicyStates.Count - 1; $index -ge 0; $index--) {
+      Restore-TemporaryRegistryStringValue -State $webViewPolicyStates[$index]
+    }
+    $webViewPolicyStates = @()
+    if ($hostIsElevated) {
+      throw "Elevated WebView2 host requires temporary HKLM debug policy, but it could not be configured: $($_.Exception.Message)"
+    }
+    Write-Warning "HKLM WebView2 debug policy unavailable; continuing with non-elevated environment override: $($_.Exception.Message)"
+  }
+  $registryPolicyApplied = $webViewPolicyStates.Count -gt 0
+  Write-Host "[windows-release-smoke] cdp=$resolvedCdpPort elevated=$hostIsElevated registryPolicy=$registryPolicyApplied policyNames=$($webViewPolicyNames -join ',')"
   $process = Start-Process -FilePath $rawFile.FullName -WorkingDirectory $rawFile.DirectoryName -PassThru
   $deadline = [DateTimeOffset]::UtcNow.AddSeconds($HealthTimeoutSeconds)
   do {
@@ -148,6 +217,10 @@ try {
       bridge_enabled_by_test = $true
       bridge_port = $resolvedBridgePort
       cdp_port = $resolvedCdpPort
+      cdp_environment_override = $true
+      cdp_registry_policy_override = $registryPolicyApplied
+      cdp_registry_policy_names = @($webViewPolicyNames)
+      host_is_elevated = $hostIsElevated
       webview_status = [string]$webviewEvidence.status
       webview_root_children = [int]$webviewEvidence.snapshot.rootChildren
       webview_visible_elements = [int]$webviewEvidence.snapshot.visibleElements
@@ -175,6 +248,9 @@ try {
     if (-not $process.HasExited) {
       & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
     }
+  }
+  for ($index = $webViewPolicyStates.Count - 1; $index -ge 0; $index--) {
+    Restore-TemporaryRegistryStringValue -State $webViewPolicyStates[$index]
   }
   $env:HBUT_HTTP_BRIDGE_ENABLED = $previousBridgeEnabled
   $env:HBUT_HTTP_BRIDGE_PORT = $previousBridgePort

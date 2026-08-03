@@ -13,8 +13,13 @@ export const isAppMounted = (snapshot) => Boolean(
   snapshot?.visibleElements > 2
 )
 
-export const isStrictCspEvalFailure = (value) =>
-  /unsafe-eval|refused to evaluate a string|evalerror|new function/i.test(String(value || ''))
+export const isStrictCspEvalFailure = (value) => {
+  const text = String(value || '')
+  return (
+    /(?:^|[^\w-])unsafe-eval(?:$|[^\w-])/i.test(text) ||
+    /refused to evaluate a string|evalerror|new function/i.test(text)
+  )
+}
 
 export const isCspViolation = (value) =>
   /content security policy directive|violates the following content security policy|refused to (?:load|connect|execute|apply|frame)/i.test(String(value || ''))
@@ -236,6 +241,20 @@ export async function assertWebviewAppMounted({ port, timeoutMs, output = '' }) 
       ? 'strict CSP blocked runtime JavaScript evaluation'
       : 'Vue root did not mount visible application content'
     throw new Error(`${cause}; snapshot=${JSON.stringify(snapshot)}`)
+  } catch (error) {
+    const diagnostics = client?.diagnostics || []
+    writeEvidence(output, {
+      schema_version: 1,
+      status: 'failed',
+      observed_at_utc: nowIso(),
+      elapsed_ms: Date.now() - startedAt,
+      error: String(error?.message || error),
+      snapshot,
+      diagnostics: diagnostics.slice(-20),
+      strict_csp_eval_failures: diagnostics.filter((item) => isStrictCspEvalFailure(item.text)).length,
+      csp_violations: diagnostics.filter((item) => isCspViolation(item.text)).length,
+    })
+    throw error
   } finally {
     client?.socket?.close()
   }
