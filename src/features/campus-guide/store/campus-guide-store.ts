@@ -71,6 +71,7 @@ export type CampusGuideStore = {
   searchSpotsByName: (keyword: string) => Promise<CampusSpot[]>
   loadSpotDetail: (spotId: string | number) => Promise<CampusSpot>
   loadActivities: () => Promise<CampusActivity[]>
+  loadScenic: () => Promise<ScenicInfo>
   loadNotices: () => Promise<ScenicNotice[]>
   loadTourRoutesDetailed: () => Promise<TourRoute[]>
   loadFavorites: () => Promise<Set<string>>

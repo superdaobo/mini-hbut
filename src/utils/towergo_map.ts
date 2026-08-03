@@ -568,12 +568,13 @@ export const resolveTowerGoLocation = async ({
           // 避免用偏移坐标查服务区识别成别的校区
           const drift = distanceMeters(fallback.latitude, fallback.longitude, lat, lng)
           if (Number.isFinite(drift) && drift > maxDriftMeters) {
-            const point = { ...fallback, source: 'fallback' as const, accuracy }
+            const { accuracy: _fallbackAccuracy, ...fallbackPoint } = fallback
+            const point = { ...fallbackPoint, source: 'fallback' as const, accuracy }
             pushDebugLog(
               'TowerGo',
               `定位漂移 ${Math.round(drift)}m > ${maxDriftMeters}m，回退校区 lat=${point.latitude} lng=${point.longitude}`,
               'warn',
-              { rawLat, rawLng, lat, lng, accuracy, drift, ...point }
+              { rawLat, rawLng, lat, lng, drift, ...point }
             )
             resolve(point)
             return

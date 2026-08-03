@@ -366,7 +366,7 @@ export class CampusMapCore {
     this.locationLayer.setGeometries?.([geometry])
   }
 
-  renderPolylines(segments: GeoPoint[][], color = CAMPUS_GUIDE_CONFIG.themeColor) {
+  renderPolylines(segments: GeoPoint[][], color: string = CAMPUS_GUIDE_CONFIG.themeColor) {
     if (!this.TMap || !this.map) return
     // 过滤非法点，避免 TMap 内部访问 undefined[n] 崩溃（#491 reading '4'）
     const geometries = segments

@@ -317,8 +317,12 @@ export const capacitorBridge: PlatformBridge = {
     }
     try {
       const app = await import('@capacitor/app')
-      await app.App.openSettings()
-      return true
+      const openSettings = (app.App as { openSettings?: () => Promise<void> }).openSettings
+      if (typeof openSettings === 'function') {
+        await openSettings()
+        return true
+      }
+      return false
     } catch {
       return false
     }
@@ -336,8 +340,12 @@ export const capacitorBridge: PlatformBridge = {
     }
     try {
       const app = await import('@capacitor/app')
-      await app.App.openSettings()
-      return true
+      const openSettings = (app.App as { openSettings?: () => Promise<void> }).openSettings
+      if (typeof openSettings === 'function') {
+        await openSettings()
+        return true
+      }
+      return false
     } catch {
       return false
     }

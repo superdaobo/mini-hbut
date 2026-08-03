@@ -43,7 +43,7 @@ describe('background fetch Capacitor preferences bridge', () => {
   })
 
   it('does not assimilate Preferences plugin proxies as thenables', async () => {
-    thenTrapMock.mockImplementation((resolve: unknown, reject: unknown) => {
+    thenTrapMock.mockImplementation((_resolve: unknown, reject: unknown) => {
       if (typeof reject === 'function') {
         reject(new Error('Preferences.then should not be called'))
       }

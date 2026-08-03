@@ -41,7 +41,7 @@ describe('campus network settings', () => {
   })
 
   afterEach(() => {
-    delete (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage
+    delete (globalThis as { localStorage?: Storage }).localStorage
   })
 
   it('returns defaults when storage is empty', () => {
@@ -122,7 +122,7 @@ describe('campus network auto login', () => {
   })
 
   afterEach(() => {
-    delete (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage
+    delete (globalThis as { localStorage?: Storage }).localStorage
   })
 
   it('skips when auto_login is disabled', async () => {

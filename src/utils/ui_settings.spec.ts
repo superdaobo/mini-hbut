@@ -10,7 +10,7 @@ describe('applyUiSettings night mode isolation', () => {
   let stored: Record<string, string>
   let mockRoot: {
     style: { setProperty: ReturnType<typeof vi.fn> }
-    classList: { add: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> }
+    classList: { add: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn>; contains: ReturnType<typeof vi.fn> }
     setAttribute: ReturnType<typeof vi.fn>
   }
 
@@ -19,7 +19,7 @@ describe('applyUiSettings night mode isolation', () => {
     stored = {}
     mockRoot = {
       style: { setProperty: vi.fn() },
-      classList: { add: vi.fn(), remove: vi.fn() },
+      classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) },
       setAttribute: vi.fn((key: string, value: string) => {
         attributes[key] = value
       })
@@ -56,8 +56,8 @@ describe('applyUiSettings night mode isolation', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
-    delete (globalThis as typeof globalThis & { document?: Document }).document
-    delete (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage
+    delete (globalThis as { document?: Document }).document
+    delete (globalThis as { localStorage?: Storage }).localStorage
   })
 
   it('应用任意 UI 预设时不应改写夜晚模式类名', () => {

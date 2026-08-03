@@ -11,7 +11,7 @@ describe('Android network security config', () => {
 
     for (const domain of ['127.0.0.1', 'localhost', '10.0.2.2']) {
       const pattern = new RegExp(
-        `<domain\\s+includeSubdomains="true"\\s*>\\s*${domain.replaceAll('.', '\\.')}\\s*</domain>`
+        `<domain\\s+includeSubdomains="true"\\s*>\\s*${domain.replace(/\./g, '\\.')}\\s*</domain>`
       )
       expect(xml, domain).toMatch(pattern)
     }
