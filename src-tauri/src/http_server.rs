@@ -1676,17 +1676,23 @@ async fn sync_grades(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let client = state.client.read().await;
-    match client.fetch_grades().await {
-        Ok(grades) => {
-            let payload = serde_json::json!({
-                "success": true,
-                "data": grades,
-                "sync_time": chrono::Local::now().to_rfc3339(),
-                "offline": false,
-                "teacher_enrichment_pending": true
-            });
-            Ok(ok(payload))
+    let client_handle = state.client.clone();
+    let uid = {
+        let client = client_handle.read().await;
+        client.user_info.as_ref().map(|u| u.student_id.clone())
+    };
+    // 与 Tauri sync_grades 共用同一 GradeService：抓取 → 教师合并 →
+    // 成功替换缓存 → 失败保留 offline 快照，保证双通道 payload 一致。
+    let service = crate::grade::service::GradeService::new(
+        client_handle.clone(),
+        crate::grade::service::SqliteGradeCache,
+    );
+    match service.sync_grades(uid.as_deref(), false).await {
+        Ok(result) => {
+            if let Some(job) = result.enrichment {
+                service.spawn_enrichment(job);
+            }
+            Ok(ok(result.payload))
         }
         Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string())),
     }

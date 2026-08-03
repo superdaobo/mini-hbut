@@ -4,21 +4,6 @@
 
 ## 📁 模块列表
 
-### grades.rs - 成绩查询
-
-查询学生成绩，支持按学期筛选。
-
-```rust
-pub async fn get_grades(client: &HttpClient, term: Option<String>) -> Result<Vec<Grade>, String>
-```
-
-返回数据：
-- 课程名称
-- 学分
-- 成绩
-- 绩点
-- 课程性质
-
 ### schedule.rs - 课表查询
 
 查询学生课表。
