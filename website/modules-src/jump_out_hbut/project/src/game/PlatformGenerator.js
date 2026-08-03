@@ -115,7 +115,10 @@ export function clampPlatformDistance(distance) {
  * @returns {boolean}
  */
 export function isPlatformCenterOnScreen(cameraTarget, platformCenter, radius = PLATFORM_VISIBILITY.visibleRadiusFromCameraTarget) {
-  return planarDistance(cameraTarget, platformCenter) <= Number(radius || 0)
+  const resolvedRadius = Number(radius || 0)
+  const distance = planarDistance(cameraTarget, platformCenter)
+  const epsilon = Number.EPSILON * Math.max(1, Math.abs(resolvedRadius), distance) * 16
+  return distance <= resolvedRadius + epsilon
 }
 
 export class PlatformGenerator {
