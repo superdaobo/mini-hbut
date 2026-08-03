@@ -56,6 +56,7 @@ use commands::{
     save_remembered_credential,
 };
 use http_client::HbutClient;
+use utils::ics::{escape_ics_text, fold_ics_line, parse_ics_datetime, sanitize_filename_part};
 
 use modules::ai::*;
 use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
@@ -4601,57 +4602,6 @@ async fn update_custom_schedule_course(
         "success": true,
         "data": custom_course_to_payload(&updated)
     }))
-}
-
-fn sanitize_filename_part(input: &str) -> String {
-    input
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect::<String>()
-}
-
-fn escape_ics_text(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace(';', "\\;")
-        .replace(',', "\\,")
-        .replace("\r\n", "\\n")
-        .replace('\n', "\\n")
-        .replace('\r', "")
-}
-
-/// RFC 5545 §3.1 行折叠：每行不超过 75 个字节，超出部分折行并以 CRLF+空格连接
-fn fold_ics_line(line: &str) -> String {
-    let max_bytes = 75;
-    if line.len() <= max_bytes {
-        return format!("{}\r\n", line);
-    }
-    let mut result = String::new();
-    let mut byte_count = 0;
-    let mut first_line = true;
-    for ch in line.chars() {
-        let ch_len = ch.len_utf8();
-        // 折行后续行以空格开头，所以可用字节数减 1
-        let limit = if first_line { max_bytes } else { max_bytes - 1 };
-        if byte_count + ch_len > limit {
-            result.push_str("\r\n ");
-            byte_count = 1; // 空格占 1 字节
-            first_line = false;
-        }
-        result.push(ch);
-        byte_count += ch_len;
-    }
-    result.push_str("\r\n");
-    result
-}
-
-fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
-        return Some(dt.naive_local());
-    }
-    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S")
-        .ok()
-        .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
 }
 
 fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {

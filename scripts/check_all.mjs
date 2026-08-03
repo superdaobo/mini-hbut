@@ -9,6 +9,7 @@ const steps = [
   () => runNpm('Vue typecheck', ['exec', '--', 'vue-tsc', '--noEmit', '-p', 'tsconfig.json']),
   () => runNode('Frontend safety guard', 'scripts/check-frontend-safety.mjs'),
   () => runNode('Design token guard', 'scripts/check-design-tokens.mjs'),
+  () => runNode('Phase 3 architecture guard', 'scripts/check_arch_guards.mjs'),
   () => runCommand({
     label: 'Sensitive upload guard (tracked files)',
     command: process.execPath,

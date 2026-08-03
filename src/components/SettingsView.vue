@@ -28,7 +28,7 @@ import {
   getCloudSyncRuntimeConfig
 } from '../utils/cloud_sync'
 import { invokeNative, isTauriRuntime } from '../platform/native'
-import { detectRuntime } from '../platform/runtime'
+import { detectRuntime, isMobileLike } from '../platform/runtime'
 import { showToast } from '../utils/toast'
 import {
   clearDebugLogs,
@@ -129,10 +129,8 @@ const debugLevelOptions = [
   { key: 'log', label: 'Log' }
 ]
 
-const isMobileDevice = (() => {
-  if (typeof navigator === 'undefined') return false
-  return /android|iphone|ipad|ipod/i.test(navigator.userAgent || '')
-})()
+// 平台判断统一收敛到 src/platform/runtime.ts（单一来源）
+const isMobileDevice = isMobileLike()
 
 const currentStudentId = computed(() => localStorage.getItem('hbu_username') || '未登录')
 const currentPresetLabel = computed(() => UI_PRESETS[uiSettings.preset]?.label || '自定义')

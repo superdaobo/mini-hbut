@@ -18,12 +18,12 @@ const MAINTENANCE_FAIL_TIME_KEY = 'hbu_jwxt_maintenance_fail_time'
 // —— 测试基础设施 ——
 
 const installStorage = () => {
-  const storage = new Map()
+  const storage = new Map<string, string>()
   const api = {
-    getItem: (key) => storage.get(key) || null,
-    setItem: vi.fn((key, value) => storage.set(key, String(value))),
-    removeItem: vi.fn((key) => storage.delete(key)),
-    key: (index) => Array.from(storage.keys())[index] || null,
+    getItem: (key: string) => storage.get(key) || null,
+    setItem: vi.fn((key: string, value: string) => storage.set(key, String(value))),
+    removeItem: vi.fn((key: string) => storage.delete(key)),
+    key: (index: number) => Array.from(storage.keys())[index] || null,
     get length() {
       return storage.size
     }
@@ -33,20 +33,20 @@ const installStorage = () => {
 }
 
 const installWindow = () => {
-  const handlers = new Map()
+  const handlers = new Map<string, Array<(event: unknown) => void>>()
   const win = {
-    addEventListener: vi.fn((type, cb) => {
+    addEventListener: vi.fn((type: string, cb: (event: unknown) => void) => {
       const list = handlers.get(type) || []
       list.push(cb)
       handlers.set(type, list)
     }),
     removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn((event) => true)
+    dispatchEvent: vi.fn((_event: CustomEvent) => true)
   }
   vi.stubGlobal('window', win)
   return {
     win,
-    fire: (type, event) => {
+    fire: (type: string, event: unknown) => {
       for (const cb of handlers.get(type) || []) cb(event)
     }
   }
@@ -58,11 +58,19 @@ const importApi = async () => {
   return await import('./api.js')
 }
 
-const seedStale = (storage, key, data = { success: true, data: { items: ['stale'] } }) => {
+const seedStale = (
+  storage: Map<string, string>,
+  key: string,
+  data: unknown = { success: true, data: { items: ['stale'] } }
+) => {
   storage.set(`cache:${key}`, JSON.stringify({ data, timestamp: 0 }))
 }
 
-const readStorage = (storageApi, key) => storageApi.getItem(key)
+const readStorage = (storageApi: { getItem: (key: string) => string | null }, key: string) =>
+  storageApi.getItem(key)
+
+// fetchWithCache 的 data 载荷由调用方泛型决定；测试统一使用可索引载荷类型，避免 unknown 访问。
+type TestCachePayload = { success?: boolean; offline?: boolean; [key: string]: unknown }
 
 afterEach(() => {
   vi.useRealTimers()
@@ -75,7 +83,7 @@ describe('fetchWithTimeout', () => {
   const installFetch = () => {
     const state = { aborted: false }
     const fetchMock = vi.fn(
-      (url, init) =>
+      (_url: string, init?: RequestInit) =>
         new Promise((_resolve, reject) => {
           const signal = init?.signal
           if (signal?.aborted) {
@@ -174,14 +182,14 @@ describe('fetchWithCache 维护模式分类', () => {
     seedStale(storage, 'grades:1:2024')
     const fetcher = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
 
-    const first = await api.fetchWithCache('grades:1:2024', fetcher)
+    const first = await api.fetchWithCache<TestCachePayload>('grades:1:2024', fetcher)
     expect(first.fromCache).toBe(true)
     expect(first.stale).toBe(true)
     expect(first.data.offline).toBe(true)
     expect(readStorage(storageApi, MAINTENANCE_KEY)).toBeNull() // 第一次失败仅计数，不置位
     expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBe('1')
 
-    const second = await api.fetchWithCache('grades:1:2024', fetcher)
+    const second = await api.fetchWithCache<TestCachePayload>('grades:1:2024', fetcher)
     expect(second.fromCache).toBe(true)
     expect(readStorage(storageApi, MAINTENANCE_KEY)).toBe('1') // 第二次失败达到阈值，置位维护
     expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBe('2')
@@ -199,7 +207,7 @@ describe('fetchWithCache 维护模式分类', () => {
     )
     const fetcher = vi.fn().mockRejectedValue(timeoutError)
 
-    const result = await api.fetchWithCache('schedule:1:2024', fetcher)
+    const result = await api.fetchWithCache<TestCachePayload>('schedule:1:2024', fetcher)
     expect(result.stale).toBe(true)
     expect(result.data.offline).toBe(true)
     expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBe('1')
@@ -213,9 +221,9 @@ describe('fetchWithCache 维护模式分类', () => {
     const api = await importApi()
     seedStale(storage, 'grades:1:2024')
     // 模拟永不返回的挂起请求，由 timeoutMs 统一超时接管。
-    const fetcher = vi.fn(() => new Promise(() => {}))
+    const fetcher = vi.fn(() => new Promise<Record<string, unknown>>(() => {}))
 
-    const pending = api.fetchWithCache('grades:1:2024', fetcher, undefined, { timeoutMs: 100 })
+    const pending = api.fetchWithCache<TestCachePayload>('grades:1:2024', fetcher, undefined, { timeoutMs: 100 })
     const assertion = expect(pending).resolves.toMatchObject({ stale: true, fromCache: true })
     await vi.advanceTimersByTimeAsync(100)
     await assertion
@@ -232,7 +240,7 @@ describe('fetchWithCache 维护模式分类', () => {
     seedStale(storage, 'semesters2:2024', { success: true, data: { items: ['old'] } })
     const fetcher = vi.fn(async (extra) => ({ success: true, data: extra }))
 
-    const result = await api.fetchWithCache('semesters2:2024', () => fetcher('payload'))
+    const result = await api.fetchWithCache<TestCachePayload>('semesters2:2024', () => fetcher('payload'))
     expect(result.fromCache).toBe(false)
     expect(result.data.data).toBe('payload')
     expect(fetcher).toHaveBeenCalledWith('payload')
@@ -298,7 +306,7 @@ describe('fetchWithCache 维护模式分类', () => {
       .fn()
       .mockResolvedValue({ success: false, error: 'Request failed with status code 500' })
 
-    const result = await api.fetchWithCache('grades:1:2024', fetcher)
+    const result = await api.fetchWithCache<TestCachePayload>('grades:1:2024', fetcher)
     expect(result.fromCache).toBe(false)
     expect(result.data.error).toContain('500')
     expect(result.data.offline).toBeUndefined() // 未走 stale 回退
@@ -315,7 +323,7 @@ describe('fetchWithCache 维护模式分类', () => {
     storage.set(MAINTENANCE_FAIL_TIME_KEY, String(Date.now()))
     const fetcher = vi.fn().mockResolvedValue({ success: true, data: { items: ['fresh'] } })
 
-    const result = await api.fetchWithCache('grades:1:2024', fetcher)
+    const result = await api.fetchWithCache<TestCachePayload>('grades:1:2024', fetcher)
     expect(result.fromCache).toBe(false)
     expect(result.data.data).toEqual({ items: ['fresh'] })
     expect(readStorage(storageApi, MAINTENANCE_KEY)).toBeNull()
@@ -335,7 +343,7 @@ describe('fetchWithCache 维护模式分类', () => {
     const fetcher = vi.fn().mockResolvedValue({ success: true, data: { items: ['fresh-2'] } })
 
     // 退避窗口内：命中缓存并返回离线标记，但不触发后台刷新。
-    const inWindow = await api.fetchWithCache('schedule:1:2024', fetcher)
+    const inWindow = await api.fetchWithCache<TestCachePayload>('schedule:1:2024', fetcher)
     expect(inWindow.fromCache).toBe(true)
     expect(inWindow.data.offline).toBe(true)
     expect(fetcher).not.toHaveBeenCalled()
@@ -354,7 +362,7 @@ describe('fetchWithCache 维护模式分类', () => {
 
 describe('缓存失效跨实例广播', () => {
   it('clearCacheByPrefix 本地清理并广播（storage 哨兵 + CustomEvent）', async () => {
-    const { storage, api: storageApi } = installStorage()
+    const { api: storageApi } = installStorage()
     const { win } = installWindow()
     const api = await importApi()
 
@@ -367,7 +375,7 @@ describe('缓存失效跨实例广播', () => {
     // storage 哨兵已写入（跨标签页广播通道）
     const raw = readStorage(storageApi, CACHE_INVALIDATION_STORAGE_KEY)
     expect(raw).not.toBeNull()
-    const payload = JSON.parse(raw)
+    const payload = JSON.parse(raw as string)
     expect(payload.prefixes).toEqual(['grades:1'])
     expect(payload.id).toBeTruthy()
     // CustomEvent 已派发（同实例广播通道）
@@ -378,7 +386,7 @@ describe('缓存失效跨实例广播', () => {
   })
 
   it('收到跨实例 storage 事件后清理内存缓存，且不再回写存储（无事件循环）', async () => {
-    const { storage, api: storageApi } = installStorage()
+    const { api: storageApi } = installStorage()
     const { win, fire } = installWindow()
     const api = await importApi()
 
@@ -401,7 +409,7 @@ describe('缓存失效跨实例广播', () => {
   })
 
   it('同一广播 id 幂等去重：重复事件不重复清理', async () => {
-    const { storage, api: storageApi } = installStorage()
+    const { api: storageApi } = installStorage()
     const { fire } = installWindow()
     const api = await importApi()
 
@@ -420,7 +428,7 @@ describe('缓存失效跨实例广播', () => {
   })
 
   it('同实例 CustomEvent 与 storage 通道共用幂等去重，同一广播只处理一次', async () => {
-    const { storage, api: storageApi } = installStorage()
+    const { api: storageApi } = installStorage()
     const { fire } = installWindow()
     const api = await importApi()
     const payload = { id: 'same-instance-1', prefixes: ['grades:1'], at: 1 }
@@ -438,7 +446,7 @@ describe('缓存失效跨实例广播', () => {
   })
 
   it('clearUserScopedCaches 批量清理用户缓存并一次性广播全部前缀', async () => {
-    const { storage, api: storageApi } = installStorage()
+    const { api: storageApi } = installStorage()
     installWindow()
     const api = await importApi()
 

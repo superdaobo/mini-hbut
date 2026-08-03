@@ -6,6 +6,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
+import { isIOSLike } from '../platform/runtime'
 import { showToast } from '../utils/toast'
 import { pushDebugLog } from '../utils/debug_logger'
 import { TPageHeader, TEmptyState, TStatusBadge } from './templates'
@@ -35,13 +36,8 @@ const COURSE_LOAD_MORE_STEP = 20
 const IOS_PROGRESSIVE_FIRST_BATCH = 6
 // 课程列表上限：防止异常超大数据一次性 normalize/渲染导致 iOS 内存暴涨
 const MAX_COURSE_LIST_SIZE = 500
-const isIOSLikeDevice = (() => {
-  if (typeof navigator === 'undefined') return false
-  const ua = String(navigator.userAgent || '')
-  const platform = String(navigator.platform || '')
-  const maxTouchPoints = Number(navigator.maxTouchPoints || 0)
-  return /iPhone|iPad|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
-})()
+// iOS 判断收敛到 src/platform/runtime.ts（与 App.vue 同一来源）
+const isIOSLikeDevice = isIOSLike()
 const courseRenderLimit = ref(
   isIOSLikeDevice ? IOS_PROGRESSIVE_FIRST_BATCH : INITIAL_COURSE_BATCH
 )

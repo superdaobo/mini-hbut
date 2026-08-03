@@ -42,6 +42,7 @@
     "check:rustsec-acceptances": "node scripts/verify_rustsec_acceptances.mjs",
     "audit:dependencies": "node scripts/audit_dependencies.mjs",
     "check:all": "node scripts/check_all.mjs",
+    "check:architecture": "node scripts/check_arch_guards.mjs",
     "check:release": "node scripts/check_release.mjs",
     "check:release-config": "node scripts/verify_release_config.mjs"
   },

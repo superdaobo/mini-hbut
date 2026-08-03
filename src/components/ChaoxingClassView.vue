@@ -9,6 +9,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { platformBridge } from '../platform'
+import { isMobileLike } from '../platform/runtime'
 import { openExternal } from '../utils/external_link'
 import { fetchRemoteConfig, getChaoxingClassConfig } from '../utils/remote_config'
 import { loadPortalRememberedPassword } from '../utils/credential_storage'
@@ -662,7 +663,8 @@ const resolveAccess = async (item) => {
 
 const isMobileClient = () => {
   if (typeof navigator === 'undefined') return false
-  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return true
+  // 平台判断统一收敛到 src/platform/runtime.ts（单一来源）
+  if (isMobileLike()) return true
   try {
     // Capacitor WebView
     return !!(window.Capacitor?.isNativePlatform?.() || window.Capacitor?.getPlatform?.())

@@ -98,6 +98,7 @@ import {
   isTauriRuntime
 } from './platform/native'
 import { isCapacitorRuntime } from './platform/native'
+import { isAndroidLike as detectAndroidLike, isDesktopLike as detectDesktopLike, isIOSLike as detectIOSLike } from './platform/runtime'
 import { platformBridge } from './platform'
 import { resolveNotificationActionTarget } from './platform/notification_actions'
 import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
@@ -213,18 +214,10 @@ const IOS_RESUME_SOFT_REMOUNT_MS = 10 * 60 * 1000
 // 硬 reload 仅作为末级兜底：idle 更长 + 本会话未用过
 const IOS_RESUME_HARD_RELOAD_MS = 15 * 60 * 1000
 const IOS_RELOAD_MIN_INTERVAL_MS = 60 * 1000
-const isIOSLike = (() => {
-  if (typeof window === 'undefined') return false
-  const ua = window.navigator.userAgent || ''
-  const platform = window.navigator.platform || ''
-  const maxTouchPoints = window.navigator.maxTouchPoints || 0
-  return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
-})()
-const isAndroidLike = (() => {
-  if (typeof window === 'undefined') return false
-  return /Android/i.test(window.navigator.userAgent || '')
-})()
-const isDesktopLike = !isIOSLike && !isAndroidLike
+// 平台判断统一收敛到 src/platform/runtime.ts（单一来源，组件不维护第二套 UA 正则）
+const isIOSLike = detectIOSLike()
+const isAndroidLike = detectAndroidLike()
+const isDesktopLike = detectDesktopLike()
 let hiddenAt = 0
 let unlistenCloseRequested = null
 let isClosingByUser = false

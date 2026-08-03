@@ -30,6 +30,8 @@ export interface FetchWithCacheOptions {
   staleWhileRevalidate?: boolean
   forceRemote?: boolean
   cacheOfflinePayload?: boolean
+  /** 可选统一超时（ms）：>0 时用 withTimeout 包装 fetcher，超时抛 TimeoutError。 */
+  timeoutMs?: number
 }
 
 export function fetchWithCache<T = unknown>(

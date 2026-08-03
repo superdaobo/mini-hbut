@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { isMobileLike } from '../platform/runtime'
 
 /**
  * 相机二维码扫描 composable。
@@ -12,8 +13,8 @@ export function useQrScanner() {
   /** 检测当前环境是否支持相机 */
   function detectCamera(): boolean {
     if (typeof navigator === 'undefined') return false
-    // 移动端 file input capture 始终可用
-    if (/android|iphone|ipad|ipod/i.test(navigator.userAgent)) {
+    // 移动端 file input capture 始终可用（平台判断收敛到 src/platform/runtime.ts）
+    if (isMobileLike()) {
       cameraAvailable.value = true
       return true
     }

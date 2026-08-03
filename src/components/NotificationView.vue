@@ -4,6 +4,7 @@ import axios from 'axios'
 import { enableBackgroundPowerLock, disableBackgroundPowerLock } from '../utils/power_guard'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { getRuntime, platformBridge } from '../platform'
+import { isAndroidLike, isIOSLike } from '../platform/runtime'
 import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
 import { buildDefaultWorkspaceLayout } from '../config/ui_settings'
 import { cloneWorkspaceLayout, flushUiSettings, useUiSettings } from '../utils/ui_settings'
@@ -70,9 +71,9 @@ const hoverNotificationKey = ref('')
 const notificationCollisionFx = ref([])
 
 const runtimeDisplayText = computed(() => {
-  const ua = String(navigator.userAgent || '')
-  const isAndroidUA = /Android/i.test(ua)
-  const isIosUA = /iPhone|iPad|iPod/i.test(ua)
+  // UA 判断收敛到 src/platform/runtime.ts（单一来源）
+  const isAndroidUA = isAndroidLike()
+  const isIosUA = isIOSLike()
   const platformText = isAndroidUA ? 'Android' : (isIosUA ? 'iOS' : '未知平台')
   if (currentRuntime.value === 'capacitor') return `${platformText} / Capacitor`
   if (currentRuntime.value === 'tauri') {
@@ -82,7 +83,8 @@ const runtimeDisplayText = computed(() => {
   return '浏览器 / Web'
 })
 
-const isAndroid = () => /Android/i.test(navigator.userAgent)
+// 平台判断统一收敛到 src/platform/runtime.ts（单一来源）
+const isAndroid = isAndroidLike
 
 const isAclDeniedError = (err) => {
   const text = String(err || '')

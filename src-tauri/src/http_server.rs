@@ -26,6 +26,10 @@ use axum::{
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::utils::ics::{
+    escape_ics_text, fold_ics_line, parse_ics_datetime, sanitize_filename_part,
+};
+
 #[derive(Serialize)]
 struct ApiError {
     kind: String,
@@ -3126,56 +3130,6 @@ async fn debug_save_export_file(
     crate::save_export_file_impl(state.app.clone(), req)
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "导出失败", e))
-}
-
-fn sanitize_filename_part(input: &str) -> String {
-    input
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect::<String>()
-}
-
-fn escape_ics_text(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace(';', "\\;")
-        .replace(',', "\\,")
-        .replace("\r\n", "\\n")
-        .replace('\n', "\\n")
-        .replace('\r', "")
-}
-
-/// RFC 5545 §3.1 行折叠
-fn fold_ics_line(line: &str) -> String {
-    let max_bytes = 75;
-    if line.len() <= max_bytes {
-        return format!("{}\r\n", line);
-    }
-    let mut result = String::new();
-    let mut byte_count = 0;
-    let mut first_line = true;
-    for ch in line.chars() {
-        let ch_len = ch.len_utf8();
-        let limit = if first_line { max_bytes } else { max_bytes - 1 };
-        if byte_count + ch_len > limit {
-            result.push_str("\r\n ");
-            byte_count = 1;
-            first_line = false;
-        }
-        result.push(ch);
-        byte_count += ch_len;
-    }
-    result.push_str("\r\n");
-    result
-}
-
-fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
-        return Some(dt.naive_local());
-    }
-    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S")
-        .ok()
-        .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
 }
 
 fn export_dir() -> std::path::PathBuf {
