@@ -1,3 +1,15 @@
+// 测试 fixture：background_fetch 模块类型声明（与 background_fetch.js 导出对齐）
+export interface BackgroundFetchSettings {
+  enableBackground: boolean
+  enableGradeNotice: boolean
+  enableExamReminder: boolean
+  enablePowerNotice: boolean
+  enableClassReminder: boolean
+  classLeadMinutes: number
+  intervalMinutes: number
+  [key: string]: unknown
+}
+
 export interface BackgroundFetchEventContext {
   taskId?: string
   studentId?: string
@@ -6,7 +18,7 @@ export interface BackgroundFetchEventContext {
 
 export interface BackgroundFetchSyncContext {
   studentId?: string
-  settings?: Record<string, unknown>
+  settings?: BackgroundFetchSettings
   dormSelection?: unknown[]
   schoolInboxState?: unknown[]
   loginMethod?: string

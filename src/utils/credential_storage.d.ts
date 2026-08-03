@@ -1,3 +1,4 @@
+// 测试 fixture：credential_storage 模块类型声明（与 credential_storage.js 导出对齐）
 export const HBUT_CREDENTIAL_PREFIX: string
 export const CHAOXING_CREDENTIAL_PREFIX: string
 export const CAMPUS_CREDENTIAL_PREFIX: string
@@ -15,4 +16,4 @@ export function loadPortalRememberedPassword(username: string): Promise<string |
 export function preservePortalRememberedPasswordOnLogout(): Promise<void>
 export function loadChaoxingRememberedPassword(account: string): Promise<string | null>
 export function syncPortalRememberCredential(options: Record<string, unknown>): Promise<unknown>
-export function ensureRememberedPasswordCached(username: string): Promise<unknown>
+export function ensureRememberedPasswordCached(username: string): Promise<void>

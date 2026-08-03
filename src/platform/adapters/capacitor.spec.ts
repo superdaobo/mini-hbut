@@ -36,7 +36,7 @@ describe('capacitorBridge notifications', () => {
   })
 
   it('does not assimilate Capacitor plugin proxies as thenables', async () => {
-    thenTrapMock.mockImplementation((resolve: unknown, reject: unknown) => {
+    thenTrapMock.mockImplementation((_resolve: unknown, reject: unknown) => {
       if (typeof reject === 'function') {
         reject(new Error('LocalNotifications.then should not be called'))
       }

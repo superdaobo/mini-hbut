@@ -7,12 +7,11 @@ import {
 } from '../../website/modules-src/hecheng_hugongda/project/src/utils/game_rank.js'
 
 const setSearch = (search = '') => {
-  // @ts-expect-error test window stub
-  globalThis.window = {
+  vi.stubGlobal('window', {
     location: { search },
     setTimeout: globalThis.setTimeout,
     clearTimeout: globalThis.clearTimeout
-  }
+  })
 }
 
 const createStorage = () => {
@@ -40,6 +39,7 @@ describe('hecheng_hugongda rank upload contract', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('does not enable rank without student_id', () => {

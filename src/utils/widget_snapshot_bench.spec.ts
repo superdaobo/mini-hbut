@@ -2,7 +2,7 @@
 // 性能基线测试：writeSnapshot I/O P95 ≤ 50ms（fake bridge）+ 快照字节数 ≤ 32 KB
 // 对齐 design §12.8
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { buildTodayCourseSnapshot } from './widget_snapshot'
 import type { TodayCourseSnapshot } from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
 

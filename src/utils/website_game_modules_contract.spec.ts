@@ -31,7 +31,7 @@ type SourceModule = {
 const loadSourceModules = () =>
   listSourceModules().map((dirName) => ({
     dirName,
-    ...readJson<SourceModule>(path.join(modulesRoot, dirName, 'module.json'))
+    ...readJson<Omit<SourceModule, 'dirName'>>(path.join(modulesRoot, dirName, 'module.json'))
   }))
 
 const enabledModules = () => loadSourceModules().filter((item) => item.disabled !== true)

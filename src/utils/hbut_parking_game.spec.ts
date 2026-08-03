@@ -8,8 +8,8 @@ import {
   directionFromKey,
   isDirectionAllowedForVehicle,
   isLevelCleared,
-  selectVehicle,
-  slideVehicle
+  slideVehicle,
+  type ParkingGameState
 } from '../../website/modules-src/hbut_parking/project/src/game/parking.js'
 
 describe('hbut_parking move legality and score', () => {
@@ -24,14 +24,14 @@ describe('hbut_parking move legality and score', () => {
   })
 
   it('rejects illegal slides and accepts free path slides', () => {
-    const openState = {
+    const openState: ParkingGameState = {
       ...createInitialParkingState({ levelIndex: 0 }),
       vehicles: [{ id: 'bus', label: '校车', row: 2, col: 1, length: 2, orientation: 'h', target: true }]
     }
     expect(canSlideVehicle(openState, 'bus', 1)).toBe(true)
     expect(canSlideVehicle(openState, 'bus', -2)).toBe(false) // would leave board
 
-    const collisionState = {
+    const collisionState: ParkingGameState = {
       ...createInitialParkingState({ levelIndex: 0 }),
       vehicles: [
         { id: 'bus', label: '校车', row: 2, col: 1, length: 2, orientation: 'h', target: true },

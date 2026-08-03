@@ -18,6 +18,12 @@ function readClumsyBirdSource(relativePath: string) {
 }
 
 function createMockContext() {
+  // 访问器经闭包变量读写，规避对象字面量 setter 的 this 类型推断限制
+  let fillStyleValue = ''
+  let strokeStyleValue = ''
+  let lineWidthValue = 1
+  let fontValue = ''
+  let textAlignValue = ''
   return {
     clearRect: vi.fn(),
     fillRect: vi.fn(),
@@ -40,17 +46,17 @@ function createMockContext() {
     strokeText: vi.fn(),
     createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
-    set fillStyle(value) { this._fillStyle = value },
-    get fillStyle() { return this._fillStyle },
-    set strokeStyle(value) { this._strokeStyle = value },
-    get strokeStyle() { return this._strokeStyle },
-    set lineWidth(value) { this._lineWidth = value },
-    get lineWidth() { return this._lineWidth },
-    set font(value) { this._font = value },
-    get font() { return this._font },
-    set textAlign(value) { this._textAlign = value },
-    get textAlign() { return this._textAlign }
-  } as CanvasRenderingContext2D & Record<string, unknown>
+    set fillStyle(value) { fillStyleValue = value },
+    get fillStyle() { return fillStyleValue },
+    set strokeStyle(value) { strokeStyleValue = value },
+    get strokeStyle() { return strokeStyleValue },
+    set lineWidth(value) { lineWidthValue = value },
+    get lineWidth() { return lineWidthValue },
+    set font(value) { fontValue = value },
+    get font() { return fontValue },
+    set textAlign(value) { textAlignValue = value },
+    get textAlign() { return textAlignValue }
+  } as unknown as CanvasRenderingContext2D & Record<string, unknown>
 }
 
 function createMockCanvas(options: {
