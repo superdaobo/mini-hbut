@@ -44,7 +44,7 @@ onMounted(async () => {
           @click="
             store.navigateTo(CAMPUS_GUIDE_VIEWS.walkline, {
               spot: detail,
-              endPoint: resolveNavEndPoint(detail)
+              endPoint: resolveNavEndPoint(detail) ?? undefined
             })
           "
         >

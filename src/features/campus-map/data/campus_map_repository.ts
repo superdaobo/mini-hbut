@@ -66,7 +66,8 @@ const fetchJsonNoStore = async (url: string) => {
   return response.json()
 }
 
-const readBundleCache = () => getCachedData(CAMPUS_MAP_CACHE_KEY, CAMPUS_MAP_CACHE_TTL_MS)
+const readBundleCache = () =>
+  getCachedData<CampusMapBundle>(CAMPUS_MAP_CACHE_KEY, CAMPUS_MAP_CACHE_TTL_MS)
 
 const buildFallbackBundle = (reason: string): CampusMapBundle => ({
   manifest: parseCampusMapManifest(fallbackManifest),

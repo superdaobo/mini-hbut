@@ -33,7 +33,7 @@ describe('resolveCaptureBackgroundColor', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
-    delete (globalThis as typeof globalThis & { getComputedStyle?: typeof getComputedStyle }).getComputedStyle
+    delete (globalThis as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle
   })
 
   it('显式传入背景色时应优先使用该背景色', () => {

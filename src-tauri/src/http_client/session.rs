@@ -1042,12 +1042,20 @@ impl HbutClient {
             .map(|dir| dir.join("hbut_cookie_snapshot.json"))
     }
 
-    /// 将 Cookie 快照写入本地文件
+    /// 将 Cookie 快照写入本地文件（tmp+rename 原子写，避免写一半被读取，见 #550）
     pub fn save_cookie_snapshot_to_file(&self) {
         if let Some(path) = Self::cookie_snapshot_path() {
             let payload = self.get_cookie_snapshot();
             if let Ok(text) = serde_json::to_string(&payload) {
-                let _ = std::fs::write(path, text);
+                let tmp = path.with_file_name(format!(
+                    "hbut_cookie_snapshot.json.{}.tmp",
+                    std::process::id()
+                ));
+                if std::fs::write(&tmp, &text).is_ok() {
+                    if std::fs::rename(&tmp, &path).is_err() {
+                        let _ = std::fs::remove_file(&tmp);
+                    }
+                }
             }
         }
     }

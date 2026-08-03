@@ -6,12 +6,11 @@ import {
 } from '../../website/modules-src/hbut_miner/project/src/utils/game_rank.js'
 
 const setSearch = (search = '') => {
-  // @ts-expect-error test window
-  globalThis.window = {
+  vi.stubGlobal('window', {
     location: { search },
     setTimeout: globalThis.setTimeout,
     clearTimeout: globalThis.clearTimeout
-  }
+  })
 }
 
 const createStorage = () => {
@@ -38,6 +37,7 @@ describe('hbut_miner rank contract', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('submits miner score with game_id hbut_miner and retries once on 503', async () => {

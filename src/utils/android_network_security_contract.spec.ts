@@ -10,10 +10,7 @@ describe('Android network security config', () => {
     const xml = readConfig('android/app/src/main/res/xml/network_security_config.xml')
 
     for (const domain of ['127.0.0.1', 'localhost', '10.0.2.2']) {
-      const pattern = new RegExp(
-        `<domain\\s+includeSubdomains="true"\\s*>\\s*${domain.replaceAll('.', '\\.')}\\s*</domain>`
-      )
-      expect(xml, domain).toMatch(pattern)
+      expect(xml, domain).toContain(`<domain includeSubdomains="true">${domain}</domain>`)
     }
   })
 })

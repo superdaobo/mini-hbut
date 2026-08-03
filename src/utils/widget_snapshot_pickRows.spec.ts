@@ -1,6 +1,6 @@
 // Unit tests for pickRows — verifies capacity slicing and overflow badge calculation
 import { describe, it, expect } from 'vitest'
-import { pickRows, buildTodayCourseSnapshot } from './widget_snapshot'
+import { pickRows } from './widget_snapshot'
 import type { TodayCourseSnapshot, WidgetCourse } from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
 
 /** Helper: build a minimal valid snapshot with N courses */

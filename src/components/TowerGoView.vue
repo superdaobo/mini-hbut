@@ -61,15 +61,6 @@ const centerFetchInFlight = ref(false)
 // ── computed ──────────────────────────────────────────────────────
 const nearestVehicle = computed(() => vehicles.value[0] || null)
 
-const parkingCount = computed(() => {
-  const data = parkingInfo.value || {}
-  const fromParking = Number(data.parkingNum || data.num || data.count || 0)
-  if (fromParking) return fromParking
-  // nearParkingNum 免登可能未授权，降级从 nearFence 的 parkings 列表推算停车点数量
-  const fenceData = fences.value as { parkings?: unknown[] } | null
-  return fenceData?.parkings?.length || 0
-})
-
 const scanTimeText = computed(() =>
   lastScanAt.value ? new Date(lastScanAt.value).toLocaleTimeString('zh-CN', { hour12: false }) : '--'
 )
@@ -752,7 +743,11 @@ const suppressMapWorkerError = () => {
       const nativePost = worker.postMessage.bind(worker)
       worker.postMessage = ((message: unknown, transfer?: Transferable[]) => {
         try {
-          nativePost(message, transfer)
+          if (transfer && transfer.length) {
+            nativePost(message, transfer)
+          } else {
+            nativePost(message)
+          }
         } catch {
           /* 腾讯地图瓦片 Worker 序列化失败，忽略以避免控制台噪声 */
         }

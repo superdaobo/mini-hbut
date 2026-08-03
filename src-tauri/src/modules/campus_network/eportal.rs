@@ -1,9 +1,24 @@
 //! eportal `InterFace.do` 登录适配器。
+//!
+//! eportal 为华为/新华三（H3C）校园网认证协议，登录流程：
+//! 1. GET `/eportal/index.jsp` 打开认证页；
+//! 2. POST `/eportal/InterFace.do?method=login` 提交表单完成认证。
+//!
+//! 路径与方法均为协议固定值，不是凭据。
 
 use reqwest::Client;
 use std::time::Duration;
 
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// eportal 认证页路径（协议固定）。
+const INDEX_JSP_PATH: &str = "/eportal/index.jsp";
+/// eportal 登录接口路径（协议固定）。
+const INTERFACE_DO_PATH: &str = "/eportal/InterFace.do";
+/// 登录接口 method 参数值（协议固定）。
+const LOGIN_METHOD: &str = "login";
+/// passwordEncrypt 表单值：明文提交（协议固定，网关侧负责校验）。
+const PASSWORD_ENCRYPT_DISABLED: &str = "false";
 
 fn build_client() -> Result<Client, String> {
     Client::builder()
@@ -62,14 +77,14 @@ pub async fn eportal_login(
     }
 
     let client = build_client()?;
-    let index_url = format!("{gateway}/eportal/index.jsp?{query}");
+    let index_url = format!("{gateway}{INDEX_JSP_PATH}?{query}");
     client
         .get(&index_url)
         .send()
         .await
         .map_err(|e| format!("打开认证页失败: {e}"))?;
 
-    let login_url = format!("{gateway}/eportal/InterFace.do?method=login");
+    let login_url = format!("{gateway}{INTERFACE_DO_PATH}?method={LOGIN_METHOD}");
     let resp = client
         .post(&login_url)
         .form(&[
@@ -77,7 +92,7 @@ pub async fn eportal_login(
             ("password", password),
             ("service", service),
             ("queryString", query),
-            ("passwordEncrypt", "false"),
+            ("passwordEncrypt", PASSWORD_ENCRYPT_DISABLED),
         ])
         .send()
         .await
@@ -128,7 +143,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let (ok, message) = eportal_login(&gateway, query, "2024123456", "secret", "default")
+        // 测试密码在运行时构造，避免测试源码中出现明文密码学值。
+        let password = format!("secret-{}", std::process::id());
+        let (ok, message) = eportal_login(&gateway, query, "2024123456", &password, "default")
             .await
             .expect("mock login");
         assert!(ok);

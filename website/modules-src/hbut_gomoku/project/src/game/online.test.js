@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { getCell } from './gomoku.js'
 import {
   DEFAULT_NOSTR_RELAY_URLS,
@@ -36,6 +36,17 @@ describe('湖工五子棋联机协议', () => {
     expect(normalizeRoomCode(' hbut-12_3  ')).toBe('HBUT123')
     expect(normalizeRoomCode('')).toBe('')
     expect(createRoomCode(() => 0.123456)).toMatch(/^HBUT-[A-Z0-9]{4}-[A-Z0-9]{4}$/)
+  })
+
+  it('房间码默认使用密码学安全随机源（crypto.getRandomValues）', () => {
+    const spy = vi.spyOn(crypto, 'getRandomValues')
+    try {
+      const code = createRoomCode()
+      expect(code).toMatch(/^HBUT-[A-Z0-9]{4}-[A-Z0-9]{4}$/)
+      expect(spy).toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('按房主/加入者初始化在线状态和座位', () => {

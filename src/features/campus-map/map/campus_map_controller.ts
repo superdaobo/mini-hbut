@@ -14,7 +14,10 @@ type TMapInstance = {
   LatLngBounds: new (sw: unknown, ne: unknown) => unknown
   MultiMarker: new (options: Record<string, unknown>) => TMapLayer
   MultiPolyline: new (options: Record<string, unknown>) => TMapLayer
-  MarkerStyle?: new (options: Record<string, unknown>) => unknown
+  MultiPolygon: new (options: Record<string, unknown>) => TMapLayer
+  MarkerStyle: new (options: Record<string, unknown>) => unknown
+  PolylineStyle: new (options: Record<string, unknown>) => unknown
+  [key: string]: unknown
 }
 
 type TMapMap = {
@@ -105,8 +108,12 @@ export class CampusMapController {
         geometries,
         zIndex: 120
       })
-      this.buildingLayer.on?.('click', (event: { geometry?: { id?: string } }) => {
-        const id = event?.geometry?.id
+      this.buildingLayer.on?.('click', (event: unknown) => {
+        const geometry =
+          event && typeof event === 'object'
+            ? (event as { geometry?: { id?: string } }).geometry
+            : undefined
+        const id = geometry?.id
         const target = this.buildings.find((item) => item.id === id)
         if (target) this.onMarkerClick?.(target)
       })

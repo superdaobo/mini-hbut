@@ -15,6 +15,19 @@ const toNumber = (value: unknown) => {
   return Number.isFinite(num) ? num : NaN
 }
 
+/** 兼容数字/字符串 id；其他类型视为缺失 */
+const toId = (value: unknown): string | number | undefined => {
+  if (typeof value === 'string' || typeof value === 'number') return value
+  return undefined
+}
+
+const toOptionalNumberOrString = (
+  value: unknown
+): number | string | undefined => {
+  if (typeof value === 'number' || typeof value === 'string') return value
+  return undefined
+}
+
 const parseAoiRing = (ring: string): GeoPoint[] =>
   String(ring || '')
     .split(';')
@@ -67,7 +80,7 @@ export const normalizeScenicInfo = (raw: unknown): ScenicInfo => {
 
   return {
     ...(data as ScenicInfo),
-    scenic_id: data.scenic_id ?? data.id,
+    scenic_id: toId(data.scenic_id ?? data.id),
     latitude: toNumber(data.latitude),
     longitude: toNumber(data.longitude),
     introduction: data.introduction ? String(data.introduction) : undefined,
@@ -112,14 +125,14 @@ export const normalizeSpot = (raw: unknown): CampusSpot | null => {
       }
     }
   }
-  const spotId = data.spot_id ?? data.id
+  const spotId = toId(data.spot_id ?? data.id)
   const name = String(data.name ?? data.title ?? '').trim()
   if (!spotId || !name) return null
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
 
   return {
-    spot_id: spotId as string | number,
+    spot_id: spotId,
     name,
     category: data.category ? String(data.category) : undefined,
     marker_type: data.marker_type ? String(data.marker_type) : data.map_type ? String(data.map_type) : undefined,
@@ -195,11 +208,11 @@ export const normalizeTourRoutes = (raw: unknown): TourRoute[] => {
     const data = (item || {}) as Record<string, unknown>
     const distance = toNumber(data.distance)
     return {
-      road_id: data.road_id ?? data.id,
-      id: data.id ?? data.road_id,
+      road_id: toId(data.road_id ?? data.id),
+      id: toId(data.id ?? data.road_id),
       name: String(data.name || data.title || '游览路线'),
       title: data.title ? String(data.title) : undefined,
-      distance: data.distance,
+      distance: toOptionalNumberOrString(data.distance),
       distancer: data.distancer
         ? String(data.distancer)
         : Number.isFinite(distance)
@@ -214,7 +227,11 @@ export const normalizeTourRoutes = (raw: unknown): TourRoute[] => {
             .filter(Boolean),
       road_point: parseRoadPointText(data.road_point),
       spot_list: normalizeSpotList({ list: data.spot_list }),
-      spots: Array.isArray(data.spots) ? data.spots : undefined,
+      spots: Array.isArray(data.spots)
+        ? data.spots.filter((spot): spot is string | number =>
+            typeof spot === 'string' || typeof spot === 'number'
+          )
+        : undefined,
       raw: item
     }
   })
@@ -225,8 +242,8 @@ export const normalizeBusRoads = (raw: unknown): BusRoad[] => {
   return list.map((item) => {
     const data = (item || {}) as Record<string, unknown>
     return {
-      road_id: data.road_id ?? data.id,
-      id: data.id ?? data.road_id,
+      road_id: toId(data.road_id ?? data.id),
+      id: toId(data.id ?? data.road_id),
       name: String(data.name || data.title || '班车路线'),
       title: data.title ? String(data.title) : undefined,
       road_point: parseRoadPointText(data.road_point),
@@ -243,7 +260,7 @@ export const normalizeNotices = (raw: unknown): ScenicNotice[] => {
       .split('[[enter]]')
       .join('\n')
     return {
-      id: data.id ?? index,
+      id: toId(data.id) ?? index,
       title: String(data.title || data.name || `公告 ${index + 1}`),
       content
     }
@@ -259,8 +276,8 @@ export const normalizeActivities = (raw: unknown): CampusActivity[] => {
   return list.map((item) => {
     const data = (item || {}) as Record<string, unknown>
     return {
-      activity_id: data.activity_id ?? data.id,
-      id: data.id ?? data.activity_id,
+      activity_id: toId(data.activity_id ?? data.id),
+      id: toId(data.id ?? data.activity_id),
       title: String(data.title || data.name || '校园活动'),
       name: data.name ? String(data.name) : undefined,
       content: data.content ? String(data.content) : undefined,

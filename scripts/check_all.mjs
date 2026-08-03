@@ -6,9 +6,10 @@ const steps = [
   () => runNpm('RustSec acceptance scope', ['run', 'check:rustsec-acceptances']),
   () => runNpm('Frontend production build', ['run', 'build']),
   () => runNpm('Frontend test suite', ['run', 'test:ci']),
-  () => runNpm('Vue CI typecheck', ['exec', '--', 'vue-tsc', '--noEmit', '-p', 'tsconfig.ci.json']),
+  () => runNpm('Vue typecheck', ['exec', '--', 'vue-tsc', '--noEmit', '-p', 'tsconfig.json']),
   () => runNode('Frontend safety guard', 'scripts/check-frontend-safety.mjs'),
   () => runNode('Design token guard', 'scripts/check-design-tokens.mjs'),
+  () => runNode('Phase 3 architecture guard', 'scripts/check_arch_guards.mjs'),
   () => runCommand({
     label: 'Sensitive upload guard (tracked files)',
     command: process.execPath,

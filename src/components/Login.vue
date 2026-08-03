@@ -10,6 +10,7 @@ import {
   saveRememberedCredential,
   syncPortalRememberCredential
 } from '../utils/credential_storage.js'
+import { saveRememberedUsername, clearRememberedUsername } from '../utils/remembered_username.js'
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
 
@@ -119,7 +120,7 @@ const handleOcrConfigUpdated = () => {
 // 保存凭据到 localStorage
 const saveCredentials = async () => {
   if (rememberMe.value) {
-    localStorage.setItem('hbu_username', username.value)
+    saveRememberedUsername(username.value)
     localStorage.setItem('hbu_remember', 'true')
     await saveRememberedCredential(
       buildHbutAccountKey(username.value),
@@ -127,7 +128,7 @@ const saveCredentials = async () => {
     )
     localStorage.removeItem('hbu_credentials')
   } else {
-    localStorage.removeItem('hbu_username')
+    clearRememberedUsername()
     localStorage.removeItem('hbu_credentials')
     localStorage.setItem('hbu_remember', 'false')
     await saveRememberedCredential(buildHbutAccountKey(username.value), '')

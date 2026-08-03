@@ -47,8 +47,8 @@ describe('night mode helpers', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
-    delete (globalThis as typeof globalThis & { document?: Document }).document
-    delete (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage
+    delete (globalThis as { document?: Document }).document
+    delete (globalThis as { localStorage?: Storage }).localStorage
   })
 
   it('启用夜晚模式时应添加 html.dark 并写入偏好', () => {

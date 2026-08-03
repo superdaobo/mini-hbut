@@ -70,6 +70,16 @@ const GOMOKU_RELAY_BASE_URL =
   safeUrlParam('relay_api') ||
   DEFAULT_HF_RELAY_BASE_URL
 
+// 模板插值转义：错误/异常文本进入 innerHTML 模板前必须先转义（CodeQL js/xss-through-exception）
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function notifyHostHeight() {
   if (typeof window === 'undefined' || window.parent === window) return
   requestAnimationFrame(() => {
@@ -291,8 +301,8 @@ function render() {
         <div class="turn-mark ${state.status === 'playing' ? state.currentPlayer : state.winner || 'draw'}"></div>
         <div>
           <p class="eyebrow">湖工五子棋</p>
-          <h1>${statusTitle()}</h1>
-          <p>${statusDetail()}</p>
+          <h1>${escapeHtml(statusTitle())}</h1>
+          <p>${escapeHtml(statusDetail())}</p>
         </div>
       </section>
 

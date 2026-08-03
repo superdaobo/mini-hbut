@@ -44,7 +44,17 @@ export const formatRoomCode = (value) => {
   return normalized.replace(/(.{4})/g, '$1-').replace(/-$/, '')
 }
 
-export const createRoomCode = (random = Math.random) => {
+// 房间码使用密码学安全随机源，避免被猜出后抢占他人房间（CodeQL js/insecure-randomness）
+const secureRandom = () => {
+  if (typeof globalThis.crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const buffer = new Uint32Array(1)
+    crypto.getRandomValues(buffer)
+    return buffer[0] / 2 ** 32
+  }
+  return Math.random()
+}
+
+export const createRoomCode = (random = secureRandom) => {
   let code = ''
   for (let index = 0; index < 8; index += 1) {
     code += ROOM_ALPHABET[Math.floor(random() * ROOM_ALPHABET.length) % ROOM_ALPHABET.length]

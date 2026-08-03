@@ -4,6 +4,7 @@ import type {
   NotifyPayload,
   PlatformBridge
 } from '../types'
+import { isIOSLike } from '../runtime'
 
 const getWindow = () => (typeof window === 'undefined' ? undefined : (window as any))
 const getCapacitor = () => getWindow()?.Capacitor
@@ -135,7 +136,7 @@ export const capacitorBridge: PlatformBridge = {
     if (!localNotifications?.schedule) return false
     try {
       const id = payload.id ?? Math.floor(Date.now() % 2147483000)
-      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+      const isIOS = isIOSLike()
       const notification: Record<string, any> = {
         id,
         title: payload.title,
@@ -233,8 +234,8 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState> {
-    // iOS 不支持前台服务保活，返回友好提示
-    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    // iOS 不支持前台服务保活，返回友好提示（平台判断收敛到 runtime.ts）
+    if (isIOSLike()) {
       return {
         supported: false,
         active: false,
@@ -270,7 +271,8 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async getAggressiveKeepAliveState(): Promise<KeepAliveState> {
-    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    // iOS 不支持前台服务保活（平台判断收敛到 runtime.ts）
+    if (isIOSLike()) {
       return {
         supported: false,
         active: false,
@@ -317,8 +319,12 @@ export const capacitorBridge: PlatformBridge = {
     }
     try {
       const app = await import('@capacitor/app')
-      await app.App.openSettings()
-      return true
+      const openSettings = (app.App as { openSettings?: () => Promise<void> }).openSettings
+      if (typeof openSettings === 'function') {
+        await openSettings()
+        return true
+      }
+      return false
     } catch {
       return false
     }
@@ -336,8 +342,12 @@ export const capacitorBridge: PlatformBridge = {
     }
     try {
       const app = await import('@capacitor/app')
-      await app.App.openSettings()
-      return true
+      const openSettings = (app.App as { openSettings?: () => Promise<void> }).openSettings
+      if (typeof openSettings === 'function') {
+        await openSettings()
+        return true
+      }
+      return false
     } catch {
       return false
     }

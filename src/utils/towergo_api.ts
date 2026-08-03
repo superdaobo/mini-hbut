@@ -185,7 +185,7 @@ export const normalizeTowerGoResult = <T = unknown>(body: unknown, httpStatus = 
   }
 }
 
-export const normalizeTowerGoError = (error: unknown, url = ''): TowerGoResult => {
+export const normalizeTowerGoError = <T = unknown>(error: unknown, url = ''): TowerGoResult<T> => {
   const err = error as { code?: string, message?: string, httpStatus?: number, degraded?: boolean }
   return {
     ok: false,
@@ -311,7 +311,7 @@ export const towerGoRequest = async <T = unknown>(
     }
     return result
   } catch (error) {
-    const normalized = normalizeTowerGoError(error, url)
+    const normalized = normalizeTowerGoError<T>(error, url)
     if (options.throwOnError) throw error
     return normalized
   }

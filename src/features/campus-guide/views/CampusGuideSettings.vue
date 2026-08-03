@@ -8,7 +8,7 @@ import { useCampusGuideStore } from '../store/campus-guide-store'
 
 const emit = defineEmits(['back'])
 const store = useCampusGuideStore()
-const guideMode = ref(readCampusGuideMode())
+const guideMode = ref<'tencent' | 'legacy'>(readCampusGuideMode())
 
 const applyMode = () => {
   writeCampusGuideMode(guideMode.value)

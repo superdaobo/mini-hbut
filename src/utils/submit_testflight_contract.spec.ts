@@ -144,12 +144,12 @@ describe("TestFlight 自动化提交契约", () => {
     expect(payload).toBeDefined();
     expect(signature).toBeDefined();
 
-    expect(JSON.parse(Buffer.from(header, "base64url"))).toEqual({
+    expect(JSON.parse(Buffer.from(header, "base64url").toString())).toEqual({
       alg: "ES256",
       kid: "KEY123",
       typ: "JWT",
     });
-    expect(JSON.parse(Buffer.from(payload, "base64url"))).toMatchObject({
+    expect(JSON.parse(Buffer.from(payload, "base64url").toString())).toMatchObject({
       iss: "ISSUER-ABC",
       aud: "appstoreconnect-v1",
       iat: now,

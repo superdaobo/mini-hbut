@@ -331,13 +331,14 @@ const DETAIL_SECTIONS = [
 
 const decodeHtmlEntities = (text) => {
   if (!text || typeof text !== 'string') return ''
+  // 注意：&amp; 必须最后解码，否则 "&amp;lt;" 会被错误地双重解码成 "<"（CodeQL js/double-escaping）
   return text
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
+    .replace(/&amp;/gi, '&')
 }
 
 const stripHtml = (value) => {

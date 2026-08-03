@@ -42,13 +42,18 @@ const DEFAULT_SETTINGS = {
   }
 }
 
-const clampNumber = (value, min, max, fallback) => {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object'
+
+type AppSettingsState = typeof DEFAULT_SETTINGS
+
+const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
   const num = Number(value)
   if (Number.isNaN(num)) return fallback
   return Math.min(max, Math.max(min, num))
 }
 
-const normalizeUrl = (value) => {
+const normalizeUrl = (value: unknown) => {
   const text = String(value || '').trim()
   if (!text) return ''
   if (/^https?:\/\//i.test(text)) return text.replace(/\s+/g, '')
@@ -56,19 +61,22 @@ const normalizeUrl = (value) => {
   return `${prefix}${text}`.replace(/\s+/g, '')
 }
 
-const normalizeSettings = (raw) => {
-  const base = JSON.parse(JSON.stringify(DEFAULT_SETTINGS))
+const normalizeSettings = (raw: unknown): AppSettingsState => {
+  const base = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) as AppSettingsState
   if (!raw || typeof raw !== 'object') return base
+  const source = raw as Record<string, unknown>
 
-  const next = { ...base, ...raw }
-  next.retry = { ...base.retry, ...(raw.retry || {}) }
-  next.resourceShare = { ...base.resourceShare, ...(raw.resourceShare || {}) }
-  next.backend = { ...base.backend, ...(raw.backend || {}) }
+  const next: AppSettingsState = { ...base, ...source }
+  next.retry = { ...base.retry, ...(isRecord(source.retry) ? source.retry : {}) }
+  next.resourceShare = { ...base.resourceShare, ...(isRecord(source.resourceShare) ? source.resourceShare : {}) }
+  next.backend = { ...base.backend, ...(isRecord(source.backend) ? source.backend : {}) }
   // 模块目标地址固定使用默认值，不对用户开放编辑能力。
   next.backend.moduleTargets = { ...base.backend.moduleTargets }
   next.backend.moduleParams = {
     ...base.backend.moduleParams,
-    ...(raw.backend?.moduleParams || {})
+    ...(isRecord(source.backend) && isRecord(source.backend.moduleParams)
+      ? source.backend.moduleParams
+      : {})
   }
 
   next.retry.electricity = clampNumber(next.retry.electricity, 0, 5, base.retry.electricity)
@@ -185,7 +193,7 @@ const resetAppSettings = () => {
   Object.assign(state, normalizeSettings(DEFAULT_SETTINGS))
 }
 
-const applyAppSettingsSnapshot = (raw) => {
+const applyAppSettingsSnapshot = (raw: unknown) => {
   const normalized = normalizeSettings(raw)
   state.retry = { ...normalized.retry }
   state.retryDelayMs = normalized.retryDelayMs

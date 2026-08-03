@@ -125,6 +125,31 @@ const uniqueUrls = (list: string[]): string[] => {
   return out;
 };
 
+// URL 判定一律走 URL 对象精确匹配 hostname，避免 includes 子串被
+// github.com.evil.com 这类伪装域名绕过（CodeQL js/incomplete-url-substring-sanitization）
+const urlHostname = (rawUrl: string): string => {
+  try {
+    return new URL(String(rawUrl || '').trim()).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+};
+
+const isGithubHost = (rawUrl: string): boolean => {
+  const host = urlHostname(rawUrl);
+  return host === 'github.com' || host.endsWith('.github.com');
+};
+
+/** 原 includes('github.com/') 语义：GitHub 源站 / 子域 / 代理前缀中的 github.com 目标 */
+const looksGithubRelated = (rawUrl: string): boolean => {
+  if (isGithubHost(rawUrl)) return true;
+  try {
+    return new URL(String(rawUrl || '').trim()).pathname.includes('/github.com/');
+  } catch {
+    return false;
+  }
+};
+
 const allProxyPrefixes = uniqueUrls([...apiProxyPrefixes, ...downloadProxyPrefixes]);
 
 const latestApiCandidates = uniqueUrls([
@@ -214,7 +239,7 @@ function assignLink(
   links[primaryKey] = candidates[0];
 
   // 如果 candidates 只有 CDN 链接（非 GitHub），补充代理 + GitHub 源站
-  const hasGithubUrl = candidates.some((u) => u.includes('github.com/'));
+  const hasGithubUrl = candidates.some((u) => looksGithubRelated(u));
   if (!hasGithubUrl && candidates[0].startsWith(`${EDGEONE_CDN_BASE}/releases/`)) {
     const cdnUrl = candidates[0];
     const cdnPrefix = `${EDGEONE_CDN_BASE}/releases/`;
@@ -586,19 +611,19 @@ export default function DownloadSection() {
   }, []);
 
   const getSourceLabel = (url: string): string => {
-    if (url.includes('hbut.6661111.xyz')) return '本站下载';
-    if (url.includes('hk.gh-proxy.org')) return '代理下载 1';
-    if (url.includes('ghfast.top')) return '代理下载 2';
-    if (url.includes('gh-proxy.com')) return '代理下载 3';
-    if (url.includes('ghproxy.net')) return '代理下载 4';
-    if (url.includes('mirror.ghproxy.com')) return '代理下载 4';
-    if (url.includes('github.com')) return 'GitHub 源站';
+    const host = urlHostname(url);
+    if (host === 'hbut.6661111.xyz') return '本站下载';
+    if (host === 'hk.gh-proxy.org') return '代理下载 1';
+    if (host === 'ghfast.top') return '代理下载 2';
+    if (host === 'gh-proxy.com') return '代理下载 3';
+    if (host === 'ghproxy.net' || host === 'mirror.ghproxy.com') return '代理下载 4';
+    if (isGithubHost(url)) return 'GitHub 源站';
     return `线路 ${url.slice(0, 20)}`;
   };
 
   const getSourceIcon = (url: string): string => {
-    if (url.includes('hbut.6661111.xyz')) return '⚡';
-    if (url.includes('github.com')) return '🐙';
+    if (urlHostname(url) === 'hbut.6661111.xyz') return '⚡';
+    if (isGithubHost(url)) return '🐙';
     return '🔗';
   };
 
@@ -610,7 +635,7 @@ export default function DownloadSection() {
         {allUrls.map((url, idx) => {
           const label = getSourceLabel(url);
           const icon = getSourceIcon(url);
-          const isCdn = url.includes('hbut.6661111.xyz');
+          const isCdn = urlHostname(url) === 'hbut.6661111.xyz';
           return (
             <a
               key={`source-${url}-${idx}`}

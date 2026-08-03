@@ -7,12 +7,11 @@ import {
 } from '../../website/modules-src/hbut_monopoly/project/src/utils/game_rank.js'
 
 const setSearch = (search = '') => {
-  // @ts-expect-error test window
-  globalThis.window = {
+  vi.stubGlobal('window', {
     location: { search },
     setTimeout: globalThis.setTimeout,
     clearTimeout: globalThis.clearTimeout
-  }
+  })
 }
 
 const createStorage = () => {
@@ -47,6 +46,7 @@ describe('hbut_monopoly rank contract', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('submits monopoly score with game_id hbut_monopoly and retries once on 503', async () => {

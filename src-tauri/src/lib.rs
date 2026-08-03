@@ -39,6 +39,7 @@ pub mod commands;
 pub mod credential_store;
 pub mod db;
 pub mod debug_bridge;
+pub mod grade;
 pub mod http_client;
 pub mod http_server;
 pub mod modules;
@@ -47,12 +48,15 @@ pub mod qxzkb_options;
 pub mod runtime_log;
 pub mod utils;
 
+pub use grade::domain::Grade;
+
 use app_state::AppState;
 use commands::{
     delete_remembered_credential, load_remembered_credential, load_session_password,
     save_remembered_credential,
 };
 use http_client::HbutClient;
+use utils::ics::{escape_ics_text, fold_ics_line, parse_ics_datetime, sanitize_filename_part};
 
 use modules::ai::*;
 use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
@@ -309,29 +313,8 @@ struct ChaoxingLoginPagePayload {
     debug: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Grade {
-    pub term: String,
-    pub course_name: String,
-    pub grade_id: Option<String>,
-    pub course_code: Option<String>,
-    pub course_nature: String,
-    pub course_nature_code: String,
-    pub course_credit: String,
-    pub final_score: String,
-    pub earned_credit: String,
-    pub xfjd: String,
-    pub sfbk: String,
-    pub sfsq: String,
-    pub cjbj: String,
-    pub teacher: Option<String>,
-    /// 课程编号，用于关联已选课程数据（如任课教师）
-    #[serde(default)]
-    pub kcbh: Option<String>,
-    /// 任课教师（从已选课程数据获取，不同于录入教师 cjlrjsxm）
-    #[serde(default)]
-    pub course_teacher: Option<String>,
-}
+/// 成绩 DTO 统一在 [`crate::grade::domain::GradeRecord`]（`Grade` 为其兼容别名），
+/// 见 grade/domain.rs 与 grade/service.rs（Tauri/HTTP 共享用例）。
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleCourse {
@@ -447,258 +430,6 @@ pub struct UpdateCustomScheduleCourseRequest {
     /// 可选用户主色 #RRGGBB；缺省/空表示未设定
     #[serde(default)]
     pub color: Option<String>,
-}
-
-fn normalize_grade_match_key(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(|v| v.to_string())
-}
-
-fn grade_match_keys(grade: &Grade) -> Vec<String> {
-    let mut keys = Vec::new();
-    for key in [
-        normalize_grade_match_key(grade.kcbh.as_deref()),
-        normalize_grade_match_key(grade.course_code.as_deref()),
-        normalize_grade_match_key(grade.grade_id.as_deref()),
-    ] {
-        if let Some(key) = key {
-            if !keys.contains(&key) {
-                keys.push(key);
-            }
-        }
-    }
-    keys
-}
-
-fn grade_terms(grades: &[Grade]) -> Vec<String> {
-    let mut terms: Vec<String> = grades
-        .iter()
-        .map(|grade| grade.term.trim())
-        .filter(|term| !term.is_empty())
-        .map(|term| term.to_string())
-        .collect();
-    terms.sort();
-    terms.dedup();
-    terms
-}
-
-fn resolve_current_grade_semester(grades: &[Grade]) -> Option<String> {
-    grade_terms(grades).into_iter().last()
-}
-
-fn read_grade_teacher_cache(student_id: &str) -> Option<serde_json::Value> {
-    db::get_cache(DB_FILENAME, GRADE_TEACHER_CACHE_TABLE, student_id)
-        .ok()
-        .flatten()
-        .map(|(data, _)| data)
-}
-
-fn merge_cached_grade_teachers(grades: &mut [Grade], cache: Option<&serde_json::Value>) {
-    let Some(cache) = cache else {
-        return;
-    };
-    let by_kcbh = cache.get("by_kcbh").and_then(|v| v.as_object());
-    if by_kcbh.is_none() {
-        return;
-    }
-    let by_kcbh = by_kcbh.unwrap();
-    for grade in grades {
-        if grade
-            .course_teacher
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .is_some()
-        {
-            continue;
-        }
-        for key in grade_match_keys(grade) {
-            if let Some(teacher) = by_kcbh
-                .get(&key)
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-            {
-                grade.course_teacher = Some(teacher.to_string());
-                break;
-            }
-        }
-    }
-}
-
-fn merge_grade_teacher_cache_into_payload(
-    mut payload: serde_json::Value,
-    student_id: &str,
-) -> serde_json::Value {
-    let cache = read_grade_teacher_cache(student_id);
-    let Some(cache) = cache.as_ref() else {
-        return payload;
-    };
-    let Some(data) = payload.get_mut("data").and_then(|v| v.as_array_mut()) else {
-        return payload;
-    };
-    let by_kcbh = cache.get("by_kcbh").and_then(|v| v.as_object());
-    let Some(by_kcbh) = by_kcbh else {
-        return payload;
-    };
-    for item in data {
-        let Some(object) = item.as_object_mut() else {
-            continue;
-        };
-        let has_teacher = object
-            .get("course_teacher")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .is_some();
-        if has_teacher {
-            continue;
-        }
-        let mut keys = Vec::new();
-        for field in ["kcbh", "course_code", "grade_id"] {
-            if let Some(key) = object
-                .get(field)
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-            {
-                keys.push(key.to_string());
-            }
-        }
-        for key in keys {
-            if let Some(teacher) = by_kcbh
-                .get(&key)
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-            {
-                object.insert(
-                    "course_teacher".to_string(),
-                    serde_json::Value::String(teacher.to_string()),
-                );
-                break;
-            }
-        }
-    }
-    payload
-}
-
-fn save_grade_teacher_cache(
-    student_id: &str,
-    semester: &str,
-    courses: Vec<(String, String)>,
-) -> Result<serde_json::Value, String> {
-    let mut existing = read_grade_teacher_cache(student_id).unwrap_or_else(|| {
-        serde_json::json!({
-            "success": true,
-            "by_kcbh": {},
-            "semesters": {}
-        })
-    });
-
-    if !existing.is_object() {
-        existing = serde_json::json!({
-            "success": true,
-            "by_kcbh": {},
-            "semesters": {}
-        });
-    }
-
-    let object = existing
-        .as_object_mut()
-        .ok_or_else(|| "教师缓存格式错误".to_string())?;
-    object.insert("success".to_string(), serde_json::Value::Bool(true));
-    object.insert(
-        "updated_at".to_string(),
-        serde_json::Value::String(chrono::Local::now().to_rfc3339()),
-    );
-    if !semester.trim().is_empty() {
-        object.insert(
-            "current_semester".to_string(),
-            serde_json::Value::String(semester.trim().to_string()),
-        );
-    }
-
-    let mut by_kcbh = object
-        .remove("by_kcbh")
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default();
-    let mut semesters = object
-        .remove("semesters")
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default();
-    let mut semester_map = serde_json::Map::new();
-
-    for (kcbh, teacher) in courses {
-        let key = kcbh.trim();
-        let value = teacher.trim();
-        if key.is_empty() || value.is_empty() {
-            continue;
-        }
-        by_kcbh.insert(
-            key.to_string(),
-            serde_json::Value::String(value.to_string()),
-        );
-        semester_map.insert(
-            key.to_string(),
-            serde_json::Value::String(value.to_string()),
-        );
-    }
-
-    if !semester.trim().is_empty() {
-        semesters.insert(
-            semester.trim().to_string(),
-            serde_json::Value::Object(semester_map),
-        );
-    }
-    object.insert("by_kcbh".to_string(), serde_json::Value::Object(by_kcbh));
-    object.insert(
-        "semesters".to_string(),
-        serde_json::Value::Object(semesters),
-    );
-
-    db::save_cache(
-        DB_FILENAME,
-        GRADE_TEACHER_CACHE_TABLE,
-        student_id,
-        &existing,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(existing)
-}
-
-fn spawn_grade_teacher_enrichment(
-    client: Arc<RwLock<HbutClient>>,
-    student_id: String,
-    semesters: Vec<String>,
-) {
-    if student_id.trim().is_empty() || semesters.is_empty() {
-        return;
-    }
-    tauri::async_runtime::spawn(async move {
-        for semester in semesters {
-            let semester = semester.trim().to_string();
-            if semester.is_empty() {
-                continue;
-            }
-            let result = {
-                let client = client.write().await;
-                client.fetch_course_teachers(&semester).await
-            };
-            match result {
-                Ok(courses) => {
-                    if let Err(e) = save_grade_teacher_cache(&student_id, &semester, courses) {
-                        println!("[警告] 保存成绩教师缓存失败: {}", e);
-                    }
-                }
-                Err(e) => {
-                    println!("[警告] 后台补齐任课教师失败 {}: {}", semester, e);
-                }
-            }
-        }
-    });
 }
 
 fn build_public_cache_key(prefix: &str, payload: &str) -> String {
@@ -1173,7 +904,8 @@ async fn finalize_chaoxing_login(
     client.last_username = Some(student_id.clone());
     client.last_password = password_hint.map(|v| v.to_string());
 
-    let password_to_save = password_hint.unwrap_or("");
+    // 无密码提示时使用空串（保留 DB 旧值），运行时默认值而非字面量。
+    let password_to_save = password_hint.unwrap_or_default();
     let _ = db::save_user_session(
         DB_FILENAME,
         &student_id,
@@ -2410,7 +2142,7 @@ async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> 
         now_ms
     );
 
-    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+    atomic_write_file(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入 widget 快照失败: {} (path: {:?})", e, prefs_file))?;
 
@@ -2440,7 +2172,7 @@ async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
             now_ms
         );
 
-        tokio::fs::write(&prefs_file, xml_content.as_bytes())
+        atomic_write_file(&prefs_file, xml_content.as_bytes())
             .await
             .map_err(|e| format!("清空 widget 快照失败: {}", e))?;
     }
@@ -2487,7 +2219,7 @@ async fn write_widget_theme_color(app: tauri::AppHandle, color: String) -> Resul
         now_ms
     );
 
-    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+    atomic_write_file(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入主题色失败: {}", e))?;
     Ok(())
@@ -2532,7 +2264,7 @@ async fn write_electricity_snapshot(app: tauri::AppHandle, json: String) -> Resu
         now_ms
     );
 
-    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+    atomic_write_file(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入电费快照失败: {}", e))?;
     Ok(())
@@ -2575,7 +2307,7 @@ async fn write_exam_snapshot(app: tauri::AppHandle, json: String) -> Result<(), 
         now_ms
     );
 
-    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+    atomic_write_file(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入考试快照失败: {}", e))?;
     Ok(())
@@ -2623,6 +2355,32 @@ async fn debug_widget_paths(app: tauri::AppHandle) -> Result<serde_json::Value, 
     }))
 }
 
+/// 显式备份数据库（#550）：备份到应用数据目录 backup 子目录，保留最近 keep 份。
+/// 只备份不恢复、不覆盖正式库；失败时返回错误信息。
+#[tauri::command]
+async fn backup_database_now(
+    app: tauri::AppHandle,
+    keep: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    use crate::db::{backup_database, BACKUP_KEEP_DEFAULT};
+
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+    let backup_dir = app_data.join("backup");
+    let keep = keep.unwrap_or(BACKUP_KEEP_DEFAULT);
+    let report =
+        crate::db::run_blocking(move || backup_database(crate::DB_FILENAME, &backup_dir, keep))
+            .await?;
+    Ok(serde_json::json!({
+        "backup_path": report.backup_path.to_string_lossy().to_string(),
+        "kept": report.kept,
+        "keep_policy": report.keep_policy,
+        "pruned": report.pruned.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>(),
+    }))
+}
+
 /// XML 特殊字符转义
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -2630,6 +2388,25 @@ fn escape_xml(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+/// 原子写文件：先写同目录 `.tmp` 临时文件再 rename 覆盖目标（#550）。
+/// 任一时刻磁盘上只存在完整内容，避免写一半时被 widget/其它进程读到残缺 XML。
+async fn atomic_write_file(path: &std::path::Path, content: &[u8]) -> std::io::Result<()> {
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "out.bin".to_string());
+    let tmp_path = path.with_file_name(format!("{}.{}.tmp", file_name, std::process::id()));
+    tokio::fs::write(&tmp_path, content).await?;
+    // rename 为原子操作（同目录/同文件系统），成功即覆盖目标
+    match tokio::fs::rename(&tmp_path, path).await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            Err(e)
+        }
+    }
 }
 
 #[tauri::command]
@@ -4218,46 +3995,19 @@ async fn sync_grades(
 ) -> Result<serde_json::Value, String> {
     let current_only = current_only.unwrap_or(false);
     let client_handle = state.client.clone();
-    let client = client_handle.write().await;
-    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
-    match client.fetch_grades().await {
-        Ok(mut grades) => {
-            let semesters = grade_terms(&grades);
-            if let Some(uid) = &uid {
-                let teacher_cache = read_grade_teacher_cache(uid);
-                merge_cached_grade_teachers(&mut grades, teacher_cache.as_ref());
-            }
-            let sync_time = chrono::Local::now().to_rfc3339();
-            let payload = serde_json::json!({
-                "success": true,
-                "data": grades,
-                "sync_time": sync_time,
-                "offline": false,
-                "teacher_enrichment_pending": true
-            });
-            if let Some(uid) = &uid {
-                let _ = db::save_cache(DB_FILENAME, "grades_cache", uid, &payload);
-            }
-            drop(client);
-            if let Some(uid) = uid {
-                if !current_only {
-                    spawn_grade_teacher_enrichment(client_handle, uid, semesters);
-                }
-            }
-            Ok(payload)
-        }
-        Err(e) => {
-            if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) =
-                    db::get_cache(DB_FILENAME, "grades_cache", uid)
-                {
-                    let payload = attach_sync_time(cached_data, &sync_time, true);
-                    return Ok(merge_grade_teacher_cache_into_payload(payload, uid));
-                }
-            }
-            Err(e.to_string())
-        }
+    let uid = {
+        let client = client_handle.read().await;
+        client.user_info.as_ref().map(|u| u.student_id.clone())
+    };
+    // 共享成绩用例：Tauri 与 HTTP Bridge 走同一 GradeService（抓取→教师合并→
+    // 成功替换缓存→失败保留 offline 快照），本 handler 只做传输适配。
+    let service =
+        grade::service::GradeService::new(client_handle.clone(), grade::service::SqliteGradeCache);
+    let result = service.sync_grades(uid.as_deref(), current_only).await?;
+    if let Some(job) = result.enrichment {
+        service.spawn_enrichment(job);
     }
+    Ok(result.payload)
 }
 
 #[tauri::command]
@@ -4286,7 +4036,9 @@ async fn get_grade_teacher_cache(
             "semesters": {}
         }));
     }
-    Ok(read_grade_teacher_cache(&sid).unwrap_or_else(|| {
+    let service =
+        grade::service::GradeService::new(state.client.clone(), grade::service::SqliteGradeCache);
+    Ok(service.read_teacher_cache(&sid).unwrap_or_else(|| {
         serde_json::json!({
             "success": true,
             "by_kcbh": {},
@@ -4299,12 +4051,15 @@ async fn get_grade_teacher_cache(
 async fn sync_grade_teachers_current_semester(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.write().await;
-    let uid = client
-        .user_info
-        .as_ref()
-        .map(|u| u.student_id.clone())
-        .ok_or_else(|| "当前未登录".to_string())?;
+    let client_handle = state.client.clone();
+    let uid = {
+        let client = client_handle.read().await;
+        client
+            .user_info
+            .as_ref()
+            .map(|u| u.student_id.clone())
+            .ok_or_else(|| "当前未登录".to_string())?
+    };
     let grades_payload = db::get_cache(DB_FILENAME, "grades_cache", &uid)
         .map_err(|e| e.to_string())?
         .map(|(data, _)| data)
@@ -4316,20 +4071,29 @@ async fn sync_grade_teachers_current_semester(
             .unwrap_or_else(|| serde_json::Value::Array(Vec::new())),
     )
     .unwrap_or_default();
-    let semester = resolve_current_grade_semester(&grades)
+    let semester = grade::domain::current_grade_semester(&grades)
         .ok_or_else(|| "暂无可补齐的成绩学期".to_string())?;
-    let courses = client
-        .fetch_course_teachers(&semester)
-        .await
-        .map_err(|e| e.to_string())?;
-    save_grade_teacher_cache(&uid, &semester, courses)
+    let courses = {
+        let client = client_handle.read().await;
+        client
+            .fetch_course_teachers(&semester)
+            .await
+            .map_err(|e| e.to_string())?
+    };
+    let service =
+        grade::service::GradeService::new(client_handle, grade::service::SqliteGradeCache);
+    service.save_teacher_cache(&uid, &semester, courses)
 }
 
 #[tauri::command]
 async fn get_grades_local(student_id: String) -> Result<Option<serde_json::Value>, String> {
     match db::get_cache(DB_FILENAME, "grades_cache", &student_id) {
         Ok(Some((data, sync_time))) => {
-            let data = merge_grade_teacher_cache_into_payload(data, &student_id);
+            let data = grade::service::merge_teacher_cache_into_payload(
+                data,
+                &student_id,
+                &grade::service::SqliteGradeCache,
+            );
             Ok(Some(serde_json::json!({
                 "success": true,
                 "data": data,
@@ -4839,57 +4603,6 @@ async fn update_custom_schedule_course(
         "success": true,
         "data": custom_course_to_payload(&updated)
     }))
-}
-
-fn sanitize_filename_part(input: &str) -> String {
-    input
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect::<String>()
-}
-
-fn escape_ics_text(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace(';', "\\;")
-        .replace(',', "\\,")
-        .replace("\r\n", "\\n")
-        .replace('\n', "\\n")
-        .replace('\r', "")
-}
-
-/// RFC 5545 §3.1 行折叠：每行不超过 75 个字节，超出部分折行并以 CRLF+空格连接
-fn fold_ics_line(line: &str) -> String {
-    let max_bytes = 75;
-    if line.len() <= max_bytes {
-        return format!("{}\r\n", line);
-    }
-    let mut result = String::new();
-    let mut byte_count = 0;
-    let mut first_line = true;
-    for ch in line.chars() {
-        let ch_len = ch.len_utf8();
-        // 折行后续行以空格开头，所以可用字节数减 1
-        let limit = if first_line { max_bytes } else { max_bytes - 1 };
-        if byte_count + ch_len > limit {
-            result.push_str("\r\n ");
-            byte_count = 1; // 空格占 1 字节
-            first_line = false;
-        }
-        result.push(ch);
-        byte_count += ch_len;
-    }
-    result.push_str("\r\n");
-    result
-}
-
-fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
-        return Some(dt.naive_local());
-    }
-    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S")
-        .ok()
-        .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
 }
 
 fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {
@@ -7312,6 +7025,7 @@ pub fn run() {
             write_electricity_snapshot,
             write_exam_snapshot,
             debug_widget_paths,
+            backup_database_now,
             chaoxing_checkin_cmd::chaoxing_checkin_list,
             chaoxing_checkin_cmd::chaoxing_checkin_submit_common,
             chaoxing_checkin_cmd::chaoxing_checkin_submit_location,

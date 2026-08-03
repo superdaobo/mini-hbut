@@ -4,16 +4,18 @@
 
 ## 📁 文件说明
 
-### api.ts / api.js
+### api.js / server_api.ts
 
-API 请求封装，统一处理与后端的通信。
+同名入口已收敛（契约见 `api.d.ts` 与 `api.js.md` / `api.ts.md`）：
+
+- `api.js`：前端 HTTP 缓存层（`fetchWithCache` / `getCachedData` / `setCachedData` / TTL 常量等），类型契约在 `api.d.ts`。
+- `server_api.ts`：原 `api.ts` 重命名而来，仅保留服务器端 OCR / 数据同步配置（`SERVER_API_BASE` / `serverOcrRecognize` / `syncDataToServer`），避免与 `api.js` 同名冲突。
 
 ```typescript
-// 示例：登录
-import { login, getGrades } from './api';
+// 示例：带缓存的请求
+import { fetchWithCache, LONG_TTL } from './api.js';
 
-await login(username, password);
-const grades = await getGrades(term);
+const result = await fetchWithCache('key', async () => await doFetch(), LONG_TTL);
 ```
 
 ### crypto.ts
@@ -54,12 +56,12 @@ Axios 适配器，用于在 Tauri 环境中使用 Axios。
 
 ```vue
 <script setup lang="ts">
-import { login } from '@/utils/api';
+import { fetchWithCache } from '@/utils/api.js';
 import { encryptPassword } from '@/utils/crypto';
 
 const handleLogin = async () => {
   const encryptedPwd = encryptPassword(password, key);
-  await login(username, encryptedPwd);
+  const result = await fetchWithCache('login', () => doLogin(username, encryptedPwd));
 };
 </script>
 ```

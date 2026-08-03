@@ -1,9 +1,11 @@
 import { isTestAccountSession } from './test_account.js'
 import { resolveTestAccountForumResponse } from './test_account_fixtures.js'
+import { encryptData, decryptData } from './encryption.js'
 
 const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
 const TOKEN_CACHE_KEY_PREFIX = 'hbu_forum_token:'
 const PROFILE_CACHE_KEY_PREFIX = 'hbu_forum_profile:'
+const ADMIN_SECRET_CACHE_KEY_PREFIX = 'hbu_forum_admin_secret:'
 
 const toText = (value) => (value == null ? '' : String(value))
 const encodeCachePart = (value) => encodeURIComponent(toText(value).trim())
@@ -69,25 +71,38 @@ export const readForumProfile = (studentId) => {
     return { nickname: sid, avatar_url: '', bio: '', admin_secret: '' }
   }
   try {
-    const parsed = JSON.parse(localStorage.getItem(`${PROFILE_CACHE_KEY_PREFIX}${sid}`) || '{}')
-    return {
+    const storageKey = `${PROFILE_CACHE_KEY_PREFIX}${sid}`
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || '{}')
+    const normalized = {
       nickname: toText(parsed.nickname || sid).trim() || sid,
       avatar_url: toText(parsed.avatar_url || parsed.avatarUrl || '').trim(),
-      bio: toText(parsed.bio || '').trim(),
-      admin_secret: toText(parsed.admin_secret || parsed.adminSecret || '').trim()
+      bio: toText(parsed.bio || '').trim()
+    }
+    // 旧版本曾把 admin_secret 明文写入 profile。读取时立即重写为无口令结构，
+    // 不尝试迁移旧明文，避免它在 localStorage 中继续残留。
+    if (Object.prototype.hasOwnProperty.call(parsed, 'admin_secret')) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(normalized))
+      } catch {
+        // 存储不可写时仍返回已净化的内存对象；绝不把旧明文回传给调用方。
+      }
+    }
+    return {
+      ...normalized,
+      // 管理员口令改由 loadForumAdminSecret 读取；该存储仅降低静态泄露风险，并非 XSS 安全边界。
+      admin_secret: ''
     }
   } catch {
     return { nickname: sid, avatar_url: '', bio: '', admin_secret: '' }
   }
 }
-
 export const writeForumProfile = (studentId, profile = {}) => {
   const sid = toText(studentId).trim()
   const normalized = {
     nickname: toText(profile.nickname || sid).trim() || sid,
     avatar_url: toText(profile.avatar_url || profile.avatarUrl || '').trim(),
-    bio: toText(profile.bio || '').trim(),
-    admin_secret: toText(profile.admin_secret || profile.adminSecret || '').trim()
+    bio: toText(profile.bio || '').trim()
+    // 不落明文 admin_secret：请使用 saveForumAdminSecret 加密保存
   }
   if (!sid || typeof localStorage === 'undefined') return normalized
   try {
@@ -103,6 +118,45 @@ export const writeForumProfile = (studentId, profile = {}) => {
     // ignore
   }
   return normalized
+}
+
+/**
+ * 管理员口令加密持久化（设备本地密钥 AES-CBC，见 encryption.js）。
+ * 空值清除密文；加密失败时宁可不落盘，也绝不回退明文。
+ *
+ * 安全边界说明：设备密钥与密文同存于 localStorage，本机制只降低静态
+ * 备份/扫描泄露风险，不是 XSS 安全边界（页面内脚本仍可同时读取两者）。
+ */
+export const saveForumAdminSecret = async (studentId, secret) => {
+  const sid = toText(studentId).trim()
+  if (!sid || typeof localStorage === 'undefined') return
+  const key = `${ADMIN_SECRET_CACHE_KEY_PREFIX}${encodeCachePart(sid)}`
+  const value = toText(secret).trim()
+  try {
+    if (!value) {
+      localStorage.removeItem(key)
+      return
+    }
+    const encrypted = await encryptData({ admin_secret: value })
+    localStorage.setItem(key, encrypted)
+  } catch {
+    // 加密失败不落盘：绝不回退明文（该存储仅降低静态泄露风险，非 XSS 安全边界）
+  }
+}
+
+/** 读取加密存储的管理员口令；无密文或解密失败返回空串。 */
+export const loadForumAdminSecret = async (studentId) => {
+  const sid = toText(studentId).trim()
+  if (!sid || typeof localStorage === 'undefined') return ''
+  const key = `${ADMIN_SECRET_CACHE_KEY_PREFIX}${encodeCachePart(sid)}`
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return ''
+    const decrypted = await decryptData(raw)
+    return toText(decrypted?.admin_secret || '').trim()
+  } catch {
+    return ''
+  }
 }
 
 const responseHeader = (response, name) => {

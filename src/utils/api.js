@@ -1,6 +1,7 @@
 import { pushDebugLog } from './debug_logger'
 import { isTestAccountSession } from './test_account.js'
 import { resolveTestAccountCachePayload } from './test_account_fixtures.js'
+import { withTimeout } from './fetch_timeout.js'
 
 const DEFAULT_TTL = 5 * 60 * 1000
 const LONG_TTL = 3 * 24 * 60 * 60 * 1000
@@ -13,6 +14,17 @@ const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
 const JWXT_MAINTENANCE_TIME_KEY = 'hbu_jwxt_maintenance_time'
 const JWXT_MAINTENANCE_HINT_KEY = 'hbu_jwxt_maintenance_hint'
 const JWXT_MAINTENANCE_EVENT = 'hbu-jwxt-maintenance'
+// 连续失败达到该阈值才置位维护模式，避免单次抖动误报“教务维护”。
+const MAINTENANCE_FAILURE_THRESHOLD = 2
+// 失败计数滑动窗口：超过该时长未再失败则重新计数。
+const MAINTENANCE_FAILURE_WINDOW_MS = 60 * 1000
+// 维护模式置位后的后台刷新退避窗口：窗口内不再对后端发起静默请求，窗口外允许重试一次。
+const MAINTENANCE_BACKOFF_MS = 60 * 1000
+const JWXT_MAINTENANCE_FAIL_COUNT_KEY = 'hbu_jwxt_maintenance_fail_count'
+const JWXT_MAINTENANCE_FAIL_TIME_KEY = 'hbu_jwxt_maintenance_fail_time'
+// 缓存失效广播：同实例用 CustomEvent，跨实例（多标签页）用 localStorage storage 事件。
+const CACHE_INVALIDATION_EVENT = 'hbu-cache-invalidation'
+const CACHE_INVALIDATION_STORAGE_KEY = 'hbu_cache_invalidation_broadcast'
 
 const JWXT_KEY_PREFIXES = [
   'schedule:',
@@ -103,10 +115,12 @@ export function getCacheKey(key) {
   return `cache:${key}`
 }
 
-// 清除指定前缀的缓存
-export function clearCacheByPrefix(prefix) {
+// 仅清理本实例缓存（内存 + localStorage），不触发广播；广播统一走 broadcastCacheInvalidation。
+const clearLocalCacheByPrefix = (prefix) => {
+  const pref = String(prefix || '')
+  if (!pref) return
   for (const key of memoryCache.keys()) {
-    if (key.startsWith(prefix)) {
+    if (key.startsWith(pref)) {
       memoryCache.delete(key)
     }
   }
@@ -114,11 +128,96 @@ export function clearCacheByPrefix(prefix) {
   const keysToRemove = []
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i)
-    if (key && key.startsWith(`cache:${prefix}`)) {
+    if (key && key.startsWith(`cache:${pref}`)) {
       keysToRemove.push(key)
     }
   }
   keysToRemove.forEach((k) => localStorage.removeItem(k))
+}
+
+// —— 跨实例缓存失效广播 ——
+// 同一源下的多标签页共享 localStorage：写入哨兵键会触发其他标签页的 storage 事件；
+// 同实例内用 CustomEvent 通知。监听方只清理内存缓存、绝不回写存储，天然避免广播循环。
+let invalidationListenerInstalled = false
+const recentInvalidationIds = new Set()
+const MAX_RECENT_INVALIDATION_IDS = 64
+
+const createInvalidationId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `inv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+const pruneRecentInvalidationIds = () => {
+  while (recentInvalidationIds.size > MAX_RECENT_INVALIDATION_IDS) {
+    const oldest = recentInvalidationIds.values().next().value
+    recentInvalidationIds.delete(oldest)
+  }
+}
+
+const applyInvalidationPayload = (payload) => {
+  if (!payload || !Array.isArray(payload?.prefixes)) return
+  const id = String(payload?.id || '')
+  if (id) {
+    // 同一广播（storage + CustomEvent 双通道）只处理一次，防止重复清理与事件循环。
+    if (recentInvalidationIds.has(id)) return
+    recentInvalidationIds.add(id)
+    pruneRecentInvalidationIds()
+  }
+  for (const prefix of payload.prefixes) {
+    if (typeof prefix !== 'string' || !prefix) continue
+    clearLocalCacheByPrefix(prefix)
+  }
+}
+
+const handleInvalidationStorageEvent = (event) => {
+  if (!event || event.key !== CACHE_INVALIDATION_STORAGE_KEY) return
+  try {
+    applyInvalidationPayload(JSON.parse(event.newValue || 'null'))
+  } catch {
+    // 非法载荷直接忽略
+  }
+}
+
+const ensureInvalidationListener = () => {
+  if (invalidationListenerInstalled || typeof window === 'undefined') return
+  invalidationListenerInstalled = true
+  window.addEventListener('storage', handleInvalidationStorageEvent)
+  window.addEventListener(CACHE_INVALIDATION_EVENT, (event) => {
+    applyInvalidationPayload(event?.detail)
+  })
+}
+
+// 模块加载即监听跨实例失效广播，确保任何实例（即使从未主动清理过）都能收到其他标签页的清理事件。
+ensureInvalidationListener()
+
+const broadcastCacheInvalidation = (prefixes) => {
+  ensureInvalidationListener()
+  const uniquePrefixes = [...new Set(prefixes.map(String).filter(Boolean))]
+  if (!uniquePrefixes.length) return
+  const payload = { id: createInvalidationId(), prefixes: uniquePrefixes, at: Date.now() }
+  try {
+    // 跨实例广播：写哨兵键触发其他标签页的 storage 事件；本页面自身不会收到该事件。
+    localStorage.setItem(CACHE_INVALIDATION_STORAGE_KEY, JSON.stringify(payload))
+  } catch {
+    // 隐私模式等写入失败场景忽略广播。
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent(CACHE_INVALIDATION_EVENT, { detail: payload }))
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// 清除指定前缀的缓存（本地清理 + 跨实例广播）
+export function clearCacheByPrefix(prefix) {
+  const pref = String(prefix || '')
+  if (!pref) return
+  clearLocalCacheByPrefix(pref)
+  broadcastCacheInvalidation([pref])
 }
 
 /**
@@ -128,13 +227,20 @@ export function clearUserScopedCaches(studentId) {
   const sid = String(studentId || '').trim()
   if (!sid) return
 
+  const prefixes = []
   for (const prefix of JWXT_KEY_PREFIXES) {
     if (prefix === 'semesters') continue
-    clearCacheByPrefix(`${prefix}${sid}`)
+    prefixes.push(`${prefix}${sid}`)
   }
-  clearCacheByPrefix(`grade_teachers:${sid}`)
-  clearCacheByPrefix(`training:options:${sid}`)
-  clearCacheByPrefix(`training:jys:${sid}`)
+  prefixes.push(`grade_teachers:${sid}`)
+  prefixes.push(`training:options:${sid}`)
+  prefixes.push(`training:jys:${sid}`)
+
+  for (const prefix of prefixes) {
+    clearLocalCacheByPrefix(prefix)
+  }
+  // 批量前缀一次性广播，避免逐条广播造成 storage 事件风暴。
+  broadcastCacheInvalidation(prefixes)
 }
 
 export function getCachedData(key, ttl = DEFAULT_TTL) {
@@ -351,6 +457,10 @@ const looksLikeMaintenanceIssue = (message) => {
     text.includes('error sending request for url') ||
     text.includes('connection refused') ||
     text.includes('timed out') ||
+    text.includes('timeout') ||
+    text.includes('failed to fetch') ||
+    text.includes('networkerror') ||
+    text.includes('network error') ||
     text.includes('dns') ||
     text.includes('econn') ||
     text.includes('network') ||
@@ -358,6 +468,18 @@ const looksLikeMaintenanceIssue = (message) => {
     text.includes('暂不可用') ||
     text.includes('无法连接') ||
     text.includes('连接失败')
+  )
+}
+
+// 401/403 或会话失效类错误：不判维护、不回退缓存，直接交给上层处理登录态。
+const isSessionInvalidError = (error) => {
+  const status = Number(error?.response?.status ?? error?.status ?? error?.statusCode ?? 0)
+  if (status === 401 || status === 403) return true
+  const text = String(error?.message ?? error ?? '').toLowerCase()
+  if (!text) return false
+  if (/(^|\D)(401|403)(\D|$)/.test(text)) return true
+  return /(未登录|登录((已)?过期|超时)|会话((已)?过期|超时|失效)|登录失效|凭证(失效|过期)|token.*(失效|过期|invalid)|session\s+(timed out|timeout|expired|invalid)|unauthorized|forbidden)/.test(
+    text
   )
 }
 
@@ -375,6 +497,51 @@ const emitMaintenanceEvent = (active, hint = '', extra = {}) => {
       }
     })
   )
+}
+
+// 读取当前连续失败计数（滑动窗口：超过窗口时长未再失败则视为重新计数）。
+const readFailureState = () => {
+  let count = 0
+  let lastFailAt = 0
+  try {
+    count = Number(localStorage.getItem(JWXT_MAINTENANCE_FAIL_COUNT_KEY)) || 0
+    lastFailAt = Number(localStorage.getItem(JWXT_MAINTENANCE_FAIL_TIME_KEY)) || 0
+  } catch {
+    // ignore
+  }
+  if (Date.now() - lastFailAt > MAINTENANCE_FAILURE_WINDOW_MS) count = 0
+  return count
+}
+
+const persistFailureState = (count) => {
+  try {
+    localStorage.setItem(JWXT_MAINTENANCE_FAIL_COUNT_KEY, String(count))
+    localStorage.setItem(JWXT_MAINTENANCE_FAIL_TIME_KEY, String(Date.now()))
+  } catch {
+    // ignore
+  }
+}
+
+// 记录一次教务请求失败：达到连续失败阈值才置位维护模式；返回是否已进入维护模式。
+const recordJwxtFailure = (error, hint = '') => {
+  const next = readFailureState() + 1
+  persistFailureState(next)
+  if (next >= MAINTENANCE_FAILURE_THRESHOLD) {
+    setMaintenanceFlag(hint || String(error?.message || error || ''))
+    return true
+  }
+  return false
+}
+
+// 维护模式退避：置位后 MAINTENANCE_BACKOFF_MS 内不再发起后台静默刷新，避免持续打后端。
+const isMaintenanceBackoffActive = () => {
+  try {
+    if (localStorage.getItem(JWXT_MAINTENANCE_KEY) !== '1') return false
+    const lastFailAt = Number(localStorage.getItem(JWXT_MAINTENANCE_FAIL_TIME_KEY)) || 0
+    return Date.now() - lastFailAt < MAINTENANCE_BACKOFF_MS
+  } catch {
+    return false
+  }
 }
 
 const setMaintenanceFlag = (hint = '', extra = {}) => {
@@ -399,6 +566,9 @@ const clearMaintenanceFlag = () => {
     localStorage.removeItem(JWXT_MAINTENANCE_KEY)
     localStorage.removeItem(JWXT_MAINTENANCE_TIME_KEY)
     localStorage.removeItem(JWXT_MAINTENANCE_HINT_KEY)
+    // 任意教务请求成功即清除维护状态，同时重置连续失败计数。
+    localStorage.removeItem(JWXT_MAINTENANCE_FAIL_COUNT_KEY)
+    localStorage.removeItem(JWXT_MAINTENANCE_FAIL_TIME_KEY)
   } catch {
     // ignore
   }
@@ -482,6 +652,14 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   const priority = requestOptions.priority || 'foreground'
   const staleWhileRevalidate = !!requestOptions.staleWhileRevalidate
   const forceRemote = !!requestOptions.forceRemote
+  // 可选统一超时：requestOptions.timeoutMs > 0 时用 withTimeout 包装 fetcher，
+  // 超时抛 TimeoutError（语义与 fetchWithTimeout 一致），随后走 stale 回退/维护模式兜底。
+  // 未配置时保持原 fetcher 引用，兼容现有调用方签名与行为。
+  const timeoutMs = Number(requestOptions.timeoutMs)
+  const remoteFetcher =
+    Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? withTimeout(fetcher, timeoutMs, `fetchWithCache:${key}`)
+      : fetcher
   const testAccountPayload = isTestAccountSession()
     ? resolveTestAccountCachePayload(key)
     : null
@@ -508,9 +686,9 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
     recordRequestMetric(key, { source: 'memory-cache', start: Date.now(), priority })
     // maintenanceMode 粘滞修复：缓存命中且标志为 true 时，后台静默尝试请求后端，
     // 成功则 refreshCacheInBackground 内部会清除 maintenanceFlag 并更新缓存，
-    // 避免标志永久粘滞导致每次都显示离线
-    if (maintenanceMode && !forceRemote && isJwxtCacheKey(key)) {
-      refreshCacheInBackground(key, fetcher, 'background').catch(() => {})
+    // 避免标志永久粘滞导致每次都显示离线；退避窗口内跳过，防止持续打后端。
+    if (maintenanceMode && !forceRemote && isJwxtCacheKey(key) && !isMaintenanceBackoffActive()) {
+      refreshCacheInBackground(key, remoteFetcher, 'background').catch(() => {})
     }
     return { ...cached, data, fromCache: true }
   }
@@ -534,7 +712,10 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
     if (stale) {
       cacheDebug('[Cache] Stale HIT for key:', key)
       recordRequestMetric(key, { source: 'stale-cache', start: Date.now(), stale: true, priority })
-      refreshCacheInBackground(key, fetcher, 'background').catch(() => {})
+      // 维护退避窗口内跳过后台刷新，避免弱网/故障期持续打后端；窗口外允许重试一次。
+      if (!isJwxtCacheKey(key) || !isMaintenanceBackoffActive()) {
+        refreshCacheInBackground(key, remoteFetcher, 'background').catch(() => {})
+      }
       return stale
     }
   }
@@ -542,7 +723,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   cacheDebug('[Cache] Cache MISS for key:', key)
   const remoteStart = Date.now()
   try {
-    const data = await fetcher()
+    const data = await remoteFetcher()
     cacheDebug('[Cache] Fetched data for key:', `${key} success=${data?.success}`)
 
     if (data && data.success && !data.offline) {
@@ -570,8 +751,11 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
 
     const stale = getBestCachedEntry(key)
     const message = String(data?.error || data?.msg || data?.message || '')
+    // 401/403/会话失效不判维护、不回退缓存，交由上层处理登录态。
+    const sessionInvalid = isSessionInvalidError({ message })
     const shouldFallback =
       !!stale &&
+      !sessionInvalid &&
       (
         maintenanceMode ||
         (
@@ -582,7 +766,8 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
 
     if (shouldFallback) {
       if (isJwxtCacheKey(key)) {
-        setMaintenanceFlag(message)
+        // 连续失败达到阈值才置位维护模式。
+        recordJwxtFailure(message, message)
       }
       recordRequestMetric(key, {
         source: 'stale-cache',
@@ -603,10 +788,13 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
     return { data, fromCache: false, timestamp: Date.now() }
   } catch (error) {
     const stale = getBestCachedEntry(key)
-    if (stale) {
+    // 401/403/会话失效不判维护、不回退缓存，交由上层处理登录态。
+    const sessionInvalid = isSessionInvalidError(error)
+    if (stale && !sessionInvalid) {
       console.warn('[Cache] Fetch failed, fallback to stale cache:', key, error)
       if (isJwxtCacheKey(key)) {
-        setMaintenanceFlag(String(error?.message || error || ''))
+        // 连续失败达到阈值才置位维护模式。
+        recordJwxtFailure(error, String(error?.message || error || ''))
       }
       recordRequestMetric(key, {
         source: 'stale-cache',
@@ -622,8 +810,12 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
         stale: true
       }
     }
-    if (isJwxtCacheKey(key) && looksLikeMaintenanceIssue(error?.message || error)) {
-      setMaintenanceFlag(String(error?.message || error || ''))
+    if (
+      !sessionInvalid &&
+      isJwxtCacheKey(key) &&
+      looksLikeMaintenanceIssue(error?.message || error)
+    ) {
+      recordJwxtFailure(error, String(error?.message || error || ''))
     }
     recordRequestMetric(key, {
       source: 'remote',

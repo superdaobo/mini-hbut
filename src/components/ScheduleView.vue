@@ -28,6 +28,7 @@ import { pushDebugLog } from '../utils/debug_logger'
 import { hasBootMetric, markBootMetric } from '../utils/boot_metrics.js'
 import { showToast } from '../utils/toast'
 import { invokeNative, isTauriRuntime } from '../platform/native'
+import { isMobileLike } from '../platform/runtime'
 import { afterScheduleRefresh } from '../utils/widget_bridge'
 import { isTestAccountSession } from '../utils/test_account.js'
 import CourseColorPicker from './CourseColorPicker.vue'
@@ -2451,10 +2452,9 @@ const saveJsonByNativeExport = async (fileName, content) => {
   }
 }
 
-const isLikelyMobileDevice = () => {
-  const ua = String(navigator.userAgent || '')
-  return /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(ua)
-}
+const isLikelyMobileDevice = () =>
+  // iOS/Android 部分统一收敛到 runtime.ts；Mobile/HarmonyOS 关键字为业务特定补充
+  isMobileLike() || /Mobile|HarmonyOS/i.test(String(navigator.userAgent || ''))
 
 const shareCustomCoursesJson = async (fileName, content) => {
   try {

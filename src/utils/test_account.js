@@ -1,3 +1,5 @@
+import { saveRememberedUsername, clearRememberedUsername } from './remembered_username.js'
+
 export const TEST_ACCOUNT_SESSION_KEY = 'hbu_test_account_session'
 export const TEST_ACCOUNT_LOGIN_METHOD = 'test_account'
 
@@ -30,7 +32,8 @@ export const markTestAccountSession = () => {
   if (!storage) return
   storage.setItem(TEST_ACCOUNT_SESSION_KEY, '1')
   storage.setItem('hbu_login_method', TEST_ACCOUNT_LOGIN_METHOD)
-  storage.setItem('hbu_username', TEST_ACCOUNT.studentId)
+  // hbu_username 写入统一经 remembered_username.js（CodeQL taint 收拢，见 docs/security/codeql-triage-js.md）
+  saveRememberedUsername(TEST_ACCOUNT.studentId)
   storage.setItem('hbu_remember', 'false')
   storage.setItem('hbu_login_entry_mode', 'portal')
   storage.removeItem('hbu_manual_logout')
@@ -46,7 +49,7 @@ export const clearTestAccountSession = () => {
     storage.removeItem('hbu_login_method')
   }
   if (isTestAccountStudentId(storage.getItem('hbu_username'))) {
-    storage.removeItem('hbu_username')
+    clearRememberedUsername()
   }
 }
 

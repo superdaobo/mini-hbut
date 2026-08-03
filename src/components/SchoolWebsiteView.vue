@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { openExternal } from '../utils/external_link'
+import { isAndroidLike } from '../platform/runtime'
 import {
   SCHOOL_WEBSITE_URL,
   forceCloseSchoolWebsiteEmbed,
@@ -109,9 +110,8 @@ const mountEmbed = async () => {
   embedMode.value = await resolveSchoolWebsiteEmbedMode()
 
   if (embedMode.value === 'external-open') {
-    // Tauri Android 固定 external-open：文案不提「桥接」
-    const androidLike =
-      typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '')
+    // Tauri Android 固定 external-open：文案不提「桥接」（平台判断收敛到 runtime.ts）
+    const androidLike = isAndroidLike()
     showBridgeUnavailable(androidLike ? 'android' : 'external-only')
     return
   }

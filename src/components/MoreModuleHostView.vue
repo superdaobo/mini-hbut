@@ -4,6 +4,7 @@ import { TEmptyState, TPageHeader } from './templates'
 import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
 import { openExternal } from '../utils/external_link'
 import { pushDebugLog } from '../utils/debug_logger'
+import { isIOSLike } from '../platform/runtime'
 
 const props = defineProps({
   session: {
@@ -176,7 +177,8 @@ const scheduleFrameSizeFallback = () => {
     loadHint.value = '模块页面已加载，使用默认显示高度。'
     pushDebugLog('ModuleHost', `使用默认高度 800px（模块未上报尺寸）`, 'info')
     // iOS 额外检测：如果 iframe 内容实际为空（白屏），10 秒后提供外部打开选项
-    const isIos = /(iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
+    // 平台判断统一收敛到 src/platform/runtime.ts（单一来源）
+    const isIos = isIOSLike()
     if (isIos) {
       window.setTimeout(() => {
         if (frameContentHeight.value === 800 && !loadError.value) {
@@ -311,8 +313,8 @@ const handleError = () => {
   if (tryCapacitorLocalFallback()) return
   loading.value = false
   frameContentHeight.value = 0
-  // iOS 特殊处理：提供外部浏览器打开选项
-  const isIos = /(iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
+  // iOS 特殊处理：提供外部浏览器打开选项（平台判断收敛到 runtime.ts）
+  const isIos = isIOSLike()
   if (isIos && currentSrc && currentSrc.startsWith('http')) {
     loadError.value = '当前设备不支持嵌入加载，请点击下方按钮在浏览器中打开。'
     externalOpenUrl.value = currentSrc

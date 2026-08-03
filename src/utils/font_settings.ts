@@ -304,7 +304,7 @@ const ensureFontFaceStyle = (fontFamily: string, src: string, format: FontFormat
 }
 
 const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
 
 const decodeBase64 = (base64Text: string): Uint8Array => {
@@ -395,7 +395,7 @@ const fetchRemoteFontResponse = async (
   force = false,
   localOnly = false
 ): Promise<Response | null> => {
-  let response: Response | null = null
+  let response: Response | undefined
   try {
     if (!force && typeof caches !== 'undefined') {
       const cache = await caches.open(cacheName)
@@ -410,9 +410,9 @@ const fetchRemoteFontResponse = async (
       }
     }
   } catch {
-    response = null
+    response = undefined
   }
-  return response
+  return response ?? null
 }
 
 const loadRemoteFontWithCache = async (

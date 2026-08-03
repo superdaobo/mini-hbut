@@ -60,7 +60,7 @@ describe('forum cache', () => {
   })
 
   it('clears cached scopes for mutating forum operations', () => {
-    const storage = installStorage()
+    installStorage()
     const cache = createForumCache({
       studentId: '2510231106',
       apiBase: 'https://example.com/api/forum',
@@ -103,7 +103,7 @@ describe('forum cache', () => {
       now += 61_000
       await expect(withForumCache(cache, 'feed', ({ etag }) => fetcher({ etag }), { ttlMs: 60_000 })).resolves.toEqual({ items: ['first'] })
 
-      const raw = JSON.parse(storage.values().next().value)
+      const raw = JSON.parse(storage.values().next().value!)
       expect(raw.etag).toBe('"v1"')
       expect(fetcher).toHaveBeenCalledTimes(3)
     } finally {

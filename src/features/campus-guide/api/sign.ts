@@ -33,5 +33,8 @@ export const serializeWisdomParams = (params: Signable = {}) => {
 export const buildWisdomSign = (params: Signable, ts: number) => {
   const serialized = serializeWisdomParams(params)
   const raw = `${WISDOM_APP}${WISDOM_SECRET}${ts}${serialized}`
+  // 注意：MD5 是智慧景区服务端协议强制的签名算法（与小程序 serialize 对齐），
+  // 更换算法会破坏服务端兼容；此处的 MD5 用于请求签名而非口令哈希。
+  // CodeQL js/weak-cryptographic-algorithm 属误报，详见 docs/security/codeql-triage-js.md
   return createHash('md5').update(raw).digest('hex')
 }

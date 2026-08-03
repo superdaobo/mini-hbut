@@ -26,6 +26,10 @@ use axum::{
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::utils::ics::{
+    escape_ics_text, fold_ics_line, parse_ics_datetime, sanitize_filename_part,
+};
+
 #[derive(Serialize)]
 struct ApiError {
     kind: String,
@@ -499,6 +503,12 @@ struct CookieSnapshotRequest {
     code: Option<String>,
     auth: Option<String>,
     jwxt: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SyncGradesRequest {
+    current_only: Option<bool>,
+    teacher_current_only: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1673,20 +1683,31 @@ async fn import_cookies(
 async fn sync_grades(
     State(state): State<HttpState>,
     headers: HeaderMap,
+    payload: Option<Json<SyncGradesRequest>>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let client = state.client.read().await;
-    match client.fetch_grades().await {
-        Ok(grades) => {
-            let payload = serde_json::json!({
-                "success": true,
-                "data": grades,
-                "sync_time": chrono::Local::now().to_rfc3339(),
-                "offline": false,
-                "teacher_enrichment_pending": true
-            });
-            Ok(ok(payload))
+    let current_only = payload
+        .as_ref()
+        .and_then(|Json(req)| req.current_only.or(req.teacher_current_only))
+        .unwrap_or(false);
+    let client_handle = state.client.clone();
+    let uid = {
+        let client = client_handle.read().await;
+        client.user_info.as_ref().map(|u| u.student_id.clone())
+    };
+    // 与 Tauri sync_grades 共用同一 GradeService：抓取 → 教师合并 →
+    // 成功替换缓存 → 失败保留 offline 快照，保证双通道 payload 一致。
+    let service = crate::grade::service::GradeService::new(
+        client_handle.clone(),
+        crate::grade::service::SqliteGradeCache,
+    );
+    match service.sync_grades(uid.as_deref(), current_only).await {
+        Ok(result) => {
+            if let Some(job) = result.enrichment {
+                service.spawn_enrichment(job);
+            }
+            Ok(ok(result.payload))
         }
         Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string())),
     }
@@ -3120,56 +3141,6 @@ async fn debug_save_export_file(
     crate::save_export_file_impl(state.app.clone(), req)
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "导出失败", e))
-}
-
-fn sanitize_filename_part(input: &str) -> String {
-    input
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect::<String>()
-}
-
-fn escape_ics_text(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace(';', "\\;")
-        .replace(',', "\\,")
-        .replace("\r\n", "\\n")
-        .replace('\n', "\\n")
-        .replace('\r', "")
-}
-
-/// RFC 5545 §3.1 行折叠
-fn fold_ics_line(line: &str) -> String {
-    let max_bytes = 75;
-    if line.len() <= max_bytes {
-        return format!("{}\r\n", line);
-    }
-    let mut result = String::new();
-    let mut byte_count = 0;
-    let mut first_line = true;
-    for ch in line.chars() {
-        let ch_len = ch.len_utf8();
-        let limit = if first_line { max_bytes } else { max_bytes - 1 };
-        if byte_count + ch_len > limit {
-            result.push_str("\r\n ");
-            byte_count = 1;
-            first_line = false;
-        }
-        result.push(ch);
-        byte_count += ch_len;
-    }
-    result.push_str("\r\n");
-    result
-}
-
-fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
-        return Some(dt.naive_local());
-    }
-    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S")
-        .ok()
-        .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
 }
 
 fn export_dir() -> std::path::PathBuf {

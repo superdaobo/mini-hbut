@@ -52,6 +52,7 @@ import {
   loadPortalStoredPassword
 } from './composables/useSessionCredentials.js'
 import { ensureRememberedPasswordCached, preservePortalRememberedPasswordOnLogout } from './utils/credential_storage.js'
+import { saveRememberedUsername, clearRememberedUsername } from './utils/remembered_username.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
@@ -97,6 +98,7 @@ import {
   isTauriRuntime
 } from './platform/native'
 import { isCapacitorRuntime } from './platform/native'
+import { isAndroidLike as detectAndroidLike, isDesktopLike as detectDesktopLike, isIOSLike as detectIOSLike } from './platform/runtime'
 import { platformBridge } from './platform'
 import { resolveNotificationActionTarget } from './platform/notification_actions'
 import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
@@ -212,18 +214,10 @@ const IOS_RESUME_SOFT_REMOUNT_MS = 10 * 60 * 1000
 // 硬 reload 仅作为末级兜底：idle 更长 + 本会话未用过
 const IOS_RESUME_HARD_RELOAD_MS = 15 * 60 * 1000
 const IOS_RELOAD_MIN_INTERVAL_MS = 60 * 1000
-const isIOSLike = (() => {
-  if (typeof window === 'undefined') return false
-  const ua = window.navigator.userAgent || ''
-  const platform = window.navigator.platform || ''
-  const maxTouchPoints = window.navigator.maxTouchPoints || 0
-  return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
-})()
-const isAndroidLike = (() => {
-  if (typeof window === 'undefined') return false
-  return /Android/i.test(window.navigator.userAgent || '')
-})()
-const isDesktopLike = !isIOSLike && !isAndroidLike
+// 平台判断统一收敛到 src/platform/runtime.ts（单一来源，组件不维护第二套 UA 正则）
+const isIOSLike = detectIOSLike()
+const isAndroidLike = detectAndroidLike()
+const isDesktopLike = detectDesktopLike()
 let hiddenAt = 0
 let unlistenCloseRequested = null
 let isClosingByUser = false
@@ -300,7 +294,10 @@ const VIEW_PREFETCHERS = Object.freeze({
 })
 
 const prefetchViewComponent = (view) => {
-  const loader = VIEW_PREFETCHERS[normalizeViewName(view)]
+  const name = normalizeViewName(view)
+  // 白名单检查：仅取对象自身属性，避免 __proto__/constructor 等原型链属性被动态调用（CodeQL js/unvalidated-dynamic-method-call）
+  if (!Object.prototype.hasOwnProperty.call(VIEW_PREFETCHERS, name)) return
+  const loader = VIEW_PREFETCHERS[name]
   if (typeof loader === 'function') {
     void loader()
   }
@@ -1212,7 +1209,7 @@ const restoreViewFromSnapshot = async (
   if (resolved?.sid) {
     studentId.value = String(resolved.sid || '').trim()
     try {
-      localStorage.setItem('hbu_username', studentId.value)
+      saveRememberedUsername(studentId.value)
     } catch {
       // ignore storage failure on resume
     }
@@ -1766,7 +1763,7 @@ const syncFromHash = async ({ scrollToTop = false } = {}) => {
   }
 
   studentId.value = route.sid
-  localStorage.setItem('hbu_username', route.sid)
+  saveRememberedUsername(route.sid)
   // hash 深链：#/{sid}/campus_code 等在合规构建下必须落到 home，不能 applyViewState 绕过
   const safeView = resolvePolicySafeView(route.view, 'home')
   if (!ensureProtectedViewAccess(safeView, {
@@ -1799,7 +1796,7 @@ const restoreTestAccountSession = () => {
   gradeData.value = getTestAccountGrades()
   gradeTeacherCache.value = null
   gradeTeacherCacheSid.value = sid
-  localStorage.setItem('hbu_username', sid)
+  saveRememberedUsername(sid)
   localStorage.setItem(LOGIN_METHOD_KEY, 'test_account')
   localStorage.setItem(LOGIN_TEMP_FLAG_KEY, '0')
   localStorage.removeItem('hbu_manual_logout')
@@ -2206,7 +2203,7 @@ const restoreCachedIdentityFromLocal = async () => {
   const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
   if (!cachedSid) return false
   if (!/^\d{10}$/.test(cachedSid)) {
-    localStorage.removeItem('hbu_username')
+    clearRememberedUsername()
     return false
   }
   if (isTestAccountSession() && cachedSid === TEST_ACCOUNT.studentId) {
@@ -2834,7 +2831,7 @@ const tryRestoreSession = async () => {
       const info = await importCookiesViaBridge(snapshot)
       if (info?.student_id) {
         studentId.value = info.student_id
-        localStorage.setItem('hbu_username', info.student_id)
+        saveRememberedUsername(info.student_id)
         return true
       }
     } catch (e) {
@@ -2859,7 +2856,7 @@ const tryRestoreSession = async () => {
       : await restoreSessionViaBridge(cookies)
     if (userInfo?.student_id) {
       studentId.value = userInfo.student_id
-      localStorage.setItem('hbu_username', userInfo.student_id)
+      saveRememberedUsername(userInfo.student_id)
       return true
     }
   } catch (e) {
@@ -2893,7 +2890,7 @@ const tryRestoreLatestSession = async () => {
     const userInfo = await invokeNative('restore_latest_session')
     if (userInfo?.student_id) {
       studentId.value = userInfo.student_id
-      localStorage.setItem('hbu_username', userInfo.student_id)
+      saveRememberedUsername(userInfo.student_id)
       await persistSessionCookies()
       return true
     }
@@ -2944,7 +2941,7 @@ const attemptAutoRelogin = async () => {
       const sid = await resolveAutoLoginStudentId(payload)
       if (sid) {
         studentId.value = sid
-        localStorage.setItem('hbu_username', sid)
+        saveRememberedUsername(sid)
       } else {
         throw new Error('学习通自动登录未解析到 10 位学号')
       }
@@ -2976,7 +2973,7 @@ const attemptAutoRelogin = async () => {
       ).trim()
       if (sid) {
         studentId.value = sid
-        localStorage.setItem('hbu_username', sid)
+        saveRememberedUsername(sid)
       }
       return true
     } catch (e) {
@@ -2998,7 +2995,7 @@ const attemptAutoRelogin = async () => {
     const sid = String(userInfo?.student_id || creds.username || '').trim()
     if (sid) {
       studentId.value = sid
-      localStorage.setItem('hbu_username', sid)
+      saveRememberedUsername(sid)
     }
   }
 

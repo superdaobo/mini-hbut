@@ -80,3 +80,35 @@ export const detectRuntime = (): RuntimePlatform => {
   if (isTauriRuntime()) return 'tauri'
   return 'web'
 }
+
+/**
+ * 是否 iOS 类设备（含 iPadOS 桌面伪装：MacIntel + 触摸）。
+ * 平台判断唯一来源：组件不再维护第二套 UA 正则。
+ */
+export const isIOSLike = () => {
+  const nav = globalThis.navigator
+  if (!nav) return false
+  const ua = String(nav.userAgent || '')
+  const platform = String(nav.platform || '')
+  const maxTouchPoints = nav.maxTouchPoints || 0
+  return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
+}
+
+/**
+ * 是否 Android 类设备（UA 判断）。
+ */
+export const isAndroidLike = () => {
+  const nav = globalThis.navigator
+  if (!nav) return false
+  return /Android/i.test(String(nav.userAgent || ''))
+}
+
+/**
+ * 是否桌面类设备（非 iOS 且非 Android）。
+ */
+export const isDesktopLike = () => !isIOSLike() && !isAndroidLike()
+
+/**
+ * 是否移动类设备（iOS 或 Android）。
+ */
+export const isMobileLike = () => isIOSLike() || isAndroidLike()
