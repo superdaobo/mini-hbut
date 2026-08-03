@@ -38,7 +38,7 @@ function Set-TemporaryRegistryStringValue {
   if (-not $keyExisted) {
     New-Item -Path $Path -Force | Out-Null
   }
-  $propertyNames = @((Get-ItemProperty -Path $Path).PSObject.Properties.Name)
+  $propertyNames = @((Get-ItemProperty -Path $Path).PSObject.Properties | ForEach-Object { $_.Name })
   $valueExisted = $propertyNames -contains $Name
   $previousValue = if ($valueExisted) {
     [string](Get-ItemPropertyValue -Path $Path -Name $Name)
@@ -122,7 +122,7 @@ $previousBridgePort = $env:HBUT_HTTP_BRIDGE_PORT
 $previousWebViewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $tauriConfig = Get-Content (Join-Path $RepoRoot 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
 $webViewPolicyPath = 'HKLM:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-$webViewPolicyNames = @($rawFile.Name, [string]$tauriConfig.identifier) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+$webViewPolicyNames = @($rawFile.Name, [string]$tauriConfig.identifier, '*') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 $webViewPolicyStates = @()
 $hostIsElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 

@@ -38,6 +38,8 @@ describe('Windows release dry run', () => {
     expect(smoke).toContain('--remote-debugging-port=$resolvedCdpPort')
     expect(smoke).toContain('HKLM:\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments')
     expect(smoke).toContain('Set-TemporaryRegistryStringValue')
+    expect(smoke).toContain('.PSObject.Properties | ForEach-Object { $_.Name }')
+    expect(smoke).toContain("[string]$tauriConfig.identifier, '*'")
     expect(smoke).toContain('Restore-TemporaryRegistryStringValue')
     expect(smoke).toContain('cdp_registry_policy_override = $registryPolicyApplied')
     expect(smoke).toContain('host_is_elevated = $hostIsElevated')
