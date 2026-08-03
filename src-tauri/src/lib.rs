@@ -2376,6 +2376,7 @@ async fn backup_database_now(
     Ok(serde_json::json!({
         "backup_path": report.backup_path.to_string_lossy().to_string(),
         "kept": report.kept,
+        "keep_policy": report.keep_policy,
         "pruned": report.pruned.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>(),
     }))
 }

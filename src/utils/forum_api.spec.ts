@@ -324,6 +324,77 @@ describe('forum api config', () => {
     }
   })
 
+  it('strips legacy plaintext admin_secret from cached profile on read and rewrites storage', () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) || null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key)
+    })
+
+    try {
+      // 模拟旧版本把 admin_secret 明文写入 profile 缓存的遗留数据
+      storage.set(
+        'hbu_forum_profile:2510231106',
+        JSON.stringify({
+          nickname: '旧昵称',
+          avatar_url: 'https://avatar.example/legacy.png',
+          bio: '旧简介',
+          admin_secret: 'legacy-plain-secret'
+        })
+      )
+
+      const profile = readForumProfile('2510231106')
+      // 普通字段保留
+      expect(profile.nickname).toBe('旧昵称')
+      expect(profile.avatar_url).toBe('https://avatar.example/legacy.png')
+      expect(profile.bio).toBe('旧简介')
+      // 口令不再回读
+      expect(profile.admin_secret).toBe('')
+
+      // 读取即清理：localStorage 中被重写为无 admin_secret 的结构
+      const rewrittenRaw = storage.get('hbu_forum_profile:2510231106') || ''
+      expect(rewrittenRaw).not.toContain('legacy-plain-secret')
+      expect(JSON.parse(rewrittenRaw)).toEqual({
+        nickname: '旧昵称',
+        avatar_url: 'https://avatar.example/legacy.png',
+        bio: '旧简介'
+      })
+
+      // 幂等：再次读取不改变已清理的结构
+      const again = readForumProfile('2510231106')
+      expect(again.admin_secret).toBe('')
+      expect(storage.get('hbu_forum_profile:2510231106')).toBe(rewrittenRaw)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('still returns sanitized profile fields when legacy cleanup cannot rewrite storage', () => {
+    const legacy = JSON.stringify({
+      nickname: '只读昵称',
+      avatar_url: 'https://avatar.example/readonly.png',
+      bio: '只读简介',
+      admin_secret: 'must-not-return'
+    })
+    vi.stubGlobal('localStorage', {
+      getItem: () => legacy,
+      setItem: () => { throw new Error('readonly storage') },
+      removeItem: () => undefined
+    })
+
+    try {
+      expect(readForumProfile('2510231106')).toEqual({
+        nickname: '只读昵称',
+        avatar_url: 'https://avatar.example/readonly.png',
+        bio: '只读简介',
+        admin_secret: ''
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('stores forum admin secret encrypted and never as plaintext in localStorage', async () => {
     const storage = new Map<string, string>()
     vi.stubGlobal('localStorage', {

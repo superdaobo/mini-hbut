@@ -52,7 +52,7 @@ const replyContent = ref('')
 const replyFiles = ref([])
 const threadFiles = ref([])
 const profile = ref(readForumProfile(props.studentId))
-// 管理员口令加密存储在 localStorage（不明文），进入页面时异步恢复以便回填
+// 管理员口令加密存储在 localStorage（不明文，设备密钥与密文同存：仅降低静态泄露风险，非 XSS 安全边界），进入页面时异步恢复以便回填
 loadForumAdminSecret(props.studentId).then((secret) => {
   if (secret) profile.value.admin_secret = secret
 })
@@ -862,7 +862,8 @@ const reportThread = async (thread) => {
 }
 
 const saveProfile = async () => {
-  // 管理员口令单独加密存储，profile 缓存不再包含明文（CodeQL js/clear-text-storage-of-sensitive-data）
+  // 管理员口令单独加密存储，profile 缓存不再包含明文（CodeQL js/clear-text-storage-of-sensitive-data）；
+  // 该加密仅降低静态备份/扫描泄露风险（设备密钥与密文同存于 localStorage），不是 XSS 安全边界
   await saveForumAdminSecret(props.studentId, profile.value.admin_secret)
   profile.value = writeForumProfile(props.studentId, profile.value)
   client = null

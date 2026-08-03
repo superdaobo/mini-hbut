@@ -73,11 +73,72 @@ function walkFiles(dir, extensions) {
 
 // ------------------------------------------------- 2. 组件/composables UA 判断守卫
 {
-  // UA 正则字面量：/...iphone|ipad|ipod|android.../flags
-  const UA_REGEX_LITERAL = /\/[^/\n]*(?:iphone|ipad|ipod|android)[^/\n]*\/[a-z]*/i
-  // 同一行内同时出现 UA 来源与品牌关键字（userAgent.includes('iPhone') 等字符串判断）
-  const UA_SOURCE = /\b(?:navigator\.userAgent|userAgentData)\b/
-  const UA_BRAND = /\b(?:iphone|ipad|ipod|android)\b/i
+  const stripComments = (source) =>
+    source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+  const UA_ACCESS = String.raw`(?:navigator\s*(?:\.\s*userAgent|\[\s*['"]userAgent['"]\s*\])|navigator\s*\.\s*userAgentData|userAgentData)`
+  const BRAND = String.raw`(?:iphone|ipad|ipod|android)`
+
+  const detectUaBrandChecks = (source) => {
+    const code = stripComments(source)
+    const hits = []
+    const variables = new Set()
+    const assignment = new RegExp(
+      String.raw`\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*${UA_ACCESS}[^;\n]*`,
+      'gi'
+    )
+    for (const match of code.matchAll(assignment)) variables.add(match[1])
+
+    const patterns = [
+      new RegExp(
+        String.raw`${UA_ACCESS}[^;\n]{0,240}(?:includes|startsWith|endsWith|match|search)\s*\([^;\n]{0,120}${BRAND}`,
+        'gi'
+      ),
+      new RegExp(String.raw`\/${BRAND}[^/\n]*\/[a-z]*\s*\.\s*test\s*\(\s*${UA_ACCESS}`, 'gi')
+    ]
+    for (const variable of variables) {
+      const escaped = variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      patterns.push(
+        new RegExp(
+          String.raw`\b${escaped}\s*\.\s*(?:includes|startsWith|endsWith|match|search)\s*\([^;\n]{0,120}${BRAND}`,
+          'gi'
+        ),
+        new RegExp(String.raw`\/${BRAND}[^/\n]*\/[a-z]*\s*\.\s*test\s*\(\s*${escaped}\b`, 'gi')
+      )
+    }
+    for (const pattern of patterns) {
+      for (const match of code.matchAll(pattern)) {
+        const line = code.slice(0, match.index).split('\n').length
+        hits.push({ line, snippet: match[0].replace(/\s+/g, ' ').slice(0, 180) })
+      }
+    }
+    return hits
+  }
+
+  const fixtures = [
+    {
+      code: "const ua = navigator.userAgent.toLowerCase()\nif (ua.includes('android')) {}",
+      detected: true
+    },
+    {
+      code: "const ua = navigator['userAgent']\nif (/iphone/.test(ua)) {}",
+      detected: true
+    },
+    {
+      code: "if (navigator.userAgent.toLowerCase().includes('ipad')) {}",
+      detected: true
+    },
+    { code: "// navigator.userAgent includes android\nconst note = 'android docs'", detected: false },
+    { code: "const url = 'https://android.example/path'", detected: false }
+  ]
+  for (const fixture of fixtures) {
+    const actual = detectUaBrandChecks(fixture.code).length > 0
+    if (actual !== fixture.detected) {
+      fail(`UA 守卫自测失败：${JSON.stringify(fixture.code)}`)
+    }
+  }
 
   const targets = [
     ...walkFiles(join(repoRoot, 'src/components'), ['.vue']),
@@ -85,21 +146,17 @@ function walkFiles(dir, extensions) {
   ]
   const hits = []
   for (const file of targets) {
-    const lines = readFileSync(file, 'utf8').split('\n')
-    for (let i = 0; i < lines.length; i++) {
-      const code = lines[i].split('//')[0] // 剔除行注释，避免误报文档性说明
-      if (UA_REGEX_LITERAL.test(code) || (UA_SOURCE.test(code) && UA_BRAND.test(code))) {
-        hits.push(`${rel(file)}:${i + 1}: ${lines[i].trim()}`)
-      }
+    for (const hit of detectUaBrandChecks(readFileSync(file, 'utf8'))) {
+      hits.push(`${rel(file)}:${hit.line}: ${hit.snippet}`)
     }
   }
   if (hits.length > 0) {
     fail(
-      `组件/composables 内发现 ${hits.length} 处直接 UA 品牌判断（应收敛到 src/platform/runtime.ts；Mobile/HarmonyOS 业务特定判断不受限）：`
+      `组件/composables 内发现 ${hits.length} 处直接 UA 品牌判断（应收敛到 src/platform/runtime.ts）：`
     )
-    for (const h of hits) console.error(`    ${h}`)
+    for (const hit of hits) console.error(`    ${hit}`)
   } else {
-    pass('组件/composables 无新增 iphone/ipad/ipod/android UA 直接判断')
+    pass('UA 守卫自测通过，组件/composables 无 iphone/ipad/ipod/android 直接判断')
   }
 }
 
@@ -130,9 +187,18 @@ function walkFiles(dir, extensions) {
           (hasCtor ? '' : '（缺少 GradeService::new）') +
           (hasCall ? '' : '（缺少 .sync_grades( 调用）')
       )
-    } else {
-      pass(`${label} sync_grades handler 构造并调用 grade::service::GradeService`)
+      continue
     }
+    if (label.endsWith('http_server.rs')) {
+      const forwardsCurrentOnly = /req\.current_only\.or\(req\.teacher_current_only\)/.test(body) &&
+        /\.sync_grades\(uid\.as_deref\(\),\s*current_only\)/s.test(body)
+      const hardcodesFalse = /\.sync_grades\(uid\.as_deref\(\),\s*false\)/s.test(body)
+      if (!forwardsCurrentOnly || hardcodesFalse) {
+        fail(`${label} 的 sync_grades 未透传 current_only/teacher_current_only，或仍硬编码 false`)
+        continue
+      }
+    }
+    pass(`${label} sync_grades handler 构造并调用 GradeService，参数语义一致`)
   }
 }
 

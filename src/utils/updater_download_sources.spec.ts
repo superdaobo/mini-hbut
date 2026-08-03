@@ -188,6 +188,8 @@ describe('update download sources', () => {
       },
       release_notes: '# Mini-HBUT v1.3.6 更新说明\n\n旧版本日志'
     })
+    expect(cdnRelease).not.toBeNull()
+    if (!cdnRelease) throw new Error('valid CDN manifest must normalize to a release')
     const merged = mergeCdnReleaseWithApiNotes(cdnRelease, {
       tag_name: 'v1.4.0',
       name: 'v1.4.0',

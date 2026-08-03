@@ -505,6 +505,12 @@ struct CookieSnapshotRequest {
     jwxt: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct SyncGradesRequest {
+    current_only: Option<bool>,
+    teacher_current_only: Option<bool>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ExamRequest {
     semester: Option<String>,
@@ -1677,9 +1683,14 @@ async fn import_cookies(
 async fn sync_grades(
     State(state): State<HttpState>,
     headers: HeaderMap,
+    payload: Option<Json<SyncGradesRequest>>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_sensitive_bridge_auth(&headers, &state)?;
+    let current_only = payload
+        .as_ref()
+        .and_then(|Json(req)| req.current_only.or(req.teacher_current_only))
+        .unwrap_or(false);
     let client_handle = state.client.clone();
     let uid = {
         let client = client_handle.read().await;
@@ -1691,7 +1702,7 @@ async fn sync_grades(
         client_handle.clone(),
         crate::grade::service::SqliteGradeCache,
     );
-    match service.sync_grades(uid.as_deref(), false).await {
+    match service.sync_grades(uid.as_deref(), current_only).await {
         Ok(result) => {
             if let Some(job) = result.enrichment {
                 service.spawn_enrichment(job);

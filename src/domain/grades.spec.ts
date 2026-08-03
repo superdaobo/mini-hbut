@@ -1,5 +1,5 @@
 /**
- * grade domain 单元测试：outcome 解析、绩点规则（官方优先/数字估算/定性不估算）、
+ * grade domain 单元测试：outcome 解析、绩点规则（官方优先/数字与定性估算）、
  * 字段别名兼容、标签派生、排序分数与边界输入。
  */
 import { describe, expect, it } from 'vitest'
@@ -68,18 +68,26 @@ describe('绩点规则', () => {
     expect(view.creditGradePoint).toBe('-')
   })
 
-  it('Rust 无值兜底 xfjd="0" 视为无官方值 → 数字成绩估算', () => {
+  it('官方 xfjd="0" 是有效官方绩点，不得回退估算', () => {
     const view = normalizeGradeRecord({ final_score: '60', xfjd: '0' })
-    expect(view.gradePoint).toBe(1)
-    expect(view.gradePointEstimated).toBe(true)
+    expect(view.gradePoint).toBe(0)
+    expect(view.gradePointEstimated).toBe(false)
+    expect(view.creditGradePoint).toBe('0')
   })
 
-  it('定性成绩（优秀/合格等）不估算绩点', () => {
-    for (const text of ['优秀', '良好', '中等', '合格', '通过', '不合格', '未通过', '缺考', '缓考', '免修', '免考', '待录入']) {
+  it('定性成绩按 Rust 参考分数估算绩点，特殊状态不估算', () => {
+    const expected = new Map([
+      ['优秀', 4.5], ['良好', 3], ['中等', 3], ['合格', 1], ['通过', 1], ['不合格', 0], ['未通过', 0]
+    ])
+    for (const [text, point] of expected) {
       const view = normalizeGradeRecord({ final_score: text })
-      expect(view.gradePoint).toBeNull()
-      expect(view.gradePointEstimated).toBe(false)
-      expect(view.creditGradePoint).toBe('-')
+      expect(view.gradePoint, text).toBe(point)
+      expect(view.gradePointEstimated, text).toBe(true)
+    }
+    for (const text of ['缺考', '缓考', '免修', '免考', '待录入']) {
+      const view = normalizeGradeRecord({ final_score: text })
+      expect(view.gradePoint, text).toBeNull()
+      expect(view.gradePointEstimated, text).toBe(false)
     }
   })
 
@@ -110,8 +118,13 @@ describe('绩点规则', () => {
 })
 
 describe('resolveOutcome 文本匹配', () => {
-  it('数字优先于文本', () => {
+  it('普通数字成绩归一化为 numeric', () => {
     expect(resolveOutcome('92', {})).toBe(GradeOutcome.NUMERIC)
+  })
+
+  it('特殊状态优先于混合文本中的数字', () => {
+    expect(resolveOutcome('缺考 0', {})).toBe(GradeOutcome.ABSENT)
+    expect(resolveOutcome('补考 88', {})).toBe(GradeOutcome.RETAKE)
   })
 
   it('“不合格”不误判为“合格”', () => {
@@ -130,10 +143,12 @@ describe('resolveOutcome 文本匹配', () => {
     expect(resolveOutcome('', { cjbj: '2' })).toBe(GradeOutcome.DEFERRED)
     expect(resolveOutcome('', { sfsq: '1' })).toBe(GradeOutcome.DEFERRED)
     expect(resolveOutcome('', { cjbj: '3' })).toBe(GradeOutcome.EXEMPT)
+    expect(resolveOutcome('60', { sfbk: '1' })).toBe(GradeOutcome.RETAKE)
+    expect(resolveOutcome('60', { cjbj: '1' })).toBe(GradeOutcome.RETAKE)
   })
 
-  it('空文本且无标记 → 未知', () => {
-    expect(resolveOutcome('', {})).toBe(GradeOutcome.UNKNOWN)
+  it('空文本且无标记 → 待录入', () => {
+    expect(resolveOutcome('', {})).toBe(GradeOutcome.PENDING)
   })
 })
 
@@ -197,13 +212,14 @@ describe('排序分数', () => {
   it('按 outcome 档位派生', () => {
     expect(resolveSortScore(GradeOutcome.NUMERIC, 88)).toBe(88)
     expect(resolveSortScore(GradeOutcome.EXCELLENT, null)).toBe(95)
-    expect(resolveSortScore(GradeOutcome.GOOD, null)).toBe(85)
-    expect(resolveSortScore(GradeOutcome.MEDIUM, null)).toBe(75)
+    expect(resolveSortScore(GradeOutcome.GOOD, null)).toBe(80)
+    expect(resolveSortScore(GradeOutcome.MEDIUM, null)).toBe(80)
     expect(resolveSortScore(GradeOutcome.QUALIFIED, null)).toBe(60)
     expect(resolveSortScore(GradeOutcome.PASS, null)).toBe(60)
     expect(resolveSortScore(GradeOutcome.UNQUALIFIED, null)).toBe(0)
     expect(resolveSortScore(GradeOutcome.FAILED, null)).toBe(0)
     expect(resolveSortScore(GradeOutcome.ABSENT, null)).toBe(0)
+    expect(resolveSortScore(GradeOutcome.RETAKE, 88)).toBe(88)
     expect(resolveSortScore(GradeOutcome.DEFERRED, null)).toBe(-1)
     expect(resolveSortScore(GradeOutcome.EXEMPT, null)).toBe(-1)
     expect(resolveSortScore(GradeOutcome.UNKNOWN, null)).toBe(-1)

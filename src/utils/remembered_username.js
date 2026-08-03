@@ -16,20 +16,32 @@ const STUDENT_ID_RE = /^\d{10}$/
 
 const normalize = (value) => String(value ?? '').trim()
 
+// 将输入重新构造为规范 10 位学号。数值转换切断任意口令/自由文本到存储 sink 的数据流，
+// 同时用 padStart 保留可能存在的前导 0；非 10 位纯数字一律拒绝持久化。
+const canonicalizeStudentId = (value) => {
+  const raw = normalize(value)
+  if (!STUDENT_ID_RE.test(raw)) return ''
+  const numeric = Number(raw)
+  if (!Number.isSafeInteger(numeric) || numeric < 0) return ''
+  return String(numeric).padStart(10, '0')
+}
+
 /** 10 位纯数字学号判定（与 src/utils/usage_tracker.js 保持一致） */
-export const isLikelyStudentId = (value) => STUDENT_ID_RE.test(normalize(value))
+export const isLikelyStudentId = (value) => canonicalizeStudentId(value) !== ''
 
 export const getRememberedUsername = () => {
   try {
-    return normalize(globalThis.localStorage?.getItem(REMEMBERED_USERNAME_KEY))
+    const sid = canonicalizeStudentId(globalThis.localStorage?.getItem(REMEMBERED_USERNAME_KEY))
+    if (!sid) globalThis.localStorage?.removeItem(REMEMBERED_USERNAME_KEY)
+    return sid
   } catch {
     return ''
   }
 }
 
-/** 保存学号；空值等价于清除。行为与原 localStorage.setItem 完全一致（不做截断/强校验，避免破坏登录）。 */
+/** 保存规范 10 位学号；空值或非学号输入等价于清除。密码/自由文本永不写入该键。 */
 export const saveRememberedUsername = (value) => {
-  const sid = normalize(value)
+  const sid = canonicalizeStudentId(value)
   try {
     if (!sid) {
       globalThis.localStorage?.removeItem(REMEMBERED_USERNAME_KEY)

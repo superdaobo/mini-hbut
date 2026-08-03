@@ -47,6 +47,11 @@ describe('Phase 3 architecture convergence', () => {
     }
     expect(httpServer).toContain('crate::grade::service::GradeService::new')
     expect(lib).toContain('grade::service::GradeService::new')
+    const httpHandler = extractHandler(httpServer, 'sync_grades')!
+    expect(httpHandler).toContain('payload: Option<Json<SyncGradesRequest>>')
+    expect(httpHandler).toContain('req.current_only.or(req.teacher_current_only)')
+    expect(httpHandler).toMatch(/\.sync_grades\(uid\.as_deref\(\),\s*current_only\)/)
+    expect(httpHandler).not.toMatch(/\.sync_grades\(uid\.as_deref\(\),\s*false\)/)
     expect(exists('src-tauri/src/modules/grades.rs')).toBe(false)
   })
 

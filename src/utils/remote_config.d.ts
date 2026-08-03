@@ -56,6 +56,11 @@ export interface RemoteConfig {
   [key: string]: unknown
 }
 
+export interface OcrRuntimePayload {
+  endpoints: string[]
+  localFallbackEndpoints: string[]
+}
+
 export const REMOTE_CONFIG_UPDATED_EVENT: string
 export const DEFAULT_CHAOXING_INVITE_CODE: string
 export function isRemoteConfigEnabled(): boolean
@@ -73,5 +78,5 @@ export function refreshRemoteConfigFromNetwork(options?: Record<string, unknown>
   changed: boolean
   source: string
 }>
-export function applyOcrRuntimeConfig(configLike: RemoteConfig | null): Promise<void>
+export function applyOcrRuntimeConfig(configLike: RemoteConfig | null): Promise<OcrRuntimePayload>
 export function fetchRemoteConfig(options?: Record<string, unknown>): Promise<RemoteConfig>

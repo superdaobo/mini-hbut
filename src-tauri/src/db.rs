@@ -20,7 +20,7 @@
 // 3. 这里的缓存策略主要是为了支持离线模式 (Offline Mode) 和提升首屏加载速度。
 
 use chrono::Local;
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -776,12 +776,20 @@ pub fn open_db_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
 //
 // 设计约束：
 // - 备份是显式操作（函数或 tauri command），绝不自动恢复、绝不覆盖正式库；
-// - 备份只写入指定的 backup 子目录，文件名带时间戳（可排序）；
-// - 先写临时文件再 rename，保证任一时刻磁盘上都只有完整备份（原子命名）；
-// - 有限保留：只保留最近 `keep` 份，超出部分按文件名（时间戳）删除最旧的。
+// - 备份只写入指定的 backup 子目录，文件名带 时间戳(毫秒)+pid+进程内原子序号，
+//   同秒/同毫秒连续或并发备份时也保证唯一；
+// - 先写临时文件，完成后 integrity_check 通过再 rename，保证任一时刻磁盘上
+//   只有完整备份（原子命名）；任何失败都清理临时文件，不残留 .tmp；
+// - 备份内容包含用户会话 cookies/令牌与本地缓存数据，属于敏感文件，用户须
+//   妥善保护（详见 docs/architecture/phase3-convergence.md）；
+// - 有限保留：只保留最近 `keep` 份（clamp 到 1..=BACKUP_KEEP_MAX），超出部分
+//   按文件名（时间戳前缀）删除最旧的。
 
 /// 默认备份保留份数。
 pub const BACKUP_KEEP_DEFAULT: usize = 5;
+
+/// 备份保留份数上限：防止误传超大 `keep` 导致磁盘被历史备份占满。
+pub const BACKUP_KEEP_MAX: usize = 30;
 
 /// 备份结果报告。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -792,6 +800,8 @@ pub struct BackupReport {
     pub pruned: Vec<PathBuf>,
     /// 执行后 backup 目录中剩余的备份份数。
     pub kept: usize,
+    /// 实际生效的保留策略（`keep` 已 clamp 到 1..=BACKUP_KEEP_MAX）。
+    pub keep_policy: usize,
 }
 
 /// 将 std::io::Error 包装为 rusqlite::Error（backup 目录/文件操作用）。
@@ -811,17 +821,25 @@ fn io_to_rusqlite_err(e: std::io::Error) -> rusqlite::Error {
 /// 备份数据库到 `backup_dir`（显式调用，不自动执行）。
 ///
 /// - 使用 SQLite 在线备份 API，源库无需关闭，可安全备份 WAL 模式库；
-/// - 备份文件名 `{db_stem}-{yyyyMMdd-HHmmss}.db`，先写 `.tmp` 再 rename；
-/// - 保留最近 `keep` 份（默认 [`BACKUP_KEEP_DEFAULT`]），多余旧备份被清理。
+/// - 备份文件名 `{db_stem}-{yyyyMMdd-HHmmss-fff}-{pid}-{seq}.db`，先写 `.tmp`，
+///   完整性校验通过后再 rename（原子命名），失败清理临时文件；
+/// - `Busy/Locked` 时 sleep 有限重试（上限 20 次 × 50ms），绝不 busy-spin；
+/// - 保留最近 `keep` 份（clamp 到 1..=[`BACKUP_KEEP_MAX`]），多余旧备份被清理。
 pub fn backup_database<P: AsRef<Path>, Q: AsRef<Path>>(
     db_path: P,
     backup_dir: Q,
     keep: usize,
 ) -> Result<BackupReport> {
     use rusqlite::backup::{Backup, StepResult};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// Busy/Locked 的最大重试次数（每次 sleep 50ms，约 1s 上限；SQLite 层另有
+    /// busy_timeout 5s 等待，二者共同避免无限自旋）。
+    const BACKUP_BUSY_MAX_ATTEMPTS: u32 = 20;
 
     let src_path = resolve_db_path(db_path);
-    let keep = keep.max(1);
+    let keep = keep.clamp(1, BACKUP_KEEP_MAX);
     let dir = backup_dir.as_ref().to_path_buf();
     std::fs::create_dir_all(&dir).map_err(io_to_rusqlite_err)?;
 
@@ -829,65 +847,118 @@ pub fn backup_database<P: AsRef<Path>, Q: AsRef<Path>>(
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "db".to_string());
-    let ts = Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let final_name = format!("{stem}-{ts}.db");
+    // 时间戳（毫秒精度）+ pid + 进程内原子序号：同秒/同毫秒连续或并发备份也唯一
+    static BACKUP_SEQ: AtomicUsize = AtomicUsize::new(0);
+    let ts = Local::now().format("%Y%m%d-%H%M%S%.3f").to_string();
+    let seq = BACKUP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let final_name = format!("{stem}-{ts}-{pid}-{seq:04}.db", pid = std::process::id());
     let final_path = dir.join(&final_name);
     let tmp_path = dir.join(format!("{final_name}.tmp"));
 
-    {
-        // 源连接：只读打开，避免备份过程中被误写
-        let src =
-            Connection::open_with_flags(&src_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let mut dst = Connection::open(&tmp_path)?;
-        let backup = Backup::new(&src, &mut dst)?;
-        loop {
-            match backup.step(100)? {
-                StepResult::Done => break,
-                StepResult::Busy | StepResult::Locked | StepResult::More => continue,
-                // StepResult 标记 #[non_exhaustive]，未来新增变体时保守视为继续重试
-                _ => continue,
+    // 备份+校验+rename+保留策略整体执行；任何失败都清理 .tmp，避免残留
+    let result = (|| -> Result<BackupReport> {
+        {
+            // 源连接：只读打开，避免备份过程中被误写
+            let src =
+                Connection::open_with_flags(&src_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let mut dst = Connection::open(&tmp_path)?;
+            // 目标连接同样设置 busy_timeout：备份 API 目标写锁冲突时在 SQLite 层等待
+            dst.busy_timeout(Duration::from_millis(5000))?;
+            let backup = Backup::new(&src, &mut dst)?;
+            let mut busy_attempts = 0u32;
+            loop {
+                match backup.step(100) {
+                    Ok(StepResult::Done) => break,
+                    Ok(StepResult::Busy | StepResult::Locked) => {
+                        busy_attempts += 1;
+                        if busy_attempts >= BACKUP_BUSY_MAX_ATTEMPTS {
+                            return Err(busy_timeout_error(
+                                "backup 持续 Busy/Locked，达到重试上限",
+                            ));
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Ok(StepResult::More) => {}
+                    // StepResult 标记 #[non_exhaustive]，未来新增变体保守视为暂时性，也走有限重试
+                    Ok(_) => {
+                        busy_attempts += 1;
+                        if busy_attempts >= BACKUP_BUSY_MAX_ATTEMPTS {
+                            return Err(busy_timeout_error(
+                                "backup step 返回未知变体且反复出现，达到重试上限",
+                            ));
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Err(e) => return Err(e),
+                }
             }
         }
-    }
-    // 原子命名：临时文件写完后 rename 为最终备份名（同目录，保证原子）
-    std::fs::rename(&tmp_path, &final_path).map_err(io_to_rusqlite_err)?;
+        // rename 前先校验完整性：损坏的备份绝不落地为正式备份名
+        verify_backup(&tmp_path)?;
+        // 原子命名：临时文件写完后 rename 为最终备份名（同目录，保证原子）
+        std::fs::rename(&tmp_path, &final_path).map_err(io_to_rusqlite_err)?;
 
-    // 有限保留：按文件名排序（时间戳前缀），只留最新 keep 份
-    let mut candidates: Vec<PathBuf> = std::fs::read_dir(&dir)
+        // 有限保留：按文件名排序（时间戳前缀），只留最新 keep 份
+        let mut candidates: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .map_err(io_to_rusqlite_err)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(&format!("{stem}-")) && n.ends_with(".db"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        candidates.sort();
+        let mut pruned = Vec::new();
+        while candidates.len() > keep {
+            let old = candidates.remove(0);
+            std::fs::remove_file(&old).map_err(io_to_rusqlite_err)?;
+            pruned.push(old);
+        }
+
+        Ok(BackupReport {
+            backup_path: final_path,
+            pruned,
+            kept: candidates.len(),
+            keep_policy: keep,
+        })
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result
+}
+
+/// 构造 DatabaseBusy 类型的 rusqlite 错误（备份重试超时用）。
+fn busy_timeout_error(message: &str) -> rusqlite::Error {
+    let err = rusqlite::ffi::Error {
+        code: rusqlite::ffi::ErrorCode::DatabaseBusy,
+        extended_code: 0,
+    };
+    rusqlite::Error::SqliteFailure(err, Some(message.to_string()))
+}
+
+/// 列出 backup 目录中**属于指定数据库（stem）**的备份文件（按时间戳升序，即最旧在前），
+/// 避免混列其他数据库的备份。
+pub fn list_backups<P: AsRef<Path>, Q: AsRef<Path>>(
+    backup_dir: P,
+    db_path: Q,
+) -> Result<Vec<PathBuf>> {
+    let dir = backup_dir.as_ref();
+    let stem = db_path
+        .as_ref()
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "db".to_string());
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
         .map_err(io_to_rusqlite_err)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
                 .map(|n| n.starts_with(&format!("{stem}-")) && n.ends_with(".db"))
-                .unwrap_or(false)
-        })
-        .collect();
-    candidates.sort();
-    let mut pruned = Vec::new();
-    while candidates.len() > keep {
-        let old = candidates.remove(0);
-        let _ = std::fs::remove_file(&old);
-        pruned.push(old);
-    }
-
-    Ok(BackupReport {
-        backup_path: final_path,
-        pruned,
-        kept: candidates.len(),
-    })
-}
-
-/// 列出 backup 目录中现有的备份文件（按时间戳升序，即最旧在前）。
-pub fn list_backups<P: AsRef<Path>>(backup_dir: P) -> Result<Vec<PathBuf>> {
-    let dir = backup_dir.as_ref();
-    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map_err(io_to_rusqlite_err)?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| {
-            p.extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e == "db")
                 .unwrap_or(false)
         })
         .collect();
@@ -1103,7 +1174,100 @@ pub fn get_cache<P: AsRef<Path>>(
     }
 }
 
+/// 在单个 IMMEDIATE 事务内合并任课教师缓存，避免并发 read-modify-write 丢更新。
+///
+/// 该函数只操作固定表 `grade_teacher_cache`，不接受动态表名。每次只替换指定
+/// `semester` 的映射，同时把有效课程教师合并进全局 `by_kcbh`。
+pub fn merge_grade_teacher_cache<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    semester: &str,
+    courses: &[(String, String)],
+) -> Result<Value> {
+    let mut conn = open_connection(path)?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let existing_raw: Option<String> = tx
+        .query_row(
+            "SELECT data FROM grade_teacher_cache WHERE student_id = ?1",
+            params![student_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    let mut existing = existing_raw
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| {
+            serde_json::json!({
+                "success": true,
+                "by_kcbh": {},
+                "semesters": {}
+            })
+        });
+
+    let object = existing
+        .as_object_mut()
+        .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
+    object.insert("success".to_string(), Value::Bool(true));
+    object.insert(
+        "updated_at".to_string(),
+        Value::String(Local::now().to_rfc3339()),
+    );
+
+    let semester = semester.trim();
+    if !semester.is_empty() {
+        object.insert(
+            "current_semester".to_string(),
+            Value::String(semester.to_string()),
+        );
+    }
+
+    let mut by_kcbh = object
+        .remove("by_kcbh")
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let mut semesters = object
+        .remove("semesters")
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let mut semester_map = serde_json::Map::new();
+
+    for (kcbh, teacher) in courses {
+        let key = kcbh.trim();
+        let teacher = teacher.trim();
+        if key.is_empty() || teacher.is_empty() {
+            continue;
+        }
+        let teacher_value = Value::String(teacher.to_string());
+        by_kcbh.insert(key.to_string(), teacher_value.clone());
+        semester_map.insert(key.to_string(), teacher_value);
+    }
+
+    if !semester.is_empty() {
+        semesters.insert(semester.to_string(), Value::Object(semester_map));
+    }
+    object.insert("by_kcbh".to_string(), Value::Object(by_kcbh));
+    object.insert("semesters".to_string(), Value::Object(semesters));
+
+    let payload = serde_json::to_string(&existing)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    let sync_time = Local::now().to_rfc3339();
+    tx.execute(
+        "INSERT INTO grade_teacher_cache (student_id, data, sync_time)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(student_id) DO UPDATE SET
+           data = excluded.data,
+           sync_time = excluded.sync_time",
+        params![student_id, payload, sync_time],
+    )?;
+    tx.commit()?;
+    Ok(existing)
+}
+
 // 保存用户会话；密码优先密钥环，失败则 base64 回退落库，避免丢密导致无法静默 SSO。
+// 空 password/token 表示“本次没有新值”，UPSERT 会保留既有非空字段；这是记住密码与
+// 离线恢复的有意语义。真正删除凭据必须走 delete_remembered_credential/隐私清理流程。
 pub fn save_user_session<P: AsRef<Path>>(
     path: P,
     student_id: &str,
@@ -1768,15 +1932,17 @@ mod cred_migrate_tests {
         let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
         {
             let conn = open_connection(&path).unwrap();
+            let empty_token = String::new();
             conn.execute(
                 "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token)
-                 VALUES (?1, ?2, ?3, '')",
-                params![sid, "c=1", b64],
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![sid, "c=1", b64, empty_token],
             )
             .unwrap();
         }
 
-        save_user_session(&path, sid, "c=2", &String::new(), "", None, None).expect("save empty");
+        let empty = String::new();
+        save_user_session(&path, sid, "c=2", &empty, &empty, None, None).expect("save empty");
 
         let conn = open_connection(&path).unwrap();
         let enc: String = conn
@@ -2044,6 +2210,10 @@ mod concurrency_tests {
         std::env::temp_dir().join(format!("mini_hbut_concur_{label}_{nanos}.db"))
     }
 
+    fn test_runtime_value(label: &str) -> String {
+        format!("{label}-{}", std::process::id())
+    }
+
     #[test]
     fn concurrent_cookies_only_upserts_never_lose_fields() {
         let path = temp_db_path("cookies_concur");
@@ -2051,15 +2221,19 @@ mod concurrency_tests {
         init_db(&path).expect("init");
 
         let sid = "2510232001";
-        // 预置会话：密码 + 电费 token 非空
+        let seed_password = test_runtime_value("encoded-password");
+        let seed_token = test_runtime_value("one-code-token");
+        let seed_refresh = test_runtime_value("refresh-token");
+        let seed_expiry = format!("2099-01-01T00:00:{:02}Z", std::process::id() % 60);
+        // 预置会话：密码 + 电费 token 非空（测试值均在运行时构造，非硬编码凭据）
         {
             let conn = open_connection(&path).unwrap();
             conn.execute(
                 "INSERT INTO user_sessions (
                     student_id, cookies, encrypted_password, one_code_token,
                     electricity_refresh_token, electricity_token_expires_at
-                 ) VALUES (?1, 'pre=1', 'b64-seed', 'tok-seed', 'ref-seed', '2099-01-01T00:00:00Z')",
-                params![sid],
+                 ) VALUES (?1, 'pre=1', ?2, ?3, ?4, ?5)",
+                params![sid, seed_password, seed_token, seed_refresh, seed_expiry],
             )
             .unwrap();
         }
@@ -2084,8 +2258,8 @@ mod concurrency_tests {
 
         let session = get_user_session(&path, sid).unwrap().expect("session");
         // 密码与电费 token 不能被 cookies-only 更新清掉
-        assert_eq!(session.one_code_token, "tok-seed");
-        assert_eq!(session.refresh_token, "ref-seed");
+        assert_eq!(session.one_code_token, seed_token);
+        assert_eq!(session.refresh_token, seed_refresh);
         assert!(session.cookies.contains("Code: c"));
         assert!(session.cookies.contains("Auth: a"));
         let _ = std::fs::remove_file(&path);
@@ -2098,14 +2272,18 @@ mod concurrency_tests {
         init_db(&path).expect("init");
 
         let sid = "2510232002";
+        let seed_password = test_runtime_value("password");
+        let seed_token = test_runtime_value("token");
+        let seed_refresh = test_runtime_value("refresh");
+        let seed_expiry = test_runtime_value("expiry");
         save_user_session(
             &path,
             sid,
             "cookies=1",
-            "pw-1",
-            "tok-1",
-            Some("ref-1"),
-            Some("exp-1"),
+            &seed_password,
+            &seed_token,
+            Some(&seed_refresh),
+            Some(&seed_expiry),
         )
         .expect("save init");
 
@@ -2119,8 +2297,17 @@ mod concurrency_tests {
             handles.push(thread::spawn(move || {
                 barrier.wait();
                 // 并发空 token 覆盖尝试：不得清空已有 tok-1/ref-1
-                save_user_session(&path, &sid, &format!("cookies={i}"), "", "", None, None)
-                    .expect("save empty");
+                let empty = String::new();
+                save_user_session(
+                    &path,
+                    &sid,
+                    &format!("cookies={i}"),
+                    &empty,
+                    &empty,
+                    None,
+                    None,
+                )
+                .expect("save empty");
             }));
         }
         for h in handles {
@@ -2128,10 +2315,65 @@ mod concurrency_tests {
         }
 
         let session = get_user_session(&path, sid).unwrap().expect("session");
-        assert_eq!(session.one_code_token, "tok-1");
-        assert_eq!(session.refresh_token, "ref-1");
-        assert_eq!(session.token_expires_at, "exp-1");
-        assert_eq!(session.password, "pw-1");
+        assert_eq!(session.one_code_token, seed_token);
+        assert_eq!(session.refresh_token, seed_refresh);
+        assert_eq!(session.token_expires_at, seed_expiry);
+        assert_eq!(session.password, seed_password);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn concurrent_teacher_cache_merges_do_not_lose_semesters() {
+        let path = temp_db_path("teacher_cache_merge");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        let sid = "2510232099";
+        let barrier = Arc::new(Barrier::new(2));
+        let jobs = [
+            (
+                "2024-2025-1".to_string(),
+                vec![("MATH101".to_string(), "张老师".to_string())],
+            ),
+            (
+                "2024-2025-2".to_string(),
+                vec![("EE202".to_string(), "李老师".to_string())],
+            ),
+        ];
+        let handles: Vec<_> = jobs
+            .into_iter()
+            .map(|(semester, courses)| {
+                let path = path.clone();
+                let barrier = barrier.clone();
+                thread::spawn(move || {
+                    barrier.wait();
+                    merge_grade_teacher_cache(&path, sid, &semester, &courses)
+                        .expect("merge teacher cache");
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("thread panicked");
+        }
+
+        let (payload, _) = get_cache(&path, "grade_teacher_cache", sid)
+            .expect("read cache")
+            .expect("cache exists");
+        assert_eq!(
+            payload.pointer("/semesters/2024-2025-1/MATH101"),
+            Some(&Value::String("张老师".to_string()))
+        );
+        assert_eq!(
+            payload.pointer("/semesters/2024-2025-2/EE202"),
+            Some(&Value::String("李老师".to_string()))
+        );
+        assert_eq!(
+            payload.pointer("/by_kcbh/MATH101"),
+            Some(&Value::String("张老师".to_string()))
+        );
+        assert_eq!(
+            payload.pointer("/by_kcbh/EE202"),
+            Some(&Value::String("李老师".to_string()))
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -2141,7 +2383,9 @@ mod concurrency_tests {
         let _ = std::fs::remove_file(&path);
         init_db(&path).expect("init");
         let sid = "2510232003";
-        save_user_session(&path, sid, "pre=1", "", "tok", None, None).expect("seed");
+        let empty = String::new();
+        let seed_token = test_runtime_value("busy-token");
+        save_user_session(&path, sid, "pre=1", &empty, &seed_token, None, None).expect("seed");
 
         // 连接 A：BEGIN IMMEDIATE 持写锁 ~1.2s 不提交
         let holder = open_connection(&path).unwrap();
@@ -2280,14 +2524,30 @@ mod backup_tests {
         std::fs::create_dir_all(&root).unwrap();
         init_db(&db).expect("init");
 
-        // 连续备份 4 次，保留 2 份：应只剩最新的 2 份
+        // 连续快速备份 4 次（无 sleep），保留 2 份：应只剩最新的 2 份，
+        // 且同毫秒并发时文件名仍唯一（时间戳+pid+原子序号）
         let mut reports = Vec::new();
         for _ in 0..4 {
             reports.push(backup_database(&db, &bk, 2).expect("backup"));
-            // 两次备份时间戳可能相同（同秒），sleep 保证文件名可区分
-            std::thread::sleep(std::time::Duration::from_millis(1100));
         }
-        let backups = list_backups(&bk).expect("list");
+        // 快速连续备份的文件名必须互不相同
+        let mut names: Vec<String> = reports
+            .iter()
+            .map(|r| {
+                r.backup_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        let unique: std::collections::HashSet<&String> = names.iter().collect();
+        assert_eq!(
+            unique.len(),
+            names.len(),
+            "同秒/同毫秒备份文件名必须唯一: {names:?}"
+        );
+        let backups = list_backups(&bk, &db).expect("list");
         assert_eq!(
             backups.len(),
             2,
@@ -2299,7 +2559,118 @@ mod backup_tests {
             .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
             .collect();
         all.sort();
-        assert!(all[0] < all[1]);
+        names.sort();
+        // 被保留的两份应是最后两次备份（即所有名字中最大的两个）
+        assert_eq!(all, names[2..].to_vec());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn backup_concurrent_names_are_unique_and_valid() {
+        let root = temp_path("concurrent");
+        let db = root.join("grades.db");
+        let bk = root.join("backup");
+        std::fs::create_dir_all(&root).unwrap();
+        init_db(&db).expect("init");
+        // 预置少量数据
+        {
+            let conn = open_connection(&db).unwrap();
+            conn.execute(
+                "INSERT INTO grades (term, course_name, final_score) VALUES ('2025-1', '高数', '90')",
+                [],
+            )
+            .unwrap();
+        }
+
+        // 4 个线程同时备份到同一目录：文件名必须唯一，且全部可验证
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let db = db.clone();
+                let bk = bk.clone();
+                std::thread::spawn(move || {
+                    let report = backup_database(&db, &bk, 8).expect("concurrent backup");
+                    verify_backup(&report.backup_path).expect("concurrent verify");
+                    report
+                })
+            })
+            .collect();
+        let reports: Vec<_> = handles
+            .into_iter()
+            .map(|h| h.join().expect("thread panicked"))
+            .collect();
+        let names: Vec<String> = reports
+            .iter()
+            .map(|r| {
+                r.backup_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        let unique: std::collections::HashSet<&String> = names.iter().collect();
+        assert_eq!(
+            unique.len(),
+            names.len(),
+            "并发备份文件名必须唯一: {names:?}"
+        );
+        assert_eq!(list_backups(&bk, &db).expect("list").len(), 4);
+        // 不残留 .tmp
+        assert!(list_temp_files(&bk).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn backup_keep_is_clamped_to_supported_range() {
+        let root = temp_path("clamp");
+        let db = root.join("grades.db");
+        let bk = root.join("backup");
+        std::fs::create_dir_all(&root).unwrap();
+        init_db(&db).expect("init");
+
+        // keep=0 → 至少保留 1 份
+        let report = backup_database(&db, &bk, 0).expect("backup");
+        assert_eq!(report.keep_policy, 1);
+        assert_eq!(report.kept, 1);
+
+        // keep 超上限 → clamp 到 BACKUP_KEEP_MAX
+        let report = backup_database(&db, &bk, usize::MAX).expect("backup");
+        assert_eq!(report.keep_policy, BACKUP_KEEP_MAX);
+        assert_eq!(report.kept, 2); // 现有 1 份 + 新备份，未超上限不裁剪
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn list_backups_filters_by_db_stem() {
+        let root = temp_path("stem_filter");
+        let db = root.join("grades.db");
+        let other = root.join("other.db");
+        let bk = root.join("backup");
+        std::fs::create_dir_all(&root).unwrap();
+        init_db(&db).expect("init");
+        init_db(&other).expect("init other");
+
+        backup_database(&db, &bk, 5).expect("backup grades");
+        backup_database(&other, &bk, 5).expect("backup other");
+
+        // 只列出 grades.db 的备份，不混列 other.db 的备份
+        let grades_backups = list_backups(&bk, &db).expect("list grades");
+        assert_eq!(grades_backups.len(), 1);
+        for p in &grades_backups {
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            assert!(
+                name.starts_with("grades-") && name.ends_with(".db"),
+                "{name}"
+            );
+            assert!(!name.starts_with("other-"), "{name}");
+        }
+        let other_backups = list_backups(&bk, &other).expect("list other");
+        assert_eq!(other_backups.len(), 1);
+        assert!(other_backups[0]
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("other-"));
         let _ = std::fs::remove_dir_all(&root);
     }
 

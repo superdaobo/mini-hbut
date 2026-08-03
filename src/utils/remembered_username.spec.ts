@@ -45,13 +45,23 @@ describe('remembered_username（hbu_username 收拢读写）', () => {
     expect(getRememberedUsername()).toBe('')
   })
 
-  it('保留任意文本值，不做截断（避免破坏登录兼容语义）', () => {
+  it('拒绝把非学号自由文本写入 hbu_username', () => {
     const storage = createStorage()
     vi.stubGlobal('localStorage', storage)
 
     saveRememberedUsername('  some-legacy-value  ')
-    expect(getRememberedUsername()).toBe('some-legacy-value')
+    expect(getRememberedUsername()).toBe('')
+    expect(storage.snapshot()['hbu_username']).toBeUndefined()
     expect(isLikelyStudentId('some-legacy-value')).toBe(false)
+  })
+
+  it('读取旧的非学号缓存时主动清理', () => {
+    const storage = createStorage()
+    storage.setItem('hbu_username', 'legacy-password-shaped-value')
+    vi.stubGlobal('localStorage', storage)
+
+    expect(getRememberedUsername()).toBe('')
+    expect(storage.snapshot()['hbu_username']).toBeUndefined()
   })
 
   it('isLikelyStudentId 只识别 10 位纯数字学号', () => {

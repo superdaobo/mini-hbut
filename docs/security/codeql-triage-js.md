@@ -27,7 +27,7 @@
 | #52 | insecure-randomness | `src/utils/usage_tracker.js` | device/event/session id 的 Math.random 回退改为 `crypto.getRandomValues` 十六进制（`randomHex`） |
 | #22 | shell-command-injection-from-environment | `scripts/build_website_modules.mjs` | 删除 `process.env.ComSpec`/`cmd.exe` 分支；npm 改为 `process.execPath` + Node 安装目录 `npm-cli.js`（静态推导，启动时校验存在） |
 | #71 | unvalidated-dynamic-method-call | `src/App.vue` | `prefetchViewComponent` 先做 `Object.prototype.hasOwnProperty` 白名单检查再取 loader，避免 `__proto__`/`constructor` 原型属性被调用 |
-| #36 | clear-text-storage-of-sensitive-data | `src/utils/forum_api.js` + `src/components/ForumView.vue` | **真实明文凭据**：管理员口令 `admin_secret` 不再写入 profile 明文缓存，改由 `saveForumAdminSecret`/`loadForumAdminSecret` 用设备密钥 AES-CBC 加密存储；加密失败宁可不落盘 |
+| #36 | clear-text-storage-of-sensitive-data | `src/utils/forum_api.js` + `src/components/ForumView.vue` | **真实明文凭据**：管理员口令 `admin_secret` 不再写入 profile 明文缓存，改由 `saveForumAdminSecret`/`loadForumAdminSecret` 用设备密钥 AES-CBC 加密存储；加密失败宁可不落盘、绝不回退明文。**安全边界说明**：设备密钥与密文同存于 localStorage，该机制只降低静态备份/扫描泄露风险，不是 XSS 安全边界；`readForumProfile` 读取旧缓存时立即剥离并重写无明文结构（见 `forum_api.spec.ts`）。 |
 
 ## 二、误报（最小封装 + 记录，不全局禁用）
 

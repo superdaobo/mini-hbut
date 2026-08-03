@@ -11,7 +11,7 @@ export interface UpdateReleaseAsset {
 }
 
 export interface UpdateRelease {
-  version: string
+  version?: string
   tag_name?: string
   channel?: string
   prerelease?: boolean
@@ -45,11 +45,12 @@ export function getSkippedVersion(channel?: string): string
 export function setSkippedVersion(version: string, channel?: string): void
 export function isDevRelease(release: unknown): boolean
 export function shouldOfferRelease(release: unknown, currentVersion: string, channel?: string): boolean
-export function normalizeCdnManifestAsRelease(manifest: unknown, cdnBase?: string): UpdateRelease
-export function mergeCdnReleaseWithApiNotes(cdnRelease: UpdateRelease, apiRelease: unknown): MergedUpdateRelease
+export function normalizeCdnManifestAsRelease(manifest: unknown, cdnBase?: string): UpdateRelease | null
+export function mergeCdnReleaseWithApiNotes(cdnRelease: UpdateRelease, apiRelease: UpdateRelease): MergedUpdateRelease
+export function mergeCdnReleaseWithApiNotes(cdnRelease: UpdateRelease | null, apiRelease: UpdateRelease | null): UpdateRelease | null
 export function checkForUpdates(currentVersion: string, options?: Record<string, unknown>): Promise<{
-  mode: string
-  hasUpdate: boolean
+  mode?: string
+  hasUpdate?: boolean
   message?: string
   [key: string]: unknown
 }>

@@ -47,7 +47,7 @@ describe('grade domain contract', () => {
     const domain = readText('src/domain/grades.ts')
     const expectedKeys = [
       'NUMERIC', 'EXCELLENT', 'GOOD', 'MEDIUM', 'QUALIFIED', 'PASS',
-      'UNQUALIFIED', 'FAILED', 'ABSENT', 'DEFERRED', 'EXEMPT',
+      'UNQUALIFIED', 'FAILED', 'ABSENT', 'DEFERRED', 'EXEMPT', 'RETAKE',
       'EXEMPTED_EXAM', 'PENDING', 'UNKNOWN'
     ]
     for (const key of expectedKeys) {

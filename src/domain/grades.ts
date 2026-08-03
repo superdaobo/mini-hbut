@@ -32,9 +32,11 @@ export const GradeOutcome = {
   EXEMPT: 'exempt',
   /** 免考 */
   EXEMPTED_EXAM: 'exempted_exam',
+  /** 补考/重修记录 */
+  RETAKE: 'retake',
   /** 待录入 */
   PENDING: 'pending',
-  /** 未知（空值或无法识别的文本） */
+  /** 未知（无法识别的非空文本） */
   UNKNOWN: 'unknown'
 } as const
 
@@ -135,15 +137,14 @@ const PASS_OUTCOMES = new Set<GradeOutcomeValue>([
 /** 判定为“失败”的 outcome 集合 */
 const FAIL_OUTCOMES = new Set<GradeOutcomeValue>([
   GradeOutcome.UNQUALIFIED,
-  GradeOutcome.FAILED,
-  GradeOutcome.ABSENT
+  GradeOutcome.FAILED
 ])
 
 /** 定性成绩排序档位（数字成绩直接用分数） */
 const QUALITATIVE_SORT_SCORES: Partial<Record<GradeOutcomeValue, number>> = {
   [GradeOutcome.EXCELLENT]: 95,
-  [GradeOutcome.GOOD]: 85,
-  [GradeOutcome.MEDIUM]: 75,
+  [GradeOutcome.GOOD]: 80,
+  [GradeOutcome.MEDIUM]: 80,
   [GradeOutcome.QUALIFIED]: 60,
   [GradeOutcome.PASS]: 60,
   [GradeOutcome.UNQUALIFIED]: 0,
@@ -177,6 +178,17 @@ const firstDefined = (record: Record<string, unknown>, keys: string[], fallback 
   for (const key of keys) {
     const value = record[key]
     if (value !== undefined && value !== null && String(value).trim() !== '') return value
+  }
+  return fallback
+}
+
+/** 按优先级取第一个存在的字段，保留显式空串（空成绩表示待录入）。 */
+const firstPresent = (record: Record<string, unknown>, keys: string[], fallback = ''): unknown => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(record, key)) {
+      const value = record[key]
+      if (value !== undefined && value !== null) return value
+    }
   }
   return fallback
 }
@@ -221,30 +233,28 @@ export const estimateGradePoint = (scoreNumber: number | null): number | null =>
 /**
  * 判定成绩结果类型。
  *
- * 优先级：数字 > 特殊状态文本（缺考/缓考/免修/免考/待录入）> 字段标记
- * （cjbj=2 或 sfsq=1 → 缓考；cjbj=3 → 免修）> 等级文本（优秀/良好/中等），
+ * 优先级：特殊状态文本/字段标记 > 数字 > 等级文本，与 Rust GradeRecord::outcome 一致，
  * 其中“不合格/未通过/不及格/挂科”必须先于“合格/通过”匹配，避免子串误判。
  */
 export const resolveOutcome = (
   scoreText: unknown,
-  flags: { cjbj?: unknown; sfsq?: unknown } = {}
+  flags: { cjbj?: unknown; sfsq?: unknown; sfbk?: unknown; cjfxms?: unknown } = {}
 ): GradeOutcomeValue => {
   const text = toSafeText(scoreText)
-  if (extractScoreFromText(text) !== null) return GradeOutcome.NUMERIC
-
-  // 特殊状态文本优先于等级文本
-  if (/缺考/.test(text)) return GradeOutcome.ABSENT
-  if (/缓考/.test(text)) return GradeOutcome.DEFERRED
-  if (/免修|免听/.test(text)) return GradeOutcome.EXEMPT
-  if (/免考/.test(text)) return GradeOutcome.EXEMPTED_EXAM
-  if (/待录入|未录入/.test(text)) return GradeOutcome.PENDING
-
   const cjbj = toSafeText(flags.cjbj)
   const sfsq = toSafeText(flags.sfsq)
-  if (cjbj === '2' || sfsq === '1') return GradeOutcome.DEFERRED
-  if (cjbj === '3') return GradeOutcome.EXEMPT
+  const sfbk = toSafeText(flags.sfbk)
+  const combined = `${text}|${toSafeText(flags.cjfxms)}|${cjbj}`
 
-  // 等级文本（失败类先匹配，防止“不合格”命中“合格”、“未通过”命中“通过”）
+  // 与 Rust GradeRecord::outcome 一致：特殊状态/标记优先于数字提取。
+  if (/缺考/.test(combined)) return GradeOutcome.ABSENT
+  if (sfsq === '1' || cjbj === '2' || /缓考/.test(combined)) return GradeOutcome.DEFERRED
+  if (cjbj === '3' || /免修|免听/.test(combined)) return GradeOutcome.EXEMPT
+  if (/免考/.test(combined)) return GradeOutcome.EXEMPTED_EXAM
+  if (sfbk === '1' || cjbj === '1' || /补考|重修/.test(combined)) return GradeOutcome.RETAKE
+  if (!text || /待录入|未录入/.test(text)) return GradeOutcome.PENDING
+  if (extractScoreFromText(text) !== null) return GradeOutcome.NUMERIC
+
   if (/优秀/.test(text)) return GradeOutcome.EXCELLENT
   if (/良好/.test(text)) return GradeOutcome.GOOD
   if (/中等/.test(text)) return GradeOutcome.MEDIUM
@@ -252,33 +262,41 @@ export const resolveOutcome = (
   if (/未通过|不及格|挂科/.test(text)) return GradeOutcome.FAILED
   if (/合格|及格/.test(text)) return GradeOutcome.QUALIFIED
   if (/通过/.test(text)) return GradeOutcome.PASS
-
   return GradeOutcome.UNKNOWN
 }
 
 /** 由 outcome 推导排序分数；数字成绩直接返回分数，未知/特殊状态为 -1（排最后） */
 export const resolveSortScore = (outcome: GradeOutcomeValue, scoreNumber: number | null): number => {
-  if (outcome === GradeOutcome.NUMERIC) return scoreNumber ?? -1
+  if (outcome === GradeOutcome.NUMERIC || outcome === GradeOutcome.RETAKE) return scoreNumber ?? -1
   return QUALITATIVE_SORT_SCORES[outcome] ?? -1
 }
 
 /** 是否合格 */
 const isPassOutcome = (outcome: GradeOutcomeValue, scoreNumber: number | null): boolean => {
-  if (outcome === GradeOutcome.NUMERIC) return scoreNumber !== null && scoreNumber >= 60
+  if (outcome === GradeOutcome.NUMERIC || outcome === GradeOutcome.RETAKE) return scoreNumber !== null && scoreNumber >= 60
   return PASS_OUTCOMES.has(outcome)
 }
 
 /** 是否失败 */
 const isFailedOutcome = (outcome: GradeOutcomeValue, scoreNumber: number | null): boolean => {
-  if (outcome === GradeOutcome.NUMERIC) return scoreNumber !== null && scoreNumber < 60
+  if (outcome === GradeOutcome.NUMERIC || outcome === GradeOutcome.RETAKE) return scoreNumber !== null && scoreNumber < 60
   return FAIL_OUTCOMES.has(outcome)
 }
 
-/** 解析官方绩点：官方字段有效数字（>0，规避 Rust 无值兜底的 '0'）优先 */
+/** 解析官方绩点：0 也是挂科场景的有效官方绩点；仅拒绝负数/非数字。 */
 const parseOfficialGradePoint = (raw: Record<string, unknown>): number | null => {
   for (const key of OFFICIAL_GRADE_POINT_KEYS) {
     const n = parseScoreNumber(raw[key])
-    if (n !== null && n > 0) return n
+    if (n !== null && n >= 0) return n
+  }
+  return null
+}
+
+/** 与 Rust qualitative_score 一致的估算参考分数。 */
+const resolveEstimatedScore = (outcome: GradeOutcomeValue, scoreNumber: number | null): number | null => {
+  if (outcome === GradeOutcome.NUMERIC || outcome === GradeOutcome.RETAKE) return scoreNumber
+  if (PASS_OUTCOMES.has(outcome) || FAIL_OUTCOMES.has(outcome)) {
+    return QUALITATIVE_SORT_SCORES[outcome] ?? null
   }
   return null
 }
@@ -303,8 +321,8 @@ const resolveStatusTags = (params: {
 /**
  * 归一化单条成绩记录 → 视图模型。
  *
- * 绩点规则：官方绩点字段（xfjd 等）优先；无官方值时仅数字成绩估算并标记
- * gradePointEstimated=true；定性成绩不估算（gradePoint=null）。
+ * 绩点规则：官方绩点字段（xfjd 等，包含有效的 0）优先；无官方值时数字和
+ * 可识别定性成绩均按 Rust 同一参考分数估算并标记 gradePointEstimated=true。
  */
 export const normalizeGradeRecord = (raw: unknown, originIndex = 0): GradeViewModel => {
   const record: Record<string, unknown> =
@@ -314,7 +332,7 @@ export const normalizeGradeRecord = (raw: unknown, originIndex = 0): GradeViewMo
   const course_name = normalizeCourseName(firstDefined(record, ['course_name', 'kcmc']))
   const course_credit = toSafeText(firstDefined(record, ['course_credit', 'xf']))
   const earned_credit = toSafeText(firstDefined(record, ['earned_credit', 'hdxf', 'jd']))
-  const final_score = toSafeText(firstDefined(record, ['final_score', 'zhcj', 'yscj', 'cj'], '-'))
+  const final_score = toSafeText(firstPresent(record, ['final_score', 'zhcj', 'yscj', 'cj'], '-'))
   const scoreNumber = extractScoreFromText(final_score)
 
   const cjbj = toSafeText(record.cjbj)
@@ -322,22 +340,22 @@ export const normalizeGradeRecord = (raw: unknown, originIndex = 0): GradeViewMo
   const sfsq = toSafeText(record.sfsq)
   const cjfxms = toSafeText(record.cjfxms)
 
-  const outcome = resolveOutcome(final_score, { cjbj, sfsq })
-  const isMakeup = sfbk === '1' || cjbj === '1' || /补考/.test(`${final_score}${cjfxms}`)
+  const outcome = resolveOutcome(final_score, { cjbj, sfsq, sfbk, cjfxms })
+  const isMakeup = outcome === GradeOutcome.RETAKE
   const isPass = isPassOutcome(outcome, scoreNumber)
   const isFailed = isFailedOutcome(outcome, scoreNumber)
   const isDeferred = outcome === GradeOutcome.DEFERRED
   const isExempt = outcome === GradeOutcome.EXEMPT || outcome === GradeOutcome.EXEMPTED_EXAM
 
-  // 绩点：官方优先；无官方值时数字成绩估算并标记，定性成绩不估算
+  // 绩点：官方优先；无官方值时按 Rust 同一映射估算数字或定性成绩。
   const officialPoint = parseOfficialGradePoint(record)
   let gradePoint: number | null = null
   let gradePointEstimated = false
   if (officialPoint !== null) {
     gradePoint = officialPoint
-  } else if (outcome === GradeOutcome.NUMERIC) {
-    gradePoint = estimateGradePoint(scoreNumber)
-    gradePointEstimated = true
+  } else {
+    gradePoint = estimateGradePoint(resolveEstimatedScore(outcome, scoreNumber))
+    gradePointEstimated = gradePoint !== null
   }
 
   const entryTeacher = toSafeText(firstDefined(record, ['teacher', 'cjlrjsxm', 'jsxm']))

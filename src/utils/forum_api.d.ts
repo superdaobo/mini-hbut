@@ -48,10 +48,13 @@ export function buildForumApiBase(forumConfig?: Record<string, unknown>): string
 export function readForumProfile(studentId: string): ForumProfile
 export function writeForumProfile(studentId: string, profile?: Partial<ForumProfile>): ForumProfile
 
-/** 管理员口令加密持久化（设备本地密钥 AES-CBC）；空值清除密文。 */
+/**
+ * 管理员口令加密持久化（设备本地密钥 AES-CBC）；空值清除密文。
+ * 设备密钥与密文同存于 localStorage：仅降低静态备份/扫描泄露风险，不是 XSS 安全边界。
+ */
 export function saveForumAdminSecret(studentId: string, secret: string): Promise<void>
 
-/** 读取加密存储的管理员口令；无密文或解密失败返回空串。 */
+/** 读取加密存储的管理员口令；无密文或解密失败返回空串（无明文回退）。 */
 export function loadForumAdminSecret(studentId: string): Promise<string>
 
 export function createForumApiClient(options: Record<string, unknown>): ForumApiClient

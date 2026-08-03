@@ -95,71 +95,8 @@ impl GradeCacheStore for SqliteGradeCache {
         semester: &str,
         courses: &[(String, String)],
     ) -> Result<Value, String> {
-        let mut existing = self.load_teacher_cache(uid).unwrap_or_else(|| {
-            serde_json::json!({
-                "success": true,
-                "by_kcbh": {},
-                "semesters": {}
-            })
-        });
-
-        if !existing.is_object() {
-            existing = serde_json::json!({
-                "success": true,
-                "by_kcbh": {},
-                "semesters": {}
-            });
-        }
-
-        let object = existing
-            .as_object_mut()
-            .ok_or_else(|| "教师缓存格式错误".to_string())?;
-        object.insert("success".to_string(), Value::Bool(true));
-        object.insert(
-            "updated_at".to_string(),
-            Value::String(chrono::Local::now().to_rfc3339()),
-        );
-        if !semester.trim().is_empty() {
-            object.insert(
-                "current_semester".to_string(),
-                Value::String(semester.trim().to_string()),
-            );
-        }
-
-        let mut by_kcbh = object
-            .remove("by_kcbh")
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
-        let mut semesters = object
-            .remove("semesters")
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
-        let mut semester_map = serde_json::Map::new();
-
-        for (kcbh, teacher) in courses {
-            let key = kcbh.trim();
-            let value = teacher.trim();
-            if key.is_empty() || value.is_empty() {
-                continue;
-            }
-            by_kcbh.insert(key.to_string(), Value::String(value.to_string()));
-            semester_map.insert(key.to_string(), Value::String(value.to_string()));
-        }
-
-        if !semester.trim().is_empty() {
-            semesters.insert(semester.trim().to_string(), Value::Object(semester_map));
-        }
-        object.insert("by_kcbh".to_string(), Value::Object(by_kcbh));
-        object.insert("semesters".to_string(), Value::Object(semesters));
-
-        crate::db::save_cache(
-            crate::DB_FILENAME,
-            crate::GRADE_TEACHER_CACHE_TABLE,
-            uid,
-            &existing,
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(existing)
+        crate::db::merge_grade_teacher_cache(crate::DB_FILENAME, uid, semester, courses)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -208,16 +145,28 @@ impl<S: GradeSource, C: GradeCacheStore> GradeService<S, C> {
                     merge_cached_grade_teachers(&mut grades, teacher_cache.as_ref());
                 }
                 let sync_time = chrono::Local::now().to_rfc3339();
-                let payload = serde_json::json!({
+                let mut payload = serde_json::json!({
                     "success": true,
                     "data": grades,
                     "sync_time": sync_time,
                     "offline": false,
                     "teacher_enrichment_pending": true
                 });
-                // 成功：整表替换缓存（失败的旧快照被覆盖，远端删除能正确清理）
+                // 成功：整表替换缓存（失败的旧快照被覆盖，远端删除能正确清理）。
+                // 缓存失败不掩盖已成功获取的远端数据，但必须可观测并在 payload 中提示。
                 if let Some(uid) = uid {
-                    let _ = self.cache.save_grades(uid, &payload);
+                    if let Err(error) = self.cache.save_grades(uid, &payload) {
+                        crate::runtime_log::log_warn(
+                            "grade-service",
+                            format!("成绩远端同步成功，但本地缓存写入失败: {error}"),
+                        );
+                        if let Some(object) = payload.as_object_mut() {
+                            object.insert(
+                                "cache_write_warning".to_string(),
+                                Value::String("成绩已获取，但本地缓存写入失败".to_string()),
+                            );
+                        }
+                    }
                 }
                 let enrichment = if !current_only && uid.is_some() && !semesters.is_empty() {
                     Some(EnrichmentJob {
@@ -299,7 +248,10 @@ impl<S: GradeSource, C: GradeCacheStore> GradeService<S, C> {
             let service = GradeService { source, cache };
             for (semester, result) in service.enrich_teachers(job).await {
                 if let Err(e) = result {
-                    println!("[警告] 后台补齐任课教师失败 {}: {}", semester, e);
+                    crate::runtime_log::log_warn(
+                        "grade-service",
+                        format!("后台补齐任课教师失败 {semester}: {e}"),
+                    );
                 }
             }
         });
@@ -516,6 +468,31 @@ mod tests {
         }
     }
 
+    struct FailingSaveCache;
+
+    impl GradeCacheStore for FailingSaveCache {
+        fn load_grades(&self, _uid: &str) -> Option<(Value, String)> {
+            None
+        }
+
+        fn save_grades(&self, _uid: &str, _payload: &Value) -> Result<(), String> {
+            Err("simulated cache write failure".to_string())
+        }
+
+        fn load_teacher_cache(&self, _uid: &str) -> Option<Value> {
+            None
+        }
+
+        fn save_teacher_cache(
+            &self,
+            _uid: &str,
+            _semester: &str,
+            _courses: &[(String, String)],
+        ) -> Result<Value, String> {
+            Ok(serde_json::json!({ "success": true, "by_kcbh": {}, "semesters": {} }))
+        }
+    }
+
     fn sample_grade(term: &str, kcbh: Option<&str>) -> GradeRecord {
         GradeRecord {
             term: term.to_string(),
@@ -581,6 +558,26 @@ mod tests {
         let job = result.enrichment.unwrap();
         assert_eq!(job.student_id, "20240001");
         assert_eq!(job.semesters, vec!["2024-2025-1"]);
+    }
+
+    #[tokio::test]
+    async fn sync_success_survives_cache_write_failure_with_warning() {
+        let service = GradeService::new(
+            MockSource {
+                grades: Ok(vec![sample_grade("2024-2025-1", Some("K001"))]),
+                teachers: HashMap::new(),
+            },
+            FailingSaveCache,
+        );
+
+        let result = service.sync_grades(Some("20240001"), true).await.unwrap();
+        assert_eq!(result.payload["success"], true);
+        assert_eq!(result.payload["offline"], false);
+        assert_eq!(
+            result.payload["cache_write_warning"],
+            "成绩已获取，但本地缓存写入失败"
+        );
+        assert!(result.enrichment.is_none());
     }
 
     /// 共享用例：失败时保留旧缓存快照并标记 offline=true（失败不覆盖成功缓存）。

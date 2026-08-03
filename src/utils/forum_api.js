@@ -71,19 +71,31 @@ export const readForumProfile = (studentId) => {
     return { nickname: sid, avatar_url: '', bio: '', admin_secret: '' }
   }
   try {
-    const parsed = JSON.parse(localStorage.getItem(`${PROFILE_CACHE_KEY_PREFIX}${sid}`) || '{}')
-    return {
+    const storageKey = `${PROFILE_CACHE_KEY_PREFIX}${sid}`
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || '{}')
+    const normalized = {
       nickname: toText(parsed.nickname || sid).trim() || sid,
       avatar_url: toText(parsed.avatar_url || parsed.avatarUrl || '').trim(),
-      bio: toText(parsed.bio || '').trim(),
-      // 管理员口令不再明文持久化，改由 loadForumAdminSecret 加密读取（CodeQL js/clear-text-storage-of-sensitive-data）
+      bio: toText(parsed.bio || '').trim()
+    }
+    // 旧版本曾把 admin_secret 明文写入 profile。读取时立即重写为无口令结构，
+    // 不尝试迁移旧明文，避免它在 localStorage 中继续残留。
+    if (Object.prototype.hasOwnProperty.call(parsed, 'admin_secret')) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(normalized))
+      } catch {
+        // 存储不可写时仍返回已净化的内存对象；绝不把旧明文回传给调用方。
+      }
+    }
+    return {
+      ...normalized,
+      // 管理员口令改由 loadForumAdminSecret 读取；该存储仅降低静态泄露风险，并非 XSS 安全边界。
       admin_secret: ''
     }
   } catch {
     return { nickname: sid, avatar_url: '', bio: '', admin_secret: '' }
   }
 }
-
 export const writeForumProfile = (studentId, profile = {}) => {
   const sid = toText(studentId).trim()
   const normalized = {
@@ -111,6 +123,9 @@ export const writeForumProfile = (studentId, profile = {}) => {
 /**
  * 管理员口令加密持久化（设备本地密钥 AES-CBC，见 encryption.js）。
  * 空值清除密文；加密失败时宁可不落盘，也绝不回退明文。
+ *
+ * 安全边界说明：设备密钥与密文同存于 localStorage，本机制只降低静态
+ * 备份/扫描泄露风险，不是 XSS 安全边界（页面内脚本仍可同时读取两者）。
  */
 export const saveForumAdminSecret = async (studentId, secret) => {
   const sid = toText(studentId).trim()
@@ -125,7 +140,7 @@ export const saveForumAdminSecret = async (studentId, secret) => {
     const encrypted = await encryptData({ admin_secret: value })
     localStorage.setItem(key, encrypted)
   } catch {
-    // ignore：不写入明文
+    // 加密失败不落盘：绝不回退明文（该存储仅降低静态泄露风险，非 XSS 安全边界）
   }
 }
 

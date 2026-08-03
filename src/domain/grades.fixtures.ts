@@ -2,7 +2,7 @@
  * 成绩领域测试样本（fixtures）
  *
  * 覆盖：Rust 标准响应字段（snake_case）、历史别名字段（kcmc/xf/zhcj 等）、
- * 全部 14 种 outcome、绩点三态（官方优先/数字估算/定性不估算）、补考标记、
+ * 全部 15 种 outcome、绩点三态（官方优先/数字与定性估算/特殊状态不估算）、补考标记、
  * 课程名前缀清理与边界输入。
  */
 import type { GradeOutcomeValue } from './grades.js'
@@ -125,17 +125,17 @@ export const gradeFixtures: GradeFixture[] = [
     }
   },
   {
-    name: '良好（定性成绩不估算绩点）',
+    name: '良好（按 Rust 定性映射估算绩点）',
     raw: { term: '2024-2025-1', course_name: '体育', final_score: '良好' },
     expect: {
       outcome: 'good',
       scoreNumber: null,
-      gradePoint: null,
-      gradePointEstimated: false,
+      gradePoint: 3,
+      gradePointEstimated: true,
       creditGradePoint: '-',
       isPass: true,
       isFailed: false,
-      sortScore: 85
+      sortScore: 80
     }
   },
   {
@@ -144,11 +144,11 @@ export const gradeFixtures: GradeFixture[] = [
     expect: {
       outcome: 'medium',
       scoreNumber: null,
-      gradePoint: null,
-      gradePointEstimated: false,
+      gradePoint: 3,
+      gradePointEstimated: true,
       isPass: true,
       isFailed: false,
-      sortScore: 75
+      sortScore: 80
     }
   },
   {
@@ -157,7 +157,8 @@ export const gradeFixtures: GradeFixture[] = [
     expect: {
       outcome: 'qualified',
       scoreNumber: null,
-      gradePoint: null,
+      gradePoint: 1,
+      gradePointEstimated: true,
       isPass: true,
       isFailed: false,
       sortScore: 60
@@ -166,7 +167,7 @@ export const gradeFixtures: GradeFixture[] = [
   {
     name: '及格（兼容映射为合格）',
     raw: { term: '2023-2024-2', course_name: '金工实习', final_score: '及格' },
-    expect: { outcome: 'qualified', isPass: true, isFailed: false, sortScore: 60 }
+    expect: { outcome: 'qualified', gradePoint: 1, gradePointEstimated: true, isPass: true, isFailed: false, sortScore: 60 }
   },
   {
     name: '通过',
@@ -174,7 +175,8 @@ export const gradeFixtures: GradeFixture[] = [
     expect: {
       outcome: 'pass',
       scoreNumber: null,
-      gradePoint: null,
+      gradePoint: 1,
+      gradePointEstimated: true,
       isPass: true,
       isFailed: false,
       sortScore: 60
@@ -186,7 +188,8 @@ export const gradeFixtures: GradeFixture[] = [
     expect: {
       outcome: 'unqualified',
       scoreNumber: null,
-      gradePoint: null,
+      gradePoint: 0,
+      gradePointEstimated: true,
       isPass: false,
       isFailed: true,
       sortScore: 0,
@@ -199,7 +202,8 @@ export const gradeFixtures: GradeFixture[] = [
     expect: {
       outcome: 'failed',
       scoreNumber: null,
-      gradePoint: null,
+      gradePoint: 0,
+      gradePointEstimated: true,
       isPass: false,
       isFailed: true,
       sortScore: 0,
@@ -209,7 +213,7 @@ export const gradeFixtures: GradeFixture[] = [
   {
     name: '不及格',
     raw: { term: '2023-2024-1', course_name: '工程制图', final_score: '不及格' },
-    expect: { outcome: 'failed', isPass: false, isFailed: true, sortScore: 0, tagKeys: ['failed'] }
+    expect: { outcome: 'failed', gradePoint: 0, gradePointEstimated: true, isPass: false, isFailed: true, sortScore: 0, tagKeys: ['failed'] }
   },
   {
     name: '缺考',
@@ -219,9 +223,9 @@ export const gradeFixtures: GradeFixture[] = [
       scoreNumber: null,
       gradePoint: null,
       isPass: false,
-      isFailed: true,
+      isFailed: false,
       sortScore: 0,
-      tagKeys: ['failed', 'absent']
+      tagKeys: ['absent']
     }
   },
   {
@@ -304,15 +308,15 @@ export const gradeFixtures: GradeFixture[] = [
     }
   },
   {
-    name: '空成绩（无标记）→ 未知',
+    name: '空成绩（无标记）→ 待录入',
     raw: { term: '2024-2025-1', course_name: '课程', final_score: '' },
-    expect: { outcome: 'unknown', scoreNumber: null, gradePoint: null, isPass: false, isFailed: false }
+    expect: { outcome: 'pending', scoreNumber: null, gradePoint: null, isPass: false, isFailed: false, tagKeys: ['pending'] }
   },
   {
     name: '补考标记 sfbk=1（数字成绩仍合格）',
     raw: { term: '2023-2024-2', course_name: '高等数学 A', course_credit: '4', final_score: '90', sfbk: '1' },
     expect: {
-      outcome: 'numeric',
+      outcome: 'retake',
       scoreNumber: 90,
       isPass: true,
       isFailed: false,
@@ -323,12 +327,12 @@ export const gradeFixtures: GradeFixture[] = [
   {
     name: '补考标记 cjbj=1',
     raw: { term: '2023-2024-2', course_name: '高等数学 A', final_score: '78', cjbj: '1' },
-    expect: { outcome: 'numeric', isMakeup: true, tagKeys: ['makeup'] }
+    expect: { outcome: 'retake', isMakeup: true, tagKeys: ['makeup'] }
   },
   {
     name: '成绩文本含“补考”',
     raw: { term: '2023-2024-2', course_name: '高等数学 A', final_score: '补考 88' },
-    expect: { outcome: 'numeric', scoreNumber: 88, isMakeup: true, tagKeys: ['makeup'] }
+    expect: { outcome: 'retake', scoreNumber: 88, isMakeup: true, tagKeys: ['makeup'] }
   },
   {
     name: '课程名 [xxx] 前缀清理',
