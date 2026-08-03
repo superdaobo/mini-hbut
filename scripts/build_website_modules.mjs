@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
+import { resolveNpmCliPath } from './npm_cli_path.mjs'
 
 const BASE_URL = String(process.env.MODULE_BASE_URL || 'https://hbut.6661111.xyz/modules').trim().replace(/\/+$/, '')
 const SOURCE_ROOT = path.resolve(process.env.MODULE_SOURCE_ROOT || 'website/modules-src')
@@ -38,18 +39,9 @@ const MODULE_VERSION =
 
 const ensureDir = (dir) => fs.mkdirSync(dir, { recursive: true })
 
-// npm CLI 固定走 Node 安装目录下随 Node 分发的 npm-cli.js，
-// 不依赖 PATH/ComSpec 等环境变量，避免命令注入（CodeQL js/shell-command-injection-from-environment）
-const NPM_CLI_PATH = path.join(
-  path.dirname(process.execPath),
-  'node_modules',
-  'npm',
-  'bin',
-  'npm-cli.js'
-)
-if (!fs.existsSync(NPM_CLI_PATH)) {
-  throw new Error(`未找到 npm CLI（${NPM_CLI_PATH}），请通过 npm run 调用本脚本`)
-}
+// npm CLI 仅从可信的 process.execPath 推导固定候选路径；兼容 Windows 官方安装器与
+// actions/setup-node 的 Unix 布局，不读取 PATH/ComSpec 等环境命令，避免命令注入。
+const NPM_CLI_PATH = resolveNpmCliPath()
 
 const runCommand = (binary, args, options = {}) => {
   const cwd = options.cwd || process.cwd()
