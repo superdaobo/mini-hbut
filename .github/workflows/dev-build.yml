@@ -5,6 +5,12 @@ on:
     branches:
       - dev
   workflow_dispatch:
+    inputs:
+      smoke_only:
+        description: Verify web build and Capacitor sync without publishing beta artifacts
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -87,6 +93,7 @@ jobs:
           compression-level: 0
 
   meta:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.smoke_only != true }}
     needs: source
     runs-on: ubuntu-latest
     outputs:

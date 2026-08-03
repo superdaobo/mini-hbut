@@ -44,4 +44,4 @@ jobs:
         if: steps.merge.outputs.dev_pushed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run "Dev Build" --ref dev
+        run: gh workflow run "Dev Build" --ref dev -f smoke_only=true
