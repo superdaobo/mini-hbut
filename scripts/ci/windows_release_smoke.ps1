@@ -5,6 +5,7 @@ param(
   [string]$BundleRoot = 'src-tauri/target/release/bundle/nsis',
   [string]$EvidenceRoot = 'dist-dry-run',
   [int]$BridgePort = 0,
+  [int]$CdpPort = 0,
   [int]$HealthTimeoutSeconds = 45
 )
 
@@ -66,9 +67,15 @@ $startedAt = [DateTimeOffset]::UtcNow
 $process = $null
 $healthStatus = 0
 $resolvedBridgePort = if ($BridgePort -gt 0) { $BridgePort } else { Get-FreeLoopbackPort }
+$resolvedCdpPort = if ($CdpPort -gt 0) { $CdpPort } else {
+  do { $candidate = Get-FreeLoopbackPort } while ($candidate -eq $resolvedBridgePort)
+  $candidate
+}
 $healthUrl = "http://127.0.0.1:$resolvedBridgePort/health"
+$webviewEvidencePath = Join-Path $evidenceDirectory 'windows-webview-mount-evidence.json'
 $previousBridgeEnabled = $env:HBUT_HTTP_BRIDGE_ENABLED
 $previousBridgePort = $env:HBUT_HTTP_BRIDGE_PORT
+$previousWebViewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 
 try {
   # Desktop release builds intentionally keep the Bridge disabled by default.
@@ -76,6 +83,12 @@ try {
   # the release binary initialized its Tauri runtime and loopback Bridge.
   $env:HBUT_HTTP_BRIDGE_ENABLED = '1'
   $env:HBUT_HTTP_BRIDGE_PORT = [string]$resolvedBridgePort
+  $cdpArgument = "--remote-debugging-port=$resolvedCdpPort"
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = if ([string]::IsNullOrWhiteSpace($previousWebViewArguments)) {
+    $cdpArgument
+  } else {
+    "$previousWebViewArguments $cdpArgument"
+  }
   $process = Start-Process -FilePath $rawFile.FullName -WorkingDirectory $rawFile.DirectoryName -PassThru
   $deadline = [DateTimeOffset]::UtcNow.AddSeconds($HealthTimeoutSeconds)
   do {
@@ -94,6 +107,19 @@ try {
 
   if ($healthStatus -ne 200) {
     throw "Bridge health did not return HTTP 200 at $healthUrl within $HealthTimeoutSeconds seconds"
+  }
+
+  $mountScript = Join-Path $RepoRoot 'scripts/ci/assert_webview_app_mounted.mjs'
+  & node $mountScript --port $resolvedCdpPort --timeout-ms ($HealthTimeoutSeconds * 1000) --output $webviewEvidencePath
+  if ($LASTEXITCODE -ne 0) {
+    throw "WebView application mount smoke failed with exit code $LASTEXITCODE"
+  }
+  if (-not (Test-Path $webviewEvidencePath -PathType Leaf)) {
+    throw "WebView mount evidence was not created: $webviewEvidencePath"
+  }
+  $webviewEvidence = Get-Content $webviewEvidencePath -Raw | ConvertFrom-Json
+  if ([string]$webviewEvidence.status -ne 'mounted') {
+    throw "WebView application did not report mounted status"
   }
 
   $observedAt = [DateTimeOffset]::UtcNow
@@ -121,6 +147,13 @@ try {
       status_code = $healthStatus
       bridge_enabled_by_test = $true
       bridge_port = $resolvedBridgePort
+      cdp_port = $resolvedCdpPort
+      webview_status = [string]$webviewEvidence.status
+      webview_root_children = [int]$webviewEvidence.snapshot.rootChildren
+      webview_visible_elements = [int]$webviewEvidence.snapshot.visibleElements
+      webview_strict_csp_eval_failures = [int]$webviewEvidence.strict_csp_eval_failures
+      webview_csp_violations = [int]$webviewEvidence.csp_violations
+      webview_evidence = [IO.Path]::GetFileName($webviewEvidencePath)
       observed_at_utc = $observedAt.ToString('o')
     }
     non_publish_guarantees = [ordered]@{
@@ -145,4 +178,5 @@ try {
   }
   $env:HBUT_HTTP_BRIDGE_ENABLED = $previousBridgeEnabled
   $env:HBUT_HTTP_BRIDGE_PORT = $previousBridgePort
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousWebViewArguments
 }

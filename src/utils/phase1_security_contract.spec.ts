@@ -61,6 +61,8 @@ describe('phase one security boundaries', () => {
 
     expect(tauri.app.security.csp).toBeTypeOf('string')
     expect(tauri.app.security.csp).toContain("object-src 'none'")
+    expect(tauri.app.security.csp).toContain("style-src-attr 'unsafe-inline'")
+    expect(tauri.app.security.csp).not.toContain("script-src 'self' 'unsafe-eval'")
     expect(tauri.app.security.csp).toContain('http://127.0.0.1:4399')
     expect(capability.permissions).not.toContain('notification:default')
     expect(capability.permissions).toContain('notification:allow-notify')

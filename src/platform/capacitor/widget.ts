@@ -137,10 +137,10 @@ export function getWidgetBridge(): MiniHbutWidgetPlugin {
 
 /**
  * 写入快照到原生 Widget 共享存储。
- * 执行 Ajv schema 校验 + UTF-8 字节数校验（≤ 32 KB）后委托写入。
+ * 执行 strict-CSP-safe 静态 schema 校验 + UTF-8 字节数校验（≤ 32 KB）后委托写入。
  */
 export async function writeSnapshot(snapshot: TodayCourseSnapshot): Promise<void> {
-  // 1. Ajv schema 校验
+  // 1. strict-CSP-safe 静态 schema 校验
   const valid = validateSnapshot(snapshot)
   if (!valid) {
     const errors = validateSnapshot.errors
