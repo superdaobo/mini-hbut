@@ -52,6 +52,7 @@ import {
   loadPortalStoredPassword
 } from './composables/useSessionCredentials.js'
 import { ensureRememberedPasswordCached, preservePortalRememberedPasswordOnLogout } from './utils/credential_storage.js'
+import { saveRememberedUsername, clearRememberedUsername } from './utils/remembered_username.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
@@ -300,7 +301,10 @@ const VIEW_PREFETCHERS = Object.freeze({
 })
 
 const prefetchViewComponent = (view) => {
-  const loader = VIEW_PREFETCHERS[normalizeViewName(view)]
+  const name = normalizeViewName(view)
+  // 白名单检查：仅取对象自身属性，避免 __proto__/constructor 等原型链属性被动态调用（CodeQL js/unvalidated-dynamic-method-call）
+  if (!Object.prototype.hasOwnProperty.call(VIEW_PREFETCHERS, name)) return
+  const loader = VIEW_PREFETCHERS[name]
   if (typeof loader === 'function') {
     void loader()
   }
@@ -1212,7 +1216,7 @@ const restoreViewFromSnapshot = async (
   if (resolved?.sid) {
     studentId.value = String(resolved.sid || '').trim()
     try {
-      localStorage.setItem('hbu_username', studentId.value)
+      saveRememberedUsername(studentId.value)
     } catch {
       // ignore storage failure on resume
     }
@@ -1766,7 +1770,7 @@ const syncFromHash = async ({ scrollToTop = false } = {}) => {
   }
 
   studentId.value = route.sid
-  localStorage.setItem('hbu_username', route.sid)
+  saveRememberedUsername(route.sid)
   // hash 深链：#/{sid}/campus_code 等在合规构建下必须落到 home，不能 applyViewState 绕过
   const safeView = resolvePolicySafeView(route.view, 'home')
   if (!ensureProtectedViewAccess(safeView, {
@@ -1799,7 +1803,7 @@ const restoreTestAccountSession = () => {
   gradeData.value = getTestAccountGrades()
   gradeTeacherCache.value = null
   gradeTeacherCacheSid.value = sid
-  localStorage.setItem('hbu_username', sid)
+  saveRememberedUsername(sid)
   localStorage.setItem(LOGIN_METHOD_KEY, 'test_account')
   localStorage.setItem(LOGIN_TEMP_FLAG_KEY, '0')
   localStorage.removeItem('hbu_manual_logout')
@@ -2206,7 +2210,7 @@ const restoreCachedIdentityFromLocal = async () => {
   const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
   if (!cachedSid) return false
   if (!/^\d{10}$/.test(cachedSid)) {
-    localStorage.removeItem('hbu_username')
+    clearRememberedUsername()
     return false
   }
   if (isTestAccountSession() && cachedSid === TEST_ACCOUNT.studentId) {
@@ -2834,7 +2838,7 @@ const tryRestoreSession = async () => {
       const info = await importCookiesViaBridge(snapshot)
       if (info?.student_id) {
         studentId.value = info.student_id
-        localStorage.setItem('hbu_username', info.student_id)
+        saveRememberedUsername(info.student_id)
         return true
       }
     } catch (e) {
@@ -2859,7 +2863,7 @@ const tryRestoreSession = async () => {
       : await restoreSessionViaBridge(cookies)
     if (userInfo?.student_id) {
       studentId.value = userInfo.student_id
-      localStorage.setItem('hbu_username', userInfo.student_id)
+      saveRememberedUsername(userInfo.student_id)
       return true
     }
   } catch (e) {
@@ -2893,7 +2897,7 @@ const tryRestoreLatestSession = async () => {
     const userInfo = await invokeNative('restore_latest_session')
     if (userInfo?.student_id) {
       studentId.value = userInfo.student_id
-      localStorage.setItem('hbu_username', userInfo.student_id)
+      saveRememberedUsername(userInfo.student_id)
       await persistSessionCookies()
       return true
     }
@@ -2944,7 +2948,7 @@ const attemptAutoRelogin = async () => {
       const sid = await resolveAutoLoginStudentId(payload)
       if (sid) {
         studentId.value = sid
-        localStorage.setItem('hbu_username', sid)
+        saveRememberedUsername(sid)
       } else {
         throw new Error('学习通自动登录未解析到 10 位学号')
       }
@@ -2976,7 +2980,7 @@ const attemptAutoRelogin = async () => {
       ).trim()
       if (sid) {
         studentId.value = sid
-        localStorage.setItem('hbu_username', sid)
+        saveRememberedUsername(sid)
       }
       return true
     } catch (e) {
@@ -2998,7 +3002,7 @@ const attemptAutoRelogin = async () => {
     const sid = String(userInfo?.student_id || creds.username || '').trim()
     if (sid) {
       studentId.value = sid
-      localStorage.setItem('hbu_username', sid)
+      saveRememberedUsername(sid)
     }
   }
 

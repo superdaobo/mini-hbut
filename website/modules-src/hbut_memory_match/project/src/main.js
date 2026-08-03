@@ -246,7 +246,10 @@ async function loadLeaderboard(scope) {
       })
       .join('')}</div>`
   } catch (error) {
-    content.innerHTML = `<div class="leaderboard-error">加载失败: ${error?.message || '未知错误'}</div>`
+    // 异常文本只允许经 textContent 写入，避免 error.message 被当作 HTML 解释（CodeQL js/xss-through-exception）
+    content.innerHTML = '<div class="leaderboard-error"></div>'
+    const errorBox = content.firstElementChild
+    if (errorBox) errorBox.textContent = `加载失败: ${error?.message || '未知错误'}`
   }
 }
 

@@ -20,6 +20,21 @@ const MORE_MODULE_STORAGE_KEYS = [
   'hbu_module_channel'
 ]
 
+/**
+ * CSS 属性值选择器转义。
+ *
+ * 优先使用原生 CSS.escape（会同时转义引号与反斜杠）；无原生实现时回退到
+ * 逐字符转义。不要手工只 replace 双引号 —— 那样会漏掉反斜杠，攻击者可构造
+ * 出逃逸选择器（CodeQL js/incomplete-sanitization）。
+ */
+export const escapeCssAttributeValue = (value: string): string => {
+  const text = String(value ?? '')
+  if (typeof globalThis.CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(text)
+  }
+  return text.replace(/[\\"']/g, (ch) => `\\${ch}`)
+}
+
 let initialized = false
 let unlistenScreenshot = null
 let unlistenOpenModule = null
@@ -336,7 +351,7 @@ export const initDebugBridgeClient = async () => {
       await waitForNextPaint()
 
       const startedAt = Date.now()
-      const selector = `[data-module-id="${moduleId.replace(/"/g, '\\"')}"]`
+      const selector = `[data-module-id="${escapeCssAttributeValue(moduleId)}"]`
       let targetButton: HTMLElement | null = null
       while (Date.now() - startedAt < 8000) {
         const matched = document.querySelector(selector)

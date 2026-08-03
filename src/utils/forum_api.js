@@ -1,9 +1,11 @@
 import { isTestAccountSession } from './test_account.js'
 import { resolveTestAccountForumResponse } from './test_account_fixtures.js'
+import { encryptData, decryptData } from './encryption.js'
 
 const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
 const TOKEN_CACHE_KEY_PREFIX = 'hbu_forum_token:'
 const PROFILE_CACHE_KEY_PREFIX = 'hbu_forum_profile:'
+const ADMIN_SECRET_CACHE_KEY_PREFIX = 'hbu_forum_admin_secret:'
 
 const toText = (value) => (value == null ? '' : String(value))
 const encodeCachePart = (value) => encodeURIComponent(toText(value).trim())
@@ -74,7 +76,8 @@ export const readForumProfile = (studentId) => {
       nickname: toText(parsed.nickname || sid).trim() || sid,
       avatar_url: toText(parsed.avatar_url || parsed.avatarUrl || '').trim(),
       bio: toText(parsed.bio || '').trim(),
-      admin_secret: toText(parsed.admin_secret || parsed.adminSecret || '').trim()
+      // 管理员口令不再明文持久化，改由 loadForumAdminSecret 加密读取（CodeQL js/clear-text-storage-of-sensitive-data）
+      admin_secret: ''
     }
   } catch {
     return { nickname: sid, avatar_url: '', bio: '', admin_secret: '' }
@@ -86,8 +89,8 @@ export const writeForumProfile = (studentId, profile = {}) => {
   const normalized = {
     nickname: toText(profile.nickname || sid).trim() || sid,
     avatar_url: toText(profile.avatar_url || profile.avatarUrl || '').trim(),
-    bio: toText(profile.bio || '').trim(),
-    admin_secret: toText(profile.admin_secret || profile.adminSecret || '').trim()
+    bio: toText(profile.bio || '').trim()
+    // 不落明文 admin_secret：请使用 saveForumAdminSecret 加密保存
   }
   if (!sid || typeof localStorage === 'undefined') return normalized
   try {
@@ -103,6 +106,42 @@ export const writeForumProfile = (studentId, profile = {}) => {
     // ignore
   }
   return normalized
+}
+
+/**
+ * 管理员口令加密持久化（设备本地密钥 AES-CBC，见 encryption.js）。
+ * 空值清除密文；加密失败时宁可不落盘，也绝不回退明文。
+ */
+export const saveForumAdminSecret = async (studentId, secret) => {
+  const sid = toText(studentId).trim()
+  if (!sid || typeof localStorage === 'undefined') return
+  const key = `${ADMIN_SECRET_CACHE_KEY_PREFIX}${encodeCachePart(sid)}`
+  const value = toText(secret).trim()
+  try {
+    if (!value) {
+      localStorage.removeItem(key)
+      return
+    }
+    const encrypted = await encryptData({ admin_secret: value })
+    localStorage.setItem(key, encrypted)
+  } catch {
+    // ignore：不写入明文
+  }
+}
+
+/** 读取加密存储的管理员口令；无密文或解密失败返回空串。 */
+export const loadForumAdminSecret = async (studentId) => {
+  const sid = toText(studentId).trim()
+  if (!sid || typeof localStorage === 'undefined') return ''
+  const key = `${ADMIN_SECRET_CACHE_KEY_PREFIX}${encodeCachePart(sid)}`
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return ''
+    const decrypted = await decryptData(raw)
+    return toText(decrypted?.admin_secret || '').trim()
+  } catch {
+    return ''
+  }
 }
 
 const responseHeader = (response, name) => {

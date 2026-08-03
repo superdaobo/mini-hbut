@@ -27,6 +27,7 @@ import {
   NON_OFFICIAL_DISCLAIMER_EN,
   NON_OFFICIAL_DISCLAIMER_ZH
 } from '../config/app_store_policy'
+import { saveRememberedUsername } from '../utils/remembered_username.js'
 
 const props = defineProps({
   loginMode: { type: String, default: 'portal' }
@@ -451,7 +452,7 @@ const emitSuccessWithGrades = async (sid) => {
 
 const savePortalCredentials = async () => {
   if (rememberMe.value) {
-    localStorage.setItem('hbu_username', username.value)
+    saveRememberedUsername(username.value)
     localStorage.setItem('hbu_remember', 'true')
     await saveRememberedCredential(
       buildHbutAccountKey(username.value),
@@ -487,7 +488,7 @@ const handleTestAccountLogin = async () => {
   try {
     markTestAccountSession()
     username.value = TEST_ACCOUNT.studentId
-    localStorage.setItem('hbu_username', TEST_ACCOUNT.studentId)
+    saveRememberedUsername(TEST_ACCOUNT.studentId)
     localStorage.setItem('hbu_remember', 'false')
     localStorage.setItem('hbu_login_entry_mode', 'portal')
     applyLoginMethodStorage(TEST_ACCOUNT_LOGIN_METHOD)
@@ -540,7 +541,7 @@ const handlePasswordLogin = async () => {
 
     const sid = String(result?.data?.student_id || username.value || '').trim()
     if (sid) {
-      localStorage.setItem('hbu_username', sid)
+      saveRememberedUsername(sid)
     }
     await syncPortalRememberCredential({
       username: username.value,
@@ -691,7 +692,7 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
     }
 
     username.value = sid
-    localStorage.setItem('hbu_username', sid)
+    saveRememberedUsername(sid)
     applyLoginMethodStorage('portal_qr_temp')
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
@@ -720,7 +721,7 @@ const handleChaoxingLoginSuccess = async (payload, modeKey) => {
     throw new Error('学习通登录成功，但未解析到 10 位学号，请先检查账号绑定信息')
   }
   username.value = sid
-  localStorage.setItem('hbu_username', sid)
+  saveRememberedUsername(sid)
   await saveChaoxingCredentials()
   applyLoginMethodStorage(modeKey)
   localStorage.removeItem('hbu_manual_logout')

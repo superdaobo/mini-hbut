@@ -38,34 +38,33 @@ const MODULE_VERSION =
 
 const ensureDir = (dir) => fs.mkdirSync(dir, { recursive: true })
 
-const resolveBinary = (binary) => {
-  if (process.platform === 'win32' && binary === 'npm') {
-    return 'npm.cmd'
-  }
-  return binary
+// npm CLI 固定走 Node 安装目录下随 Node 分发的 npm-cli.js，
+// 不依赖 PATH/ComSpec 等环境变量，避免命令注入（CodeQL js/shell-command-injection-from-environment）
+const NPM_CLI_PATH = path.join(
+  path.dirname(process.execPath),
+  'node_modules',
+  'npm',
+  'bin',
+  'npm-cli.js'
+)
+if (!fs.existsSync(NPM_CLI_PATH)) {
+  throw new Error(`未找到 npm CLI（${NPM_CLI_PATH}），请通过 npm run 调用本脚本`)
 }
 
 const runCommand = (binary, args, options = {}) => {
   const cwd = options.cwd || process.cwd()
-  const resolvedBinary = resolveBinary(binary)
-  const isWindowsBatch = process.platform === 'win32' && /\.cmd$/i.test(resolvedBinary)
+  const command = binary === 'npm' ? process.execPath : binary
+  const commandArgs = binary === 'npm' ? [NPM_CLI_PATH, ...args] : args
   try {
-    if (isWindowsBatch) {
-      execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', resolvedBinary, ...args], {
-        cwd,
-        stdio: 'inherit'
-      })
-    } else {
-      execFileSync(resolvedBinary, args, {
-        cwd,
-        stdio: 'inherit'
-      })
-    }
+    execFileSync(command, commandArgs, {
+      cwd,
+      stdio: 'inherit'
+    })
   } catch (error) {
     const detail = [
       `[modules] command failed`,
-      `binary=${resolvedBinary}`,
-      `args=${JSON.stringify(args)}`,
+      `binary=${command}`,
+      `args=${JSON.stringify(commandArgs)}`,
       `cwd=${cwd}`
     ].join(' ')
     console.error(detail)

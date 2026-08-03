@@ -87,6 +87,14 @@ export const isOfficialDownloadUrl = (url) => {
   return CDN_BASES.some((base) => value.startsWith(`${base}/releases/`))
 }
 
+const hostnameOf = (value) => {
+  try {
+    return new URL(String(value || '').trim()).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
 export const describeUpdateDownloadSource = (url, index = 0) => {
   const value = String(url || '').trim()
   if (EDGEONE_CDN_BASE && value.startsWith(`${EDGEONE_CDN_BASE}/`)) {
@@ -95,22 +103,25 @@ export const describeUpdateDownloadSource = (url, index = 0) => {
   if (GITHUB_PAGES_CDN_BASE && value.startsWith(`${GITHUB_PAGES_CDN_BASE}/`)) {
     return { label: 'GitHub Pages 备用', tag: 'ghpages' }
   }
-  if (value.includes('ghfast.top')) {
+  // 用 URL 对象精确匹配 hostname，避免 includes 子串匹配被
+  // evil-gh-proxy.org / github.com.evil.com 这类域名绕过（CodeQL js/incomplete-url-substring-sanitization）
+  const host = hostnameOf(value)
+  if (host === 'ghfast.top') {
     return { label: '代理下载 1', tag: 'proxy1' }
   }
-  if (value.includes('v4.gh-proxy.org')) {
+  if (host === 'v4.gh-proxy.org') {
     return { label: '代理下载 2', tag: 'proxy2' }
   }
-  if (value.includes('gh-proxy.org') && !value.includes('cdn.gh-proxy.org')) {
+  if (host === 'gh-proxy.org') {
     return { label: '代理下载 3', tag: 'proxy3' }
   }
-  if (value.includes('cdn.gh-proxy.org')) {
+  if (host === 'cdn.gh-proxy.org') {
     return { label: '代理下载 4', tag: 'proxy4' }
   }
-  if (value.includes('ghproxy.net') || value.includes('mirror.ghproxy.com')) {
+  if (host === 'ghproxy.net' || host === 'mirror.ghproxy.com') {
     return { label: `代理下载 ${index + 1}`, tag: `proxy${index + 1}` }
   }
-  if (value.startsWith('https://github.com/')) {
+  if (host === 'github.com' || host.endsWith('.github.com')) {
     return { label: 'GitHub 源站', tag: 'github' }
   }
   return { label: `线路 ${index + 1}`, tag: `line${index}` }
