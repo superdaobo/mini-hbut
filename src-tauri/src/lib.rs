@@ -2410,7 +2410,7 @@ async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> 
         now_ms
     );
 
-    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+    atomic_write_file(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入 widget 快照失败: {} (path: {:?})", e, prefs_file))?;
 
@@ -2440,7 +2440,7 @@ async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
             now_ms
         );
 
-        tokio::fs::write(&prefs_file, xml_content.as_bytes())
+        atomic_write_file(&prefs_file, xml_content.as_bytes())
             .await
             .map_err(|e| format!("清空 widget 快照失败: {}", e))?;
     }
@@ -2487,7 +2487,7 @@ async fn write_widget_theme_color(app: tauri::AppHandle, color: String) -> Resul
         now_ms
     );
 
-    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+    atomic_write_file(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入主题色失败: {}", e))?;
     Ok(())
@@ -2532,7 +2532,7 @@ async fn write_electricity_snapshot(app: tauri::AppHandle, json: String) -> Resu
         now_ms
     );
 
-    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+    atomic_write_file(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入电费快照失败: {}", e))?;
     Ok(())
@@ -2575,7 +2575,7 @@ async fn write_exam_snapshot(app: tauri::AppHandle, json: String) -> Result<(), 
         now_ms
     );
 
-    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+    atomic_write_file(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入考试快照失败: {}", e))?;
     Ok(())
@@ -2623,6 +2623,31 @@ async fn debug_widget_paths(app: tauri::AppHandle) -> Result<serde_json::Value, 
     }))
 }
 
+/// 显式备份数据库（#550）：备份到应用数据目录 backup 子目录，保留最近 keep 份。
+/// 只备份不恢复、不覆盖正式库；失败时返回错误信息。
+#[tauri::command]
+async fn backup_database_now(
+    app: tauri::AppHandle,
+    keep: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    use crate::db::{backup_database, BACKUP_KEEP_DEFAULT};
+
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+    let backup_dir = app_data.join("backup");
+    let keep = keep.unwrap_or(BACKUP_KEEP_DEFAULT);
+    let report =
+        crate::db::run_blocking(move || backup_database(crate::DB_FILENAME, &backup_dir, keep))
+            .await?;
+    Ok(serde_json::json!({
+        "backup_path": report.backup_path.to_string_lossy().to_string(),
+        "kept": report.kept,
+        "pruned": report.pruned.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>(),
+    }))
+}
+
 /// XML 特殊字符转义
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -2630,6 +2655,25 @@ fn escape_xml(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+/// 原子写文件：先写同目录 `.tmp` 临时文件再 rename 覆盖目标（#550）。
+/// 任一时刻磁盘上只存在完整内容，避免写一半时被 widget/其它进程读到残缺 XML。
+async fn atomic_write_file(path: &std::path::Path, content: &[u8]) -> std::io::Result<()> {
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "out.bin".to_string());
+    let tmp_path = path.with_file_name(format!("{}.{}.tmp", file_name, std::process::id()));
+    tokio::fs::write(&tmp_path, content).await?;
+    // rename 为原子操作（同目录/同文件系统），成功即覆盖目标
+    match tokio::fs::rename(&tmp_path, path).await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            Err(e)
+        }
+    }
 }
 
 #[tauri::command]
@@ -7312,6 +7356,7 @@ pub fn run() {
             write_electricity_snapshot,
             write_exam_snapshot,
             debug_widget_paths,
+            backup_database_now,
             chaoxing_checkin_cmd::chaoxing_checkin_list,
             chaoxing_checkin_cmd::chaoxing_checkin_submit_common,
             chaoxing_checkin_cmd::chaoxing_checkin_submit_location,
