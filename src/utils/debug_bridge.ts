@@ -21,11 +21,11 @@ const MORE_MODULE_STORAGE_KEYS = [
 ]
 
 let initialized = false
-let unlistenScreenshot = null
-let unlistenOpenModule = null
-let unlistenNavigate = null
-let unlistenResetMoreModules = null
-let unlistenState = null
+let unlistenScreenshot: (() => void) | null = null
+let unlistenOpenModule: (() => void) | null = null
+let unlistenNavigate: (() => void) | null = null
+let unlistenResetMoreModules: (() => void) | null = null
+let unlistenState: (() => void) | null = null
 
 const resolveDebugHash = (sid: string, view: string) => {
   const normalizedSid = String(sid || '').trim()
@@ -41,19 +41,19 @@ type DebugCaptureSaveResult = {
   size: number
 }
 
-const completeScreenshot = async (payload) => {
+const completeScreenshot = async (payload: Record<string, unknown>) => {
   await invokeNative('complete_debug_screenshot', { payload })
 }
 
-const completeOpenModule = async (payload) => {
+const completeOpenModule = async (payload: Record<string, unknown>) => {
   await invokeNative('complete_debug_open_module', { payload })
 }
 
-const completeResetMoreModules = async (payload) => {
+const completeResetMoreModules = async (payload: Record<string, unknown>) => {
   await invokeNative('complete_debug_reset_more_modules', { payload })
 }
 
-const completeState = async (payload) => {
+const completeState = async (payload: Record<string, unknown>) => {
   await invokeNative('complete_debug_state', { payload })
 }
 
@@ -62,7 +62,9 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const waitForNextPaint = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 
-export const resolveDebugScreenshotBackgroundColor = (payload) => {
+export const resolveDebugScreenshotBackgroundColor = (
+  payload: Record<string, unknown> | undefined
+) => {
   const value = payload?.backgroundColor ?? payload?.background_color ?? null
   const normalized = String(value ?? '').trim()
   return normalized || null
@@ -124,7 +126,7 @@ const readStoredModuleHostSession = () => {
   }
 }
 
-const resolveInjectedModuleHostSession = (value) => {
+const resolveInjectedModuleHostSession = (value: unknown) => {
   if (!value || typeof value !== 'object') return null
   const session = value as Record<string, unknown>
   const moduleId = String(session.module_id || session.moduleId || '').trim()
@@ -134,7 +136,7 @@ const resolveInjectedModuleHostSession = (value) => {
   return session
 }
 
-const applyDebugScrollInstruction = async (instruction) => {
+const applyDebugScrollInstruction = async (instruction: unknown) => {
   if (instruction === null || instruction === undefined || instruction === '') return
   const scrollContainer = resolveDebugScrollContainer()
 
@@ -176,7 +178,7 @@ const applyDebugScrollInstruction = async (instruction) => {
   }
 }
 
-const applyDebugNightModeInstruction = async (value) => {
+const applyDebugNightModeInstruction = async (value: unknown) => {
   if (value === null || value === undefined || value === '') return
   const normalized = String(value).trim().toLowerCase()
   if (['1', 'true', 'dark', 'night', 'on', 'yes'].includes(normalized)) {
@@ -251,7 +253,7 @@ export const initDebugBridgeClient = async () => {
   const eventApi = await import('@tauri-apps/api/event')
 
   unlistenScreenshot = await eventApi.listen(SCREENSHOT_EVENT_NAME, async (event) => {
-    const payload = event?.payload || {}
+    const payload = (event?.payload ?? {}) as Record<string, unknown>
     const requestId = String(payload.requestId || '')
     const format = String(payload.format || 'png').toLowerCase() === 'webp' ? 'webp' : 'png'
     const returnMode = String(payload.return || payload.returnMode || 'path').toLowerCase()
@@ -268,9 +270,9 @@ export const initDebugBridgeClient = async () => {
         900
       )
       const captured = await captureElementToBlob({
-        selector: payload.selector || null,
+        selector: typeof payload.selector === 'string' ? payload.selector : undefined,
         format,
-        backgroundColor: resolveDebugScreenshotBackgroundColor(payload),
+        backgroundColor: resolveDebugScreenshotBackgroundColor(payload) ?? undefined,
         maxHeight: viewportHeight + 120,
         scale: 1.5
       })
@@ -301,14 +303,14 @@ export const initDebugBridgeClient = async () => {
       await completeScreenshot({
         requestId,
         success: false,
-        error: error?.message || String(error || '截图失败')
+        error: error instanceof Error ? error.message : String(error ?? '截图失败')
       }).catch(() => {})
       pushDebugLog('DebugBridge', `截图失败：${requestId}`, 'error', error)
     }
   })
 
   unlistenOpenModule = await eventApi.listen(OPEN_MODULE_EVENT_NAME, async (event) => {
-    const payload = event?.payload || {}
+    const payload = (event?.payload ?? {}) as Record<string, unknown>
     const requestId = String(payload.requestId || '')
     const moduleId = String(payload.moduleId || payload.module_id || '').trim()
     const requestedStudentId = String(
@@ -361,14 +363,14 @@ export const initDebugBridgeClient = async () => {
       await completeOpenModule({
         requestId,
         success: false,
-        error: error?.message || String(error || '模块点击失败')
+        error: error instanceof Error ? error.message : String(error ?? '模块点击失败')
       }).catch(() => {})
       pushDebugLog('DebugBridge', `模块点击失败：${moduleId || requestId}`, 'error', error)
     }
   })
 
   unlistenResetMoreModules = await eventApi.listen(RESET_MORE_MODULES_EVENT_NAME, async (event) => {
-    const payload = event?.payload || {}
+    const payload = (event?.payload ?? {}) as Record<string, unknown>
     const requestId = String(payload.requestId || '')
     if (!requestId) return
 
@@ -419,15 +421,18 @@ export const initDebugBridgeClient = async () => {
       await completeResetMoreModules({
         requestId,
         success: false,
-        error: error?.message || String(error || '模块缓存状态清空失败')
+        error: error instanceof Error ? error.message : String(error ?? '模块缓存状态清空失败')
       }).catch(() => {})
       pushDebugLog('DebugBridge', '模块缓存状态清空失败', 'error', error)
     }
   })
 
   unlistenNavigate = await eventApi.listen(NAVIGATE_EVENT_NAME, async (event) => {
-    const payload = event?.payload || {}
-    const navigatePayload = payload.payload && typeof payload.payload === 'object' ? payload.payload : null
+    const payload = (event?.payload ?? {}) as Record<string, unknown>
+    const navigatePayload =
+      payload.payload && typeof payload.payload === 'object'
+        ? (payload.payload as Record<string, unknown>)
+        : null
     const view = String(payload.view || payload.module || '').trim() || 'home'
     const sid = String(
       payload.studentId ||
@@ -478,7 +483,7 @@ export const initDebugBridgeClient = async () => {
   })
 
   unlistenState = await eventApi.listen(STATE_EVENT_NAME, async (event) => {
-    const payload = event?.payload || {}
+    const payload = (event?.payload ?? {}) as Record<string, unknown>
     const requestId = String(payload.requestId || '')
     if (!requestId) return
 
@@ -500,7 +505,7 @@ export const initDebugBridgeClient = async () => {
       await completeState({
         requestId,
         success: false,
-        error: error?.message || String(error || '状态读取失败')
+        error: error instanceof Error ? error.message : String(error ?? '状态读取失败')
       }).catch(() => {})
       pushDebugLog('DebugBridge', `状态读取失败：${requestId}`, 'error', error)
     }
