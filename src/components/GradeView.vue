@@ -4,6 +4,7 @@ import { formatRelativeTime } from '../utils/time.js'
 import { compareSemesterDesc, normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 import { TPageHeader, TEmptyState } from './templates'
 import GradeDistributionView from './GradeDistributionView.vue'
+import { normalizeGradeRecords } from '../domain/grades.ts'
 
 const props = defineProps({
   grades: { type: Array, default: () => [] },
@@ -31,159 +32,9 @@ const showDetail = ref(false)
 // Tab 切换：成绩查询 / 给分记录
 const activeGradeTab = ref('grades')
 
-const COURSE_NATURE_LABEL_MAP = {
-  '11': '通识必修',
-  '12': '通识选修',
-  '16': '限定选修',
-  '31': '学科基础',
-  '32': '工程基础',
-  '40': '专业核心',
-  '41': '专业方向组',
-  '42': '专业任选',
-  '43': '专业基础',
-  '44': '专业必修',
-  '45': '专业选修',
-  '50': '基础实践',
-  '51': '专业实践',
-  '52': '综合实践',
-  '53': '其他实践',
-  '54': '短学期实践',
-  '70': '辅修理论',
-  '71': '辅修实践',
-  '90': '必修',
-  '98': '重修',
-  '99': '公共选修'
-}
-
-const CJBJ_STATUS_MAP = {
-  '1': '补考',
-  '2': '缓考',
-  '3': '免修'
-}
-
 const toSafeText = (value) => String(value ?? '').trim()
 
-const normalizeCourseName = (value) => {
-  const text = toSafeText(value)
-  if (!text) return ''
-  const matched = text.match(/^\[[^\]]+\](.+)$/)
-  return matched ? toSafeText(matched[1]) : text
-}
-
-const parseScoreNumber = (score) => {
-  const n = Number.parseFloat(toSafeText(score))
-  return Number.isFinite(n) ? n : null
-}
-
-const formatPointNumber = (value) => {
-  if (!Number.isFinite(value)) return '-'
-  const safeValue = Math.max(0, value)
-  return safeValue.toFixed(2).replace(/\.0+$|(\.\d*?)0+$/g, '$1').replace(/\.$/, '')
-}
-
-const normalizePointText = (value) => {
-  const text = toSafeText(value)
-  if (!text) return '-'
-  const numeric = Number.parseFloat(text)
-  if (Number.isFinite(numeric) && /^-?\d+(\.\d+)?$/.test(text)) {
-    return formatPointNumber(numeric)
-  }
-  return text
-}
-
-const resolveCourseNatureLabel = (grade) => {
-  const codes = [
-    toSafeText(grade.kcxz),
-    toSafeText(grade.course_nature_code),
-    toSafeText(grade.course_nature)
-  ].filter(Boolean)
-  for (const code of codes) {
-    if (COURSE_NATURE_LABEL_MAP[code]) return COURSE_NATURE_LABEL_MAP[code]
-  }
-  return toSafeText(grade.course_nature || grade.kcxzmc || codes[0] || '')
-}
-
-const resolveCardTeacherName = (grade) => {
-  // 首页卡片：优先显示录入教师(cjlrjsxm)，为空则显示课程教师(course_teacher)
-  if (!grade || typeof grade !== 'object') return ''
-  const entryTeacher = grade.teacher ?? grade.cjlrjsxm ?? grade.jsxm ?? ''
-  if (String(entryTeacher).trim()) return String(entryTeacher).trim()
-  return String(grade.course_teacher ?? grade.courseTeacher ?? '').trim()
-}
-
-const resolveCourseTeacherName = (grade) => {
-  // 详情页课程教师：只取课程教师数据
-  if (!grade || typeof grade !== 'object') return ''
-  return String(grade.course_teacher ?? grade.courseTeacher ?? '').trim()
-}
-
-const resolveEntryTeacherName = (grade) => {
-  // 详情页录入教师：只取原始后端字段 cjlrjsxm / jsxm，不使用 normalized 的 teacher 字段
-  if (!grade || typeof grade !== 'object') return ''
-  return String(grade.cjlrjsxm ?? grade.jsxm ?? '').trim()
-}
-
-const resolveStatusTags = (grade, scoreText, scoreNumber) => {
-  const cjbj = toSafeText(grade.cjbj)
-  const cjbjLabel = CJBJ_STATUS_MAP[cjbj] || ''
-  const statusSource = `${scoreText}|${toSafeText(grade.cjfxms)}|${cjbjLabel}`
-  const isFailed =
-    (scoreNumber !== null && scoreNumber < 60) ||
-    /(不合格|不及格|挂科|未通过)/.test(statusSource)
-  const isMakeup =
-    toSafeText(grade.sfbk) === '1' ||
-    cjbjLabel === '补考' ||
-    /补考/.test(statusSource)
-  const isDeferred =
-    toSafeText(grade.sfsq) === '1' ||
-    cjbjLabel === '缓考' ||
-    /缓考/.test(statusSource)
-  const isExempt =
-    cjbjLabel === '免修' ||
-    /(免修|免考|免听)/.test(statusSource)
-
-  const tags = []
-  if (isFailed) tags.push({ key: 'failed', label: '挂科' })
-  if (isMakeup) tags.push({ key: 'makeup', label: '补考' })
-  if (isDeferred) tags.push({ key: 'deferred', label: '缓考' })
-  if (isExempt) tags.push({ key: 'exempt', label: '免修' })
-
-  const passByScore = scoreNumber !== null ? scoreNumber >= 60 : /合格|通过/.test(scoreText)
-  const isPass = !isFailed && passByScore
-
-  return { tags, isPass, isFailed, isMakeup, isDeferred, isExempt }
-}
-
-const normalizedGrades = computed(() =>
-  props.grades.map((grade, index) => {
-    const finalScore = toSafeText(grade.final_score || grade.zhcj || grade.yscj || '-')
-    const scoreNumber = parseScoreNumber(finalScore)
-    const status = resolveStatusTags(grade, finalScore, scoreNumber)
-    const gradePointNumber = scoreNumber !== null ? Math.max(0, scoreNumber / 10 - 5) : null
-    return {
-      ...grade,
-      originIndex: index,
-      term: toSafeText(grade.term || grade.xnxq),
-      course_name: normalizeCourseName(grade.course_name || grade.kcmc),
-      course_credit: toSafeText(grade.course_credit || grade.xf),
-      earned_credit: toSafeText(grade.earned_credit || grade.hdxf),
-      creditPoint: normalizePointText(grade.xfjd || grade.creditPoint || grade.gpa),
-      gradePoint: gradePointNumber,
-      gradePointText: formatPointNumber(gradePointNumber),
-      creditGradePoint: normalizePointText(grade.xfjd || grade.creditPoint || grade.gpa),
-      final_score: finalScore,
-      scoreNumber,
-      course_nature: resolveCourseNatureLabel(grade),
-      teacher: resolveCardTeacherName(grade),
-      statusTags: status.tags,
-      isPass: status.isPass,
-      isFailed: status.isFailed,
-      isMakeup: status.isMakeup,
-      isDeferred: status.isDeferred,
-      isExempt: status.isExempt
-    }
-  })
-)
+const normalizedGrades = computed(() => normalizeGradeRecords(props.grades))
 
 // 获取所有学期列表
 const terms = computed(() => {
@@ -211,7 +62,7 @@ const filteredGrades = computed(() => {
     // 是否合格筛选
     if (filterPass.value !== 'all') {
       if (filterPass.value === 'pass' && !grade.isPass) return false
-      if (filterPass.value === 'fail' && grade.isPass) return false
+      if (filterPass.value === 'fail' && !grade.isFailed) return false
     }
     
     // 是否补考筛选
@@ -224,23 +75,11 @@ const filteredGrades = computed(() => {
   })
 })
 
-const resolveSortScore = (grade) => {
-  if (grade.scoreNumber !== null) return grade.scoreNumber
-  const text = toSafeText(grade.final_score)
-  if (/优秀/.test(text)) return 95
-  if (/(良好|中等)/.test(text)) return 80
-  if (/(及格|合格|通过)/.test(text)) return 60
-  if (/(不及格|不合格|未通过)/.test(text)) return 0
-  return -1
-}
-
 const compareBySortMode = (a, b) => {
   if (sortMode.value === 'origin') {
     return a.originIndex - b.originIndex
   }
-  const scoreA = resolveSortScore(a)
-  const scoreB = resolveSortScore(b)
-  const diff = sortMode.value === 'score_asc' ? scoreA - scoreB : scoreB - scoreA
+  const diff = sortMode.value === 'score_asc' ? a.sortScore - b.sortScore : b.sortScore - a.sortScore
   if (diff !== 0) return diff
   return a.originIndex - b.originIndex
 }
@@ -522,9 +361,9 @@ watch(
                       {{ tag.label }}
                     </span>
                   </div>
-                  <div class="card-teacher" v-if="resolveCardTeacherName(grade)">
+                  <div class="card-teacher" v-if="grade.teacher">
                     <span class="material-symbols-outlined">person</span>
-                    {{ resolveCardTeacherName(grade) }}
+                    {{ grade.teacher }}
                   </div>
                 </div>
               </div>
@@ -557,9 +396,9 @@ watch(
                     {{ tag.label }}
                   </span>
                 </div>
-                <div class="card-teacher" v-if="resolveCardTeacherName(grade)">
+                <div class="card-teacher" v-if="grade.teacher">
                   <span class="material-symbols-outlined">person</span>
-                  {{ resolveCardTeacherName(grade) }}
+                  {{ grade.teacher }}
                 </div>
               </div>
             </div>
@@ -602,7 +441,10 @@ watch(
             </div>
             <div class="detail-item">
               <span class="detail-label">绩点</span>
-              <span class="detail-value">{{ selectedGrade.gradePointText || '-' }}</span>
+              <span class="detail-value">
+                {{ selectedGrade.gradePointText || '-' }}
+                <span v-if="selectedGrade.gradePointEstimated" class="point-estimated">估算</span>
+              </span>
             </div>
             <div class="detail-item">
               <span class="detail-label">学分绩点</span>
@@ -614,11 +456,11 @@ watch(
             </div>
             <div class="detail-item">
               <span class="detail-label">录入教师</span>
-              <span class="detail-value">{{ resolveEntryTeacherName(selectedGrade) || '-' }}</span>
+              <span class="detail-value">{{ selectedGrade.entryTeacher || '-' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">课程教师</span>
-              <span class="detail-value">{{ resolveCourseTeacherName(selectedGrade) || '-' }}</span>
+              <span class="detail-value">{{ selectedGrade.courseTeacher || '-' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">是否挂科</span>
@@ -1094,6 +936,31 @@ watch(
 .status-exempt {
   background: #d1fae5;
   color: #059669;
+}
+
+.status-exempted_exam {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.status-absent {
+  background: #fecaca;
+  color: #b91c1c;
+}
+
+.status-pending {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.point-estimated {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .card-teacher {
