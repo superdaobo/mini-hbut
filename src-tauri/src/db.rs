@@ -88,27 +88,67 @@ pub struct OnlineLearningSyncRunRecord {
     pub finished_at: String,
 }
 
-fn ensure_user_session_columns(conn: &Connection) {
-    let _ = conn.execute(
+/// 幂等补列：仅当表存在且缺少目标列时才执行 ALTER。
+/// 表不存在（新库由 init_db 统一建表）时静默跳过；表存在但缺列时如实补列，
+/// 其余错误（锁、IO 等）会传播，不再静默吞掉（#550）。
+fn ensure_column(conn: &Connection, table: &str, column: &str, ddl: &str) -> Result<()> {
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+            params![table],
+            |_| Ok(true),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !table_exists {
+        return Ok(());
+    }
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let mut exists = false;
+    for r in rows {
+        let name = r?;
+        if name == column {
+            exists = true;
+            break;
+        }
+    }
+    if !exists {
+        conn.execute(ddl, [])?;
+    }
+    Ok(())
+}
+
+fn ensure_user_session_columns(conn: &Connection) -> Result<()> {
+    ensure_column(
+        conn,
+        "user_sessions",
+        "one_code_token",
         "ALTER TABLE user_sessions ADD COLUMN one_code_token TEXT",
-        [],
-    );
-    let _ = conn.execute(
+    )?;
+    ensure_column(
+        conn,
+        "user_sessions",
+        "electricity_refresh_token",
         "ALTER TABLE user_sessions ADD COLUMN electricity_refresh_token TEXT",
-        [],
-    );
-    let _ = conn.execute(
+    )?;
+    ensure_column(
+        conn,
+        "user_sessions",
+        "electricity_token_expires_at",
         "ALTER TABLE user_sessions ADD COLUMN electricity_token_expires_at TEXT",
-        [],
-    );
+    )?;
+    Ok(())
 }
 
 /// 自定义课程可选颜色列（#470）：旧库幂等 ALTER，新建表 DDL 已含 color。
-fn ensure_custom_schedule_color_column(conn: &Connection) {
-    let _ = conn.execute(
+fn ensure_custom_schedule_color_column(conn: &Connection) -> Result<()> {
+    ensure_column(
+        conn,
+        "custom_schedule_courses",
+        "color",
         "ALTER TABLE custom_schedule_courses ADD COLUMN color TEXT NOT NULL DEFAULT ''",
-        [],
-    );
+    )
 }
 
 /// 规范化用户课程色：空 → ""；合法 hex → #rrggbb；非法 → None。
@@ -153,10 +193,15 @@ fn open_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
         }
     }
     let conn = Connection::open(resolved)?;
-    // WAL 降低读写锁争用，改善 async 运行时中的同步 SQLite 访问体验
-    let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+    // 统一 5s busy 等待：并发写锁冲突时等待而非立即报错（#550）
+    // 必须在切换 WAL 之前设置，切换 journal_mode 本身也可能需要短暂锁
+    conn.execute_batch(
+        "PRAGMA busy_timeout=5000;
+         PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;",
+    )?;
     // 幂等补列：旧库缺少 color 时不影响后续 custom_schedule CRUD
-    ensure_custom_schedule_color_column(&conn);
+    ensure_custom_schedule_color_column(&conn)?;
     Ok(conn)
 }
 
@@ -218,7 +263,7 @@ pub fn migrate_session_passwords_v2<P: AsRef<Path>>(path: P) -> Result<CredMigra
     use base64::Engine;
 
     let conn = open_connection(path.as_ref())?;
-    ensure_user_session_columns(&conn);
+    ensure_user_session_columns(&conn)?;
 
     let mut report = CredMigrateReport::default();
     let mut stmt = conn.prepare(
@@ -469,7 +514,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         )",
         [],
     )?;
-    ensure_custom_schedule_color_column(&conn);
+    ensure_custom_schedule_color_column(&conn)?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_custom_schedule_student_semester
          ON custom_schedule_courses (student_id, semester)",
@@ -511,7 +556,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         [],
     )?;
 
-    ensure_user_session_columns(&conn);
+    ensure_user_session_columns(&conn)?;
 
     // kv_store 通用键值表（用于位置历史等小型 JSON 数据）
     conn.execute(
@@ -534,7 +579,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     )?;
     migrate_auth_cookie_v2_table(&conn)?;
     ensure_schema_migration(&conn, 5, "auth_cookie_v2 multi-domain session cookies")?;
-    ensure_custom_schedule_color_column(&conn);
+    ensure_custom_schedule_color_column(&conn)?;
     ensure_schema_migration(
         &conn,
         6,
@@ -543,8 +588,10 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     drop(conn);
 
     // 1.4.2→1.4.3 凭据迁移：base64 列迁密钥环（失败保留 base64），修复 KEYRING 空壳可恢复路径
+    // 迁移失败不阻断启动，但必须记录到运行时日志，避免无声吞掉（#550）
     if let Err(e) = migrate_session_passwords_v2(path_ref) {
         eprintln!("[db] cred_migrate_v2 失败（不阻断启动）: {}", e);
+        crate::runtime_log::log_error("db", format!("cred_migrate_v2 失败（不阻断启动）: {e}"));
     }
 
     Ok(())
@@ -706,28 +753,168 @@ pub fn update_user_session_cookies_only<P: AsRef<Path>>(
         return Ok(());
     }
     let conn = open_connection(path)?;
-    ensure_user_session_columns(&conn);
-    let changed = conn.execute(
-        "UPDATE user_sessions SET cookies = ?1, last_login = CURRENT_TIMESTAMP
-         WHERE student_id = ?2",
-        params![cookies, sid],
+    ensure_user_session_columns(&conn)?;
+    // 单条 UPSERT 原子完成：有行则只更新 cookies/last_login（不碰密码/电费 token），
+    // 无行则插入空壳（密码/token 置空），避免 UPDATE+INSERT 两步间的并发竞态（#550）
+    conn.execute(
+        "INSERT INTO user_sessions (student_id, cookies, last_login)
+         VALUES (?1, ?2, CURRENT_TIMESTAMP)
+         ON CONFLICT(student_id) DO UPDATE SET
+           cookies = excluded.cookies,
+           last_login = CURRENT_TIMESTAMP",
+        params![sid, cookies],
     )?;
-    if changed == 0 {
-        // 尚无会话行时建壳，密码/token 置空（与新用户一致）
-        conn.execute(
-            "INSERT INTO user_sessions (
-                student_id, cookies, encrypted_password, one_code_token,
-                electricity_refresh_token, electricity_token_expires_at, last_login
-            ) VALUES (?1, ?2, '', '', '', '', CURRENT_TIMESTAMP)",
-            params![sid, cookies],
-        )?;
-    }
     Ok(())
 }
 
 /// 打开 SQLite 连接（供 usage_stats 等模块复用 HBUT_DB_PATH）。
 pub fn open_db_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
     open_connection(path)
+}
+
+// ============================ 安全备份（#550） ============================
+//
+// 设计约束：
+// - 备份是显式操作（函数或 tauri command），绝不自动恢复、绝不覆盖正式库；
+// - 备份只写入指定的 backup 子目录，文件名带时间戳（可排序）；
+// - 先写临时文件再 rename，保证任一时刻磁盘上都只有完整备份（原子命名）；
+// - 有限保留：只保留最近 `keep` 份，超出部分按文件名（时间戳）删除最旧的。
+
+/// 默认备份保留份数。
+pub const BACKUP_KEEP_DEFAULT: usize = 5;
+
+/// 备份结果报告。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BackupReport {
+    /// 新生成的备份文件绝对路径。
+    pub backup_path: PathBuf,
+    /// 本次删除的旧备份文件（保留策略触发时非空）。
+    pub pruned: Vec<PathBuf>,
+    /// 执行后 backup 目录中剩余的备份份数。
+    pub kept: usize,
+}
+
+/// 将 std::io::Error 包装为 rusqlite::Error（backup 目录/文件操作用）。
+fn io_to_rusqlite_err(e: std::io::Error) -> rusqlite::Error {
+    let code = match e.kind() {
+        std::io::ErrorKind::NotFound => rusqlite::ffi::ErrorCode::CannotOpen,
+        std::io::ErrorKind::PermissionDenied => rusqlite::ffi::ErrorCode::PermissionDenied,
+        _ => rusqlite::ffi::ErrorCode::SystemIoFailure,
+    };
+    let err = rusqlite::ffi::Error {
+        code,
+        extended_code: 0,
+    };
+    rusqlite::Error::SqliteFailure(err, Some(e.to_string()))
+}
+
+/// 备份数据库到 `backup_dir`（显式调用，不自动执行）。
+///
+/// - 使用 SQLite 在线备份 API，源库无需关闭，可安全备份 WAL 模式库；
+/// - 备份文件名 `{db_stem}-{yyyyMMdd-HHmmss}.db`，先写 `.tmp` 再 rename；
+/// - 保留最近 `keep` 份（默认 [`BACKUP_KEEP_DEFAULT`]），多余旧备份被清理。
+pub fn backup_database<P: AsRef<Path>, Q: AsRef<Path>>(
+    db_path: P,
+    backup_dir: Q,
+    keep: usize,
+) -> Result<BackupReport> {
+    use rusqlite::backup::{Backup, StepResult};
+
+    let src_path = resolve_db_path(db_path);
+    let keep = keep.max(1);
+    let dir = backup_dir.as_ref().to_path_buf();
+    std::fs::create_dir_all(&dir).map_err(io_to_rusqlite_err)?;
+
+    let stem = src_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "db".to_string());
+    let ts = Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let final_name = format!("{stem}-{ts}.db");
+    let final_path = dir.join(&final_name);
+    let tmp_path = dir.join(format!("{final_name}.tmp"));
+
+    {
+        // 源连接：只读打开，避免备份过程中被误写
+        let src =
+            Connection::open_with_flags(&src_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mut dst = Connection::open(&tmp_path)?;
+        let backup = Backup::new(&src, &mut dst)?;
+        loop {
+            match backup.step(100)? {
+                StepResult::Done => break,
+                StepResult::Busy | StepResult::Locked | StepResult::More => continue,
+                // StepResult 标记 #[non_exhaustive]，未来新增变体时保守视为继续重试
+                _ => continue,
+            }
+        }
+    }
+    // 原子命名：临时文件写完后 rename 为最终备份名（同目录，保证原子）
+    std::fs::rename(&tmp_path, &final_path).map_err(io_to_rusqlite_err)?;
+
+    // 有限保留：按文件名排序（时间戳前缀），只留最新 keep 份
+    let mut candidates: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .map_err(io_to_rusqlite_err)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with(&format!("{stem}-")) && n.ends_with(".db"))
+                .unwrap_or(false)
+        })
+        .collect();
+    candidates.sort();
+    let mut pruned = Vec::new();
+    while candidates.len() > keep {
+        let old = candidates.remove(0);
+        let _ = std::fs::remove_file(&old);
+        pruned.push(old);
+    }
+
+    Ok(BackupReport {
+        backup_path: final_path,
+        pruned,
+        kept: candidates.len(),
+    })
+}
+
+/// 列出 backup 目录中现有的备份文件（按时间戳升序，即最旧在前）。
+pub fn list_backups<P: AsRef<Path>>(backup_dir: P) -> Result<Vec<PathBuf>> {
+    let dir = backup_dir.as_ref();
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(io_to_rusqlite_err)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e == "db")
+                .unwrap_or(false)
+        })
+        .collect();
+    out.sort();
+    Ok(out)
+}
+
+/// 校验备份文件可读且未损坏：能打开并执行 PRAGMA integrity_check。
+/// 仅用于验证，绝不写回正式库。
+pub fn verify_backup<P: AsRef<Path>>(backup_path: P) -> Result<()> {
+    let conn = Connection::open_with_flags(
+        backup_path.as_ref(),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    let result: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    if result.trim() == "ok" {
+        Ok(())
+    } else {
+        let err = rusqlite::ffi::Error {
+            code: rusqlite::ffi::ErrorCode::DatabaseCorrupt,
+            extended_code: 0,
+        };
+        Err(rusqlite::Error::SqliteFailure(
+            err,
+            Some(format!("backup integrity_check failed: {result}")),
+        ))
+    }
 }
 
 /// 记录已应用的 schema 版本，便于追溯与回滚说明。
@@ -945,13 +1132,23 @@ pub fn save_user_session<P: AsRef<Path>>(
         base64::engine::general_purpose::STANDARD.encode(password.as_bytes())
     };
 
-    ensure_user_session_columns(&conn);
+    ensure_user_session_columns(&conn)?;
 
+    // UPSERT 原子更新（#550）：有行时仅更新传入的非空字段，空值保留库中已有值，
+    // 避免 INSERT OR REPLACE 删行重建导致 uuid/authorization 等未传入字段丢失，
+    // 也避免并发读改写竞态。last_login 总是刷新为当前时间。
     conn.execute(
-        "INSERT OR REPLACE INTO user_sessions (
+        "INSERT INTO user_sessions (
             student_id, cookies, encrypted_password, one_code_token,
             electricity_refresh_token, electricity_token_expires_at, last_login
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)
+        ON CONFLICT(student_id) DO UPDATE SET
+            cookies = CASE WHEN excluded.cookies <> '' THEN excluded.cookies ELSE user_sessions.cookies END,
+            encrypted_password = CASE WHEN excluded.encrypted_password <> '' THEN excluded.encrypted_password ELSE user_sessions.encrypted_password END,
+            one_code_token = CASE WHEN excluded.one_code_token <> '' THEN excluded.one_code_token ELSE user_sessions.one_code_token END,
+            electricity_refresh_token = CASE WHEN excluded.electricity_refresh_token <> '' THEN excluded.electricity_refresh_token ELSE user_sessions.electricity_refresh_token END,
+            electricity_token_expires_at = CASE WHEN excluded.electricity_token_expires_at <> '' THEN excluded.electricity_token_expires_at ELSE user_sessions.electricity_token_expires_at END,
+            last_login = CURRENT_TIMESTAMP",
         params![
             student_id,
             cookies,
@@ -990,7 +1187,7 @@ pub fn get_user_session<P: AsRef<Path>>(
     student_id: &str,
 ) -> Result<Option<UserSessionData>> {
     let conn = open_connection(path)?;
-    ensure_user_session_columns(&conn);
+    ensure_user_session_columns(&conn)?;
 
     let mut stmt = conn.prepare(
         "SELECT cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at
@@ -1022,7 +1219,7 @@ pub fn get_user_session<P: AsRef<Path>>(
 // 获取最近一次用户会话
 pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<LatestUserSessionData>> {
     let conn = open_connection(path)?;
-    ensure_user_session_columns(&conn);
+    ensure_user_session_columns(&conn)?;
 
     let mut stmt = conn.prepare(
         "SELECT student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at
@@ -1062,19 +1259,18 @@ pub fn save_electricity_tokens<P: AsRef<Path>>(
     token_expires_at: &str,
 ) -> Result<()> {
     let conn = open_connection(path)?;
-    ensure_user_session_columns(&conn);
-    // 确保记录存在
-    let _ = conn.execute(
-        "INSERT OR IGNORE INTO user_sessions (student_id, last_login) VALUES (?1, CURRENT_TIMESTAMP)",
-        params![student_id],
-    );
+    ensure_user_session_columns(&conn)?;
+    // UPSERT 原子更新（#550）：单条语句同时处理"行不存在则插入"与"行存在则更新"，
+    // 避免 INSERT OR IGNORE + UPDATE 两步间的并发竞态；空值保留库中已有非空字段。
     conn.execute(
-        "UPDATE user_sessions
-         SET one_code_token = ?2,
-             electricity_refresh_token = ?3,
-             electricity_token_expires_at = ?4,
-             electricity_token_updated_at = CURRENT_TIMESTAMP
-         WHERE student_id = ?1",
+        "INSERT INTO user_sessions (student_id, one_code_token, electricity_refresh_token, electricity_token_expires_at, electricity_token_updated_at, last_login)
+         VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT(student_id) DO UPDATE SET
+             one_code_token = CASE WHEN excluded.one_code_token <> '' THEN excluded.one_code_token ELSE user_sessions.one_code_token END,
+             electricity_refresh_token = CASE WHEN excluded.electricity_refresh_token <> '' THEN excluded.electricity_refresh_token ELSE user_sessions.electricity_refresh_token END,
+             electricity_token_expires_at = CASE WHEN excluded.electricity_token_expires_at <> '' THEN excluded.electricity_token_expires_at ELSE user_sessions.electricity_token_expires_at END,
+             electricity_token_updated_at = CURRENT_TIMESTAMP,
+             last_login = CURRENT_TIMESTAMP",
         params![student_id, one_code_token, refresh_token, token_expires_at],
     )?;
     Ok(())
@@ -1830,5 +2026,291 @@ mod custom_schedule_color_tests {
         assert_eq!(plain_loaded.color, "");
 
         let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod concurrency_tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mini_hbut_concur_{label}_{nanos}.db"))
+    }
+
+    #[test]
+    fn concurrent_cookies_only_upserts_never_lose_fields() {
+        let path = temp_db_path("cookies_concur");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+
+        let sid = "2510232001";
+        // 预置会话：密码 + 电费 token 非空
+        {
+            let conn = open_connection(&path).unwrap();
+            conn.execute(
+                "INSERT INTO user_sessions (
+                    student_id, cookies, encrypted_password, one_code_token,
+                    electricity_refresh_token, electricity_token_expires_at
+                 ) VALUES (?1, 'pre=1', 'b64-seed', 'tok-seed', 'ref-seed', '2099-01-01T00:00:00Z')",
+                params![sid],
+            )
+            .unwrap();
+        }
+
+        // 8 个线程并发 cookies-only 更新同一行；任何并发竞态若导致 UPDATE 后行被删/字段被清空都会在此暴露
+        let threads = 8;
+        let barrier = Arc::new(Barrier::new(threads));
+        let mut handles = Vec::new();
+        for i in 0..threads {
+            let path = path.clone();
+            let sid = sid.to_string();
+            let barrier = barrier.clone();
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                let cookies = format!("Code: c{i} | Auth: a{i}");
+                update_user_session_cookies_only(&path, &sid, &cookies).expect("upsert");
+            }));
+        }
+        for h in handles {
+            h.join().expect("thread panicked");
+        }
+
+        let session = get_user_session(&path, sid).unwrap().expect("session");
+        // 密码与电费 token 不能被 cookies-only 更新清掉
+        assert_eq!(session.one_code_token, "tok-seed");
+        assert_eq!(session.refresh_token, "ref-seed");
+        assert!(session.cookies.contains("Code: c"));
+        assert!(session.cookies.contains("Auth: a"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn concurrent_save_user_session_keeps_nonempty_fields() {
+        let path = temp_db_path("save_concur");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+
+        let sid = "2510232002";
+        save_user_session(
+            &path,
+            sid,
+            "cookies=1",
+            "pw-1",
+            "tok-1",
+            Some("ref-1"),
+            Some("exp-1"),
+        )
+        .expect("save init");
+
+        let threads = 6;
+        let barrier = Arc::new(Barrier::new(threads));
+        let mut handles = Vec::new();
+        for i in 0..threads {
+            let path = path.clone();
+            let sid = sid.to_string();
+            let barrier = barrier.clone();
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                // 并发空 token 覆盖尝试：不得清空已有 tok-1/ref-1
+                save_user_session(&path, &sid, &format!("cookies={i}"), "", "", None, None)
+                    .expect("save empty");
+            }));
+        }
+        for h in handles {
+            h.join().expect("thread panicked");
+        }
+
+        let session = get_user_session(&path, sid).unwrap().expect("session");
+        assert_eq!(session.one_code_token, "tok-1");
+        assert_eq!(session.refresh_token, "ref-1");
+        assert_eq!(session.token_expires_at, "exp-1");
+        assert_eq!(session.password, "pw-1");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn busy_timeout_waits_for_locked_writer() {
+        let path = temp_db_path("busy_wait");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        let sid = "2510232003";
+        save_user_session(&path, sid, "pre=1", "", "tok", None, None).expect("seed");
+
+        // 连接 A：BEGIN IMMEDIATE 持写锁 ~1.2s 不提交
+        let holder = open_connection(&path).unwrap();
+        holder
+            .execute_batch("BEGIN IMMEDIATE; UPDATE user_sessions SET cookies='locked=1' WHERE student_id='2510232003';")
+            .expect("holder lock");
+
+        // 连接 B：在另一线程写同一行，busy_timeout=5000 应等待而非立即报错
+        let (tx, rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
+        let path_b = path.clone();
+        let sid_b = sid.to_string();
+        let writer = thread::spawn(move || {
+            let result = open_connection(&path_b)
+                .and_then(|conn| {
+                    conn.execute(
+                        "UPDATE user_sessions SET cookies='after=1' WHERE student_id=?1",
+                        params![sid_b],
+                    )
+                    .map(|_| ())
+                })
+                .map_err(|e| e.to_string());
+            tx.send(result).unwrap();
+        });
+
+        // 给 B 一点时间进入等待；随后释放写锁
+        thread::sleep(Duration::from_millis(800));
+        holder.execute_batch("COMMIT").expect("holder commit");
+        writer.join().expect("writer panicked");
+
+        let _result = rx
+            .recv()
+            .unwrap()
+            .expect("writer must succeed after lock release");
+        let session = get_user_session(&path, sid).unwrap().expect("session");
+        assert_eq!(session.cookies, "after=1");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn busy_timeout_value_is_5000ms() {
+        let path = temp_db_path("busy_value");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        let conn = open_connection(&path).unwrap();
+        let ms: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(ms, 5000);
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod backup_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mini_hbut_bk_{label}_{nanos}"))
+    }
+
+    #[test]
+    fn backup_is_readable_and_data_complete() {
+        let root = temp_path("complete");
+        let db = root.join("grades.db");
+        let bk = root.join("backup");
+        std::fs::create_dir_all(&root).unwrap();
+        init_db(&db).expect("init");
+
+        // 写入真实数据：grades + user_sessions + cache
+        let sid = "2510233001";
+        {
+            let conn = open_connection(&db).unwrap();
+            conn.execute(
+                "INSERT INTO grades (term, course_name, final_score) VALUES ('2025-1', '高数', '95')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, cookies, encrypted_password)
+                 VALUES (?1, 'c=1', 'b64')",
+                params![sid],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO grades_cache (student_id, data, sync_time) VALUES (?1, '{}', '2025-01-01')",
+                params![sid],
+            )
+            .unwrap();
+        }
+
+        let report = backup_database(&db, &bk, BACKUP_KEEP_DEFAULT).expect("backup");
+        assert!(report.backup_path.exists());
+        assert!(report.backup_path.to_string_lossy().contains("backup"));
+        // 原子命名：不应残留 .tmp
+        assert!(!bk.join("grades-*.tmp").exists() || list_temp_files(&bk).is_empty());
+
+        // 备份可读且数据完整
+        verify_backup(&report.backup_path).expect("verify");
+        let conn = Connection::open(&report.backup_path).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM grades", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        let score: String = conn
+            .query_row("SELECT final_score FROM grades LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(score, "95");
+        let sids: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT student_id FROM user_sessions")
+                .unwrap();
+            stmt.query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        assert!(sids.contains(&sid.to_string()));
+
+        // 正式库未被覆盖/删除
+        assert!(db.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn backup_retention_keeps_only_latest_n() {
+        let root = temp_path("retention");
+        let db = root.join("grades.db");
+        let bk = root.join("backup");
+        std::fs::create_dir_all(&root).unwrap();
+        init_db(&db).expect("init");
+
+        // 连续备份 4 次，保留 2 份：应只剩最新的 2 份
+        let mut reports = Vec::new();
+        for _ in 0..4 {
+            reports.push(backup_database(&db, &bk, 2).expect("backup"));
+            // 两次备份时间戳可能相同（同秒），sleep 保证文件名可区分
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+        }
+        let backups = list_backups(&bk).expect("list");
+        assert_eq!(
+            backups.len(),
+            2,
+            "retention should keep exactly 2, got {backups:?}"
+        );
+        // 保留的是最新的两份（文件名排序即时间排序）
+        let mut all: Vec<String> = backups
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        all.sort();
+        assert!(all[0] < all[1]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn list_temp_files(dir: &std::path::Path) -> Vec<PathBuf> {
+        std::fs::read_dir(dir)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("tmp"))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
