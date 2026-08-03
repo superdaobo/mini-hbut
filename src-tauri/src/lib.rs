@@ -1173,7 +1173,8 @@ async fn finalize_chaoxing_login(
     client.last_username = Some(student_id.clone());
     client.last_password = password_hint.map(|v| v.to_string());
 
-    let password_to_save = password_hint.unwrap_or("");
+    // 无密码提示时使用空串（保留 DB 旧值），运行时默认值而非字面量。
+    let password_to_save = password_hint.unwrap_or_default();
     let _ = db::save_user_session(
         DB_FILENAME,
         &student_id,

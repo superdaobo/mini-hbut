@@ -92,16 +92,26 @@ pub fn load_session_password(student_id: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// 运行时构造测试密码，避免在测试源码中固化明文密码学值。
+    fn test_password(label: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{label}-{nanos}")
+    }
 
     #[test]
     fn roundtrip_password_when_keyring_available() {
         let sid = format!("test-{}", uuid_placeholder());
-        let password = "test-pass-123";
-        if save_password(&sid, password).is_err() {
+        let password = test_password("test-pass");
+        if save_password(&sid, &password).is_err() {
             return;
         }
         let loaded = load_password(&sid);
-        if loaded.as_deref() != Some(password) {
+        if loaded.as_deref() != Some(password.as_str()) {
             // 部分 CI/桌面环境密钥环读写不一致，跳过而非失败
             return;
         }
@@ -112,13 +122,13 @@ mod tests {
     #[test]
     fn remembered_credential_falls_back_to_student_id_key() {
         let sid = format!("test-fallback-{}", uuid_placeholder());
-        let password = "fallback-pass-456";
-        if save_password(&sid, password).is_err() {
+        let password = test_password("fallback-pass");
+        if save_password(&sid, &password).is_err() {
             return;
         }
         let account_key = format!("hbut:{}", sid);
         let loaded = load_remembered_credential(&account_key);
-        if loaded.as_deref() != Some(password) {
+        if loaded.as_deref() != Some(password.as_str()) {
             return;
         }
         delete_password(&sid);

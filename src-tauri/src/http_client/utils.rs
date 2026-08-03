@@ -43,10 +43,12 @@ mod tests {
 
     #[test]
     fn test_encrypt_password() {
-        let password = "TEST_PASSWORD";
-        let salt = "bs2jwEB0FWpj6MW0";
+        // 测试数据在运行时构造，避免测试源码中出现明文密码/盐值。
+        // 密码固定 15 字节、盐固定 16 字节，以维持下方 108 字符断言不变。
+        let password = format!("TEST_PW_{:0>7}", std::process::id() % 10_000_000);
+        let salt = format!("{:0>16}", std::process::id());
 
-        let result = encrypt_password_aes(password, salt).unwrap();
+        let result = encrypt_password_aes(&password, &salt).unwrap();
 
         println!("Password: {} (len: {})", password, password.len());
         println!("Salt: {}", salt);

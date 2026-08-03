@@ -79,6 +79,55 @@ describe('update download sources', () => {
     expect(github).toEqual({ label: 'GitHub 源站', tag: 'github' })
   })
 
+  it('rejects disguised hostnames that merely contain the proxy/github marker as substring', () => {
+    const disguised = [
+      `https://github.com.evil.com/releases/download/${tag}/${filename}`,
+      `https://evil.com/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://ghfast.top.evil.com/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://evil-ghfast.top/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://gh-proxy.org.evil.com/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://cdn.gh-proxy.org.evil.com/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://v4.gh-proxy.org.evil.com/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`
+    ]
+
+    for (const url of disguised) {
+      const source = describeUpdateDownloadSource(url, 0)
+      expect(source.tag).not.toMatch(/^proxy\d+$/)
+      expect(source.tag).not.toBe('github')
+      expect(source.tag).not.toBe('edgeone')
+      expect(source.tag).not.toBe('ghpages')
+      expect(source).toEqual({ label: '线路 1', tag: 'line0' })
+    }
+  })
+
+  it('still recognizes genuine github.com and its subdomains as GitHub source', () => {
+    expect(describeUpdateDownloadSource(`https://github.com/superdaobo/mini-hbut/releases/${tag}`))
+      .toEqual({ label: 'GitHub 源站', tag: 'github' })
+    expect(describeUpdateDownloadSource(`https://release.github.com/superdaobo/mini-hbut/${tag}`))
+      .toEqual({ label: 'GitHub 源站', tag: 'github' })
+  })
+
+  it('keeps official CDN detection immune to disguised hostnames', () => {
+    expect(isOfficialDownloadUrl(`https://hbut.6661111.xyz.evil.com/releases/${tag}/${filename}`)).toBe(false)
+    expect(isOfficialDownloadUrl(`https://evil.com/releases/${tag}/${filename}`)).toBe(false)
+    expect(isOfficialDownloadUrl(`https://hbut.6661111.xyz/releases/${tag}/${filename}`)).toBe(true)
+    expect(isOfficialDownloadUrl(`https://superdaobo.github.io/mini-hbut/releases/${tag}/${filename}`)).toBe(true)
+  })
+
+  it('website Download.tsx uses exact hostname matching and keeps no substring includes for source labels', () => {
+    const source = readSource('website/src/sections/Download.tsx')
+
+    expect(source).toContain('const urlHostname =')
+    expect(source).toContain('const isGithubHost =')
+    expect(source).toContain('const looksGithubRelated =')
+    expect(source).toContain("host === 'github.com' || host.endsWith('.github.com')")
+    expect(source).toContain("host === 'ghfast.top'")
+    expect(source).not.toContain("url.includes('github.com')")
+    expect(source).not.toContain("url.includes('ghfast.top')")
+    expect(source).not.toContain("url.includes('hbut.6661111.xyz')")
+    expect(source).not.toContain("url.includes('gh-proxy.com')")
+  })
+
   it('keeps the selected download line instead of rewriting it to the hk proxy', () => {
     const ghfastUrl = `https://ghfast.top/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`
 

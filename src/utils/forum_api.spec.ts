@@ -4,8 +4,10 @@ import { normalizeRemoteConfig } from './remote_config'
 import {
   buildForumApiBase,
   createForumApiClient,
+  loadForumAdminSecret,
   normalizeForumEndpoint,
   readForumProfile,
+  saveForumAdminSecret,
   writeForumProfile
 } from './forum_api'
 
@@ -288,6 +290,7 @@ describe('forum api config', () => {
         bio: '论坛管理员',
         admin_secret: 'local-admin-pass'
       })
+      await saveForumAdminSecret('2510231106', 'local-admin-pass')
       const reloaded = readForumProfile('2510231106')
       const client = createForumApiClient({
         apiBase: 'https://example.com',
@@ -295,13 +298,17 @@ describe('forum api config', () => {
         nickname: profile.nickname,
         avatarUrl: profile.avatar_url,
         bio: profile.bio,
-        adminSecret: reloaded.admin_secret,
+        adminSecret: await loadForumAdminSecret('2510231106'),
         fetcher
       })
 
       await client.listAdminReports({ limit: 1 })
 
-      expect(reloaded.admin_secret).toBe('local-admin-pass')
+      // profile 缓存不再明文回读 admin_secret（CodeQL js/clear-text-storage-of-sensitive-data）
+      expect(reloaded.admin_secret).toBe('')
+      expect(profile.admin_secret).toBeUndefined()
+      const profileRaw = storage.get('hbu_forum_profile:2510231106') || ''
+      expect(profileRaw).not.toContain('local-admin-pass')
       expect(calls[0].url).toBe('https://example.com/api/forum/auth/token')
       expect(calls[0].body).toMatchObject({
         student_id: '2510231106',
@@ -312,6 +319,64 @@ describe('forum api config', () => {
       })
       expect(calls[1].url).toBe('https://example.com/api/forum/admin/reports?limit=1')
       expect(calls[1].body).toBeUndefined()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('stores forum admin secret encrypted and never as plaintext in localStorage', async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) || null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+      key: (index: number) => Array.from(storage.keys())[index] || null,
+      get length() {
+        return storage.size
+      }
+    })
+
+    try {
+      await saveForumAdminSecret('2510231106', 'admin-pass-123')
+      // 密文键存在；设备密钥键（hbu_device_crypto_key_v2）由 encryption.js 首次使用时生成
+      expect(storage.has('hbu_forum_admin_secret:2510231106')).toBe(true)
+      expect(Array.from(storage.keys()).filter((key) => key.startsWith('hbu_forum_'))).toEqual([
+        'hbu_forum_admin_secret:2510231106'
+      ])
+      const raw = storage.get('hbu_forum_admin_secret:2510231106') || ''
+      expect(raw).not.toContain('admin-pass-123')
+      expect(raw.length).toBeGreaterThan(20)
+      // 加密后可读回原值（设备密钥 AES-CBC，encryption.js）
+      await expect(loadForumAdminSecret('2510231106')).resolves.toBe('admin-pass-123')
+
+      // 空值清除密文
+      await saveForumAdminSecret('2510231106', '')
+      expect(storage.has('hbu_forum_admin_secret:2510231106')).toBe(false)
+      await expect(loadForumAdminSecret('2510231106')).resolves.toBe('')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('returns empty admin secret when ciphertext is missing or corrupted', async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) || null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key)
+    })
+
+    try {
+      await expect(loadForumAdminSecret('2510231106')).resolves.toBe('')
+      storage.set('hbu_forum_admin_secret:2510231106', 'not-valid-base64{{{')
+      await expect(loadForumAdminSecret('2510231106')).resolves.toBe('')
+      // 有效 base64 但无法解出 admin_secret 的密文
+      const bogus = await (async () => {
+        const bytes = crypto.getRandomValues(new Uint8Array(32))
+        return btoa(String.fromCharCode(...bytes))
+      })()
+      storage.set('hbu_forum_admin_secret:2510231106', bogus)
+      await expect(loadForumAdminSecret('2510231106')).resolves.toBe('')
     } finally {
       vi.unstubAllGlobals()
     }
