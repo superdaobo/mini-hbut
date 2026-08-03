@@ -325,7 +325,7 @@ describe('forum view identity contract', () => {
     expect(forumSource).toContain("runPending('profile:avatar-upload'")
     expect(forumSource).toContain('client.uploadAttachment(file)')
     expect(forumSource).toContain('profile.value.avatar_url = avatarUrl')
-    expect(forumSource).toContain('adminSecret: profile.value.admin_secret')
+    expect(forumSource).toContain('adminSecret: await loadForumAdminSecret(props.studentId)')
     expect(forumSource).toContain('id="forum-profile-admin-secret"')
     expect(forumSource).toContain('v-model="profile.admin_secret"')
     expect(forumSource).toContain('type="password"')

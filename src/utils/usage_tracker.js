@@ -12,6 +12,19 @@ const STUDENT_ID_RE = /^\d{10}$/
 const toSafeText = (value) => String(value || '').trim()
 const isValidStudentId = (value) => STUDENT_ID_RE.test(toSafeText(value))
 
+// 安全随机十六进制串：优先 crypto.getRandomValues，避免 Math.random 被用于
+// 会话/事件/设备标识（CodeQL js/insecure-randomness）
+const randomHex = (length) => {
+  if (typeof globalThis.crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(Math.ceil(length / 2))
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+      .slice(0, length)
+  }
+  return Math.random().toString(36).slice(2, 2 + length)
+}
+
 let clientMetaCache = null
 let clientMetaCacheAt = 0
 let activeView = { id: '', startedAt: 0 }
@@ -31,7 +44,7 @@ const ensureDeviceId = () => {
     id = ''
   }
   if (!id) {
-    id = `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    id = `device-${Date.now()}-${randomHex(8)}`
   }
   localStorage.setItem(CLOUD_SYNC_DEVICE_ID_KEY, id)
   return id
@@ -44,7 +57,7 @@ const createEventId = () => {
   } catch {
     // ignore
   }
-  return `evt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `evt-${Date.now()}-${randomHex(8)}`
 }
 
 const createSessionId = () => {
@@ -54,7 +67,7 @@ const createSessionId = () => {
   } catch {
     // ignore
   }
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `sess-${Date.now()}-${randomHex(8)}`
 }
 
 const todayKey = () => {

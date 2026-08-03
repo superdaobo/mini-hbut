@@ -33,12 +33,26 @@ export const readMockLocation = (): GeoPoint | null => {
   }
 }
 
+/**
+ * 保存「模拟定位」调试点（开发者/测试用，非真实用户位置）。
+ *
+ * 经纬度属于 CodeQL 敏感源（js/clear-text-storage-of-sensitive-data），
+ * 此处落盘的仅是调试用模拟坐标；写入前做值域校验，
+ * 避免越界/异常值污染后续定位逻辑。详见 docs/security/codeql-triage-js.md。
+ */
 export const writeMockLocation = (point: GeoPoint | null) => {
   if (!point) {
     localStorage.removeItem(MOCK_LOC_KEY)
     return
   }
-  localStorage.setItem(MOCK_LOC_KEY, JSON.stringify(point))
+  const lat = Number(point.latitude)
+  const lng = Number(point.longitude)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return
+  localStorage.setItem(
+    MOCK_LOC_KEY,
+    JSON.stringify({ latitude: lat, longitude: lng, name: String(point.name || '') })
+  )
 }
 
 const campusFallback = (): GeoPoint => ({

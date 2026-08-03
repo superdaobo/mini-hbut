@@ -4,7 +4,9 @@ import { fetchRemoteConfig } from '../utils/remote_config'
 import {
   buildForumApiBase,
   createForumApiClient,
+  loadForumAdminSecret,
   readForumProfile,
+  saveForumAdminSecret,
   writeForumProfile
 } from '../utils/forum_api'
 import { clearForumCache, createForumCache, createForumPendingActions, withForumCache } from '../utils/forum_cache'
@@ -50,6 +52,10 @@ const replyContent = ref('')
 const replyFiles = ref([])
 const threadFiles = ref([])
 const profile = ref(readForumProfile(props.studentId))
+// 管理员口令加密存储在 localStorage（不明文），进入页面时异步恢复以便回填
+loadForumAdminSecret(props.studentId).then((secret) => {
+  if (secret) profile.value.admin_secret = secret
+})
 const meSummary = ref(null)
 const viewedUserProfile = ref(null)
 const viewedProfileLoading = ref(false)
@@ -452,7 +458,7 @@ const buildClient = async () => {
     nickname: profile.value.nickname,
     avatarUrl: profile.value.avatar_url,
     bio: profile.value.bio,
-    adminSecret: profile.value.admin_secret
+    adminSecret: await loadForumAdminSecret(props.studentId)
   })
   forumCache = createForumCache({
     studentId: props.studentId || 'guest',
@@ -856,6 +862,8 @@ const reportThread = async (thread) => {
 }
 
 const saveProfile = async () => {
+  // 管理员口令单独加密存储，profile 缓存不再包含明文（CodeQL js/clear-text-storage-of-sensitive-data）
+  await saveForumAdminSecret(props.studentId, profile.value.admin_secret)
   profile.value = writeForumProfile(props.studentId, profile.value)
   client = null
   forumCache = null
@@ -961,6 +969,9 @@ watch(
   async (nextStudentId, previousStudentId) => {
     if (String(nextStudentId || '').trim() === String(previousStudentId || '').trim()) return
     profile.value = readForumProfile(props.studentId)
+    loadForumAdminSecret(props.studentId).then((secret) => {
+      if (secret) profile.value.admin_secret = secret
+    })
     avatarUploadStatus.value = ''
     client = null
     forumCache = null
