@@ -78,6 +78,16 @@ jobs:
           echo "Resolved previous stable tag: ${PREVIOUS_TAG:-<none>}"
 
           NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          # 优先使用仓库内手写的发布说明 RELEASE_v<版本>.md（如 RELEASE_v1.4.6.md），
+          # 存在则直接作为 Release body；不存在才自动生成 Changed Files 列表
+          REPO_NOTES="RELEASE_v${CURRENT_TAG#v}.md"
+          if [ -f "$REPO_NOTES" ]; then
+            echo "Using repository release notes: ${REPO_NOTES}"
+            cp "$REPO_NOTES" "$NOTES_FILE"
+            echo "body_path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+            echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           {
             echo "## Changed Files"
             echo
