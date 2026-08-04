@@ -2406,11 +2406,12 @@ mod phase4_secret_migration_tests {
         let cookies = test_secret("cookie");
         let access_token = test_secret("access");
         let refresh_token = test_secret("refresh");
+        let password = String::new();
         save_user_session(
             &path,
             sid,
             &cookies,
-            "",
+            &password,
             &access_token,
             Some(&refresh_token),
             Some("2099-01-01T00:00:00Z"),

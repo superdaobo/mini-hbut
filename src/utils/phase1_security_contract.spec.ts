@@ -55,6 +55,14 @@ describe('phase one security boundaries', () => {
     expect(moreDocs).not.toContain('/fetch_schedule')
   })
 
+  it('keeps aggregated debug logs in memory and clears legacy persisted logs', () => {
+    const logger = read('src/utils/debug_logger.ts')
+
+    expect(logger).not.toContain('localStorage.setItem(STORAGE_KEY')
+    expect(logger).toContain('localStorage.removeItem(STORAGE_KEY)')
+    expect(logger).toContain('const persistLogs = () => {}')
+  })
+
   it('enables CSP and uses an explicit notification capability set', () => {
     const tauri = readJson<{ app: { security: { csp: string | null } } }>('src-tauri/tauri.conf.json')
     const capability = readJson<{ permissions: string[] }>('src-tauri/capabilities/main.json')
