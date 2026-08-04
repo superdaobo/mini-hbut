@@ -28,7 +28,7 @@
 
 ### 2.2 Capacitor BackgroundFetch（JS 调度）
 
-**入口**：`src/utils/background_fetch.js`  
+**入口**：`src/utils/background_fetch.ts`
 **挂载**：`src/main.ts` → `initBackgroundFetchScheduler` → `runNotificationCheck` + `runCampusNetworkAutoLogin`
 
 关键参数（`BackgroundFetch.configure`）：
@@ -55,7 +55,7 @@ Android 额外 `scheduleTask`：
 
 ### 2.3 业务检查链（前台/WebView 存活时）
 
-**`src/utils/notify_center.js`**
+**`src/utils/notify_center.runtime.js`**
 
 | 能力 | 行为 |
 |------|------|
