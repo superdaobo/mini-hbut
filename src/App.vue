@@ -1,11 +1,14 @@
 <script setup>
 import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount, defineAsyncComponent } from 'vue'
+import { storeToRefs } from 'pinia'
 import axios from 'axios'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import DemoModeBanner from './components/DemoModeBanner.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
+import AppShell from './shell/AppShell.vue'
+import { useAuthStore, useLifecycleStore, useNavigationStore } from './stores'
 import { fetchWithCache, getStaleCachedData, setCachedData, clearUserScopedCaches, clearCacheByPrefix } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
@@ -218,7 +221,7 @@ const IOS_RELOAD_MIN_INTERVAL_MS = 60 * 1000
 const isIOSLike = detectIOSLike()
 const isAndroidLike = detectAndroidLike()
 const isDesktopLike = detectDesktopLike()
-let hiddenAt = 0
+const lifecycleStore = useLifecycleStore()
 let unlistenCloseRequested = null
 let isClosingByUser = false
 let viewportResizeRaf = 0
@@ -458,11 +461,16 @@ const repairModuleHostSession = async (payload) => {
   }
 }
 
-// 视图状态: home, schedule, me, grades...
-const currentView = ref(initialView)
-const activeTab = ref(initialTab)
+// 视图、Tab、模块与方向由 Pinia 提供单一真相；保留原变量名以渐进迁移模板。
+const navigationStore = useNavigationStore()
+navigationStore.applySnapshot({
+  view: initialView,
+  tab: initialTab,
+  module: initialModule,
+  direction: 'replace'
+})
+const { currentView, activeTab, currentModule, navDirection } = storeToRefs(navigationStore)
 // 视图切换方向（iOS 风格：前进 slide-up / 返回 slide-down / replace 淡入）
-const navDirection = ref('forward')
 // 视图过渡 class：按方向切换
 // - back → module-fade-back-*（下滑返回）
 // - forward → module-fade-fwd-*（上滑前进）
@@ -497,9 +505,9 @@ const viewTransitionLeaveTo = computed(() =>
       : undefined
 )
 const gradeData = ref([])
-const studentId = ref(String(initialRouteSnapshot?.sid || '').trim())
-const userUuid = ref('')
-const currentModule = ref(initialModule)
+const authStore = useAuthStore()
+authStore.hydrate({ studentId: String(initialRouteSnapshot?.sid || '').trim(), userUuid: '' })
+const { studentId, userUuid, isLoggedIn } = storeToRefs(authStore)
 const moduleHostSession = ref(readModuleHostSession())
 const viewRenderNonce = ref(0)
 const showWorkspaceLayoutEditor = ref(false)
@@ -667,7 +675,6 @@ if (currentView.value === 'more_module_host' && !moduleHostSession.value.preview
 const savedLoginMode = String(localStorage.getItem(LOGIN_METHOD_VIEW_KEY) || '').trim()
 const loginMode = ref(savedLoginMode && savedLoginMode !== 'auto' ? savedLoginMode : 'portal_password')
 
-const isLoggedIn = computed(() => !!studentId.value)
 const configAdminIds = computed(() => {
   const ids = remoteConfig.value?.config_admin_ids
   const merged = new Set(Array.isArray(ids) ? ids : [])
@@ -1475,8 +1482,7 @@ const handleAppResume = (source = 'visibilitychange') => {
   // 合并 visibility/pageshow/focus 连发，降低恢复路径重入
   if (now - lastResumeHandledAt < 320) return
   lastResumeHandledAt = now
-  const idle = hiddenAt ? now - hiddenAt : 0
-  hiddenAt = 0
+  const idle = lifecycleStore.consumeHiddenDuration(now)
   const snapshot = resumePendingSnapshot || readWindowRouteSnapshot() || collectCurrentViewSnapshot()
   resumePendingSnapshot = null
   scheduleViewportUpdate()
@@ -1544,7 +1550,7 @@ const recoverEmbeddedWebAfterResume = async (targetView, idleMs = 0) => {
 
 const handleVisibilityChange = () => {
   if (document.hidden) {
-    hiddenAt = Date.now()
+    lifecycleStore.markHidden(Date.now())
     resumePendingSnapshot = readWindowRouteSnapshot() || collectCurrentViewSnapshot()
     return
   }
@@ -3632,6 +3638,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <AppShell :view="currentView" :student-id="studentId" :logged-in="isLoggedIn">
   <!-- 启动画面 -->
   <SplashScreen
     v-if="showSplash"
@@ -4211,6 +4218,7 @@ onBeforeUnmount(() => {
     @close="closeWorkspaceLayoutEditor"
   />
   <Toast />
+  </AppShell>
 </template>
 
 <style scoped>

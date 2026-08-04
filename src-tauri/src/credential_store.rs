@@ -3,6 +3,7 @@
 //! 移动端若密钥环不可用，密码不落库，依赖 cookie 会话恢复。
 
 const SERVICE: &str = "mini-hbut";
+const SECRET_KEY_PREFIX: &str = "secret-envelope:";
 
 /// SQLite `encrypted_password` 列中标识「密码在密钥环」的占位值。
 pub const KEYRING_MARKER: &str = "__keyring__";
@@ -37,6 +38,58 @@ pub fn delete_password(student_id: &str) {
     if let Ok(entry) = keyring::Entry::new(SERVICE, sid) {
         let _ = entry.delete_credential();
     }
+}
+
+/// 返回账户级敏感字段主密钥。密钥只保存在系统密钥环，SQLite 不保存副本。
+pub fn load_or_create_secret_key(student_id: &str) -> Result<[u8; 32], String> {
+    use base64::{engine::general_purpose, Engine as _};
+    use rand::RngCore;
+
+    let sid = student_id.trim();
+    if sid.is_empty() || sid.len() > 128 {
+        return Err("学号无效".to_string());
+    }
+    let account = format!("{SECRET_KEY_PREFIX}{sid}");
+    if let Some(encoded) = load_password(&account) {
+        if let Ok(bytes) = general_purpose::STANDARD.decode(encoded) {
+            if let Ok(key) = <[u8; 32]>::try_from(bytes.as_slice()) {
+                return Ok(key);
+            }
+        }
+        return Err("密钥环中的敏感字段主密钥格式无效".to_string());
+    }
+
+    let mut key = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut key);
+    save_password(&account, &general_purpose::STANDARD.encode(key))?;
+    let stored =
+        load_password(&account).ok_or_else(|| "敏感字段主密钥写入后无法读取".to_string())?;
+    let bytes = general_purpose::STANDARD
+        .decode(stored)
+        .map_err(|_| "敏感字段主密钥解码失败".to_string())?;
+    <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| "敏感字段主密钥长度无效".to_string())
+}
+
+/// 只读取既有敏感字段主密钥；不会静默创建。
+pub fn load_secret_key(student_id: &str) -> Option<[u8; 32]> {
+    use base64::{engine::general_purpose, Engine as _};
+
+    let sid = student_id.trim();
+    if sid.is_empty() || sid.len() > 128 {
+        return None;
+    }
+    let encoded = load_password(&format!("{SECRET_KEY_PREFIX}{sid}"))?;
+    let bytes = general_purpose::STANDARD.decode(encoded).ok()?;
+    <[u8; 32]>::try_from(bytes.as_slice()).ok()
+}
+
+/// 忘记账号时同时删除其敏感字段主密钥，保证多用户隔离与不可恢复删除。
+pub fn delete_secret_key(student_id: &str) {
+    let sid = student_id.trim();
+    if sid.is_empty() {
+        return;
+    }
+    delete_password(&format!("{SECRET_KEY_PREFIX}{sid}"));
 }
 
 /// 校验前端「记住密码」账户键（`hbut:` 学号 / `cx:` 学习通 / `campus:` 校园网）。
@@ -116,6 +169,7 @@ mod tests {
             return;
         }
         delete_password(&sid);
+        delete_secret_key(&sid);
         assert!(load_password(&sid).is_none());
     }
 

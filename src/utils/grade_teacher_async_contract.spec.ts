@@ -29,7 +29,7 @@ describe('grade teacher async enrichment contract', () => {
     const source = readText('src-tauri/src/lib.rs')
     const serviceSource = readText('src-tauri/src/grade/service.rs')
     const appSource = readText('src/App.vue')
-    const adapterSource = readText('src/utils/axios_adapter.js')
+    const adapterSource = readText('src/utils/axios_adapter.ts')
 
     expect(source).toContain('async fn get_grade_teacher_cache')
     expect(source).toContain('async fn sync_grade_teachers_current_semester')
@@ -52,7 +52,7 @@ describe('grade teacher async enrichment contract', () => {
     const source = readText('src-tauri/src/lib.rs')
     const serviceSource = readText('src-tauri/src/grade/service.rs')
     const appSource = readText('src/App.vue')
-    const adapterSource = readText('src/utils/axios_adapter.js')
+    const adapterSource = readText('src/utils/axios_adapter.ts')
 
     expect(source).toContain('current_only.unwrap_or(false)')
     expect(serviceSource).toContain('let enrichment = if !current_only')

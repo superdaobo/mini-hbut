@@ -3,6 +3,68 @@ import { isTestAccountSession } from './test_account.js'
 import { resolveTestAccountCachePayload } from './test_account_fixtures.js'
 import { withTimeout } from './fetch_timeout.js'
 
+
+export interface CacheEnvelope<T = unknown> {
+  data: T
+  timestamp: number
+}
+
+export interface CacheResult<T = unknown> {
+  data: T
+  fromCache: boolean
+  timestamp: number
+  stale?: boolean
+  demo?: boolean
+}
+
+export interface FetchWithCacheOptions {
+  staleWhileRevalidate?: boolean
+  priority?: string
+  forceRemote?: boolean
+  timeoutMs?: number
+  cacheOfflinePayload?: boolean
+}
+
+export interface ApiPayload extends Record<string, unknown> {
+  success?: boolean
+  offline?: boolean
+  error?: unknown
+  msg?: unknown
+  message?: unknown
+  sync_time?: unknown
+}
+
+interface InvalidationPayload {
+  id?: string
+  prefixes?: string[]
+  at?: number
+}
+
+interface RequestMetricOptions {
+  source?: string
+  start?: number
+  stale?: boolean
+  priority?: string
+  error?: unknown
+}
+
+interface MaintenanceEventExtra {
+  detail?: string
+  phase?: string
+  error?: string
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+
+const errorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message
+  if (isRecord(error) && typeof error.message === 'string') return error.message
+  return String(error ?? '')
+}
+
+const asApiPayload = (value: unknown): ApiPayload => (isRecord(value) ? value : {})
+
 const DEFAULT_TTL = 5 * 60 * 1000
 const LONG_TTL = 3 * 24 * 60 * 60 * 1000
 const EXTRA_LONG_TTL = 7 * 24 * 60 * 60 * 1000
@@ -41,10 +103,10 @@ const JWXT_KEY_PREFIXES = [
   'student_login_access:'
 ]
 
-const memoryCache = new Map()
+const memoryCache = new Map<string, CacheEnvelope<unknown>>()
 
-const isQuotaExceededError = (error) => {
-  const message = String(error?.message || error || '').toLowerCase()
+const isQuotaExceededError = (error: unknown): boolean => {
+  const message = errorMessage(error).toLowerCase()
   return (
     message.includes('quota') ||
     message.includes('exceeded the quota') ||
@@ -53,7 +115,7 @@ const isQuotaExceededError = (error) => {
   )
 }
 
-const shouldPersistToLocalStorage = (key, payloadText) => {
+const shouldPersistToLocalStorage = (key: unknown, payloadText: string): boolean => {
   const text = String(key || '')
   // 空教室已由后端 SQLite 缓存，前端不再落 localStorage，避免配额被高频查询打满。
   if (text.startsWith('classroom:')) return false
@@ -65,15 +127,15 @@ const shouldPersistToLocalStorage = (key, payloadText) => {
   return payloadText.length <= MAX_LOCAL_CACHE_VALUE_BYTES
 }
 
-const shouldPersistTestAccountPayload = (key) => {
+const shouldPersistTestAccountPayload = (key: unknown): boolean => {
   const text = String(key || '').trim()
   if (text === 'semesters') return false
   if (text.startsWith('classroom:')) return false
   return true
 }
 
-const collectCacheEntries = () => {
-  const entries = []
+const collectCacheEntries = (): Array<{ storageKey: string; timestamp: number }> => {
+  const entries: Array<{ storageKey: string; timestamp: number }> = []
   for (let i = 0; i < localStorage.length; i += 1) {
     const storageKey = localStorage.key(i)
     if (!storageKey || !storageKey.startsWith('cache:')) continue
@@ -92,7 +154,7 @@ const collectCacheEntries = () => {
   return entries
 }
 
-const trimLocalCacheStorage = (count = 24) => {
+const trimLocalCacheStorage = (count = 24): void => {
   const entries = collectCacheEntries()
   if (!entries.length) return
   const removeCount = Math.min(count, entries.length)
@@ -104,19 +166,19 @@ const trimLocalCacheStorage = (count = 24) => {
   }
 }
 
-const enforceLocalCacheCountLimit = () => {
+const enforceLocalCacheCountLimit = (): void => {
   const entries = collectCacheEntries()
   const overflow = entries.length - MAX_LOCAL_CACHE_ENTRIES
   if (overflow <= 0) return
   trimLocalCacheStorage(overflow)
 }
 
-export function getCacheKey(key) {
+export function getCacheKey(key: unknown): string {
   return `cache:${key}`
 }
 
 // 仅清理本实例缓存（内存 + localStorage），不触发广播；广播统一走 broadcastCacheInvalidation。
-const clearLocalCacheByPrefix = (prefix) => {
+const clearLocalCacheByPrefix = (prefix: unknown): void => {
   const pref = String(prefix || '')
   if (!pref) return
   for (const key of memoryCache.keys()) {
@@ -125,7 +187,7 @@ const clearLocalCacheByPrefix = (prefix) => {
     }
   }
 
-  const keysToRemove = []
+  const keysToRemove: string[] = []
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i)
     if (key && key.startsWith(`cache:${pref}`)) {
@@ -139,24 +201,25 @@ const clearLocalCacheByPrefix = (prefix) => {
 // 同一源下的多标签页共享 localStorage：写入哨兵键会触发其他标签页的 storage 事件；
 // 同实例内用 CustomEvent 通知。监听方只清理内存缓存、绝不回写存储，天然避免广播循环。
 let invalidationListenerInstalled = false
-const recentInvalidationIds = new Set()
+const recentInvalidationIds = new Set<string>()
 const MAX_RECENT_INVALIDATION_IDS = 64
 
-const createInvalidationId = () => {
+const createInvalidationId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
   }
   return `inv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-const pruneRecentInvalidationIds = () => {
+const pruneRecentInvalidationIds = (): void => {
   while (recentInvalidationIds.size > MAX_RECENT_INVALIDATION_IDS) {
     const oldest = recentInvalidationIds.values().next().value
-    recentInvalidationIds.delete(oldest)
+    if (oldest) recentInvalidationIds.delete(oldest)
   }
 }
 
-const applyInvalidationPayload = (payload) => {
+const applyInvalidationPayload = (payload: unknown): void => {
+  if (!isRecord(payload)) return
   if (!payload || !Array.isArray(payload?.prefixes)) return
   const id = String(payload?.id || '')
   if (id) {
@@ -171,7 +234,7 @@ const applyInvalidationPayload = (payload) => {
   }
 }
 
-const handleInvalidationStorageEvent = (event) => {
+const handleInvalidationStorageEvent = (event: StorageEvent): void => {
   if (!event || event.key !== CACHE_INVALIDATION_STORAGE_KEY) return
   try {
     applyInvalidationPayload(JSON.parse(event.newValue || 'null'))
@@ -180,19 +243,19 @@ const handleInvalidationStorageEvent = (event) => {
   }
 }
 
-const ensureInvalidationListener = () => {
+const ensureInvalidationListener = (): void => {
   if (invalidationListenerInstalled || typeof window === 'undefined') return
   invalidationListenerInstalled = true
   window.addEventListener('storage', handleInvalidationStorageEvent)
-  window.addEventListener(CACHE_INVALIDATION_EVENT, (event) => {
-    applyInvalidationPayload(event?.detail)
+  window.addEventListener(CACHE_INVALIDATION_EVENT, (event: Event) => {
+    applyInvalidationPayload((event as CustomEvent<InvalidationPayload>).detail)
   })
 }
 
 // 模块加载即监听跨实例失效广播，确保任何实例（即使从未主动清理过）都能收到其他标签页的清理事件。
 ensureInvalidationListener()
 
-const broadcastCacheInvalidation = (prefixes) => {
+const broadcastCacheInvalidation = (prefixes: readonly string[]): void => {
   ensureInvalidationListener()
   const uniquePrefixes = [...new Set(prefixes.map(String).filter(Boolean))]
   if (!uniquePrefixes.length) return
@@ -213,7 +276,7 @@ const broadcastCacheInvalidation = (prefixes) => {
 }
 
 // 清除指定前缀的缓存（本地清理 + 跨实例广播）
-export function clearCacheByPrefix(prefix) {
+export function clearCacheByPrefix(prefix: unknown): void {
   const pref = String(prefix || '')
   if (!pref) return
   clearLocalCacheByPrefix(pref)
@@ -223,11 +286,11 @@ export function clearCacheByPrefix(prefix) {
 /**
  * 清除指定学号的教务/课表等用户级缓存（退出登录时调用）。
  */
-export function clearUserScopedCaches(studentId) {
+export function clearUserScopedCaches(studentId: unknown): void {
   const sid = String(studentId || '').trim()
   if (!sid) return
 
-  const prefixes = []
+  const prefixes: string[] = []
   for (const prefix of JWXT_KEY_PREFIXES) {
     if (prefix === 'semesters') continue
     prefixes.push(`${prefix}${sid}`)
@@ -243,11 +306,11 @@ export function clearUserScopedCaches(studentId) {
   broadcastCacheInvalidation(prefixes)
 }
 
-export function getCachedData(key, ttl = DEFAULT_TTL) {
+export function getCachedData<T = unknown>(key: string, ttl = DEFAULT_TTL): CacheResult<T> | null {
   const now = Date.now()
-  const inMemory = memoryCache.get(key)
+  const inMemory = memoryCache.get(key) as CacheEnvelope<T> | undefined
   if (inMemory && now - inMemory.timestamp < ttl) {
-    if (inMemory.data?.offline) {
+    if (asApiPayload(inMemory.data).offline) {
       return null
     }
     return { data: inMemory.data, fromCache: true, timestamp: inMemory.timestamp }
@@ -257,9 +320,9 @@ export function getCachedData(key, ttl = DEFAULT_TTL) {
   if (!raw) return null
 
   try {
-    const parsed = JSON.parse(raw)
+    const parsed = JSON.parse(raw) as CacheEnvelope<T>
     if (parsed && now - parsed.timestamp < ttl) {
-      if (parsed.data?.offline) {
+      if (asApiPayload(parsed.data).offline) {
         return null
       }
       memoryCache.set(key, parsed)
@@ -272,8 +335,8 @@ export function getCachedData(key, ttl = DEFAULT_TTL) {
   return null
 }
 
-const getAnyCachedEntry = (key) => {
-  const inMemory = memoryCache.get(key)
+const getAnyCachedEntry = <T = unknown>(key: string): CacheEnvelope<T> | null => {
+  const inMemory = memoryCache.get(key) as CacheEnvelope<T> | undefined
   if (inMemory?.data) {
     return { data: inMemory.data, timestamp: Number(inMemory.timestamp) || Date.now() }
   }
@@ -281,7 +344,7 @@ const getAnyCachedEntry = (key) => {
   const raw = localStorage.getItem(getCacheKey(key))
   if (!raw) return null
   try {
-    const parsed = JSON.parse(raw)
+    const parsed = JSON.parse(raw) as CacheEnvelope<T>
     if (!parsed?.data) return null
     return { data: parsed.data, timestamp: Number(parsed.timestamp) || Date.now() }
   } catch {
@@ -289,20 +352,20 @@ const getAnyCachedEntry = (key) => {
   }
 }
 
-const isScheduleSemesterScopedKey = (key) => {
+const isScheduleSemesterScopedKey = (key: unknown): boolean => {
   const text = String(key || '').trim()
   if (!text) return false
   return /^schedule:[^:]+:[^:]+$/.test(text)
 }
 
-const deriveFallbackPrefixes = (key) => {
+const deriveFallbackPrefixes = (key: unknown): string[] => {
   const text = String(key || '').trim()
   if (!text) return []
   // 学期维度课表缓存禁止跨前缀回退，避免切换学期时被其他学期缓存污染。
   if (isScheduleSemesterScopedKey(text)) {
     return [text]
   }
-  const prefixes = new Set([text])
+  const prefixes = new Set<string>([text])
 
   const jsonIndex = text.indexOf(':{')
   if (jsonIndex > 0) {
@@ -318,17 +381,17 @@ const deriveFallbackPrefixes = (key) => {
   return [...prefixes]
 }
 
-const getAnyCachedEntryByPrefix = (prefix) => {
+const getAnyCachedEntryByPrefix = <T = unknown>(prefix: unknown): CacheEnvelope<T> | null => {
   const pref = String(prefix || '').trim()
   if (!pref) return null
-  let latest = null
+  let latest: CacheEnvelope<T> | null = null
 
   for (const [key, value] of memoryCache.entries()) {
     if (key === pref || key.startsWith(`${pref}:`)) {
       const timestamp = Number(value?.timestamp) || 0
       if (!latest || timestamp > latest.timestamp) {
         latest = {
-          data: value?.data,
+          data: value?.data as T,
           timestamp: timestamp || Date.now()
         }
       }
@@ -345,7 +408,7 @@ const getAnyCachedEntryByPrefix = (prefix) => {
     const raw = localStorage.getItem(storageKey)
     if (!raw) continue
     try {
-      const parsed = JSON.parse(raw)
+      const parsed = JSON.parse(raw) as CacheEnvelope<T>
       if (!parsed?.data) continue
       const timestamp = Number(parsed.timestamp) || 0
       if (!latest || timestamp > latest.timestamp) {
@@ -362,21 +425,21 @@ const getAnyCachedEntryByPrefix = (prefix) => {
   return latest
 }
 
-const getBestCachedEntry = (key) => {
-  const exact = getAnyCachedEntry(key)
+const getBestCachedEntry = <T = unknown>(key: string): CacheEnvelope<T> | null => {
+  const exact = getAnyCachedEntry<T>(key)
   if (exact) return exact
 
   const prefixes = deriveFallbackPrefixes(key)
   for (const prefix of prefixes) {
-    const hit = getAnyCachedEntryByPrefix(prefix)
+    const hit = getAnyCachedEntryByPrefix<T>(prefix)
     if (hit) return hit
   }
 
   return null
 }
 
-export function getStaleCachedData(key) {
-  const stale = getBestCachedEntry(key)
+export function getStaleCachedData<T = unknown>(key: string): CacheResult<T> | null {
+  const stale = getBestCachedEntry<T>(key)
   if (!stale) return null
   return {
     data: withOfflineMeta(stale.data, stale.timestamp),
@@ -386,23 +449,24 @@ export function getStaleCachedData(key) {
   }
 }
 
-const withOfflineMeta = (data, timestamp) => {
+const withOfflineMeta = <T>(data: T, timestamp: number): T => {
   if (!data || typeof data !== 'object') {
     return {
       success: true,
       data,
       offline: true,
       sync_time: new Date(timestamp).toISOString()
-    }
+    } as unknown as T
   }
+  const record = data as T & Record<string, unknown>
   return {
-    ...data,
+    ...record,
     offline: true,
-    sync_time: data.sync_time || new Date(timestamp).toISOString()
-  }
+    sync_time: record.sync_time || new Date(timestamp).toISOString()
+  } as T
 }
 
-export function setCachedData(key, data) {
+export function setCachedData<T>(key: string, data: T): void {
   const payload = { data, timestamp: Date.now() }
   memoryCache.set(key, payload)
   let payloadText = ''
@@ -440,12 +504,12 @@ export function setCachedData(key, data) {
   }
 }
 
-const isJwxtCacheKey = (key) => {
+const isJwxtCacheKey = (key: unknown): boolean => {
   const text = String(key || '')
   return JWXT_KEY_PREFIXES.some((prefix) => text.startsWith(prefix))
 }
 
-const looksLikeMaintenanceIssue = (message) => {
+const looksLikeMaintenanceIssue = (message: unknown): boolean => {
   const text = String(message || '').toLowerCase()
   if (!text) return false
   // “无课表/假期”属于业务态，不应触发教务维护模式。
@@ -472,10 +536,12 @@ const looksLikeMaintenanceIssue = (message) => {
 }
 
 // 401/403 或会话失效类错误：不判维护、不回退缓存，直接交给上层处理登录态。
-const isSessionInvalidError = (error) => {
-  const status = Number(error?.response?.status ?? error?.status ?? error?.statusCode ?? 0)
+const isSessionInvalidError = (error: unknown): boolean => {
+  const record = isRecord(error) ? error : {}
+  const response = isRecord(record.response) ? record.response : {}
+  const status = Number(response.status ?? record.status ?? record.statusCode ?? 0)
   if (status === 401 || status === 403) return true
-  const text = String(error?.message ?? error ?? '').toLowerCase()
+  const text = errorMessage(error).toLowerCase()
   if (!text) return false
   if (/(^|\D)(401|403)(\D|$)/.test(text)) return true
   return /(未登录|登录((已)?过期|超时)|会话((已)?过期|超时|失效)|登录失效|凭证(失效|过期)|token.*(失效|过期|invalid)|session\s+(timed out|timeout|expired|invalid)|unauthorized|forbidden)/.test(
@@ -483,7 +549,7 @@ const isSessionInvalidError = (error) => {
   )
 }
 
-const emitMaintenanceEvent = (active, hint = '', extra = {}) => {
+const emitMaintenanceEvent = (active: unknown, hint = '', extra: MaintenanceEventExtra = {}): void => {
   if (typeof window === 'undefined') return
   window.dispatchEvent(
     new CustomEvent(JWXT_MAINTENANCE_EVENT, {
@@ -500,7 +566,7 @@ const emitMaintenanceEvent = (active, hint = '', extra = {}) => {
 }
 
 // 读取当前连续失败计数（滑动窗口：超过窗口时长未再失败则视为重新计数）。
-const readFailureState = () => {
+const readFailureState = (): number => {
   let count = 0
   let lastFailAt = 0
   try {
@@ -513,7 +579,7 @@ const readFailureState = () => {
   return count
 }
 
-const persistFailureState = (count) => {
+const persistFailureState = (count: number): void => {
   try {
     localStorage.setItem(JWXT_MAINTENANCE_FAIL_COUNT_KEY, String(count))
     localStorage.setItem(JWXT_MAINTENANCE_FAIL_TIME_KEY, String(Date.now()))
@@ -523,18 +589,18 @@ const persistFailureState = (count) => {
 }
 
 // 记录一次教务请求失败：达到连续失败阈值才置位维护模式；返回是否已进入维护模式。
-const recordJwxtFailure = (error, hint = '') => {
+const recordJwxtFailure = (error: unknown, hint = ''): boolean => {
   const next = readFailureState() + 1
   persistFailureState(next)
   if (next >= MAINTENANCE_FAILURE_THRESHOLD) {
-    setMaintenanceFlag(hint || String(error?.message || error || ''))
+    setMaintenanceFlag(hint || String(errorMessage(error) || ''))
     return true
   }
   return false
 }
 
 // 维护模式退避：置位后 MAINTENANCE_BACKOFF_MS 内不再发起后台静默刷新，避免持续打后端。
-const isMaintenanceBackoffActive = () => {
+const isMaintenanceBackoffActive = (): boolean => {
   try {
     if (localStorage.getItem(JWXT_MAINTENANCE_KEY) !== '1') return false
     const lastFailAt = Number(localStorage.getItem(JWXT_MAINTENANCE_FAIL_TIME_KEY)) || 0
@@ -544,7 +610,7 @@ const isMaintenanceBackoffActive = () => {
   }
 }
 
-const setMaintenanceFlag = (hint = '', extra = {}) => {
+const setMaintenanceFlag = (hint = '', extra: MaintenanceEventExtra = {}): void => {
   try {
     localStorage.setItem(JWXT_MAINTENANCE_KEY, '1')
     localStorage.setItem(JWXT_MAINTENANCE_TIME_KEY, String(Date.now()))
@@ -561,7 +627,7 @@ const setMaintenanceFlag = (hint = '', extra = {}) => {
   )
 }
 
-const clearMaintenanceFlag = () => {
+const clearMaintenanceFlag = (): void => {
   try {
     localStorage.removeItem(JWXT_MAINTENANCE_KEY)
     localStorage.removeItem(JWXT_MAINTENANCE_TIME_KEY)
@@ -582,9 +648,9 @@ export const DEFAULT_SWR_OPTIONS = {
   priority: 'foreground'
 }
 
-const backgroundRefreshInflight = new Map()
+const backgroundRefreshInflight = new Map<string, Promise<void>>()
 
-const recordRequestMetric = (key, { source, start, stale = false, priority = 'foreground', error = '' } = {}) => {
+const recordRequestMetric = (key: string, { source = 'unknown', start = Date.now(), stale = false, priority = 'foreground', error = '' }: RequestMetricOptions = {}): void => {
   try {
     pushDebugLog('Cache', `请求缓存指标 key=${key} source=${source}`, 'debug', {
       key: String(key || ''),
@@ -599,7 +665,7 @@ const recordRequestMetric = (key, { source, start, stale = false, priority = 'fo
   }
 }
 
-const refreshCacheInBackground = async (key, fetcher, priority) => {
+const refreshCacheInBackground = async <T extends ApiPayload>(key: string, fetcher: () => Promise<T>, priority: string): Promise<void> => {
   if (backgroundRefreshInflight.has(key)) {
     return backgroundRefreshInflight.get(key)
   }
@@ -618,7 +684,7 @@ const refreshCacheInBackground = async (key, fetcher, priority) => {
           source: 'remote',
           start,
           priority,
-          error: data?.error || data?.msg || data?.message || 'unsuccessful-response'
+          error: asApiPayload(data).error || asApiPayload(data).msg || asApiPayload(data).message || 'unsuccessful-response'
         })
       }
     } catch (error) {
@@ -626,7 +692,7 @@ const refreshCacheInBackground = async (key, fetcher, priority) => {
         source: 'remote',
         start,
         priority,
-        error: error?.message || error
+        error: errorMessage(error)
       })
     }
   })().finally(() => {
@@ -636,19 +702,24 @@ const refreshCacheInBackground = async (key, fetcher, priority) => {
   return task
 }
 
-const cacheDebug = (message, detail) => {
+const cacheDebug = (message: unknown, detail?: unknown): void => {
   if (import.meta.env?.DEV) {
     console.log(message, detail ?? '')
   }
 }
 
-export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = {}) {
+export async function fetchWithCache<T extends ApiPayload>(
+  key: string,
+  fetcher: () => Promise<T>,
+  ttl: number | FetchWithCacheOptions = DEFAULT_TTL,
+  options: FetchWithCacheOptions = {}
+): Promise<CacheResult<T>> {
   cacheDebug('[Cache] Checking cache for key:', key)
   if (ttl && typeof ttl === 'object') {
     options = ttl
     ttl = DEFAULT_TTL
   }
-  const requestOptions = options || {}
+  const requestOptions: FetchWithCacheOptions = options || {}
   const priority = requestOptions.priority || 'foreground'
   const staleWhileRevalidate = !!requestOptions.staleWhileRevalidate
   const forceRemote = !!requestOptions.forceRemote
@@ -656,7 +727,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   // 超时抛 TimeoutError（语义与 fetchWithTimeout 一致），随后走 stale 回退/维护模式兜底。
   // 未配置时保持原 fetcher 引用，兼容现有调用方签名与行为。
   const timeoutMs = Number(requestOptions.timeoutMs)
-  const remoteFetcher =
+  const remoteFetcher: () => Promise<T> =
     Number.isFinite(timeoutMs) && timeoutMs > 0
       ? withTimeout(fetcher, timeoutMs, `fetchWithCache:${key}`)
       : fetcher
@@ -669,14 +740,14 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
     }
     recordRequestMetric(key, { source: 'test-account-cache', start: Date.now(), priority })
     return {
-      data: testAccountPayload,
+      data: testAccountPayload as T,
       fromCache: true,
       timestamp: Date.now(),
       demo: true
     }
   }
   const maintenanceMode = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
-  const cached = forceRemote ? null : getCachedData(key, ttl)
+  const cached = forceRemote ? null : getCachedData<T>(key, Number(ttl))
 
   if (cached) {
     cacheDebug('[Cache] Cache HIT for key:', key)
@@ -694,7 +765,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   }
 
   if (!forceRemote && maintenanceMode) {
-    const stale = getBestCachedEntry(key)
+    const stale = getBestCachedEntry<T>(key)
     if (stale) {
       cacheDebug('[Cache] Maintenance mode stale HIT for key:', key)
       recordRequestMetric(key, { source: 'stale-cache', start: Date.now(), stale: true, priority })
@@ -708,7 +779,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   }
 
   if (staleWhileRevalidate) {
-    const stale = getStaleCachedData(key)
+    const stale = getStaleCachedData<T>(key)
     if (stale) {
       cacheDebug('[Cache] Stale HIT for key:', key)
       recordRequestMetric(key, { source: 'stale-cache', start: Date.now(), stale: true, priority })
@@ -744,13 +815,13 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
         source: 'remote-offline',
         start: remoteStart,
         priority,
-        error: data?.error || data?.msg || data?.message || 'offline-payload'
+        error: asApiPayload(data).error || asApiPayload(data).msg || asApiPayload(data).message || 'offline-payload'
       })
       return { data, fromCache: false, timestamp: Date.now() }
     }
 
-    const stale = getBestCachedEntry(key)
-    const message = String(data?.error || data?.msg || data?.message || '')
+    const stale = getBestCachedEntry<T>(key)
+    const message = String(asApiPayload(data).error || asApiPayload(data).msg || asApiPayload(data).message || '')
     // 401/403/会话失效不判维护、不回退缓存，交由上层处理登录态。
     const sessionInvalid = isSessionInvalidError({ message })
     const shouldFallback =
@@ -787,21 +858,21 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
     recordRequestMetric(key, { source: 'remote', start: remoteStart, priority, error: message })
     return { data, fromCache: false, timestamp: Date.now() }
   } catch (error) {
-    const stale = getBestCachedEntry(key)
+    const stale = getBestCachedEntry<T>(key)
     // 401/403/会话失效不判维护、不回退缓存，交由上层处理登录态。
     const sessionInvalid = isSessionInvalidError(error)
     if (stale && !sessionInvalid) {
       console.warn('[Cache] Fetch failed, fallback to stale cache:', key, error)
       if (isJwxtCacheKey(key)) {
         // 连续失败达到阈值才置位维护模式。
-        recordJwxtFailure(error, String(error?.message || error || ''))
+        recordJwxtFailure(error, String(errorMessage(error) || ''))
       }
       recordRequestMetric(key, {
         source: 'stale-cache',
         start: remoteStart,
         stale: true,
         priority,
-        error: error?.message || error
+        error: errorMessage(error)
       })
       return {
         data: withOfflineMeta(stale.data, stale.timestamp),
@@ -813,15 +884,15 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
     if (
       !sessionInvalid &&
       isJwxtCacheKey(key) &&
-      looksLikeMaintenanceIssue(error?.message || error)
+      looksLikeMaintenanceIssue(errorMessage(error))
     ) {
-      recordJwxtFailure(error, String(error?.message || error || ''))
+      recordJwxtFailure(error, String(errorMessage(error) || ''))
     }
     recordRequestMetric(key, {
       source: 'remote',
       start: remoteStart,
       priority,
-      error: error?.message || error
+      error: errorMessage(error)
     })
     throw error
   }

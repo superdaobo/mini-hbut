@@ -13,6 +13,10 @@ pub fn load_remembered_credential(account_key: String) -> Result<Option<String>,
 #[tauri::command]
 pub fn delete_remembered_credential(account_key: String) -> Result<(), String> {
     credential_store::delete_remembered_credential(&account_key);
+    if let Some(student_id) = account_key.strip_prefix("hbut:") {
+        credential_store::delete_password(student_id);
+        credential_store::delete_secret_key(student_id);
+    }
     Ok(())
 }
 

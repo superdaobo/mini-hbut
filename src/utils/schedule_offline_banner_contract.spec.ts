@@ -7,7 +7,7 @@ const read = (relativePath: string) => readFileSync(path.join(process.cwd(), rel
 describe('schedule offline banner contract (#372)', () => {
   it('does not treat SWR offline cache as 教务暂不可用 for logged-in users', () => {
     const view = read('src/components/ScheduleView.vue')
-    const api = read('src/utils/api.js')
+    const api = read('src/utils/api.ts')
 
     expect(api).toContain('withOfflineMeta')
     expect(api).toContain('getStaleCachedData')

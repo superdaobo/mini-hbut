@@ -6,7 +6,7 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 
 describe('request performance and cache contract', () => {
   it('records fetchWithCache duration and cache state without logging payload data', () => {
-    const apiSource = readSource('src/utils/api.js')
+    const apiSource = readSource('src/utils/api.ts')
 
     expect(apiSource).toContain("import { pushDebugLog } from './debug_logger'")
     expect(apiSource).toContain('recordRequestMetric(')
@@ -17,7 +17,7 @@ describe('request performance and cache contract', () => {
   })
 
   it('allows stale academic cache to be shown immediately while refresh continues', () => {
-    const apiSource = readSource('src/utils/api.js')
+    const apiSource = readSource('src/utils/api.ts')
 
     expect(apiSource).toContain('getStaleCachedData')
     expect(apiSource).toContain('staleWhileRevalidate')
@@ -25,16 +25,16 @@ describe('request performance and cache contract', () => {
   })
 
   it('clears the global academic maintenance flag after a successful foreground remote fetch', () => {
-    const apiSource = readSource('src/utils/api.js')
+    const apiSource = readSource('src/utils/api.ts')
 
-    expect(apiSource).toContain('const clearMaintenanceFlag = () =>')
+    expect(apiSource).toContain('const clearMaintenanceFlag = (): void =>')
     expect(apiSource).toContain('localStorage.removeItem(JWXT_MAINTENANCE_KEY)')
     expect(apiSource).toContain('emitMaintenanceEvent(false)')
     expect(apiSource).toMatch(/if \(data && data\.success && !data\.offline\) \{[\s\S]{0,240}clearMaintenanceFlag\(\)/)
   })
 
   it('does not let cloud sync auto warmup query every semester ranking', () => {
-    const cloudSource = readSource('src/utils/cloud_sync.js')
+    const cloudSource = readSource('src/utils/cloud_sync.runtime.js')
 
     expect(cloudSource).toContain('primeAcademicCaches')
     expect(cloudSource).toContain('skipSemesterRankingWarmup')
@@ -42,7 +42,7 @@ describe('request performance and cache contract', () => {
   })
 
   it('delays notification launch checks and marks them as background work', () => {
-    const notifySource = readSource('src/utils/notify_center.js')
+    const notifySource = readSource('src/utils/notify_center.runtime.js')
 
     expect(notifySource).toContain('NOTIFY_LAUNCH_CHECK_DELAY_MS')
     expect(notifySource).toContain('window.setTimeout')

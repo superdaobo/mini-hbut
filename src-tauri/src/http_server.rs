@@ -1608,11 +1608,10 @@ mod ensure_http_bridge_tests {
 }
 
 async fn health(State(state): State<HttpState>) -> Json<ApiResponse<serde_json::Value>> {
-    let client = state.client.read().await;
-    ok(serde_json::json!({
-        "success": true,
-        "logged_in": client.user_info.is_some()
-    }))
+    let service = crate::application::SessionService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    ok(service.health().await)
 }
 
 async fn login(
@@ -1655,11 +1654,10 @@ async fn export_cookies(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let client = state.client.read().await;
-    Ok(ok(serde_json::json!({
-        "success": true,
-        "data": client.get_cookie_snapshot()
-    })))
+    let service = crate::application::SessionService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    Ok(ok(service.export_cookie_snapshot().await))
 }
 
 async fn import_cookies(
@@ -3492,19 +3490,14 @@ async fn fetch_exams(
     Json(req): Json<ExamRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.read().await;
-    match client.fetch_exams(req.semester.as_deref()).await {
-        Ok(exams) => {
-            let payload = serde_json::json!({
-                "success": true,
-                "data": exams,
-                "sync_time": chrono::Local::now().to_rfc3339(),
-                "offline": false
-            });
-            Ok(ok(payload))
-        }
-        Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string())),
-    }
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
+        .fetch_exams(req.semester)
+        .await
+        .map(ok)
+        .map_err(|error| err(StatusCode::BAD_REQUEST, "业务错误", error.to_string()))
 }
 
 async fn fetch_ranking(
@@ -3512,31 +3505,35 @@ async fn fetch_ranking(
     Json(req): Json<RankingRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.read().await;
-    if !client.is_logged_in && client.user_info.is_none() {
-        return Err(err(
-            StatusCode::UNAUTHORIZED,
-            "未登录",
-            "请先登录后再查询排名".to_string(),
-        ));
-    }
-    client
-        .fetch_ranking(req.student_id.as_deref(), req.semester.as_deref())
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
+        .fetch_ranking(req.student_id, req.semester)
         .await
         .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        .map_err(|error| {
+            let status = if error.kind == crate::application::ApplicationErrorKind::Unauthorized {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            err(status, "业务错误", error.to_string())
+        })
 }
 
 async fn fetch_student_info(
     State(state): State<HttpState>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.read().await;
-    client
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
         .fetch_student_info()
         .await
         .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        .map_err(|error| err(StatusCode::BAD_REQUEST, "业务错误", error.to_string()))
 }
 
 async fn fetch_personal_login_access_info(

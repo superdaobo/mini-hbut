@@ -202,7 +202,7 @@ describe('notification delivery contract', () => {
   })
 
   it('wires school inbox checks through notify_center and Tauri command', () => {
-    const notifySource = readText('src/utils/notify_center.js')
+    const notifySource = readText('src/utils/notify_center.runtime.js')
     const libSource = readText('src-tauri/src/lib.rs')
 
     expect(notifySource).toContain("schoolInbox: 'hbu_notify_school_inbox'")
@@ -213,7 +213,7 @@ describe('notification delivery contract', () => {
   })
 
   it('syncs school inbox background prefs for Android headless', () => {
-    const bgSource = readText('src/utils/background_fetch.js')
+    const bgSource = readText('src/utils/background_fetch.ts')
     const headlessSource = readText(
       'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
     )
@@ -261,7 +261,7 @@ describe('notification delivery contract', () => {
   })
 
   it('filters read school inbox items before enqueueing notifications', () => {
-    const notifySource = readText('src/utils/notify_center.js')
+    const notifySource = readText('src/utils/notify_center.runtime.js')
 
     expect(notifySource).toContain('isSchoolInboxItemRead')
     expect(notifySource).toContain('is_read')

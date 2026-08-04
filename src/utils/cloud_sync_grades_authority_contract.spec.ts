@@ -8,7 +8,7 @@ const readText = (relativePath: string) =>
 
 describe('cloud sync grades authority contract', () => {
   it('treats Array latestGrades (including empty) as full authority without unioning local cache', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readText('src/utils/cloud_sync.runtime.js')
     const buildBlock =
       source.match(
         /const buildGradeSnapshot = \(studentId, latestGrades = undefined\) => \{[\s\S]*?^const replaceAuthoritativeGradeCaches/m
@@ -27,7 +27,7 @@ describe('cloud sync grades authority contract', () => {
   })
 
   it('replaces local grade caches via clearCacheByPrefix before rewriting shards', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readText('src/utils/cloud_sync.runtime.js')
     const replaceBlock =
       source.match(
         /const replaceAuthoritativeGradeCaches = \(studentId, grades = \[\]\) => \{[\s\S]*?^const normalizePersonalInfoPayload/m
@@ -42,7 +42,7 @@ describe('cloud sync grades authority contract', () => {
   })
 
   it('primes academic caches with null-check so empty authority still replaces', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readText('src/utils/cloud_sync.runtime.js')
     const primeBlock =
       source.match(
         /const primeAcademicCaches = async \(studentId, seedGrades = \[\], options = \{\}\) => \{[\s\S]*?^const shouldAttachChallenge/m
@@ -58,7 +58,7 @@ describe('cloud sync grades authority contract', () => {
   })
 
   it('applies cloud academic grades via authoritative replace instead of raw setCachedData merge', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readText('src/utils/cloud_sync.runtime.js')
     const applyBlock =
       source.match(
         /const applyAcademicFromCloud = \(studentId, academic\) => \{[\s\S]*?^const extractCloudData/m
@@ -72,7 +72,7 @@ describe('cloud sync grades authority contract', () => {
   })
 
   it('imports clearCacheByPrefix for grade authority replace', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readText('src/utils/cloud_sync.runtime.js')
     expect(source).toMatch(
       /import\s*\{\s*clearCacheByPrefix\s*,\s*setCachedData\s*\}\s*from\s*['"]\.\/api\.js['"]/
     )

@@ -1,24 +1,45 @@
-import { invokeNative as invoke, isTauriRuntime } from '../platform/native';
+import { invokeNative, isTauriRuntime } from '../platform/native';
 import { isTestAccountSession } from './test_account.js';
 import { resolveTestAccountHttpResponse } from './test_account_fixtures.js';
+
+type JsonObject = Record<string, unknown>
+
+interface MockResponse<T> {
+    data: T;
+    status: number;
+    statusText: string;
+    headers: JsonObject;
+    config: JsonObject;
+}
+
+const asRecord = (value: unknown): JsonObject =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as JsonObject
+        : {};
+
+const errorMessage = (error: unknown): string =>
+    error instanceof Error ? error.message : String(error ?? '');
+
+const invoke = <T = JsonObject>(command: string, args?: JsonObject): Promise<T> =>
+    invokeNative<T>(command, args);
 
 const hasTauri = isTauriRuntime();
 const LOCAL_BRIDGE = 'http://127.0.0.1:4399';
 const BRIDGE_BASE = hasTauri ? LOCAL_BRIDGE : '/bridge';
 
-const looksLikeJson = (contentType, text) => {
+const looksLikeJson = (contentType: string, text: string): boolean => {
     if (contentType.includes('application/json')) return true;
     const trimmed = (text || '').trim();
     return trimmed.startsWith('{') || trimmed.startsWith('[');
 };
 
-const looksLikeHtml = (contentType, text) => {
+const looksLikeHtml = (contentType: string, text: string): boolean => {
     if (contentType.includes('text/html')) return true;
     const trimmed = (text || '').trim().toLowerCase();
     return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
 };
 
-const parseJsonSafely = (text) => {
+const parseJsonSafely = (text: string): unknown => {
     try {
         return JSON.parse(text);
     } catch (e) {
@@ -26,7 +47,7 @@ const parseJsonSafely = (text) => {
     }
 };
 
-const fetchBridgeJson = async (url, options = {}, fallbackUrl = null) => {
+const fetchBridgeJson = async (url: string, options: RequestInit = {}, fallbackUrl: string | null = null): Promise<unknown> => {
     try {
         const res = await fetch(url, options);
         const contentType = res.headers.get('content-type') || '';
@@ -43,36 +64,36 @@ const fetchBridgeJson = async (url, options = {}, fallbackUrl = null) => {
         if (fallbackUrl) {
             return fetchBridgeJson(fallbackUrl, options, null);
         }
-        return { success: false, error: `请求失败: ${err?.message || err}` };
+        return { success: false, error: `请求失败: ${errorMessage(err)}` };
     }
 };
 
-const bridgePost = async (path, payload = {}) => {
+const bridgePost = async (path: string, payload: unknown = {}): Promise<JsonObject> => {
     const url = `${BRIDGE_BASE}${path}`;
     const fallbackUrl = hasTauri ? null : `${LOCAL_BRIDGE}${path}`;
-    return fetchBridgeJson(url, {
+    return asRecord(await fetchBridgeJson(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {})
-    }, fallbackUrl);
+    }, fallbackUrl));
 };
 
-const bridgeGet = async (path) => {
+const bridgeGet = async (path: string): Promise<JsonObject> => {
     const url = `${BRIDGE_BASE}${path}`;
     const fallbackUrl = hasTauri ? null : `${LOCAL_BRIDGE}${path}`;
-    return fetchBridgeJson(url, { method: 'GET' }, fallbackUrl);
+    return asRecord(await fetchBridgeJson(url, { method: 'GET' }, fallbackUrl));
 };
 
-const unwrapBridge = (payload) => {
+const unwrapBridge = (payload: unknown): unknown => {
     if (payload && typeof payload === 'object' && 'data' in payload) {
-        return payload.data;
+        return (payload as JsonObject).data;
     }
     return payload;
 };
 
 // 妯℃嫙 Axios 响应结构
 
-const mockResponse = (data) => ({
+const mockResponse = <T>(data: T): MockResponse<T> => ({
     data,
     status: 200,
     statusText: 'OK',
@@ -80,17 +101,17 @@ const mockResponse = (data) => ({
     config: {}
 });
 
-const mockError = (message) => ({
+const mockError = (message: unknown) => ({
     response: {
-        data: { error: message, success: false },
+        data: { error: String(message), success: false },
         status: 500,
         statusText: 'Internal Server Error'
     },
-    message
+    message: String(message)
 });
 
 const adapter = {
-    get: async (url, config = {}) => {
+    get: async (url: string, config: JsonObject = {}) => {
         console.log('[Axios Adapter] GET request received:', url);
         console.log('[Axios Adapter] Full URL:', url);
         try {
@@ -104,7 +125,7 @@ const adapter = {
                 });
             }
             if (url.includes('/v3/login_params')) {
-                const data = await invoke('get_login_page');
+                const data = asRecord(await invoke('get_login_page'));
                 // 适配前端期望的格?
                 return mockResponse({
                     success: true,
@@ -127,7 +148,7 @@ const adapter = {
                     const semesters = await invoke('fetch_semesters');
                     return mockResponse(semesters);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -141,7 +162,7 @@ const adapter = {
                     const options = await invoke('fetch_qxzkb_options');
                     return mockResponse(options);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
             
@@ -157,17 +178,17 @@ const adapter = {
                     return mockResponse(buildings);
                 } catch (err) {
                     console.error('[Axios Adapter] Buildings error:', err);
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
             
             return mockResponse({ success: false, error: 'Unknown GET endpoint: ' + url });
         } catch (e) {
             console.error('[Axios Adapter] GET Error:', e);
-            throw mockError(e.toString());
+            throw mockError(errorMessage(e));
         }
     },
-    post: async (url, data = {}, config = {}) => {
+    post: async (url: string, data: JsonObject = {}, _config: JsonObject = {}) => {
         console.log('[Axios Adapter] POST request received:', url);
         console.log('[Axios Adapter] POST data:', JSON.stringify(data));
         try {
@@ -187,7 +208,11 @@ const adapter = {
             if (url.includes('/v2/start_login')) {
                 // LoginV3 (modified) passes plain structure
                 console.log('[Axios Adapter] Login data received:', JSON.stringify(data));
-                const { username, password, captcha, lt, execution } = data;
+                const username = String(data.username ?? '');
+                const password = String(data.password ?? '');
+                const captcha = String(data.captcha ?? '');
+                const lt = String(data.lt ?? '');
+                const execution = String(data.execution ?? '');
                 console.log('[Axios Adapter] Extracted captcha:', captcha);
 
                 try {
@@ -248,7 +273,7 @@ const adapter = {
                         if (res?.success) {
                             return mockResponse({ success: true, data: res.data });
                         }
-                        return mockResponse({ success: false, error: res?.error?.message || res?.error || '登录失败' });
+                        return mockResponse({ success: false, error: errorMessage(res.error) || '登录失败' });
                     }
                     const res = await invoke('login', {
                         username,
@@ -260,7 +285,7 @@ const adapter = {
                     return mockResponse({ success: true, data: res });
 
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -269,7 +294,7 @@ const adapter = {
                 if (!hasTauri) {
                     return mockResponse({ success: false, error: '浏览器模式不支持验证码接口' });
                 }
-                const imgBase64 = await invoke('get_captcha');
+                const imgBase64 = await invoke<string>('get_captcha');
                 // Tauri command returns "data:image/png;base64,..."
                 // Frontend expects plain base64 usually? 
                 // LoginV3: `captchaImg.value = data:image/jpeg;base64,${data.captcha_base64}`
@@ -295,7 +320,7 @@ const adapter = {
                     if (res?.success) {
                         return mockResponse(unwrapBridge(res));
                     }
-                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取成绩失败' });
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '获取成绩失败' });
                 }
                 const grades = await invoke('sync_grades', {
                     currentOnly: !!data?.teacher_current_only
@@ -313,7 +338,7 @@ const adapter = {
                     }
                     return mockResponse({ success: true, by_kcbh: {}, semesters: {} });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -325,7 +350,7 @@ const adapter = {
                     }
                     return mockResponse({ success: false, error: '浏览器模式不支持任课教师补齐' });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -337,7 +362,7 @@ const adapter = {
                     if (res?.success && res?.data) {
                         return mockResponse({ success: true, ...res.data });
                     }
-                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取课表失败' });
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '获取课表失败' });
                 }
                 const schedule = await invoke('sync_schedule', { semester: data?.semester || null });
                 return mockResponse({ success: true, ...schedule });
@@ -355,9 +380,9 @@ const adapter = {
                     if (res?.success && res?.data) {
                         return mockResponse({ success: true, ...res.data });
                     }
-                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取全部自定义课程失败' });
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '获取全部自定义课程失败' });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -374,9 +399,9 @@ const adapter = {
                     if (res?.success && res?.data) {
                         return mockResponse({ success: true, ...res.data });
                     }
-                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取自定义课程失败' });
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '获取自定义课程失败' });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -390,9 +415,9 @@ const adapter = {
                     if (res?.success && res?.data) {
                         return mockResponse({ success: true, ...res.data });
                     }
-                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '添加自定义课程失败' });
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '添加自定义课程失败' });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -406,9 +431,9 @@ const adapter = {
                     if (res?.success && res?.data) {
                         return mockResponse({ success: true, ...res.data });
                     }
-                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '修改自定义课程失败' });
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '修改自定义课程失败' });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -422,9 +447,9 @@ const adapter = {
                     if (res?.success && res?.data) {
                         return mockResponse({ success: true, ...res.data });
                     }
-                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '删除自定义课程失败' });
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '删除自定义课程失败' });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -438,9 +463,9 @@ const adapter = {
                     if (res?.success && res?.data) {
                         return mockResponse({ success: true, ...res.data });
                     }
-                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '导出日历失败' });
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '导出日历失败' });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -449,35 +474,42 @@ const adapter = {
             if (url.includes('/v2/exams')) {
                 try {
                     const { semester } = data;
-                    let payload = null;
+                    let payload: unknown = null;
                     if (!hasTauri) {
                         const res = await bridgePost('/fetch_exams', { semester: semester || null });
                         if (!res?.success) {
-                            return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取考试失败' });
+                            return mockResponse({ success: false, error: errorMessage(res.error) || '获取考试失败' });
                         }
                         payload = unwrapBridge(res);
                     } else {
                         payload = await invoke('fetch_exams', { semester: semester || null });
                     }
 
-                    const base = payload && !Array.isArray(payload) && typeof payload === 'object' ? payload : {};
-                    const isSuccess = payload ? payload.success !== false : false;
+                    const base = asRecord(payload);
+                    const isSuccess = payload !== null && base.success !== false;
                     if (isSuccess) {
-                        const rawList = Array.isArray(payload) ? payload : (payload.data || []);
-                        const transformedExams = rawList.map(exam => ({
-                            ...exam,
-                            exam_date: exam.date || exam.exam_date || '',
-                            exam_time: exam.start_time && exam.end_time
-                                ? `${exam.start_time}-${exam.end_time}`
-                                : (exam.start_time || exam.exam_time || ''),
-                            seat_no: exam.seat_number || exam.seat_no || ''
-                        }));
+                        const rawList: unknown[] = Array.isArray(payload)
+                            ? payload
+                            : Array.isArray(base.data)
+                                ? base.data
+                                : [];
+                        const transformedExams = rawList.map((rawExam: unknown) => {
+                            const exam = asRecord(rawExam);
+                            return {
+                                ...exam,
+                                exam_date: exam.date || exam.exam_date || '',
+                                exam_time: exam.start_time && exam.end_time
+                                    ? `${String(exam.start_time)}-${String(exam.end_time)}`
+                                    : (exam.start_time || exam.exam_time || ''),
+                                seat_no: exam.seat_number || exam.seat_no || ''
+                            };
+                        });
                         return mockResponse({ ...base, success: true, data: transformedExams });
                     }
 
-                    return mockResponse(base || { success: false, error: '获取考试失败' });
+                    return mockResponse(Object.keys(base).length ? base : { success: false, error: '获取考试失败' });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -498,7 +530,7 @@ const adapter = {
                     });
                     return mockResponse(ranking);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -513,7 +545,7 @@ const adapter = {
                     const info = await invoke('fetch_student_info');
                     return mockResponse(info);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -535,7 +567,7 @@ const adapter = {
                     });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -563,7 +595,7 @@ const adapter = {
                     return mockResponse(classrooms);
                 } catch (err) {
                     console.error('[Axios Adapter] Classroom error:', err);
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -581,7 +613,7 @@ const adapter = {
                     return mockResponse(options);
                 } catch (err) {
                     console.error('[Axios Adapter] Training plan options error:', err);
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -599,7 +631,7 @@ const adapter = {
                     return mockResponse(jys);
                 } catch (err) {
                     console.error('[Axios Adapter] Training plan JYS error:', err);
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -618,8 +650,8 @@ const adapter = {
                             kcgs: data.kcgs || null,
                             kcbh: data.kcbh || null,
                             kcmc: data.kcmc || null,
-                            page: data.page ? parseInt(data.page) : 1,
-                            page_size: data.page_size ? parseInt(data.page_size) : 50,
+                            page: data.page ? Number.parseInt(String(data.page), 10) : 1,
+                            page_size: data.page_size ? Number.parseInt(String(data.page_size), 10) : 50,
                         });
                         return mockResponse(unwrapBridge(res));
                     }
@@ -632,14 +664,14 @@ const adapter = {
                         kcgs: data.kcgs || null,
                         kcbh: data.kcbh || null,
                         kcmc: data.kcmc || null,
-                        page: data.page ? parseInt(data.page) : 1,
-                        page_size: data.page_size ? parseInt(data.page_size) : 50,
+                        page: data.page ? Number.parseInt(String(data.page), 10) : 1,
+                        page_size: data.page_size ? Number.parseInt(String(data.page_size), 10) : 50,
                     });
                     console.log('[Axios Adapter] Training plan courses response:', JSON.stringify(courses));
                     return mockResponse(courses);
                 } catch (err) {
                     console.error('[Axios Adapter] Training plan courses error:', err);
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -653,7 +685,7 @@ const adapter = {
                     const payload = await invoke('fetch_library_dict');
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -666,7 +698,7 @@ const adapter = {
                     const payload = await invoke('search_library_books', { params: data || {} });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -688,7 +720,7 @@ const adapter = {
                     });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -704,7 +736,7 @@ const adapter = {
                     const info = await invoke('fetch_qxzkb_jcinfo', { xnxq });
                     return mockResponse(info);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -718,7 +750,7 @@ const adapter = {
                     const info = await invoke('fetch_qxzkb_zyxx', { yxid, nj });
                     return mockResponse(info);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -732,7 +764,7 @@ const adapter = {
                     const info = await invoke('fetch_qxzkb_kkjys', { kkyxid });
                     return mockResponse(info);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -746,7 +778,7 @@ const adapter = {
                     const result = await invoke('fetch_qxzkb_list', { query: queryPayload });
                     return mockResponse(result);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -761,7 +793,7 @@ const adapter = {
                     const payload = await invoke('fetch_course_selection_overview');
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -775,7 +807,7 @@ const adapter = {
                     const payload = await invoke('fetch_course_selection_list', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -789,7 +821,7 @@ const adapter = {
                     const payload = await invoke('fetch_course_selection_end_time', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -803,7 +835,7 @@ const adapter = {
                     const payload = await invoke('fetch_course_selection_child_classes', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -818,7 +850,7 @@ const adapter = {
                     const payload = await invoke('fetch_course_selection_selected_courses', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -832,7 +864,7 @@ const adapter = {
                     const payload = await invoke('select_course_selection_course', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -846,7 +878,7 @@ const adapter = {
                     const payload = await invoke('withdraw_course_selection_course', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -860,7 +892,7 @@ const adapter = {
                     const payload = await invoke('fetch_course_selection_detail_intro', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -874,7 +906,7 @@ const adapter = {
                     const payload = await invoke('fetch_course_selection_detail_teacher', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -890,7 +922,7 @@ const adapter = {
                     const payload = await invoke('online_learning_overview', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -904,7 +936,7 @@ const adapter = {
                     const payload = await invoke('online_learning_sync_now', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -918,7 +950,7 @@ const adapter = {
                     const payload = await invoke('online_learning_list_sync_runs', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -932,7 +964,7 @@ const adapter = {
                     const payload = await invoke('online_learning_clear_cache', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -946,7 +978,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_get_session_status', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -960,7 +992,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_fetch_courses', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -974,7 +1006,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_fetch_course_outline', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -992,7 +1024,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_fetch_course_score', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1006,7 +1038,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_fetch_course_progress', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1020,7 +1052,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_get_launch_url', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1034,7 +1066,7 @@ const adapter = {
                     const payload = await invoke('yuketang_create_qr_login', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1048,7 +1080,7 @@ const adapter = {
                     const payload = await invoke('yuketang_poll_qr_login', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1062,7 +1094,7 @@ const adapter = {
                     const payload = await invoke('yuketang_fetch_courses', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1076,7 +1108,7 @@ const adapter = {
                     const payload = await invoke('yuketang_fetch_course_outline', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1090,7 +1122,7 @@ const adapter = {
                     const payload = await invoke('yuketang_fetch_course_progress', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1106,7 +1138,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_get_knowledge_cards', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1120,7 +1152,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_get_video_status', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1134,7 +1166,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_fetch_course_score', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1148,7 +1180,7 @@ const adapter = {
                     const payload = await invoke('chaoxing_report_progress', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1162,7 +1194,7 @@ const adapter = {
                     const payload = await invoke('yuketang_get_course_chapters', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1176,7 +1208,7 @@ const adapter = {
                     const payload = await invoke('yuketang_get_leaf_info', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1190,7 +1222,7 @@ const adapter = {
                     const payload = await invoke('yuketang_send_heartbeat', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1210,26 +1242,27 @@ const adapter = {
                 };
 
                 try {
-                    let res = null;
+                    let res: JsonObject = {};
                     if (!hasTauri) {
                         const bridge = await bridgePost('/electricity_query_account', { payload: accountPayload });
-                        res = unwrapBridge(bridge);
+                        res = asRecord(unwrapBridge(bridge));
                     } else {
-                        res = await invoke('electricity_query_account', { payload: accountPayload });
+                        res = await invoke<JsonObject>('electricity_query_account', { payload: accountPayload });
                     }
 
                     if (!res.success) {
                         return mockResponse({ success: false, error: res.message || res.error || '电费查询失败' });
                     }
 
-                    const resultData = res.resultData || {};
-                    const templateList = resultData.templateList || [];
+                    const resultData = asRecord(res.resultData);
+                    const templateList = Array.isArray(resultData.templateList) ? resultData.templateList : [];
                     let balance = "0.00";
                     let quantity = "0.00";
 
-                    templateList.forEach(item => {
-                        if (item.code === 'balance') balance = item.value;
-                        if (item.code === 'quantity') quantity = item.value;
+                    templateList.forEach((rawItem: unknown) => {
+                        const item = asRecord(rawItem);
+                        if (item.code === 'balance') balance = String(item.value ?? '0.00');
+                        if (item.code === 'quantity') quantity = String(item.value ?? '0.00');
                     });
 
                     const offline = !!res.offline;
@@ -1243,7 +1276,7 @@ const adapter = {
                         sync_time: syncTime || (offline ? '' : new Date().toISOString())
                     });
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1261,7 +1294,7 @@ const adapter = {
                     const res = await invoke('campus_code_fetch_config', { payload });
                     return mockResponse(res);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1279,7 +1312,7 @@ const adapter = {
                     const res = await invoke('campus_code_fetch_qrcode', { payload });
                     return mockResponse(res);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1296,7 +1329,7 @@ const adapter = {
                     const res = await invoke('campus_code_fetch_order_status', { payload });
                     return mockResponse(res);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1314,7 +1347,7 @@ const adapter = {
                     });
                     return mockResponse(calendar);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1332,7 +1365,7 @@ const adapter = {
                     });
                     return mockResponse(progress);
                 } catch (err) {
-                    return mockResponse({ success: false, error: err.toString() });
+                    return mockResponse({ success: false, error: errorMessage(err) });
                 }
             }
 
@@ -1340,7 +1373,7 @@ const adapter = {
             return mockResponse({ success: false, error: 'Unknown POST endpoint: ' + url });
         } catch (e) {
             console.error('[Axios Adapter] POST Error:', e);
-            throw mockError(e.toString());
+            throw mockError(errorMessage(e));
         }
     }
 };

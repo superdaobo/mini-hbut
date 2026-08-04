@@ -30,11 +30,11 @@ const extractHandler = (src: string, name: string) => {
 }
 
 describe('Phase 3 architecture convergence', () => {
-  it('keeps api.js as the only api entry（api.ts 已重命名为 server_api.ts）', () => {
-    expect(exists('src/utils/api.js')).toBe(true)
+  it('keeps api.ts as the typed cache entry and server_api.ts as the HTTP client entry', () => {
+    expect(exists('src/utils/api.ts')).toBe(true)
     expect(exists('src/utils/server_api.ts')).toBe(true)
-    expect(exists('src/utils/api.ts')).toBe(false)
-    expect(utilsReadme).toContain('api.js')
+    expect(exists('src/utils/api.js')).toBe(false)
+    expect(utilsReadme).toContain('api.ts')
     expect(utilsReadme).toContain('server_api.ts')
   })
 
