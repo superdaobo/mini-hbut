@@ -81,6 +81,21 @@ describe('update channel (stable / dev)', () => {
     expect(shouldOfferRelease(stable, '1.4.4', 'stable')).toBe(false)
   })
 
+  it('does not offer a same-core stable release to a rolling beta install', () => {
+    const stable145 = {
+      tag_name: 'v1.4.5',
+      version: '1.4.5',
+      prerelease: false,
+      channel: 'main'
+    }
+    const stable146 = { ...stable145, tag_name: 'v1.4.6', version: '1.4.6' }
+
+    expect(shouldOfferRelease(stable145, '1.4.5-beta.363', 'stable')).toBe(false)
+    expect(shouldOfferRelease(stable146, '1.4.5-beta.363', 'stable')).toBe(true)
+    expect(shouldOfferRelease(stable145, '1.4.4-beta.999', 'stable')).toBe(true)
+    expect(shouldOfferRelease(stable146, '1.4.5', 'stable')).toBe(true)
+  })
+
   it('offers dev builds when user opts into beta channel', () => {
     const beta = {
       tag_name: 'dev-latest',

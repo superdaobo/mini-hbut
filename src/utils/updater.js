@@ -273,13 +273,8 @@ function parseVersion(version) {
 export function compareVersions(v1, v2) {
   const left = parseVersion(v1)
   const right = parseVersion(v2)
-  const len = Math.max(left.core.length, right.core.length)
-  for (let i = 0; i < len; i += 1) {
-    const lv = left.core[i] || 0
-    const rv = right.core[i] || 0
-    if (lv > rv) return 1
-    if (lv < rv) return -1
-  }
+  const coreCmp = compareVersionCore(left, right)
+  if (coreCmp !== 0) return coreCmp
 
   if (left.isPrerelease && !right.isPrerelease) return -1
   if (!left.isPrerelease && right.isPrerelease) return 1
@@ -297,6 +292,17 @@ export function compareVersions(v1, v2) {
     return String(lv).localeCompare(String(rv))
   }
 
+  return 0
+}
+
+function compareVersionCore(left, right) {
+  const len = Math.max(left.core.length, right.core.length)
+  for (let i = 0; i < len; i += 1) {
+    const lv = left.core[i] || 0
+    const rv = right.core[i] || 0
+    if (lv > rv) return 1
+    if (lv < rv) return -1
+  }
   return 0
 }
 
@@ -375,7 +381,7 @@ export function isDevRelease(release) {
 
 /**
  * 是否应对用户提示更新。
- * - stable：仅正式版且版本更高（含「当前为 beta、远端同 core 正式版」可提示回落）
+ * - stable：仅正式版且核心版本真正更高；同 core 的 beta 不回落到正式版
  * - dev：允许 prerelease；完整 semver 比较；core 低于当前安装的 dev 不提示
  */
 export function shouldOfferRelease(release, currentVersion, channel = 'stable') {
@@ -387,6 +393,11 @@ export function shouldOfferRelease(release, currentVersion, channel = 'stable') 
   if (preferred === 'stable') {
     if (!isStableRelease(release)) return false
     if (!currentText) return true
+    const latest = parseVersion(latestVersion)
+    const current = parseVersion(currentText)
+    // 本项目 beta 后缀是滚动开发构建号。同一核心版本的正式版并不是
+    // 对该 beta 的升级，否则 1.4.5-beta.363 会被错误提示“更新”到 1.4.5。
+    if (current.isPrerelease) return compareVersionCore(latest, current) > 0
     return compareVersions(latestVersion, currentText) > 0
   }
 
@@ -397,16 +408,7 @@ export function shouldOfferRelease(release, currentVersion, channel = 'stable') 
   const latest = parseVersion(latestVersion)
   const current = parseVersion(currentText)
   // 远端 core 落后于当前安装（例如装了 1.4.4 却只剩 1.4.3-beta）→ 不提示
-  const coreCmp = (() => {
-    const len = Math.max(latest.core.length, current.core.length)
-    for (let i = 0; i < len; i += 1) {
-      const lv = latest.core[i] || 0
-      const rv = current.core[i] || 0
-      if (lv > rv) return 1
-      if (lv < rv) return -1
-    }
-    return 0
-  })()
+  const coreCmp = compareVersionCore(latest, current)
   if (coreCmp < 0) return false
   // 同 core：用户已装正式版，远端为更新/任意 beta → 允许（主动开 dev）
   if (coreCmp === 0 && !current.isPrerelease && latest.isPrerelease) return true
