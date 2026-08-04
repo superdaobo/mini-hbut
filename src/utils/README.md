@@ -4,16 +4,16 @@
 
 ## 📁 文件说明
 
-### api.js / server_api.ts
+### api.ts / server_api.ts
 
-同名入口已收敛（契约见 `api.d.ts` 与 `api.js.md` / `api.ts.md`）：
+同名入口已收敛：
 
-- `api.js`：前端 HTTP 缓存层（`fetchWithCache` / `getCachedData` / `setCachedData` / TTL 常量等），类型契约在 `api.d.ts`。
-- `server_api.ts`：原 `api.ts` 重命名而来，仅保留服务器端 OCR / 数据同步配置（`SERVER_API_BASE` / `serverOcrRecognize` / `syncDataToServer`），避免与 `api.js` 同名冲突。
+- `api.ts`：类型安全的前端 HTTP 缓存层（`fetchWithCache` / `getCachedData` / `setCachedData` / TTL 常量等）。
+- `server_api.ts`：服务器端 OCR / 数据同步配置（`SERVER_API_BASE` / `serverOcrRecognize` / `syncDataToServer`）。
 
 ```typescript
 // 示例：带缓存的请求
-import { fetchWithCache, LONG_TTL } from './api.js';
+import { fetchWithCache, LONG_TTL } from './api';
 
 const result = await fetchWithCache('key', async () => await doFetch(), LONG_TTL);
 ```
@@ -28,7 +28,7 @@ import { encryptPassword } from './crypto';
 const encrypted = encryptPassword(password, publicKey);
 ```
 
-### updater.js
+### updater.ts
 
 版本更新检测工具。
 
@@ -42,13 +42,13 @@ if (update.hasUpdate) {
 }
 ```
 
-### axios_adapter.js
+### axios_adapter.ts
 
 Axios 适配器，用于在 Tauri 环境中使用 Axios。
 
-### encryption.js
+### encryption.ts
 
-加密相关的 JavaScript 实现。
+设备本地随机密钥与旧版密文兼容的 TypeScript 加密实现。
 
 ## 🔧 使用说明
 
@@ -56,7 +56,7 @@ Axios 适配器，用于在 Tauri 环境中使用 Axios。
 
 ```vue
 <script setup lang="ts">
-import { fetchWithCache } from '@/utils/api.js';
+import { fetchWithCache } from '@/utils/api';
 import { encryptPassword } from '@/utils/crypto';
 
 const handleLogin = async () => {

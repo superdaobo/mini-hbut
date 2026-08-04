@@ -1,6 +1,5 @@
 const STORAGE_KEY = 'hbu_debug_logs_v1'
 const MAX_MEMORY_LOGS = 1200
-const MAX_PERSIST_LOGS = 800
 const LOG_EVENT = 'hbu-debug-log-updated'
 
 export type DebugLevel = 'debug' | 'info' | 'warn' | 'error' | 'log'
@@ -62,14 +61,8 @@ const normalizeMessage = (args: unknown[]) => {
   return { scope, message, details }
 }
 
-const persistLogs = () => {
-  try {
-    const toSave = records.slice(-MAX_PERSIST_LOGS)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
-  } catch {
-    // ignore
-  }
-}
+// 调试日志可能聚合任意业务上下文，仅保留于当前进程内存，禁止持久化到 Web Storage。
+const persistLogs = () => {}
 
 const notifyListeners = () => {
   const snapshot = records.slice()
@@ -161,27 +154,14 @@ const patchFetch = () => {
   patchedFetch = true
 }
 
-const loadStoredLogs = () => {
+const loadStoredLogs = (): DebugLogItem[] => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item) => item && typeof item === 'object')
-      .map((item) => ({
-        id: String(item.id || ''),
-        ts: Number(item.ts) || Date.now(),
-        level: (item.level || 'log') as DebugLevel,
-        scope: String(item.scope || 'APP'),
-        message: String(item.message || ''),
-        details: String(item.details || item.message || '')
-      }))
-      .filter((item) => !!item.message)
-      .slice(-MAX_MEMORY_LOGS)
+    // 清理历史版本可能遗留的明文调试日志；后续日志只驻留内存。
+    localStorage.removeItem(STORAGE_KEY)
   } catch {
-    return []
+    // ignore
   }
+  return []
 }
 
 let rustPollTimer: ReturnType<typeof setInterval> | null = null

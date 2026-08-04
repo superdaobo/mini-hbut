@@ -35,8 +35,8 @@ describe('TestFlight 演示账号接入契约', () => {
   })
 
   it('缓存、HTTP 和 native 调用层均接入测试账号演示响应', () => {
-    const apiSource = readSource('src/utils/api.js')
-    const adapterSource = readSource('src/utils/axios_adapter.js')
+    const apiSource = readSource('src/utils/api.ts')
+    const adapterSource = readSource('src/utils/axios_adapter.ts')
     const nativeSource = readSource('src/platform/native.ts')
 
     expect(apiSource).toContain("from './test_account.js'")
@@ -53,7 +53,7 @@ describe('TestFlight 演示账号接入契约', () => {
     const aiChatSource = readSource('src/components/AiChatView.vue')
     const forumApiSource = readSource('src/utils/forum_api.js')
     const fixtureSource = readSource('src/utils/test_account_fixtures.js')
-    const remoteConfigSource = readSource('src/utils/remote_config.js')
+    const remoteConfigSource = readSource('src/utils/remote_config.runtime.js')
 
     expect(resourceShareSource).toContain("from '../utils/test_account.js'")
     expect(resourceShareSource).toContain('buildTestAccountResourceShareItems')
@@ -80,7 +80,7 @@ describe('TestFlight 演示账号接入契约', () => {
   })
 
   it('测试账号未知 HTTP 和 native 调用默认拒绝，不继续真实请求', () => {
-    const adapterSource = readSource('src/utils/axios_adapter.js')
+    const adapterSource = readSource('src/utils/axios_adapter.ts')
     const nativeSource = readSource('src/platform/native.ts')
 
     expect(adapterSource).toContain('未知测试账号 HTTP 请求已拦截')

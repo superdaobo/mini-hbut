@@ -1,4 +1,5 @@
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
 import './index.css'
 import './styles/dark-mode.css'
 import App from './App.vue'
@@ -40,6 +41,7 @@ const removeNativeSplash = () => {
 
 const mountApp = () => {
   const app = createApp(App)
+  app.use(createPinia())
   // 组件渲染 / 生命周期错误归因（写入调试日志，附组件名）
   attachVueErrorCapture(app)
   app.component('IOSSelect', IOSSelect)

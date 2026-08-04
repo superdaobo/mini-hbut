@@ -110,7 +110,7 @@ const loginIssues = [
 const dataIssues = [
     {
         title: '教务系统维护',
-        source: 'src/utils/api.js',
+        source: 'src/utils/api.ts',
         items: [
             '前端会用 looksLikeMaintenanceIssue 判断 timed out、维护、暂不可用、连接失败等文本，并写入 hbu_jwxt_maintenance、hbu_jwxt_maintenance_time、hbu_jwxt_maintenance_hint。',
             '维护期间教务类缓存键可能显示离线缓存。离线缓存带 offline 和 sync_time，只能说明数据来自上次成功请求。',
@@ -119,7 +119,7 @@ const dataIssues = [
     },
     {
         title: '离线缓存与容量',
-        source: 'src/utils/api.js',
+        source: 'src/utils/api.ts',
         items: [
             'fetchWithCache 会先读内存和 localStorage 的 cache:*，网络失败时可能用 withOfflineMeta 包装旧数据。',
             'localStorage 写入遇到 QuotaExceeded 时，会调用 trimLocalCacheStorage 清理旧 cache:* 条目，再尝试写入。',
@@ -128,7 +128,7 @@ const dataIssues = [
     },
     {
         title: '成绩/课表不是最新',
-        source: 'AcademicServices.tsx / src/utils/api.js',
+        source: 'AcademicServices.tsx / src/utils/api.ts',
         items: [
             '成绩、课表、考试、排名、校历等模块会使用缓存减少重复请求。需要最新数据时，优先手动刷新或切换学期触发重新请求。',
             '如果页面显示 sync_time，说明当前数据来自缓存或后端离线兜底，不代表教务系统实时状态。',
@@ -240,9 +240,9 @@ const maintenanceChecklist = [
 
 const sourceEvidence = [
     '旧 FAQ 证据：website/src/pages/docs/FAQ.tsx 的登录问题、功能使用问题、安装与更新、网络与连接、后台通知、数据与隐私、平台相关问题。',
-    '缓存维护证据：src/utils/api.js 的 hbu_jwxt_maintenance、looksLikeMaintenanceIssue、setMaintenanceFlag、withOfflineMeta、sync_time、QuotaExceeded、trimLocalCacheStorage。',
-    '通知证据：src/utils/notify_center.js 的 hbu_notify_snapshot、runNotificationCheck、sendQueuedNotifications、grade signature、fallbackSnapshot；src/utils/background_fetch.js 的 syncBackgroundFetchContext。',
-    '云同步证据：src/utils/cloud_sync.js 的 hbu_cloud_sync_status、cooldown、requestCloudSync、runCloudSyncUpload、runCloudSyncDownload、runAutoCloudSyncAfterLogin、x-cloud-sync-challenge。',
+    '缓存维护证据：src/utils/api.ts 的 hbu_jwxt_maintenance、looksLikeMaintenanceIssue、setMaintenanceFlag、withOfflineMeta、sync_time、QuotaExceeded、trimLocalCacheStorage。',
+    '通知证据：src/utils/notify_center.runtime.js 的 hbu_notify_snapshot、runNotificationCheck、sendQueuedNotifications、grade signature、fallbackSnapshot；src/utils/background_fetch.ts 的 syncBackgroundFetchContext。',
+    '云同步证据：src/utils/cloud_sync.runtime.js 的 hbu_cloud_sync_status、cooldown、requestCloudSync、runCloudSyncUpload、runCloudSyncDownload、runAutoCloudSyncAfterLogin、x-cloud-sync-challenge。',
     '反馈和日志证据：src/utils/debug_logger.ts 的 hbu_debug_logs_v1；src/components/SettingsView.vue 的调试日志面板；src/components/FeedbackView.vue 的复制最近 error。',
     '调试脚本证据：scripts/debug_capture_ui.mjs、scripts/run_tauri_debug_dev.mjs、scripts/test_debug_bridge_contract.mjs、scripts/test_hot_update_framework.mjs、scripts/test_more_module_bridge.mjs、scripts/test_resource_share_network.mjs。',
     '维护守卫证据：scripts/check_dist_boundary.mjs、scripts/guard_sensitive_uploads.mjs、scripts/check-frontend-safety.mjs、scripts/check-design-tokens.mjs。',

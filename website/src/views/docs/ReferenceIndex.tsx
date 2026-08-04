@@ -70,11 +70,11 @@ const componentIndex = [
 ];
 
 const utilityIndex = [
-    ['src/utils/api.js', '教务 API、fetchWithCache、withOfflineMeta、sync_time、维护标记和 localStorage 缓存。'],
-    ['src/utils/cloud_sync.js', '云同步上传/下载、hbu_cloud_sync_status、cooldown、x-cloud-sync-challenge。'],
+    ['src/utils/api.ts', '教务 API、fetchWithCache、withOfflineMeta、sync_time、维护标记和 localStorage 缓存。'],
+    ['src/utils/cloud_sync.runtime.js', '云同步上传/下载、hbu_cloud_sync_status、cooldown、x-cloud-sync-challenge。'],
     ['src/utils/module_center.js', 'DEFAULT_MODULE_CENTER、buildModuleCenterCards 和模块中心入口归一化。'],
     ['src/utils/more_modules.js', '远程 catalog、manifest、本地 bundle、Capacitor 文件缓存和 preview source 选择。'],
-    ['src/utils/notify_center.js', 'runNotificationCheck、hbu_notify_snapshot、通知去重和 fallback snapshot。'],
+    ['src/utils/notify_center.runtime.js', 'runNotificationCheck、hbu_notify_snapshot、通知去重和 fallback snapshot。'],
 ];
 
 const platformBackendIndex = [

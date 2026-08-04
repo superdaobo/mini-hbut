@@ -27,7 +27,7 @@ const expectSourceMatches = (source: string, pattern: RegExp, label: string) => 
 }
 
 describe('cloud sync auto upload contract', () => {
-  const source = readSource('src/utils/cloud_sync.js')
+  const source = readSource('src/utils/cloud_sync.runtime.js')
 
   it('builds schema v4 payloads with explicit client version and runtime metadata', () => {
     expectSourceMatches(source, /const\s+SYNC_SCHEMA_VERSION\s*=\s*4\b/, 'schema version should be bumped to 4')

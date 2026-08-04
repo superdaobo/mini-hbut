@@ -24,7 +24,7 @@ if (process.env.npm_package_version && process.env.npm_package_version !== expec
   fail(`npm package version ${process.env.npm_package_version} does not match ${expected}`)
 }
 
-const updaterSource = readText('src/utils/updater.js')
+const updaterSource = readText('src/utils/updater.runtime.js')
 const requiredUpdaterContracts = [
   ["official GitHub repository", "const GITHUB_REPO = 'superdaobo/mini-hbut'"],
   ["EdgeOne HTTPS endpoint", "const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'"],

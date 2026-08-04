@@ -1,6 +1,46 @@
 import { getRuntime } from '../platform'
 import { pushDebugLog } from './debug_logger'
 
+export interface BackgroundFetchSettings extends Record<string, unknown> {
+  enableBackground?: boolean
+  enableGradeNotice?: boolean
+  enableExamReminder?: boolean
+  enablePowerNotice?: boolean
+  enableClassReminder?: boolean
+  enableSchoolInbox?: boolean
+  classLeadMinutes?: number
+  intervalMinutes?: number
+}
+
+export interface BackgroundFetchContextInput {
+  studentId?: unknown
+  settings?: BackgroundFetchSettings | null
+  dormSelection?: unknown[] | null
+  schoolInboxState?: unknown[] | null
+  loginMethod?: unknown
+}
+
+export interface BackgroundFetchEvent {
+  taskId: string
+  studentId: string
+  reason: 'background-fetch'
+}
+
+export type BackgroundFetchEventHandler = (event: BackgroundFetchEvent) => void | Promise<void>
+
+export interface BackgroundFetchRuntimeState {
+  runtime: string
+  supported: boolean
+  configured: boolean
+  available: boolean
+  statusCode: number
+  mode?: string
+  lastRunAt: string
+  lastTaskId: string
+  lastError: string
+  reason?: string
+}
+
 const PREF_KEYS = {
   studentId: 'hbu_bg_student_id',
   apiBase: 'hbu_bg_api_base',
@@ -17,22 +57,22 @@ const PREF_KEYS = {
   chaoxingNoticeCookie: 'hbu_bg_chaoxing_notice_cookie'
 }
 
-const schoolInboxStatePrefKey = (studentId) => `hbu_bg_school_inbox_state:${studentId}`
+const schoolInboxStatePrefKey = (studentId: unknown): string => `hbu_bg_school_inbox_state:${studentId}`
 
 const DEFAULT_API_BASE = 'https://hbut.6661111.xyz/api'
 const LOCAL_API_BASE_KEY = 'hbu_bg_api_base'
 
 let backgroundFetchStarted = false
-let backgroundFetchSetupPromise = null
-let backgroundFetchEventHandler = null
+let backgroundFetchSetupPromise: Promise<boolean> | null = null
+let backgroundFetchEventHandler: BackgroundFetchEventHandler | null = null
 let backgroundFetchStatusCode = -1
 let backgroundFetchLastRunAt = ''
 let backgroundFetchLastTaskId = ''
 let backgroundFetchLastError = ''
 
-const normalizeApiBase = (value) => String(value || '').replace(/\/+$/, '')
+const normalizeApiBase = (value: unknown): string => String(value || '').replace(/\/+$/, '')
 
-const resolveApiBaseForNative = () => {
+const resolveApiBaseForNative = (): string => {
   const raw = normalizeApiBase(import.meta.env.VITE_API_BASE || '/api')
   if (/^https?:\/\//i.test(raw)) return raw
 
@@ -47,7 +87,7 @@ const resolveApiBaseForNative = () => {
   }
 }
 
-const getPreferences = async () => {
+const getPreferences = async (): Promise<{ plugin: typeof import('@capacitor/preferences').Preferences } | null> => {
   if (getRuntime() !== 'capacitor') return null
   try {
     const mod = await import('@capacitor/preferences')
@@ -57,7 +97,7 @@ const getPreferences = async () => {
   }
 }
 
-const toSafeText = (value) => String(value ?? '').trim()
+const toSafeText = (value: unknown): string => String(value ?? '').trim()
 
 export const syncBackgroundFetchContext = async ({
   studentId,
@@ -65,14 +105,14 @@ export const syncBackgroundFetchContext = async ({
   dormSelection,
   schoolInboxState,
   loginMethod
-} = {}) => {
+}: BackgroundFetchContextInput = {}): Promise<void> => {
   if (getRuntime() !== 'capacitor') return
   const Preferences = (await getPreferences())?.plugin
   if (!Preferences) return
 
   const sid = toSafeText(studentId || localStorage.getItem('hbu_username') || '')
   const room = Array.isArray(dormSelection) ? dormSelection : []
-  const config = settings || {}
+  const config: BackgroundFetchSettings = settings || {}
   const apiBase = resolveApiBaseForNative()
   const inboxIds = Array.isArray(schoolInboxState)
     ? schoolInboxState
@@ -125,7 +165,7 @@ export const syncBackgroundFetchContext = async ({
   localStorage.setItem(LOCAL_API_BASE_KEY, apiBase)
 }
 
-export const clearBackgroundFetchContext = async () => {
+export const clearBackgroundFetchContext = async (): Promise<void> => {
   if (getRuntime() !== 'capacitor') return
   const Preferences = (await getPreferences())?.plugin
   if (!Preferences) return
@@ -146,7 +186,7 @@ export const clearBackgroundFetchContext = async () => {
   localStorage.removeItem(LOCAL_API_BASE_KEY)
 }
 
-const readStudentIdFromNative = async () => {
+const readStudentIdFromNative = async (): Promise<string> => {
   const Preferences = (await getPreferences())?.plugin
   if (!Preferences) return ''
   try {
@@ -157,7 +197,7 @@ const readStudentIdFromNative = async () => {
   }
 }
 
-const invokeFetchEventHandler = async (taskId) => {
+const invokeFetchEventHandler = async (taskId: unknown): Promise<void> => {
   if (typeof backgroundFetchEventHandler !== 'function') return
   backgroundFetchLastTaskId = String(taskId || '')
   backgroundFetchLastRunAt = new Date().toISOString()
@@ -169,13 +209,13 @@ const invokeFetchEventHandler = async (taskId) => {
     studentId: sid
   })
   await backgroundFetchEventHandler({
-    taskId,
+    taskId: String(taskId || ''),
     studentId: sid,
     reason: 'background-fetch'
   })
 }
 
-export const initBackgroundFetchScheduler = async (onEvent) => {
+export const initBackgroundFetchScheduler = async (onEvent?: BackgroundFetchEventHandler): Promise<boolean> => {
   if (getRuntime() !== 'capacitor') return false
   if (backgroundFetchStarted) {
     if (typeof onEvent === 'function') {
@@ -201,14 +241,14 @@ export const initBackgroundFetchScheduler = async (onEvent) => {
         enableHeadless: true,
         requiredNetworkType: BackgroundFetch.NETWORK_TYPE_ANY
       },
-      async (taskId) => {
+      async (taskId: string) => {
         try {
           await invokeFetchEventHandler(taskId)
         } finally {
           await BackgroundFetch.finish(taskId)
         }
       },
-      async (taskId) => {
+      async (taskId: string) => {
         backgroundFetchLastTaskId = String(taskId || '')
         backgroundFetchLastRunAt = new Date().toISOString()
         backgroundFetchLastError = '后台任务超时'
@@ -254,7 +294,7 @@ export const initBackgroundFetchScheduler = async (onEvent) => {
   }
 }
 
-export const getBackgroundFetchRuntimeState = async () => {
+export const getBackgroundFetchRuntimeState = async (): Promise<BackgroundFetchRuntimeState> => {
   const runtime = getRuntime()
   if (runtime === 'tauri') {
     return {

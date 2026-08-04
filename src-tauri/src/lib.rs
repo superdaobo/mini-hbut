@@ -35,6 +35,7 @@ use tauri_plugin_shell::ShellExt;
 use tokio::sync::RwLock;
 
 pub mod app_state;
+pub mod application;
 pub mod commands;
 pub mod credential_store;
 pub mod db;
@@ -46,6 +47,7 @@ pub mod modules;
 pub mod parser;
 pub mod qxzkb_options;
 pub mod runtime_log;
+pub mod secret_envelope;
 pub mod utils;
 
 pub use grade::domain::Grade;
@@ -4798,36 +4800,13 @@ async fn fetch_exams(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.write().await;
-    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
-    let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
-    let cache_key = uid.as_ref().map(|u| format!("{}:{}", u, sem_key));
-
-    match client.fetch_exams(semester.as_deref()).await {
-        Ok(exams) => {
-            let sync_time = chrono::Local::now().to_rfc3339();
-            let payload = serde_json::json!({
-                "success": true,
-                "data": exams,
-                "sync_time": sync_time,
-                "offline": false
-            });
-            if let (Some(_uid), Some(key)) = (uid.as_ref(), cache_key.as_ref()) {
-                let _ = db::save_cache(DB_FILENAME, "exams_cache", key, &payload);
-            }
-            Ok(payload)
-        }
-        Err(e) => {
-            if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) =
-                    db::get_cache(DB_FILENAME, "exams_cache", key)
-                {
-                    return Ok(attach_sync_time(cached_data, &sync_time, true));
-                }
-            }
-            Err(e.to_string())
-        }
-    }
+    application::AcademicReadService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ))
+    .fetch_exams(semester)
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -4836,34 +4815,13 @@ async fn fetch_ranking(
     student_id: Option<String>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.write().await;
-    let sid = student_id.or_else(|| client.user_info.as_ref().map(|u| u.student_id.clone()));
-    let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
-    let cache_key = sid.as_ref().map(|s| format!("{}:{}", s, sem_key));
-
-    match client
-        .fetch_ranking(sid.as_deref(), semester.as_deref())
-        .await
-    {
-        Ok(data) => {
-            let sync_time = chrono::Local::now().to_rfc3339();
-            let payload = attach_sync_time(data, &sync_time, false);
-            if let Some(key) = cache_key.as_ref() {
-                let _ = db::save_cache(DB_FILENAME, "ranking_cache", key, &payload);
-            }
-            Ok(payload)
-        }
-        Err(e) => {
-            if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) =
-                    db::get_cache(DB_FILENAME, "ranking_cache", key)
-                {
-                    return Ok(attach_sync_time(cached_data, &sync_time, true));
-                }
-            }
-            Err(e.to_string())
-        }
-    }
+    application::AcademicReadService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ))
+    .fetch_ranking(student_id, semester)
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -5066,36 +5024,13 @@ async fn smart_orientation_profile_blocks(
 
 #[tauri::command]
 async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.write().await;
-    let uid = client
-        .user_info
-        .as_ref()
-        .map(|u| u.student_id.clone())
-        .or_else(|| client.last_username.clone());
-
-    // 网络优先：先尝试拉取最新数据，成功则更新缓存并返回 offline=false；
-    // 失败时回退到本地缓存并标记 offline=true。
-    match client.fetch_student_info().await {
-        Ok(data) => {
-            let sync_time = chrono::Local::now().to_rfc3339();
-            let payload = attach_sync_time(data, &sync_time, false);
-            if let Some(uid) = &uid {
-                let _ = db::save_cache(DB_FILENAME, "studentinfo_cache", uid, &payload);
-            }
-            Ok(payload)
-        }
-        Err(e) => {
-            // 网络失败时回退到缓存
-            if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) =
-                    db::get_cache(DB_FILENAME, "studentinfo_cache", uid)
-                {
-                    return Ok(attach_sync_time(cached_data, &sync_time, true));
-                }
-            }
-            Err(e.to_string())
-        }
-    }
+    application::AcademicReadService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ))
+    .fetch_student_info()
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

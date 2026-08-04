@@ -247,7 +247,79 @@ fn try_persist_password_to_keyring(student_id: &str, password: &str) -> bool {
     ok
 }
 
-/// 启动时一次性/幂等迁移：1.4.2 base64 列 → 密钥环（失败则保留 base64）。
+#[cfg(not(test))]
+fn session_secret_key(student_id: &str, create: bool) -> std::result::Result<[u8; 32], String> {
+    if create {
+        crate::credential_store::load_or_create_secret_key(student_id)
+    } else {
+        crate::credential_store::load_secret_key(student_id)
+            .ok_or_else(|| "账户敏感字段主密钥不可用".to_string())
+    }
+}
+
+#[cfg(test)]
+fn session_secret_key(student_id: &str, _create: bool) -> std::result::Result<[u8; 32], String> {
+    use rand::RngCore;
+    use sha2::{Digest, Sha256};
+    use std::sync::OnceLock;
+
+    if student_id.trim().is_empty() {
+        return Err("学号无效".to_string());
+    }
+
+    static TEST_MASTER_KEY: OnceLock<[u8; 32]> = OnceLock::new();
+    let master_key = TEST_MASTER_KEY.get_or_init(|| {
+        let mut key = [0_u8; 32];
+        rand::thread_rng().fill_bytes(&mut key);
+        key
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(master_key);
+    hasher.update(student_id.trim().as_bytes());
+    Ok(hasher.finalize().into())
+}
+
+fn encrypt_session_secret(student_id: &str, value: &str) -> std::result::Result<String, String> {
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+    let key = session_secret_key(student_id, true)?;
+    crate::secret_envelope::encrypt_string(&key, value).map_err(|error| error.to_string())
+}
+
+fn protect_session_secret(student_id: &str, value: &str, field: &str) -> String {
+    match encrypt_session_secret(student_id, value) {
+        Ok(encrypted) => encrypted,
+        Err(error) => {
+            eprintln!("[db] 无法安全持久化 {field}，已跳过该字段: {error}");
+            crate::runtime_log::log_error(
+                "db",
+                format!("无法安全持久化 {field}，已跳过该字段: {error}"),
+            );
+            String::new()
+        }
+    }
+}
+
+fn reveal_session_secret(student_id: &str, stored: &str, field: &str) -> String {
+    if stored.is_empty() || !crate::secret_envelope::is_encrypted_secret(stored) {
+        // 旧库明文字段只读兼容；必须通过显式迁移 API 才会重写。
+        return stored.to_string();
+    }
+    let Ok(key) = session_secret_key(student_id, false) else {
+        eprintln!("[db] {field} 已加密但账户密钥不可用");
+        return String::new();
+    };
+    match crate::secret_envelope::decrypt_string(&key, stored) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("[db] {field} 解密或完整性校验失败: {error}");
+            String::new()
+        }
+    }
+}
+
+/// 显式/幂等迁移：旧 Base64 密码列 → 密钥环。此函数不会在启动时自动调用。
 #[derive(Debug, Clone, Default)]
 pub struct CredMigrateReport {
     pub scanned: usize,
@@ -345,6 +417,142 @@ pub fn migrate_session_passwords_v2<P: AsRef<Path>>(path: P) -> Result<CredMigra
     Ok(report)
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionSecretMigrationReport {
+    pub scanned: usize,
+    pub migrated: usize,
+    pub already_encrypted: usize,
+    pub failed: usize,
+}
+
+/// 显式迁移 Cookie、访问令牌与刷新令牌到版本化加密信封。
+///
+/// 不在 init_db 中自动调用；调用方必须先获得用户确认并准备回滚备份。
+pub fn migrate_session_secrets_v1<P: AsRef<Path>>(path: P) -> Result<SessionSecretMigrationReport> {
+    let mut conn = open_connection(path)?;
+    ensure_user_session_columns(&conn)?;
+    migrate_auth_cookie_v2_table(&conn)?;
+
+    let session_rows = {
+        let mut stmt = conn.prepare(
+            "SELECT student_id, cookies, one_code_token, electricity_refresh_token \
+             FROM user_sessions ORDER BY student_id",
+        )?;
+        let mapped = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1).unwrap_or_default(),
+                row.get::<_, String>(2).unwrap_or_default(),
+                row.get::<_, String>(3).unwrap_or_default(),
+            ))
+        })?;
+        mapped.collect::<Result<Vec<_>>>()?
+    };
+    let auth_cookie_rows = {
+        let mut stmt = conn.prepare(
+            "SELECT student_id, domain, cookie_json FROM auth_cookie_v2 ORDER BY student_id, domain",
+        )?;
+        let mapped = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2).unwrap_or_default(),
+            ))
+        })?;
+        mapped.collect::<Result<Vec<_>>>()?
+    };
+    let platform_rows = {
+        let mut stmt = conn.prepare(
+            "SELECT student_id, platform, cookie_blob FROM online_learning_platform_state \
+             ORDER BY student_id, platform",
+        )?;
+        let mapped = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2).unwrap_or_default(),
+            ))
+        })?;
+        mapped.collect::<Result<Vec<_>>>()?
+    };
+
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut report = SessionSecretMigrationReport::default();
+    for (student_id, cookies, token, refresh_token) in session_rows {
+        report.scanned += 1;
+        let values = [&cookies, &token, &refresh_token];
+        if values
+            .iter()
+            .all(|value| value.is_empty() || crate::secret_envelope::is_encrypted_secret(value))
+        {
+            report.already_encrypted += 1;
+            continue;
+        }
+
+        let encrypt_if_needed = |value: &str| -> std::result::Result<String, String> {
+            if value.is_empty() || crate::secret_envelope::is_encrypted_secret(value) {
+                Ok(value.to_string())
+            } else {
+                encrypt_session_secret(&student_id, value)
+            }
+        };
+        let protected = (
+            encrypt_if_needed(&cookies),
+            encrypt_if_needed(&token),
+            encrypt_if_needed(&refresh_token),
+        );
+        let (Ok(cookies), Ok(token), Ok(refresh_token)) = protected else {
+            report.failed += 1;
+            continue;
+        };
+        tx.execute(
+            "UPDATE user_sessions SET cookies = ?1, one_code_token = ?2, \
+             electricity_refresh_token = ?3 WHERE student_id = ?4",
+            params![cookies, token, refresh_token, student_id],
+        )?;
+        report.migrated += 1;
+    }
+
+    for (student_id, domain, cookie_json) in auth_cookie_rows {
+        report.scanned += 1;
+        if cookie_json.is_empty() || crate::secret_envelope::is_encrypted_secret(&cookie_json) {
+            report.already_encrypted += 1;
+            continue;
+        }
+        let Ok(protected) = encrypt_session_secret(&student_id, &cookie_json) else {
+            report.failed += 1;
+            continue;
+        };
+        tx.execute(
+            "UPDATE auth_cookie_v2 SET cookie_json = ?1, updated_at = CURRENT_TIMESTAMP \
+             WHERE student_id = ?2 AND domain = ?3",
+            params![protected, student_id, domain],
+        )?;
+        report.migrated += 1;
+    }
+
+    for (student_id, platform, cookie_blob) in platform_rows {
+        report.scanned += 1;
+        if cookie_blob.is_empty() || crate::secret_envelope::is_encrypted_secret(&cookie_blob) {
+            report.already_encrypted += 1;
+            continue;
+        }
+        let Ok(protected) = encrypt_session_secret(&student_id, &cookie_blob) else {
+            report.failed += 1;
+            continue;
+        };
+        tx.execute(
+            "UPDATE online_learning_platform_state SET cookie_blob = ?1, updated_at = CURRENT_TIMESTAMP \
+             WHERE student_id = ?2 AND platform = ?3",
+            params![protected, student_id, platform],
+        )?;
+        report.migrated += 1;
+    }
+
+    tx.commit()?;
+    Ok(report)
+}
+
 /// 从 DB 占位列或密钥环（含旧版 Base64 迁移）解析会话密码。
 fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
     use crate::credential_store::KEYRING_MARKER;
@@ -354,31 +562,7 @@ fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
         if !from_ring.is_empty() {
             return from_ring;
         }
-        // 密钥环丢失：从同库其它仍保留 base64 的会话回填（开发机常见）
-        if let Ok(conn) = open_connection(resolve_db_path("grades.db")) {
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT student_id, encrypted_password FROM user_sessions ORDER BY last_login DESC LIMIT 20",
-            ) {
-                if let Ok(rows) = stmt.query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                }) {
-                    for row in rows.flatten() {
-                        let (other_sid, enc) = row;
-                        if enc == KEYRING_MARKER || enc.is_empty() {
-                            continue;
-                        }
-                        if let Some(password) = try_decode_base64_password(&enc) {
-                            let _ = try_persist_password_to_keyring(student_id, &password);
-                            eprintln!(
-                                "[db] 密钥环缺失，已从会话 {} 的 base64 凭据回填到 {}",
-                                other_sid, student_id
-                            );
-                            return password;
-                        }
-                    }
-                }
-            }
-        }
+        // 多用户隔离：绝不从其他学号的数据库行复制密码。
         return String::new();
     }
 
@@ -587,12 +771,8 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     )?;
     drop(conn);
 
-    // 1.4.2→1.4.3 凭据迁移：base64 列迁密钥环（失败保留 base64），修复 KEYRING 空壳可恢复路径
-    // 迁移失败不阻断启动，但必须记录到运行时日志，避免无声吞掉（#550）
-    if let Err(e) = migrate_session_passwords_v2(path_ref) {
-        eprintln!("[db] cred_migrate_v2 失败（不阻断启动）: {}", e);
-        crate::runtime_log::log_error("db", format!("cred_migrate_v2 失败（不阻断启动）: {e}"));
-    }
+    // 安全迁移必须由用户明确触发。启动阶段只建表，不扫描或重写真实用户凭据。
+    // migrate_session_passwords_v2 / migrate_session_secrets_v1 仅供显式迁移流程调用。
 
     Ok(())
 }
@@ -641,14 +821,16 @@ pub fn upsert_auth_cookie_domain<P: AsRef<Path>>(
     }
     let conn = open_connection(path)?;
     migrate_auth_cookie_v2_table(&conn)?;
+    let protected_cookie_json =
+        protect_session_secret(sid, cookie_json, "auth_cookie_v2.cookie_json");
     conn.execute(
         "INSERT INTO auth_cookie_v2 (student_id, domain, cookie_json, updated_at, source)
          VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP, ?4)
          ON CONFLICT(student_id, domain) DO UPDATE SET
-           cookie_json = excluded.cookie_json,
+           cookie_json = CASE WHEN excluded.cookie_json <> '' THEN excluded.cookie_json ELSE auth_cookie_v2.cookie_json END,
            updated_at = CURRENT_TIMESTAMP,
            source = excluded.source",
-        params![sid, dom, cookie_json, source],
+        params![sid, dom, protected_cookie_json, source],
     )?;
     Ok(())
 }
@@ -672,14 +854,16 @@ pub fn upsert_auth_cookies_batch<P: AsRef<Path>>(
         if dom.is_empty() {
             continue;
         }
+        let protected_cookie_json =
+            protect_session_secret(sid, cookie_json, "auth_cookie_v2.cookie_json");
         tx.execute(
             "INSERT INTO auth_cookie_v2 (student_id, domain, cookie_json, updated_at, source)
              VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP, ?4)
              ON CONFLICT(student_id, domain) DO UPDATE SET
-               cookie_json = excluded.cookie_json,
+               cookie_json = CASE WHEN excluded.cookie_json <> '' THEN excluded.cookie_json ELSE auth_cookie_v2.cookie_json END,
                updated_at = CURRENT_TIMESTAMP,
                source = excluded.source",
-            params![sid, dom, cookie_json, source],
+            params![sid, dom, protected_cookie_json, source],
         )?;
     }
     tx.commit()?;
@@ -709,9 +893,11 @@ pub fn load_auth_cookies_for_student<P: AsRef<Path>>(
         })
     })?;
     let mut out = Vec::new();
-    for r in rows.flatten() {
-        if !r.cookie_json.trim().is_empty() && r.cookie_json.trim() != "[]" {
-            out.push(r);
+    for mut record in rows.flatten() {
+        record.cookie_json =
+            reveal_session_secret(sid, &record.cookie_json, "auth_cookie_v2.cookie_json");
+        if !record.cookie_json.trim().is_empty() && record.cookie_json.trim() != "[]" {
+            out.push(record);
         }
     }
     Ok(out)
@@ -754,15 +940,15 @@ pub fn update_user_session_cookies_only<P: AsRef<Path>>(
     }
     let conn = open_connection(path)?;
     ensure_user_session_columns(&conn)?;
-    // 单条 UPSERT 原子完成：有行则只更新 cookies/last_login（不碰密码/电费 token），
-    // 无行则插入空壳（密码/token 置空），避免 UPDATE+INSERT 两步间的并发竞态（#550）
+    let protected_cookies = protect_session_secret(sid, cookies, "cookies");
+    // 单条 UPSERT 原子完成：加密失败产生空值时保留既有 cookie，不回退明文。
     conn.execute(
         "INSERT INTO user_sessions (student_id, cookies, last_login)
          VALUES (?1, ?2, CURRENT_TIMESTAMP)
          ON CONFLICT(student_id) DO UPDATE SET
-           cookies = excluded.cookies,
+           cookies = CASE WHEN excluded.cookies <> '' THEN excluded.cookies ELSE user_sessions.cookies END,
            last_login = CURRENT_TIMESTAMP",
-        params![sid, cookies],
+        params![sid, protected_cookies],
     )?;
     Ok(())
 }
@@ -927,6 +1113,128 @@ pub fn backup_database<P: AsRef<Path>, Q: AsRef<Path>>(
 
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp_path);
+    }
+    result
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EncryptedBackupReport {
+    pub backup_path: PathBuf,
+    pub pruned: Vec<PathBuf>,
+    pub kept: usize,
+    pub keep_policy: usize,
+}
+
+fn secret_to_rusqlite_err(error: crate::secret_envelope::SecretEnvelopeError) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(error))
+}
+
+/// 创建带版本头与完整性认证的加密数据库备份。
+///
+/// 明文 SQLite 只存在于本次调用创建的 staging 目录中，完成或失败都会清理。
+pub fn backup_database_encrypted<P: AsRef<Path>, Q: AsRef<Path>>(
+    db_path: P,
+    backup_dir: Q,
+    keep: usize,
+    master_key: &[u8],
+) -> Result<EncryptedBackupReport> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static ENCRYPTED_BACKUP_SEQ: AtomicUsize = AtomicUsize::new(0);
+    let keep = keep.clamp(1, BACKUP_KEEP_MAX);
+    let dir = backup_dir.as_ref().to_path_buf();
+    std::fs::create_dir_all(&dir).map_err(io_to_rusqlite_err)?;
+    let staging = dir.join(format!(
+        ".encrypted-backup-staging-{}-{}",
+        std::process::id(),
+        ENCRYPTED_BACKUP_SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&staging).map_err(io_to_rusqlite_err)?;
+
+    let result = (|| -> Result<EncryptedBackupReport> {
+        let plain = backup_database(db_path.as_ref(), &staging, 1)?;
+        let bytes = std::fs::read(&plain.backup_path).map_err(io_to_rusqlite_err)?;
+        let encrypted = crate::secret_envelope::encrypt_bytes(master_key, &bytes)
+            .map_err(secret_to_rusqlite_err)?;
+        let stem = db_path
+            .as_ref()
+            .file_stem()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| "db".to_string());
+        let ts = Local::now().format("%Y%m%d-%H%M%S%.3f").to_string();
+        let name = format!(
+            "{stem}-{ts}-{}-{:04}.mhbbackup",
+            std::process::id(),
+            ENCRYPTED_BACKUP_SEQ.fetch_add(1, Ordering::Relaxed)
+        );
+        let final_path = dir.join(&name);
+        let tmp_path = dir.join(format!("{name}.tmp"));
+        std::fs::write(&tmp_path, encrypted.as_bytes()).map_err(io_to_rusqlite_err)?;
+        // 写盘后立即做认证解密，避免损坏文件被正式命名。
+        let written = std::fs::read_to_string(&tmp_path).map_err(io_to_rusqlite_err)?;
+        crate::secret_envelope::decrypt_bytes(master_key, &written)
+            .map_err(secret_to_rusqlite_err)?;
+        std::fs::rename(&tmp_path, &final_path).map_err(io_to_rusqlite_err)?;
+
+        let mut candidates: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .map_err(io_to_rusqlite_err)?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| {
+                        name.starts_with(&format!("{stem}-")) && name.ends_with(".mhbbackup")
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+        candidates.sort();
+        let mut pruned = Vec::new();
+        while candidates.len() > keep {
+            let old = candidates.remove(0);
+            std::fs::remove_file(&old).map_err(io_to_rusqlite_err)?;
+            pruned.push(old);
+        }
+        Ok(EncryptedBackupReport {
+            backup_path: final_path,
+            pruned,
+            kept: candidates.len(),
+            keep_policy: keep,
+        })
+    })();
+
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
+/// 将加密备份恢复到一个不存在的新路径；绝不覆盖正式数据库。
+pub fn restore_encrypted_backup<P: AsRef<Path>, Q: AsRef<Path>>(
+    backup_path: P,
+    destination: Q,
+    master_key: &[u8],
+) -> Result<PathBuf> {
+    let destination = destination.as_ref().to_path_buf();
+    if destination.exists() {
+        return Err(io_to_rusqlite_err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "恢复目标已存在，拒绝覆盖",
+        )));
+    }
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(io_to_rusqlite_err)?;
+    }
+    let envelope = std::fs::read_to_string(backup_path).map_err(io_to_rusqlite_err)?;
+    let bytes = crate::secret_envelope::decrypt_bytes(master_key, &envelope)
+        .map_err(secret_to_rusqlite_err)?;
+    let tmp = destination.with_extension("restore.tmp");
+    let result = (|| -> Result<PathBuf> {
+        std::fs::write(&tmp, bytes).map_err(io_to_rusqlite_err)?;
+        verify_backup(&tmp)?;
+        std::fs::rename(&tmp, &destination).map_err(io_to_rusqlite_err)?;
+        Ok(destination.clone())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
     result
 }
@@ -1265,7 +1573,7 @@ pub fn merge_grade_teacher_cache<P: AsRef<Path>>(
     Ok(existing)
 }
 
-// 保存用户会话；密码优先密钥环，失败则 base64 回退落库，避免丢密导致无法静默 SSO。
+// 保存用户会话；密码只写系统密钥环，失败时不再以 Base64 或明文落库。
 // 空 password/token 表示“本次没有新值”，UPSERT 会保留既有非空字段；这是记住密码与
 // 离线恢复的有意语义。真正删除凭据必须走 delete_remembered_credential/隐私清理流程。
 pub fn save_user_session<P: AsRef<Path>>(
@@ -1278,25 +1586,34 @@ pub fn save_user_session<P: AsRef<Path>>(
     token_expires_at: Option<&str>,
 ) -> Result<()> {
     use crate::credential_store::KEYRING_MARKER;
-    use base64::Engine;
 
     let conn = open_connection(path)?;
-    let encrypted_password = if password.is_empty() {
-        // 保留旧值：空密码写入时不要覆盖成无用 KEYRING 标记
+    ensure_user_session_columns(&conn)?;
+    let existing_password_marker = || {
         conn.query_row(
             "SELECT encrypted_password FROM user_sessions WHERE student_id = ?1",
             params![student_id],
             |row| row.get::<_, String>(0),
         )
         .unwrap_or_default()
+    };
+    let encrypted_password = if password.is_empty() {
+        existing_password_marker()
     } else if try_persist_password_to_keyring(student_id, password) {
         KEYRING_MARKER.to_string()
     } else {
-        eprintln!("[db] 密钥环不可用或读回失败，回退 base64 落库");
-        base64::engine::general_purpose::STANDARD.encode(password.as_bytes())
+        eprintln!("[db] 密钥环不可用，密码未持久化");
+        crate::runtime_log::log_error("db", "密钥环不可用，密码未持久化");
+        existing_password_marker()
     };
-
-    ensure_user_session_columns(&conn)?;
+    let protected_cookies = protect_session_secret(student_id, cookies, "cookies");
+    let protected_one_code_token =
+        protect_session_secret(student_id, one_code_token, "one_code_token");
+    let protected_refresh_token = protect_session_secret(
+        student_id,
+        refresh_token.unwrap_or_default(),
+        "electricity_refresh_token",
+    );
 
     // UPSERT 原子更新（#550）：有行时仅更新传入的非空字段，空值保留库中已有值，
     // 避免 INSERT OR REPLACE 删行重建导致 uuid/authorization 等未传入字段丢失，
@@ -1315,10 +1632,10 @@ pub fn save_user_session<P: AsRef<Path>>(
             last_login = CURRENT_TIMESTAMP",
         params![
             student_id,
-            cookies,
+            protected_cookies,
             encrypted_password,
-            one_code_token,
-            refresh_token.unwrap_or_default(),
+            protected_one_code_token,
+            protected_refresh_token,
             token_expires_at.unwrap_or_default()
         ],
     )?;
@@ -1369,10 +1686,14 @@ pub fn get_user_session<P: AsRef<Path>>(
         let password = resolve_session_password(student_id, &encrypted);
 
         Ok(Some(UserSessionData {
-            cookies,
+            cookies: reveal_session_secret(student_id, &cookies, "cookies"),
             password,
-            one_code_token: token,
-            refresh_token,
+            one_code_token: reveal_session_secret(student_id, &token, "one_code_token"),
+            refresh_token: reveal_session_secret(
+                student_id,
+                &refresh_token,
+                "electricity_refresh_token",
+            ),
             token_expires_at,
         }))
     } else {
@@ -1402,11 +1723,15 @@ pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<LatestU
         let password = resolve_session_password(&student_id, &encrypted);
 
         Ok(Some(LatestUserSessionData {
-            student_id,
-            cookies,
+            cookies: reveal_session_secret(&student_id, &cookies, "cookies"),
             password,
-            one_code_token: token,
-            refresh_token,
+            one_code_token: reveal_session_secret(&student_id, &token, "one_code_token"),
+            refresh_token: reveal_session_secret(
+                &student_id,
+                &refresh_token,
+                "electricity_refresh_token",
+            ),
+            student_id,
             token_expires_at,
         }))
     } else {
@@ -1424,6 +1749,10 @@ pub fn save_electricity_tokens<P: AsRef<Path>>(
 ) -> Result<()> {
     let conn = open_connection(path)?;
     ensure_user_session_columns(&conn)?;
+    let protected_one_code_token =
+        protect_session_secret(student_id, one_code_token, "one_code_token");
+    let protected_refresh_token =
+        protect_session_secret(student_id, refresh_token, "electricity_refresh_token");
     // UPSERT 原子更新（#550）：单条语句同时处理"行不存在则插入"与"行存在则更新"，
     // 避免 INSERT OR IGNORE + UPDATE 两步间的并发竞态；空值保留库中已有非空字段。
     conn.execute(
@@ -1435,7 +1764,12 @@ pub fn save_electricity_tokens<P: AsRef<Path>>(
              electricity_token_expires_at = CASE WHEN excluded.electricity_token_expires_at <> '' THEN excluded.electricity_token_expires_at ELSE user_sessions.electricity_token_expires_at END,
              electricity_token_updated_at = CURRENT_TIMESTAMP,
              last_login = CURRENT_TIMESTAMP",
-        params![student_id, one_code_token, refresh_token, token_expires_at],
+        params![
+            student_id,
+            protected_one_code_token,
+            protected_refresh_token,
+            token_expires_at
+        ],
     )?;
     Ok(())
 }
@@ -1619,17 +1953,30 @@ pub fn save_online_learning_platform_state<P: AsRef<Path>>(
     record: &OnlineLearningPlatformStateRecord,
 ) -> Result<()> {
     let conn = open_connection(path)?;
+    let protected_cookie_blob = protect_session_secret(
+        &record.student_id,
+        &record.cookie_blob,
+        "online_learning_platform_state.cookie_blob",
+    );
     conn.execute(
-        "INSERT OR REPLACE INTO online_learning_platform_state (
+        "INSERT INTO online_learning_platform_state (
             student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
+        ON CONFLICT(student_id, platform) DO UPDATE SET
+            connected = excluded.connected,
+            account_id = excluded.account_id,
+            display_name = excluded.display_name,
+            cookie_blob = CASE WHEN excluded.cookie_blob <> '' THEN excluded.cookie_blob ELSE online_learning_platform_state.cookie_blob END,
+            meta_json = excluded.meta_json,
+            sync_time = excluded.sync_time,
+            updated_at = CURRENT_TIMESTAMP",
         params![
             record.student_id,
             record.platform,
             if record.connected { 1 } else { 0 },
             record.account_id,
             record.display_name,
-            record.cookie_blob,
+            protected_cookie_blob,
             record.meta_json,
             record.sync_time
         ],
@@ -1643,27 +1990,36 @@ pub fn get_online_learning_platform_state<P: AsRef<Path>>(
     platform: &str,
 ) -> Result<Option<OnlineLearningPlatformStateRecord>> {
     let conn = open_connection(path)?;
-    conn.query_row(
-        "SELECT student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
-         FROM online_learning_platform_state
-         WHERE student_id = ?1 AND platform = ?2
-         LIMIT 1",
-        params![student_id, platform],
-        |row| {
-            Ok(OnlineLearningPlatformStateRecord {
-                student_id: row.get(0)?,
-                platform: row.get(1)?,
-                connected: row.get::<_, i64>(2)? != 0,
-                account_id: row.get(3)?,
-                display_name: row.get(4)?,
-                cookie_blob: row.get(5)?,
-                meta_json: row.get(6)?,
-                sync_time: row.get(7)?,
-                updated_at: row.get(8)?,
-            })
-        },
-    )
-    .optional()
+    let record = conn
+        .query_row(
+            "SELECT student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
+             FROM online_learning_platform_state
+             WHERE student_id = ?1 AND platform = ?2
+             LIMIT 1",
+            params![student_id, platform],
+            |row| {
+                Ok(OnlineLearningPlatformStateRecord {
+                    student_id: row.get(0)?,
+                    platform: row.get(1)?,
+                    connected: row.get::<_, i64>(2)? != 0,
+                    account_id: row.get(3)?,
+                    display_name: row.get(4)?,
+                    cookie_blob: row.get(5)?,
+                    meta_json: row.get(6)?,
+                    sync_time: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(record.map(|mut state| {
+        state.cookie_blob = reveal_session_secret(
+            &state.student_id,
+            &state.cookie_blob,
+            "online_learning_platform_state.cookie_blob",
+        );
+        state
+    }))
 }
 
 pub fn list_online_learning_platform_states<P: AsRef<Path>>(
@@ -1680,7 +2036,7 @@ pub fn list_online_learning_platform_states<P: AsRef<Path>>(
     let mut rows = stmt.query(params![student_id])?;
     let mut result = Vec::new();
     while let Some(row) = rows.next()? {
-        result.push(OnlineLearningPlatformStateRecord {
+        let mut state = OnlineLearningPlatformStateRecord {
             student_id: row.get(0)?,
             platform: row.get(1)?,
             connected: row.get::<_, i64>(2)? != 0,
@@ -1690,7 +2046,13 @@ pub fn list_online_learning_platform_states<P: AsRef<Path>>(
             meta_json: row.get(6)?,
             sync_time: row.get(7)?,
             updated_at: row.get(8)?,
-        });
+        };
+        state.cookie_blob = reveal_session_secret(
+            &state.student_id,
+            &state.cookie_blob,
+            "online_learning_platform_state.cookie_blob",
+        );
+        result.push(state);
     }
     Ok(result)
 }
@@ -2015,6 +2377,176 @@ mod cred_migrate_tests {
 }
 
 #[cfg(test)]
+mod phase4_secret_migration_tests {
+    use super::*;
+    use rand::RngCore;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(label: &str, extension: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mini_hbut_phase4_{label}_{nanos}.{extension}"))
+    }
+
+    fn test_secret(label: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        format!("{label}-{nanos}")
+    }
+
+    #[test]
+    fn new_session_secrets_are_encrypted_and_roundtrip() {
+        let path = temp_path("session", "db");
+        init_db(&path).expect("init");
+        let sid = "phase4-user-a";
+        let cookies = test_secret("cookie");
+        let access_token = test_secret("access");
+        let refresh_token = test_secret("refresh");
+        let password = String::new();
+        save_user_session(
+            &path,
+            sid,
+            &cookies,
+            &password,
+            &access_token,
+            Some(&refresh_token),
+            Some("2099-01-01T00:00:00Z"),
+        )
+        .expect("save");
+
+        let conn = open_connection(&path).expect("open");
+        let raw: (String, String, String) = conn
+            .query_row(
+                "SELECT cookies, one_code_token, electricity_refresh_token FROM user_sessions WHERE student_id = ?1",
+                params![sid],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("row");
+        assert!(raw
+            .0
+            .starts_with(crate::secret_envelope::SECRET_ENVELOPE_PREFIX));
+        assert!(raw
+            .1
+            .starts_with(crate::secret_envelope::SECRET_ENVELOPE_PREFIX));
+        assert!(raw
+            .2
+            .starts_with(crate::secret_envelope::SECRET_ENVELOPE_PREFIX));
+
+        let session = get_user_session(&path, sid).expect("get").expect("session");
+        assert_eq!(session.cookies, cookies);
+        assert_eq!(session.one_code_token, access_token);
+        assert_eq!(session.refresh_token, refresh_token);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn legacy_secret_migration_is_explicit_and_idempotent() {
+        let path = temp_path("migration", "db");
+        init_db(&path).expect("init");
+        let sid = "phase4-user-b";
+        let legacy_cookie = test_secret("legacy-cookie");
+        let legacy_access = test_secret("legacy-access");
+        let legacy_refresh = test_secret("legacy-refresh");
+        {
+            let conn = open_connection(&path).expect("open");
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token) VALUES (?1, ?2, '', ?3, ?4)",
+                params![sid, legacy_cookie, legacy_access, legacy_refresh],
+            )
+            .expect("seed");
+        }
+        init_db(&path).expect("re-init");
+        let before: String = open_connection(&path)
+            .expect("open")
+            .query_row(
+                "SELECT cookies FROM user_sessions WHERE student_id = ?1",
+                params![sid],
+                |row| row.get(0),
+            )
+            .expect("raw before");
+        assert_eq!(before, legacy_cookie);
+
+        let report = migrate_session_secrets_v1(&path).expect("migrate");
+        assert_eq!(report.migrated, 1);
+        let second = migrate_session_secrets_v1(&path).expect("migrate twice");
+        assert_eq!(second.already_encrypted, 1);
+        let session = get_user_session(&path, sid).expect("get").expect("session");
+        assert_eq!(session.cookies, legacy_cookie);
+        assert_eq!(session.one_code_token, legacy_access);
+        assert_eq!(session.refresh_token, legacy_refresh);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn online_learning_cookie_is_encrypted_and_roundtrips() {
+        let path = temp_path("online_cookie", "db");
+        init_db(&path).expect("init");
+        let sid = "phase4-online-user";
+        let cookie_blob = test_secret("online-cookie");
+        let record = OnlineLearningPlatformStateRecord {
+            student_id: sid.to_string(),
+            platform: "chaoxing".to_string(),
+            connected: true,
+            account_id: "account".to_string(),
+            display_name: "display".to_string(),
+            cookie_blob: cookie_blob.clone(),
+            meta_json: "{}".to_string(),
+            sync_time: "2026-08-04T00:00:00Z".to_string(),
+            updated_at: String::new(),
+        };
+        save_online_learning_platform_state(&path, &record).expect("save state");
+
+        let raw: String = open_connection(&path)
+            .expect("open")
+            .query_row(
+                "SELECT cookie_blob FROM online_learning_platform_state WHERE student_id = ?1 AND platform = ?2",
+                params![sid, "chaoxing"],
+                |row| row.get(0),
+            )
+            .expect("raw state");
+        assert!(raw.starts_with(crate::secret_envelope::SECRET_ENVELOPE_PREFIX));
+
+        let loaded = get_online_learning_platform_state(&path, sid, "chaoxing")
+            .expect("load")
+            .expect("state");
+        assert_eq!(loaded.cookie_blob, cookie_blob);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn encrypted_backup_restores_to_new_path_only() {
+        let source = temp_path("backup_source", "db");
+        let backup_dir = temp_path("backup_dir", "dir");
+        let restored = temp_path("backup_restore", "db");
+        init_db(&source).expect("init");
+        save_cache(
+            &source,
+            "calendar_public_cache",
+            "phase4",
+            &serde_json::json!({"ok": true}),
+        )
+        .expect("seed cache");
+        let mut key = [0_u8; 32];
+        rand::thread_rng().fill_bytes(&mut key);
+        let report = backup_database_encrypted(&source, &backup_dir, 2, &key).expect("backup");
+        assert!(report
+            .backup_path
+            .extension()
+            .is_some_and(|ext| ext == "mhbbackup"));
+        restore_encrypted_backup(&report.backup_path, &restored, &key).expect("restore");
+        verify_backup(&restored).expect("verify restored");
+        assert!(restore_encrypted_backup(&report.backup_path, &restored, &key).is_err());
+        let _ = std::fs::remove_file(source);
+        let _ = std::fs::remove_file(restored);
+        let _ = std::fs::remove_dir_all(backup_dir);
+    }
+}
+
+#[cfg(test)]
 mod auth_cookie_v2_tests {
     use super::*;
     use base64::Engine;
@@ -2055,6 +2587,16 @@ mod auth_cookie_v2_tests {
             ),
         ];
         upsert_auth_cookies_batch(&path, sid, &rows, "test").expect("upsert");
+
+        let raw_cookie: String = open_connection(&path)
+            .expect("open")
+            .query_row(
+                "SELECT cookie_json FROM auth_cookie_v2 WHERE student_id = ?1 LIMIT 1",
+                params![sid],
+                |row| row.get(0),
+            )
+            .expect("raw cookie");
+        assert!(raw_cookie.starts_with(crate::secret_envelope::SECRET_ENVELOPE_PREFIX));
 
         let loaded = load_auth_cookies_for_student(&path, sid).expect("load");
         assert_eq!(loaded.len(), 2);
@@ -2318,7 +2860,9 @@ mod concurrency_tests {
         assert_eq!(session.one_code_token, seed_token);
         assert_eq!(session.refresh_token, seed_refresh);
         assert_eq!(session.token_expires_at, seed_expiry);
-        assert_eq!(session.password, seed_password);
+        let expected_password = load_password_from_keyring_or_remembered(sid);
+        assert!(expected_password.is_empty() || expected_password == seed_password);
+        assert_eq!(session.password, expected_password);
         let _ = std::fs::remove_file(&path);
     }
 
