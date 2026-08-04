@@ -88,6 +88,7 @@ jobs:
         run: git diff --exit-code -- package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
 
       - name: Upload dry-run artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows-release-dry-run-${{ github.run_id }}

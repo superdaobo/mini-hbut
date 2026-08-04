@@ -1,92 +1,37 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { loadScriptFromCdn, loadStyleFromCdn } from './cdn_loader.js'
+import markedKatex from 'marked-katex-extension'
+import 'katex/dist/katex.min.css'
 
 marked.setOptions({
   gfm: true,
   breaks: true
 })
 
-const CDN_CONFIG = {
-  katexScript: [
-    'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js',
-    'https://fastly.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js',
-    'https://unpkg.com/katex@0.16.11/dist/katex.min.js',
-    'https://npm.elemecdn.com/katex@0.16.11/dist/katex.min.js'
-  ],
-  katexStyle: [
-    'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css',
-    'https://fastly.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css',
-    'https://unpkg.com/katex@0.16.11/dist/katex.min.css',
-    'https://npm.elemecdn.com/katex@0.16.11/dist/katex.min.css'
-  ],
-  markedKatexScript: [
-    'https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.6/lib/index.umd.js',
-    'https://fastly.jsdelivr.net/npm/marked-katex-extension@5.1.6/lib/index.umd.js',
-    'https://unpkg.com/marked-katex-extension@5.1.6/lib/index.umd.js',
-    'https://npm.elemecdn.com/marked-katex-extension@5.1.6/lib/index.umd.js'
-  ]
-}
-
 let markdownRuntimeReady = false
-let markdownRuntimePromise = null
 
 const enableKatexMarkdown = () => {
-  if (markdownRuntimeReady) return
-  const pluginFactory = (
-    (typeof window?.markedKatex === 'function' && window.markedKatex)
-    || (typeof window?.markedKatex?.default === 'function' && window.markedKatex.default)
-    || (typeof window?.markedKatexExtension === 'function' && window.markedKatexExtension)
-    || (typeof window?.markedKatexExtension?.default === 'function' && window.markedKatexExtension.default)
-  )
-  if (typeof pluginFactory !== 'function') return
+  if (markdownRuntimeReady) return true
   marked.use(
-    pluginFactory({
+    markedKatex({
       throwOnError: false,
       output: 'html'
     })
   )
   markdownRuntimeReady = true
+  return true
 }
 
-export const initMarkdownRuntime = async (timeoutMs = 8000) => {
-  if (markdownRuntimeReady) return true
-  if (markdownRuntimePromise) return markdownRuntimePromise
+/**
+ * Keep the legacy async API for callers while using a bundled, offline runtime.
+ * No remote script, blob URL, inline style element, or dynamic code evaluation
+ * is required, so this path remains compatible with the desktop strict CSP.
+ */
+export const initMarkdownRuntime = async (_timeoutMs = 8000) => enableKatexMarkdown()
 
-  markdownRuntimePromise = (async () => {
-    try {
-      await loadStyleFromCdn({
-        cacheKey: 'katex-css',
-        urls: CDN_CONFIG.katexStyle,
-        timeoutMs
-      })
-      await loadScriptFromCdn({
-        cacheKey: 'katex-js',
-        urls: CDN_CONFIG.katexScript,
-        timeoutMs,
-        resolveGlobal: () => window?.katex
-      })
-      await loadScriptFromCdn({
-        cacheKey: 'marked-katex-js',
-        urls: CDN_CONFIG.markedKatexScript,
-        timeoutMs,
-        resolveGlobal: () => (
-          (typeof window?.markedKatex === 'function' && window.markedKatex)
-          || (typeof window?.markedKatex?.default === 'function' && window.markedKatex.default)
-          || (typeof window?.markedKatexExtension === 'function' && window.markedKatexExtension)
-          || (typeof window?.markedKatexExtension?.default === 'function' && window.markedKatexExtension.default)
-          || null
-        )
-      })
-      enableKatexMarkdown()
-    } catch (error) {
-      console.warn('[Markdown] CDN runtime init failed, fallback plain markdown:', error)
-    }
-    return markdownRuntimeReady
-  })()
-
-  return markdownRuntimePromise
-}
+// Register once when the markdown chunk is loaded so synchronous render calls
+// continue to support formulas without waiting for a CDN bootstrap.
+enableKatexMarkdown()
 
 export function renderMarkdown(content = '') {
   return DOMPurify.sanitize(marked.parse(content || ''))

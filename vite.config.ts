@@ -24,6 +24,8 @@ const manualChunks = (id: string) => {
   if (
     normalized.includes('/node_modules/marked/') ||
     normalized.includes('/node_modules/dompurify/') ||
+    normalized.includes('/node_modules/katex/') ||
+    normalized.includes('/node_modules/marked-katex-extension/') ||
     normalized.includes('/src/utils/markdown.js')
   ) {
     return 'markdown'
@@ -89,8 +91,6 @@ export default defineConfig({
       'axios',
       'marked',
       'dompurify',
-      'ajv',
-      'ajv/dist/2020.js',
       // CJS browser 入口含 require；必须预构建，否则 WebView 报 require is not defined 并白屏
       'qrcode'
     ]

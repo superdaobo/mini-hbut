@@ -52,7 +52,10 @@ jobs:
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Production build smoke
-        run: npm run build
+        run: |
+          npm run build
+          node scripts/check_strict_csp_bundle.mjs
+          node scripts/test_strict_csp_bundle.mjs
 
       - name: Website module build smoke
         env:

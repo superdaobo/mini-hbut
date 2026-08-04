@@ -128,6 +128,18 @@ describe('PlatformGenerator', () => {
       }
     })
 
+    it('边界距离的三角浮点误差不会误判为出画', () => {
+      const radius = PLATFORM_VISIBILITY.visibleRadiusFromCameraTarget
+      const angle = Math.PI / 6
+      const target = {
+        x: radius * Math.sin(angle),
+        z: radius * Math.cos(angle)
+      }
+
+      expect(planarDistance({ x: 0, z: 0 }, target)).toBeCloseTo(radius, 12)
+      expect(isPlatformCenterOnScreen({ x: 0, z: 0 }, target, radius)).toBe(true)
+    })
+
     it('连续生成时下一平台中心相对当前平台始终入画', () => {
       let current = generator.getInitialPlatform()
       for (let i = 0; i < 80; i++) {
