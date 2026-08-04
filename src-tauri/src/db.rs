@@ -259,11 +259,24 @@ fn session_secret_key(student_id: &str, create: bool) -> std::result::Result<[u8
 
 #[cfg(test)]
 fn session_secret_key(student_id: &str, _create: bool) -> std::result::Result<[u8; 32], String> {
+    use rand::RngCore;
     use sha2::{Digest, Sha256};
+    use std::sync::OnceLock;
+
     if student_id.trim().is_empty() {
         return Err("学号无效".to_string());
     }
-    Ok(Sha256::digest(format!("mini-hbut-test-secret:{}", student_id.trim()).as_bytes()).into())
+
+    static TEST_MASTER_KEY: OnceLock<[u8; 32]> = OnceLock::new();
+    let master_key = TEST_MASTER_KEY.get_or_init(|| {
+        let mut key = [0_u8; 32];
+        rand::thread_rng().fill_bytes(&mut key);
+        key
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(master_key);
+    hasher.update(student_id.trim().as_bytes());
+    Ok(hasher.finalize().into())
 }
 
 fn encrypt_session_secret(student_id: &str, value: &str) -> std::result::Result<String, String> {
@@ -418,7 +431,9 @@ pub struct SessionSecretMigrationReport {
 pub fn migrate_session_secrets_v1<P: AsRef<Path>>(path: P) -> Result<SessionSecretMigrationReport> {
     let mut conn = open_connection(path)?;
     ensure_user_session_columns(&conn)?;
-    let rows = {
+    migrate_auth_cookie_v2_table(&conn)?;
+
+    let session_rows = {
         let mut stmt = conn.prepare(
             "SELECT student_id, cookies, one_code_token, electricity_refresh_token \
              FROM user_sessions ORDER BY student_id",
@@ -433,10 +448,37 @@ pub fn migrate_session_secrets_v1<P: AsRef<Path>>(path: P) -> Result<SessionSecr
         })?;
         mapped.collect::<Result<Vec<_>>>()?
     };
+    let auth_cookie_rows = {
+        let mut stmt = conn.prepare(
+            "SELECT student_id, domain, cookie_json FROM auth_cookie_v2 ORDER BY student_id, domain",
+        )?;
+        let mapped = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2).unwrap_or_default(),
+            ))
+        })?;
+        mapped.collect::<Result<Vec<_>>>()?
+    };
+    let platform_rows = {
+        let mut stmt = conn.prepare(
+            "SELECT student_id, platform, cookie_blob FROM online_learning_platform_state \
+             ORDER BY student_id, platform",
+        )?;
+        let mapped = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2).unwrap_or_default(),
+            ))
+        })?;
+        mapped.collect::<Result<Vec<_>>>()?
+    };
 
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut report = SessionSecretMigrationReport::default();
-    for (student_id, cookies, token, refresh_token) in rows {
+    for (student_id, cookies, token, refresh_token) in session_rows {
         report.scanned += 1;
         let values = [&cookies, &token, &refresh_token];
         if values
@@ -470,6 +512,43 @@ pub fn migrate_session_secrets_v1<P: AsRef<Path>>(path: P) -> Result<SessionSecr
         )?;
         report.migrated += 1;
     }
+
+    for (student_id, domain, cookie_json) in auth_cookie_rows {
+        report.scanned += 1;
+        if cookie_json.is_empty() || crate::secret_envelope::is_encrypted_secret(&cookie_json) {
+            report.already_encrypted += 1;
+            continue;
+        }
+        let Ok(protected) = encrypt_session_secret(&student_id, &cookie_json) else {
+            report.failed += 1;
+            continue;
+        };
+        tx.execute(
+            "UPDATE auth_cookie_v2 SET cookie_json = ?1, updated_at = CURRENT_TIMESTAMP \
+             WHERE student_id = ?2 AND domain = ?3",
+            params![protected, student_id, domain],
+        )?;
+        report.migrated += 1;
+    }
+
+    for (student_id, platform, cookie_blob) in platform_rows {
+        report.scanned += 1;
+        if cookie_blob.is_empty() || crate::secret_envelope::is_encrypted_secret(&cookie_blob) {
+            report.already_encrypted += 1;
+            continue;
+        }
+        let Ok(protected) = encrypt_session_secret(&student_id, &cookie_blob) else {
+            report.failed += 1;
+            continue;
+        };
+        tx.execute(
+            "UPDATE online_learning_platform_state SET cookie_blob = ?1, updated_at = CURRENT_TIMESTAMP \
+             WHERE student_id = ?2 AND platform = ?3",
+            params![protected, student_id, platform],
+        )?;
+        report.migrated += 1;
+    }
+
     tx.commit()?;
     Ok(report)
 }
@@ -742,14 +821,16 @@ pub fn upsert_auth_cookie_domain<P: AsRef<Path>>(
     }
     let conn = open_connection(path)?;
     migrate_auth_cookie_v2_table(&conn)?;
+    let protected_cookie_json =
+        protect_session_secret(sid, cookie_json, "auth_cookie_v2.cookie_json");
     conn.execute(
         "INSERT INTO auth_cookie_v2 (student_id, domain, cookie_json, updated_at, source)
          VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP, ?4)
          ON CONFLICT(student_id, domain) DO UPDATE SET
-           cookie_json = excluded.cookie_json,
+           cookie_json = CASE WHEN excluded.cookie_json <> '' THEN excluded.cookie_json ELSE auth_cookie_v2.cookie_json END,
            updated_at = CURRENT_TIMESTAMP,
            source = excluded.source",
-        params![sid, dom, cookie_json, source],
+        params![sid, dom, protected_cookie_json, source],
     )?;
     Ok(())
 }
@@ -773,14 +854,16 @@ pub fn upsert_auth_cookies_batch<P: AsRef<Path>>(
         if dom.is_empty() {
             continue;
         }
+        let protected_cookie_json =
+            protect_session_secret(sid, cookie_json, "auth_cookie_v2.cookie_json");
         tx.execute(
             "INSERT INTO auth_cookie_v2 (student_id, domain, cookie_json, updated_at, source)
              VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP, ?4)
              ON CONFLICT(student_id, domain) DO UPDATE SET
-               cookie_json = excluded.cookie_json,
+               cookie_json = CASE WHEN excluded.cookie_json <> '' THEN excluded.cookie_json ELSE auth_cookie_v2.cookie_json END,
                updated_at = CURRENT_TIMESTAMP,
                source = excluded.source",
-            params![sid, dom, cookie_json, source],
+            params![sid, dom, protected_cookie_json, source],
         )?;
     }
     tx.commit()?;
@@ -810,9 +893,11 @@ pub fn load_auth_cookies_for_student<P: AsRef<Path>>(
         })
     })?;
     let mut out = Vec::new();
-    for r in rows.flatten() {
-        if !r.cookie_json.trim().is_empty() && r.cookie_json.trim() != "[]" {
-            out.push(r);
+    for mut record in rows.flatten() {
+        record.cookie_json =
+            reveal_session_secret(sid, &record.cookie_json, "auth_cookie_v2.cookie_json");
+        if !record.cookie_json.trim().is_empty() && record.cookie_json.trim() != "[]" {
+            out.push(record);
         }
     }
     Ok(out)
@@ -1868,17 +1953,30 @@ pub fn save_online_learning_platform_state<P: AsRef<Path>>(
     record: &OnlineLearningPlatformStateRecord,
 ) -> Result<()> {
     let conn = open_connection(path)?;
+    let protected_cookie_blob = protect_session_secret(
+        &record.student_id,
+        &record.cookie_blob,
+        "online_learning_platform_state.cookie_blob",
+    );
     conn.execute(
-        "INSERT OR REPLACE INTO online_learning_platform_state (
+        "INSERT INTO online_learning_platform_state (
             student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
+        ON CONFLICT(student_id, platform) DO UPDATE SET
+            connected = excluded.connected,
+            account_id = excluded.account_id,
+            display_name = excluded.display_name,
+            cookie_blob = CASE WHEN excluded.cookie_blob <> '' THEN excluded.cookie_blob ELSE online_learning_platform_state.cookie_blob END,
+            meta_json = excluded.meta_json,
+            sync_time = excluded.sync_time,
+            updated_at = CURRENT_TIMESTAMP",
         params![
             record.student_id,
             record.platform,
             if record.connected { 1 } else { 0 },
             record.account_id,
             record.display_name,
-            record.cookie_blob,
+            protected_cookie_blob,
             record.meta_json,
             record.sync_time
         ],
@@ -1892,27 +1990,36 @@ pub fn get_online_learning_platform_state<P: AsRef<Path>>(
     platform: &str,
 ) -> Result<Option<OnlineLearningPlatformStateRecord>> {
     let conn = open_connection(path)?;
-    conn.query_row(
-        "SELECT student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
-         FROM online_learning_platform_state
-         WHERE student_id = ?1 AND platform = ?2
-         LIMIT 1",
-        params![student_id, platform],
-        |row| {
-            Ok(OnlineLearningPlatformStateRecord {
-                student_id: row.get(0)?,
-                platform: row.get(1)?,
-                connected: row.get::<_, i64>(2)? != 0,
-                account_id: row.get(3)?,
-                display_name: row.get(4)?,
-                cookie_blob: row.get(5)?,
-                meta_json: row.get(6)?,
-                sync_time: row.get(7)?,
-                updated_at: row.get(8)?,
-            })
-        },
-    )
-    .optional()
+    let record = conn
+        .query_row(
+            "SELECT student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
+             FROM online_learning_platform_state
+             WHERE student_id = ?1 AND platform = ?2
+             LIMIT 1",
+            params![student_id, platform],
+            |row| {
+                Ok(OnlineLearningPlatformStateRecord {
+                    student_id: row.get(0)?,
+                    platform: row.get(1)?,
+                    connected: row.get::<_, i64>(2)? != 0,
+                    account_id: row.get(3)?,
+                    display_name: row.get(4)?,
+                    cookie_blob: row.get(5)?,
+                    meta_json: row.get(6)?,
+                    sync_time: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(record.map(|mut state| {
+        state.cookie_blob = reveal_session_secret(
+            &state.student_id,
+            &state.cookie_blob,
+            "online_learning_platform_state.cookie_blob",
+        );
+        state
+    }))
 }
 
 pub fn list_online_learning_platform_states<P: AsRef<Path>>(
@@ -1929,7 +2036,7 @@ pub fn list_online_learning_platform_states<P: AsRef<Path>>(
     let mut rows = stmt.query(params![student_id])?;
     let mut result = Vec::new();
     while let Some(row) = rows.next()? {
-        result.push(OnlineLearningPlatformStateRecord {
+        let mut state = OnlineLearningPlatformStateRecord {
             student_id: row.get(0)?,
             platform: row.get(1)?,
             connected: row.get::<_, i64>(2)? != 0,
@@ -1939,7 +2046,13 @@ pub fn list_online_learning_platform_states<P: AsRef<Path>>(
             meta_json: row.get(6)?,
             sync_time: row.get(7)?,
             updated_at: row.get(8)?,
-        });
+        };
+        state.cookie_blob = reveal_session_secret(
+            &state.student_id,
+            &state.cookie_blob,
+            "online_learning_platform_state.cookie_blob",
+        );
+        result.push(state);
     }
     Ok(result)
 }
@@ -2266,7 +2379,7 @@ mod cred_migrate_tests {
 #[cfg(test)]
 mod phase4_secret_migration_tests {
     use super::*;
-    use sha2::{Digest, Sha256};
+    use rand::RngCore;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(label: &str, extension: &str) -> PathBuf {
@@ -2277,18 +2390,29 @@ mod phase4_secret_migration_tests {
         std::env::temp_dir().join(format!("mini_hbut_phase4_{label}_{nanos}.{extension}"))
     }
 
+    fn test_secret(label: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        format!("{label}-{nanos}")
+    }
+
     #[test]
     fn new_session_secrets_are_encrypted_and_roundtrip() {
         let path = temp_path("session", "db");
         init_db(&path).expect("init");
         let sid = "phase4-user-a";
+        let cookies = test_secret("cookie");
+        let access_token = test_secret("access");
+        let refresh_token = test_secret("refresh");
         save_user_session(
             &path,
             sid,
-            "cookie=value",
+            &cookies,
             "",
-            "access-token",
-            Some("refresh-token"),
+            &access_token,
+            Some(&refresh_token),
             Some("2099-01-01T00:00:00Z"),
         )
         .expect("save");
@@ -2312,9 +2436,9 @@ mod phase4_secret_migration_tests {
             .starts_with(crate::secret_envelope::SECRET_ENVELOPE_PREFIX));
 
         let session = get_user_session(&path, sid).expect("get").expect("session");
-        assert_eq!(session.cookies, "cookie=value");
-        assert_eq!(session.one_code_token, "access-token");
-        assert_eq!(session.refresh_token, "refresh-token");
+        assert_eq!(session.cookies, cookies);
+        assert_eq!(session.one_code_token, access_token);
+        assert_eq!(session.refresh_token, refresh_token);
         let _ = std::fs::remove_file(path);
     }
 
@@ -2323,11 +2447,14 @@ mod phase4_secret_migration_tests {
         let path = temp_path("migration", "db");
         init_db(&path).expect("init");
         let sid = "phase4-user-b";
+        let legacy_cookie = test_secret("legacy-cookie");
+        let legacy_access = test_secret("legacy-access");
+        let legacy_refresh = test_secret("legacy-refresh");
         {
             let conn = open_connection(&path).expect("open");
             conn.execute(
-                "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token) VALUES (?1, 'legacy-cookie', '', 'legacy-access', 'legacy-refresh')",
-                params![sid],
+                "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token) VALUES (?1, ?2, '', ?3, ?4)",
+                params![sid, legacy_cookie, legacy_access, legacy_refresh],
             )
             .expect("seed");
         }
@@ -2340,16 +2467,52 @@ mod phase4_secret_migration_tests {
                 |row| row.get(0),
             )
             .expect("raw before");
-        assert_eq!(before, "legacy-cookie");
+        assert_eq!(before, legacy_cookie);
 
         let report = migrate_session_secrets_v1(&path).expect("migrate");
         assert_eq!(report.migrated, 1);
         let second = migrate_session_secrets_v1(&path).expect("migrate twice");
         assert_eq!(second.already_encrypted, 1);
         let session = get_user_session(&path, sid).expect("get").expect("session");
-        assert_eq!(session.cookies, "legacy-cookie");
-        assert_eq!(session.one_code_token, "legacy-access");
-        assert_eq!(session.refresh_token, "legacy-refresh");
+        assert_eq!(session.cookies, legacy_cookie);
+        assert_eq!(session.one_code_token, legacy_access);
+        assert_eq!(session.refresh_token, legacy_refresh);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn online_learning_cookie_is_encrypted_and_roundtrips() {
+        let path = temp_path("online_cookie", "db");
+        init_db(&path).expect("init");
+        let sid = "phase4-online-user";
+        let cookie_blob = test_secret("online-cookie");
+        let record = OnlineLearningPlatformStateRecord {
+            student_id: sid.to_string(),
+            platform: "chaoxing".to_string(),
+            connected: true,
+            account_id: "account".to_string(),
+            display_name: "display".to_string(),
+            cookie_blob: cookie_blob.clone(),
+            meta_json: "{}".to_string(),
+            sync_time: "2026-08-04T00:00:00Z".to_string(),
+            updated_at: String::new(),
+        };
+        save_online_learning_platform_state(&path, &record).expect("save state");
+
+        let raw: String = open_connection(&path)
+            .expect("open")
+            .query_row(
+                "SELECT cookie_blob FROM online_learning_platform_state WHERE student_id = ?1 AND platform = ?2",
+                params![sid, "chaoxing"],
+                |row| row.get(0),
+            )
+            .expect("raw state");
+        assert!(raw.starts_with(crate::secret_envelope::SECRET_ENVELOPE_PREFIX));
+
+        let loaded = get_online_learning_platform_state(&path, sid, "chaoxing")
+            .expect("load")
+            .expect("state");
+        assert_eq!(loaded.cookie_blob, cookie_blob);
         let _ = std::fs::remove_file(path);
     }
 
@@ -2361,12 +2524,13 @@ mod phase4_secret_migration_tests {
         init_db(&source).expect("init");
         save_cache(
             &source,
-            "public_cache",
+            "calendar_public_cache",
             "phase4",
             &serde_json::json!({"ok": true}),
         )
         .expect("seed cache");
-        let key: [u8; 32] = Sha256::digest(b"synthetic encrypted backup key").into();
+        let mut key = [0_u8; 32];
+        rand::thread_rng().fill_bytes(&mut key);
         let report = backup_database_encrypted(&source, &backup_dir, 2, &key).expect("backup");
         assert!(report
             .backup_path
@@ -2422,6 +2586,16 @@ mod auth_cookie_v2_tests {
             ),
         ];
         upsert_auth_cookies_batch(&path, sid, &rows, "test").expect("upsert");
+
+        let raw_cookie: String = open_connection(&path)
+            .expect("open")
+            .query_row(
+                "SELECT cookie_json FROM auth_cookie_v2 WHERE student_id = ?1 LIMIT 1",
+                params![sid],
+                |row| row.get(0),
+            )
+            .expect("raw cookie");
+        assert!(raw_cookie.starts_with(crate::secret_envelope::SECRET_ENVELOPE_PREFIX));
 
         let loaded = load_auth_cookies_for_student(&path, sid).expect("load");
         assert_eq!(loaded.len(), 2);
@@ -2685,7 +2859,9 @@ mod concurrency_tests {
         assert_eq!(session.one_code_token, seed_token);
         assert_eq!(session.refresh_token, seed_refresh);
         assert_eq!(session.token_expires_at, seed_expiry);
-        assert_eq!(session.password, seed_password);
+        let expected_password = load_password_from_keyring_or_remembered(sid);
+        assert!(expected_password.is_empty() || expected_password == seed_password);
+        assert_eq!(session.password, expected_password);
         let _ = std::fs::remove_file(&path);
     }
 

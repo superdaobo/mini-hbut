@@ -33,8 +33,7 @@ impl AcademicReadService {
                     "offline": false
                 });
                 if let Some(key) = cache_key.as_ref() {
-                    db::save_cache(self.context.db_path(), "exams_cache", key, &payload)
-                        .map_err(|error| ApplicationError::storage(error.to_string()))?;
+                    let _ = db::save_cache(self.context.db_path(), "exams_cache", key, &payload);
                 }
                 Ok(payload)
             }
@@ -77,8 +76,7 @@ impl AcademicReadService {
                 let sync_time = Local::now().to_rfc3339();
                 let payload = attach_sync_time(data, &sync_time, false);
                 if let Some(key) = cache_key.as_ref() {
-                    db::save_cache(self.context.db_path(), "ranking_cache", key, &payload)
-                        .map_err(|error| ApplicationError::storage(error.to_string()))?;
+                    let _ = db::save_cache(self.context.db_path(), "ranking_cache", key, &payload);
                 }
                 Ok(payload)
             }
@@ -108,8 +106,8 @@ impl AcademicReadService {
                 let sync_time = Local::now().to_rfc3339();
                 let payload = attach_sync_time(data, &sync_time, false);
                 if let Some(uid) = uid.as_ref() {
-                    db::save_cache(self.context.db_path(), "studentinfo_cache", uid, &payload)
-                        .map_err(|error| ApplicationError::storage(error.to_string()))?;
+                    let _ =
+                        db::save_cache(self.context.db_path(), "studentinfo_cache", uid, &payload);
                 }
                 Ok(payload)
             }
