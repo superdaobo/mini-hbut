@@ -8,7 +8,7 @@ default_model = "opencode-go/deepseek-v4-flash"
 temperature = 0.0
 planner_model = "opencode-go/deepseek-v4-flash"
 subagent_model = "opencode-zen-anthropic/deepseek-v4-flash-free"
-subagent_effort = "disabled"
+subagent_effort = "low"
 max_subagent_depth = 1
 max_subagent_concurrency = 6
 max_parallel_writers = 3
@@ -26,7 +26,7 @@ models = ["deepseek-v4-flash-free"]
 api_key_env = "OPENCODE_API_KEY"
 context_window = 200000
 vision_models = []
-model_overrides = { "deepseek-v4-flash-free" = { reasoning_protocol = "deepseek", supported_efforts = ["disabled", "low", "medium", "high"], default_effort = "disabled", context_window = 200000 } }
+model_overrides = { "deepseek-v4-flash-free" = { reasoning_protocol = "deepseek", supported_efforts = ["low", "medium", "high"], default_effort = "low", context_window = 200000 } }
 
 [[providers]]
 name = "opencode-go"
