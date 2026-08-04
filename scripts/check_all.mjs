@@ -6,6 +6,7 @@ const steps = [
   () => runNpm('RustSec acceptance scope', ['run', 'check:rustsec-acceptances']),
   () => runNode('npm CLI path contract', 'scripts/test_npm_cli_path.mjs'),
   () => runNode('Capacitor tar compatibility contract', 'scripts/test_capacitor_tar_compat.mjs'),
+  () => runNode('Tauri CLI bootstrap contract', 'scripts/test_tauri_cli_bootstrap.mjs'),
   () => runNode('Post-merge workflow contract', 'scripts/test_post_merge_workflow_contract.mjs'),
   () => runNode('WebView mount smoke contract', 'scripts/ci/test_assert_webview_app_mounted.mjs'),
   () => runNpm('Frontend production build', ['run', 'build']),

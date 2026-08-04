@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "prebuild": "node scripts/prepare_dist.mjs",
-    "postinstall": "node scripts/patch_capacitor_tar_compat.mjs",
+    "postinstall": "node scripts/patch_capacitor_tar_compat.mjs && node scripts/patch_tauri_cli_shim.mjs",
     "prebuild:web": "node scripts/prepare_dist.mjs",
     "dev": "node scripts/vite_run.mjs",
     "dev:lowmem": "node scripts/vite_dev_lowmem.mjs",
