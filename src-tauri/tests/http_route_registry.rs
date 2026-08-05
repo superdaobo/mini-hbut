@@ -81,11 +81,8 @@ fn route_methods(expression: &str) -> Vec<&'static str> {
     let mut found = Vec::new();
     let bytes = expression.as_bytes();
     for index in 0..bytes.len() {
-        let prefix_ok = index == 0
-            || matches!(
-                bytes[index - 1],
-                b',' | b'.' | b' ' | b'\n' | b'\r' | b'\t'
-            );
+        let prefix_ok =
+            index == 0 || matches!(bytes[index - 1], b',' | b'.' | b' ' | b'\n' | b'\r' | b'\t');
         if !prefix_ok {
             continue;
         }
@@ -146,6 +143,10 @@ fn phase5_http_registry_has_no_duplicate_or_empty_entries() {
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
     let unique = baseline.iter().copied().collect::<BTreeSet<_>>();
-    assert_eq!(baseline.len(), unique.len(), "baseline contains duplicate routes");
+    assert_eq!(
+        baseline.len(),
+        unique.len(),
+        "baseline contains duplicate routes"
+    );
     assert_eq!(baseline.len(), 119, "unexpected public HTTP route count");
 }

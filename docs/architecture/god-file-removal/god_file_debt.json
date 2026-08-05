@@ -1,7 +1,6 @@
 [
   { "key": "size:src-tauri/src/http_client/academic.rs", "issue": "#578", "owner": "rust-application", "deadline": "2026-08-12" },
   { "key": "size:src-tauri/src/http_client/electricity.rs", "issue": "#578", "owner": "rust-application", "deadline": "2026-08-12" },
-  { "key": "size:src-tauri/src/http_server.rs", "issue": "#577", "owner": "rust-http-transport", "deadline": "2026-08-12" },
   { "key": "size:src-tauri/src/modules/chaoxing_class.rs", "issue": "#578", "owner": "rust-application", "deadline": "2026-08-12" },
   { "key": "size:src-tauri/src/modules/online_learning.rs", "issue": "#578", "owner": "rust-application", "deadline": "2026-08-12" },
   { "key": "size:src/App.vue", "issue": "#574", "owner": "frontend-app-shell", "deadline": "2026-08-12" },
