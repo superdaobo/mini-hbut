@@ -1315,7 +1315,7 @@ pub(crate) async fn login(
     lt: Option<String>,
     execution: Option<String>,
 ) -> Result<UserInfo, String> {
-    println!("[调试] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}", 
+    println!("[调试] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}",
              username, password.len(), captcha, lt, execution);
     let mut client = state.client.write().await;
     client
