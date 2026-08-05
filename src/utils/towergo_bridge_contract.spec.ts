@@ -1,13 +1,29 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const read = (relativePath: string) => readFileSync(path.join(process.cwd(), relativePath), 'utf8')
+const readTree = (relativePath: string, extensionPattern: RegExp) => {
+  const root = path.join(process.cwd(), relativePath)
+  if (!existsSync(root)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && extensionPattern.test(entry.name)) files.push(absolute)
+    }
+  }
+  walk(root)
+  return files.sort().map((file) => readFileSync(file, 'utf8')).join('\n')
+}
+const towerGoSources = () =>
+  read('src/components/TowerGoView.vue') + '\n' + readTree('src/features/towergo', /\.(?:ts|vue)$/)
 
 describe('towergo bridge and location permission contract', () => {
   it('#370 writes location to debug log and keeps map container exclusive', () => {
     const mapUtil = read('src/utils/towergo_map.ts')
-    const view = read('src/components/TowerGoView.vue')
+    const view = towerGoSources()
     const geo = read('src/composables/useGeolocation.ts')
     const guideLoc = read('src/features/campus-guide/services/location-service.ts')
     expect(mapUtil).toContain('pushDebugLog')
@@ -29,7 +45,10 @@ describe('towergo bridge and location permission contract', () => {
 
   it('keeps the TowerGo proxy isolated from the main Mini-HBUT /api bridge', () => {
     const vite = read('vite.config.ts')
-    const bridge = read('src-tauri/src/http_server.rs')
+    const bridge =
+      read('src-tauri/src/http_server/routes/proxy.rs') +
+      '\n' +
+      read('src-tauri/src/http_server/mod.rs')
 
     expect(vite).toContain("'/towergo'")
     expect(vite).toContain("target: 'http://127.0.0.1:4399'")

@@ -5,12 +5,26 @@ import { describe, expect, it } from 'vitest'
 const root = process.cwd()
 const read = (relativePath: string) =>
   fs.readFileSync(path.join(root, relativePath), 'utf8')
+const readTree = (relativePath: string, extensionPattern: RegExp) => {
+  const absoluteRoot = path.join(root, relativePath)
+  if (!fs.existsSync(absoluteRoot)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && extensionPattern.test(entry.name)) files.push(absolute)
+    }
+  }
+  walk(absoluteRoot)
+  return files.sort().map((file) => fs.readFileSync(file, 'utf8')).join('\n')
+}
 
-const bridge = read('src-tauri/src/http_server.rs')
+const bridge = readTree('src-tauri/src/http_server', /\.rs$/)
 const vite = read('vite.config.ts')
 const capacitor = read('capacitor.config.ts')
-const app = read('src/App.vue')
-const ai = read('src/components/AiChatView.vue')
+const app = read('src/App.vue') + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
+const ai = read('src/components/AiChatView.vue') + '\n' + readTree('src/features/ai', /\.(?:ts|vue)$/)
 const externalSmoke = read('scripts/test_bridge_http_contract.mjs')
 
 describe('Phase 2A Bridge runtime compatibility', () => {
