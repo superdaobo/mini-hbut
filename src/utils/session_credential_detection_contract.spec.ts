@@ -5,6 +5,21 @@ import path from 'node:path'
 const repoRoot = process.cwd()
 const readText = (relativePath: string) =>
   fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
+const readTree = (relativePath: string) => {
+  const absoluteRoot = path.join(repoRoot, relativePath)
+  if (!fs.existsSync(absoluteRoot)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && /\.(?:ts|vue)$/.test(entry.name)) files.push(absolute)
+    }
+  }
+  walk(absoluteRoot)
+  return files.sort().map((file) => fs.readFileSync(file, 'utf8')).join('\n')
+}
+const readAppSources = () => readText('src/App.vue') + '\n' + readTree('src/app')
 
 describe('session credential detection contract (#520)', () => {
   it('backend registers has_restorable_credentials and auto_relogin_from_stored commands', () => {
@@ -17,8 +32,8 @@ describe('session credential detection contract (#520)', () => {
   })
 
   it('has_restorable_credentials resolves from db user_sessions and keyring', () => {
-    const lib = readText('src-tauri/src/lib.rs')
-    const fnBlock = lib.match(/fn resolve_stored_portal_password\(student_id: &str\) -> Option<String> \{[\s\S]*?\n\}/)?.[0] || ''
+    const auth = readText('src-tauri/src/transport/tauri/auth.rs')
+    const fnBlock = auth.match(/fn resolve_stored_portal_password\(student_id: &str\) -> Option<String> \{[\s\S]*?\n\}/)?.[0] || ''
 
     // DB 会话密码（login 时无条件保存）优先
     expect(fnBlock).toContain('db::get_user_session(DB_FILENAME, sid)')
@@ -29,8 +44,8 @@ describe('session credential detection contract (#520)', () => {
   })
 
   it('auto_relogin_from_stored performs full CAS login and persists credentials', () => {
-    const lib = readText('src-tauri/src/lib.rs')
-    const cmdBlock = lib.match(/async fn auto_relogin_from_stored\([\s\S]*?\n\}/)?.[0] || ''
+    const auth = readText('src-tauri/src/transport/tauri/auth.rs')
+    const cmdBlock = auth.match(/async fn auto_relogin_from_stored\([\s\S]*?\n\}/)?.[0] || ''
 
     expect(cmdBlock).toContain('resolve_stored_portal_password(&sid)')
     expect(cmdBlock).toContain('client.set_credentials(sid.clone(), password.clone())')
@@ -51,7 +66,7 @@ describe('session credential detection contract (#520)', () => {
   })
 
   it('attemptAutoRelogin calls auto_relogin_from_stored for backend-restorable credentials', () => {
-    const app = readText('src/App.vue')
+    const app = readAppSources()
     const autoReloginBlock = app.match(/const attemptAutoRelogin = async \(\) => \{[\s\S]*?\n\}/)?.[0] || ''
 
     expect(autoReloginBlock).toContain('creds.backendRestorable')
@@ -59,7 +74,7 @@ describe('session credential detection contract (#520)', () => {
   })
 
   it('login success triggers proactive session probe to avoid stale expired banner', () => {
-    const app = readText('src/App.vue')
+    const app = readAppSources()
     const loginBlock = app.match(/const handleLoginSuccess = \(data\) => \{[\s\S]*?\n\}/)?.[0] || ''
 
     expect(loginBlock).toContain('refreshSessionSilently()')
