@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { readAppContractSources, readAxiosAdapterContractSources } from './contract_source_test'
 
 const repoRoot = process.cwd()
 const readText = (relativePath: string) =>
@@ -19,7 +20,7 @@ const readTree = (relativePath: string) => {
   walk(absoluteRoot)
   return files.sort().map((file) => fs.readFileSync(file, 'utf8')).join('\n')
 }
-const readAppSources = () => readText('src/App.vue') + '\n' + readTree('src/app')
+const readAppSources = () => readAppContractSources() + '\n' + readTree('src/app')
 
 describe('grade teacher async enrichment contract', () => {
   it('keeps the Tauri handler thin and delegates synchronization to the shared GradeService', () => {
@@ -45,7 +46,7 @@ describe('grade teacher async enrichment contract', () => {
     const registrySource = readText('src-tauri/src/lib.rs')
     const serviceSource = readText('src-tauri/src/grade/service.rs')
     const appSource = readAppSources()
-    const adapterSource = readText('src/utils/axios_adapter.ts')
+    const adapterSource = readAxiosAdapterContractSources()
 
     expect(source).toContain('async fn get_grade_teacher_cache')
     expect(source).toContain('async fn sync_grade_teachers_current_semester')
@@ -68,11 +69,12 @@ describe('grade teacher async enrichment contract', () => {
     const source = readText('src-tauri/src/transport/tauri/grades.rs')
     const serviceSource = readText('src-tauri/src/grade/service.rs')
     const appSource = readAppSources()
-    const adapterSource = readText('src/utils/axios_adapter.ts')
+    const adapterSource = readAxiosAdapterContractSources()
 
     expect(source).toContain('current_only.unwrap_or(false)')
     expect(serviceSource).toContain('let enrichment = if !current_only')
-    expect(appSource).toContain('fetchGradesFromAPI(studentId.value, { force: true, teacherCurrentOnly: true })')
+    expect(appSource).toContain('fetchGradesFromAPI(state.studentId.value, {')
+    expect(appSource).toContain('teacherCurrentOnly: true')
     expect(adapterSource).toContain('currentOnly: !!data?.teacher_current_only')
   })
 })

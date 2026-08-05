@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { readAppContractSources } from './contract_source_test'
 import {
   buildUpdateDownloadUrls,
   getSkippedVersionKey,
@@ -162,7 +163,7 @@ describe('update channel (stable / dev)', () => {
 
   it('wires UpdateDialog channel toggle and App autoCheck channel options', () => {
     const dialog = readSource('src/components/UpdateDialog.vue')
-    const app = readSource('src/App.vue')
+    const app = readAppContractSources()
     const updater = readSource('src/utils/updater.ts') + '\n' + readSource('src/utils/updater_sources.ts')
 
     expect(dialog).toContain('接收开发版更新（Beta）')

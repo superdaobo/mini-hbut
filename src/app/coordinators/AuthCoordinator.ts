@@ -31,9 +31,9 @@ import {
 } from '../../utils/cloud_sync.js'
 import {
   initUsageTracker,
-  setUsageTrackingStudentId,
-  scheduleUsageUpload
+  setUsageTrackingStudentId
 } from '../../utils/usage_tracker.js'
+import { scheduleUsageUpload } from '../../utils/usage_uploader.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
 export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {

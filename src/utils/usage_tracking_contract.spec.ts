@@ -31,7 +31,7 @@ describe('usage tracking contract', () => {
     expect(appSource).toContain('trackViewNavigation')
     expect(appSource).toContain('startUsageUploadScheduler')
     expect(appSource).toContain('void trackViewNavigation(fromView, normalized)')
-    expect(appSource).toContain("scheduleUsageUpload({ studentId: studentId.value, reason: 'login', force: true })")
+    expect(appSource).toContain("scheduleUsageUpload({ studentId: state.studentId.value, reason: 'login', force: true })")
     expect(appSource).toContain(':student-id="studentId"')
 
     expect(moreSource).toContain("import { trackModuleOpen } from '../utils/usage_tracker.js'")

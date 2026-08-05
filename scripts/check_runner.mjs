@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveWindowsMsvcEnvironment } from './tauri_cli_bootstrap.mjs'
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const npmCli = process.env.npm_execpath
@@ -12,9 +13,14 @@ function formatCommand(command, args) {
 export function runCommand({ label, command, args = [], cwd = repoRoot, timeoutMs = 20 * 60 * 1000, env = {} }) {
   console.log(`\n[check] ${label}`)
   console.log(`[check] ${formatCommand(command, args)}`)
+  const baseEnv = { ...process.env, ...env }
+  const executable = path.basename(String(command)).toLowerCase()
+  const commandEnv = process.platform === 'win32' && (executable === 'cargo' || executable === 'cargo.exe')
+    ? resolveWindowsMsvcEnvironment({ baseEnv }).env
+    : baseEnv
   const result = spawnSync(command, args, {
     cwd,
-    env: { ...process.env, ...env },
+    env: commandEnv,
     stdio: 'inherit',
     shell: false,
     timeout: timeoutMs

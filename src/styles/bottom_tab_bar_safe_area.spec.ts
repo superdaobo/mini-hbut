@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { dirname, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
+import { readAppContractSources } from '../utils/contract_source_test'
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8')
 
@@ -70,7 +71,7 @@ const readIosBundledStyles = () => {
 }
 
 describe('bottom tab bar safe area contract', () => {
-  const appVue = () => readSource('src/App.vue')
+  const appVue = () => readAppContractSources()
   const capacitorConfig = () => readSource('capacitor.config.ts')
   const indexCss = () => readSource('src/index.css')
   const appDelegate = () => readSource('ios/App/App/AppDelegate.swift')
@@ -255,7 +256,7 @@ func onWebviewCreated(webview: WKWebView, viewController: UIViewController) {
     expect(indexCss()).toMatch(
       /--app-safe-bottom:\s*max\(env\(safe-area-inset-bottom,\s*0px\),\s*var\(--app-safe-bottom-fallback,\s*0px\)\);/
     )
-    expect(appVue()).toContain("document.documentElement.style.setProperty('--app-safe-bottom-fallback'")
+    expect(appVue()).toContain("root.style.setProperty('--app-safe-bottom-fallback'")
   })
 
   it('keeps themed navigation settings from overriding the iOS safe-area position', () => {

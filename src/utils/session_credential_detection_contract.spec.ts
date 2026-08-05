@@ -5,21 +5,6 @@ import path from 'node:path'
 const repoRoot = process.cwd()
 const readText = (relativePath: string) =>
   fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
-const readTree = (relativePath: string) => {
-  const absoluteRoot = path.join(repoRoot, relativePath)
-  if (!fs.existsSync(absoluteRoot)) return ''
-  const files: string[] = []
-  const walk = (directory: string) => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name)
-      if (entry.isDirectory()) walk(absolute)
-      else if (entry.isFile() && /\.(?:ts|vue)$/.test(entry.name)) files.push(absolute)
-    }
-  }
-  walk(absoluteRoot)
-  return files.sort().map((file) => fs.readFileSync(file, 'utf8')).join('\n')
-}
-const readAppSources = () => readText('src/App.vue') + '\n' + readTree('src/app')
 
 describe('session credential detection contract (#520)', () => {
   it('backend registers has_restorable_credentials and auto_relogin_from_stored commands', () => {
@@ -66,18 +51,22 @@ describe('session credential detection contract (#520)', () => {
   })
 
   it('attemptAutoRelogin calls auto_relogin_from_stored for backend-restorable credentials', () => {
-    const app = readAppSources()
-    const autoReloginBlock = app.match(/const attemptAutoRelogin = async \(\) => \{[\s\S]*?\n\}/)?.[0] || ''
+    const sessionSource = readText('src/app/coordinators/SessionCoordinator.ts')
+    const autoReloginStart = sessionSource.indexOf('const attemptAutoRelogin = async () => {')
+    const autoReloginEnd = sessionSource.indexOf('const refreshSessionSilently = async () => {', autoReloginStart)
+    const autoReloginBlock = sessionSource.slice(autoReloginStart, autoReloginEnd)
 
     expect(autoReloginBlock).toContain('creds.backendRestorable')
-    expect(autoReloginBlock).toContain("invokeNative('auto_relogin_from_stored', {")
+    expect(autoReloginBlock).toContain("invoke('auto_relogin_from_stored', {")
   })
 
   it('login success triggers proactive session probe to avoid stale expired banner', () => {
-    const app = readAppSources()
-    const loginBlock = app.match(/const handleLoginSuccess = \(data\) => \{[\s\S]*?\n\}/)?.[0] || ''
+    const authSource = readText('src/app/coordinators/AuthCoordinator.ts')
+    const loginStart = authSource.indexOf('const handleLoginSuccess = (data: unknown) => {')
+    const loginEnd = authSource.indexOf('const handleLogout = async', loginStart)
+    const loginBlock = authSource.slice(loginStart, loginEnd)
 
-    expect(loginBlock).toContain('refreshSessionSilently()')
+    expect(loginBlock).toContain('runtime.session.refreshSessionSilently()')
     expect(loginBlock).toContain('#520')
   })
 })

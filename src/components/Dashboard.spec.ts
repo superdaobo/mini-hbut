@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { readVueContractSource } from '../utils/contract_source_test'
 
-const source = () => readFileSync(new URL('./Dashboard.vue', import.meta.url), 'utf8')
+const source = () => readVueContractSource('src/components/Dashboard.vue')
 
 describe('Dashboard quick entry defaults', () => {
   it('uses exams instead of schedule in the default quick entries', () => {

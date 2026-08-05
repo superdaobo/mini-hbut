@@ -3,6 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_MODULE_CENTER, buildModuleCenterCards } from './module_center'
 import { resolveModuleHostPreviewSource } from './more_modules'
+import { readAppContractSources } from './contract_source_test'
 
 const repoRoot = process.cwd()
 const modulesRoot = path.join(repoRoot, 'website', 'modules-src')
@@ -256,7 +257,7 @@ describe('website 游戏模块集成契约', () => {
   })
 
   it('模块宿主在运行态占满可视区，iframe 不被子页面 100vh 高度撑破', () => {
-    const appSource = readText(path.join(repoRoot, 'src', 'App.vue'))
+    const appSource = readAppContractSources()
     const hostSource = readText(path.join(repoRoot, 'src', 'components', 'MoreModuleHostView.vue'))
 
     expect(appSource).toContain("'module-host-full': currentView === 'more_module_host'")

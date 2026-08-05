@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { readAppContractSources, readVueContractSource } from './contract_source_test'
 
 const repoRoot = process.cwd()
 const readText = (relativePath: string) =>
@@ -24,11 +25,11 @@ const readTree = (relativePath: string, extensionPattern: RegExp) => {
 }
 
 const notificationSources = () =>
-  readText('src/components/NotificationView.vue') +
+  readVueContractSource('src/components/NotificationView.vue') +
   '\n' +
   readTree('src/features/notification', /\.(?:ts|vue)$/)
 
-const appSources = () => readText('src/App.vue') + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
+const appSources = () => readAppContractSources() + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
 
 const tauriTransportSources = () =>
   readText('src-tauri/src/lib.rs') + '\n' + readTree('src-tauri/src/transport/tauri', /\.rs$/)
@@ -266,7 +267,7 @@ describe('notification delivery contract', () => {
   })
 
   it('registers school inbox browse module on home dashboard and app routing', () => {
-    const dashboard = readText('src/components/Dashboard.vue')
+    const dashboard = readVueContractSource('src/components/Dashboard.vue')
     const appSource = appSources()
     const uiSettings = readText('src/config/ui_settings.ts')
     const inboxView = readText('src/components/SchoolInboxView.vue')
@@ -315,7 +316,7 @@ describe('notification delivery contract', () => {
   })
 
   it('uses Mini-HBUT branding on main tab headers', () => {
-    const dashboard = readText('src/components/Dashboard.vue')
+    const dashboard = readVueContractSource('src/components/Dashboard.vue')
     const notificationView = notificationSources()
     const meView = readText('src/components/MeView.vue')
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readAppContractSources } from './contract_source_test'
 
 const read = (relativePath: string) => readFileSync(path.join(process.cwd(), relativePath), 'utf8')
 
@@ -8,7 +9,7 @@ describe('school website back / embed bounds contract (#373)', () => {
   it('closes native embed before navigating back and avoids full-window resize', () => {
     const view = read('src/components/SchoolWebsiteView.vue')
     const embed = read('src/utils/school_website_embed.ts')
-    const app = read('src/App.vue')
+    const app = readAppContractSources()
     const rust = read('src-tauri/src/modules/school_website_embed.rs')
 
     expect(view).toContain('handleBack')

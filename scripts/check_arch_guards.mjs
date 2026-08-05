@@ -170,8 +170,14 @@ function walkFiles(dir, extensions) {
     return next < 0 ? rest : rest.slice(0, next)
   }
   const transports = [
-    ['src-tauri/src/lib.rs', read('src-tauri/src/lib.rs')],
-    ['src-tauri/src/http_server.rs', read('src-tauri/src/http_server.rs')]
+    [
+      'src-tauri/src/transport/tauri/grades.rs',
+      read('src-tauri/src/transport/tauri/grades.rs')
+    ],
+    [
+      'src-tauri/src/http_server/routes/academic.rs',
+      read('src-tauri/src/http_server/routes/academic.rs')
+    ]
   ]
   for (const [label, src] of transports) {
     const body = extractHandler(src, 'sync_grades')
@@ -189,7 +195,7 @@ function walkFiles(dir, extensions) {
       )
       continue
     }
-    if (label.endsWith('http_server.rs')) {
+    if (label.endsWith('http_server/routes/academic.rs')) {
       const forwardsCurrentOnly = /req\.current_only\.or\(req\.teacher_current_only\)/.test(body) &&
         /\.sync_grades\(uid\.as_deref\(\),\s*current_only\)/s.test(body)
       const hardcodesFalse = /\.sync_grades\(uid\.as_deref\(\),\s*false\)/s.test(body)
@@ -228,8 +234,14 @@ function walkFiles(dir, extensions) {
     }
   }
   for (const [label, src] of [
-    ['src-tauri/src/lib.rs', read('src-tauri/src/lib.rs')],
-    ['src-tauri/src/http_server.rs', read('src-tauri/src/http_server.rs')]
+    [
+      'src-tauri/src/transport/tauri/schedule.rs',
+      read('src-tauri/src/transport/tauri/schedule.rs')
+    ],
+    [
+      'src-tauri/src/http_server/routes/schedule.rs',
+      read('src-tauri/src/http_server/routes/schedule.rs')
+    ]
   ]) {
     let ok = true
     for (const fn of ICS_FNS) {

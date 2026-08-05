@@ -88,10 +88,15 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     const root = document.documentElement
     const shouldUseNativeFallback = isIOSLike && (hasTauri || isCapacitor)
     if (!shouldUseNativeFallback || readCssSafeAreaBottom() > 0) {
-      root.classList.remove('native-safe-area-fallback')
+      root.style.setProperty('--app-safe-bottom-fallback', '0px')
       return
     }
-    root.classList.add('native-safe-area-fallback')
+
+    const screenWidth = Math.min(window.screen?.width || 0, window.screen?.height || 0)
+    const screenHeight = Math.max(window.screen?.width || 0, window.screen?.height || 0)
+    const portraitFallback = screenWidth >= 744 && screenHeight >= 1024 ? 20 : 34
+    const fallback = screenHeight >= 812 ? portraitFallback : 0
+    root.style.setProperty('--app-safe-bottom-fallback', `${fallback}px`)
   }
 
   const recoverViewportAfterTransition = ({ scrollToTop = true, blurActive = true } = {}) => {

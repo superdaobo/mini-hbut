@@ -1,0 +1,467 @@
+  <div class="cx-page">
+    <TPageHeader title="学习通" icon="menu_book" @back="emit('back')">
+      <template v-if="isJoined" #actions>
+        <button
+          type="button"
+          class="cx-icon-btn"
+          :disabled="loadingResources"
+          title="刷新资料"
+          @click="loadResources"
+        >
+          <span class="material-symbols-outlined" :class="{ spin: loadingResources }">refresh</span>
+        </button>
+      </template>
+    </TPageHeader>
+
+    <!-- 启动中（冷路径全屏；热路径有 last-class 时直接出列表壳，不挡在此） -->
+    <div v-if="loadingBoot" class="cx-boot">
+      <div class="cx-spinner" />
+      <p class="cx-boot-text">
+        {{
+          bootPhase === 'sso'
+            ? '正在连接学习通会话…'
+            : bootPhase === 'preview'
+              ? '正在获取班级信息…'
+              : '首次进入需完成门户 SSO，请稍候…'
+        }}
+      </p>
+      <p class="cx-boot-sub">通过校园门户 SSO 接入，无需学习通密码</p>
+    </div>
+
+    <template v-else>
+      <!-- SSO 状态条（仅异常时强调） -->
+      <div
+        v-if="!ssoReady || ssoHint"
+        class="cx-sso-chip"
+        :class="{ ok: ssoReady, bad: !ssoReady }"
+        role="status"
+      >
+        <span class="cx-sso-dot" />
+        <span class="cx-sso-label">{{ ssoReady ? ssoHint || '门户已连接' : ssoHint || '会话异常' }}</span>
+        <button v-if="!ssoReady" type="button" class="cx-link-btn" @click="boot">重试</button>
+        <button v-if="!ssoReady" type="button" class="cx-link-btn" @click="emit('back')">去登录</button>
+      </div>
+
+      <div v-if="error" class="cx-alert" role="alert">
+        <p class="cx-alert-text">{{ error }}</p>
+        <button
+          v-if="isJoined"
+          type="button"
+          class="cx-btn secondary sm"
+          :disabled="loadingResources"
+          @click="loadResources"
+        >
+          重试加载
+        </button>
+      </div>
+
+      <!-- 已入班：Nimbus 资料列表 -->
+      <template v-if="isJoined">
+        <header class="cx-nimbus-head">
+          <div class="cx-nimbus-title-row">
+            <div class="cx-nimbus-titles">
+              <h2 class="cx-nimbus-course">
+                {{ courseTitle }}
+                <span class="material-symbols-outlined cx-drop">arrow_drop_down</span>
+              </h2>
+              <p v-if="teacherName" class="cx-nimbus-sub">
+                {{ teacherName }} · {{ statusMsg || `${resourceCount} 项` }}
+              </p>
+            </div>
+          </div>
+
+          <!-- 筛选 chips -->
+          <div class="cx-chips" role="tablist" aria-label="资料筛选">
+            <button
+              v-for="chip in filterChips"
+              :key="chip.id"
+              type="button"
+              role="tab"
+              class="cx-chip"
+              :class="{ active: filterChip === chip.id }"
+              :aria-selected="filterChip === chip.id"
+              @click="filterChip = chip.id"
+            >
+              {{ chip.label }}
+            </button>
+          </div>
+
+          <div class="cx-toolbar">
+            <span class="cx-toolbar-label">
+              {{ currentFolder?.name || '智能排序' }}
+              <span class="material-symbols-outlined">expand_more</span>
+            </span>
+            <span class="cx-toolbar-meta">{{ filteredResources.length }} 项</span>
+          </div>
+
+          <!-- 面包屑 -->
+          <nav v-if="folderStack.length" class="cx-breadcrumb" aria-label="资料路径">
+            <button
+              v-for="(label, idx) in breadcrumbLabels"
+              :key="`${idx}-${label}`"
+              type="button"
+              class="cx-crumb"
+              :class="{ current: idx === breadcrumbLabels.length - 1 }"
+              :disabled="idx === breadcrumbLabels.length - 1 || loadingResources"
+              @click="handleBreadcrumb(idx)"
+            >
+              {{ label }}
+              <span
+                v-if="idx < breadcrumbLabels.length - 1"
+                class="material-symbols-outlined cx-crumb-chev"
+                aria-hidden="true"
+                >chevron_right</span
+              >
+            </button>
+          </nav>
+        </header>
+
+        <main class="cx-list">
+          <div v-if="loadingResources" class="cx-skeleton-list">
+            <div v-for="n in 5" :key="n" class="cx-skeleton-row" />
+          </div>
+
+          <div v-else-if="!filteredResources.length" class="cx-empty">
+            <span class="material-symbols-outlined">folder_off</span>
+            <p>暂无资料</p>
+            <p class="sub">
+              {{
+                filterChip !== 'all'
+                  ? '当前筛选下没有内容'
+                  : currentFolder
+                    ? '此文件夹为空'
+                    : '教师上传后将显示在这里'
+              }}
+            </p>
+            <button
+              v-if="folderStack.length"
+              type="button"
+              class="cx-btn secondary"
+              @click="handleBreadcrumb(folderStack.length - 1)"
+            >
+              返回上级
+            </button>
+          </div>
+
+          <template v-else>
+            <article
+              v-for="item in filteredResources"
+              :key="item.data_id || item.name + item.folder_kind"
+              class="cx-row"
+              :class="{ folder: item.is_folder }"
+              role="button"
+              tabindex="0"
+              @click="handleRowClick(item)"
+              @keydown.enter.prevent="handleRowClick(item)"
+            >
+              <div class="cx-thumb" :data-kind="fileKind(item)">
+                <img
+                  v-if="showThumb(item)"
+                  class="cx-thumb-img"
+                  :src="item.thumbnail_url"
+                  :alt="item.name"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                  @error="onThumbError(item)"
+                />
+                <span v-else class="material-symbols-outlined fill">{{
+                  kindMeta[fileKind(item)].icon
+                }}</span>
+              </div>
+              <div class="cx-row-main">
+                <h3 class="cx-row-name" :title="item.name">{{ item.name }}</h3>
+                <p v-if="metaLine(item)" class="cx-row-meta">
+                  <span
+                    v-if="fileKind(item) === 'image' || fileKind(item) === 'video'"
+                    class="cx-last-tag"
+                    >{{ kindMeta[fileKind(item)].label }}</span
+                  >
+                  {{ metaLine(item) }}
+                </p>
+                <p v-else-if="item.is_folder" class="cx-row-meta">
+                  {{ kindMeta[fileKind(item)].label }}
+                </p>
+              </div>
+              <div class="cx-row-trail" @click.stop>
+                <template v-if="item.is_folder">
+                  <span class="material-symbols-outlined cx-chev">chevron_right</span>
+                </template>
+                <template v-else>
+                  <button
+                    type="button"
+                    class="cx-trail-btn"
+                    :disabled="!!actingId"
+                    title="下载"
+                    @click="handleDownloadResource(item)"
+                  >
+                    <span class="material-symbols-outlined">
+                      {{ actingId === `d-${item.data_id}` ? 'progress_activity' : 'download' }}
+                    </span>
+                  </button>
+                </template>
+              </div>
+            </article>
+          </template>
+
+          <p class="cx-secure-note">
+            <span class="material-symbols-outlined">verified_user</span>
+            学习通资料经门户 SSO 安全访问
+          </p>
+        </main>
+      </template>
+
+      <!-- 未入班 -->
+      <template v-else>
+        <section class="cx-welcome">
+          <div class="cx-welcome-card">
+            <div class="cx-welcome-badge">班级资料库</div>
+            <div v-if="coverUrl" class="cx-welcome-cover">
+              <img :src="coverUrl" alt="" />
+            </div>
+            <div v-else class="cx-welcome-icon">
+              <span class="material-symbols-outlined fill">cloud</span>
+            </div>
+            <h2>{{ courseTitle || '学习通班级' }}</h2>
+            <p v-if="teacherName" class="cx-welcome-teacher">任课教师 · {{ teacherName }}</p>
+            <p class="cx-welcome-desc">
+              本模块提供班级课件与资料的预览、下载。邀请码由管理员远程配置，加入时无需手填。
+            </p>
+            <div class="cx-welcome-actions">
+              <button type="button" class="cx-btn primary lg" @click="reopenJoinDialog">
+                {{ needsRejoin ? '重新加入班级' : '加入班级并查看资料' }}
+              </button>
+            </div>
+            <p v-if="needsRejoin" class="cx-welcome-note">
+              {{ statusMsg || '检测到你已不在该班级，可重新加入后查看资料。' }}
+            </p>
+            <p v-else-if="joinDeclined" class="cx-welcome-note">你之前选择了暂不加入，可随时再次加入。</p>
+          </div>
+        </section>
+      </template>
+    </template>
+
+    <!-- 官方预览弹层（对齐学习通：切换打开方式 + 下载） -->
+    <Teleport to="body">
+      <div
+        v-if="showPreviewModal"
+        class="cx-preview-root"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="previewModalTitle || '资料预览'"
+      >
+        <div class="cx-preview-backdrop" @click="closePreviewModal" />
+        <div class="cx-preview-sheet">
+          <header class="cx-preview-head">
+            <div class="cx-preview-titles">
+              <p class="cx-preview-kicker">
+                {{ previewModalOfficial ? '学习通官方预览' : '资料预览' }}
+              </p>
+              <h3 class="cx-preview-title">{{ previewModalTitle }}</h3>
+              <p v-if="currentOpenMethod" class="cx-preview-method-hint">
+                当前：{{ currentOpenMethod.label }}
+              </p>
+            </div>
+            <div class="cx-preview-head-actions">
+              <button
+                type="button"
+                class="cx-icon-btn"
+                aria-label="关闭"
+                @click="closePreviewModal"
+              >
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+          </header>
+
+          <div class="cx-preview-body" @click="showOpenMethodMenu = false">
+            <div v-if="previewModalLoading" class="cx-preview-state">
+              <div class="cx-spinner" />
+              <p>正在获取预览…</p>
+            </div>
+            <div v-else-if="previewModalError && !previewModalUrl" class="cx-preview-state err">
+              <span class="material-symbols-outlined">error</span>
+              <p>{{ previewModalError }}</p>
+              <div class="cx-preview-state-actions">
+                <button
+                  type="button"
+                  class="cx-btn secondary"
+                  @click.stop="toggleOpenMethodMenu"
+                >
+                  切换打开方式
+                </button>
+                <button
+                  v-if="previewDownloadUrl || previewOpenMethods.some((m) => m.kind === 'download')"
+                  type="button"
+                  class="cx-btn primary"
+                  :disabled="previewDownloading"
+                  @click.stop="handlePreviewDownload"
+                >
+                  {{ previewDownloading ? '下载中…' : '下载' }}
+                </button>
+              </div>
+            </div>
+            <template v-else>
+              <p v-if="previewModalError" class="cx-preview-warn">{{ previewModalError }}</p>
+              <!-- 图片：用 img 直出，避免 iframe 黑屏（WebView 不共享 Rust cookie） -->
+              <div
+                v-if="previewModalMode === 'image' && previewModalUrl"
+                class="cx-preview-image-wrap"
+              >
+                <img
+                  class="cx-preview-image"
+                  :src="previewModalUrl"
+                  :alt="previewModalTitle"
+                  referrerpolicy="no-referrer"
+                  @error="onPreviewImageError"
+                />
+              </div>
+              <video
+                v-else-if="previewModalMode === 'video' && previewModalUrl"
+                class="cx-preview-video"
+                :src="previewModalUrl"
+                controls
+                playsinline
+              />
+              <iframe
+                v-else-if="previewModalUrl"
+                class="cx-preview-frame"
+                :src="previewModalUrl"
+                title="资料预览"
+                allow="fullscreen; autoplay"
+                referrerpolicy="no-referrer-when-downgrade"
+              />
+              <div v-else class="cx-preview-state">
+                <span class="material-symbols-outlined">visibility_off</span>
+                <p>暂无内嵌预览内容</p>
+                <p class="sub">请使用下方「切换打开方式」或「下载」</p>
+              </div>
+            </template>
+          </div>
+
+          <!-- 底栏：切换打开方式 + 下载（对齐学习通） -->
+          <footer class="cx-preview-toolbar" v-if="!previewModalLoading">
+            <div class="cx-preview-toolbar-inner">
+              <div class="cx-open-method-wrap">
+                <button
+                  type="button"
+                  class="cx-toolbar-btn method"
+                  :class="{ open: showOpenMethodMenu }"
+                  :disabled="!previewOpenMethods.length"
+                  @click.stop="toggleOpenMethodMenu"
+                >
+                  <span class="material-symbols-outlined">swap_horiz</span>
+                  <span class="cx-toolbar-btn-text">
+                    <span class="cx-toolbar-btn-label">切换打开方式</span>
+                    <span class="cx-toolbar-btn-sub">{{
+                      currentOpenMethod?.label || '选择方式'
+                    }}</span>
+                  </span>
+                  <span class="material-symbols-outlined cx-chev-sm">{{
+                    showOpenMethodMenu ? 'expand_less' : 'expand_more'
+                  }}</span>
+                </button>
+
+                <div
+                  v-if="showOpenMethodMenu"
+                  class="cx-open-method-menu"
+                  role="menu"
+                  @click.stop
+                >
+                  <p class="cx-open-method-menu-title">选择打开方式</p>
+                  <button
+                    v-for="m in previewOpenMethods"
+                    :key="m.id"
+                    type="button"
+                    class="cx-open-method-item"
+                    :class="{ active: m.id === previewMethodId }"
+                    role="menuitem"
+                    @click="applyOpenMethod(m)"
+                  >
+                    <span class="material-symbols-outlined">{{ m.icon }}</span>
+                    <span class="cx-open-method-item-text">
+                      <span class="name">{{ m.label }}</span>
+                      <span class="desc">{{ m.desc }}</span>
+                    </span>
+                    <span
+                      v-if="m.id === previewMethodId"
+                      class="material-symbols-outlined check"
+                      >check</span
+                    >
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="cx-toolbar-btn browser"
+                :disabled="previewModalLoading"
+                title="浏览器打开"
+                @click="handleBrowserOpenCurrent"
+              >
+                <span class="material-symbols-outlined">open_in_browser</span>
+                <span class="cx-toolbar-btn-label only">浏览器</span>
+              </button>
+
+              <button
+                type="button"
+                class="cx-toolbar-btn download"
+                :disabled="previewDownloading || (!previewDownloadUrl && !previewItem)"
+                @click="handlePreviewDownload"
+              >
+                <span class="material-symbols-outlined">
+                  {{ previewDownloading ? 'progress_activity' : 'download' }}
+                </span>
+                <span class="cx-toolbar-btn-label only">{{
+                  previewDownloading ? '下载中' : '下载'
+                }}</span>
+              </button>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 首次入班确认 -->
+    <Teleport to="body">
+      <div
+        v-if="showJoinDialog"
+        class="cx-dialog-root"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cx-join-title"
+      >
+        <div class="cx-dialog-backdrop" @click="markDeclined" />
+        <div class="cx-dialog">
+          <div class="cx-dialog-cover" :class="{ empty: !coverUrl }">
+            <img v-if="coverUrl" :src="coverUrl" alt="" />
+            <span v-else class="material-symbols-outlined fill">menu_book</span>
+          </div>
+          <p class="cx-dialog-kicker">{{ needsRejoin ? '重新加入' : '加入班级' }}</p>
+          <h3 id="cx-join-title">是否加入班级？</h3>
+          <p class="cx-dialog-course">{{ courseTitle || '班级' }}</p>
+          <p v-if="teacherName" class="cx-dialog-teacher">教师 {{ teacherName }}</p>
+          <p class="cx-dialog-desc">
+            加入后可浏览与下载本班资料。认证仅使用校园门户登录态，不会要求学习通密码。
+          </p>
+          <div class="cx-dialog-actions">
+            <button
+              type="button"
+              class="cx-btn dialog-secondary"
+              :disabled="loadingJoin"
+              @click="markDeclined"
+            >
+              暂不加入
+            </button>
+            <button
+              type="button"
+              class="cx-btn dialog-primary"
+              :disabled="loadingJoin"
+              @click="handleJoinConfirm"
+            >
+              {{ loadingJoin ? '加入中…' : '加入班级' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+  </div>

@@ -1,0 +1,164 @@
+.dashboard-root {
+  padding-bottom: 80px;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* 与 NotificationView / MeView 的 .logo-img 一致：圆形裁切整图 */
+.home-logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: block;
+}
+
+.today-empty-icon {
+  display: block;
+  width: 80px;
+  max-width: 80px;
+  height: auto;
+  margin-bottom: 12px;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  opacity: 0.8;
+  flex: 0 0 auto;
+}
+
+.today-course-illustration {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  max-width: none;
+  height: 100%;
+  object-fit: contain;
+  object-position: right center;
+  opacity: 0.3;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+.session-status-btn {
+  min-width: 2rem;
+  min-height: 2rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.session-status-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+.session-status-dot.is-green {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+}
+
+.session-status-dot.is-red {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
+}
+
+.session-status-dot.is-blink {
+  animation: session-status-blink 0.9s ease-in-out infinite;
+}
+
+@keyframes session-status-blink {
+  0%,
+  100% {
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22);
+  }
+}
+
+.card-shadow {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+}
+
+.timeline-line {
+  position: absolute;
+  left: 11px;
+  top: 10px;
+  bottom: 40px;
+  width: 2px;
+  background-color: #e5e7eb;
+  z-index: 0;
+}
+
+.gradient-card {
+  background: linear-gradient(135deg, #5b86e5 0%, #36d1dc 100%);
+  box-shadow: 0 10px 20px rgba(54, 209, 220, 0.3);
+}
+
+/* Animations */
+@keyframes scale-in {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.25s ease-out;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* 所有功能：标题独占一行，分类横向滑动，避免与标题挤在一起 */
+.home-all-features__head {
+  margin-bottom: 12px;
+}
+.home-feature-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+  max-width: 100%;
+}
+.home-feature-tabs::-webkit-scrollbar {
+  display: none;
+}
+.home-feature-tab {
+  flex: 0 0 auto;
+  max-width: 7.5rem;
+  scroll-snap-align: start;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.home-feature-tab.is-active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(59, 130, 246, 0.25);
+}
+/* 锁定宫格最小高度，避免分类模块数差异导致滚动跳变 */
+.home-feature-grid {
+  align-content: start;
+  box-sizing: border-box;
+}

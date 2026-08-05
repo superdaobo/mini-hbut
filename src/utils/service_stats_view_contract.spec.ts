@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readAppContractSources } from './contract_source_test'
 
 const sourcePath = (path: string) => resolve(process.cwd(), path)
 const readSource = (path: string) => {
@@ -23,11 +24,11 @@ describe('service stats frontend contract', () => {
   })
 
   it('registers service_stats as a Me sub view in App.vue', () => {
-    const appSource = readSource('src/App.vue')
+    const appSource = readAppContractSources()
     const navSource = readSource('src/navigation/app_navigation.ts')
 
-    expect(appSource).toContain("const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')")
-    expect(appSource).toContain('const ServiceStatsView = createAsyncPage(loadServiceStatsView)')
+    expect(appSource).toContain("const loadServiceStatsView: Loader = () => import('../components/ServiceStatsView.vue')")
+    expect(appSource).toContain('service_stats: createAsyncPage(loadServiceStatsView)')
     expect(navSource).toMatch(/ME_SUB_VIEWS\s*=\s*\[[\s\S]*'service_stats'/)
     expect(navSource).toMatch(/HIERARCHICAL_PARENT_VIEW_MAP[\s\S]*service_stats:\s*'me'/)
     expect(appSource).toMatch(/VIEW_PREFETCHERS[\s\S]*service_stats:\s*loadServiceStatsView/)

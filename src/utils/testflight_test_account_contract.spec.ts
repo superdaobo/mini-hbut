@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import {
+  readAppContractSources,
+  readAxiosAdapterContractSources,
+  readVueContractSource
+} from './contract_source_test'
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8')
 
@@ -19,10 +24,10 @@ describe('TestFlight 演示账号接入契约', () => {
   })
 
   it('App.vue 恢复测试账号会话并跳过真实后台副作用', () => {
-    const source = readSource('src/App.vue')
+    const source = readAppContractSources()
 
-    expect(source).toContain("from './utils/test_account.js'")
-    expect(source).toContain("from './utils/test_account_fixtures.js'")
+    expect(source).toContain("from '../utils/test_account.js'")
+    expect(source).toContain("from '../../utils/test_account_fixtures.js'")
     expect(source).toContain('restoreTestAccountSession()')
     expect(source).toContain('isTestAccountSession()')
     expect(source).toContain('seedTestAccountCaches(setCachedData')
@@ -36,21 +41,21 @@ describe('TestFlight 演示账号接入契约', () => {
 
   it('缓存、HTTP 和 native 调用层均接入测试账号演示响应', () => {
     const apiSource = readSource('src/utils/api.ts')
-    const adapterSource = readSource('src/utils/axios_adapter.ts')
+    const adapterSource = readAxiosAdapterContractSources()
     const nativeSource = readSource('src/platform/native.ts')
 
     expect(apiSource).toContain("from './test_account.js'")
     expect(apiSource).toContain("from './test_account_fixtures.js'")
     expect(apiSource).toContain('resolveTestAccountCachePayload(key)')
-    expect(adapterSource).toContain("from './test_account.js'")
+    expect(adapterSource).toContain("from '../test_account.js'")
     expect(adapterSource).toContain('resolveTestAccountHttpResponse')
     expect(nativeSource).toContain("from '../utils/test_account.js'")
     expect(nativeSource).toContain('resolveTestAccountNativeResponse(command, args)')
   })
 
   it('直接 fetch 的资料分享和 AI 模块在测试账号下禁用真实网络动作', () => {
-    const resourceShareSource = readSource('src/components/ResourceShareView.vue')
-    const aiChatSource = readSource('src/components/AiChatView.vue')
+    const resourceShareSource = readVueContractSource('src/components/ResourceShareView.vue')
+    const aiChatSource = readVueContractSource('src/components/AiChatView.vue')
     const forumApiSource = readSource('src/utils/forum_api.js')
     const fixtureSource = readSource('src/utils/test_account_fixtures.js')
     const remoteConfigSource = readSource('src/utils/remote_config.ts')
@@ -80,7 +85,7 @@ describe('TestFlight 演示账号接入契约', () => {
   })
 
   it('测试账号未知 HTTP 和 native 调用默认拒绝，不继续真实请求', () => {
-    const adapterSource = readSource('src/utils/axios_adapter.ts')
+    const adapterSource = readAxiosAdapterContractSources()
     const nativeSource = readSource('src/platform/native.ts')
 
     expect(adapterSource).toContain('未知测试账号 HTTP 请求已拦截')
