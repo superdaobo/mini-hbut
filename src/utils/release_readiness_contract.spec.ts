@@ -31,7 +31,7 @@ describe('release readiness gates', () => {
     expect(packageJson.scripts['check:release']).toBe('node scripts/check_release.mjs')
     expect(packageJson.scripts['check:release-config']).toBe('node scripts/verify_release_config.mjs')
     const releaseConfig = read('scripts/verify_release_config.mjs')
-    expect(releaseConfig).toContain('src/utils/updater.runtime.js')
+    expect(releaseConfig).toContain('src/utils/updater.ts')
     expect(releaseConfig).toContain("channel: 'stable'")
     expect(releaseConfig).toContain('/releases/latest.json')
     expect(releaseConfig).toContain('/releases/stable-latest.json')

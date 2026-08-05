@@ -202,7 +202,12 @@ describe('notification delivery contract', () => {
   })
 
   it('wires school inbox checks through notify_center and Tauri command', () => {
-    const notifySource = readText('src/utils/notify_center.runtime.js')
+    const notifySource =
+      readText('src/utils/notify_center.ts') +
+      '\n' +
+      readText('src/utils/notify_center_checks.ts') +
+      '\n' +
+      readText('src/utils/notify_center_util.ts')
     const libSource = readText('src-tauri/src/lib.rs')
 
     expect(notifySource).toContain("schoolInbox: 'hbu_notify_school_inbox'")
@@ -261,7 +266,10 @@ describe('notification delivery contract', () => {
   })
 
   it('filters read school inbox items before enqueueing notifications', () => {
-    const notifySource = readText('src/utils/notify_center.runtime.js')
+    const notifySource =
+      readText('src/utils/notify_center.ts') +
+      '\n' +
+      readText('src/utils/notify_center_checks.ts')
 
     expect(notifySource).toContain('isSchoolInboxItemRead')
     expect(notifySource).toContain('is_read')

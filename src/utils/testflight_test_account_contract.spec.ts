@@ -53,7 +53,7 @@ describe('TestFlight 演示账号接入契约', () => {
     const aiChatSource = readSource('src/components/AiChatView.vue')
     const forumApiSource = readSource('src/utils/forum_api.js')
     const fixtureSource = readSource('src/utils/test_account_fixtures.js')
-    const remoteConfigSource = readSource('src/utils/remote_config.runtime.js')
+    const remoteConfigSource = readSource('src/utils/remote_config.ts')
 
     expect(resourceShareSource).toContain("from '../utils/test_account.js'")
     expect(resourceShareSource).toContain('buildTestAccountResourceShareItems')

@@ -84,7 +84,8 @@ describe('chaoxing_class home integration contract', () => {
     expect(view).toContain('首次进入需完成门户 SSO')
     expect(rustLib).toContain('keep-alive 学习通补票')
     expect(rustLib).toContain('spawn_chaoxing_sso_warmup')
-    const remote = read('src/utils/remote_config.runtime.js')
+    const remote =
+      read('src/utils/remote_config.ts') + '\n' + read('src/utils/remote_config_defaults.ts')
     expect(remote).toContain('chaoxing_class')
     expect(remote).toContain('getChaoxingClassConfig')
     expect(remote).toContain("invite_code: '18853572'")
