@@ -1,12 +1,4 @@
 [
-  { "key": "runtime-file:src/utils/cloud_sync.runtime.js", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "runtime-file:src/utils/notify_center.runtime.js", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "runtime-file:src/utils/remote_config.runtime.js", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "runtime-file:src/utils/updater.runtime.js", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "runtime-import:src/utils/cloud_sync.ts", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "runtime-import:src/utils/notify_center.ts", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "runtime-import:src/utils/remote_config.ts", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "runtime-import:src/utils/updater.ts", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
   { "key": "size:src-tauri/src/http_client/academic.rs", "issue": "#578", "owner": "rust-application", "deadline": "2026-08-12" },
   { "key": "size:src-tauri/src/http_client/electricity.rs", "issue": "#578", "owner": "rust-application", "deadline": "2026-08-12" },
   { "key": "size:src-tauri/src/http_server.rs", "issue": "#577", "owner": "rust-http-transport", "deadline": "2026-08-12" },
@@ -29,8 +21,5 @@
   { "key": "size:src/components/SettingsView.vue", "issue": "#583", "owner": "frontend-feature-views", "deadline": "2026-08-12" },
   { "key": "size:src/components/TowerGoView.vue", "issue": "#583", "owner": "frontend-feature-views", "deadline": "2026-08-12" },
   { "key": "size:src/utils/axios_adapter.ts", "issue": "#583", "owner": "frontend-feature-views", "deadline": "2026-08-12" },
-  { "key": "size:src/utils/cloud_sync.runtime.js", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "size:src/utils/more_modules.js", "issue": "#583", "owner": "frontend-feature-views", "deadline": "2026-08-12" },
-  { "key": "size:src/utils/notify_center.runtime.js", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" },
-  { "key": "size:src/utils/remote_config.runtime.js", "issue": "#580", "owner": "typescript-migration", "deadline": "2026-08-12" }
+  { "key": "size:src/utils/more_modules.js", "issue": "#583", "owner": "frontend-feature-views", "deadline": "2026-08-12" }
 ]
