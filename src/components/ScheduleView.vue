@@ -87,7 +87,7 @@ const {
   currentWeek,
   selectedWeek,
   totalWeeks,
-  startDateStr,
+
   vacationNotice,
   weekDates,
   currentMonth,
@@ -191,6 +191,10 @@ const openAddCourseDialog = () => {
   void editor.openAddCourseDialog()
 }
 
+const handleEditManagedCourse = (course: any) => {
+  void editor.openEditCourseDialog(course, { reopenManage: true })
+}
+
 const handleSemesterChange = () => {
   void data.onSemesterChange()
 }
@@ -280,7 +284,10 @@ onMounted(async () => {
     semesterDraft.value = switchSemester
   }
 
-  const lockDetail = readScheduleLockDetail(props.studentId)
+  const lockDetail = readScheduleLockDetail(props.studentId) as {
+    semester?: string
+    reason?: string
+  } | null
   const todaySemester = deriveSemesterByDate()
   if (
     lockDetail?.semester &&
@@ -329,7 +336,11 @@ onMounted(async () => {
       const warmed = await warmupScheduleForStudent(props.studentId, {
         forceProbe: true,
         reason: 'first-enter'
-      })
+      }) as {
+        success?: boolean
+        semester?: string
+        payload?: any
+      }
       if (warmed?.success && warmed?.semester) {
         semester.value = warmed.semester
         semesterDraft.value = warmed.semester
@@ -501,7 +512,7 @@ onBeforeUnmount(() => {
       :manage-expanded-semesters="manageExpandedSemesters"
       @close="editor.closeManageCoursesDialog"
       @toggle-semester="editor.toggleManageSemester"
-      @edit-course="(course) => editor.openEditCourseDialog(course, { reopenManage: true })"
+      @edit-course="handleEditManagedCourse"
       @delete-course="editor.deleteManagedCourse"
     />
 

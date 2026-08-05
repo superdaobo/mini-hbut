@@ -48,7 +48,7 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
   const offlineHint = ref('')
   const syncTime = ref('')
   const initialFetchDone = ref(false)
-  const semesterOptions = ref<string[]>([])
+  const semesterOptions = ref<any[]>([])
   const semesterLoading = ref(false)
   const semesterError = ref('')
   const allCustomCourses = ref<any[]>([])
@@ -203,7 +203,9 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
       (Array.isArray(payload.remote_schedule_data) && payload.remote_schedule_data.length > 0) ||
       (Array.isArray(payload.custom_schedule_data) && payload.custom_schedule_data.length > 0)
     if (!hasRenderableData) return false
-    const saved = writeScheduleRenderSnapshot(payload.student_id, payload)
+    const saved = writeScheduleRenderSnapshot(payload.student_id, payload) as {
+      semester?: string
+    } | null
     if (!saved) return false
     pushDebugLog(
       'Schedule',
@@ -295,7 +297,10 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
     const sem = String(targetSemester || semester.semester.value || semester.semesterDraft.value || '').trim()
     const sid = resolveDisplayStudentId(props.studentId)
     if (!sid || !sem) return false
-    const snapshot = getCachedScheduleSnapshot(sid, sem)
+    const snapshot = getCachedScheduleSnapshot(sid, sem) as {
+      data?: any
+      timestamp?: string | number
+    } | null
     if (!snapshot?.data?.success) return false
     const silent =
       cacheOptions?.silentCachePaint !== false && String(props.studentId || sid || '').trim()

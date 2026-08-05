@@ -94,22 +94,22 @@ export const pickBestThemeCandidate = (
   globalColors: number[]
 ): number | null => {
   let best: { candidate: number; neighborMinContrast: number; globalMinContrast: number; offset: number } | null = null
-  candidates.forEach((candidate) => {
+  for (const candidate of candidates) {
     const metrics = evaluateThemeCandidate(candidate, seed, neighborColors, globalColors)
     if (!best) {
       best = metrics
-      return
+      continue
     }
     if (metrics.neighborMinContrast > best.neighborMinContrast) {
       best = metrics
-      return
+      continue
     }
     if (
       metrics.neighborMinContrast === best.neighborMinContrast &&
       metrics.globalMinContrast > best.globalMinContrast
     ) {
       best = metrics
-      return
+      continue
     }
     if (
       metrics.neighborMinContrast === best.neighborMinContrast &&
@@ -118,6 +118,6 @@ export const pickBestThemeCandidate = (
     ) {
       best = metrics
     }
-  })
+  }
   return best?.candidate ?? null
 }

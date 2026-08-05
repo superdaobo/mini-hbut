@@ -13,7 +13,7 @@ declare module 'axios' {
   export interface AxiosRequestConfig {
     [key: string]: unknown
   }
-  export interface AxiosResponse<T = unknown> {
+  export interface AxiosResponse<T = any> {
     data: T
     status: number
     statusText: string
@@ -21,8 +21,8 @@ declare module 'axios' {
     config: Record<string, unknown>
   }
   export interface AxiosInstance {
-    get<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>>
-    post<T = unknown>(
+    get<T = any>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>>
+    post<T = any>(
       url: string,
       data?: unknown,
       config?: AxiosRequestConfig
@@ -36,6 +36,11 @@ declare module 'axios' {
   }
   const axios: AxiosInstance
   export default axios
+}
+
+declare module '*/time.js' {
+  export function formatRelativeTime(value?: string | number | Date | null): string
+  export function formatDateTime(value?: string | number | Date | null): string
 }
 
 declare module '*/daily_access_key.js' {
@@ -68,10 +73,15 @@ declare module '*/schedule_prefetch.js' {
   export function writeScheduleRenderSnapshot(
     studentId: string,
     snapshot: Record<string, unknown>
-  ): void
+  ): { semester?: string; [key: string]: any } | null
   export function isAutoScheduleLockReason(reason?: string): boolean
-  export function readScheduleLockDetail(studentId?: string): string
-  export function readScheduleLock(studentId?: string): Record<string, unknown> | null
+  export function readScheduleLockDetail(studentId?: string): {
+    student_id?: string
+    semester?: string
+    reason?: string
+    at?: number
+  } | null
+  export function readScheduleLock(studentId?: string): string
   export function clearScheduleLock(studentId?: string): void
   export function writeScheduleLock(
     studentId: string,
@@ -83,7 +93,7 @@ declare module '*/schedule_prefetch.js' {
     semester: string,
     reason?: string
   ): void
-  export function consumeScheduleSwitchPending(studentId?: string): boolean
+  export function consumeScheduleSwitchPending(studentId?: string): string
   export function queueScheduleSemesterPopup(
     studentId: string,
     semester: string,
@@ -92,11 +102,18 @@ declare module '*/schedule_prefetch.js' {
   export function getCachedScheduleSnapshot(
     studentId: string,
     semester?: string
-  ): Record<string, unknown> | null
+  ): { data?: any; timestamp?: string | number; [key: string]: any } | null
   export function warmupScheduleForStudent(
     studentId: string,
     options?: Record<string, unknown>
-  ): Promise<unknown>
+  ): Promise<{
+    success: boolean
+    semester?: string
+    payload?: any
+    error?: string
+    need_login?: boolean
+    [key: string]: any
+  }>
 }
 
 declare module '*/usage_tracker.js' {

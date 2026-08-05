@@ -4,7 +4,7 @@
  */
 import { computed, ref } from 'vue'
 import {
-  CLOUD_SYNC_UPDATED_EVENT,
+
   getCloudSyncCooldownState,
   runCloudSyncDownload,
   runCloudSyncUpload

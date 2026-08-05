@@ -3,6 +3,8 @@
  * 原内联于 ScheduleView.vue，拆分后保持行为一致。
  */
 
+import type { ScheduleCourseCardStyle } from '../../../config/ui_settings'
+
 /**
  * 归一化周次数组：过滤非法值、去重、升序排序。
  * 与原始 normalizeWeeks 完全一致。
@@ -43,9 +45,11 @@ export const formatWeeksText = (weeks: any): string => {
  * 归一化课表卡片样式 key：仅接受 modern/traditional/class，否则回退 modern。
  * 与原始 normalizeCourseCardStyle 完全一致。
  */
-export const normalizeCourseCardStyle = (value: any): string => {
+export const normalizeCourseCardStyle = (value: any): ScheduleCourseCardStyle => {
   const key = String(value || '').trim().toLowerCase()
-  return ['modern', 'traditional', 'class'].includes(key) ? key : 'modern'
+  return ['modern', 'traditional', 'class'].includes(key)
+    ? (key as ScheduleCourseCardStyle)
+    : 'modern'
 }
 
 /** 全局唯一 ID 生成（轻量，避免引入依赖） */

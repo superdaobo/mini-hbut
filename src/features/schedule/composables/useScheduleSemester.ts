@@ -241,7 +241,7 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
   }
 
   /** 滚动到 Widget 深链接指定的日/节次位置 */
-  const scrollToWidgetTarget = (day: number, period: number) => {
+  const scrollToWidgetTarget = (_day: number, period: number) => {
     try {
       const gridBody = document.querySelector('.schedule-view .grid-body')
       if (!gridBody) return

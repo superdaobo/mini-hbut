@@ -31,7 +31,10 @@ const utilsMod = read('src-tauri/src/utils/mod.rs')
 const runtime = read('src/platform/runtime.ts')
 const capacitor = read('src/platform/adapters/capacitor.ts')
 const app = read('src/App.vue')
-const schedule = read('src/components/ScheduleView.vue')
+const schedule =
+  read('src/components/ScheduleView.vue') +
+  '\n' +
+  read('src/features/schedule/utils/io.ts')
 const utilsReadme = read('src/utils/README.md')
 
 const ICS_FNS = ['sanitize_filename_part', 'escape_ics_text', 'fold_ics_line', 'parse_ics_datetime']

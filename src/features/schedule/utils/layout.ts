@@ -193,7 +193,7 @@ export const buildConflictBlocks = (day: number, mergedCourses: any[], weekNumbe
       credit: '',
       class_name: '冲突课程',
       is_conflict: true,
-      conflict_courses: conflictCourses.map((course) => ({
+      conflict_courses: conflictCourses.map((course: any) => ({
         id: course.id,
         source_id: course.source_id || course.id,
         name: course.name,

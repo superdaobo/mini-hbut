@@ -40,11 +40,14 @@ export const encodeBase64Utf8 = (content: any): string => {
 
 /** 通过 File System Access API 保存 JSON（桌面 Web） */
 export const saveJsonByFilePicker = async (fileName: string, content: string): Promise<{ ok: boolean; canceled: boolean; location: string }> => {
-  if (typeof window.showSaveFilePicker !== 'function') {
+  const picker = (window as Window & {
+    showSaveFilePicker?: (options: Record<string, unknown>) => Promise<any>
+  }).showSaveFilePicker
+  if (typeof picker !== 'function') {
     return { ok: false, canceled: false, location: '' }
   }
   try {
-    const handle = await window.showSaveFilePicker({
+    const handle = await picker({
       suggestedName: fileName,
       types: [
         {
@@ -77,7 +80,7 @@ export const saveJsonByNativeExport = async (fileName: string, content: string):
     return { ok: false, canceled: false, location: '' }
   }
   try {
-    const payload = await invokeNative('save_export_file', {
+    const payload = await invokeNative<{ path?: string }>('save_export_file', {
       req: {
         fileName,
         mimeType: 'application/json',

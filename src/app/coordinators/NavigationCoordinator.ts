@@ -752,7 +752,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       const bootStudentIdHint = String(snapshot?.sid || '').trim()
       const bootScheduleSnapshot =
         initialView === 'schedule' && bootStudentIdHint
-          ? readScheduleRenderSnapshot(bootStudentIdHint)
+          ? (readScheduleRenderSnapshot(bootStudentIdHint) as Record<string, unknown> | null)
           : null
       return {
         snapshot,

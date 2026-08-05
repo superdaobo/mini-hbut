@@ -7,7 +7,7 @@ import { getCourseEndPeriod, mergeDailyCourses } from './layout'
 
 /** 某一周某一天的课程列表（合并连续同名课程后），与原 getCoursesForDayAndWeek 一致 */
 export const getCoursesForDayAndWeek = (
-  startDateStr: string,
+  _startDateStr: string,
   scheduleData: any[],
   dayIndex: number,
   weekNumber: number
