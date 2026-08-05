@@ -1,6 +1,4 @@
 [
-  { "key": "size:src-tauri/src/http_client/academic.rs", "issue": "#578", "owner": "rust-application", "deadline": "2026-08-12" },
-  { "key": "size:src-tauri/src/http_client/electricity.rs", "issue": "#578", "owner": "rust-application", "deadline": "2026-08-12" },
   { "key": "size:src/App.vue", "issue": "#574", "owner": "frontend-app-shell", "deadline": "2026-08-12" },
   { "key": "size:src/components/AiChatView.vue", "issue": "#583", "owner": "frontend-feature-views", "deadline": "2026-08-12" },
   { "key": "size:src/components/ChaoxingClassView.vue", "issue": "#583", "owner": "frontend-feature-views", "deadline": "2026-08-12" },
