@@ -26,6 +26,8 @@ import { runCampusNetworkAutoLogin } from '../utils/campus_network_service'
 import { installHomeLayoutDiagnosticsErrorCapture, collectHomeLayoutDiagnostics } from '../utils/home_layout_diagnostics'
 import { showToast } from '../utils/toast'
 import { markBootMetric } from '../utils/boot_metrics.js'
+import { ensureRememberedPasswordCached } from '../utils/credential_storage.js'
+import { loadChaoxingStoredPassword, loadPortalStoredPassword } from '../composables/useSessionCredentials.js'
 import { REMOTE_CONFIG_UPDATED_EVENT } from '../utils/remote_config.js'
 import {
   HOME_LAYOUT_DEBUG_HIDDEN_KEY,
@@ -192,23 +194,80 @@ export const useAppRuntime = () => {
     window.clearTimeout(splashFailsafe)
 
     const restoreTask = (async () => {
-      if (isTestAccountSession()) return runtime.session.restoreTestAccountSession()
-      const restored = await runtime.session.tryRestoreSession() || await runtime.session.tryRestoreLatestSession()
-      return restored || (!runtime.session.isTemporaryLoginSession() && await runtime.session.attemptAutoRelogin())
+      if (isTestAccountSession()) {
+        return { restored: runtime.session.restoreTestAccountSession(), relogged: false }
+      }
+      let restored = await runtime.session.tryRestoreSession()
+      if (!restored) restored = await runtime.session.tryRestoreLatestSession()
+      let relogged = false
+      if (!restored && !runtime.session.isTemporaryLoginSession()) {
+        relogged = await runtime.session.attemptAutoRelogin()
+      }
+      return { restored, relogged }
     })()
-    void restoreTask.then((online) => {
-      if (!online) {
-        if (cachedIdentity || state.studentId.value) runtime.session.startJwxtRecoveryPolling()
-        return
-      }
-      runtime.session.clearJwxtMaintenance()
-      runtime.session.stopJwxtRecoveryPolling()
-      if (!isTestAccountSession()) {
-        runtime.session.startSessionKeepAlive()
-        runtime.session.startElectricityKeepAlive()
-        if (state.studentId.value) void startNotificationMonitor({ studentId: state.studentId.value })
-      }
-    }).catch((error) => console.warn('[Boot] session restore failed:', error))
+    void restoreTask
+      .then(async (result) => {
+        const { restored, relogged } = result || { restored: false, relogged: false }
+        if (!restored && !relogged) {
+          // #355：长闲/会话失效时保留首页缓存身份，后台静默恢复；禁止强制踢回登录页
+          if (!isTestAccountSession() && (cachedIdentity || state.studentId.value)) {
+            let hasCreds = false
+            try {
+              const portalCreds = await loadPortalStoredPassword()
+              const cxCreds = await loadChaoxingStoredPassword()
+              hasCreds = !!(portalCreds || cxCreds)
+            } catch (e) {
+              console.warn('[Session] 检查本地凭据失败:', e)
+              hasCreds = false
+            }
+            if (hasCreds) {
+              runtime.session.markJwxtMaintenance('会话需恢复，正在后台自动登录…', {
+                phase: 'recovering',
+                detail: state.jwxtSessionLastError.value || 'cookie 已失效，使用记住密码重登'
+              })
+              runtime.session.startJwxtRecoveryPolling()
+              runtime.session.attemptOnlineRecovery({ silent: true }).then((ok) => {
+                if (ok) return
+                runtime.session.markJwxtMaintenance('自动登录未成功，将继续后台重试。当前展示缓存数据。', {
+                  phase: 'failed',
+                  detail: state.jwxtSessionLastError.value || '恢复失败'
+                })
+              }).catch((e) => {
+                state.jwxtSessionLastError.value = runtime.session.formatSessionError(e)
+                runtime.session.markJwxtMaintenance('后台恢复异常，将定时重试。', {
+                  phase: 'failed',
+                  detail: state.jwxtSessionLastError.value
+                })
+              })
+            } else {
+              console.warn('[Session] 会话失效且无记住密码，首页提示手动登录（#355，不再强制 logout）')
+              runtime.session.markJwxtMaintenance(
+                '登录状态已失效，本地未找到可用密码。请手动登录融合门户以同步最新数据；此前缓存仍可查看。',
+                {
+                  phase: 'need_login',
+                  detail: state.jwxtSessionLastError.value || '无记住密码，无法后台自动登录'
+                }
+              )
+            }
+          }
+          return
+        }
+        runtime.session.clearJwxtMaintenance()
+        runtime.session.stopJwxtRecoveryPolling()
+        if (!isTestAccountSession()) {
+          runtime.session.startSessionKeepAlive()
+          runtime.session.startElectricityKeepAlive()
+          if (state.studentId.value) {
+            runtime.session.markLoginSessionToken()
+            void ensureRememberedPasswordCached(state.studentId.value).catch((e) => {
+              console.warn('[Session] 启动后缓存记住密码失败:', e)
+            })
+            void startNotificationMonitor({ studentId: state.studentId.value })
+          }
+          runtime.session.notifySessionOnline(relogged ? 'boot-auto-relogin' : 'boot-session-restore')
+        }
+      })
+      .catch((error) => console.warn('[Boot] session restore failed:', error))
 
     void runtime.remoteConfig.applyRemoteConfig().finally(runtime.remoteConfig.startRemoteConfigRefresh)
     void runtime.remoteConfig.primeOcrEndpointFromCache()

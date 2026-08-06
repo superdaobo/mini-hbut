@@ -135,17 +135,28 @@ export const createRemoteConfigCoordinator = (runtime: AppRuntime): RemoteConfig
   }
 
   const handleExternalOpen = async (url: string, event?: unknown) => {
-    ;(event as Event | undefined)?.preventDefault?.()
+    const ev = event as (Event & { __hbuExternalHandled?: boolean }) | undefined
+    if (ev) {
+      if (ev.__hbuExternalHandled) return
+      ev.__hbuExternalHandled = true
+      ev.preventDefault()
+    }
     const target = String(url || '').trim()
     if (!target || !isHttpLink(target)) return
     await openExternal(target)
   }
 
   const handleContentClick = async (event: unknown) => {
-    const target = (event as MouseEvent | undefined)?.target as HTMLElement | null
+    const ev = event as (MouseEvent & { __hbuExternalHandled?: boolean }) | undefined
+    const target = ev?.target as HTMLElement | null
     const anchor = target?.closest?.('a') as HTMLAnchorElement | null
     if (!anchor?.href) return
-    await handleExternalOpen(anchor.href, event)
+    if (ev) {
+      if (ev.__hbuExternalHandled) return
+      ev.__hbuExternalHandled = true
+      ev.preventDefault()
+    }
+    await openExternal(anchor.href)
   }
 
   const primeOcrEndpointFromCache = async () => {

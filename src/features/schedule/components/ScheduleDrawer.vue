@@ -229,6 +229,17 @@ const semesterDraftModel = computed({
   display: none;
 }
 
+/* 小屏：抽屉改为贴底布局，适配单手操作与底部安全区 */
+@media (max-width: 768px) {
+  .drawer-panel {
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    bottom: 0;
+    height: auto;
+    max-height: none;
+    padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px) + 12px);
+  }
+}
+
 .drawer-title {
   font-size: 20px;
   color: #1f2937;

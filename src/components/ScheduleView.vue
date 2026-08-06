@@ -620,6 +620,7 @@ onBeforeUnmount(() => {
 @media (max-width: 768px) {
   .schedule-view {
     --time-axis-width: 32px;
+    --topbar-height: 42px;
     --date-header-height: 40px;
     --slot-height: 50px;
   }
