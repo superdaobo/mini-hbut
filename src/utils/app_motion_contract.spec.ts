@@ -2,12 +2,10 @@
 // 通过读取 App.vue 源码做字符串断言，验证：
 // 1) 返回链（goToParentView / popstate fallback / 返回首页）显式传 direction: 'back'
 // 2) 视图过渡 computed 在 'none'（replace/tab）时不传自定义类（回落 name 纯淡入）
-import { readFileSync } from 'fs'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
 import { describe, it, expect } from 'vitest'
+import { readAppContractSources } from './contract_source_test'
 
-const appVue = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'App.vue'), 'utf8')
+const appVue = readAppContractSources()
 
 describe('App.vue 视图切换方向契约', () => {
   it('goToParentView 显式传 direction: back（不被 goToViewInternal 覆盖）', () => {

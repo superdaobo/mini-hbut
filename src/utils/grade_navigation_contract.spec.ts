@@ -14,27 +14,36 @@ const extractBlock = (source: string, marker: string, nextMarker: string) => {
 
 describe('grade navigation contract', () => {
   it('enters the grades view before loading grade data', () => {
-    const source = readSource('src/App.vue')
-    const block = extractBlock(source, 'const handleNavigate = async (target) => {', '// 处理返回仪表盘')
-    const gradesBranch = block.slice(
-      block.indexOf("if (normalized.view === 'grades'"),
-      block.indexOf('goToView(normalized.view)', block.indexOf("if (normalized.view === 'grades'"))
+    const source = readSource('src/app/coordinators/NavigationCoordinator.ts')
+    const block = extractBlock(
+      source,
+      'const handleNavigate = async (target: unknown) => {',
+      'const handleBackToDashboard = () => {'
     )
+    const navigationIndex = block.indexOf('const navigated = goToView(normalized.view)')
+    const gradesIndex = block.indexOf("if (normalized.view === 'grades') {")
+    const loadIndex = block.indexOf('void runtime.grade.loadGradesForCurrentView()', gradesIndex)
 
     expect(block).toContain('const navigated = goToView(normalized.view)')
-    expect(gradesBranch).toContain('void loadGradesForCurrentView()')
-    expect(gradesBranch).not.toContain('await fetchGradesFromAPI')
-    expect(gradesBranch).not.toContain("goToView('me')")
+    expect(navigationIndex).toBeGreaterThanOrEqual(0)
+    expect(gradesIndex).toBeGreaterThan(navigationIndex)
+    expect(loadIndex).toBeGreaterThan(gradesIndex)
+    expect(block).not.toContain('await fetchGradesFromAPI')
+    expect(block).not.toContain("goToView('me')")
   })
 
   it('does not redirect hash-restored grades routes away after a fetch failure', () => {
-    const source = readSource('src/App.vue')
-    const block = extractBlock(source, 'const syncFromHash = async ({ scrollToTop = false } = {}) => {', 'const markLoginSessionToken = () => {')
+    const source = readSource('src/app/coordinators/NavigationCoordinator.ts')
+    const block = extractBlock(
+      source,
+      'const syncFromHash = async ({ scrollToTop = false } = {}) => {',
+      'const normalizeNavigateTarget = (target: unknown) => {'
+    )
 
     // hash 恢复经 resolvePolicySafeView 后用 safeView 加载成绩
     expect(block).toContain('resolvePolicySafeView')
-    expect(block).toContain("if (safeView === 'grades' && gradeData.value.length === 0)")
-    expect(block).toContain('void loadGradesForCurrentView()')
+    expect(block).toContain("if (safeView === 'grades' && state.gradeData.value.length === 0)")
+    expect(block).toContain('void runtime.grade.loadGradesForCurrentView()')
     expect(block).not.toContain("applyViewState('me')")
     expect(block).not.toContain("replaceHistorySnapshot('me')")
   })

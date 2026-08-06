@@ -1,0 +1,68 @@
+# mini-hbut Phase 5 Reasonix project routing.
+# Secrets are resolved only from Reasonix's global credential environment.
+
+config_version = 5
+default_model = "opencode-zen-anthropic/deepseek-v4-flash-free"
+
+[agent]
+temperature = 0.0
+planner_model = "opencode-zen-anthropic/deepseek-v4-flash-free"
+subagent_model = "opencode-zen-anthropic/deepseek-v4-flash-free"
+subagent_effort = "max"
+max_subagent_depth = 1
+max_subagent_concurrency = 6
+max_parallel_writers = 3
+soft_compact_ratio = 0.5
+tool_result_snip_ratio = 0.6
+compact_ratio = 0.8
+compact_force_ratio = 0.9
+cold_resume_prune = true
+
+[[providers]]
+name = "opencode-zen-anthropic"
+kind = "openai"
+base_url = "https://opencode.ai/zen/v1"
+models = ["deepseek-v4-flash-free"]
+api_key_env = "OPENCODE_API_KEY"
+context_window = 200000
+vision_models = []
+model_overrides = { "deepseek-v4-flash-free" = { reasoning_protocol = "deepseek", supported_efforts = ["low", "medium", "high", "max"], default_effort = "max", context_window = 200000 } }
+
+[[providers]]
+name = "opencode-go"
+kind = "openai"
+base_url = "https://opencode.ai/zen/go/v1"
+models = ["deepseek-v4-flash"]
+default = "deepseek-v4-flash"
+api_key_env = "OPENCODE_GO_API_KEY"
+context_window = 1048576
+vision_models = []
+model_overrides = { "deepseek-v4-flash" = { reasoning_protocol = "deepseek", supported_efforts = ["disabled", "high", "max"], default_effort = "high", context_window = 1048576 } }
+
+[[providers]]
+name = "deepseek-flash"
+kind = "openai"
+base_url = "https://api.deepseek.com"
+model = "deepseek-v4-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+context_window = 1000000
+
+[tools]
+enabled = []
+bash_timeout_seconds = 120
+mcp_startup_timeout_seconds = 30
+mcp_call_timeout_seconds = 300
+
+[permissions]
+mode = "allow"
+deny = [
+  "Bash(git push*)",
+  "Bash(git merge*)",
+  "Bash(git reset --hard*)",
+  "Bash(git clean*)",
+  "Bash(rm -rf*)"
+]
+
+[sandbox]
+bash = "off"
+network = true

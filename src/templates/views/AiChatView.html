@@ -1,0 +1,140 @@
+  <div ref="rootEl" class="ai-view" :class="{ 'has-attachment': !!attachment }">
+    <div class="ai-header glass-card">
+      <div class="header-top-row">
+        <div class="header-left-actions">
+          <button class="back-btn" @click="$emit('back')">
+            <span class="icon">&#8592;</span>
+            <span class="label">返回</span>
+          </button>
+          <button class="history-btn" @click="historyOpen = !historyOpen">历史</button>
+        </div>
+        <div class="model-select">
+          <IOSSelect v-model="selectedModel" :disabled="isLoading || initStatus !== 'success'">
+            <option v-for="m in normalizedModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
+          </IOSSelect>
+        </div>
+      </div>
+    </div>
+
+    <div class="stream-debug glass-card">
+      <span class="debug-pill" :class="{ active: streamStats.active }">
+        {{ streamStats.active ? '流式进行中' : '流式空闲' }}
+      </span>
+      <span>raw {{ streamStats.raw }}</span>
+      <span>delta {{ streamStats.delta }}</span>
+      <span>progress {{ streamStats.progress }}</span>
+      <span>fallback {{ streamStats.fallback ? '1' : '0' }}</span>
+      <span>last {{ streamStats.lastEvent }}</span>
+    </div>
+
+    <div class="chat-area" ref="chatContainer" @scroll="handleChatScroll">
+      <div v-if="initStatus === 'loading'" class="status-msg">正在连接 AI 服务...</div>
+      <div v-else-if="initStatus === 'error'" class="status-msg error">
+        <div>连接失败：{{ initError }}</div>
+        <button class="retry-btn" @click="initAiSession">重试连接</button>
+      </div>
+      <div v-else class="messages">
+        <div
+          v-for="msg in messages"
+          :key="msg.id"
+          class="message-row"
+          :class="msg.role"
+        >
+          <div class="avatar">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
+          <div class="bubble">
+            <div v-if="msg.file" class="attachment-preview">📄 {{ msg.file.name }}</div>
+            <div v-if="shouldUseThinkingWindow(msg) && (msg.thinking || msg.isStreaming)" class="thinking-window">
+              <div class="thinking-window-header">
+                <span class="thinking-window-title">{{ modelDisplayName(msg.modelUsed) }} 思考流</span>
+                <span v-if="msg.isStreaming" class="thinking-window-state">流式中</span>
+              </div>
+              <div v-if="msg.thinking" class="thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
+              <div v-else class="thinking-placeholder">正在生成思考内容...</div>
+            </div>
+            <div v-else-if="msg.thinking" class="thinking-block">
+              <button class="thinking-toggle" @click="msg.showThinking = !msg.showThinking">
+                深度思考
+              </button>
+              <div v-if="msg.showThinking" class="thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
+            </div>
+            <div v-if="msg.progress && msg.isStreaming" class="progress-hint">{{ msg.progress }}</div>
+            <div v-if="msg.role === 'assistant' && msg.isStreaming && !msg.content" class="stream-loading">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="stream-label">正在生成回答</span>
+            </div>
+            <div
+              v-if="msg.role === 'assistant'"
+              class="text rich-text"
+              v-html="renderMessage(msg)"
+            ></div>
+            <div v-else class="text plain-text" v-text="msg.content"></div>
+          </div>
+        </div>
+
+        <div v-if="showLoadingBubble" class="message-row assistant loading">
+          <div class="avatar">🤖</div>
+          <div class="bubble">正在思考...</div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="attachment" ref="attachmentBarEl" class="attachment-bar glass-card">
+      <span>📎 {{ attachment.name }}</span>
+      <button @click="attachment = null">×</button>
+    </div>
+
+    <div ref="inputBarEl" class="input-area glass-card">
+      <button class="attach-btn" @click="triggerUpload" :disabled="isLoading || initStatus !== 'success'">➕</button>
+      <input ref="fileInput" type="file" :accept="AI_UPLOAD_ACCEPT" style="display: none" @change="handleFileChange">
+      <input
+        v-model="input"
+        type="text"
+        @input="handleInputTyping"
+        @keyup.enter="sendMessage"
+        @focus="handleInputFocus"
+        @blur="handleInputBlur"
+        :disabled="isLoading || initStatus !== 'success'"
+        placeholder="输入问题或上传文件..."
+      >
+      <button class="send-btn" :disabled="(!input && !attachment) || isLoading || initStatus !== 'success'" @click="sendMessage">发送</button>
+    </div>
+
+    <div v-if="historyOpen" class="history-backdrop" @click="historyOpen = false"></div>
+    <div class="history-panel" :class="{ open: historyOpen }">
+      <div class="history-header">
+        <h3>历史记录</h3>
+        <button class="history-close" @click="historyOpen = false">×</button>
+      </div>
+      <button class="new-chat-btn" @click="startNewSession">新对话</button>
+      <div class="history-list">
+        <div
+          v-for="s in sessions"
+          :key="s.id"
+          class="history-item"
+          :class="{ active: s.id === activeSessionId }"
+          @click="selectSession(s.id)"
+        >
+          <div class="history-title">{{ s.title || '新对话' }}</div>
+          <div class="history-meta">{{ formatSessionTime(s.updatedAt) }}</div>
+          <div v-if="s.preview" class="history-preview">{{ s.preview }}</div>
+          <button class="history-delete" @click.stop="requestDeleteSession(s.id)">删除</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="deleteConfirmVisible" class="confirm-backdrop">
+      <div class="confirm-dialog glass-card">
+        <h4>删除历史对话</h4>
+        <p>删除后将同步清理云端会话记录，无法恢复。</p>
+        <div v-if="deleteConfirmError" class="confirm-error">{{ deleteConfirmError }}</div>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" :disabled="deleteConfirmLoading" @click="cancelDeleteSession">取消</button>
+          <button class="confirm-danger" :disabled="deleteConfirmLoading" @click="deleteSessionConfirmed">
+            {{ deleteConfirmLoading ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>

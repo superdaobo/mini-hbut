@@ -7,15 +7,34 @@ const read = (relativePath: string) =>
   fs.readFileSync(path.join(root, relativePath), 'utf8')
 const exists = (relativePath: string) =>
   fs.existsSync(path.join(root, relativePath))
+const readTree = (relativePath: string) => {
+  const absoluteRoot = path.join(root, relativePath)
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && entry.name.endsWith('.rs')) files.push(absolute)
+    }
+  }
+  walk(absoluteRoot)
+  return files.sort().map((file) => fs.readFileSync(file, 'utf8')).join('\n')
+}
 
 const lib = read('src-tauri/src/lib.rs')
-const httpServer = read('src-tauri/src/http_server.rs')
+const tauriTransport = readTree('src-tauri/src/transport/tauri')
+const httpServer = readTree('src-tauri/src/http_server')
+const tauriGrades = read('src-tauri/src/transport/tauri/grades.rs')
+const httpAcademic = read('src-tauri/src/http_server/routes/academic.rs')
 const ics = read('src-tauri/src/utils/ics.rs')
 const utilsMod = read('src-tauri/src/utils/mod.rs')
 const runtime = read('src/platform/runtime.ts')
 const capacitor = read('src/platform/adapters/capacitor.ts')
 const app = read('src/App.vue')
-const schedule = read('src/components/ScheduleView.vue')
+const schedule =
+  read('src/components/ScheduleView.vue') +
+  '\n' +
+  read('src/features/schedule/utils/io.ts')
 const utilsReadme = read('src/utils/README.md')
 
 const ICS_FNS = ['sanitize_filename_part', 'escape_ics_text', 'fold_ics_line', 'parse_ics_datetime']
@@ -39,15 +58,15 @@ describe('Phase 3 architecture convergence', () => {
   })
 
   it('routes grade sync through grade::service::GradeService in both transports', () => {
-    for (const src of [lib, httpServer]) {
+    for (const src of [tauriGrades, httpAcademic]) {
       const handler = extractHandler(src, 'sync_grades')
       expect(handler, 'sync_grades handler 必须存在').not.toBeNull()
       expect(handler!).toContain('GradeService::new')
       expect(handler!).toContain('.sync_grades(')
     }
-    expect(httpServer).toContain('crate::grade::service::GradeService::new')
-    expect(lib).toContain('grade::service::GradeService::new')
-    const httpHandler = extractHandler(httpServer, 'sync_grades')!
+    expect(httpAcademic).toContain('crate::grade::service::GradeService::new')
+    expect(tauriGrades).toContain('grade::service::GradeService::new')
+    const httpHandler = extractHandler(httpAcademic, 'sync_grades')!
     expect(httpHandler).toContain('payload: Option<Json<SyncGradesRequest>>')
     expect(httpHandler).toContain('req.current_only.or(req.teacher_current_only)')
     expect(httpHandler).toMatch(/\.sync_grades\(uid\.as_deref\(\),\s*current_only\)/)
@@ -60,9 +79,10 @@ describe('Phase 3 architecture convergence', () => {
     for (const fn of ICS_FNS) {
       expect(ics).toContain(`pub fn ${fn}(`)
       expect(lib).not.toMatch(new RegExp(`fn ${fn}\\b`))
+      expect(tauriTransport).not.toMatch(new RegExp(`fn ${fn}\\b`))
       expect(httpServer).not.toMatch(new RegExp(`fn ${fn}\\b`))
     }
-    expect(lib).toContain('use utils::ics::')
+    expect(tauriTransport).toContain('use crate::utils::ics::')
     expect(httpServer).toContain('use crate::utils::ics::')
   })
 

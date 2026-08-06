@@ -1,0 +1,408 @@
+  <div class="course-selection-view">
+    <div class="course-page-header glass-card">
+      <div class="header-top">
+        <button class="back-btn ios26-btn" @click="handleBack">{{ backButtonLabel }}</button>
+        <div class="course-page-title">{{ pageTitle }}</div>
+        <button
+          v-if="centerMode !== ENTRY_MODE_MENU"
+          class="refresh-btn ios26-btn"
+          type="button"
+          :disabled="refreshDisabled"
+          @click="handleHeaderRefresh"
+        >
+          {{ refreshButtonLabel }}
+        </button>
+        <div v-else class="refresh-btn-placeholder" aria-hidden="true" />
+      </div>
+      <div class="header-meta-row">
+        <span class="header-mini-pill">{{ headerMainPill }}</span>
+        <span class="header-mini-pill">{{ headerSubPill }}</span>
+      </div>
+    </div>
+
+    <div class="content">
+      <template v-if="centerMode === ENTRY_MODE_MENU">
+        <div class="entry-grid">
+          <button type="button" class="entry-tile glass-card" @click="enterSelectionMode">
+            <div class="entry-badge entry-badge-selection">选课</div>
+            <div class="entry-title">选课</div>
+            <div class="entry-desc">沿用当前选课与退课能力，支持批次切换、筛选与课程详情。</div>
+          </button>
+          <button type="button" class="entry-tile glass-card" @click="enterInfoMode">
+            <div class="entry-badge entry-badge-info">信息查询</div>
+            <div class="entry-title">信息查询</div>
+            <div class="entry-desc">自动查询已选课程，默认匹配当前学期，并支持展开高级筛选。</div>
+          </button>
+        </div>
+      </template>
+
+      <template v-else-if="centerMode === ENTRY_MODE_SELECTION">
+        <div class="filter-card glass-card">
+          <div class="filter-header">
+            <div>
+              <div class="filter-title">查询条件</div>
+              <div class="filter-subtitle">默认折叠，按需展开筛选条件</div>
+            </div>
+            <div class="filter-actions">
+              <button class="ghost-btn" type="button" @click="backToEntryMenu">返回入口</button>
+              <button class="ghost-btn" type="button" @click="resetFilters">重置</button>
+              <button class="ghost-btn" type="button" @click="showAdvanced = !showAdvanced">{{ showAdvanced ? '收起筛选' : '展开筛选' }}</button>
+              <button class="primary-btn" type="button" :disabled="loadingList || !canShowList" @click="queryCourses">查询课程</button>
+            </div>
+          </div>
+
+          <template v-if="showAdvanced">
+            <div class="filter-grid compact-grid">
+              <div class="field span-2">
+                <label>课程名称</label>
+                <input v-model.trim="filters.kcmc" class="text-input" type="text" placeholder="输入课程名称关键词" />
+              </div>
+              <div class="field">
+                <label>课程性质</label>
+                <IOSSelect v-model="filters.kcxz" class="modern-select">
+                  <option v-for="item in optionMaps.kcxz" :key="item.value || 'empty-kcxz'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>课程归属</label>
+                <IOSSelect v-model="filters.kcgs" class="modern-select">
+                  <option v-for="item in optionMaps.kcgs" :key="item.value || 'empty-kcgs'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>教学模式</label>
+                <IOSSelect v-model="filters.jxms" class="modern-select">
+                  <option v-for="item in optionMaps.jxms" :key="item.value || 'empty-jxms'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>教师</label>
+                <input v-model.trim="filters.teacher" class="text-input" type="text" placeholder="输入授课教师" />
+              </div>
+            </div>
+
+            <div class="filter-grid advanced-grid">
+              <div class="field">
+                <label>上课校区</label>
+                <IOSSelect v-model="filters.kkxq" class="modern-select">
+                  <option v-for="item in optionMaps.kkxq" :key="item.value || 'empty-kkxq'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>课程类别</label>
+                <IOSSelect v-model="filters.kclb" class="modern-select">
+                  <option v-for="item in optionMaps.kclb" :key="item.value || 'empty-kclb'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>课程类型</label>
+                <IOSSelect v-model="filters.kclx" class="modern-select">
+                  <option v-for="item in optionMaps.kclx" :key="item.value || 'empty-kclx'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="batch-card glass-card">
+          <div class="section-head">
+            <div>
+              <h3>选课批次</h3>
+              <p>{{ cleanMessage(overview?.message) || '从教务系统中选择当前开放的选课批次' }}</p>
+            </div>
+          </div>
+          <div v-if="tabs.length > 0" class="batch-select-wrap">
+            <IOSSelect :model-value="activeTabId" class="modern-select batch-select" @update:modelValue="handleTabChange">
+              <option v-for="tab in tabs" :key="tab.xkgzid" :value="tab.xkgzid">{{ tab.xkgzMc || '未命名批次' }}</option>
+            </IOSSelect>
+          </div>
+          <TEmptyState v-else message="" :icon="''">
+            <p>{{ overviewError || cleanMessage(overview?.message) || '当前暂无选课批次' }}</p>
+          </TEmptyState>
+        </div>
+
+        <div class="result-block">
+          <TEmptyState v-if="loadingOverview || loadingList" type="loading" message="正在同步选课数据..." />
+          <TEmptyState v-else-if="!canShowList || courses.length === 0" :message="emptyHint" />
+          <div v-else class="course-list">
+            <button
+              v-for="course in courses"
+              :key="course.id"
+              type="button"
+              class="course-card glass-card"
+              @click="openDetail(course)"
+            >
+              <div class="course-top">
+                <div>
+                  <div class="course-name">{{ course.kcmc || '未命名课程' }}</div>
+                  <div class="course-class">{{ course.jxbmcDisplay || course.jxbmc || '未命名教学班' }}</div>
+                </div>
+                <div class="course-top-right">
+                  <span v-if="course.isConflict" class="meta-chip conflict-meta-pill">冲突</span>
+                  <div class="course-credit">{{ course.xf || '--' }} 学分</div>
+                </div>
+              </div>
+
+              <div class="course-meta-row">
+                <span class="meta-chip teacher-chip">{{ course.teacher || '待定教师' }}</span>
+                <span v-if="course.isOnline" class="meta-chip online-pill">网课</span>
+                <span v-else class="meta-chip schedule-chip">{{ course.scheduleText || '未公布时间地点' }}</span>
+              </div>
+
+              <div class="course-footer-row">
+                <div class="course-meta-row secondary compact">
+                  <span class="meta-chip">容量 {{ course.capacity.display }}</span>
+                  <span class="status-pill" :class="course.statusClass">{{ course.statusLabel }}</span>
+                </div>
+
+                <div class="course-actions" @click.stop>
+                  <button
+                    v-if="!course.isPicked"
+                    class="action-btn primary"
+                    type="button"
+                    :disabled="!course.isSelectable || course.isFull || selectingCourseId === course.id"
+                    @click="handleSelectCourse(course)"
+                  >
+                    {{ selectingCourseId === course.id ? '提交中...' : '选课' }}
+                  </button>
+                  <button
+                    v-else
+                    class="action-btn danger"
+                    type="button"
+                    :disabled="withdrawingCourseId === course.id"
+                    @click="openWithdrawConfirm(course)"
+                  >
+                    {{ withdrawingCourseId === course.id ? '处理中...' : '退课' }}
+                  </button>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="filter-card glass-card">
+          <div class="filter-header">
+            <div>
+              <div class="filter-title">信息查询条件</div>
+              <div class="filter-subtitle">默认显示当前学期，展开后可查看更多筛选项</div>
+            </div>
+            <div class="filter-actions">
+              <button class="ghost-btn" type="button" @click="backToEntryMenu">返回入口</button>
+              <button class="ghost-btn" type="button" @click="resetInfoFilters">重置</button>
+              <button class="ghost-btn" type="button" @click="infoShowAdvanced = !infoShowAdvanced">{{ infoShowAdvanced ? '收起筛选' : '展开筛选' }}</button>
+              <button class="primary-btn" type="button" :disabled="loadingInfo" @click="querySelectedCourses()">查询</button>
+            </div>
+          </div>
+
+          <div class="filter-grid info-base-grid">
+            <div class="field">
+              <label>当前学期</label>
+              <IOSSelect v-model="infoFilters.term" class="modern-select" @change="onInfoTermChange">
+                <option v-for="item in infoOptions.term" :key="item.value || 'empty-info-term'" :value="item.value">{{ item.label }}</option>
+              </IOSSelect>
+            </div>
+          </div>
+
+          <template v-if="infoShowAdvanced">
+            <div class="filter-grid compact-grid">
+              <div class="field span-2">
+                <label>课程名称</label>
+                <input v-model.trim="infoFilters.kcmc" class="text-input" type="text" placeholder="输入课程名称关键词" />
+              </div>
+              <div class="field">
+                <label>授课教师</label>
+                <input v-model.trim="infoFilters.teacher" class="text-input" type="text" placeholder="输入授课教师" />
+              </div>
+            </div>
+
+            <div class="filter-grid advanced-grid">
+              <div class="field">
+                <label>课程性质</label>
+                <IOSSelect v-model="infoFilters.kcxz" class="modern-select">
+                  <option v-for="item in infoOptions.kcxz" :key="item.value || 'empty-info-kcxz'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>课程类型</label>
+                <IOSSelect v-model="infoFilters.kclx" class="modern-select">
+                  <option v-for="item in infoOptions.kclx" :key="item.value || 'empty-info-kclx'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>选课方式</label>
+                <IOSSelect v-model="infoFilters.xkfs" class="modern-select" :disabled="!infoShowOtherModes">
+                  <option v-for="item in infoOptions.xkfs" :key="item.value || 'empty-info-xkfs'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+            </div>
+
+            <div class="info-toggle-row">
+              <label class="info-toggle-check">
+                <input v-model="infoShowOtherModes" type="checkbox" @change="handleInfoOtherModesChange" />
+                <span>显示其他选课方式课程（默认仅展示“选课”）</span>
+              </label>
+            </div>
+          </template>
+        </div>
+
+        <div class="result-block">
+          <TEmptyState v-if="loadingInfo" type="loading" message="正在查询已选课程..." />
+          <TEmptyState v-else-if="filteredInfoCourses.length === 0" :message="infoEmptyHint" />
+          <template v-else>
+            <div v-if="infoSourceMessage" class="info-source-tip">{{ infoSourceMessage }}</div>
+            <div class="course-list">
+              <button
+                v-for="course in filteredInfoCourses"
+                :key="`${course.id}-${course.termLabel}-${course.sourceTabId}`"
+                type="button"
+                class="course-card glass-card"
+                @click="openDetail(course)"
+              >
+                <div class="course-top">
+                  <div>
+                    <div class="course-name">{{ course.kcmc || '未命名课程' }}</div>
+                    <div class="course-class">{{ course.jxbmcDisplay || course.jxbmc || '未命名教学班' }}</div>
+                  </div>
+                  <div class="course-top-right">
+                    <span class="meta-chip success-meta-pill">{{ course.xkfsText || '选课' }}</span>
+                    <div class="course-credit">{{ course.xf || '--' }} 学分</div>
+                  </div>
+                </div>
+
+                <div class="course-meta-row">
+                  <span class="meta-chip teacher-chip">{{ course.teacher || '待定教师' }}</span>
+                  <span v-if="course.isOnline" class="meta-chip online-pill">网课</span>
+                  <span v-else class="meta-chip schedule-chip">{{ course.scheduleText || '未公布时间地点' }}</span>
+                </div>
+
+                <div class="course-meta-row secondary compact">
+                  <span class="meta-chip">学期 {{ course.termLabel || '--' }}</span>
+                  <span class="meta-chip">选课方式 {{ course.xkfsText || '选课' }}</span>
+                  <span class="status-pill" :class="course.statusClass">{{ course.statusLabel }}</span>
+                </div>
+              </button>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <Teleport to="body">
+      <div v-if="showDetail && currentDetailCourse" class="modal-overlay" @click="closeDetail">
+        <div class="modal-content detail-modal glass" @click.stop>
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">{{ currentDetailCourse.kcmc }}</div>
+              <div class="modal-subtitle">{{ currentDetailCourse.jxbmc }}</div>
+            </div>
+            <button class="close-btn" type="button" @click="closeDetail">×</button>
+          </div>
+
+          <div class="detail-badges">
+            <span v-if="currentDetailCourse.isOnline" class="meta-chip online-pill">网课</span>
+            <span class="status-pill" :class="currentDetailCourse.statusClass">{{ currentDetailCourse.statusLabel }}</span>
+          </div>
+
+          <div class="detail-grid">
+            <div v-for="item in detailFields" :key="item.label" class="detail-item">
+              <span class="detail-label">{{ item.label }}</span>
+              <span class="detail-value">{{ item.value }}</span>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h4>课程简介</h4>
+            <div class="detail-paragraph">
+              {{ detailIntro || normalizeDetailIntro(normalizeDetailSourceText(currentDetailCourse.kcjj), { allowConflictText: currentDetailCourse.isConflict }) || '暂无课程简介' }}
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h4>教师详情</h4>
+            <div class="detail-paragraph">{{ detailTeacherText || currentDetailCourse.teacher || '暂无教师详情' }}</div>
+          </div>
+
+          <div v-if="detailLoading" class="detail-loading">正在补充课程简介与教师详情...</div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="showChildClassDialog" class="modal-overlay" @click="showChildClassDialog = false">
+        <div class="modal-content child-modal glass" @click.stop>
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">选择子教学班</div>
+              <div class="modal-subtitle">{{ pendingSelectCourse?.kcmc || '当前课程' }}</div>
+            </div>
+            <button class="close-btn" type="button" @click="showChildClassDialog = false">×</button>
+          </div>
+
+          <div class="child-class-list">
+            <button
+              v-for="item in childClasses"
+              :key="item.id"
+              type="button"
+              class="child-class-item"
+              :class="{ active: selectedChildClassId === item.id }"
+              @click="selectedChildClassId = item.id"
+            >
+              <div class="child-class-name">{{ item.name || item.id }}</div>
+              <div class="child-class-meta">{{ item.teacher || '待定教师' }}</div>
+              <div class="child-class-meta">{{ item.schedule || '时间地点待公布' }}</div>
+            </button>
+          </div>
+
+          <div class="confirm-actions">
+            <button class="ghost-btn" type="button" @click="showChildClassDialog = false">取消</button>
+            <button
+              class="primary-btn"
+              type="button"
+              :disabled="!selectedChildClassId || !pendingSelectCourse"
+              @click="showChildClassDialog = false; openActionConfirm({ type: 'select', course: pendingSelectCourse, childClassId: selectedChildClassId })"
+            >
+              确认选课
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="showActionConfirmDialog" class="modal-overlay" @click="closeActionConfirm">
+        <div class="modal-content confirm-modal glass" @click.stop>
+          <div class="modal-title">{{ confirmActionType === 'withdraw' ? '确认退课' : '确认选课' }}</div>
+          <div class="detail-paragraph">
+            <template v-if="confirmActionType === 'withdraw'">
+              确定要退掉“{{ confirmTargetCourse?.kcmc || '当前课程' }}”吗？退课后会立即刷新当前批次列表。
+            </template>
+            <template v-else>
+              确定要选择“{{ confirmTargetCourse?.kcmc || '当前课程' }}”吗？提交后会按教务系统规则实时校验容量与选课门数限制。
+            </template>
+          </div>
+          <div class="confirm-actions">
+            <button class="ghost-btn" type="button" @click="closeActionConfirm">取消</button>
+            <button
+              :class="confirmActionType === 'withdraw' ? 'danger-btn' : 'primary-btn'"
+              type="button"
+              :disabled="!confirmTargetCourse || (confirmActionType === 'withdraw' && withdrawingCourseId === confirmTargetCourse.id) || (confirmActionType === 'select' && selectingCourseId === confirmTargetCourse.id)"
+              @click="submitConfirmedAction"
+            >
+              <template v-if="confirmActionType === 'withdraw'">
+                {{ withdrawingCourseId === confirmTargetCourse?.id ? '处理中...' : '确认退课' }}
+              </template>
+              <template v-else>
+                {{ selectingCourseId === confirmTargetCourse?.id ? '提交中...' : '确认选课' }}
+              </template>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Transition name="fade">
+      <div v-if="toastState.visible" class="toast-pill" :class="toastState.type">{{ toastState.message }}</div>
+    </Transition>
+  </div>

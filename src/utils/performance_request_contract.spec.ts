@@ -34,7 +34,7 @@ describe('request performance and cache contract', () => {
   })
 
   it('does not let cloud sync auto warmup query every semester ranking', () => {
-    const cloudSource = readSource('src/utils/cloud_sync.runtime.js')
+    const cloudSource = readSource('src/utils/cloud_sync_payload.ts')
 
     expect(cloudSource).toContain('primeAcademicCaches')
     expect(cloudSource).toContain('skipSemesterRankingWarmup')
@@ -42,7 +42,10 @@ describe('request performance and cache contract', () => {
   })
 
   it('delays notification launch checks and marks them as background work', () => {
-    const notifySource = readSource('src/utils/notify_center.runtime.js')
+    const notifySource =
+      readSource('src/utils/notify_center.ts') +
+      '\n' +
+      readSource('src/utils/notify_center_util.ts')
 
     expect(notifySource).toContain('NOTIFY_LAUNCH_CHECK_DELAY_MS')
     expect(notifySource).toContain('window.setTimeout')

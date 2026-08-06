@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readAppContractSources } from './contract_source_test'
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8')
 
@@ -27,7 +28,7 @@ describe('temporary home layout diagnostics contract', () => {
   })
 
   it('exposes a temporary home-page copy panel without changing bottom tab positioning', () => {
-    const source = readSource('src/App.vue')
+    const source = readAppContractSources()
 
     expect(source).toContain('collectHomeLayoutDiagnostics')
     expect(source).toContain('showHomeLayoutDebug')

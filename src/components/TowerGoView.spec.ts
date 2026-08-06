@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { readVueContractSource } from '../utils/contract_source_test'
 
-const source = () => readFileSync(new URL('./TowerGoView.vue', import.meta.url), 'utf8')
+const source = () => readVueContractSource('src/components/TowerGoView.vue')
 
 describe('TowerGoView simplified contract', () => {
   it('no longer contains login, ride-control, or order-processing sections', () => {

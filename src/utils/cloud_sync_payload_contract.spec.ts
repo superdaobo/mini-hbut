@@ -27,7 +27,14 @@ const expectSourceMatches = (source: string, pattern: RegExp, label: string) => 
 }
 
 describe('cloud sync auto upload contract', () => {
-  const source = readSource('src/utils/cloud_sync.runtime.js')
+  const source =
+    readSource('src/utils/cloud_sync.ts') +
+    '\n' +
+    readSource('src/utils/cloud_sync_payload.ts') +
+    '\n' +
+    readSource('src/utils/cloud_sync_storage.ts') +
+    '\n' +
+    readSource('src/utils/cloud_sync_snapshot.ts')
 
   it('builds schema v4 payloads with explicit client version and runtime metadata', () => {
     expectSourceMatches(source, /const\s+SYNC_SCHEMA_VERSION\s*=\s*4\b/, 'schema version should be bumped to 4')
@@ -37,7 +44,7 @@ describe('cloud sync auto upload contract', () => {
     expectSourceMatches(source, /payload\.client\s*=\s*clientSnapshot|client:\s*clientSnapshot/, 'payload should include client snapshot')
     expectSourceMatches(source, /version:\s*currentVersion|version:\s*await getCurrentVersion\(\)/, 'client snapshot should include version')
     expectSourceMatches(source, /platform:\s*clientPlatform|platform:\s*detectRuntime\(\)|runtime:\s*detectRuntime\(\)/, 'client snapshot should include platform/runtime')
-    expectSourceMatches(source, /client_version:\s*(payload\.client\?\.version|clientSnapshot\.version|toSafeText\(payload\?\.client\?\.version\))/, 'upload body should expose top-level client_version')
+    expectSourceMatches(source, /client_version:\s*(payload\.client\?\.version|clientSnapshot\.version|toSafeText\(payload\?\.client\?\.version\)|toSafeText\(asRecord\(payload\?\.client\)\.version\))/, 'upload body should expose top-level client_version')
   })
 
   it('uploads notification snapshots and exam arrangements as first-class payload sections', () => {

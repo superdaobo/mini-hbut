@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { readAppContractSources } from './contract_source_test'
 import {
   buildUpdateDownloadUrls,
   getSkippedVersionKey,
@@ -137,7 +138,7 @@ describe('update channel (stable / dev)', () => {
   })
 
   it('prefers native package version over Vite inject in getCurrentVersion', () => {
-    const updater = readSource('src/utils/updater.runtime.js')
+    const updater = readSource('src/utils/updater.ts')
     expect(updater).toContain('getNativeAppVersion')
     // 原生优先：先 await native，再 VITE_APP_VERSION
     const nativeIdx = updater.indexOf('const native = await getNativeAppVersion()')
@@ -162,8 +163,8 @@ describe('update channel (stable / dev)', () => {
 
   it('wires UpdateDialog channel toggle and App autoCheck channel options', () => {
     const dialog = readSource('src/components/UpdateDialog.vue')
-    const app = readSource('src/App.vue')
-    const updater = readSource('src/utils/updater.runtime.js')
+    const app = readAppContractSources()
+    const updater = readSource('src/utils/updater.ts') + '\n' + readSource('src/utils/updater_sources.ts')
 
     expect(dialog).toContain('接收开发版更新（Beta）')
     expect(dialog).toContain('setUpdateChannel')

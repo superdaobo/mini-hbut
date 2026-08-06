@@ -49,11 +49,11 @@ describe('calendar session + SWR sticky offline contract (#489)', () => {
   })
 
   it('backend does not cache failed calendar payloads and probes session before getData', () => {
-    const lib = readText('src-tauri/src/lib.rs')
-    const academic = readText('src-tauri/src/http_client/academic.rs')
+    const tauriAcademic = readText('src-tauri/src/transport/tauri/academic.rs')
+    const academicSemester = readText('src-tauri/src/http_client/academic/semester.rs')
 
     const fetchCmd =
-      lib.match(/async fn fetch_calendar_data\([\s\S]*?async fn fetch_academic_progress/s)?.[0] || ''
+      tauriAcademic.match(/async fn fetch_calendar_data\([\s\S]*?async fn fetch_academic_progress/s)?.[0] || ''
     expect(fetchCmd).toContain('need_login')
     expect(fetchCmd).toContain('// 仅成功响应写缓存并刷新 sync_time')
     expect(fetchCmd).toContain('if success')
@@ -61,7 +61,7 @@ describe('calendar session + SWR sticky offline contract (#489)', () => {
     expect(fetchCmd).toContain('calendar_public_cache')
 
     const rawFetch =
-      academic.match(
+      academicSemester.match(
         /async fn fetch_calendar_raw_for_semester\([\s\S]*?async fn fetch_calendar_summary_for_semester/s
       )?.[0] || ''
     expect(rawFetch).toContain('校历请求前已完成教务会话探测/补票')

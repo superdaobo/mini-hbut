@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { readAppContractSources } from './contract_source_test'
 
 const root = resolve(__dirname, '..')
 
@@ -26,8 +27,8 @@ describe('smart_orientation entry + readonly wiring (#481)', () => {
   })
 
   it('App.vue 懒加载 SmartOrientationView', () => {
-    const app = read('App.vue')
-    expect(app).toContain("import('./components/SmartOrientationView.vue')")
+    const app = readAppContractSources()
+    expect(app).toContain("const loadSmartOrientationView: Loader = () => import('../components/SmartOrientationView.vue')")
     expect(app).toContain('loadSmartOrientationView')
     expect(app).toContain('smart_orientation: loadSmartOrientationView')
     expect(app).toContain("currentView === 'smart_orientation'")

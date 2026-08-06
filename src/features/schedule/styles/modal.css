@@ -1,0 +1,59 @@
+/**
+ * 课表领域 - 弹窗共享样式（modal/fade 过渡）。
+ * 原内联于 ScheduleView.vue，多个弹窗组件（添加/管理/详情/确认）共同引用。
+ * 注意：scoped 引入后，各组件会为其附加自身的 scope 属性。
+ */
+
+.modal-overlay {
+  position: fixed;
+  top:0; left:0; right:0; bottom:0;
+  background: rgba(0,0,0,0.4);
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px);
+  box-sizing: border-box;
+}
+
+.modal-content {
+  background: white;
+  width: 80%;
+  max-width: 320px;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.modal-header h3 {
+  font-size: 18px;
+  color: #111827;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.close-btn {
+  background: #f3f4f6;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #6b7280;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.2s;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}

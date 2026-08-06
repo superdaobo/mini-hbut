@@ -5,7 +5,7 @@ import { MAIN_TABS, ME_SUB_VIEWS, normalizeViewName } from '../navigation/app_na
 const MAIN_TAB_SET = new Set<string>(MAIN_TABS)
 const ME_SUB_VIEW_SET = new Set<string>(ME_SUB_VIEWS)
 
-export type NavigationDirection = 'forward' | 'back' | 'replace'
+export type NavigationDirection = 'forward' | 'back' | 'replace' | 'none'
 export interface NavigationSnapshot {
   view?: string | null
   tab?: string | null

@@ -57,7 +57,7 @@ describe('campus map contract', () => {
 
   it('wires campus map direction proxy through vite and tauri bridge', () => {
     const vite = read('vite.config.ts')
-    const bridge = read('src-tauri/src/http_server.rs')
+    const bridge = read('src-tauri/src/http_server/routes/proxy.rs')
     const view = read('src/components/CampusMapView.vue')
     const walking = read('src/features/campus-map/services/walking_route_service.ts')
 
