@@ -53,7 +53,7 @@ describe('session credential detection contract (#520)', () => {
   it('attemptAutoRelogin calls auto_relogin_from_stored for backend-restorable credentials', () => {
     const sessionSource = readText('src/app/coordinators/SessionCoordinator.ts')
     const autoReloginStart = sessionSource.indexOf('const attemptAutoRelogin = async () => {')
-    const autoReloginEnd = sessionSource.indexOf('const refreshSessionSilently = async () => {', autoReloginStart)
+    const autoReloginEnd = sessionSource.indexOf('const refreshSessionSilently = async (options: { quiet?: boolean } = {}) => {', autoReloginStart)
     const autoReloginBlock = sessionSource.slice(autoReloginStart, autoReloginEnd)
 
     expect(autoReloginBlock).toContain('creds.backendRestorable')
@@ -66,7 +66,7 @@ describe('session credential detection contract (#520)', () => {
     const loginEnd = authSource.indexOf('const handleLogout = async', loginStart)
     const loginBlock = authSource.slice(loginStart, loginEnd)
 
-    expect(loginBlock).toContain('runtime.session.refreshSessionSilently()')
+    expect(loginBlock).toContain('runtime.session.refreshSessionSilently({ quiet: true })')
     expect(loginBlock).toContain('#520')
   })
 })

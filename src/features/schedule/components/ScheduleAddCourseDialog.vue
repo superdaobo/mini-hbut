@@ -84,6 +84,7 @@ const form = props.addCourseForm
   </Transition>
 </template>
 
+<style src="../styles/modal.css" scoped></style>
 <style scoped>
 .add-course-modal {
   width: min(92vw, 400px);

@@ -509,14 +509,10 @@ const isJwxtCacheKey = (key: unknown): boolean => {
   return JWXT_KEY_PREFIXES.some((prefix) => text.startsWith(prefix))
 }
 
-const looksLikeMaintenanceIssue = (message: unknown): boolean => {
+// 网络/DNS/连接类错误：本地网络问题，≠ 学校维护（#587）
+const looksLikeNetworkIssue = (message: unknown): boolean => {
   const text = String(message || '').toLowerCase()
   if (!text) return false
-  // “无课表/假期”属于业务态，不应触发教务维护模式。
-  const noScheduleHints = ['暂无可用课表', '暂无课表', '无课表', '假期', 'vacation', 'no schedule']
-  if (noScheduleHints.some((hint) => text.includes(hint))) {
-    return false
-  }
   return (
     text.includes('error sending request for url') ||
     text.includes('connection refused') ||
@@ -528,6 +524,23 @@ const looksLikeMaintenanceIssue = (message: unknown): boolean => {
     text.includes('dns') ||
     text.includes('econn') ||
     text.includes('network') ||
+    text.includes('socket') ||
+    text.includes('eof') ||
+    text.includes('broken pipe')
+  )
+}
+
+const looksLikeMaintenanceIssue = (message: unknown): boolean => {
+  const text = String(message || '').toLowerCase()
+  if (!text) return false
+  // “无课表/假期”属于业务态，不应触发教务维护模式。
+  const noScheduleHints = ['暂无可用课表', '暂无课表', '无课表', '假期', 'vacation', 'no schedule']
+  if (noScheduleHints.some((hint) => text.includes(hint))) {
+    return false
+  }
+  // #587：网络/DNS 错误 ≠ 学校维护（由 looksLikeNetworkIssue 单独识别），
+  // 仅保留学校侧维护/不可用特征，避免断网/换代理时误报「教务系统正在维护」。
+  return (
     text.includes('维护') ||
     text.includes('暂不可用') ||
     text.includes('无法连接') ||
@@ -590,6 +603,8 @@ const persistFailureState = (count: number): void => {
 
 // 记录一次教务请求失败：达到连续失败阈值才置位维护模式；返回是否已进入维护模式。
 const recordJwxtFailure = (error: unknown, hint = ''): boolean => {
+  // #587：网络/DNS 错误是本地网络问题，不置位「教务维护」横幅（缓存回退仍生效）
+  if (looksLikeNetworkIssue(errorMessage(error))) return false
   const next = readFailureState() + 1
   persistFailureState(next)
   if (next >= MAINTENANCE_FAILURE_THRESHOLD) {
@@ -831,7 +846,8 @@ export async function fetchWithCache<T extends ApiPayload>(
         maintenanceMode ||
         (
           isJwxtCacheKey(key) &&
-          looksLikeMaintenanceIssue(message)
+          // 学校维护或网络异常均回退缓存展示（#587：网络错误不置维护横幅，但保留离线兜底）
+          (looksLikeMaintenanceIssue(message) || looksLikeNetworkIssue(message))
         )
       )
 

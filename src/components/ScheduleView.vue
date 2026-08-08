@@ -542,17 +542,36 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .schedule-view {
+  /* 以下 CSS 变量与拆分前 ScheduleView.vue（PR #585 之前）保持一致：
+     --slot-height 按视口高度动态计算，使课表随页面高度拉伸；拆分时曾被简化为固定 55px 导致高度压缩 */
+  --time-axis-width: 40px;
+  --topbar-height: 44px;
+  --date-header-height: 50px;
+  --schedule-bottom-gap: calc(108px + env(safe-area-inset-bottom));
+  --schedule-safe-top: 0px;
+  --slot-height: clamp(
+    46px,
+    calc(
+      (
+          var(--app-vh, 1vh) * 100
+          - var(--topbar-height)
+          - var(--date-header-height)
+          - var(--schedule-bottom-gap)
+        ) / 11
+    ),
+    70px
+  );
+  width: 100%;
+  height: calc(var(--app-vh, 1vh) * 100);
+  min-height: calc(var(--app-vh, 1vh) * 100);
   display: flex;
   flex-direction: column;
-  height: 100vh;
   background: #f9f9ff;
+  font-family: var(--ui-font-family);
   overflow: hidden;
+  box-sizing: border-box;
+  padding-top: 0;
   position: relative;
-  --topbar-height: 54px;
-  --time-axis-width: 44px;
-  --date-header-height: 46px;
-  --slot-height: 55px;
-  --schedule-bottom-gap: 56px;
 }
 
 /* 语义化占位（原 semester-badge 无对应 DOM，保留选择器兼容外部样式覆盖） */
@@ -621,8 +640,7 @@ onBeforeUnmount(() => {
   .schedule-view {
     --time-axis-width: 32px;
     --topbar-height: 42px;
-    --date-header-height: 40px;
-    --slot-height: 50px;
+    --date-header-height: 44px;
   }
 }
 </style>

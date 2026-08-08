@@ -37,6 +37,7 @@ const emit = defineEmits(['confirm'])
   </Transition>
 </template>
 
+<style src="../styles/modal.css" scoped></style>
 <style scoped>
 .confirm-overlay {
   z-index: 360;

@@ -89,6 +89,8 @@ export interface AppState {
   moduleHostSession: Ref<Record<string, unknown>>
   appShellRef: Ref<HTMLElement | null>
   homeScrollSnapshot: Ref<number>
+  // 返回首页恢复滚动期间置 true：视图隐藏避免"先顶部后闪现底部"
+  homeScrollRestoring: Ref<boolean>
 
   // 登录 / 弹窗
   loginMode: Ref<string>
@@ -318,6 +320,7 @@ export const createAppState = (stores: AppStores, options: CreateAppStateOptions
     moduleHostSession: ref({}),
     appShellRef: ref(null),
     homeScrollSnapshot: ref(0),
+    homeScrollRestoring: ref(false),
 
     loginMode: ref(savedLoginMode && savedLoginMode !== 'auto' ? savedLoginMode : 'portal_password'),
     showLoginPrompt: ref(false),

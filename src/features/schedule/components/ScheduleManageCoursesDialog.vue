@@ -71,6 +71,7 @@ const emit = defineEmits(['close', 'toggle-semester', 'edit-course', 'delete-cou
   </Transition>
 </template>
 
+<style src="../styles/modal.css" scoped></style>
 <style scoped>
 .manage-course-modal {
   width: min(92vw, 560px);

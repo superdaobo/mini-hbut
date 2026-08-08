@@ -105,7 +105,7 @@ export interface SessionCoordinator {
   tryRestoreLatestSession(): Promise<boolean>
   attemptAutoRelogin(): Promise<boolean>
   attemptOnlineRecovery(options?: { silent?: boolean }): Promise<boolean>
-  refreshSessionSilently(): Promise<void>
+  refreshSessionSilently(options?: { quiet?: boolean }): Promise<void>
   persistSessionCookies(): Promise<void>
   startSessionKeepAlive(): void
   stopSessionKeepAlive(): void

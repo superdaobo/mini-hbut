@@ -175,7 +175,7 @@ describe('fetchWithTimeout', () => {
 // —— fetchWithCache 维护模式分类 ——
 
 describe('fetchWithCache 维护模式分类', () => {
-  it('断网（TypeError: Failed to fetch）回退 stale 缓存，连续失败达到阈值才置位维护', async () => {
+  it('断网（TypeError: Failed to fetch）回退 stale 缓存；网络错误不置位教务维护（#587）', async () => {
     const { storage, api: storageApi } = installStorage()
     installWindow()
     const api = await importApi()
@@ -186,17 +186,18 @@ describe('fetchWithCache 维护模式分类', () => {
     expect(first.fromCache).toBe(true)
     expect(first.stale).toBe(true)
     expect(first.data.offline).toBe(true)
-    expect(readStorage(storageApi, MAINTENANCE_KEY)).toBeNull() // 第一次失败仅计数，不置位
-    expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBe('1')
+    // 网络错误 ≠ 学校维护：不累计维护失败、不置位维护横幅（缓存回退仍生效）
+    expect(readStorage(storageApi, MAINTENANCE_KEY)).toBeNull()
+    expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBeNull()
 
     const second = await api.fetchWithCache<TestCachePayload>('grades:1:2024', fetcher)
     expect(second.fromCache).toBe(true)
-    expect(readStorage(storageApi, MAINTENANCE_KEY)).toBe('1') // 第二次失败达到阈值，置位维护
-    expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBe('2')
+    expect(readStorage(storageApi, MAINTENANCE_KEY)).toBeNull()
+    expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBeNull()
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
-  it('超时错误回退 stale 缓存并累计失败计数', async () => {
+  it('超时错误回退 stale 缓存；网络错误不累计维护失败计数（#587）', async () => {
     const { storage, api: storageApi } = installStorage()
     installWindow()
     const api = await importApi()
@@ -210,7 +211,7 @@ describe('fetchWithCache 维护模式分类', () => {
     const result = await api.fetchWithCache<TestCachePayload>('schedule:1:2024', fetcher)
     expect(result.stale).toBe(true)
     expect(result.data.offline).toBe(true)
-    expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBe('1')
+    expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBeNull()
     expect(readStorage(storageApi, MAINTENANCE_KEY)).toBeNull()
   })
 
@@ -228,8 +229,8 @@ describe('fetchWithCache 维护模式分类', () => {
     await vi.advanceTimersByTimeAsync(100)
     await assertion
     expect(fetcher).toHaveBeenCalledTimes(1)
-    // 超时计入维护失败计数，但未达阈值不置位维护。
-    expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBe('1')
+    // 超时属网络错误（#587）：不累计维护失败计数、不置位维护。
+    expect(readStorage(storageApi, MAINTENANCE_FAIL_COUNT_KEY)).toBeNull()
     expect(readStorage(storageApi, MAINTENANCE_KEY)).toBeNull()
   })
 
