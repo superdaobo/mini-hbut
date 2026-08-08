@@ -1,0 +1,11 @@
+{
+  "name": "mini-hbut-website-app-demo",
+  "builtAt": "2026-08-08T15:42:00.803Z",
+  "demo": true,
+  "offline": true,
+  "data": "test_account_fixtures",
+  "designViewport": {
+    "width": 390,
+    "height": 844
+  }
+}
