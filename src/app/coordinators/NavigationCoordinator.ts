@@ -197,10 +197,34 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
   const restoreHomeScrollPosition = () => {
     const targetTop = readStoredHomeScrollTop()
     if (targetTop <= 0) return
+    // 恢复滚动期间隐藏视图，避免"先顶部后闪现底部"
+    state.homeScrollRestoring.value = true
     let tries = 0
     const maxTries = 24
+    let finished = false
+    const finishRestoring = () => {
+      if (finished) return
+      finished = true
+      state.homeScrollRestoring.value = false
+      cleanup()
+    }
+    // 用户主动滚动（滚轮/触摸）：立即取消恢复并解除隐藏，尊重用户意图，不再强制拽回
+    const onUserScrollInput = () => {
+      if (finished) return
+      finishRestoring()
+    }
+    const cleanup = () => {
+      window.removeEventListener('wheel', onUserScrollInput, { capture: true } as EventListenerOptions)
+      window.removeEventListener('touchstart', onUserScrollInput, { capture: true } as EventListenerOptions)
+    }
+    window.addEventListener('wheel', onUserScrollInput, { passive: true, capture: true })
+    window.addEventListener('touchstart', onUserScrollInput, { passive: true, capture: true })
     const applyScroll = () => {
-      if (state.currentView.value !== 'home') return
+      if (finished) return
+      if (state.currentView.value !== 'home') {
+        finishRestoring()
+        return
+      }
       try {
         if (state.appShellRef.value) {
           state.appShellRef.value.scrollTop = targetTop
@@ -211,9 +235,14 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       } catch {
         // ignore
       }
-      tries += 1
       const current = getAppShellScrollTop()
-      if (Math.abs(current - targetTop) > 4 && tries < maxTries) {
+      // 恢复到位才解除隐藏；未到位（内容未撑开被 clamp）继续重试
+      if (Math.abs(current - targetTop) <= 4) {
+        finishRestoring()
+        return
+      }
+      tries += 1
+      if (tries < maxTries) {
         requestAnimationFrame(applyScroll)
       }
     }
@@ -223,6 +252,8 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       ;[50, 120, 200, 320, 480, 700].forEach((ms) => {
         window.setTimeout(applyScroll, ms)
       })
+      // 兜底：最迟 900ms 后解除隐藏，避免异常时首页一直不可见
+      window.setTimeout(finishRestoring, 900)
     })
   }
 
@@ -347,6 +378,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     state.navDirection.value = direction || (push ? 'forward' : 'none')
     if (fromView === 'home' && normalized !== 'home') {
       rememberHomeScrollPosition()
+      state.homeScrollRestoring.value = false
     }
     const returningHome = normalized === 'home' && fromView !== 'home'
     const shouldRestoreHomeScroll =

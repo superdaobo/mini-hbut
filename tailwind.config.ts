@@ -51,7 +51,9 @@ const m3Colors = {
 
 export default {
   darkMode: ['class'],
-  content: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
+  // 注意：模板拆分后视图模板位于 src/templates/views/*.html（通过 <template src> 引用），
+  // 必须纳入扫描范围，否则其中的 Tailwind class 全部不会生成（曾导致首页快捷入口竖排、图标变黑、UI 错位）
+  content: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx,html}'],
   theme: {
     extend: {
       colors: {

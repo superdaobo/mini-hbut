@@ -358,7 +358,29 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     }
   }
 
-  const refreshSessionSilently = async () => {
+  // 会话刷新错误分类：网络类错误 ≠ 会话过期，避免误报「会话已过期」诱导用户反复登录
+  const classifySessionError = (err: unknown): 'network' | 'auth' | 'unknown' => {
+    const raw = String((err as Error)?.message || err || '').toLowerCase()
+    if (
+      /error sending request|timed? ?out|timeout|connection|connect |network|econnrefused|econnreset|dns |resolve|socket|eof|broken pipe/i.test(raw)
+    ) {
+      return 'network'
+    }
+    if (/login|401|403|unauthorized|session|expired|cookie|not logged/i.test(raw)) {
+      return 'auth'
+    }
+    return 'unknown'
+  }
+
+  // #587：网络/DNS 错误 ≠ 登录失败，提示文案区分，避免误导用户反复登录
+  const sessionFailureHint = (fallback: string): string => {
+    if (classifySessionError(state.jwxtSessionLastError.value) === 'network') {
+      return '网络异常，无法连接教务系统，稍后自动重试。'
+    }
+    return fallback
+  }
+
+  const refreshSessionSilently = async (options: { quiet?: boolean } = {}) => {
     if (isTestAccountSession()) return
     const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
     if (!cookies) return
@@ -378,6 +400,25 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         return
       }
       state.jwxtSessionLastError.value = formatSessionError(e)
+      const kind = classifySessionError(e)
+      if (kind === 'network') {
+        // 网络异常 ≠ 会话过期：静默记录，由 keep-alive 下轮重试，不弹「会话失效」横幅
+        console.warn('[Session] 会话刷新网络异常，稍后自动重试:', e)
+        return
+      }
+      if (options.quiet) {
+        // 登录成功后的首次探测：失败时静默后台恢复，不立即弹「会话失效」横幅（用户刚登录，勿误导）
+        console.warn('[Session] 登录后会话探测未通过，静默后台恢复:', e)
+        const relogged = await attemptAutoRelogin()
+        if (relogged) {
+          clearJwxtMaintenance()
+          startSessionKeepAlive()
+          startElectricityKeepAlive()
+          await persistSessionCookies()
+          notifySessionOnline('auto-relogin')
+        }
+        return
+      }
       console.warn('[Session] 会话刷新失败，尝试自动登录:', e)
       markJwxtMaintenance('会话失效，正在后台自动登录…', {
         phase: 'recovering',
@@ -386,7 +427,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       const relogged = await attemptAutoRelogin()
       if (!relogged) {
         stopSessionKeepAlive()
-        markJwxtMaintenance('后台自动登录未成功，将定时重试。当前为缓存数据。', {
+        markJwxtMaintenance(sessionFailureHint('后台自动登录未成功，将定时重试。当前为缓存数据。'), {
           phase: 'failed',
           detail: state.jwxtSessionLastError.value
         })
@@ -515,7 +556,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     state.mutable.jwxtRecoveryTimer = window.setInterval(() => {
       attemptOnlineRecovery({ silent: true }).then((ok) => {
         if (ok) return
-        markJwxtMaintenance('后台自动登录仍未成功，将继续重试。', {
+        markJwxtMaintenance(sessionFailureHint('后台自动登录仍未成功，将继续重试。'), {
           phase: 'failed',
           detail: state.jwxtSessionLastError.value || '恢复失败'
         })
@@ -676,7 +717,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
             detail: state.jwxtSessionLastError.value || '无可用记住密码'
           })
         } else {
-          markJwxtMaintenance('自动登录未成功，将继续在后台重试。当前展示缓存数据。', {
+          markJwxtMaintenance(sessionFailureHint('自动登录未成功，将继续在后台重试。当前展示缓存数据。'), {
             phase: 'failed',
             detail: state.jwxtSessionLastError.value || '恢复失败'
           })

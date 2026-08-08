@@ -119,7 +119,8 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     // 避免用户重新登录后仍长期停留在「会话已过期」状态。
     if (!isTestAccountSession() && hasTauri) {
       window.setTimeout(() => {
-        void runtime.session.refreshSessionSilently()
+        // 登录成功后探测静默：失败不立即弹「会话失效」横幅，仅后台恢复（#586 Bug2）
+        void runtime.session.refreshSessionSilently({ quiet: true })
       }, 2500)
     }
     runtime.lifecycle.recoverViewportAfterTransition()

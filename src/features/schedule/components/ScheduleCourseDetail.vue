@@ -93,6 +93,7 @@ const emit = defineEmits([
   </Transition>
 </template>
 
+<style src="../styles/modal.css" scoped></style>
 <style scoped>
 .modal-body {
   display: grid;

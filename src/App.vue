@@ -67,7 +67,8 @@ const {
   isConfigAdmin,
   aiModelOptions,
   showTabBar,
-  showHomeLayoutDebug
+  showHomeLayoutDebug,
+  homeScrollRestoring
 } = state
 
 const {
@@ -185,7 +186,11 @@ const {
       :enter-from-class="viewTransitionEnterFrom"
       :leave-to-class="viewTransitionLeaveTo"
     >
-      <div :key="`${currentView}:${viewRenderNonce}`" class="view-transition-root">
+      <div
+        :key="`${currentView}:${viewRenderNonce}`"
+        class="view-transition-root"
+        :class="{ 'home-scroll-restoring': homeScrollRestoring }"
+      >
       <!-- 首页 -->
       <Dashboard 
         v-if="currentView === 'home'"

@@ -72,19 +72,20 @@ const emit = defineEmits(['jump-current'])
 }
 
 .jump-current-btn {
+  /* 恢复拆分前样式：页面右侧垂直居中、蓝色半透明背景（拆分时被误改为底部黑底） */
   position: fixed;
-  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 18px;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 10px 12px;
+  border-radius: 14px;
   border: none;
-  border-radius: 9999px;
-  background: #111827;
-  color: #ffffff;
-  font-size: 13px;
+  background: rgba(59, 130, 246, 0.85);
+  color: white;
   font-weight: 600;
+  font-size: 12px;
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.3);
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.28);
-  z-index: 30;
+  z-index: 12;
 }
 </style>

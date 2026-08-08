@@ -65,6 +65,12 @@
   min-height: 100%;
 }
 
+/* 返回首页恢复滚动期间隐藏视图，避免"先顶部后闪现底部" */
+.view-transition-root.home-scroll-restoring {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 视图切换动效（iOS 风格方向感知）：
    - 前进（push）：内容从下方滑入，离开时轻微上移淡出
    - 返回（back）：内容从上方滑入，离开时轻微下移淡出
