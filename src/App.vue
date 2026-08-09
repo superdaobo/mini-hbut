@@ -29,12 +29,10 @@ const {
   showSplash,
   splashStatus,
   splashStatusText,
-  splashRef,
   viewRenderNonce,
   widgetDeeplinkDate,
   widgetDeeplinkPeriod,
   moduleHostSession,
-  appShellRef,
   loginMode,
   showLoginPrompt,
   showExitDialog,
@@ -160,7 +158,6 @@ const {
   <!-- 启动画面 -->
   <SplashScreen
     v-if="showSplash"
-    ref="splashRef"
     :status="splashStatus"
     :status-text="splashStatusText"
     @dismiss="handleSplashDismissed"
@@ -175,7 +172,6 @@ const {
       'module-host-full': currentView === 'more_module_host',
       'ios-safe': isIOSLike
     }"
-    ref="appShellRef"
   >
     <DemoModeBanner v-if="isLoggedIn && isTestAccountSession()" />
     <Transition
