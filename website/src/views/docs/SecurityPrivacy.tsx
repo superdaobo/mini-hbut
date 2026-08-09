@@ -81,10 +81,10 @@ const sqliteTables = [
 ];
 
 const cloudRemoteItems = [
-    'src/utils/cloud_sync.runtime.js 会用 student_id、device_id、reason、payload、secret_ref 发起云同步请求，并通过 /ping 获取 challenge 后在后续请求加入 x-cloud-sync-challenge。',
+    'src/utils/cloud_sync.ts 会用 student_id、device_id、reason、payload、secret_ref 发起云同步请求，并通过 /ping 获取 challenge 后在后续请求加入 x-cloud-sync-challenge。',
     '云同步 payload 可包含 hbu_app_settings_v1、hbu_ui_settings_v2、hbu_font_settings_v1、登录入口模式、登录方法、hbu_remember、自定义课程、成绩、排名、个人信息、课表和课表元信息。',
     '当前审计未发现云同步上传密码、Cookie、user_sessions.encrypted_password 或论坛 token 的路径，但会上传足以识别学生和学业状态的数据。',
-    'src/utils/remote_config.runtime.js 会从 GitCode raw、代理 URL 或 /remote_config.json 加载配置；失败后可回退 hbu_remote_config_snapshot 和 DEFAULT_CONFIG。',
+    'src/utils/remote_config.ts 会从 GitCode raw、代理 URL 或 /remote_config.json 加载配置；失败后可回退 hbu_remote_config_snapshot 和 DEFAULT_CONFIG。',
     '远程配置可控制 OCR 端点、forum endpoint、cloud sync endpoint、module center CDN、资源分享 WebDAV、AI models、config_admin_ids。它是运行时信任边界，不只是 UI 配置。',
     'OCR 会把验证码图片或 base64 数据发给配置端点；默认配置中存在 HTTPS 远程 OCR 和 HTTP fallback，HTTP 明文链路不能按强隐私传输描述。',
 ];
@@ -164,7 +164,7 @@ const sourceEvidence = [
     '会话证据：src-tauri/src/http_client/session.rs 的 get_cookies、get_cookie_snapshot、restore_session、restore_cookie_snapshot、clear_session、save_cookie_snapshot_to_file、load_cookie_snapshot_from_file。',
     '数据库证据：src-tauri/src/db.rs 的 user_sessions、encrypted_password、one_code_token、electricity_refresh_token、online_learning_platform_state、cookie_blob、chaoxing_checkin_log、grades_cache、schedule_cache。',
     '前端存储证据：src/App.vue 和 LoginV3.vue 的 hbu_username、hbu_remember；src/utils/api.ts 的 cache:*；src/utils/forum_api.js 的 hbu_forum_token；src/utils/ui_settings.ts 的 customCss、customJs、scriptEl.textContent。',
-    '云同步和远程配置证据：src/utils/cloud_sync.runtime.js 的 hbu_cloud_sync_device_id、hbu_cloud_sync_status、x-cloud-sync-challenge、buildSyncPayload；src/utils/remote_config.runtime.js 的 hbu_remote_config_snapshot、config_admin_ids。',
+    '云同步和远程配置证据：src/utils/cloud_sync.ts 的 hbu_cloud_sync_device_id、hbu_cloud_sync_status、x-cloud-sync-challenge、buildSyncPayload；src/utils/remote_config.ts 的 hbu_remote_config_snapshot、config_admin_ids。',
     '权限证据：src-tauri/capabilities/main.json 的 notification:allow-request-permission、shell:default、window-state:default；src-tauri/tauri.conf.json 的 security.csp 和 csp: null。',
     '远程内容证据：src-tauri/src/modules/module_bundle.rs 的 package_sha256、sha256_hex、enclosed_name、output_path.starts_with；src/utils/more_modules.js 的 package_sha256 缓存和本地包状态。',
     '调试与热更新证据：src-tauri/src/debug_bridge.rs 的 enable_bridge_tools；src/utils/debug_bridge_client.js 的 Authorization 和 x-local-token；src/utils/hot_update_core.js 的 verifyHotBundleSignature、sha256、signature。',

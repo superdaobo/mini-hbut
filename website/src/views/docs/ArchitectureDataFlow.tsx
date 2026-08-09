@@ -21,9 +21,9 @@ const requestEntries = [
     },
     {
         title: '远程配置和静态资源链路',
-        source: 'src/utils/remote_config.runtime.js / src/utils/static_resource_cache.js',
+        source: 'src/utils/remote_config.ts / src/utils/static_resource_cache.js',
         items: [
-            'src/utils/remote_config.runtime.js 维护 CONFIG_URLS、DEFAULT_CONFIG、hbu_remote_config_snapshot，并通过 fetchByInvoke、fetchByCapacitor、fetchByWeb 多源拉取远程配置。',
+            'src/utils/remote_config.ts 维护 CONFIG_URLS、DEFAULT_CONFIG、hbu_remote_config_snapshot，并通过 fetchByInvoke、fetchByCapacitor、fetchByWeb 多源拉取远程配置。',
             'normalizeRemoteConfig 会归一 OCR、WebDAV、forum、cloud_sync、module_center、ai_models、config_admin_ids 等配置字段，并持久化 OCR 端点到独立 localStorage key。',
             'src/utils/static_resource_cache.js 使用 static_resource:dormitory_data 缓存宿舍数据，优先 invokeNative(fetch_remote_json)，失败后走浏览器 fetch、多源 URL 和缓存兜底。',
         ],
@@ -63,28 +63,28 @@ const cacheLayers = [
 const remoteFlows = [
     {
         title: '远程配置快照',
-        source: 'src/utils/remote_config.runtime.js',
+        source: 'src/utils/remote_config.ts',
         desc: 'loadRemoteConfig 会优先复用短期内存缓存，拉取失败时读取 hbu_remote_config_snapshot，再失败才回到 DEFAULT_CONFIG。配置会影响 OCR、论坛、资料分享、模块中心、云同步、AI 和管理员入口。',
     },
     {
         title: '云同步',
-        source: 'src/utils/cloud_sync.runtime.js',
-        desc: 'src/utils/cloud_sync.runtime.js 从 app settings、远程配置和本地 override 合成运行参数。requestCloudSync 会通过 /ping 获取 challenge，并在后续请求中加入 x-cloud-sync-challenge；上传和下载都有 cooldown，失败会记录 hbu_cloud_sync_status:* 并继续向上抛错。',
+        source: 'src/utils/cloud_sync.ts',
+        desc: 'src/utils/cloud_sync.ts 从 app settings、远程配置和本地 override 合成运行参数。requestCloudSync 会通过 /ping 获取 challenge，并在后续请求中加入 x-cloud-sync-challenge；上传和下载都有 cooldown，失败会记录 hbu_cloud_sync_status:* 并继续向上抛错。',
     },
     {
         title: '同步负载和应用',
-        source: 'src/utils/cloud_sync.runtime.js',
+        source: 'src/utils/cloud_sync.ts',
         desc: 'buildSyncPayload 从 localStorage 缓存、设置、自定义课程和学业数据构造上传包；runCloudSyncDownload 会调用 applySettingsFromCloud、replaceCustomCourses、applyAcademicFromCloud，把云端设置和课程数据写回本地。',
     },
     {
         title: '登录后自动同步',
-        source: 'src/utils/cloud_sync.runtime.js',
+        source: 'src/utils/cloud_sync.ts',
         desc: 'runAutoCloudSyncAfterLogin 以下载优先，然后用 primeAcademicCaches 补齐学业缓存并尝试上传。它不是实时双向同步，而是受触发时机、远程配置、账号格式、网络和 cooldown 共同限制的同步流程。',
     },
 ];
 
 const notificationFlows = [
-    'src/utils/notify_center.runtime.js 的 runNotificationCheck 会并发执行课表、成绩、考试、电费检查，再调用 sendQueuedNotifications 发送本地通知。',
+    'src/utils/notify_center.ts 的 runNotificationCheck 会并发执行课表、成绩、考试、电费检查，再调用 sendQueuedNotifications 发送本地通知。',
     '通知中心通过 syncBackgroundFetchContext 把学号、API base、通知开关、提前分钟数和周期写给 src/utils/background_fetch.ts，移动端后台任务再回调同一套检查逻辑。',
     'hbu_notify_snapshot:* 保存上次通知快照；后台检查关闭或失败时，getStoredSnapshot 可作为 fallbackSnapshot 返回给页面。',
     'src/utils/widget_bridge.ts 从课表缓存和自定义课程构建 Widget 数据，writeElectricityToWidget 和 writeExamToWidget 由通知检查结果驱动。',
@@ -134,10 +134,10 @@ const sourceEvidence = [
     '前端请求入口：src/utils/axios_adapter.ts 的 adapter.get、adapter.post、mockResponse、mockError、bridgePost、bridgeGet。',
     '前端缓存证据：src/utils/api.ts 的 fetchWithCache、getCachedData、setCachedData、withOfflineMeta、isQuotaExceededError、looksLikeMaintenanceIssue、setMaintenanceFlag、hbu_jwxt_maintenance。',
     '辅助服务证据：src/utils/api.ts 的 serverOcrRecognize、syncDataToServer、fetchDataFromServer。',
-    '远程配置证据：src/utils/remote_config.runtime.js 的 hbu_remote_config_snapshot、normalizeRemoteConfig、fetchByInvoke、fetchByCapacitor、fetchByWeb、applyOcrRuntimeConfig、cloud_sync。',
-    '云同步证据：src/utils/cloud_sync.runtime.js 的 getCloudSyncRuntimeConfig、requestCloudSync、x-cloud-sync-challenge、buildSyncPayload、runCloudSyncUpload、runCloudSyncDownload、runAutoCloudSyncAfterLogin、cooldown。',
+    '远程配置证据：src/utils/remote_config.ts 的 hbu_remote_config_snapshot、normalizeRemoteConfig、fetchByInvoke、fetchByCapacitor、fetchByWeb、applyOcrRuntimeConfig、cloud_sync。',
+    '云同步证据：src/utils/cloud_sync.ts 的 getCloudSyncRuntimeConfig、requestCloudSync、x-cloud-sync-challenge、buildSyncPayload、runCloudSyncUpload、runCloudSyncDownload、runAutoCloudSyncAfterLogin、cooldown。',
     '静态资源证据：src/utils/static_resource_cache.js 的 fetchDormitoryDataset、static_resource:dormitory_data、fetchJsonNoStore、withOfflineMeta。',
-    '论坛和通知证据：src/utils/forum_api.js 的 hbu_forum_token、parseJsonResponse、request；src/utils/notify_center.runtime.js 的 runNotificationCheck、sendQueuedNotifications、syncBackgroundFetchContext。',
+    '论坛和通知证据：src/utils/forum_api.js 的 hbu_forum_token、parseJsonResponse、request；src/utils/notify_center.ts 的 runNotificationCheck、sendQueuedNotifications、syncBackgroundFetchContext。',
     'Widget 证据：src/utils/background_fetch.ts、src/utils/widget_bridge.ts、src/utils/widget_snapshot.ts。',
     'Rust HTTP 证据：src-tauri/src/http_client/mod.rs 的 HbutClient、Cookie Jar、encrypt_password_aes、academic_base_url、login_cooldown_remaining。',
     'Rust 会话证据：src-tauri/src/http_client/session.rs 的 restore_session、refresh_session、get_cookie_snapshot、restore_cookie_snapshot、clear_session。',
