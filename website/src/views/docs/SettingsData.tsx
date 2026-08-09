@@ -35,7 +35,7 @@ const settingsModules = [
     {
         title: '云同步',
         entry: '我的 -> 设置中心 -> 后端与云同步区域。',
-        source: 'src/components/SettingsView.vue、src/utils/cloud_sync.ts、src/utils/remote_config.ts',
+        source: 'src/components/SettingsView.vue、src/utils/cloud_sync.runtime.js、src/utils/remote_config.runtime.js',
         usage: [
             '云同步用于上传和下载本地设置、教务数据摘要、自定义课程等数据，页面会展示最近上传成功/失败、最近下载成功/失败和更新时间。',
             '云同步运行参数来自远程配置或本地后端设置，包括 endpoint、secret_ref、上传冷却和下载冷却。',
@@ -81,7 +81,7 @@ const settingsModules = [
     {
         title: '官方帖子与配置工具',
         entry: '我的 -> 官方帖子；我的 -> 配置工具（管理员可见）。',
-        source: 'src/components/OfficialView.vue、src/components/ConfigEditor.vue、src/utils/remote_config.ts',
+        source: 'src/components/OfficialView.vue、src/components/ConfigEditor.vue、src/utils/remote_config.runtime.js',
         usage: [
             '官方帖子以内嵌腾讯文档展示，也支持复制链接或外部浏览器打开。',
             '配置工具用于管理员查看和编辑远程配置 JSON 的本地草稿，覆盖公告、强制更新、OCR、上传、资料分享、云同步等字段。',
@@ -98,7 +98,7 @@ const settingsModules = [
 const sourceEvidence = [
     '我的页入口：src/components/MeView.vue 暴露个人信息、设置中心、导出中心、配置工具、官方帖子、意见反馈、隐私政策和退出登录。',
     '设置持久化：src/utils/app_settings.ts 保存 hbu_app_settings_v1，src/utils/ui_settings.ts 保存 hbu_ui_settings_v2，src/utils/font_settings.ts 管理字体缓存。',
-    '云同步：src/utils/cloud_sync.ts 上传/下载 settings、academic、custom courses 等指定快照，src/utils/remote_config.ts 提供 endpoint 和 secret_ref 配置。',
+    '云同步：src/utils/cloud_sync.runtime.js 上传/下载 settings、academic、custom courses 等指定快照，src/utils/remote_config.runtime.js 提供 endpoint 和 secret_ref 配置。',
     '导出中心：src/components/ExportCenterView.vue 直接组织导出模块、学期列表、交易记录月份、缓存导出、JSON 和长图片导出。',
     '反馈和官方入口：src/components/FeedbackView.vue 与 OfficialView.vue 都是外部腾讯文档入口，失败时提供复制链接兜底。',
 ];

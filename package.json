@@ -69,7 +69,7 @@
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@transistorsoft/capacitor-background-fetch": "^6.0.2",
-    "@vueuse/core": "^14.4.0",
+    "@vueuse/core": "^14.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.12",
@@ -84,7 +84,7 @@
     "reka-ui": "2.10.1",
     "tailwind-merge": "^3.6.0",
     "tauri-plugin-keep-screen-on-api": "^0.1.4",
-    "vue": "^3.5.39",
+    "vue": "^3.5.41",
     "vue-router": "^4.2.5",
     "vue-sonner": "^2.0.9"
   },
