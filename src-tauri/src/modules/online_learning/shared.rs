@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use base64::Engine;
 use chrono::{Local, Utc};
+#[cfg(feature = "mobile-full")]
 use qrcode::QrCode;
 use reqwest::cookie::CookieStore;
 use reqwest::cookie::Jar;
@@ -32,7 +33,8 @@ pub(crate) const YUKETANG_WEB_URL: &str = "https://changjiang.yuketang.cn/web";
 pub(crate) const YUKETANG_AUTHORIZE_URL: &str =
     "https://changjiang.yuketang.cn/authorize/wx-qrlogin";
 
-/// 将登录 URL 转换为 base64 编码的 SVG 二维码 data URI
+/// 将登录 URL 转换为 base64 编码的 SVG 二维码 data URI（Yuketang QR 登录专用，#594 mobile-full）
+#[cfg(feature = "mobile-full")]
 pub(crate) fn generate_qr_data_uri(url: &str) -> Result<String, DynError> {
     let code =
         QrCode::new(url.as_bytes()).map_err(|e| err_box(format!("生成二维码失败: {}", e)))?;

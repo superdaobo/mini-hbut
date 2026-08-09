@@ -35,6 +35,10 @@ env:
   MINI_HBUT_BUILD_PROFILE: release
   # App Store / TestFlight 合规编译开关：仅本 workflow 注入。dev-build/release/本地默认 build 不设置。
   VITE_APP_STORE_BUILD: "1"
+  # 移动端发布构建排除产品隐藏视图（#591）：iOS TestFlight 同样生效
+  VITE_EXCLUDE_HIDDEN_VIEWS: "1"
+  # Rust 移动端发布构建边界（#594/#595）：裁刷课/自动化（mobile-slim）、保留 Bridge（xcodebuild 直调 cargo，用 CARGO_BUILD_FEATURES 注入）
+  CARGO_BUILD_FEATURES: "mobile-slim,bridge"
   # App Store Connect → App 信息 → Apple ID（公开数字 id，非密钥）
   VITE_APPLE_APP_ID: "6787857278"
   npm_config_audit: "false"
@@ -220,6 +224,8 @@ jobs:
           delete conf.build.beforeDevCommand;
           conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
+          // 移动端发布构建能力边界（#594/#595）：iOS = mobile-slim + bridge（裁刷课/自动化，保留 Bridge）
+          conf.build.features = ['mobile-slim', 'bridge'];
           if (versionName) {
             conf.version = versionName;
           }

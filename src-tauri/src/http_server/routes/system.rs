@@ -455,12 +455,15 @@ async fn fetch_library_dict(
     State(state): State<HttpState>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let mut client = state.client.write().await;
-    client
-        .fetch_library_dict()
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+    // 图书馆业务统一走 AcademicReadService（缓存降级语义与 Tauri 端一致），本 handler 只做传输适配。
+    crate::application::AcademicReadService::new(crate::application::ApplicationContext::new(
+        state.client,
+        crate::DB_FILENAME,
+    ))
+    .fetch_library_dict()
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 // ────────────────────────────────────────────────────────────
@@ -469,12 +472,14 @@ async fn search_library_books(
     Json(req): Json<LibrarySearchRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let mut client = state.client.write().await;
-    client
-        .search_library_books(req.params)
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+    crate::application::AcademicReadService::new(crate::application::ApplicationContext::new(
+        state.client,
+        crate::DB_FILENAME,
+    ))
+    .search_library_books(req.params)
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 // ────────────────────────────────────────────────────────────
@@ -483,12 +488,14 @@ async fn fetch_library_book_detail(
     Json(req): Json<LibraryDetailRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let mut client = state.client.write().await;
-    client
-        .fetch_library_book_detail(&req.title, &req.isbn, req.record_id)
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+    crate::application::AcademicReadService::new(crate::application::ApplicationContext::new(
+        state.client,
+        crate::DB_FILENAME,
+    ))
+    .fetch_library_book_detail(req.title.clone(), req.isbn.clone(), req.record_id)
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 // ────────────────────────────────────────────────────────────

@@ -1,15 +1,15 @@
 //! 课表领域 Tauri commands：同步、本地读取、自定义课程、ICS 导出。
 
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Datelike, Utc};
+use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;
 
 use crate::app_state::AppState;
+use crate::application;
 use crate::db;
-use crate::transport::tauri::common::attach_sync_time;
 use crate::transport::tauri::config::get_temp_upload_endpoint_config;
 use crate::utils::ics::{
     escape_ics_text, fold_ics_line, parse_ics_datetime, sanitize_filename_part,
@@ -96,158 +96,19 @@ pub struct UpdateCustomScheduleCourseRequest {
 }
 
 #[tauri::command]
-#[allow(unreachable_code)]
 pub(crate) async fn sync_schedule(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.write().await;
-    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
-    let requested_semester = semester
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let explicit_semester = requested_semester.is_some();
-    let schedule_context = client
-        .resolve_schedule_context(requested_semester.as_deref())
-        .await;
-    let semester_to_query = schedule_context
-        .get("semester")
-        .and_then(|v| v.as_str())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .or_else(|| requested_semester.clone())
-        .unwrap_or_else(|| "2024-2025-1".to_string());
-
-    let result = match client
-        .fetch_schedule(Some(semester_to_query.as_str()))
-        .await
-    {
-        Ok((course_list, _now_week)) => {
-            let mut meta = schedule_context;
-            if let Some(map) = meta.as_object_mut() {
-                map.insert("semester".to_string(), serde_json::json!(semester_to_query));
-                map.insert(
-                    "total_courses".to_string(),
-                    serde_json::json!(course_list.len()),
-                );
-                map.insert(
-                    "query_time".to_string(),
-                    serde_json::json!(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
-                );
-            }
-            let payload = serde_json::json!({
-                "success": true,
-                "data": course_list,
-                "meta": meta,
-                "sync_time": chrono::Local::now().to_rfc3339(),
-                "offline": false
-            });
-            if let Some(uid) = &uid {
-                let _ = db::save_cache(DB_FILENAME, "schedule_cache", uid, &payload);
-            }
-            payload
-        }
-        Err(e) => {
-            let msg = e.to_string();
-            if crate::http_client::HbutClient::is_no_schedule_error_message(&msg) {
-                return Err("暂无可用课表".to_string());
-            }
-            if explicit_semester {
-                return Err(msg);
-            }
-            if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) =
-                    db::get_cache(DB_FILENAME, "schedule_cache", uid)
-                {
-                    return Ok(attach_sync_time(cached_data, &sync_time, true));
-                }
-            }
-            return Err(msg);
-        }
-    };
-    return Ok(result);
-
-    // 获取当前︽（基于日期计算）
-    let semester = match requested_semester {
-        Some(s) => s,
-        None => client
-            .get_current_semester()
-            .await
-            .unwrap_or_else(|_| "2024-2025-1".to_string()),
-    };
-
-    // 获取″数据计算当前ㄦ和开始日?
-    let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;
-    let (current_week, start_date) = if let Ok(ref cal) = calendar_data {
-        let meta = cal.get("meta");
-        let week = meta
-            .and_then(|m| m.get("current_week"))
-            .and_then(|v| v.as_i64())
-            .unwrap_or(1) as i32;
-        let start = meta
-            .and_then(|m| m.get("start_date"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        (week, start)
-    } else {
-        (1, String::new())
-    };
-
-    match client.fetch_schedule(Some(semester.as_str())).await {
-        Ok((course_list, _now_week)) => {
-            // Keep response shape consistent with Python backend.
-            let result = serde_json::json!({
-                "success": true,
-                "data": course_list,
-                "meta": {
-                    "semester": semester,
-                    "current_week": current_week,
-                    "current_weekday": chrono::Local::now().weekday().num_days_from_monday() as i32 + 1,
-                    "start_date": start_date,
-                    "total_courses": course_list.len(),
-                    "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
-                },
-                "sync_time": chrono::Local::now().to_rfc3339(),
-                "offline": false
-            });
-
-            if let Some(uid) = &uid {
-                let _ = db::save_cache(DB_FILENAME, "schedule_cache", uid, &result);
-            }
-
-            Ok(result)
-        }
-        Err(e) => {
-            let msg = e.to_string();
-            if explicit_semester {
-                let lower = msg.to_lowercase();
-                if msg.contains("该学期无课表")
-                    || msg.contains("无课表")
-                    || msg.contains("ret=-1")
-                    || lower.contains("unknown schedule")
-                    || lower.contains("no schedule")
-                {
-                    return Err("该学期无课表，请切换学期".to_string());
-                }
-                if msg.contains("课表 API 返回错误")
-                    || msg.contains("课表数据格式不正确")
-                    || msg.contains("ret=-1")
-                {
-                    return Err("该学期无课表，请切换学期".to_string());
-                }
-                return Err(msg);
-            }
-            if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) =
-                    db::get_cache(DB_FILENAME, "schedule_cache", uid)
-                {
-                    return Ok(attach_sync_time(cached_data, &sync_time, true));
-                }
-            }
-            Err(msg)
-        }
-    }
+    // 统一课表同步用例：Tauri 与 HTTP Bridge 走同一 ScheduleService
+    // （学期解析 → 抓取 → 成功写缓存 → 失败保留 offline 快照），本 handler 只做传输适配。
+    application::ScheduleService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ))
+    .sync_schedule(semester)
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

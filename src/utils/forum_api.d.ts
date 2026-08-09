@@ -15,32 +15,49 @@ export interface ForumThreadResponse {
   [key: string]: unknown
 }
 
+/**
+ * 论坛 API 客户端类型：与 utils/forum_api.js 中 createForumApiClient 返回对象逐一对齐。
+ * 所有 request() 返回响应体 Record；items/thread 等字段由调用方用 Array.isArray/类型守卫收窄。
+ */
 export interface ForumApiClient {
-  createThread(options?: Record<string, unknown>): Promise<ForumThreadResponse>
-  listThreads(options?: Record<string, unknown>, meta?: Record<string, unknown>): Promise<Record<string, unknown>>
-  checkIn(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  searchThreads(options?: Record<string, unknown>, meta?: Record<string, unknown>): Promise<Record<string, unknown>>
+  getToken(): string
+  listCategories(params?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  createCategory(payload: Record<string, unknown>): Promise<Record<string, unknown>>
+  listThreads(params?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listHotThreads(limit?: number, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  searchThreads(params?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  getThread(threadId: string | number, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  // 兼容「列表式」({ items }) 与「单帖式」({ id, title }) 两种响应形态（forum_api.spec.ts 契约断言 items）
+  createThread(payload: Record<string, unknown>): Promise<ForumThreadResponse>
+  createReply(threadId: string | number, payload: Record<string, unknown>): Promise<Record<string, unknown>>
+  reactToPost(postId: string | number, reaction: unknown): Promise<Record<string, unknown>>
+  bookmarkThread(threadId: string | number, active?: boolean): Promise<Record<string, unknown>>
+  listPolls(params?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  createPoll(payload: Record<string, unknown>): Promise<Record<string, unknown>>
+  votePoll(pollId: string | number, optionId: string | number): Promise<Record<string, unknown>>
+  closePoll(pollId: string | number): Promise<Record<string, unknown>>
   getMeSummary(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  listMyThreads(options?: Record<string, unknown>, meta?: Record<string, unknown>): Promise<Record<string, unknown>>
-  listMyReplies(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  listMyBookmarks(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  listNotifications(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  listMessages(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  getUserProfile(studentId: string): Promise<Record<string, unknown>>
-  listAdminReports(options?: number | Record<string, unknown>): Promise<Record<string, unknown>>
-  listAdminUsers(query?: string | Record<string, unknown>): Promise<Record<string, unknown>>
-  listAdminBackups(limit?: number | Record<string, unknown>): Promise<Record<string, unknown>>
+  listMyThreads(params?: Record<string, unknown> | number, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listMyReplies(params?: Record<string, unknown> | number, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listMyBookmarks(params?: Record<string, unknown> | number, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  getUserProfile(studentId: string, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  followUser(targetStudentId: string, active?: boolean): Promise<Record<string, unknown>>
+  reportContent(payload: Record<string, unknown>): Promise<Record<string, unknown>>
+  listNotifications(params?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listMessages(params?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  sendMessage(payload: Record<string, unknown>): Promise<Record<string, unknown>>
+  checkIn(options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listBadges(options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listBackups(params?: Record<string, unknown> | number, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listAdminReports(params?: Record<string, unknown> | number, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listAdminUsers(params?: Record<string, unknown> | string, options?: Record<string, unknown>): Promise<Record<string, unknown>>
+  listAdminBackups(params?: Record<string, unknown> | number, options?: Record<string, unknown>): Promise<Record<string, unknown>>
   runBackup(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  setUserBan(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  grantBadge(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  listPolls(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  createPoll(options?: Record<string, unknown>): Promise<Record<string, unknown>>
-  votePoll(pollId: number, optionId: number): Promise<Record<string, unknown>>
-  closePoll(pollId: number): Promise<Record<string, unknown>>
-  listBackups(options?: Record<string, unknown>, meta?: Record<string, unknown>): Promise<Record<string, unknown>>
-  listCategories(options?: Record<string, unknown>, meta?: Record<string, unknown>): Promise<Record<string, unknown>>
+  setUserBan(payload: Record<string, unknown>): Promise<Record<string, unknown>>
+  grantBadge(payload: Record<string, unknown>): Promise<Record<string, unknown>>
+  getAttachmentUrl(attachmentIdOrUrl: string): string
+  uploadAttachment(file: File): Promise<Record<string, unknown>>
   scoreThread?: unknown
-  getAttachmentUrl(url: string): string
 }
 
 export function normalizeForumEndpoint(value: unknown): string

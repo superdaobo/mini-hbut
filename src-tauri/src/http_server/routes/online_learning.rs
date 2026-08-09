@@ -10,8 +10,11 @@ use crate::http_server::response::{err, ok, ApiResponse};
 use crate::http_server::state::HttpState;
 use crate::{
     ChaoxingCourseOutlineRequest, ChaoxingCourseProgressRequest, ChaoxingCoursesRequest,
-    ChaoxingKnowledgeCardsRequest, ChaoxingLaunchUrlRequest, ChaoxingReportProgressRequest,
-    ChaoxingSessionStatusRequest, ChaoxingVideoStatusRequest, OnlineLearningClearCacheRequest,
+    ChaoxingKnowledgeCardsRequest, ChaoxingSessionStatusRequest, ChaoxingVideoStatusRequest,
+};
+#[cfg(feature = "mobile-full")]
+use crate::{
+    ChaoxingLaunchUrlRequest, ChaoxingReportProgressRequest, OnlineLearningClearCacheRequest,
     OnlineLearningOverviewRequest, OnlineLearningSyncRequest, OnlineLearningSyncRunsRequest,
     YuketangCourseChaptersRequest, YuketangCourseOutlineRequest, YuketangCourseProgressRequest,
     YuketangCoursesRequest, YuketangHeartbeatRequest, YuketangLeafInfoRequest,
@@ -19,6 +22,7 @@ use crate::{
 };
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn fetch_online_learning_overview(
     State(state): State<HttpState>,
     Json(req): Json<OnlineLearningOverviewRequest>,
@@ -35,6 +39,7 @@ async fn fetch_online_learning_overview(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn online_learning_sync_now(
     State(state): State<HttpState>,
     Json(req): Json<OnlineLearningSyncRequest>,
@@ -53,6 +58,7 @@ async fn online_learning_sync_now(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn online_learning_list_sync_runs(
     State(state): State<HttpState>,
     Json(req): Json<OnlineLearningSyncRunsRequest>,
@@ -88,6 +94,7 @@ async fn online_learning_list_sync_runs(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn online_learning_clear_cache(
     State(state): State<HttpState>,
     Json(req): Json<OnlineLearningClearCacheRequest>,
@@ -181,6 +188,7 @@ async fn chaoxing_fetch_course_progress(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn chaoxing_get_launch_url(
     Json(req): Json<ChaoxingLaunchUrlRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
@@ -191,6 +199,7 @@ async fn chaoxing_get_launch_url(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn yuketang_create_qr_login(
     State(state): State<HttpState>,
     Json(req): Json<YuketangQrCreateRequest>,
@@ -204,6 +213,7 @@ async fn yuketang_create_qr_login(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn yuketang_poll_qr_login(
     State(state): State<HttpState>,
     Json(req): Json<YuketangPollQrLoginRequest>,
@@ -217,6 +227,7 @@ async fn yuketang_poll_qr_login(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn yuketang_fetch_courses(
     State(state): State<HttpState>,
     Json(req): Json<YuketangCoursesRequest>,
@@ -234,6 +245,7 @@ async fn yuketang_fetch_courses(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn yuketang_fetch_course_outline(
     State(state): State<HttpState>,
     Json(req): Json<YuketangCourseOutlineRequest>,
@@ -247,6 +259,7 @@ async fn yuketang_fetch_course_outline(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn yuketang_fetch_course_progress(
     State(state): State<HttpState>,
     Json(req): Json<YuketangCourseProgressRequest>,
@@ -310,6 +323,7 @@ async fn chaoxing_fetch_course_score(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn chaoxing_report_progress(
     State(state): State<HttpState>,
     Json(req): Json<ChaoxingReportProgressRequest>,
@@ -338,6 +352,7 @@ async fn chaoxing_report_progress(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn yuketang_get_course_chapters(
     State(state): State<HttpState>,
     Json(req): Json<YuketangCourseChaptersRequest>,
@@ -355,6 +370,7 @@ async fn yuketang_get_course_chapters(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn yuketang_get_leaf_info(
     State(state): State<HttpState>,
     Json(req): Json<YuketangLeafInfoRequest>,
@@ -372,6 +388,7 @@ async fn yuketang_get_leaf_info(
 }
 
 // ────────────────────────────────────────────────────────────
+#[cfg(feature = "mobile-full")]
 async fn yuketang_send_heartbeat(
     State(state): State<HttpState>,
     Json(req): Json<YuketangHeartbeatRequest>,
@@ -391,24 +408,8 @@ async fn yuketang_send_heartbeat(
 // GENERATED DOMAIN ROUTERS — 路由协议由原始 method+path 清单生成。
 
 pub(crate) fn router() -> Router<HttpState> {
-    Router::new()
-        .route(
-            "/online_learning/overview",
-            post(fetch_online_learning_overview),
-        )
-        .route("/online_learning/sync_now", post(online_learning_sync_now))
-        .route(
-            "/online_learning/sync_runs",
-            post(online_learning_list_sync_runs),
-        )
-        .route(
-            "/online_learning/list_sync_runs",
-            post(online_learning_list_sync_runs),
-        )
-        .route(
-            "/online_learning/clear_cache",
-            post(online_learning_clear_cache),
-        )
+    // 保留能力路由：ChaoxingHubView 正常课程中心（#592/#594，全构建注册）
+    let mut app = Router::new()
         .route(
             "/online_learning/chaoxing/session_status",
             post(chaoxing_get_session_status),
@@ -434,46 +435,6 @@ pub(crate) fn router() -> Router<HttpState> {
             post(chaoxing_fetch_course_progress),
         )
         .route(
-            "/online_learning/chaoxing/launch_url",
-            post(chaoxing_get_launch_url),
-        )
-        .route(
-            "/online_learning/yuketang/create_qr_login",
-            post(yuketang_create_qr_login),
-        )
-        .route(
-            "/online_learning/yuketang/qr_login/create",
-            post(yuketang_create_qr_login),
-        )
-        .route(
-            "/online_learning/yuketang/poll_qr_login",
-            post(yuketang_poll_qr_login),
-        )
-        .route(
-            "/online_learning/yuketang/qr_login/poll",
-            post(yuketang_poll_qr_login),
-        )
-        .route(
-            "/online_learning/yuketang/courses",
-            post(yuketang_fetch_courses),
-        )
-        .route(
-            "/online_learning/yuketang/outline",
-            post(yuketang_fetch_course_outline),
-        )
-        .route(
-            "/online_learning/yuketang/course_outline",
-            post(yuketang_fetch_course_outline),
-        )
-        .route(
-            "/online_learning/yuketang/progress",
-            post(yuketang_fetch_course_progress),
-        )
-        .route(
-            "/online_learning/yuketang/course_progress",
-            post(yuketang_fetch_course_progress),
-        )
-        .route(
             "/online_learning/chaoxing/knowledge_cards",
             post(chaoxing_get_knowledge_cards),
         )
@@ -484,21 +445,84 @@ pub(crate) fn router() -> Router<HttpState> {
         .route(
             "/online_learning/chaoxing/video_status",
             post(chaoxing_get_video_status),
-        )
-        .route(
-            "/online_learning/chaoxing/report_progress",
-            post(chaoxing_report_progress),
-        )
-        .route(
-            "/online_learning/yuketang/course_chapters",
-            post(yuketang_get_course_chapters),
-        )
-        .route(
-            "/online_learning/yuketang/leaf_info",
-            post(yuketang_get_leaf_info),
-        )
-        .route(
-            "/online_learning/yuketang/heartbeat",
-            post(yuketang_send_heartbeat),
-        )
+        );
+    // 可裁能力路由：刷课同步/自动化/Yuketang（#592/#594 mobile-slim 关闭，源码保留）
+    #[cfg(feature = "mobile-full")]
+    {
+        app = app
+            .route(
+                "/online_learning/overview",
+                post(fetch_online_learning_overview),
+            )
+            .route("/online_learning/sync_now", post(online_learning_sync_now))
+            .route(
+                "/online_learning/sync_runs",
+                post(online_learning_list_sync_runs),
+            )
+            .route(
+                "/online_learning/list_sync_runs",
+                post(online_learning_list_sync_runs),
+            )
+            .route(
+                "/online_learning/clear_cache",
+                post(online_learning_clear_cache),
+            )
+            .route(
+                "/online_learning/chaoxing/launch_url",
+                post(chaoxing_get_launch_url),
+            )
+            .route(
+                "/online_learning/yuketang/create_qr_login",
+                post(yuketang_create_qr_login),
+            )
+            .route(
+                "/online_learning/yuketang/qr_login/create",
+                post(yuketang_create_qr_login),
+            )
+            .route(
+                "/online_learning/yuketang/poll_qr_login",
+                post(yuketang_poll_qr_login),
+            )
+            .route(
+                "/online_learning/yuketang/qr_login/poll",
+                post(yuketang_poll_qr_login),
+            )
+            .route(
+                "/online_learning/yuketang/courses",
+                post(yuketang_fetch_courses),
+            )
+            .route(
+                "/online_learning/yuketang/outline",
+                post(yuketang_fetch_course_outline),
+            )
+            .route(
+                "/online_learning/yuketang/course_outline",
+                post(yuketang_fetch_course_outline),
+            )
+            .route(
+                "/online_learning/yuketang/progress",
+                post(yuketang_fetch_course_progress),
+            )
+            .route(
+                "/online_learning/yuketang/course_progress",
+                post(yuketang_fetch_course_progress),
+            )
+            .route(
+                "/online_learning/chaoxing/report_progress",
+                post(chaoxing_report_progress),
+            )
+            .route(
+                "/online_learning/yuketang/course_chapters",
+                post(yuketang_get_course_chapters),
+            )
+            .route(
+                "/online_learning/yuketang/leaf_info",
+                post(yuketang_get_leaf_info),
+            )
+            .route(
+                "/online_learning/yuketang/heartbeat",
+                post(yuketang_send_heartbeat),
+            );
+    }
+    app
 }

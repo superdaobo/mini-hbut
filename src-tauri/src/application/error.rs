@@ -24,6 +24,13 @@ impl ApplicationError {
         }
     }
 
+    pub fn validation(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApplicationErrorKind::Validation,
+            message: message.into(),
+        }
+    }
+
     pub fn network(message: impl Into<String>) -> Self {
         Self {
             kind: ApplicationErrorKind::Network,

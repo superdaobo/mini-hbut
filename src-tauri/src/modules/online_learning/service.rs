@@ -21,9 +21,12 @@ use super::shared::{
     CACHE_CHAOXING_PROGRESS, CACHE_OVERVIEW, CACHE_YUKETANG_COURSES, CACHE_YUKETANG_OUTLINE,
     CACHE_YUKETANG_PROGRESS, PLATFORM_CHAOXING, PLATFORM_YUKETANG,
 };
+#[cfg(feature = "mobile-full")]
 use super::yuketang_courses::yuketang_fetch_courses;
+#[cfg(feature = "mobile-full")]
 use super::yuketang_session::has_yuketang_session;
 
+#[cfg(feature = "mobile-full")]
 pub async fn fetch_online_learning_overview(
     client: &HbutClient,
     student_id: Option<&str>,
@@ -126,6 +129,7 @@ pub async fn fetch_online_learning_overview(
     Ok(crate::attach_sync_time(payload, &now_sync_time(), false))
 }
 
+#[cfg(feature = "mobile-full")]
 pub async fn online_learning_sync_now(
     client: &mut HbutClient,
     student_id: Option<&str>,
@@ -191,6 +195,7 @@ pub async fn online_learning_sync_now(
         }
     }
 }
+#[cfg(feature = "mobile-full")]
 pub fn list_online_learning_sync_runs(
     student_id: &str,
     platform: Option<&str>,
@@ -214,6 +219,7 @@ pub fn list_online_learning_sync_runs(
     }))
 }
 
+#[cfg(feature = "mobile-full")]
 pub fn clear_online_learning_cache(
     student_id: &str,
     platform: Option<&str>,

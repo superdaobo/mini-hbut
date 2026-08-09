@@ -257,6 +257,7 @@ fn resolve_online_learning_student_id(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn online_learning_overview(
     state: State<'_, AppState>,
     req: OnlineLearningOverviewRequest,
@@ -268,6 +269,7 @@ pub(crate) async fn online_learning_overview(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn online_learning_sync_now(
     state: State<'_, AppState>,
     req: OnlineLearningSyncRequest,
@@ -284,6 +286,7 @@ pub(crate) async fn online_learning_sync_now(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn online_learning_list_sync_runs(
     state: State<'_, AppState>,
     req: OnlineLearningSyncRunsRequest,
@@ -299,6 +302,7 @@ pub(crate) async fn online_learning_list_sync_runs(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn online_learning_clear_cache(
     state: State<'_, AppState>,
     req: OnlineLearningClearCacheRequest,
@@ -574,6 +578,7 @@ pub(crate) async fn chaoxing_fetch_course_progress(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn chaoxing_get_launch_url(
     _state: State<'_, AppState>,
     req: ChaoxingLaunchUrlRequest,
@@ -582,6 +587,7 @@ pub(crate) async fn chaoxing_get_launch_url(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn yuketang_create_qr_login(
     state: State<'_, AppState>,
     req: YuketangQrCreateRequest,
@@ -593,6 +599,7 @@ pub(crate) async fn yuketang_create_qr_login(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn yuketang_poll_qr_login(
     state: State<'_, AppState>,
     req: YuketangPollQrLoginRequest,
@@ -604,6 +611,7 @@ pub(crate) async fn yuketang_poll_qr_login(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn yuketang_fetch_courses(
     state: State<'_, AppState>,
     req: YuketangCoursesRequest,
@@ -619,6 +627,7 @@ pub(crate) async fn yuketang_fetch_courses(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn yuketang_fetch_course_outline(
     state: State<'_, AppState>,
     req: YuketangCourseOutlineRequest,
@@ -630,6 +639,7 @@ pub(crate) async fn yuketang_fetch_course_outline(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn yuketang_fetch_course_progress(
     state: State<'_, AppState>,
     req: YuketangCourseProgressRequest,
@@ -687,6 +697,7 @@ pub(crate) async fn chaoxing_fetch_course_score(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn chaoxing_report_progress(
     state: State<'_, AppState>,
     req: ChaoxingReportProgressRequest,
@@ -713,6 +724,7 @@ pub(crate) async fn chaoxing_report_progress(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn yuketang_get_course_chapters(
     state: State<'_, AppState>,
     req: YuketangCourseChaptersRequest,
@@ -724,6 +736,7 @@ pub(crate) async fn yuketang_get_course_chapters(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn yuketang_get_leaf_info(
     state: State<'_, AppState>,
     req: YuketangLeafInfoRequest,
@@ -735,6 +748,7 @@ pub(crate) async fn yuketang_get_leaf_info(
 }
 
 #[tauri::command]
+#[cfg(feature = "mobile-full")]
 pub(crate) async fn yuketang_send_heartbeat(
     state: State<'_, AppState>,
     req: YuketangHeartbeatRequest,
