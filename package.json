@@ -77,7 +77,7 @@
     "html2canvas": "^1.4.1",
     "katex": "0.16.47",
     "lucide-vue-next": "^1.0.0",
-    "marked": "^18.0.6",
+    "marked": "^18.0.9",
     "marked-katex-extension": "5.1.10",
     "pinia": "^3.0.4",
     "qrcode": "^1.5.4",
