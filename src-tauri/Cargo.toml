@@ -39,14 +39,14 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart", "rustls-tls", "stream"] }
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "fs", "net", "sync", "time"] }
-axum = "0.7"
-tower-http = { version = "0.5", features = ["cors"] }
+axum = { version = "0.7", optional = true }
+tower-http = { version = "0.5", features = ["cors"], optional = true }
 futures = "0.3"
 async-stream = "0.3"
 scraper = "0.20"
 regex = "1.10"
 base64 = "0.22"
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"], optional = true }
 aes = "0.8"
 cbc = "0.1"
 rand = "0.8"
@@ -56,8 +56,8 @@ chrono = { version = "0.4.43", features = ["serde"] }
 html-escape = "0.2"
 urlencoding = "2.1"
 md5 = "0.7"
-qrcode = "0.14"
-jsonwebtoken = "10.3"
+qrcode = { version = "0.14", optional = true }
+jsonwebtoken = { version = "10.3", optional = true }
 sha2 = "0.10"
 sha1 = "0.10"
 zip = "2.2"
@@ -82,15 +82,26 @@ jni = "0.21"
 ndk-context = "0.1"
 
 [features]
+# 默认仅核心集：custom-protocol。本地/桌面构建经 tauri.conf.json build.features 追加 mobile-full+bridge；
+# 移动端发布构建用 --config 覆盖（Android=mobile-slim，iOS=mobile-slim+bridge），实现 #594/#595 的能力裁剪。
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 testing = []
+# 完整版业务能力：Yuketang 刷课/自动化、QR 登录与 online-learning 同步（#594）。不启用则这些能力与其独占依赖从构建退出。
+mobile-full = ["dep:tokio-tungstenite", "dep:qrcode"]
+# 本地 HTTP Bridge（#593/#594）：Android 移动端发布不启用整组退出；iOS 发布显式启用保留。
+bridge = ["dep:axum", "dep:tower-http", "dep:jsonwebtoken"]
+# 移动端发布构建精简集：Android=i mobile-slim；iOS=mobile-slim,bridge。追加语义（tauri CLI 只能追加 features）。
+mobile-slim = []
 
 [dev-dependencies]
 proptest = "1"
 proptest-derive = "0.5"
 wiremock = "0.6"
 tempfile = "3"
+# 测试专用：qr_decode.rs 的 #[cfg(test)] 单测用 qrcode 生成 QR 图（签到解码本身用 rqrr）。
+# 不进入发布依赖图（[dependencies] 中 qrcode 仍为 optional，仅 mobile-full 启用）。
+qrcode = "0.14"
 
 [lints.clippy]
 unwrap_used = "warn"

@@ -16,6 +16,7 @@ pub mod db;
 pub mod debug_bridge;
 pub mod grade;
 pub mod http_client;
+#[cfg(feature = "bridge")]
 pub mod http_server;
 pub mod modules;
 pub mod parser;
@@ -52,8 +53,11 @@ pub use transport::tauri::chaoxing::{
     ChaoxingClassDownloadRequest, ChaoxingClassInviteRequest, ChaoxingClassResourceAccessRequest,
     ChaoxingClassResourcesRequest, ChaoxingClassSsoRequest, ChaoxingCourseOutlineRequest,
     ChaoxingCourseProgressRequest, ChaoxingCourseScoreRequest, ChaoxingCoursesRequest,
-    ChaoxingKnowledgeCardsRequest, ChaoxingLaunchUrlRequest, ChaoxingReportProgressRequest,
-    ChaoxingSessionStatusRequest, ChaoxingVideoStatusRequest, OnlineLearningClearCacheRequest,
+    ChaoxingKnowledgeCardsRequest, ChaoxingSessionStatusRequest, ChaoxingVideoStatusRequest,
+};
+#[cfg(feature = "mobile-full")]
+pub use transport::tauri::chaoxing::{
+    ChaoxingLaunchUrlRequest, ChaoxingReportProgressRequest, OnlineLearningClearCacheRequest,
     OnlineLearningOverviewRequest, OnlineLearningSyncRequest, OnlineLearningSyncRunsRequest,
     YuketangCourseChaptersRequest, YuketangCourseOutlineRequest, YuketangCourseProgressRequest,
     YuketangCoursesRequest, YuketangHeartbeatRequest, YuketangLeafInfoRequest,
@@ -358,8 +362,10 @@ pub fn run() {
             #[cfg(not(debug_assertions))]
             let _ = (restored_any, token_loaded);
 
-            // 启动本地 HTTP Bridge 服务；具体平台/构建开关由 http_server 统一判断。
+            // 启动本地 HTTP Bridge 服务；具体平台/构建开关由 http_server 统一判断（#594 bridge feature 关闭时不编译）。
+            #[cfg(feature = "bridge")]
             let client = app.state::<AppState>().client.clone();
+            #[cfg(feature = "bridge")]
             crate::http_server::spawn_http_server(client, app.handle().clone());
             Ok(())
         })
@@ -398,6 +404,7 @@ pub fn run() {
             modules::school_website_embed::school_website_embed_resize,
             modules::school_website_embed::school_website_embed_close,
             // #452：长后台回前台 ensure/respawn loopback HTTP Bridge
+            #[cfg(feature = "bridge")]
             http_server::ensure_http_bridge,
             transport::tauri::update::prepare_module_bundle,
             transport::tauri::system::open_file_with_system,
@@ -478,9 +485,13 @@ pub fn run() {
             transport::tauri::course_selection::fetch_course_selection_selected_courses,
             transport::tauri::course_selection::fetch_course_selection_detail_intro,
             transport::tauri::course_selection::fetch_course_selection_detail_teacher,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::online_learning_overview,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::online_learning_sync_now,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::online_learning_list_sync_runs,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::online_learning_clear_cache,
             transport::tauri::chaoxing::chaoxing_get_session_status,
             transport::tauri::chaoxing::chaoxing_class_ensure_sso,
@@ -493,18 +504,28 @@ pub fn run() {
             transport::tauri::chaoxing::chaoxing_fetch_courses,
             transport::tauri::chaoxing::chaoxing_fetch_course_outline,
             transport::tauri::chaoxing::chaoxing_fetch_course_progress,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::chaoxing_get_launch_url,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::yuketang_create_qr_login,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::yuketang_poll_qr_login,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::yuketang_fetch_courses,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::yuketang_fetch_course_outline,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::yuketang_fetch_course_progress,
             transport::tauri::chaoxing::chaoxing_get_knowledge_cards,
             transport::tauri::chaoxing::chaoxing_get_video_status,
             transport::tauri::chaoxing::chaoxing_fetch_course_score,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::chaoxing_report_progress,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::yuketang_get_course_chapters,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::yuketang_get_leaf_info,
+            #[cfg(feature = "mobile-full")]
             transport::tauri::chaoxing::yuketang_send_heartbeat,
             transport::tauri::academic::fetch_library_dict,
             transport::tauri::academic::search_library_books,

@@ -43,14 +43,17 @@ async fn login(
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<ApiResponse<UserInfo>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let mut client = state.client.write().await;
-    client
+    // 与 Tauri login 共用同一 AuthService（登录 + 会话/凭据持久化），本 handler 只做传输适配。
+    let service = crate::application::AuthService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
         .login(
             &req.username,
             &req.password,
-            &req.captcha.unwrap_or_default(),
-            &req.lt.unwrap_or_default(),
-            &req.execution.unwrap_or_default(),
+            req.captcha,
+            req.lt,
+            req.execution,
         )
         .await
         .map(ok)
@@ -64,8 +67,11 @@ async fn restore_session(
     Json(req): Json<RestoreRequest>,
 ) -> Result<Json<ApiResponse<UserInfo>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let mut client = state.client.write().await;
-    client
+    // 与 Tauri restore_session 共用同一 AuthService（恢复 + 凭据回填），本 handler 只做传输适配。
+    let service = crate::application::AuthService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
         .restore_session(&req.cookies)
         .await
         .map(ok)
@@ -93,15 +99,15 @@ async fn import_cookies(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let mut client = state.client.write().await;
-    client
-        .restore_cookie_snapshot(req.code, req.auth, req.jwxt)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
-
-    match client.fetch_user_info().await {
-        Ok(info) => Ok(ok(serde_json::json!({"success": true, "user": info}))),
-        Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string())),
-    }
+    // 与 Tauri 会话恢复共用同一 AuthService（Cookie 快照恢复 + 用户信息校验）
+    let service = crate::application::AuthService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
+        .import_cookies(req.code, req.auth, req.jwxt)
+        .await
+        .map(|user| ok(crate::application::import_cookies_ok_payload(user)))
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 // GENERATED DOMAIN ROUTERS — 路由协议由原始 method+path 清单生成。

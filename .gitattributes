@@ -1,0 +1,7 @@
+# Windows 构建流程（tauri/version patch 等）可能重写这些源文件并改变行尾。
+# 强制 LF 保证 git diff --exit-code 检查在构建后字节级干净（#596 P0-4）。
+src-tauri/Cargo.toml text eol=lf
+src-tauri/Cargo.lock text eol=lf
+src-tauri/tauri.conf.json text eol=lf
+
+

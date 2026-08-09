@@ -291,6 +291,15 @@ export const APP_STORE_ALLOWED_CORE_IDS: ReadonlySet<string> = Object.freeze(
   ])
 )
 
+/**
+ * 编译期排除的产品隐藏视图（#591）：
+ * 移动端发布构建（VITE_EXCLUDE_HIDDEN_VIEWS=1）不打包这些 view，导航/深链/模块宫格一律拒绝，
+ * 由导航层收敛回 home，不会触发找不到组件或未处理错误。默认（本地/dev/desktop）为空集，全功能。
+ */
+export const EXCLUDED_HIDDEN_VIEW_IDS: ReadonlySet<string> = Object.freeze(
+  new Set<string>(import.meta.env.VITE_EXCLUDE_HIDDEN_VIEWS === '1' ? ['forum'] : [])
+)
+
 const normalizeId = (id: unknown): string => String(id ?? '').trim()
 
 /**
@@ -304,6 +313,7 @@ export function isModuleAllowed(
 ): boolean {
   const id = normalizeId(moduleId)
   if (!id) return false
+  if (EXCLUDED_HIDDEN_VIEW_IDS.has(id)) return false
   if (id === '__more__') {
     // 首页「展开更多分类」按钮，不是远程模块中心
     return true
@@ -324,6 +334,7 @@ export function isViewAllowed(
 ): boolean {
   const id = normalizeId(view)
   if (!id) return false
+  if (EXCLUDED_HIDDEN_VIEW_IDS.has(id)) return false
   if (!shouldApplyAppStoreRestrictions(session)) return true
   if (APP_STORE_BLOCKED_MODULE_IDS.has(id)) return false
   if (APP_STORE_ALLOWED_CORE_IDS.has(id)) return true

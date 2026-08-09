@@ -5,7 +5,6 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router};
-use chrono::Datelike;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
 
@@ -123,7 +122,6 @@ async fn sync_grades(
 }
 
 // ────────────────────────────────────────────────────────────
-#[allow(unreachable_code)]
 async fn sync_schedule(
     State(state): State<HttpState>,
     headers: HeaderMap,
@@ -131,130 +129,17 @@ async fn sync_schedule(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let client = state.client.write().await;
-    let requested_semester = payload
-        .and_then(|Json(req)| req.semester)
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let explicit_semester = requested_semester.is_some();
-
-    let schedule_context = client
-        .resolve_schedule_context(requested_semester.as_deref())
-        .await;
-    let semester_to_query = schedule_context
-        .get("semester")
-        .and_then(|v| v.as_str())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .or_else(|| requested_semester.clone())
-        .unwrap_or_else(|| "2024-2025-1".to_string());
-
-    let (course_list, _now_week) = client
-        .fetch_schedule(Some(semester_to_query.as_str()))
+    let semester = payload.and_then(|Json(req)| req.semester);
+    // 统一课表同步用例：Tauri 与 HTTP Bridge 走同一 ScheduleService
+    // （学期解析 → 抓取 → 成功写缓存 → 失败保留 offline 快照），本 handler 只做传输适配。
+    let service = crate::application::ScheduleService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
+        .sync_schedule(semester)
         .await
-        .map_err(|e| {
-            let msg = e.to_string();
-            if crate::http_client::HbutClient::is_no_schedule_error_message(&msg) {
-                return err(
-                    StatusCode::BAD_REQUEST,
-                    "业务错误",
-                    "暂无可用课表".to_string(),
-                );
-            }
-            if explicit_semester {
-                return err(StatusCode::BAD_REQUEST, "业务错误", msg);
-            }
-            err(StatusCode::BAD_REQUEST, "业务错误", msg)
-        })?;
-
-    let mut meta = schedule_context;
-    if let Some(map) = meta.as_object_mut() {
-        map.insert("semester".to_string(), serde_json::json!(semester_to_query));
-        map.insert(
-            "total_courses".to_string(),
-            serde_json::json!(course_list.len()),
-        );
-        map.insert(
-            "query_time".to_string(),
-            serde_json::json!(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
-        );
-    }
-
-    let result = serde_json::json!({
-        "success": true,
-        "data": course_list,
-        "meta": meta,
-        "sync_time": chrono::Local::now().to_rfc3339(),
-        "offline": false
-    });
-
-    return Ok(ok(result));
-
-    let semester = match requested_semester {
-        Some(s) => s,
-        None => client
-            .get_current_semester()
-            .await
-            .unwrap_or_else(|_| "2024-2025-1".to_string()),
-    };
-    let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;
-    let (current_week, start_date) = if let Ok(ref cal) = calendar_data {
-        let meta = cal.get("meta");
-        let week = meta
-            .and_then(|m| m.get("current_week"))
-            .and_then(|v| v.as_i64())
-            .unwrap_or(1) as i32;
-        let start = meta
-            .and_then(|m| m.get("start_date"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        (week, start)
-    } else {
-        (1, String::new())
-    };
-
-    let (course_list, _now_week) = client
-        .fetch_schedule(Some(semester.as_str()))
-        .await
-        .map_err(|e| {
-            let msg = e.to_string();
-            let lower = msg.to_lowercase();
-            if explicit_semester
-                && (msg.contains("该学期无课表")
-                    || msg.contains("无课表")
-                    || msg.contains("课表 API 返回错误")
-                    || msg.contains("课表数据格式不正确")
-                    || msg.contains("ret=-1")
-                    || lower.contains("unknown schedule")
-                    || lower.contains("no schedule"))
-            {
-                err(
-                    StatusCode::BAD_REQUEST,
-                    "业务错误",
-                    "该学期无课表，请切换学期".to_string(),
-                )
-            } else {
-                err(StatusCode::BAD_REQUEST, "业务错误", msg)
-            }
-        })?;
-
-    let result = serde_json::json!({
-        "success": true,
-        "data": course_list,
-        "meta": {
-            "semester": semester,
-            "current_week": current_week,
-            "current_weekday": chrono::Local::now().weekday().num_days_from_monday() as i32 + 1,
-            "start_date": start_date,
-            "total_courses": course_list.len(),
-            "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
-        },
-        "sync_time": chrono::Local::now().to_rfc3339(),
-        "offline": false
-    });
-
-    Ok(ok(result))
+        .map(ok)
+        .map_err(|error| err(StatusCode::BAD_REQUEST, "业务错误", error.to_string()))
 }
 
 // ────────────────────────────────────────────────────────────
@@ -318,11 +203,13 @@ async fn fetch_personal_login_access_info(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     let req = body.map(|b| b.0).unwrap_or_default();
-    let page = req.page.unwrap_or(1).max(1);
-    let page_size = req.page_size.unwrap_or(10).clamp(1, 100);
-    let mut client = state.client.write().await;
-    client
-        .fetch_personal_login_access_info(Some(page), Some(page_size))
+    // 与 Tauri fetch_personal_login_access_info 共用同一 AcademicReadService
+    // （网络 → 缓存 → offline 降级），本 handler 只做传输适配。
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
+        .fetch_personal_login_access_info(req.page, req.page_size)
         .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "请求失败", e.to_string()))
@@ -333,8 +220,11 @@ async fn fetch_semesters(
     State(state): State<HttpState>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
-    client
+    // 与 Tauri fetch_semesters 共用同一 AcademicReadService（网络 → 缓存 → offline 降级）
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
         .fetch_semesters()
         .await
         .map(ok)
@@ -346,8 +236,11 @@ async fn fetch_classroom_buildings(
     State(state): State<HttpState>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
-    client
+    // 与 Tauri fetch_classroom_buildings 共用同一 AcademicReadService
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
         .fetch_classroom_buildings()
         .await
         .map(ok)
@@ -360,9 +253,12 @@ async fn fetch_classrooms(
     Json(req): Json<ClassroomQueryRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
-    client
-        .fetch_classrooms_query(req.week, req.weekday, req.periods, req.building)
+    // 与 Tauri fetch_classrooms 共用同一 AcademicReadService
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
+        .fetch_classrooms(req.week, req.weekday, req.periods, req.building)
         .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
@@ -373,8 +269,11 @@ async fn fetch_training_plan_options(
     State(state): State<HttpState>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
-    client
+    // 与 Tauri fetch_training_plan_options 共用同一 AcademicReadService
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
         .fetch_training_plan_options()
         .await
         .map(ok)
@@ -387,9 +286,12 @@ async fn fetch_training_plan_jys(
     Json(req): Json<TrainingPlanJysRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
-    client
-        .fetch_training_plan_jys(&req.yxid)
+    // 与 Tauri fetch_training_plan_jys 共用同一 AcademicReadService
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
+        .fetch_training_plan_jys(req.yxid)
         .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
@@ -401,8 +303,11 @@ async fn fetch_training_plan_courses(
     Json(req): Json<TrainingPlanCoursesRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
-    client
+    // 与 Tauri fetch_training_plan_courses 共用同一 AcademicReadService
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
         .fetch_training_plan_courses(
             req.grade,
             req.kkxq,
@@ -426,8 +331,11 @@ async fn fetch_calendar_data(
     Json(req): Json<CalendarRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
-    client
+    // 与 Tauri fetch_calendar_data 共用同一 AcademicReadService（含 #489 语义）
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
         .fetch_calendar_data(req.semester)
         .await
         .map(ok)
@@ -440,9 +348,12 @@ async fn fetch_academic_progress(
     Json(req): Json<AcademicProgressRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
-    client
-        .fetch_academic_progress(req.fasz.unwrap_or(1))
+    // 与 Tauri fetch_academic_progress 共用同一 AcademicReadService
+    let service = crate::application::AcademicReadService::new(
+        crate::application::ApplicationContext::new(state.client, crate::DB_FILENAME),
+    );
+    service
+        .fetch_academic_progress(req.fasz)
         .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))

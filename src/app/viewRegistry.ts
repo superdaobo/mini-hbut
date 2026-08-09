@@ -9,6 +9,12 @@ import { defineAsyncComponent, type Component } from 'vue'
 
 type Loader = () => Promise<any>
 
+// 移动端发布构建排除产品隐藏视图（#591）：
+// 默认全功能；仅当 VITE_EXCLUDE_HIDDEN_VIEWS=1（Android release / iOS TestFlight 发布构建注入）时，
+// forum 等产品隐藏视图从 Vite 依赖图与 prefetch 中退出，源码保留。导航/深链由策略层收敛回 home。
+const excludeHiddenViews = import.meta.env.VITE_EXCLUDE_HIDDEN_VIEWS === '1'
+const noopLoader: Loader = () => Promise.resolve()
+
 const createAsyncPage = (loader: Loader): Component =>
   defineAsyncComponent({ loader: loader as () => Promise<Component>, delay: 0, suspensible: false })
 
@@ -26,7 +32,9 @@ const loadCalendarView: Loader = () => import('../components/CalendarView.vue')
 const loadSchoolInboxView: Loader = () => import('../components/SchoolInboxView.vue')
 const loadAcademicProgressView: Loader = () => import('../components/AcademicProgressView.vue')
 const loadTrainingPlanView: Loader = () => import('../components/TrainingPlanView.vue')
-const loadForumView: Loader = () => import('../components/ForumView.vue')
+const loadForumView: Loader = excludeHiddenViews
+  ? () => Promise.reject(new Error('forum: view excluded in mobile release build (#591)'))
+  : () => import('../components/ForumView.vue')
 const loadMeView: Loader = () => import('../components/MeView.vue')
 const loadOfficialView: Loader = () => import('../components/OfficialView.vue')
 const loadFeedbackView: Loader = () => import('../components/FeedbackView.vue')
@@ -143,7 +151,7 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   school_inbox: loadSchoolInboxView,
   academic: loadAcademicProgressView,
   training: loadTrainingPlanView,
-  forum: loadForumView,
+  forum: excludeHiddenViews ? noopLoader : loadForumView,
   ai: loadAiChatView,
   campus_map: loadCampusMapView,
   library: loadLibraryView,

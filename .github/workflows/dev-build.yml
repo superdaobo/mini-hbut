@@ -214,6 +214,7 @@ jobs:
     # 避免 Dev APK 从 ~24MB 膨胀到 ~30MB
     env:
       MINI_HBUT_BUILD_PROFILE: android-size
+      VITE_EXCLUDE_HIDDEN_VIEWS: "1"
       CARGO_PROFILE_RELEASE_OPT_LEVEL: z
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
       CARGO_PROFILE_RELEASE_LTO: fat
@@ -326,12 +327,15 @@ jobs:
           rm -f dist/favicon.svg
           echo "Removed dist/favicon.svg"
 
-      - name: Build Android APK (arm64)
-        run: npx tauri android build --target aarch64
+      - name: Build Android APK (arm64, mobile-slim)
+        run: npx tauri android build --target aarch64 --config '{"build":{"features":["mobile-slim"]}}'
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_ROOT: ${{ env.NDK_HOME }}
+
+      - name: Mobile boundary guard (hidden views excluded, kept capabilities intact)
+        run: node scripts/check_mobile_boundary.mjs --expect-excluded ForumView,MoreShuake,OnlineLearning --expect-kept ChaoxingHubView --check-rust-registry
 
       - name: Report Android raw build size
         env:
@@ -619,6 +623,8 @@ jobs:
           delete conf.build.beforeDevCommand;
           conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
+          // 移动端发布构建能力边界（#594/#595）：iOS = mobile-slim + bridge（裁刷课/自动化，保留 Bridge）
+          conf.build.features = ['mobile-slim', 'bridge'];
           if (betaVersion) {
             conf.version = betaVersion;
             conf.bundle = conf.bundle || {};

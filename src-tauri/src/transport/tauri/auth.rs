@@ -14,6 +14,7 @@ use std::time::Duration;
 use tauri::State;
 
 use crate::app_state::AppState;
+use crate::application;
 use crate::credential_store;
 use crate::db;
 use crate::http_client::HbutClient;
@@ -1317,51 +1318,19 @@ pub(crate) async fn login(
 ) -> Result<UserInfo, String> {
     println!("[调试] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}",
              username, password.len(), captcha, lt, execution);
-    let mut client = state.client.write().await;
-    client
-        .login(
-            &username,
-            &password,
-            &captcha.unwrap_or_default(),
-            &lt.unwrap_or_default(),
-            &execution.unwrap_or_default(),
-        )
+    let service = application::AuthService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ));
+    let user_info = service
+        .login(&username, &password, captcha, lt, execution)
         .await
         .map_err(|e| e.to_string())?;
-    client.set_chaoxing_login_mode(false);
-
-    let user_info = client
-        .user_info
-        .clone()
-        .ok_or_else(|| "login succeeded but user info is missing".to_string())?;
     let session_key = if user_info.student_id.trim().is_empty() {
         username.clone()
     } else {
         user_info.student_id.clone()
     };
-
-    // 先保存 Cookie 会话（v2 全域 + 旧列双写），一码通 Token 后台预热
-    client.set_credentials(session_key.clone(), password.clone());
-    client.persist_session_cookies(&session_key);
-    if session_key != username {
-        // 旧客户端可能按登录名查会话
-        let _ = db::save_user_session(
-            DB_FILENAME,
-            &username,
-            &client.get_cookies(),
-            &password,
-            "",
-            Some(""),
-            Some(""),
-        );
-        let _ = client.persist_session_cookies(&username);
-    }
-    // 密钥环双写：学号键 + 登录用户名键，供静默 SSO 续期
-    let _ = credential_store::save_password(&session_key, &password);
-    if session_key != username {
-        let _ = credential_store::save_password(&username, &password);
-    }
-    let _ = credential_store::save_remembered_credential(&format!("hbut:{session_key}"), &password);
 
     let client_arc = Arc::clone(&state.client);
     spawn_electricity_session_warmup(client_arc.clone(), session_key.clone(), password);
@@ -1374,10 +1343,13 @@ pub(crate) async fn login(
 #[tauri::command]
 pub(crate) async fn logout(state: State<'_, AppState>) -> Result<(), String> {
     // 仅清理内存会话；保留密钥环中的「记住密码」与会话密码，供下次自动登录/表单回填。
-    let mut client = state.client.write().await;
-    client.clear_session();
-    modules::chaoxing_sso::invalidate_sso_cache();
-    Ok(())
+    application::AuthService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ))
+    .logout()
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1385,77 +1357,13 @@ pub(crate) async fn restore_session(
     state: State<'_, AppState>,
     cookies: String,
 ) -> Result<UserInfo, String> {
-    let mut client = state.client.write().await;
-    let user_info = client
-        .restore_session(&cookies)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Prefer session by student id; fallback to latest session if needed.
-    let mut session_opt = match db::get_user_session(DB_FILENAME, &user_info.student_id) {
-        Ok(v) => v,
-        Err(e) => {
-            println!("[璀﹀憡] 加载会话凭据失败: {}", e);
-            None
-        }
-    };
-    if session_opt.is_none() {
-        if let Ok(Some(latest)) = db::get_latest_user_session(DB_FILENAME) {
-            if !latest.password.is_empty() {
-                session_opt = Some(db::UserSessionData {
-                    cookies: latest.cookies,
-                    password: latest.password,
-                    one_code_token: latest.one_code_token,
-                    refresh_token: latest.refresh_token,
-                    token_expires_at: latest.token_expires_at,
-                });
-            }
-        }
-    }
-
-    // 始终先用 auth_cookie_v2 / 文件快照补全域 cookie（旧 cookies 串可能只有 4 域）
-    client.hydrate_session_cookies_from_store(Some(&user_info.student_id));
-
-    match session_opt {
-        Some(session) => {
-            println!(
-                "[调试] Restored credentials for user: {} password_len={}",
-                user_info.student_id,
-                session.password.len()
-            );
-            if !session.password.is_empty() {
-                client.set_credentials(user_info.student_id.clone(), session.password.clone());
-                let _ = credential_store::save_password(&user_info.student_id, &session.password);
-                let _ = credential_store::save_remembered_credential(
-                    &format!("hbut:{}", user_info.student_id),
-                    &session.password,
-                );
-            } else {
-                println!("[调试] 会话存在但密码为空，静默 SSO 将尝试 LOCALAPPDATA DB 兜底");
-            }
-            if !session.one_code_token.is_empty() {
-                let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&chrono::Utc));
-                let refresh = if session.refresh_token.trim().is_empty() {
-                    None
-                } else {
-                    Some(session.refresh_token.clone())
-                };
-                client.set_electricity_session(session.one_code_token.clone(), refresh, expires_at);
-                println!("[调试] Restored one_code_token");
-            }
-            client.persist_session_cookies(&user_info.student_id);
-        }
-        None => {
-            println!(
-                "[调试] No saved credentials found for user: {}",
-                user_info.student_id
-            );
-        }
-    }
-
-    Ok(user_info)
+    application::AuthService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ))
+    .restore_session(&cookies)
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1594,10 +1502,13 @@ pub(crate) async fn get_cookies(state: State<'_, AppState>) -> Result<String, St
 
 #[tauri::command]
 pub(crate) async fn refresh_session(state: State<'_, AppState>) -> Result<UserInfo, String> {
-    let info = {
-        let mut client = state.client.write().await;
-        client.refresh_session().await.map_err(|e| e.to_string())?
-    };
+    let info = application::AuthService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ))
+    .refresh_session()
+    .await
+    .map_err(|e| e.to_string())?;
     // #351：keep-alive（约 20min）顺带后台轻量学习通补票；不阻塞本次返回
     let client_arc = state.client.clone();
     let sid = info.student_id.clone();

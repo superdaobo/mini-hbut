@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { readAppContractSources, readVueContractSource } from './contract_source_test'
+import { readAppContractSources, readContractTree, readVueContractSource } from './contract_source_test'
+
+/**
+ * ForumView 拆分后（Issue #582）：行为锚点迁入 src/features/forum/**，
+ * 契约读取组合壳 + 领域代码的合并源码，断言语义不变（行为仍须存在于源码）。
+ */
+const readForumContractSources = () =>
+  [readVueContractSource('src/components/ForumView.vue'), readContractTree('src/features/forum')]
+    .join('\n')
+    .replace(/\r\n?/g, '\n')
 
 describe('forum view identity contract', () => {
   it('receives the current Tauri student id from App.vue', () => {
@@ -10,7 +19,7 @@ describe('forum view identity contract', () => {
   })
 
   it('rebuilds forum identity when the current student id changes', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     expect(forumSource).toContain("import { computed, onMounted, ref, watch } from 'vue'")
     expect(forumSource).toContain('watch(')
@@ -21,7 +30,7 @@ describe('forum view identity contract', () => {
   })
 
   it('uses the Stitch Campus Vitality forum pages as the visual contract', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     expect(forumSource).toContain('data-stitch-design="Campus Vitality"')
     expect(forumSource).toContain('data-forum-page="feed"')
@@ -38,7 +47,7 @@ describe('forum view identity contract', () => {
   })
 
   it('locks the extracted Stitch Campus Vitality design tokens', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     expect(forumSource).toContain('--stitch-surface: #f6fafe')
     expect(forumSource).toContain('--stitch-surface-dim: #d6dade')
@@ -65,7 +74,7 @@ describe('forum view identity contract', () => {
   })
 
   it('keeps every Stitch forum page wired with layout components, states, and actions', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     for (const marker of [
       'forum-topbar',
@@ -102,7 +111,7 @@ describe('forum view identity contract', () => {
   })
 
   it('locks the Stitch mobile foundation for stable forum components', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     for (const marker of [
       'forum-shell-inner',
@@ -147,7 +156,7 @@ describe('forum view identity contract', () => {
   })
 
   it('keeps feed, detail, and compose pages feature-complete for Task 9', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     for (const scriptMarker of [
       'const currentThread = computed',
@@ -220,7 +229,7 @@ describe('forum view identity contract', () => {
   })
 
   it('keeps notice, me, and user profile pages feature-complete for Task 10', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     for (const scriptMarker of [
       'const profileCompletion = computed',
@@ -309,7 +318,7 @@ describe('forum view identity contract', () => {
   })
 
   it('allows profile avatars to be uploaded through the forum image host', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     expect(forumSource).toContain('const uploadAvatarImage = async')
     expect(forumSource).toContain('const resolveAvatarAttachmentUrl = (payload) =>')
@@ -357,7 +366,7 @@ describe('forum view identity contract', () => {
   })
 
   it('keeps admin, backup, and image-host experiences feature-complete for Task 11', () => {
-    const forumSource = readVueContractSource('src/components/ForumView.vue').replace(/\r\n?/g, '\n')
+    const forumSource = readForumContractSources()
 
     for (const scriptMarker of [
       'const adminSummary = computed',

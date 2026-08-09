@@ -56,6 +56,7 @@ pub(crate) fn parse_cards_attachments(html: &str) -> Vec<Value> {
     }
     Vec::new()
 }
+#[cfg(feature = "mobile-full")]
 pub fn chaoxing_get_launch_url(req: &crate::ChaoxingLaunchUrlRequest) -> Result<Value, DynError> {
     if let Some(raw) = req
         .launch_url
@@ -944,6 +945,7 @@ pub async fn chaoxing_get_video_status(
     Err(err_box(format!("获取视频状态失败：{last_err}")))
 }
 /// 上报超星视频观看进度
+#[cfg(feature = "mobile-full")]
 pub async fn chaoxing_report_progress(
     client: &HbutClient,
     report_url: &str,

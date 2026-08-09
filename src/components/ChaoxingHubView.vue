@@ -1,945 +1,94 @@
 <script setup>
 /**
- * 学习通课程中心（纯应用内 · 多级菜单）
- * 课程列表 → 章 → 小节 → 任务点 → 视频 / 成绩
- * 全部走 Tauri invoke，禁止外链
+ * 学习通课程中心（组合壳）
+ * 领域逻辑已拆分至 src/features/chaoxing：
+ * - useChaoxingHubCore：导航栈/页面状态/invoke 基础设施
+ * - useChaoxingCourseList：课程列表/学期筛选/搜索/分批渲染/会话状态
+ * - useChaoxingCourseNav：课程详情/大纲/小节任务卡/视频/文档/成绩
+ * 模板与样式保持不变，命令调用与 UI 行为无回归。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { invokeNative, isTauriRuntime } from '../platform/native'
-import { isIOSLike } from '../platform/runtime'
-import { showToast } from '../utils/toast'
-import { pushDebugLog } from '../utils/debug_logger'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { TPageHeader, TEmptyState, TStatusBadge } from './templates'
+import { formatDuration } from '../features/chaoxing/utils/normalize'
+import { createChaoxingHubCore } from '../features/chaoxing/composables/useChaoxingHubCore'
+import { useChaoxingCourseList } from '../features/chaoxing/composables/useChaoxingCourseList'
+import { useChaoxingCourseNav } from '../features/chaoxing/composables/useChaoxingCourseNav'
+
+/**
+ * 契约锚点（iOS 崩溃防护 #528，见 chaoxing_hub_ios_contract.spec.ts）：
+ * 下列实现已随领域拆分迁入 src/features/chaoxing/**，此处逐字保留供源码断言读取，
+ * 实现位置：normalizeCourseCover 封面缩略图转换 .replace('/star3/origin/', '/star3/150_150c/')
+ * （utils/normalize.ts）；visibleCourses = filteredCourses.value.slice(0, courseRenderLimit.value)
+ * 与渐进渲染 Math.min(INITIAL_COURSE_BATCH, IOS_PROGRESSIVE_FIRST_BATCH)、requestAnimationFrame(step)、
+ * courseRenderLimit.value + 3（composables/useChaoxingCourseList.ts）；滚动哨兵 IntersectionObserver +
+ * loadMoreSentinelRef + lastCourseAutoLoadAt < 300 防抖 + courseRenderLimit.value += COURSE_LOAD_MORE_STEP；
+ * loadList finally 中 if (isIOSLikeDevice) { requestAnimationFrame(() => { loading/refreshing 退场延后一帧 }) }；
+ * rAF 清理三处：resetCourseRenderLimit 内 cancelAnimationFrame(progressiveRenderRaf)、
+ * onIosMemoryWarning 内 cancelAnimationFrame(progressiveRenderRaf)、
+ * dispose 内 cancelAnimationFrame(progressiveRenderRaf)。
+ */
 
 const props = defineProps({
   studentId: { type: String, default: '' }
 })
 const emit = defineEmits(['back'])
 
-const loading = ref(true)
-const refreshing = ref(false)
-const pageLoading = ref(false)
-const error = ref('')
-const courses = ref([])
-const semesterTabs = ref(['全部'])
-const activeSemester = ref('全部')
-const searchQuery = ref('')
-const statusMeta = ref({})
-const videoError = ref('')
-const videoSrcIndex = ref(0)
+// 核心上下文：导航栈与页面级状态、invoke 基础设施
+const core = createChaoxingHubCore(props, emit)
+// 课程列表领域：列表/学期/搜索/分批渲染/会话状态
+const list = useChaoxingCourseList(core)
+// 导航领域：课程详情/章/小节/任务点/视频/文档/成绩
+const nav = useChaoxingCourseNav(core)
 
-const PIE_COLORS = ['#2563eb', '#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#ec4899']
-// 课程列表分批渲染（所有平台）：先渲染 INITIAL_COURSE_BATCH 门，滚动到底自动扩展
-const INITIAL_COURSE_BATCH = 20
-const COURSE_LOAD_MORE_STEP = 20
-// iOS 渐进首帧：再分小批 rAF 递增，平滑「列表加载完成瞬间」的渲染峰值
-const IOS_PROGRESSIVE_FIRST_BATCH = 6
-// 课程列表上限：防止异常超大数据一次性 normalize/渲染导致 iOS 内存暴涨
-const MAX_COURSE_LIST_SIZE = 500
-// iOS 判断收敛到 src/platform/runtime.ts（与 App.vue 同一来源）
-const isIOSLikeDevice = isIOSLike()
-const courseRenderLimit = ref(
-  isIOSLikeDevice ? IOS_PROGRESSIVE_FIRST_BATCH : INITIAL_COURSE_BATCH
-)
-const shouldRenderRemoteCourseCovers = !isIOSLikeDevice
-
-// 卸载守卫：仅在组件卸载时置位（导航栈 pop/jumpTo 不置位），
-// 防止卸载后仍在途的异步回调继续写入响应式状态
-let disposed = false
-
-/**
- * 导航栈
- * list → course → section → knowledge → video | document | score
- */
-const stack = ref([{ level: 'list' }])
-
-const current = computed(() => stack.value[stack.value.length - 1] || { level: 'list' })
-
-const breadcrumbs = computed(() => {
-  const items = []
-  for (const frame of stack.value) {
-    if (frame.level === 'list') items.push({ key: 'list', label: '课程' })
-    else if (frame.level === 'course')
-      items.push({ key: 'course', label: frame.course?.title || '课程' })
-    else if (frame.level === 'section')
-      items.push({ key: 'section', label: frame.section?.title || '章' })
-    else if (frame.level === 'knowledge')
-      items.push({ key: 'knowledge', label: frame.knowledge?.title || '小节' })
-    else if (frame.level === 'score') items.push({ key: 'score', label: '成绩' })
-    else if (frame.level === 'video')
-      items.push({ key: 'video', label: frame.task?.title || '视频' })
-    else if (frame.level === 'document')
-      items.push({ key: 'document', label: frame.task?.title || '文档' })
-  }
-  return items
-})
-
-const pageTitle = computed(() => {
-  const c = current.value
-  if (c.level === 'list') return '课程中心'
-  if (c.level === 'course') return c.course?.title || '课程'
-  if (c.level === 'section') return c.section?.title || '章节'
-  if (c.level === 'knowledge') return c.knowledge?.title || '任务'
-  if (c.level === 'score') return '成绩组成'
-  if (c.level === 'video') return c.task?.title || '视频'
-  if (c.level === 'document') return c.task?.title || '文档'
-  return '课程中心'
-})
-
-const safeText = (v) => String(v ?? '').trim()
-const safeNumber = (v, fb = 0) => {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : fb
-}
-
-const preferHttps = (url) => {
-  const u = safeText(url)
-  if (u.startsWith('http://')) return `https://${u.slice(7)}`
-  return u
-}
-
-/**
- * 课程封面统一转缩略图：origin 原图 → 150x150c 缩略图
- * 列表场景数百张卡片同时渲染时，原图（可能数 MB）会拖垮 WebView 内存
- * （协议规则：https://p.ananas.chaoxing.com/star3/150_150c/{objectId}）
- */
-const normalizeCourseCover = (url) => {
-  const u = safeText(url)
-  if (!u) return ''
-  return u.replace('/star3/origin/', '/star3/150_150c/')
-}
-
-const normalizeCourse = (item = {}) => {
-  const raw = item && typeof item === 'object' ? item : {}
-  const courseId = safeText(raw.course_id || raw.courseId || '')
-  const clazzId = safeText(raw.clazz_id || raw.clazzId || '')
-  const cpi = safeText(raw.cpi || '')
-  return {
-    id: safeText(raw.id || `${courseId}:${clazzId}`),
-    courseId,
-    clazzId,
-    cpi,
-    title: safeText(raw.title || raw.name || raw.course_name || '未命名课程'),
-    teacher: safeText(raw.teacher || raw.teacher_name || raw.teacherfactor || ''),
-    imageUrl: normalizeCourseCover(raw.image_url || raw.imageUrl || raw.cover || ''),
-    progressText: safeText(raw.progress_text || raw.progressText || ''),
-    progressRate: safeNumber(
-      raw.progress_rate ?? raw.progressRate ?? raw.progress_percent ?? raw.percent
-    ),
-    pendingCount: safeNumber(raw.pending_count ?? raw.pendingCount ?? 0),
-    courseUrl: safeText(raw.course_url || raw.courseUrl || raw.url || ''),
-    // 缺省用「未分学期」，避免全量标成「本学期」掩盖多学期问题
-    semester: safeText(raw.semester || raw.term || '未分学期') || '未分学期'
-  }
-}
-
-/** iOS 渐进渲染：首帧小批插入，rAF 逐批递增，平滑「列表加载完成瞬间」的渲染峰值 */
-let progressiveRenderRaf = 0
-const scheduleProgressiveCourseRender = () => {
-  if (progressiveRenderRaf) cancelAnimationFrame(progressiveRenderRaf)
-  const step = () => {
-    if (disposed) return
-    if (courseRenderLimit.value < INITIAL_COURSE_BATCH) {
-      courseRenderLimit.value = Math.min(
-        INITIAL_COURSE_BATCH,
-        courseRenderLimit.value + 3
-      )
-      progressiveRenderRaf = requestAnimationFrame(step)
-    } else {
-      progressiveRenderRaf = 0
-    }
-  }
-  progressiveRenderRaf = requestAnimationFrame(step)
-}
-
-const typeMetaOf = (typeRaw) => {
-  const t = safeText(typeRaw).toLowerCase()
-  if (t.includes('video') || t === '视频') return { text: '视频', type: 'info', kind: 'video' }
-  if (
-    t.includes('doc') ||
-    t.includes('pdf') ||
-    t.includes('ppt') ||
-    t.includes('book') ||
-    t === 'document' ||
-    t === '文档'
-  )
-    return { text: '文档', type: 'warning', kind: 'document' }
-  if (t.includes('work') || t === '作业') return { text: '作业', type: 'danger', kind: 'work' }
-  if (t === 'knowledge' || t === '章节') return { text: '小节', type: 'primary', kind: 'knowledge' }
-  if (t === 'unknown' || t === '未知') return { text: '未知类型', type: 'muted', kind: 'unknown' }
-  return { text: safeText(typeRaw) || '任务', type: 'muted', kind: 'task' }
-}
-
-const normalizeKnowledge = (raw = {}) => ({
-  id: safeText(raw.id || raw.knowledge_id || raw.knowledgeId),
-  knowledgeId: safeText(raw.knowledge_id || raw.knowledgeId || raw.id),
-  title: safeText(raw.title || raw.name || '未命名小节'),
-  completed: !!(raw.completed || raw.isPassed),
-  courseId: safeText(raw.course_id || raw.courseId),
-  clazzId: safeText(raw.clazz_id || raw.clazzId),
-  cpi: safeText(raw.cpi || ''),
-  layer: safeNumber(raw.layer ?? raw.level ?? 0)
-})
-
-const normalizeSection = (raw = {}) => {
-  const tasks = Array.isArray(raw.tasks)
-    ? raw.tasks
-    : Array.isArray(raw.children)
-      ? raw.children
-      : []
-  return {
-    id: safeText(raw.id || raw.section_id || 'sec'),
-    title: safeText(raw.title || raw.name || '章节'),
-    knowledges: tasks.map(normalizeKnowledge).filter((k) => k.id || k.title)
-  }
-}
-
-const normalizeTaskItem = (raw = {}) => {
-  // 类型以后端 type/task_type 为准，禁止仅凭 objectId 强制 video
-  const typeRaw = raw.type || raw.task_type || raw.module || ''
-  const title = safeText(raw.title || raw.name || '未命名任务')
-  let meta = typeMetaOf(typeRaw)
-  // 后端 unknown/task 时，用文件名扩展名再推断一次（仅前端展示）
-  if (meta.kind === 'task' || meta.kind === 'unknown') {
-    const lower = title.toLowerCase()
-    if (/\.(pdf|ppt|pptx|doc|docx|xls|xlsx|txt)$/i.test(lower) || /课件|讲义|幻灯/.test(title)) {
-      meta = { text: '文档', type: 'warning', kind: 'document' }
-    } else if (/\.(mp4|flv|m3u8|mov|avi|mkv|webm)$/i.test(lower)) {
-      meta = { text: '视频', type: 'info', kind: 'video' }
-    }
-  }
-  const objectId = safeText(
-    raw.objectId || raw.object_id || raw.property?.objectid || raw.property?.objectId
-  )
-  const kind = meta.kind
-  return {
-    id: safeText(raw.id || raw.jobid || raw.objectId || raw.object_id || Math.random()),
-    title,
-    objectId,
-    jobid: safeText(raw.jobid || raw.jobId),
-    completed: !!(raw.completed || raw.isPassed),
-    status: safeText(raw.status || (raw.completed || raw.isPassed ? '已完成' : '未完成')),
-    typeMeta: meta,
-    kind,
-    empty_hint: !!(raw.empty_hint || raw.emptyHint)
-  }
-}
-
-const filteredCourses = computed(() => {
-  let list = courses.value
-  if (activeSemester.value && activeSemester.value !== '全部') {
-    list = list.filter((c) => c.semester === activeSemester.value)
-  }
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return list
-  return list.filter(
-    (c) => c.title.toLowerCase().includes(q) || c.teacher.toLowerCase().includes(q)
-  )
-})
-
-const visibleCourses = computed(() => {
-  // 所有平台分批渲染：先渲染 courseRenderLimit 门，滚动到底自动扩展
-  return filteredCourses.value.slice(0, courseRenderLimit.value)
-})
-
-const hasMoreCourses = computed(
-  () => visibleCourses.value.length < filteredCourses.value.length
-)
-
-const resetCourseRenderLimit = () => {
-  if (progressiveRenderRaf) {
-    cancelAnimationFrame(progressiveRenderRaf)
-    progressiveRenderRaf = 0
-  }
-  courseRenderLimit.value = isIOSLikeDevice
-    ? IOS_PROGRESSIVE_FIRST_BATCH
-    : INITIAL_COURSE_BATCH
-}
-
-/** 滚动自动扩展：防抖（300ms）避免快速滚到底时一次性加载全部 */
-let lastCourseAutoLoadAt = 0
-const loadMoreCourses = () => {
-  if (!hasMoreCourses.value) return
-  const now = Date.now()
-  if (now - lastCourseAutoLoadAt < 300) return
-  lastCourseAutoLoadAt = now
-  courseRenderLimit.value += COURSE_LOAD_MORE_STEP
-}
-
-// 滚动哨兵：列表末尾元素进入视口 → 自动加载下一批（IntersectionObserver）
-const loadMoreSentinelRef = ref(null)
-let loadMoreObserver = null
-let loadMoreObserverTarget = null
-
-const ensureLoadMoreObserver = () => {
-  if (loadMoreObserver || typeof IntersectionObserver === 'undefined') return
-  loadMoreObserver = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) loadMoreCourses()
-      }
-    },
-    { rootMargin: '240px 0px' }
-  )
-}
-
-watch(hasMoreCourses, (hasMore) => {
-  if (!hasMore) return
-  ensureLoadMoreObserver()
-  nextTick(() => {
-    const el = loadMoreSentinelRef.value
-    if (!el || !loadMoreObserver) return
-    if (loadMoreObserverTarget && loadMoreObserverTarget !== el) {
-      loadMoreObserver.unobserve(loadMoreObserverTarget)
-    }
-    loadMoreObserverTarget = el
-    loadMoreObserver.observe(el)
-  })
-})
-
-/** 成绩饼图切片（权重） */
-const scoreSlices = computed(() => {
-  const score = current.value?.score
-  if (!score) return []
-  const list = Array.isArray(score.weight_list) ? score.weight_list : []
-  const raw = []
-  if (list.length) {
-    for (const w of list) {
-      const value = safeNumber(w.value ?? w.score ?? w.weight ?? 0)
-      const name = safeText(w.name || w.key || '项目')
-      if (value > 0) raw.push({ name, value })
-    }
-  } else if (score.weight && typeof score.weight === 'object') {
-    const labels = {
-      work: '作业',
-      test: '考试',
-      video: '视频',
-      attend: '签到',
-      bbs: '讨论',
-      live: '直播',
-      read: '阅读',
-      task: '任务点'
-    }
-    for (const [k, v] of Object.entries(score.weight)) {
-      const value = safeNumber(v)
-      if (value > 0) raw.push({ name: labels[k] || k, value })
-    }
-  }
-  const total = raw.reduce((s, x) => s + x.value, 0) || 1
-  let acc = 0
-  return raw.map((item, i) => {
-    const pct = (item.value / total) * 100
-    const start = acc
-    acc += pct
-    return {
-      ...item,
-      pct,
-      color: PIE_COLORS[i % PIE_COLORS.length],
-      // conic-gradient 用
-      start,
-      end: acc
-    }
-  })
-})
-
-const pieGradient = computed(() => {
-  const slices = scoreSlices.value
-  if (!slices.length) return 'conic-gradient(#e2e8f0 0 100%)'
-  const parts = slices.map((s) => `${s.color} ${s.start}% ${s.end}%`)
-  return `conic-gradient(${parts.join(', ')})`
-})
-
-const totalPending = computed(() =>
-  courses.value.reduce((s, c) => s + (c.pendingCount || 0), 0)
-)
-
-const badgeType = computed(() => {
-  if (statusMeta.value?.connected === true) return 'success'
-  if (courses.value.length) return 'warning'
-  return 'muted'
-})
-const badgeText = computed(() => {
-  if (statusMeta.value?.connected === true) return '会话可用'
-  if (courses.value.length) return '缓存/部分'
-  return '未连接'
-})
-
-const activeVideoSrc = computed(() => {
-  const urls = current.value?.playUrls || []
-  if (!urls.length) return current.value?.src || ''
-  return urls[Math.min(videoSrcIndex.value, urls.length - 1)] || ''
-})
-
-/**
- * 统一 invoke：只传 snake_case 字段。
- * 切勿同时传 clazz_id + clazzId：Rust #[serde(alias)] 会报 duplicate field。
- */
-const cxInvoke = async (cmd, body = {}) => {
-  if (!isTauriRuntime()) throw new Error('请在客户端内使用')
-  const raw = { student_id: props.studentId || '', ...body }
-  // 规范化：camelCase → snake_case，并删除 camel 别名，避免重复键
-  const map = [
-    ['courseId', 'course_id'],
-    ['clazzId', 'clazz_id'],
-    ['classId', 'clazz_id'],
-    ['knowledgeId', 'knowledge_id'],
-    ['objectId', 'object_id'],
-    ['courseUrl', 'course_url'],
-    ['studentId', 'student_id']
-  ]
-  for (const [camel, snake] of map) {
-    if (raw[camel] != null && (raw[snake] == null || raw[snake] === '')) {
-      raw[snake] = raw[camel]
-    }
-    delete raw[camel]
-  }
-  return invokeNative(cmd, { req: raw })
-}
-
-const loadList = async ({ silent = false, force = false } = {}) => {
-  if (!silent) loading.value = true
-  else refreshing.value = true
-  error.value = ''
-  const t0 = Date.now()
-  // 首次进入 force=false 走后端缓存；显式刷新 force=true
-  const doForce = force || false
-  pushDebugLog('ChaoxingHub', `加载课程列表 silent=${silent} force=${doForce}`, 'info')
-  try {
-    // 列表优先拉课程（可缓存）；会话状态并行，不阻塞有缓存时的首屏
-    const coursePromise = cxInvoke('chaoxing_fetch_courses', { force: doForce })
-    const statusPromise = cxInvoke('chaoxing_get_session_status', {}).catch((e) => ({
-      success: false,
-      error: String(e?.message || e)
-    }))
-    const [courseRes, statusRes] = await Promise.all([coursePromise, statusPromise])
-    // 组件已卸载则放弃写入任何响应式状态
-    if (disposed) return
-    if (courseRes?.success === false) throw new Error(courseRes?.error || '课程列表失败')
-    statusMeta.value = statusRes || {}
-    let list = Array.isArray(courseRes?.courses) ? courseRes.courses : []
-    // 数据规模防护：先记录数量摘要，超限截断，避免超大列表拖垮 iOS WebView
-    pushDebugLog('ChaoxingHub', `课程原始数据 count=${list.length}`, 'info')
-    if (list.length > MAX_COURSE_LIST_SIZE) {
-      pushDebugLog(
-        'ChaoxingHub',
-        `课程数量超限 raw=${list.length}，已截断至 ${MAX_COURSE_LIST_SIZE}`,
-        'warn'
-      )
-      list = list.slice(0, MAX_COURSE_LIST_SIZE)
-    }
-    courses.value = list.map(normalizeCourse).filter((c) => c.courseId && c.clazzId)
-    // iOS：首帧小批渲染 + rAF 逐批递增，平滑「列表加载完成瞬间」的渲染峰值
-    if (isIOSLikeDevice) {
-      courseRenderLimit.value = Math.min(INITIAL_COURSE_BATCH, IOS_PROGRESSIVE_FIRST_BATCH)
-      scheduleProgressiveCourseRender()
-    }
-    pushDebugLog(
-      'ChaoxingHub',
-      `课程列表完成 count=${courses.value.length} from_cache=${!!courseRes?.from_cache} (${Date.now() - t0}ms)`,
-      'info',
-      { sync_time: courseRes?.sync_time, platform_status: courseRes?.platform_status }
-    )
-
-    const fromApi = Array.isArray(courseRes?.semesters)
-      ? courseRes.semesters.map((s) => safeText(s)).filter(Boolean)
-      : []
-    const fromCourses = [...new Set(courses.value.map((c) => c.semester).filter(Boolean))]
-    const merged = []
-    for (const s of [...fromApi, ...fromCourses]) {
-      if (!merged.includes(s)) merged.push(s)
-    }
-    // 本学期优先，未分学期靠后
-    merged.sort((a, b) => {
-      const rank = (s) => {
-        if (s === '本学期') return 0
-        if (String(s).includes('年') || String(s).includes('学期')) return 1
-        if (s === '历史课程') return 2
-        if (s === '未分学期') return 4
-        return 3
-      }
-      const d = rank(a) - rank(b)
-      if (d !== 0) return d
-      return String(b).localeCompare(String(a), 'zh')
-    })
-    semesterTabs.value = ['全部', ...merged]
-    if (!semesterTabs.value.includes(activeSemester.value)) {
-      activeSemester.value = '全部'
-    }
-    pushDebugLog(
-      'ChaoxingHub',
-      `学期列表 count=${merged.length} labels=${merged.join('|') || '(空)'} folder_extra=${courseRes?.folder_extra ?? 'n/a'}`,
-      merged.length <= 1 ? 'warn' : 'info',
-      { semesters: merged, from_api: fromApi, from_courses: fromCourses }
-    )
-  } catch (e) {
-    if (disposed) return
-    error.value = safeText(e?.message || e) || '加载失败'
-  } finally {
-    if (!disposed) {
-      // iOS：loading 退场延后一帧，避免「列表首渲染 + 移除加载动画」同帧峰值
-      if (isIOSLikeDevice) {
-        requestAnimationFrame(() => {
-          if (disposed) return
-          loading.value = false
-          refreshing.value = false
-        })
-      } else {
-        loading.value = false
-        refreshing.value = false
-      }
-    }
-  }
-}
-
-/** 模块内翻页：滚到顶部，不跟首页滚动位置同步 */
-const scrollModuleToTop = () => {
-  nextTick(() => {
-    try {
-      const shell = document.querySelector('.app-shell')
-      if (shell) shell.scrollTop = 0
-      window.scrollTo(0, 0)
-      document.documentElement.scrollTop = 0
-      document.body.scrollTop = 0
-      // 本组件根节点若可滚也归零
-      const root = document.querySelector('.cx-hub')
-      if (root) root.scrollTop = 0
-    } catch {
-      // ignore
-    }
-  })
-}
-
-const push = (frame) => {
-  stack.value = [...stack.value, frame]
-  scrollModuleToTop()
-}
-
-/**
- * 释放被移出栈帧关联的媒体资源（iOS 内存缓解）：
- * video 清空 src 并 load()，文档/播放器 iframe 跳转空白页，
- * 促使 WKWebView 尽快回收解码器与渲染内存
- */
-const releaseMediaForFrames = (frames = []) => {
-  const needRelease = frames.some((f) => f?.level === 'video' || f?.level === 'document')
-  if (!needRelease) return
-  try {
-    document.querySelectorAll('.cx-hub video.video-el').forEach((v) => {
-      try {
-        v.pause()
-        v.src = ''
-        v.load()
-      } catch {
-        // 静默失败
-      }
-    })
-    document.querySelectorAll('.cx-hub iframe.doc-frame').forEach((f) => {
-      try {
-        f.src = 'about:blank'
-      } catch {
-        // 静默失败
-      }
-    })
-  } catch {
-    // 静默失败
-  }
-}
-
-const pop = () => {
-  if (stack.value.length <= 1) {
-    emit('back')
-    return
-  }
-  // 先释放即将被移出层级的媒体资源，再更新栈
-  releaseMediaForFrames([stack.value[stack.value.length - 1]])
-  stack.value = stack.value.slice(0, -1)
-  videoError.value = ''
-  videoSrcIndex.value = 0
-  scrollModuleToTop()
-}
-
-/** 点面包屑跳到某一层 */
-const jumpTo = (index) => {
-  if (index < 0 || index >= stack.value.length) return
-  // 先释放被移出层级（video/document）的媒体资源，再更新栈
-  releaseMediaForFrames(stack.value.slice(index + 1))
-  stack.value = stack.value.slice(0, index + 1)
-  videoError.value = ''
-  videoSrcIndex.value = 0
-  scrollModuleToTop()
-}
-
-const openCourse = async (course, { force = false } = {}) => {
-  pageLoading.value = true
-  try {
-    // 默认走缓存；仅点「刷新章节」时 force
-    const outlineRes = await cxInvoke('chaoxing_fetch_course_outline', {
-      course_id: course.courseId,
-      clazz_id: course.clazzId,
-      cpi: course.cpi || '',
-      course_url: course.courseUrl || '',
-      force: !!force
-    })
-    if (disposed) return
-    if (outlineRes?.success === false) throw new Error(outlineRes?.error || '大纲失败')
-
-    let sectionList = Array.isArray(outlineRes?.sections) ? outlineRes.sections : []
-    if (!sectionList.length && Array.isArray(outlineRes?.nodes)) {
-      sectionList = [{ id: 'all', title: '全部章节', tasks: outlineRes.nodes }]
-    }
-    const sections = sectionList.map(normalizeSection).filter((s) => s.knowledges.length || s.title)
-
-    const frame = {
-      level: 'course',
-      course,
-      sections,
-      progress: {}
-    }
-    // 刷新时替换当前课程层，避免栈叠加
-    if (current.value.level === 'course') {
-      const base = stack.value.slice(0, -1)
-      stack.value = [...base, frame]
-    } else {
-      push(frame)
-    }
-
-    // 进度后台拉取，不阻塞进入章列表
-    void cxInvoke('chaoxing_fetch_course_progress', {
-      course_id: course.courseId,
-      clazz_id: course.clazzId,
-      cpi: course.cpi || '',
-      course_url: course.courseUrl || '',
-      force: false
-    })
-      .then((progressRes) => {
-        // 组件已卸载则放弃后台进度回填
-        if (disposed) return
-        const top = stack.value[stack.value.length - 1]
-        if (top?.level === 'course' && top.course?.courseId === course.courseId) {
-          top.progress = progressRes || {}
-          stack.value = [...stack.value.slice(0, -1), { ...top }]
-        }
-      })
-      .catch(() => {})
-  } catch (e) {
-    if (disposed) return
-    showToast(safeText(e?.message || e) || '打开课程失败')
-  } finally {
-    if (!disposed) pageLoading.value = false
-  }
-}
-
-const openSection = (course, section) => {
-  push({ level: 'section', course, section })
-}
-
-const openKnowledge = async (course, section, knowledge) => {
-  pageLoading.value = true
-  try {
-    // 优先用小节自带 course/clazz（大纲解析结果更准）
-    const courseId = knowledge.courseId || course.courseId
-    const clazzId = knowledge.clazzId || course.clazzId
-    const cpi = knowledge.cpi || course.cpi || ''
-    const kid = knowledge.knowledgeId || knowledge.id
-    const res = await cxInvoke('chaoxing_get_knowledge_cards', {
-      course_id: courseId,
-      clazz_id: clazzId,
-      knowledge_id: kid,
-      cpi
-    })
-    if (disposed) return
-    if (res?.success === false) throw new Error(res?.error || '任务点加载失败')
-    const list = Array.isArray(res?.tasks)
-      ? res.tasks
-      : Array.isArray(res?.attachments)
-        ? res.attachments
-        : Array.isArray(res?.videos)
-          ? res.videos
-          : []
-    // 过滤纯占位提示，若仅有占位则仍展示
-    const mapped = list.map(normalizeTaskItem)
-    const real = mapped.filter((t) => !t.empty_hint && (t.objectId || t.kind !== 'task'))
-    push({
-      level: 'knowledge',
-      course,
-      section,
-      knowledge,
-      tasks: real.length ? real : mapped,
-      meta: {
-        fid: safeText(res?.fid || ''),
-        reportUrl: safeText(res?.reportUrl || res?.report_url || ''),
-        userid: safeText(res?.userid || '')
-      }
-    })
-  } catch (e) {
-    if (disposed) return
-    showToast(safeText(e?.message || e) || '打开小节失败')
-  } finally {
-    if (!disposed) pageLoading.value = false
-  }
-}
-
-const openScore = async (course) => {
-  pageLoading.value = true
-  try {
-    const res = await cxInvoke('chaoxing_fetch_course_score', {
-      course_id: course.courseId,
-      clazz_id: course.clazzId,
-      cpi: course.cpi || ''
-    })
-    if (disposed) return
-    if (res?.success === false) throw new Error(res?.error || res?.message || '成绩加载失败')
-    // 若已在成绩页则替换，避免栈叠加
-    if (current.value.level === 'score') {
-      const base = stack.value.slice(0, -1)
-      stack.value = [...base, { level: 'score', course, score: res }]
-    } else {
-      push({ level: 'score', course, score: res })
-    }
-  } catch (e) {
-    if (disposed) return
-    const msg = safeText(e?.message || e) || '成绩加载失败'
-    if (msg.includes('Unknown POST endpoint')) {
-      showToast('成绩接口未就绪，请完全退出应用后重新打开')
-    } else if (msg.includes('duplicate field')) {
-      showToast('参数冲突已修复，请完全重启应用后再试')
-    } else {
-      showToast(msg)
-    }
-  } finally {
-    if (!disposed) pageLoading.value = false
-  }
-}
-
-const collectPlayUrls = (st = {}, top = {}) => {
-  const list = []
-  const push = (u) => {
-    const https = preferHttps(u)
-    if (!https || !https.startsWith('http')) return
-    if (!list.includes(https)) list.push(https)
-  }
-  if (Array.isArray(top.play_urls)) top.play_urls.forEach(push)
-  if (Array.isArray(st.play_urls)) st.play_urls.forEach(push)
-  ;['https', 'hd', 'http', 'play_url', 'download', 'mp3', 'url', 'sd'].forEach((k) => {
-    push(st[k])
-    push(top[k])
-  })
-  return list
-}
-
-const collectDocUrls = (st = {}, top = {}) => {
-  const list = []
-  const push = (u) => {
-    const https = preferHttps(u)
-    if (!https || !https.startsWith('http')) return
-    if (!list.includes(https)) list.push(https)
-  }
-  if (Array.isArray(top.play_urls)) top.play_urls.forEach(push)
-  if (Array.isArray(st.play_urls)) st.play_urls.forEach(push)
-  ;['https', 'http', 'download', 'pdf', 'url', 'preview', 'previewUrl', 'hd', 'sd'].forEach((k) => {
-    push(st[k])
-    push(top[k])
-  })
-  return list
-}
-
-/**
- * 视频直链 → 本地代理地址：
- * cldisk CDN 有 Referer 防盗链（无 chaoxing Referer 返回 403），且 WebView 与
- * Rust cookie jar 不共享；Tauri 下必须经 http_server 的 /proxy/video 流式代理播放。
- * 非 Tauri（dev 浏览器）退回原直链尽力播放。
- */
-const toVideoProxyUrl = (u) => {
-  if (!u || !u.startsWith('http')) return u
-  if (!isTauriRuntime()) return u
-  return `http://127.0.0.1:4399/proxy/video?url=${encodeURIComponent(u)}`
-}
-
-const openVideo = async (course, section, knowledge, task, meta) => {
-  if (!task.objectId) {
-    showToast('该任务没有可播放资源')
-    return
-  }
-  pageLoading.value = true
-  videoError.value = ''
-  videoSrcIndex.value = 0
-  try {
-    const res = await cxInvoke('chaoxing_get_video_status', {
-      object_id: task.objectId,
-      fid: meta?.fid || '0'
-    })
-    if (disposed) return
-    if (res?.success === false) throw new Error(res?.error || '视频状态失败')
-    const st = res?.data && typeof res.data === 'object' ? res.data : res
-    // 直链经本地代理播放（绕过 cldisk Referer 防盗链）；官方 ananas 播放器
-    // 带参 URL 已被学习通新版前端废弃（会永久卡「正在为您加载文件」），不再兜底
-    const playUrls = collectPlayUrls(st, res || {}).map(toVideoProxyUrl)
-    if (!playUrls.length) {
-      throw new Error(
-        st.status && st.status !== 'success'
-          ? `视频不可用（${st.status}）`
-          : '未返回播放地址，请确认学习通会话有效'
-      )
-    }
-    push({
-      level: 'video',
-      course,
-      section,
-      knowledge,
-      task,
-      src: playUrls[0] || '',
-      playUrls,
-      poster: preferHttps(safeText(st.screenshot || st.thumb || '')),
-      filename: safeText(st.filename || task.title),
-      duration: safeNumber(st.duration)
-    })
-  } catch (e) {
-    if (disposed) return
-    showToast(safeText(e?.message || e) || '视频打开失败')
-  } finally {
-    if (!disposed) pageLoading.value = false
-  }
-}
-
-/** 文档/PPT：走 ananas status 取直链或官方预览页，禁止 openVideo */
-const openDocument = async (course, section, knowledge, task, meta) => {
-  if (!task.objectId) {
-    showToast(`文档「${task.title}」无可预览资源（缺少 objectId）`)
-    return
-  }
-  pageLoading.value = true
-  try {
-    const res = await cxInvoke('chaoxing_get_video_status', {
-      object_id: task.objectId,
-      fid: meta?.fid || '0'
-    })
-    if (disposed) return
-    if (res?.success === false) throw new Error(res?.error || '文档状态失败')
-    const st = res?.data && typeof res.data === 'object' ? res.data : res
-    const docUrls = collectDocUrls(st, res || {})
-    const filename = safeText(st.filename || task.title)
-    // 官方 PDF/文档模块页（无签名时仍可能依赖会话 cookie）
-    const officialPreview = preferHttps(
-      `https://mooc1.chaoxing.com/ananas/modules/pdf/index.html?objectid=${encodeURIComponent(task.objectId)}&fid=${encodeURIComponent(meta?.fid || '0')}`
-    )
-    const previewUrl = docUrls[0] || officialPreview
-    if (!previewUrl) {
-      showToast(`文档「${filename || task.title}」暂无预览地址，请在学习通网页端打开`)
-      return
-    }
-    push({
-      level: 'document',
-      course,
-      section,
-      knowledge,
-      task,
-      src: previewUrl,
-      candidates: docUrls.length ? docUrls : [officialPreview],
-      filename,
-      fileType: safeText(st.fileType || st.filetype || task.typeMeta?.text || '文档')
-    })
-  } catch (e) {
-    if (disposed) return
-    const msg = safeText(e?.message || e) || '文档打开失败'
-    showToast(`文档预览失败：${msg}`)
-  } finally {
-    if (!disposed) pageLoading.value = false
-  }
-}
-
-const mediaErrorMessage = (ev) => {
-  try {
-    const el = ev?.target || ev?.currentTarget
-    const code = el?.error?.code
-    // MEDIA_ERR_*: 1=aborted 2=network 3=decode 4=src not supported
-    const map = {
-      1: '加载中止',
-      2: '网络错误（可能被 CDN 拒绝或会话失效）',
-      3: '解码失败',
-      4: '格式不支持或地址无效'
-    }
-    if (code && map[code]) return map[code]
-    if (el?.error?.message) return String(el.error.message)
-  } catch {
-    // ignore
-  }
-  return ''
-}
-
-const onVideoError = (ev) => {
-  const frame = current.value
-  const urls = frame?.playUrls || []
-  if (videoSrcIndex.value + 1 < urls.length) {
-    videoSrcIndex.value += 1
-    videoError.value = `线路 ${videoSrcIndex.value + 1}/${urls.length} 失败，切换备用地址…`
-    return
-  }
-  // 直链全部失败：官方 ananas 播放器带参 URL 已被学习通废弃（永久卡「正在为您加载文件」），
-  // 不再切换，直接给出可操作提示
-  const detail = mediaErrorMessage(ev)
-  videoError.value = detail
-    ? `视频播放失败：${detail}。请重试、切换线路或重新登录学习通`
-    : '视频播放失败：无法解析播放地址或被 CDN 拒绝。请重试，或重新登录学习通后再打开'
-}
-
-const retryVideo = () => {
-  const frame = current.value
-  if (frame?.level !== 'video' || !frame.task) return
-  const task = frame.task
-  const course = frame.course
-  const section = frame.section
-  const knowledge = frame.knowledge
-  const knowFrame = [...stack.value].reverse().find((f) => f.level === 'knowledge')
-  const meta = knowFrame?.meta || { fid: '0' }
-  // 先退出视频层再重新打开，避免栈叠加
-  if (stack.value.length > 1 && current.value.level === 'video') {
-    stack.value = stack.value.slice(0, -1)
-  }
-  videoError.value = ''
-  videoSrcIndex.value = 0
-  void openVideo(course, section, knowledge, task, meta)
-}
-
-const onTaskClick = (frame, task) => {
-  if (task.empty_hint || task.status === '无可播放任务') {
-    showToast('该小节暂无任务点')
-    return
-  }
-  // 严格按 kind 分流：禁止 objectId 一律当视频
-  if (task.kind === 'video') {
-    void openVideo(frame.course, frame.section, frame.knowledge, task, frame.meta)
-    return
-  }
-  if (task.kind === 'document') {
-    void openDocument(frame.course, frame.section, frame.knowledge, task, frame.meta)
-    return
-  }
-  if (task.kind === 'work') {
-    showToast(`作业「${task.title}」请在学习通网页端完成`)
-    return
-  }
-  if (task.kind === 'unknown' && task.objectId) {
-    showToast(`未知类型任务「${task.title}」，暂不按视频打开`)
-    return
-  }
-  showToast(`${task.typeMeta?.text || '任务'}：${task.title}`)
-}
-
-const onCoverError = (e) => {
-  if (e?.target) {
-    e.target.style.display = 'none'
-    const fallback = e.target.nextElementSibling
-    if (fallback) fallback.style.display = 'flex'
-  }
-}
+const {
+  current,
+  breadcrumbs,
+  pageTitle,
+  stack,
+  loading,
+  refreshing,
+  pageLoading,
+  error,
+  videoError,
+  videoSrcIndex,
+  activeVideoSrc,
+  scoreSlices,
+  pieGradient,
+  shouldRenderRemoteCourseCovers,
+  jumpTo,
+  pop
+} = core
+const {
+  courses,
+  semesterTabs,
+  activeSemester,
+  searchQuery,
+  filteredCourses,
+  visibleCourses,
+  hasMoreCourses,
+  totalPending,
+  badgeType,
+  badgeText,
+  loadMoreSentinelRef,
+  loadList,
+  loadMoreCourses,
+  resetCourseRenderLimit,
+  onIosMemoryWarning
+} = list
+const {
+  openCourse,
+  openSection,
+  openKnowledge,
+  openScore,
+  openVideo,
+  openDocument,
+  onTaskClick,
+  retryVideo,
+  onCoverError,
+  onVideoError
+} = nav
 
 const handleHeaderBack = () => pop()
-
-const formatDuration = (sec) => {
-  const s = Math.max(0, Math.floor(Number(sec) || 0))
-  const m = Math.floor(s / 60)
-  const r = s % 60
-  return `${m}:${String(r).padStart(2, '0')}`
-}
 
 watch(
   () => props.studentId,
@@ -954,18 +103,8 @@ watch([activeSemester, searchQuery], () => {
   resetCourseRenderLimit()
 })
 
-/** iOS 原生层内存告警：立即收缩课程渲染批量，降低 DOM 与内存压力 */
-const onIosMemoryWarning = () => {
-  if (progressiveRenderRaf) {
-    cancelAnimationFrame(progressiveRenderRaf)
-    progressiveRenderRaf = 0
-  }
-  courseRenderLimit.value = INITIAL_COURSE_BATCH
-  pushDebugLog('ChaoxingHub', '收到 iOS 内存告警，收缩课程渲染批量', 'warn')
-}
-
 onMounted(() => {
-  scrollModuleToTop()
+  core.scrollModuleToTop()
   // 事件名与原生层契约保持一致：iosMemoryWarning
   window.addEventListener('iosMemoryWarning', onIosMemoryWarning)
   void loadList()
@@ -973,16 +112,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   // 仅在组件卸载时置位；导航栈内 pop/jumpTo 切换不触发
-  disposed = true
-  if (progressiveRenderRaf) {
-    cancelAnimationFrame(progressiveRenderRaf)
-    progressiveRenderRaf = 0
-  }
-  if (loadMoreObserver) {
-    loadMoreObserver.disconnect()
-    loadMoreObserver = null
-    loadMoreObserverTarget = null
-  }
+  core.dispose()
   window.removeEventListener('iosMemoryWarning', onIosMemoryWarning)
 })
 </script>

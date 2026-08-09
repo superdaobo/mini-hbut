@@ -21,8 +21,11 @@ pub mod chaoxing_outline;
 pub mod chaoxing_session;
 pub mod service;
 mod shared;
+#[cfg(feature = "mobile-full")]
 pub mod yuketang_courses;
+#[cfg(feature = "mobile-full")]
 pub mod yuketang_session;
+#[cfg(feature = "mobile-full")]
 pub mod yuketang_video;
 
 // 学习通会话
@@ -39,22 +42,28 @@ pub use chaoxing_outline::{
 
 // 学习通课程内容（卡片 / 视频 / 成绩 / 打开链接）
 pub use chaoxing_cards::{
-    chaoxing_fetch_course_score, chaoxing_get_knowledge_cards, chaoxing_get_launch_url,
-    chaoxing_get_video_status, chaoxing_report_progress, chaoxing_video_status_candidate_urls,
-    infer_attachment_kind,
+    chaoxing_fetch_course_score, chaoxing_get_knowledge_cards, chaoxing_get_video_status,
+    chaoxing_video_status_candidate_urls, infer_attachment_kind,
 };
+#[cfg(feature = "mobile-full")]
+pub use chaoxing_cards::{chaoxing_get_launch_url, chaoxing_report_progress};
 
-// 雨课堂
+// 雨课堂（刷课/自动化，mobile-slim 关闭，#594）
+#[cfg(feature = "mobile-full")]
 pub use yuketang_courses::{
     yuketang_fetch_course_outline, yuketang_fetch_course_progress, yuketang_fetch_courses,
 };
+#[cfg(feature = "mobile-full")]
 pub use yuketang_session::{yuketang_create_qr_login, yuketang_poll_qr_login};
+#[cfg(feature = "mobile-full")]
 pub use yuketang_video::{
     yuketang_get_course_chapters, yuketang_get_leaf_info, yuketang_send_heartbeat,
 };
 
-// 总览 / 同步服务
+// 总览 / 同步服务（刷课同步，mobile-slim 关闭，#594）
+pub use service::chaoxing_get_session_status;
+#[cfg(feature = "mobile-full")]
 pub use service::{
-    chaoxing_get_session_status, clear_online_learning_cache, fetch_online_learning_overview,
-    list_online_learning_sync_runs, online_learning_sync_now,
+    clear_online_learning_cache, fetch_online_learning_overview, list_online_learning_sync_runs,
+    online_learning_sync_now,
 };
