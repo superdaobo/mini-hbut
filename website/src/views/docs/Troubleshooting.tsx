@@ -241,8 +241,8 @@ const maintenanceChecklist = [
 const sourceEvidence = [
     '旧 FAQ 证据：website/src/pages/docs/FAQ.tsx 的登录问题、功能使用问题、安装与更新、网络与连接、后台通知、数据与隐私、平台相关问题。',
     '缓存维护证据：src/utils/api.ts 的 hbu_jwxt_maintenance、looksLikeMaintenanceIssue、setMaintenanceFlag、withOfflineMeta、sync_time、QuotaExceeded、trimLocalCacheStorage。',
-    '通知证据：src/utils/notify_center.runtime.js 的 hbu_notify_snapshot、runNotificationCheck、sendQueuedNotifications、grade signature、fallbackSnapshot；src/utils/background_fetch.ts 的 syncBackgroundFetchContext。',
-    '云同步证据：src/utils/cloud_sync.runtime.js 的 hbu_cloud_sync_status、cooldown、requestCloudSync、runCloudSyncUpload、runCloudSyncDownload、runAutoCloudSyncAfterLogin、x-cloud-sync-challenge。',
+    '通知证据：src/utils/notify_center.ts 的 hbu_notify_snapshot、runNotificationCheck、sendQueuedNotifications、grade signature、fallbackSnapshot；src/utils/background_fetch.ts 的 syncBackgroundFetchContext。',
+    '云同步证据：src/utils/cloud_sync.ts 的 hbu_cloud_sync_status、cooldown、requestCloudSync、runCloudSyncUpload、runCloudSyncDownload、runAutoCloudSyncAfterLogin、x-cloud-sync-challenge。',
     '反馈和日志证据：src/utils/debug_logger.ts 的 hbu_debug_logs_v1；src/components/SettingsView.vue 的调试日志面板；src/components/FeedbackView.vue 的复制最近 error。',
     '调试脚本证据：scripts/debug_capture_ui.mjs、scripts/run_tauri_debug_dev.mjs、scripts/test_debug_bridge_contract.mjs、scripts/test_hot_update_framework.mjs、scripts/test_more_module_bridge.mjs、scripts/test_resource_share_network.mjs。',
     '维护守卫证据：scripts/check_dist_boundary.mjs、scripts/guard_sensitive_uploads.mjs、scripts/check-frontend-safety.mjs、scripts/check-design-tokens.mjs。',
