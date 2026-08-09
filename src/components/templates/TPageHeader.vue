@@ -16,7 +16,7 @@
   </header>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 
 const props = defineProps({
@@ -25,6 +25,12 @@ const props = defineProps({
   showBack: { type: Boolean, default: true }
 })
 defineEmits(['back'])
+
+// actions slot 类型声明（vue-tsc 3.3.9 需要显式 slots 类型，否则 #actions 报错）
+interface PageHeaderSlots {
+  actions?: () => void
+}
+defineSlots<PageHeaderSlots>()
 
 // Material symbol names are ASCII-only (e.g. "edit_document", "emoji_events")
 // Emojis contain non-ASCII characters
