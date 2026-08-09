@@ -1,43 +1,47 @@
-﻿<script setup>
-import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
-import axios from 'axios'
-import { fetchWithCache, DEFAULT_SWR_OPTIONS, EXTRA_LONG_TTL } from '../utils/api.js'
-import { formatRelativeTime } from '../utils/time.js'
-import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
-import { flushUiSettings, useUiSettings } from '../utils/ui_settings'
+﻿<script setup lang="ts">
+/**
+ * 课表页面入口（编排层）。
+ * 原巨型单文件（约 4900 行）已按职责拆分至 src/features/schedule/**：
+ *  - composables：数据加载 / 学期周次 / 布局派生 / 课程编辑 / 导入导出 / 云同步 / 弹层状态
+ *  - components：顶部导航 / 抽屉 / 课表网格 / 详情 / 添加编辑 / 管理 / 周选择器 / 确认框 / 横幅
+ *  - utils：颜色分配 / 布局合并 / 日历事件 / 导入导出 / 学期派生 / 弹窗存储 等纯函数
+ * 本文件仅保留：props/emits 契约、composable 组合、事件接线、Widget 深链接与生命周期编排。
+ */
+import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import {
   clearScheduleLock,
   consumeScheduleSwitchPending,
-  getCachedScheduleSnapshot,
   isAutoScheduleLockReason,
-  readScheduleRenderSnapshot,
-  readScheduleLockDetail,
   readScheduleLock,
-  SCHEDULE_POPUP_PENDING_KEY,
-  writeScheduleRenderSnapshot,
+  readScheduleLockDetail,
   warmupScheduleForStudent,
   writeScheduleLock
 } from '../utils/schedule_prefetch.js'
-import {
-  CLOUD_SYNC_UPDATED_EVENT,
-  getCloudSyncCooldownState,
-  runCloudSyncDownload,
-  runCloudSyncUpload
-} from '../utils/cloud_sync.js'
+import { CLOUD_SYNC_UPDATED_EVENT } from '../utils/cloud_sync.js'
 import { pushDebugLog } from '../utils/debug_logger'
-import { hasBootMetric, markBootMetric } from '../utils/boot_metrics.js'
-import { showToast } from '../utils/toast'
-import { invokeNative, isTauriRuntime } from '../platform/native'
-import { isMobileLike } from '../platform/runtime'
-import { afterScheduleRefresh } from '../utils/widget_bridge'
-import { isTestAccountSession } from '../utils/test_account.js'
-import CourseColorPicker from './CourseColorPicker.vue'
-import {
-  DEFAULT_COURSE_COLOR,
-  contrastTextForHex,
-  mixHexWithWhite,
-  normalizeOptionalCourseColor,
-} from '../utils/course_color'
+import { formatRelativeTime } from '../utils/time.js'
+
+import { useConfirmDialog } from '../features/schedule/composables/useConfirmDialog'
+import { useScheduleMenu } from '../features/schedule/composables/useScheduleMenu'
+import { useScheduleSemester } from '../features/schedule/composables/useScheduleSemester'
+import { useScheduleData } from '../features/schedule/composables/useScheduleData'
+import { useScheduleGrid } from '../features/schedule/composables/useScheduleGrid'
+import { useScheduleDetail } from '../features/schedule/composables/useScheduleDetail'
+import { useScheduleEditor } from '../features/schedule/composables/useScheduleEditor'
+import { useScheduleIO } from '../features/schedule/composables/useScheduleIO'
+import { useScheduleSync } from '../features/schedule/composables/useScheduleSync'
+import { deriveSemesterByDate, readStoredSemester } from '../features/schedule/utils/semester'
+import { consumePendingSemesterPopup } from '../features/schedule/utils/popup'
+
+import ScheduleTopbar from '../features/schedule/components/ScheduleTopbar.vue'
+import ScheduleDrawer from '../features/schedule/components/ScheduleDrawer.vue'
+import ScheduleBanners from '../features/schedule/components/ScheduleBanners.vue'
+import ScheduleGrid from '../features/schedule/components/ScheduleGrid.vue'
+import ScheduleCourseDetail from '../features/schedule/components/ScheduleCourseDetail.vue'
+import ScheduleAddCourseDialog from '../features/schedule/components/ScheduleAddCourseDialog.vue'
+import ScheduleManageCoursesDialog from '../features/schedule/components/ScheduleManageCoursesDialog.vue'
+import ScheduleWeekPicker from '../features/schedule/components/ScheduleWeekPicker.vue'
+import ScheduleConfirmDialog from '../features/schedule/components/ScheduleConfirmDialog.vue'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -47,319 +51,120 @@ const props = defineProps({
 
 const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed'])
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-
-// 状态
-const loading = ref(false)
-const scheduleData = ref([])
-const remoteScheduleData = ref([])
-const customScheduleData = ref([])
-const currentWeek = ref(0)
-const selectedWeek = ref(0)
-const semester = ref('')
-const totalWeeks = ref(25)
-const startDateStr = ref('') 
-const errorMsg = ref('')
-const showDetail = ref(false)
-const selectedCourse = ref(null)
-const offline = ref(false)
-const offlineHint = ref('')
-const syncTime = ref('')
-const initialFetchDone = ref(false)
-const vacationNotice = ref('')
-const showMenu = ref(false)
-const exporting = ref(false)
-const exportingMode = ref('')
-const exportUrl = ref('')
-const exportError = ref('')
-const exportCopied = ref(false)
-const semesterOptions = ref([])
-const semesterLoading = ref(false)
-const semesterDraft = ref('')
-const semesterError = ref('')
-const showSemesterPopup = ref(false)
-const semesterPopupText = ref('')
-const showSemesterBadgePopover = ref(false)
-const showAddCourse = ref(false)
-const courseDialogMode = ref('add')
-const editingCourseId = ref('')
-const editingCourseSemester = ref('')
-const showWeekPicker = ref(false)
-const addingCourse = ref(false)
-const addCourseError = ref('')
-const detailActionError = ref('')
-const showManageCourses = ref(false)
-const loadingManageCourses = ref(false)
-const manageCoursesError = ref('')
-const allCustomCourses = ref([])
-const manageExpandedSemesters = ref({})
-const returnToManageAfterCourseSubmit = ref(false)
-const showConfirmDialog = ref(false)
-const confirmDialogTitle = ref('')
-const confirmDialogLines = ref([])
-const confirmDialogConfirmText = ref('确认')
-const confirmDialogCancelText = ref('取消')
-const confirmDialogDanger = ref(false)
-const weekTransitionName = ref('week-slide-left')
-const syncUploading = ref(false)
-const syncDownloading = ref(false)
-const customCourseExporting = ref(false)
-const customCourseImporting = ref(false)
-const customCourseExportLocation = ref('')
-const syncUploadCooldownMs = ref(0)
-const syncDownloadCooldownMs = ref(0)
-const syncStatusText = ref('')
-const customCourseFileInput = ref(null)
-const uiSettings = useUiSettings()
-const courseCardRefreshNonce = ref(0)
-let confirmDialogResolver = null
-let syncCooldownTimer = null
-const addCourseForm = ref({
-  name: '',
-  teacher: '',
-  room: '',
-  weekday: 1,
-  period: 1,
-  djs: 1,
-  weeks: [],
-  /** 用户设定主色 hex；空字符串表示未设定（#469 本地表单态，#470 再持久化） */
-  color: DEFAULT_COURSE_COLOR
+// ============ 组合式状态（按依赖顺序实例化） ============
+const confirmDialog = useConfirmDialog()
+const menu = useScheduleMenu({ props })
+const semesterApi = useScheduleSemester({
+  // 惰性求值：运行时各弹层状态均已就绪
+  isAnyOverlayOpen: () => anyOverlayOpen.value,
 })
-const returnToDetailAfterCourseSubmit = ref(false)
-const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
+const data = useScheduleData(props, emit, { semester: semesterApi })
+const grid = useScheduleGrid({ data, semester: semesterApi, menu })
+const detail = useScheduleDetail({ data, semester: semesterApi })
+const editor = useScheduleEditor({ props, data, semester: semesterApi, detail, menu, confirmDialog })
+const io = useScheduleIO({ props, data, semester: semesterApi, editor, confirmDialog })
+const sync = useScheduleSync({ props, data, semester: semesterApi, editor, confirmDialog })
 
-// Widget 深链接高亮状态
-const widgetHighlightPeriod = ref(0)
-const widgetHighlightDay = ref(0)
-let widgetHighlightTimer = null
-
-const courseDialogSemester = computed(() => {
-  if (courseDialogMode.value === 'edit') {
-    return String(editingCourseSemester.value || semester.value || semesterDraft.value || '').trim()
-  }
-  return String(semester.value || semesterDraft.value || '').trim()
+// 任一弹层打开时禁用周次滑动/键盘切换（与原始 shouldIgnoreWeekSwipe 一致）
+const anyOverlayOpen = computed(() => {
+  return (
+    menu.showMenu.value ||
+    menu.showSemesterBadgePopover.value ||
+    menu.showSemesterPopup.value ||
+    detail.showDetail.value ||
+    editor.showAddCourse.value ||
+    editor.showManageCourses.value ||
+    editor.showWeekPicker.value ||
+    confirmDialog.showConfirmDialog.value
+  )
 })
 
-const readStoredSemester = () => {
-  try {
-    const raw = localStorage.getItem('hbu_schedule_meta')
-    if (!raw) return ''
-    const parsed = JSON.parse(raw)
-    return String(parsed?.semester || '').trim()
-  } catch {
-    return ''
-  }
-}
+// ============ 顶层解构（模板自动解包） ============
+// 学期周次
+const {
+  semester,
+  semesterDraft,
+  currentWeek,
+  selectedWeek,
+  totalWeeks,
 
-const resolveDisplayStudentId = () => {
-  const sid = String(props.studentId || '').trim()
-  if (sid) return sid
-  // 主动退出后不再用 hbu_username 回退，避免未登录仍展示上一账号课表
-  if (localStorage.getItem('hbu_manual_logout') === 'true') return ''
-  const fallback = String(localStorage.getItem('hbu_username') || '').trim()
-  return /^\d{10}$/.test(fallback) ? fallback : ''
-}
+  vacationNotice,
+  weekDates,
+  currentMonth,
+  semesterWeekOptions,
+  weekTransitionName,
+  jumpToCurrentWeek,
+} = semesterApi
+// 菜单/样式
+const {
+  showMenu,
+  scheduleCourseCardStyle,
+  courseCardRefreshNonce,
+  styleOptions,
+  toggleMenu,
+  setScheduleCourseCardStyle,
+} = menu
+// 数据
+const {
+  loading,
+  errorMsg,
+  offline,
+  offlineHint,
+  syncTime,
+  initialFetchDone,
+  semesterOptions,
+  semesterLoading,
+  semesterError,
+  loadingManageCourses,
+  manageCoursesError,
+  managedCourseGroups,
+  manageExpandedSemesters,
+} = data
+// 详情
+const { showDetail, selectedCourse, detailActionError } = detail
+// 编辑
+const {
+  showAddCourse,
+  courseDialogMode,
+  courseDialogSemester,
+  addCourseForm,
+  addCourseError,
+  addingCourse,
+  courseSpanOptions,
+  addWeeksCountText,
+  showManageCourses,
+  showWeekPicker,
+} = editor
+// 导入导出
+const {
+  exporting,
+  exportingMode,
+  exportUrl,
+  exportError,
+  exportCopied,
+  customCourseExporting,
+  customCourseImporting,
+  customCourseExportLocation,
+} = io
+// 云同步
+const {
+  syncUploading,
+  syncDownloading,
+  syncStatusText,
+  syncUploadCooldownText,
+  syncDownloadCooldownText,
+} = sync
+// 确认对话框
+const {
+  showConfirmDialog,
+  confirmDialogTitle,
+  confirmDialogLines,
+  confirmDialogConfirmText,
+  confirmDialogCancelText,
+  confirmDialogDanger,
+} = confirmDialog
 
-const deriveSemesterByDate = (date = new Date()) => {
-  const year = Number(date.getFullYear())
-  const month = Number(date.getMonth()) + 1
-  const day = Number(date.getDate())
-  let academicYearStart = year - 1
-  let term = 1
-  if (month >= 9) {
-    academicYearStart = year
-    term = 1
-  } else if (month >= 3) {
-    academicYearStart = year - 1
-    term = 2
-  } else if (month === 2 && day >= 15) {
-    academicYearStart = year - 1
-    term = 2
-  } else {
-    academicYearStart = year - 1
-    term = 1
-  }
-  return `${academicYearStart}-${academicYearStart + 1}-${term}`
-}
-
-const storedSemester = readStoredSemester()
-if (storedSemester) {
-  semester.value = storedSemester
-  semesterDraft.value = storedSemester
-}
-
-const buildPopupShownKey = () => {
-  const sid = String(props.studentId || '').trim()
-  const sessionToken = String(localStorage.getItem(LOGIN_SESSION_TOKEN_KEY) || '').trim()
-  if (!sid || !sessionToken) return ''
-  return `hbu_schedule_popup_shown:${sid}:${sessionToken}`
-}
-
-const markPopupShown = () => {
-  const key = buildPopupShownKey()
-  if (!key) return
-  localStorage.setItem(key, '1')
-}
-
-const isPopupShown = () => {
-  const key = buildPopupShownKey()
-  if (!key) return true
-  return localStorage.getItem(key) === '1'
-}
-
-const openSemesterPopup = (targetSemester = '') => {
-  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
-  if (!sem) return
-  semesterPopupText.value = sem
-  showSemesterPopup.value = true
-  markPopupShown()
-}
-
-const onSemesterBadgeClick = () => {
-  showSemesterPopup.value = false
-  showSemesterBadgePopover.value = !showSemesterBadgePopover.value
-}
-
-const closeSemesterBadgePopover = (e) => {
-  if (showSemesterBadgePopover.value && !e.target.closest('.semester-badge-wrap')) {
-    showSemesterBadgePopover.value = false
-  }
-}
-
-const consumePendingSemesterPopup = () => {
-  try {
-    const raw = localStorage.getItem(SCHEDULE_POPUP_PENDING_KEY)
-    if (!raw) return ''
-    const parsed = JSON.parse(raw)
-    const targetSid = String(parsed?.student_id || '').trim()
-    const sem = String(parsed?.semester || '').trim()
-    if (targetSid && targetSid !== String(props.studentId || '').trim()) {
-      return ''
-    }
-    localStorage.removeItem(SCHEDULE_POPUP_PENDING_KEY)
-    return sem
-  } catch {
-    localStorage.removeItem(SCHEDULE_POPUP_PENDING_KEY)
-    return ''
-  }
-}
-
-const weekDays = ['1 周一', '2 周二', '3 周三', '4 周四', '5 周五', '6 周六', '7 周日']
-const weekDayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const periodOptions = Array.from({ length: 11 }, (_, i) => i + 1)
-const MAX_PERIOD = 11
-const courseCardStyleOptions = [
-  { key: 'modern', label: '现代' },
-  { key: 'traditional', label: '传统' },
-  { key: 'class', label: '标准' }
-]
-
-// 更加精细的时间表
-const timeSchedule = [
-  { p: 1, start: '08:20', end: '09:05' },
-  { p: 2, start: '09:10', end: '09:55' },
-  { p: 3, start: '10:15', end: '11:00' },
-  { p: 4, start: '11:05', end: '11:50' },
-  { p: 5, start: '14:00', end: '14:45' },
-  { p: 6, start: '14:50', end: '15:35' },
-  { p: 7, start: '15:55', end: '16:40' },
-  { p: 8, start: '16:45', end: '17:30' },
-  { p: 9, start: '18:30', end: '19:15' },
-  { p: 10, start: '19:20', end: '20:05' },
-  { p: 11, start: '20:10', end: '20:55' }
-]
-
-// 课表卡片配色：沿用 main 上版（v1.2.5）风格
-const courseThemes = [
-  { bg: '#e7f4ff', text: '#0f5da8', border: '#72b9ff' }, // 湖蓝
-  { bg: '#fff0e8', text: '#cb4f2f', border: '#ffb390' }, // 珊瑚橘
-  { bg: '#efe9ff', text: '#5f52cf', border: '#b8aaff' }, // 紫藤
-  { bg: '#fff4db', text: '#be7a07', border: '#efc465' }, // 琥珀
-  { bg: '#ffeaf2', text: '#c33f73', border: '#f3a8c4' }, // 玫瑰
-  { bg: '#e8faf5', text: '#117f67', border: '#8adcc4' }, // 青绿
-  { bg: '#e8efff', text: '#335ccb', border: '#9eb4ff' }, // 靛蓝
-  { bg: '#fff1f5', text: '#b63f58', border: '#f0acbb' }, // 浅莓
-  { bg: '#edf8ef', text: '#2f8c3d', border: '#9dd7a7' }, // 春绿
-  { bg: '#e8f9ff', text: '#007893', border: '#84d6ec' }, // 青空
-  { bg: '#f4edff', text: '#7548c1', border: '#c6adf1' }, // 兰紫
-  { bg: '#fff2e2', text: '#b05c16', border: '#efb67f' }, // 暖杏
-]
-
-const weekDates = computed(() => {
-  if (!startDateStr.value) return []
-  
-  const start = new Date(startDateStr.value)
-  const daysToAdd = (selectedWeek.value - 1) * 7
-  start.setDate(start.getDate() + daysToAdd)
-  
-  const dates = []
-  const today = new Date()
-  
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(start)
-    d.setDate(start.getDate() + i)
-    const yyyy = d.getFullYear()
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    const dd = String(d.getDate()).padStart(2, '0')
-    dates.push({
-      year: yyyy,
-      month: d.getMonth() + 1,
-      date: d.getDate(),
-      iso: `${yyyy}-${mm}-${dd}`,
-      dayLabel: weekDays[i],
-      isToday: d.toDateString() === today.toDateString()
-    })
-  }
-  return dates
-})
-
-const currentMonth = computed(() => {
-  if (weekDates.value.length > 0) return weekDates.value[0].month
-  return new Date().getMonth() + 1
-})
-
-const isTodayColumn = (dayIndex) => {
-  const idx = Number(dayIndex) - 1
-  if (idx < 0 || idx > 6) return false
-  return !!weekDates.value[idx]?.isToday
-}
-
-const semesterWeekOptions = computed(() => {
-  const count = Number(totalWeeks.value)
-  const safeCount = Number.isFinite(count) && count > 0 ? count : 25
-  return Array.from({ length: safeCount }, (_, i) => i + 1)
-})
-
-const courseSpanOptions = computed(() => {
-  const start = Number(addCourseForm.value.period) || 1
-  const maxSpan = Math.max(1, 12 - start)
-  return Array.from({ length: maxSpan }, (_, i) => i + 1)
-})
-
-const addWeeksCountText = computed(() => {
-  const weeks = Array.isArray(addCourseForm.value.weeks) ? addCourseForm.value.weeks.length : 0
-  return weeks > 0 ? `已选 ${weeks} 周` : '未选择周次'
-})
-
-const normalizeCourseCardStyle = (value) => {
-  const key = String(value || '').trim().toLowerCase()
-  return ['modern', 'traditional', 'class'].includes(key) ? key : 'modern'
-}
-
-const scheduleCourseCardStyle = ref(normalizeCourseCardStyle(uiSettings.scheduleCourseCardStyle))
-
-const formatCooldownText = (value) => {
-  const ms = Number(value || 0)
-  if (ms <= 0) return '可立即同步'
-  const sec = Math.ceil(ms / 1000)
-  if (sec < 60) return `${sec} 秒后可再次同步`
-  const min = Math.floor(sec / 60)
-  const remain = sec % 60
-  return remain > 0 ? `${min}分${remain}秒后可再次同步` : `${min} 分钟后可再次同步`
-}
-
-const syncUploadCooldownText = computed(() => formatCooldownText(syncUploadCooldownMs.value))
-const syncDownloadCooldownText = computed(() => formatCooldownText(syncDownloadCooldownMs.value))
+// ============ 展示派生 ============
 const offlineBannerText = computed(() => {
   if (offlineHint.value) return offlineHint.value
   if (syncTime.value) {
@@ -368,744 +173,71 @@ const offlineBannerText = computed(() => {
   return '当前显示为离线数据'
 })
 
-const openConfirmDialog = ({
-  title = '请确认',
-  lines = [],
-  confirmText = '确认',
-  cancelText = '取消',
-  danger = false
-} = {}) => {
-  confirmDialogTitle.value = String(title || '请确认')
-  confirmDialogLines.value = Array.isArray(lines)
-    ? lines.map((line) => String(line || '').trim()).filter(Boolean)
-    : []
-  confirmDialogConfirmText.value = String(confirmText || '确认')
-  confirmDialogCancelText.value = String(cancelText || '取消')
-  confirmDialogDanger.value = !!danger
-  showConfirmDialog.value = true
-}
-
-const closeConfirmDialog = (result = false) => {
-  showConfirmDialog.value = false
-  const resolver = confirmDialogResolver
-  confirmDialogResolver = null
-  if (resolver) {
-    resolver(!!result)
+// ============ 入口级交互接线 ============
+const handleToggleMenu = () => {
+  toggleMenu()
+  if (!showMenu.value) {
+    exportCopied.value = false
   }
 }
 
-const askConfirm = (options = {}) => {
-  if (confirmDialogResolver) {
-    confirmDialogResolver(false)
-    confirmDialogResolver = null
-  }
-  openConfirmDialog(options)
-  return new Promise((resolve) => {
-    confirmDialogResolver = resolve
-  })
+const closeMenu = () => {
+  showMenu.value = false
+  exportCopied.value = false
 }
 
-const normalizeWeeks = (weeks) => {
-  if (!Array.isArray(weeks)) return []
-  const normalized = weeks
-    .map((w) => Number(w))
-    .filter((w) => Number.isFinite(w) && w > 0)
-  return Array.from(new Set(normalized)).sort((a, b) => a - b)
+const openAddCourseDialog = () => {
+  showMenu.value = false
+  void editor.openAddCourseDialog()
 }
 
-const formatWeeksText = (weeks) => {
-  const values = normalizeWeeks(weeks)
-  if (!values.length) return ''
-  const ranges = []
-  let start = values[0]
-  let prev = values[0]
-  for (let i = 1; i < values.length; i += 1) {
-    const current = values[i]
-    if (current === prev + 1) {
-      prev = current
-      continue
-    }
-    ranges.push(start === prev ? `${start}` : `${start}-${prev}`)
-    start = current
-    prev = current
-  }
-  ranges.push(start === prev ? `${start}` : `${start}-${prev}`)
-  return ranges.join(',')
+const handleEditManagedCourse = (course: any) => {
+  void editor.openEditCourseDialog(course, { reopenManage: true })
 }
 
-const mergeScheduleSources = () => {
-  const merged = [...remoteScheduleData.value, ...customScheduleData.value]
-  scheduleData.value = processScheduleData(merged)
+const handleSemesterChange = () => {
+  void data.onSemesterChange()
 }
 
-const normalizeCustomCourse = (raw) => {
-  if (!raw || typeof raw !== 'object') return null
-  const weeks = normalizeWeeks(raw.weeks)
-  const colorNorm = normalizeOptionalCourseColor(raw.color)
-  return {
-    id: String(raw.id || raw.source_id || ''),
-    name: String(raw.name || '').trim(),
-    teacher: String(raw.teacher || '').trim(),
-    room: String(raw.room || raw.room_code || '').trim(),
-    room_code: String(raw.room_code || raw.room || '').trim(),
-    building: String(raw.building || '自定义').trim(),
-    weekday: Number(raw.weekday || 1),
-    period: Number(raw.period || 1),
-    djs: Number(raw.djs || 1),
-    weeks,
-    weeks_text: String(raw.weeks_text || formatWeeksText(weeks)),
-    credit: String(raw.credit || ''),
-    class_name: String(raw.class_name || '自定义课程'),
-    semester: String(raw.semester || semester.value || semesterDraft.value || ''),
-    source_id: String(raw.source_id || raw.id || ''),
-    created_at: String(raw.created_at || ''),
-    updated_at: String(raw.updated_at || ''),
-    // 可选用户色；#469 本地表单用，#470 持久化后由后端下发
-    color: colorNorm === null ? DEFAULT_COURSE_COLOR : colorNorm,
-    is_custom: true
-  }
-}
-
-const loadCustomCourses = async (targetSemester = '') => {
-  const sid = String(props.studentId || '').trim()
-  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
-  if (!sid || !sem) {
-    customScheduleData.value = []
-    mergeScheduleSources()
-    return false
-  }
-
-  try {
-    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list`, {
-      student_id: sid,
-      semester: sem
-    })
-    if (!res.data?.success) {
-      throw new Error(res.data?.error || '加载自定义课程失败')
-    }
-    const list = Array.isArray(res.data?.data) ? res.data.data : []
-    customScheduleData.value = list
-      .map(normalizeCustomCourse)
-      .filter(Boolean)
-      .filter((course) => course.name && course.weekday >= 1 && course.weekday <= 7 && course.period >= 1 && course.period <= 11)
-    mergeScheduleSources()
-    persistScheduleRenderSnapshot('custom-load')
-    return true
-  } catch (e) {
-    console.warn('加载自定义课程失败', e)
-    customScheduleData.value = []
-    mergeScheduleSources()
-    return false
-  }
-}
-
-const sortSemesterKeys = (a, b) => {
-  const currentSemester = String(semester.value || semesterDraft.value || '').trim()
-  if (a === currentSemester && b !== currentSemester) return -1
-  if (b === currentSemester && a !== currentSemester) return 1
-  return String(b).localeCompare(String(a), 'zh-CN', { numeric: true })
-}
-
-const managedCourseGroups = computed(() => {
-  const groups = new Map()
-  for (const rawCourse of allCustomCourses.value || []) {
-    const course = normalizeCustomCourse(rawCourse)
-    if (!course?.id) continue
-    const sem = String(course.semester || '未分配学期').trim() || '未分配学期'
-    if (!groups.has(sem)) {
-      groups.set(sem, [])
-    }
-    groups.get(sem).push(course)
-  }
-  return Array.from(groups.entries())
-    .sort((a, b) => sortSemesterKeys(a[0], b[0]))
-    .map(([semesterKey, courses]) => ({
-      semester: semesterKey,
-      courses: courses.sort((a, b) => {
-        if (a.weekday !== b.weekday) return a.weekday - b.weekday
-        if (a.period !== b.period) return a.period - b.period
-        return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN')
-      })
-    }))
-})
-
-const syncManageExpandedSemesters = () => {
-  const next = {}
-  const currentSemester = String(semester.value || semesterDraft.value || '').trim()
-  for (const group of managedCourseGroups.value) {
-    next[group.semester] = manageExpandedSemesters.value[group.semester] ?? (group.semester === currentSemester)
-  }
-  manageExpandedSemesters.value = next
-}
-
-const loadAllCustomCourses = async () => {
-  const sid = String(props.studentId || '').trim()
-  if (!sid) {
-    allCustomCourses.value = []
-    manageCoursesError.value = '请先登录后再管理课程'
-    return false
-  }
-  loadingManageCourses.value = true
-  manageCoursesError.value = ''
-  try {
-    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list_all`, {
-      student_id: sid
-    })
-    if (!res.data?.success) {
-      throw new Error(res.data?.error || '加载课程列表失败')
-    }
-    const list = Array.isArray(res.data?.data) ? res.data.data : []
-    allCustomCourses.value = list
-      .map(normalizeCustomCourse)
-      .filter(Boolean)
-      .filter((course) => course.name && course.weekday >= 1 && course.weekday <= 7 && course.period >= 1 && course.period <= 11)
-    syncManageExpandedSemesters()
-    return true
-  } catch (e) {
-    console.warn('加载全部自定义课程失败', e)
-    allCustomCourses.value = []
-    manageCoursesError.value = String(e?.response?.data?.error || e?.message || '加载课程列表失败')
-    return false
-  } finally {
-    loadingManageCourses.value = false
-  }
-}
-
-const buildScheduleRenderSnapshotPayload = () => {
-  const sid = resolveDisplayStudentId()
-  const sem = String(semester.value || semesterDraft.value || '').trim()
-  if (!sid || !sem) return null
-  return {
-    student_id: sid,
-    semester: sem,
-    meta: {
-      semester: sem,
-      start_date: String(startDateStr.value || '').trim(),
-      current_week: Number(currentWeek.value || 1),
-      total_weeks: Number(totalWeeks.value || 25),
-      vacation_notice: String(vacationNotice.value || '').trim()
-    },
-    selected_week: Number(selectedWeek.value || currentWeek.value || 1),
-    sync_time: String(syncTime.value || '').trim(),
-    offline: !!offline.value,
-    remote_schedule_data: Array.isArray(remoteScheduleData.value) ? remoteScheduleData.value : [],
-    custom_schedule_data: Array.isArray(customScheduleData.value) ? customScheduleData.value : [],
-    merged_schedule_data: Array.isArray(scheduleData.value) ? scheduleData.value : [],
-    updated_at: new Date().toISOString()
-  }
-}
-
-const persistScheduleRenderSnapshot = (reason = 'unknown') => {
-  const payload = buildScheduleRenderSnapshotPayload()
-  if (!payload) return false
-  const courseCount = Array.isArray(payload.merged_schedule_data) ? payload.merged_schedule_data.length : 0
-  const hasRenderableData =
-    courseCount > 0 ||
-    (Array.isArray(payload.remote_schedule_data) && payload.remote_schedule_data.length > 0) ||
-    (Array.isArray(payload.custom_schedule_data) && payload.custom_schedule_data.length > 0)
-  if (!hasRenderableData) return false
-  const saved = writeScheduleRenderSnapshot(payload.student_id, payload)
-  if (!saved) return false
-  pushDebugLog(
-    'Schedule',
-    `课表首屏快照已写入 reason=${reason} semester=${saved.semester} courses=${courseCount}`,
-    'debug'
-  )
-  return true
-}
-
-const applyScheduleRenderSnapshot = (snapshot, options = {}) => {
-  const saved = snapshot && typeof snapshot === 'object' ? snapshot : null
-  if (!saved) return false
-
-  const resolvedSemester = String(saved.semester || saved.meta?.semester || '').trim()
-  if (!resolvedSemester) return false
-
-  semester.value = resolvedSemester
-  semesterDraft.value = resolvedSemester
-  remoteScheduleData.value = Array.isArray(saved.remote_schedule_data) ? saved.remote_schedule_data : []
-  customScheduleData.value = Array.isArray(saved.custom_schedule_data) ? saved.custom_schedule_data : []
-  scheduleData.value = Array.isArray(saved.merged_schedule_data) && saved.merged_schedule_data.length
-    ? saved.merged_schedule_data
-    : processScheduleData([...remoteScheduleData.value, ...customScheduleData.value])
-
-  applyMeta(saved.meta, resolvedSemester)
-  const nextWeek = Number(saved.selected_week || currentWeek.value || 1)
-  const safeWeek = Math.min(Math.max(nextWeek, 1), Math.max(Number(totalWeeks.value || 1), 1))
-  selectedWeek.value = safeWeek
-  syncTime.value = String(saved.sync_time || '').trim()
-  // 秒开快照只是本地渲染缓存，不代表会话离线；默认不展示「离线/登录恢复」横幅。
-  // 只有显式 markOffline:true（如 need_login / 网络失败回退）才亮条。
-  const markOffline = options?.markOffline === true
-  offline.value = markOffline
-  offlineHint.value = markOffline
-    ? String(
-        options?.offlineHint ||
-          '当前为缓存课表，登录恢复后自动刷新。'
-      ).trim()
-    : ''
-  errorMsg.value = scheduleData.value.length ? '' : '暂无可用课表'
-  initialFetchDone.value = true
-
-  if (options?.markBoot !== false) {
-    markBootMetric('schedule_snapshot_applied', {
-      semester: resolvedSemester,
-      courses: scheduleData.value.length,
-      updated_at: saved.updated_at || ''
-    })
-    requestAnimationFrame(() => {
-      markBootMetric('schedule_first_paint', {
-        semester: resolvedSemester,
-        courses: scheduleData.value.length
-      })
-    })
-  }
-  return true
-}
-
-const applyMeta = (meta, requestedSemester = '') => {
-  const safeMeta = meta && typeof meta === 'object' ? meta : {}
-  const resolvedSemester = String(safeMeta.semester || requestedSemester || semester.value || '').trim()
-  if (resolvedSemester) {
-    semester.value = resolvedSemester
-    semesterDraft.value = resolvedSemester
-  }
-
-  startDateStr.value = String(safeMeta.start_date || '').trim()
-  vacationNotice.value = String(safeMeta.vacation_notice || '').trim()
-
-  const parsedWeeks = Number(safeMeta.total_weeks || 0)
-  totalWeeks.value = Number.isFinite(parsedWeeks) && parsedWeeks > 0 ? parsedWeeks : 25
-
-  const parsedCurrentWeek = Number(safeMeta.current_week || 0)
-  const safeWeek = Number.isFinite(parsedCurrentWeek) && parsedCurrentWeek > 0
-    ? Math.min(parsedCurrentWeek, totalWeeks.value)
-    : 1
-  currentWeek.value = safeWeek
-  selectedWeek.value = safeWeek
-
-  if (!isTestAccountSession()) {
-    localStorage.setItem('hbu_schedule_meta', JSON.stringify({
-      semester: resolvedSemester,
-      start_date: startDateStr.value,
-      current_week: currentWeek.value,
-      total_weeks: totalWeeks.value,
-      vacation_notice: vacationNotice.value
-    }))
-  }
-}
-
-const applySchedulePayload = (payload, requestedSemester = '', options = {}) => {
-  if (!payload?.success) return false
-  const rawData = Array.isArray(payload?.data) ? payload.data : []
-  // #372：SWR/stale 缓存会经 withOfflineMeta 强制 offline=true，不等于教务不可用。
-  // 已登录：成功 payload 默认不亮横幅；仅显式 forceOfflineBanner（真实失败回退）才展示。
-  const silentCachePaint = options?.silentCachePaint === true
-  const forceOfflineBanner = options?.forceOfflineBanner === true
-  const loggedIn = !!String(props.studentId || '').trim()
-  if (forceOfflineBanner || (payload.offline && !silentCachePaint && !loggedIn)) {
-    offline.value = true
-    offlineHint.value = String(
-      options?.offlineHint ||
-        (loggedIn
-          ? '当前显示为缓存课表，教务暂不可用。'
-          : '当前显示为离线数据，登录恢复后自动刷新。')
-    ).trim()
-  } else {
-    offline.value = false
-    offlineHint.value = ''
-  }
-  syncTime.value = payload.sync_time || ''
-  remoteScheduleData.value = processScheduleData(rawData)
-  mergeScheduleSources()
-  applyMeta(payload.meta, requestedSemester)
-  errorMsg.value = rawData.length === 0 ? '暂无可用课表' : ''
-  return true
-}
-
-const applyCachedScheduleImmediately = (targetSemester = '', options = {}) => {
-  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
-  const sid = resolveDisplayStudentId()
-  if (!sid || !sem) return false
-  const snapshot = getCachedScheduleSnapshot(sid, sem)
-  if (!snapshot?.data?.success) return false
-  // 秒开缓存：有学号时静默应用，不亮「登录恢复」条（随后会在线刷新）
-  const silent =
-    options?.silentCachePaint !== false && String(props.studentId || sid || '').trim()
-  const applied = applySchedulePayload(snapshot.data, sem, {
-    silentCachePaint: !!silent
-  })
-  if (applied && silent) {
-    offline.value = false
-    offlineHint.value = ''
-  }
-  if (applied && !syncTime.value && snapshot.timestamp) {
-    syncTime.value = new Date(snapshot.timestamp).toISOString()
-  }
-  return applied
-}
-
-/** 后台真源刷新：只在明确失败时亮离线条，避免 SWR offline 标记误导 */
-let onlineRevalidateToken = 0
-const revalidateScheduleOnline = async (targetSemester = '') => {
-  const sid = String(props.studentId || '').trim()
-  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
-  if (!sid) return false
-  const token = ++onlineRevalidateToken
-  const cacheKey = sem ? `schedule:${sid}:${sem}` : `schedule:${sid}`
-  try {
-    const { data } = await fetchWithCache(
-      cacheKey,
-      async () => {
-        const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
-          student_id: sid,
-          semester: sem || undefined
-        })
-        return res.data
-      },
-      undefined,
-      { forceRemote: true, priority: 'background', staleWhileRevalidate: false }
-    )
-    if (token !== onlineRevalidateToken) return false
-    if (data?.success && !data?.offline) {
-      applySchedulePayload(data, sem, { silentCachePaint: false })
-      offline.value = false
-      offlineHint.value = ''
-      persistScheduleRenderSnapshot('online-revalidate')
-      return true
-    }
-    if (data?.need_login && (remoteScheduleData.value.length || customScheduleData.value.length)) {
-      offline.value = true
-      offlineHint.value = '当前为缓存课表，登录恢复后自动刷新。'
-    }
-    return false
-  } catch {
-    if (token !== onlineRevalidateToken) return false
-    // 保持静默：有缓存就不恐吓；用户可手动刷新
-    return false
-  }
-}
-
-const applyStoredScheduleRenderSnapshot = (targetSemester = '', options = {}) => {
-  const sid = resolveDisplayStudentId()
-  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
-  if (!sid) return false
-  const snapshot = readScheduleRenderSnapshot(sid, sem || '')
-  if (!snapshot) return false
-  return applyScheduleRenderSnapshot(snapshot, options)
-}
-
-const initialRenderSnapshotApplied = applyStoredScheduleRenderSnapshot('', {
-  markBoot: true
-})
-
-const fetchSchedule = async (targetSemester = '', options = {}) => {
-  loading.value = true
-  semesterError.value = ''
-  const persistLock = options?.persistLock === true
-  const lockReason = String(options?.lockReason || 'schedule-fetch').trim() || 'schedule-fetch'
-  const requestedSemester = String(targetSemester || semester.value || semesterDraft.value || '').trim()
-  const previousSemester = String(semester.value || '').trim()
-  errorMsg.value = ''
-  // 已有登录身份：在线刷新期间不展示「登录恢复」恐吓条，结果以接口为准
-  if (String(props.studentId || '').trim() && options?.preserveOfflineBanner !== true) {
-    offline.value = false
-    offlineHint.value = ''
-  }
-  try {
-    if (requestedSemester && requestedSemester !== previousSemester) {
-      customScheduleData.value = []
-      mergeScheduleSources()
-    }
-    if (requestedSemester) {
-      semester.value = requestedSemester
-    }
-    if (!props.studentId) {
-      const fallbackSemester = String(requestedSemester || semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()).trim()
-      const hasRenderSnapshot = fallbackSemester
-        ? applyStoredScheduleRenderSnapshot(fallbackSemester, { markBoot: false })
-        : false
-      const hasInstantCache = hasRenderSnapshot || (fallbackSemester ? applyCachedScheduleImmediately(fallbackSemester) : false)
-      if (hasInstantCache) {
-        initialFetchDone.value = true
-        errorMsg.value = ''
-      } else if (localStorage.getItem('hbu_manual_logout') === 'true') {
-        scheduleData.value = []
-        remoteScheduleData.value = []
-        customScheduleData.value = []
-        offline.value = false
-        offlineHint.value = ''
-        initialFetchDone.value = true
-        errorMsg.value = '请先登录后查看课表'
-      } else {
-        // 启动阶段可能还在恢复身份，此时不显示“请登录”闪屏，等待身份恢复后自动刷新。
-        errorMsg.value = ''
-      }
-      return false
-    }
-    const cacheKey = requestedSemester
-      ? `schedule:${props.studentId}:${requestedSemester}`
-      : `schedule:${props.studentId}`
-    const { data, fromCache, stale } = await fetchWithCache(cacheKey, async () => {
-      const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
-        student_id: props.studentId,
-        semester: requestedSemester || undefined
-      })
-      return res.data
-    }, undefined, DEFAULT_SWR_OPTIONS)
-
-    if (data?.success) {
-      // 登录态 + 缓存/SWR 命中（含 offline 标记）：静默秒开，不误报「教务暂不可用」
-      const treatAsSilentCache =
-        !!String(props.studentId || '').trim() &&
-        (!!fromCache || !!data?.offline || !!stale)
-      applySchedulePayload(data, requestedSemester, {
-        silentCachePaint: treatAsSilentCache
-      })
-      // 若本次是陈旧/离线标记缓存，后台再拉一次真源（不阻塞、失败路径才亮条）
-      if (treatAsSilentCache && data?.offline) {
-        void revalidateScheduleOnline(requestedSemester || semester.value)
-      }
-      await loadCustomCourses(requestedSemester || semester.value)
-      if (!remoteScheduleData.value.length && customScheduleData.value.length > 0) {
-        errorMsg.value = ''
-      }
-      persistScheduleRenderSnapshot('fetch-success')
-      // Widget 快照写入（异步，不阻塞 UI）
-      if (props.studentId) {
-        afterScheduleRefresh(props.studentId, data, { selectedWeek: selectedWeek.value || currentWeek.value || 1 }).catch(() => {})
-      }
-      if (!hasBootMetric('schedule_first_paint')) {
-        requestAnimationFrame(() => {
-          markBootMetric('schedule_first_paint', {
-            semester: String(requestedSemester || semester.value || '').trim(),
-            courses: scheduleData.value.length,
-            source: 'remote-refresh'
-          })
-        })
-      }
-      if (requestedSemester && persistLock) {
-        writeScheduleLock(props.studentId, requestedSemester, lockReason)
-      }
-      return true
-    } else {
-      if (data?.need_login) {
-        const method = String(localStorage.getItem('hbu_login_method') || '').trim()
-        const isTemp = localStorage.getItem('hbu_login_temp') === '1' || method.endsWith('_temp')
-        if (isTemp) {
-          emit('logout')
-          return false
-        }
-        if (remoteScheduleData.value.length || customScheduleData.value.length) {
-          offline.value = true
-          offlineHint.value = '当前为缓存课表，登录恢复后自动刷新。'
-          errorMsg.value = ''
-          return false
-        }
-        const hasRenderSnapshot = requestedSemester
-          ? applyStoredScheduleRenderSnapshot(requestedSemester, { markBoot: false })
-          : false
-        const hasCached = hasRenderSnapshot || (requestedSemester ? applyCachedScheduleImmediately(requestedSemester) : false)
-        if (hasCached) {
-          offline.value = true
-          offlineHint.value = '当前为缓存课表，登录恢复后自动刷新。'
-          errorMsg.value = ''
-          return false
-        }
-        errorMsg.value = data?.error || '会话已过期，请重新登录'
-        return false
-      }
-      if (!(remoteScheduleData.value.length || customScheduleData.value.length)) {
-        remoteScheduleData.value = []
-        mergeScheduleSources()
-        offline.value = false
-        vacationNotice.value = ''
-        startDateStr.value = ''
-        currentWeek.value = 1
-        selectedWeek.value = 1
-        totalWeeks.value = 25
-      } else {
-        offline.value = true
-        offlineHint.value = '当前为缓存课表，登录恢复后自动刷新。'
-      }
-      await loadCustomCourses(requestedSemester || semester.value)
-      const message = String(data?.error || '获取课表失败')
-      errorMsg.value = (remoteScheduleData.value.length || customScheduleData.value.length)
-        ? ''
-        : (/无课表|暂无/.test(message) ? '暂无可用课表' : message)
-      if (customScheduleData.value.length > 0) {
-        errorMsg.value = ''
-      }
-      return false
-    }
-  } catch (e) {
-    console.error('获取课表异常', e)
-    if (!(remoteScheduleData.value.length || customScheduleData.value.length)) {
-      remoteScheduleData.value = []
-      mergeScheduleSources()
-      offline.value = false
-      vacationNotice.value = ''
-      startDateStr.value = ''
-      currentWeek.value = 1
-      selectedWeek.value = 1
-      totalWeeks.value = 25
-    } else {
-      offline.value = true
-      offlineHint.value = '当前为缓存课表，连接恢复后自动刷新。'
-    }
-    await loadCustomCourses(requestedSemester || semester.value)
-    const message = String(e?.message || '获取课表失败')
-    errorMsg.value = (remoteScheduleData.value.length || customScheduleData.value.length)
-      ? ''
-      : (/无课表|暂无/.test(message) ? '暂无可用课表' : message)
-    if (customScheduleData.value.length > 0) {
-      errorMsg.value = ''
-    }
-    return false
-  } finally {
-    loading.value = false
-    initialFetchDone.value = true
-    if (!hasBootMetric('schedule_snapshot_applied')) {
-      markBootMetric('schedule_snapshot_applied', {
-        semester: String(requestedSemester || semester.value || '').trim(),
-        courses: scheduleData.value.length,
-        applied: false,
-        reason: 'snapshot-missing'
-      })
-    }
-    markBootMetric('schedule_remote_refresh_finished', {
-      semester: String(requestedSemester || semester.value || '').trim(),
-      courses: scheduleData.value.length,
-      offline: !!offline.value
-    })
-  }
-}
-
-const fetchSemesterOptions = async () => {
-  semesterLoading.value = true
-  semesterError.value = ''
-  try {
-    const { data } = await fetchWithCache('semesters', async () => {
-      const res = await axios.get(`${API_BASE}/v2/semesters`)
-      return res.data
-    }, EXTRA_LONG_TTL, DEFAULT_SWR_OPTIONS)
-    if (!data?.success) {
-      throw new Error(data?.error || '获取学期列表失败')
-    }
-    const list = normalizeSemesterList(data?.semesters || [])
-    semesterOptions.value = list
-    const resolved = resolveCurrentSemester(list, semester.value || data?.current)
-    if (resolved) {
-      semesterDraft.value = resolved
-      if (!semester.value) semester.value = resolved
-    }
-  } catch (e) {
-    semesterError.value = e?.message || '获取学期列表失败'
-  } finally {
-    semesterLoading.value = false
-  }
-}
-
-const applySemesterQuery = async () => {
-  const selected = String(semesterDraft.value || '').trim()
-  if (!selected) {
-    semesterError.value = '请选择学期'
-    return
-  }
-  currentWeek.value = 1
-  selectedWeek.value = 1
-  totalWeeks.value = 25
-  startDateStr.value = ''
-  vacationNotice.value = ''
-  await fetchSchedule(selected, { persistLock: true, lockReason: 'manual-select' })
-}
-
-const onSemesterChange = async () => {
-  const selected = String(semesterDraft.value || '').trim()
-  if (!selected || selected === semester.value) return
-  await applySemesterQuery()
-}
-
-watch(selectedWeek, (next, prev) => {
-  const current = Number(next || 0)
-  const previous = Number(prev || 0)
-  const maxWeeks = Math.max(1, Number(totalWeeks.value || 1))
-  if (!Number.isFinite(current) || current <= 0) {
-    selectedWeek.value = 1
-    return
-  }
-  if (current > maxWeeks) {
-    selectedWeek.value = maxWeeks
-    return
-  }
-  if (previous > 0 && current !== previous) {
-    weekTransitionName.value = current > previous ? 'week-slide-left' : 'week-slide-right'
-  }
-})
-
-watch(totalWeeks, (maxWeeks) => {
-  if (!Number.isFinite(maxWeeks) || maxWeeks <= 0) return
-  if (selectedWeek.value > maxWeeks) {
-    selectedWeek.value = maxWeeks
-  }
-  if (currentWeek.value > maxWeeks) {
-    currentWeek.value = maxWeeks
-  }
-})
-
-watch(selectedWeek, (next, prev) => {
-  if (next === prev) return
-  if (!initialFetchDone.value) return
-  persistScheduleRenderSnapshot('selected-week')
-})
-
+// ============ 数据 watchers（入口级） ============
 watch(
   () => props.studentId,
   async (nextSid, prevSid) => {
-    refreshCloudSyncCooldown()
+    sync.refreshCloudSyncCooldown()
     const next = String(nextSid || '').trim()
     const prev = String(prevSid || '').trim()
     if (!next || next === prev) return
-    const targetSemester = String(semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()).trim()
+    const targetSemester = String(
+      semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()
+    ).trim()
     if (targetSemester) {
-      const hasRenderSnapshot = applyStoredScheduleRenderSnapshot(targetSemester, { markBoot: false })
-      const hasInstantCache = hasRenderSnapshot || applyCachedScheduleImmediately(targetSemester)
+      const hasRenderSnapshot = data.applyStoredScheduleRenderSnapshot(targetSemester, { markBoot: false })
+      const hasInstantCache = hasRenderSnapshot || data.applyCachedScheduleImmediately(targetSemester)
       if (hasInstantCache) {
         initialFetchDone.value = true
         errorMsg.value = ''
       }
     }
-    void fetchSchedule(targetSemester)
+    void data.fetchSchedule(targetSemester)
   }
 )
 
-watch(
-  () => uiSettings.scheduleCourseCardStyle,
-  (value) => {
-    scheduleCourseCardStyle.value = normalizeCourseCardStyle(value)
-    pushDebugLog('Schedule', `课表样式状态同步：${scheduleCourseCardStyle.value}`, 'debug')
-  },
-  { immediate: true }
-)
-
 // Widget 深链接：接收 date + period，定位到对应周次/日并高亮
+let widgetHighlightTimer: ReturnType<typeof setTimeout> | null = null
 watch(
   () => props.widgetDate,
   (dateStr) => {
     if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return
-    if (!startDateStr.value) return // 课表尚未加载
-
-    // 计算目标日期对应的周次和星期几
-    const targetDate = new Date(dateStr + 'T00:00:00+08:00')
-    const startDate = new Date(startDateStr.value + 'T00:00:00+08:00')
-    if (isNaN(targetDate.getTime()) || isNaN(startDate.getTime())) return
+    if (!semesterApi.startDateStr.value) return // 课表尚未就绪，忽略深链接
+    const targetDate = new Date(`${dateStr}T00:00:00+08:00`)
+    const startDate = new Date(`${semesterApi.startDateStr.value}T00:00:00+08:00`)
+    if (Number.isNaN(targetDate.getTime()) || Number.isNaN(startDate.getTime())) return
 
     const diffMs = targetDate.getTime() - startDate.getTime()
-    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000))
+    const diffDays = Math.round(diffMs / 86400000)
     const targetWeek = Math.max(1, Math.floor(diffDays / 7) + 1)
-    const targetDay = (diffDays % 7) + 1 // 1=周一
+    const targetDay = (diffDays % 7) + 1
 
-    // 切换到目标周次
     const maxWeeks = Math.max(1, Number(totalWeeks.value || 1))
     if (targetWeek >= 1 && targetWeek <= maxWeeks) {
       selectedWeek.value = targetWeek
@@ -1113,19 +245,17 @@ watch(
 
     // 设置高亮
     const period = Number(props.widgetPeriod) || 0
-    widgetHighlightDay.value = targetDay >= 1 && targetDay <= 7 ? targetDay : 0
-    widgetHighlightPeriod.value = period >= 1 && period <= 14 ? period : 0
+    grid.setWidgetHighlight(targetDay, period)
 
     // 延迟滚动到目标位置
     nextTick(() => {
-      scrollToWidgetTarget(targetDay, period)
+      semesterApi.scrollToWidgetTarget(targetDay, period)
     })
 
     // 3 秒后清除高亮
     if (widgetHighlightTimer) clearTimeout(widgetHighlightTimer)
     widgetHighlightTimer = setTimeout(() => {
-      widgetHighlightPeriod.value = 0
-      widgetHighlightDay.value = 0
+      grid.clearWidgetHighlight()
       widgetHighlightTimer = null
     }, 3000)
 
@@ -1135,2000 +265,16 @@ watch(
   { immediate: true }
 )
 
-/**
- * 滚动到 Widget 深链接指定的日/节次位置
- */
-const scrollToWidgetTarget = (day, period) => {
-  try {
-    const gridBody = document.querySelector('.schedule-view .grid-body')
-    if (!gridBody) return
-
-    if (period >= 1) {
-      // 滚动到对应节次行（每行约 55px 高度，基于 time-slot 高度）
-      const timeSlots = gridBody.querySelectorAll('.time-axis .time-slot')
-      const targetSlot = timeSlots[period - 1]
-      if (targetSlot) {
-        const offsetTop = targetSlot.offsetTop
-        gridBody.scrollTo({ top: Math.max(0, offsetTop - 20), behavior: 'smooth' })
-      }
-    }
-  } catch {
-    // ignore scroll errors
-  }
-}
-
-watch(
-  () => addCourseForm.value.period,
-  (periodValue) => {
-    const start = Number(periodValue) || 1
-    const maxSpan = Math.max(1, 12 - start)
-    if (Number(addCourseForm.value.djs) > maxSpan) {
-      addCourseForm.value.djs = maxSpan
-    }
-    if (Number(addCourseForm.value.djs) < 1) {
-      addCourseForm.value.djs = 1
-    }
-  }
-)
-
-// 数据预处理：合并连续课程，去除重复
-const processScheduleData = (courses) => {
-  if (!courses || courses.length === 0) return []
-  
-  // 先按星期、节次排序
-  courses.sort((a, b) => {
-    if (a.weekday !== b.weekday) return a.weekday - b.weekday
-    return a.period - b.period
-  })
-  
-  const processed = []
-  // 使用 Map 按 (weekday, name) 分组处理，或者简单的线性扫描
-  // 为了简单且准确处理跨周次的情况，我们需要对每一门课（在特定周次下）进行判断。
-  // 但这里的数据是包含所有周次的。
-  // 最好的策略是：先不合并weeks不同的，只合并完全相同的实例？
-  // 不，前端每次渲染是基于 selectedWeek 过滤后的数据。
-  // 所以合并逻辑应该放在 getCoursesForDay 里面做？或者在这里做全局合并？
-  // 如果在这里做，需要考虑到weeks可能不一样。
-  // 简单起见，我们保留原始数据，在 getCoursesForDay 里做“渲染级”合并。
-  
-  return courses
-}
-
-const hashText = (value) => {
-  let hash = 0
-  const text = String(value || '')
-  for (let i = 0; i < text.length; i += 1) {
-    hash = text.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  return Math.abs(hash)
-}
-
-const hexToRgb = (hex) => {
-  const text = String(hex || '').trim().replace('#', '')
-  if (!/^[0-9a-fA-F]{6}$/.test(text)) return null
-  return {
-    r: Number.parseInt(text.slice(0, 2), 16),
-    g: Number.parseInt(text.slice(2, 4), 16),
-    b: Number.parseInt(text.slice(4, 6), 16)
-  }
-}
-
-const colorDistance = (aHex, bHex) => {
-  const a = hexToRgb(aHex)
-  const b = hexToRgb(bHex)
-  if (!a || !b) return 0
-  const dr = a.r - b.r
-  const dg = a.g - b.g
-  const db = a.b - b.b
-  return Math.sqrt(dr * dr + dg * dg + db * db)
-}
-
-const getThemeContrastScore = (aIndex, bIndex) => {
-  const themeA = courseThemes[aIndex] || {}
-  const themeB = courseThemes[bIndex] || {}
-  const borderGap = colorDistance(themeA.border, themeB.border)
-  const textGap = colorDistance(themeA.text, themeB.text)
-  // 颜色分配主要看边框色差，文字色作为次要补充。
-  return borderGap * 0.72 + textGap * 0.28
-}
-
-const getCircularOffset = (seed, candidate) => {
-  const len = courseThemes.length
-  const forward = (candidate - seed + len) % len
-  const backward = (seed - candidate + len) % len
-  return Math.min(forward, backward)
-}
-
-const evaluateThemeCandidate = (candidate, seed, neighborColors, globalColors) => {
-  const neighborMinContrast = neighborColors.length
-    ? neighborColors.reduce((minGap, neighborColor) => {
-      const gap = getThemeContrastScore(candidate, neighborColor)
-      return gap < minGap ? gap : minGap
-    }, Number.POSITIVE_INFINITY)
-    : Number.POSITIVE_INFINITY
-
-  const globalMinContrast = globalColors.length
-    ? globalColors.reduce((minGap, globalColor) => {
-      const gap = getThemeContrastScore(candidate, globalColor)
-      return gap < minGap ? gap : minGap
-    }, Number.POSITIVE_INFINITY)
-    : Number.POSITIVE_INFINITY
-
-  return {
-    candidate,
-    neighborMinContrast,
-    globalMinContrast,
-    offset: getCircularOffset(seed, candidate)
-  }
-}
-
-const pickBestThemeCandidate = (candidates, seed, neighborColors, globalColors) => {
-  let best = null
-  candidates.forEach((candidate) => {
-    const metrics = evaluateThemeCandidate(candidate, seed, neighborColors, globalColors)
-    if (!best) {
-      best = metrics
-      return
-    }
-    if (metrics.neighborMinContrast > best.neighborMinContrast) {
-      best = metrics
-      return
-    }
-    if (
-      metrics.neighborMinContrast === best.neighborMinContrast &&
-      metrics.globalMinContrast > best.globalMinContrast
-    ) {
-      best = metrics
-      return
-    }
-    if (
-      metrics.neighborMinContrast === best.neighborMinContrast &&
-      metrics.globalMinContrast === best.globalMinContrast &&
-      metrics.offset < best.offset
-    ) {
-      best = metrics
-    }
-  })
-  return best?.candidate ?? null
-}
-
-const periodsOverlap = (aStart, aEnd, bStart, bEnd) => {
-  return !(aEnd < bStart || bEnd < aStart)
-}
-
-const areAdjacentCourses = (a, b) => {
-  if (a._day === b._day) {
-    // 同一天只处理上下相邻
-    return a._end + 1 === b._start || b._end + 1 === a._start
-  }
-  if (Math.abs(a._day - b._day) === 1) {
-    // 左右列在时间上有重叠即视为相邻
-    return periodsOverlap(a._start, a._end, b._start, b._end)
-  }
-  return false
-}
-
-const getCourseMergeSignature = (course) => {
-  const id = String(course?.id || course?.source_id || '').trim()
-  const name = String(course?.name || '').trim()
-  const teacher = String(course?.teacher || '').trim()
-  const room = String(course?.room_code || course?.room || '').trim()
-  const building = String(course?.building || '').trim()
-  const className = String(course?.class_name || '').trim()
-  const custom = course?.is_custom ? '1' : '0'
-  return `${id}|${name}|${teacher}|${room}|${building}|${className}|${custom}`
-}
-
-const getCourseEndPeriod = (course) => {
-  const start = Number(course?.period) || 1
-  const span = Math.max(1, Number(course?.djs) || 1)
-  return Math.min(MAX_PERIOD, start + span - 1)
-}
-
-const mergeDailyCourses = (dailyCourses) => {
-  if (!dailyCourses.length) return []
-  const signatureCount = new Map()
-  dailyCourses.forEach((course) => {
-    const signature = getCourseMergeSignature(course)
-    signatureCount.set(signature, (signatureCount.get(signature) || 0) + 1)
-  })
-
-  const resolveRawSpan = (course) => {
-    const start = Number(course?.period) || 1
-    if (course?.is_custom) {
-      return Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course?.djs) || 1))
-    }
-    const signature = getCourseMergeSignature(course)
-    const count = Number(signatureCount.get(signature) || 0)
-    if (count > 1) {
-      return 1
-    }
-    const candidate = Number(course?.djs) || 1
-    if (candidate >= 1 && candidate <= MAX_PERIOD && start + candidate - 1 <= MAX_PERIOD) {
-      return candidate
-    }
-    return 1
-  }
-
-  const merged = []
-  let i = 0
-
-  while (i < dailyCourses.length) {
-    const current = dailyCourses[i]
-    const startPeriod = Number(current.period) || 1
-    const currentSpan = resolveRawSpan(current)
-    let endPeriod = Math.min(MAX_PERIOD, startPeriod + currentSpan - 1)
-
-    let j = i + 1
-    while (j < dailyCourses.length) {
-      const next = dailyCourses[j]
-      const nextStart = Number(next.period) || 1
-      const nextSpan = resolveRawSpan(next)
-      const nextEnd = Math.min(MAX_PERIOD, nextStart + nextSpan - 1)
-      const sameSignature = getCourseMergeSignature(next) === getCourseMergeSignature(current)
-      const canMergeSinglePeriodOnly = currentSpan === 1 && nextSpan === 1
-      if (
-        sameSignature &&
-        canMergeSinglePeriodOnly &&
-        !!next.is_custom === !!current.is_custom &&
-        nextStart === endPeriod + 1
-      ) {
-        endPeriod = Math.max(endPeriod, nextEnd)
-        j++
-      } else {
-        break
-      }
-    }
-
-    const span = endPeriod - startPeriod + 1
-    merged.push({
-      ...current,
-      djs: span
-    })
-    i = j
-  }
-  return merged
-}
-
-const buildConflictBlocks = (day, mergedCourses, weekNumber) => {
-  if (!Array.isArray(mergedCourses) || mergedCourses.length < 2) return []
-  const periodConflicts = []
-
-  for (let period = 1; period <= 11; period += 1) {
-    const activeRaw = mergedCourses.filter(course => {
-      const start = Number(course._start || course.period || 1)
-      const span = Math.max(1, Number(course.djs || 1))
-      const end = Number(course._end || (start + span - 1))
-      return period >= start && period <= end && !course.is_conflict
-    })
-    const active = []
-    const signatureSet = new Set()
-    activeRaw.forEach((course) => {
-      const signature = `${getCourseMergeSignature(course)}|${course.period}|${course.djs}`
-      if (signatureSet.has(signature)) return
-      signatureSet.add(signature)
-      active.push(course)
-    })
-    if (active.length > 1) {
-      const ids = active
-        .map(course => String(course._uid || course.id || course.name))
-        .sort()
-      periodConflicts.push({
-        period,
-        key: ids.join('|'),
-        active
-      })
-    }
-  }
-
-  if (!periodConflicts.length) return []
-
-  const blocks = []
-  let i = 0
-  while (i < periodConflicts.length) {
-    const current = periodConflicts[i]
-    let end = current.period
-    let j = i + 1
-    while (
-      j < periodConflicts.length &&
-      periodConflicts[j].period === end + 1 &&
-      periodConflicts[j].key === current.key
-    ) {
-      end = periodConflicts[j].period
-      j += 1
-    }
-    const conflictCourses = current.active
-    const title = `课程冲突（${conflictCourses.length}门）`
-    blocks.push({
-      id: `conflict:${day}:${current.period}:${end}:${current.key}`,
-      name: title,
-      teacher: '',
-      room: '点击查看冲突详情',
-      room_code: `${conflictCourses.length}门冲突`,
-      building: '冲突提示',
-      weekday: day,
-      period: current.period,
-      djs: end - current.period + 1,
-      weeks: [weekNumber],
-      weeks_text: String(weekNumber),
-      credit: '',
-      class_name: '冲突课程',
-      is_conflict: true,
-      conflict_courses: conflictCourses.map(course => ({
-        id: course.id,
-        source_id: course.source_id || course.id,
-        name: course.name,
-        teacher: course.teacher,
-        room: course.room,
-        room_code: course.room_code,
-        building: course.building,
-        weekday: course.weekday,
-        period: course.period,
-        djs: course.djs,
-        weeks: Array.isArray(course.weeks) ? [...course.weeks] : [],
-        weeks_text: course.weeks_text,
-        credit: course.credit,
-        class_name: course.class_name,
-        semester: course.semester || semester.value || semesterDraft.value || '',
-        is_custom: !!course.is_custom
-      }))
-    })
-    i = j
-  }
-
-  return blocks
-}
-
-const buildWeekCoursesWithColors = (weekNumber) => {
-  const byDay = {}
-  const nodes = []
-  const nameBuckets = new Map()
-
-  for (let day = 1; day <= 7; day += 1) {
-    const dailyCourses = scheduleData.value
-      .filter(course => course.weekday === day && course.weeks.includes(weekNumber))
-      .sort((a, b) => a.period - b.period)
-
-    const merged = mergeDailyCourses(dailyCourses).map((course, index) => {
-      const span = Math.max(1, Number(course.djs) || 1)
-      const start = Number(course.period)
-      const end = Math.min(MAX_PERIOD, start + span - 1)
-      return {
-        ...course,
-        _day: day,
-        _start: start,
-        _end: end,
-        _uid: `${day}-${start}-${end}-${course.name}-${index}`
-      }
-    })
-
-    const conflicts = buildConflictBlocks(day, merged, weekNumber)
-    byDay[day] = [...merged, ...conflicts]
-    merged.forEach((node) => {
-      nodes.push(node)
-      const nameKey = String(node.name || '')
-      if (!nameBuckets.has(nameKey)) {
-        nameBuckets.set(nameKey, [])
-      }
-      nameBuckets.get(nameKey).push(node)
-    })
-  }
-
-  if (!nodes.length) return byDay
-
-  // 颜色规则：
-  // 1) 同名课程在整周内使用同一配色。
-  // 2) 仅当课程名称不同且在时间/空间上相邻时，配色必须不同。
-  const nameNeighbors = new Map([...nameBuckets.keys()].map((name) => [name, new Set()]))
-  for (let i = 0; i < nodes.length; i += 1) {
-    for (let j = i + 1; j < nodes.length; j += 1) {
-      const a = nodes[i]
-      const b = nodes[j]
-      const nameA = String(a.name || '')
-      const nameB = String(b.name || '')
-      if (nameA !== nameB && areAdjacentCourses(a, b)) {
-        nameNeighbors.get(nameA)?.add(nameB)
-        nameNeighbors.get(nameB)?.add(nameA)
-      }
-    }
-  }
-
-  const orderedNames = [...nameBuckets.keys()].sort((a, b) => {
-    const degreeDiff = (nameNeighbors.get(b)?.size || 0) - (nameNeighbors.get(a)?.size || 0)
-    if (degreeDiff !== 0) return degreeDiff
-    return hashText(a) - hashText(b)
-  })
-
-  const colorByName = new Map()
-  const globallyUsedColors = new Set()
-  const allCandidates = Array.from({ length: courseThemes.length }, (_, i) => i)
-  orderedNames.forEach((name) => {
-    const neighborColorSet = new Set()
-    nameNeighbors.get(name)?.forEach((neighborName) => {
-      if (!colorByName.has(neighborName)) return
-      const neighborColor = colorByName.get(neighborName)
-      neighborColorSet.add(neighborColor)
-    })
-    const neighborColors = [...neighborColorSet]
-    const globalColors = [...globallyUsedColors]
-
-    const seed = hashText(name) % courseThemes.length
-    // 规则优先级：
-    // 1) 优先全局唯一（不同课程尽量不重复颜色）。
-    // 2) 其次保证邻接课程颜色不重复。
-    // 3) 在候选内选择与邻接/全局已有颜色对比度更高的颜色。
-    const uniqueCandidates = allCandidates.filter(
-      (candidate) => !globallyUsedColors.has(candidate) && !neighborColorSet.has(candidate)
-    )
-    const reusableCandidates = allCandidates.filter(
-      (candidate) => globallyUsedColors.has(candidate) && !neighborColorSet.has(candidate)
-    )
-    const noNeighborConflictCandidates = allCandidates.filter(
-      (candidate) => !neighborColorSet.has(candidate)
-    )
-
-    let chosen = pickBestThemeCandidate(uniqueCandidates, seed, neighborColors, globalColors)
-    if (chosen === null) {
-      chosen = pickBestThemeCandidate(reusableCandidates, seed, neighborColors, globalColors)
-    }
-    if (chosen === null) {
-      chosen = pickBestThemeCandidate(noNeighborConflictCandidates, seed, neighborColors, globalColors)
-    }
-    if (chosen === null) {
-      // 极端兜底：即使邻接冲突也保证有稳定结果
-      chosen = pickBestThemeCandidate(allCandidates, seed, neighborColors, globalColors)
-    }
-    if (chosen === null) chosen = seed
-    colorByName.set(name, chosen)
-    globallyUsedColors.add(chosen)
-  })
-
-  for (let day = 1; day <= 7; day += 1) {
-    byDay[day] = (byDay[day] || []).map(course => ({
-      ...course,
-      colorIndex: course.is_conflict
-        ? 0
-        : (colorByName.get(String(course.name || '')) ?? 0)
-    }))
-  }
-
-  return byDay
-}
-
-const weekCoursesWithColor = computed(() => {
-  const week = Number(selectedWeek.value)
-  if (!Number.isFinite(week) || week <= 0) return {}
-  return buildWeekCoursesWithColors(week)
-})
-
-// 获取某一天的所有课程（并在此处合并）
-const getCoursesForDay = (dayIndex) => {
-  return weekCoursesWithColor.value[dayIndex] || []
-}
-
-const getCoursesForDayAndWeek = (dayIndex, weekNumber) => {
-  const dailyCourses = scheduleData.value.filter(course => {
-    return course.weekday === dayIndex && course.weeks.includes(weekNumber)
-  })
-  dailyCourses.sort((a, b) => a.period - b.period)
-  return mergeDailyCourses(dailyCourses)
-}
-
-const getDateForWeekDay = (weekNumber, weekday) => {
-  if (!startDateStr.value) return null
-  const base = new Date(startDateStr.value)
-  base.setDate(base.getDate() + (weekNumber - 1) * 7 + (weekday - 1))
-  const yyyy = base.getFullYear()
-  const mm = String(base.getMonth() + 1).padStart(2, '0')
-  const dd = String(base.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-const getCourseStyle = (course) => {
-  if (!course) return {}
-  const start = Number(course.period) || 1
-  const span = Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course.djs) || 1))
-  const isTraditionalCard = scheduleCourseCardStyle.value === 'traditional'
-  const isClassCard = scheduleCourseCardStyle.value === 'class'
-  // 现代样式使用连续圆角，避免竖向出现“尖顶”视觉。
-  const modernRadius = '14px'
-  const traditionalRadius = '12px'
-  const classRadius = '12px'
-  if (course.is_conflict) {
-    return {
-      '--course-bg': isTraditionalCard
-        ? '#fef2f2'
-        : (isClassCard
-          ? 'rgba(254, 242, 242, 0.96)'
-          : 'repeating-linear-gradient(135deg, #fff1f2 0, #fff1f2 8px, #ffe4e6 8px, #ffe4e6 16px)'),
-      '--course-text': isTraditionalCard ? '#b91c1c' : '#b91c1c',
-      '--course-border': isTraditionalCard ? '#fecaca' : '#dc2626',
-      '--course-shadow': isTraditionalCard
-        ? '0 2px 8px rgba(220, 38, 38, 0.08)'
-        : (isClassCard
-          ? '0 6px 14px rgba(220, 38, 38, 0.16)'
-          : '0 8px 18px rgba(220, 38, 38, 0.2)'),
-      '--course-span': String(span),
-      '--course-radius': isTraditionalCard ? traditionalRadius : (isClassCard ? classRadius : modernRadius),
-      '--course-border-width': isClassCard ? '1px' : '2px',
-      gridRow: `${start} / span ${span}`,
-      gridColumn: '1',
-      zIndex: 4
-    }
-  }
-  
-  // 使用预计算的 index，或者 fallback 到哈希
-  let index = 0
-  if (course.colorIndex !== undefined) {
-      index = course.colorIndex
-  } else {
-    // Fallback logic
-    let hash = 0
-    for (let i = 0; i < course.name.length; i++) {
-        hash = course.name.charCodeAt(i) + ((hash << 5) - hash)
-    }
-    index = Math.abs(hash) % courseThemes.length
-  }
-
-  const theme = courseThemes[index]
-  const isCustom = !!course.is_custom
-  // #470：自定义课若有用户色则优先使用，不再强制纯黑
-  const userColor = isCustom ? normalizeOptionalCourseColor(course.color) : null
-  const hasUserColor = !!(userColor && userColor.length)
-  const borderColor = hasUserColor
-    ? userColor
-    : (isCustom ? '#111111' : (theme.border || '#cbd5e1'))
-  // 传统样式：用户色 → 浅底+主色边框+对比字；未设色自定义课仍用黑底白字
-  const traditionalBackground = hasUserColor
-    ? mixHexWithWhite(userColor, 0.22)
-    : (isCustom ? '#111111' : theme.bg)
-  const traditionalText = hasUserColor
-    ? contrastTextForHex(traditionalBackground)
-    : (isCustom ? '#ffffff' : theme.text)
-  const modernText = hasUserColor ? userColor : theme.text
-  const modernBackground = 'rgba(255, 255, 255, 0.92)'
-  const classBackground = 'rgba(255, 255, 255, 0.94)'
-  const normalShadow = isCustom
-    ? '0 7px 16px rgba(15, 23, 42, 0.24)'
-    : '0 6px 14px rgba(71, 85, 105, 0.16)'
-  const traditionalShadow = '0 2px 8px rgba(0, 0, 0, 0.04)'
-  const classShadow = isCustom
-    ? '0 6px 14px rgba(15, 23, 42, 0.2)'
-    : '0 4px 10px rgba(71, 85, 105, 0.14)'
-  
-  return {
-    '--course-bg': isTraditionalCard ? traditionalBackground : (isClassCard ? classBackground : modernBackground),
-    '--course-text': isTraditionalCard ? traditionalText : modernText,
-    '--course-border': borderColor,
-    '--course-shadow': isTraditionalCard ? traditionalShadow : (isClassCard ? classShadow : normalShadow),
-    '--course-span': String(span),
-    '--course-radius': isTraditionalCard ? traditionalRadius : (isClassCard ? classRadius : modernRadius),
-    '--course-border-width': isClassCard ? '1px' : (isCustom ? '2px' : '1px'),
-    gridRow: `${start} / span ${span}`,
-    gridColumn: '1',
-    zIndex: 1,
-    // 增加间隔 (或者通过 margin 在 css 控制)
-  }
-}
-
-const openDetail = (course) => {
-  detailActionError.value = ''
-  selectedCourse.value = course
-  showDetail.value = true
-}
-
-/**
- * 判断课程卡片是否应被 Widget 深链接高亮
- * 匹配条件：同一天 + period 范围包含目标节次
- */
-const isWidgetHighlighted = (course, day) => {
-  if (!widgetHighlightPeriod.value || !widgetHighlightDay.value) return false
-  if (day !== widgetHighlightDay.value) return false
-  const start = Number(course?.period) || 1
-  const span = Math.max(1, Number(course?.djs) || 1)
-  const end = start + span - 1
-  return widgetHighlightPeriod.value >= start && widgetHighlightPeriod.value <= end
-}
-
-const buildLocationText = (course) => {
-  const building = String(course?.building || '').trim()
-  const room = String(course?.room_code || course?.room || '').trim()
-  return [building, room].filter(Boolean).join(' ') || '未填写'
-}
-
-const buildCourseTimeText = (course) => {
-  const weekday = Number(course?.weekday || 0)
-  const period = Number(course?.period || 0)
-  if (!weekday || !period) return '未填写'
-  const endPeriod = getCourseEndPeriod(course)
-  return `周${weekday} 第${period}-${endPeriod}节`
-}
-
-const buildSingleCourseDetailText = (course) => {
-  const lines = [
-    `课程名称：${String(course?.name || '').trim() || '未填写'}`,
-    `课程类型：${course?.is_custom ? '自定义课程' : '教务课程'}`,
-    `教师：${String(course?.teacher || '').trim() || '未填写'}`,
-    `地点：${buildLocationText(course)}`,
-    `时间：${buildCourseTimeText(course)}`,
-    `周次：${String(course?.weeks_text || '').trim() ? `${String(course?.weeks_text || '').trim()}周` : '未填写'}`,
-    `学分：${String(course?.credit || '').trim() || '无'}`,
-    `教学班：${String(course?.class_name || '').trim() || '无'}`
-  ]
-  if (course?.semester) {
-    lines.push(`学期：${String(course.semester).trim()}`)
-  }
-  return lines.join('\n')
-}
-
-const buildConflictDetailText = (course) => {
-  const conflicts = Array.isArray(course?.conflict_courses) ? course.conflict_courses : []
-  if (!conflicts.length) {
-    return `课程名称：${String(course?.name || '').trim() || '未填写'}\n冲突详情：无`
-  }
-  const lines = ['冲突课程详情：']
-  conflicts.forEach((item, idx) => {
-    lines.push(`${idx + 1}. ${String(item?.name || '').trim() || '未命名课程'}`)
-    lines.push(`   类型：${item?.is_custom ? '自定义课程' : '教务课程'}`)
-    lines.push(`   教师：${String(item?.teacher || '').trim() || '未填写'}`)
-    lines.push(`   地点：${buildLocationText(item)}`)
-    lines.push(`   时间：${buildCourseTimeText(item)}`)
-    lines.push(`   周次：${String(item?.weeks_text || '').trim() ? `${String(item.weeks_text).trim()}周` : '未填写'}`)
-  })
-  return lines.join('\n')
-}
-
-const buildCourseDetailText = (course) => {
-  if (!course) return ''
-  if (course.is_conflict) {
-    return buildConflictDetailText(course)
-  }
-  return buildSingleCourseDetailText(course)
-}
-
-const copyTextWithFallback = async (text) => {
-  const content = String(text || '').trim()
-  if (!content) return false
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(content)
-      return true
-    }
-  } catch {
-    // ignore
-  }
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = content
-    textarea.style.position = 'fixed'
-    textarea.style.left = '-9999px'
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
-    return true
-  } catch {
-    return false
-  }
-}
-
-const copySelectedCourseDetail = async () => {
-  const course = selectedCourse.value
-  if (!course) return
-  const copied = await copyTextWithFallback(buildCourseDetailText(course))
-  if (copied) {
-    showToast(course.is_conflict ? '冲突课程详情已复制' : '课程详情已复制', 'success')
-    return
-  }
-  showToast('复制失败，请稍后重试', 'error')
-}
-
-const findCustomCourseRecord = (courseId, targetSemester = '') => {
-  const normalizedId = String(courseId || '').trim()
-  const normalizedSemester = String(targetSemester || '').trim()
-  if (!normalizedId) return null
-  const pools = [customScheduleData.value, allCustomCourses.value]
-  for (const pool of pools) {
-    const found = (pool || []).find((item) => {
-      const itemId = String(item?.source_id || item?.id || '').trim()
-      const itemSemester = String(item?.semester || '').trim()
-      if (!itemId || itemId !== normalizedId) return false
-      if (normalizedSemester && itemSemester && itemSemester !== normalizedSemester) return false
-      return true
-    })
-    if (found) return normalizeCustomCourse(found)
-  }
-  return null
-}
-
-const syncSelectedCustomCourse = (courseId, targetSemester = '') => {
-  const nextCourse = findCustomCourseRecord(courseId, targetSemester)
-  if (!nextCourse) {
-    if (showDetail.value) {
-      showDetail.value = false
-    }
-    selectedCourse.value = null
-    return
-  }
-  selectedCourse.value = nextCourse
-}
-
-const resetAddCourseForm = () => {
-  addCourseForm.value = {
-    name: '',
-    teacher: '',
-    room: '',
-    weekday: 1,
-    period: 1,
-    djs: 1,
-    weeks: semesterWeekOptions.value.slice(),
-    color: DEFAULT_COURSE_COLOR
-  }
-  addCourseError.value = ''
-  showWeekPicker.value = false
-}
-
-const populateCourseForm = (course) => {
-  const normalized = normalizeCustomCourse(course)
-  if (!normalized) return
-  const colorNorm = normalizeOptionalCourseColor(normalized.color)
-  addCourseForm.value = {
-    name: String(normalized.name || '').trim(),
-    teacher: String(normalized.teacher || '').trim(),
-    room: String(normalized.room || '').trim(),
-    weekday: Number(normalized.weekday || 1),
-    period: Number(normalized.period || 1),
-    djs: Math.max(1, Number(normalized.djs || 1)),
-    weeks: normalizeWeeks(normalized.weeks),
-    // #469：回显已有 color；后端未下发时保持空（本地态）
-    color: colorNorm === null ? DEFAULT_COURSE_COLOR : colorNorm
-  }
-  addCourseError.value = ''
-  showWeekPicker.value = false
-}
-
-const hasValidLoginSession = () => {
-  const sid = String(props.studentId || '').trim()
-  const sessionToken = String(localStorage.getItem(LOGIN_SESSION_TOKEN_KEY) || '').trim()
-  return !!sid && !!sessionToken
-}
-
-const promptLoginRequired = async () => {
-  errorMsg.value = '请先登录后再管理自定义课程'
-  showMenu.value = false
-  await askConfirm({
-    title: '需要登录',
-    lines: ['请先登录后再管理自定义课程。'],
-    confirmText: '我知道了',
-    cancelText: '关闭',
-    danger: false
-  })
-}
-
-const openAddCourseDialog = () => {
-  if (!hasValidLoginSession()) {
-    void promptLoginRequired()
-    return
-  }
-  const sem = String(semester.value || semesterDraft.value || '').trim()
-  if (!sem) {
-    semesterError.value = '请先选择学期后再添加课程'
-    return
-  }
-  courseDialogMode.value = 'add'
-  editingCourseId.value = ''
-  editingCourseSemester.value = sem
-  returnToDetailAfterCourseSubmit.value = false
-  returnToManageAfterCourseSubmit.value = false
-  resetAddCourseForm()
-  showAddCourse.value = true
-}
-
-const closeAddCourseDialog = () => {
-  const reopenManage = returnToManageAfterCourseSubmit.value
-  showAddCourse.value = false
-  showWeekPicker.value = false
-  addCourseError.value = ''
-  courseDialogMode.value = 'add'
-  editingCourseId.value = ''
-  editingCourseSemester.value = ''
-  returnToDetailAfterCourseSubmit.value = false
-  returnToManageAfterCourseSubmit.value = false
-  if (reopenManage) {
-    showManageCourses.value = true
-    void loadAllCustomCourses()
-  }
-}
-
-const openEditCourseDialog = (course, { reopenDetail = false, reopenManage = false } = {}) => {
-  const normalized = normalizeCustomCourse(course)
-  if (!normalized?.is_custom) return
-  courseDialogMode.value = 'edit'
-  editingCourseId.value = String(normalized.source_id || normalized.id || '').trim()
-  editingCourseSemester.value = String(normalized.semester || semester.value || semesterDraft.value || '').trim()
-  returnToDetailAfterCourseSubmit.value = reopenDetail
-  returnToManageAfterCourseSubmit.value = reopenManage || showManageCourses.value
-  populateCourseForm(normalized)
-  showDetail.value = false
-  showManageCourses.value = false
-  showMenu.value = false
-  showAddCourse.value = false
-  nextTick(() => {
-    showAddCourse.value = true
-  })
-}
-
-const toggleManageSemester = (semesterKey) => {
-  manageExpandedSemesters.value = {
-    ...manageExpandedSemesters.value,
-    [semesterKey]: !manageExpandedSemesters.value[semesterKey]
-  }
-}
-
-const openManageCoursesDialog = async () => {
-  if (!hasValidLoginSession()) {
-    await promptLoginRequired()
-    return
-  }
-  showMenu.value = false
-  showManageCourses.value = true
-  await loadAllCustomCourses()
-}
-
-const closeManageCoursesDialog = () => {
-  showManageCourses.value = false
-  loadingManageCourses.value = false
-  manageCoursesError.value = ''
-}
-
-const toggleAddCourseWeek = (week) => {
-  const current = normalizeWeeks(addCourseForm.value.weeks)
-  if (current.includes(week)) {
-    addCourseForm.value.weeks = current.filter((w) => w !== week)
-    return
-  }
-  addCourseForm.value.weeks = normalizeWeeks([...current, week])
-}
-
-const selectAllAddCourseWeeks = () => {
-  addCourseForm.value.weeks = semesterWeekOptions.value.slice()
-}
-
-const clearAddCourseWeeks = () => {
-  addCourseForm.value.weeks = []
-}
-
-const validateAddCourse = () => {
-  const name = String(addCourseForm.value.name || '').trim()
-  if (!name) return '课程名称不能为空'
-  const weeks = normalizeWeeks(addCourseForm.value.weeks)
-  if (!weeks.length) return '请至少选择一个周次'
-  const weekday = Number(addCourseForm.value.weekday)
-  if (!Number.isFinite(weekday) || weekday < 1 || weekday > 7) return '请选择上课时间'
-  const period = Number(addCourseForm.value.period)
-  if (!Number.isFinite(period) || period < 1 || period > 11) return '开始节次必须在 1-11 节'
-  const span = Number(addCourseForm.value.djs)
-  const maxSpan = Math.max(1, 12 - period)
-  if (!Number.isFinite(span) || span < 1 || span > maxSpan) return `上课节数必须在 1-${maxSpan} 节`
-  return ''
-}
-
-const refreshCustomCourseViews = async (targetSemester = '') => {
-  const normalizedSemester = String(targetSemester || '').trim()
-  const currentSemester = String(semester.value || semesterDraft.value || '').trim()
-  if (normalizedSemester && normalizedSemester === currentSemester) {
-    await loadCustomCourses(normalizedSemester)
-  } else {
-    mergeScheduleSources()
-  }
-  if (showManageCourses.value) {
-    await loadAllCustomCourses()
-  }
-}
-
-const submitAddCourse = async () => {
-  if (!hasValidLoginSession()) {
-    await promptLoginRequired()
-    return
-  }
-  const sem = String(courseDialogSemester.value || '').trim()
-  if (!sem) {
-    addCourseError.value = '学期无效，请重新选择'
-    return
-  }
-  const sid = String(props.studentId || '').trim()
-  if (!sid) {
-    addCourseError.value = '请先登录后再添加课程'
-    return
-  }
-  const validationError = validateAddCourse()
-  if (validationError) {
-    addCourseError.value = validationError
-    return
-  }
-
-  const weeks = normalizeWeeks(addCourseForm.value.weeks)
-  const colorNorm = normalizeOptionalCourseColor(addCourseForm.value.color)
-  const payload = {
-    student_id: sid,
-    semester: sem,
-    name: String(addCourseForm.value.name || '').trim(),
-    teacher: String(addCourseForm.value.teacher || '').trim(),
-    room: String(addCourseForm.value.room || '').trim(),
-    weekday: Number(addCourseForm.value.weekday),
-    period: Number(addCourseForm.value.period),
-    djs: Number(addCourseForm.value.djs),
-    weeks,
-    // #470：可选用户色；空字符串表示未设定
-    color: colorNorm === null ? DEFAULT_COURSE_COLOR : colorNorm
-  }
-
-  const isEditing = courseDialogMode.value === 'edit'
-  const confirmText = [
-    `确认${isEditing ? '修改' : '添加'}到学期：${sem}`,
-    `课程：${payload.name}`,
-    `时间：${weekDayLabels[payload.weekday - 1]} 第${payload.period}-${payload.period + payload.djs - 1}节`,
-    `周次：${formatWeeksText(weeks)}`
-  ]
-  const confirmed = await askConfirm({
-    title: isEditing ? '确认修改课程' : '确认添加课程',
-    lines: confirmText,
-    confirmText: isEditing ? '确认修改' : '确认添加',
-    cancelText: '取消',
-    danger: false
-  })
-  if (!confirmed) {
-    return
-  }
-
-  addingCourse.value = true
-  addCourseError.value = ''
-  try {
-    const requestPayload = isEditing
-      ? {
-          ...payload,
-          course_id: String(editingCourseId.value || '').trim()
-        }
-      : payload
-    const res = await axios.post(
-      `${API_BASE}${isEditing ? '/v2/schedule/custom/update' : '/v2/schedule/custom/add'}`,
-      requestPayload
-    )
-    if (!res.data?.success) {
-      throw new Error(res.data?.error || `${isEditing ? '修改' : '添加'}课程失败`)
-    }
-    await refreshCustomCourseViews(sem)
-    showAddCourse.value = false
-    showWeekPicker.value = false
-    if (isEditing && returnToManageAfterCourseSubmit.value) {
-      showManageCourses.value = true
-      await loadAllCustomCourses()
-    }
-    if (isEditing && editingCourseId.value && returnToDetailAfterCourseSubmit.value) {
-      syncSelectedCustomCourse(editingCourseId.value, sem)
-      showDetail.value = !!selectedCourse.value
-    }
-    courseDialogMode.value = 'add'
-    editingCourseId.value = ''
-    editingCourseSemester.value = ''
-    returnToDetailAfterCourseSubmit.value = false
-    returnToManageAfterCourseSubmit.value = false
-  } catch (e) {
-    addCourseError.value = String(e?.response?.data?.error || e?.message || `${isEditing ? '修改' : '添加'}课程失败`)
-  } finally {
-    addingCourse.value = false
-  }
-}
-
-const deleteCustomCourseRecord = async (course, mode = 'all', { reopenDetail = false } = {}) => {
-  const normalized = normalizeCustomCourse(course)
-  if (!normalized?.is_custom) return false
-  const sem = String(normalized.semester || semester.value || semesterDraft.value || '').trim()
-  const sid = String(props.studentId || '').trim()
-  if (!sem || !sid) return
-  const courseId = String(normalized.source_id || normalized.id || '').trim()
-  if (!courseId) return
-
-  const isCurrentWeek = mode === 'current_week'
-  const week = Number(selectedWeek.value || 0)
-  const message = isCurrentWeek
-    ? `确认删除“${normalized.name}”在第${week}周的课程吗？`
-    : `确认删除“${normalized.name}”的全部已选周次吗？`
-  const confirmed = await askConfirm({
-    title: '确认删除课程',
-    lines: [message],
-    confirmText: '确认删除',
-    cancelText: '取消',
-    danger: true
-  })
-  if (!confirmed) return
-
-  try {
-    const payload = {
-      student_id: sid,
-      semester: sem,
-      course_id: courseId,
-      mode: isCurrentWeek ? 'current_week' : 'all',
-      current_week: isCurrentWeek ? week : undefined
-    }
-    const res = await axios.post(`${API_BASE}/v2/schedule/custom/delete`, payload)
-    if (!res.data?.success) {
-      throw new Error(res.data?.error || '删除课程失败')
-    }
-    await refreshCustomCourseViews(sem)
-    if (reopenDetail && !isCurrentWeek) {
-      syncSelectedCustomCourse(courseId, sem)
-      showDetail.value = !!selectedCourse.value
-    } else {
-      showDetail.value = false
-      selectedCourse.value = null
-    }
-    detailActionError.value = ''
-    return true
-  } catch (e) {
-    detailActionError.value = String(e?.response?.data?.error || e?.message || '删除课程失败')
-    return false
-  }
-}
-
-const deleteCustomCourse = async (mode) => {
-  const course = selectedCourse.value
-  if (!course?.is_custom) return
-  await deleteCustomCourseRecord(course, mode, { reopenDetail: mode === 'current_week' })
-}
-
-const deleteManagedCourse = async (course) => {
-  const ok = await deleteCustomCourseRecord(course, 'all', { reopenDetail: false })
-  if (!ok && detailActionError.value) {
-    manageCoursesError.value = detailActionError.value
-  }
-}
-
-const openConflictCourseDetail = (course) => {
-  const nextCourse = course?.is_custom
-    ? (findCustomCourseRecord(course.source_id || course.id, course.semester) || normalizeCustomCourse(course))
-    : {
-        ...course,
-        is_conflict: false
-      }
-  if (!nextCourse) return
-  showDetail.value = false
-  nextTick(() => {
-    openDetail({
-      ...nextCourse,
-      is_conflict: false
-    })
-  })
-}
-
-// 滑动翻页（距离+速度双阈值）
-let touchStartX = 0
-let touchStartY = 0
-let touchLastX = 0
-let touchStartAt = 0
-let swipeTracking = false
-let swipeLocked = false
-
-const shouldIgnoreWeekSwipe = () => {
-  return (
-    showMenu.value ||
-    showAddCourse.value ||
-    showManageCourses.value ||
-    showWeekPicker.value ||
-    showDetail.value ||
-    showConfirmDialog.value ||
-    showSemesterBadgePopover.value
-  )
-}
-
-const shiftWeek = (delta) => {
-  if (swipeLocked) return false
-  const current = Number(selectedWeek.value || 0)
-  const max = Math.max(1, Number(totalWeeks.value || 1))
-  const target = Math.min(max, Math.max(1, current + delta))
-  if (target === current) return false
-  weekTransitionName.value = delta > 0 ? 'week-slide-left' : 'week-slide-right'
-  selectedWeek.value = target
-  swipeLocked = true
-  window.setTimeout(() => {
-    swipeLocked = false
-  }, 260)
-  return true
-}
-
-const handleTouchStart = (e) => {
-  if (shouldIgnoreWeekSwipe()) return
-  const touch = e.changedTouches?.[0]
-  if (!touch) return
-  swipeTracking = true
-  touchStartX = touch.screenX
-  touchStartY = touch.screenY
-  touchLastX = touch.screenX
-  touchStartAt = Date.now()
-}
-
-const handleTouchMove = (e) => {
-  if (!swipeTracking) return
-  const touch = e.changedTouches?.[0]
-  if (!touch) return
-  touchLastX = touch.screenX
-  const dx = Math.abs(touch.screenX - touchStartX)
-  const dy = Math.abs(touch.screenY - touchStartY)
-  if (dy > dx && dy > 16) {
-    swipeTracking = false
-  }
-}
-
-const handleTouchEnd = (e) => {
-  if (!swipeTracking) return
-  swipeTracking = false
-  const touch = e.changedTouches?.[0]
-  const endX = touch?.screenX ?? touchLastX
-  const diff = touchStartX - endX
-  const durationMs = Math.max(1, Date.now() - touchStartAt)
-  const velocity = Math.abs(diff) / durationMs // px/ms
-  const distancePass = Math.abs(diff) >= 52
-  const velocityPass = Math.abs(diff) >= 24 && velocity >= 0.52
-  if (!distancePass && !velocityPass) return
-  if (diff > 0) {
-    shiftWeek(1)
-    return
-  }
-  shiftWeek(-1)
-}
-
-const shouldIgnoreKeyboardWeekSwitch = () => {
-  if (shouldIgnoreWeekSwipe()) return true
-  const active = document.activeElement
-  if (!active) return false
-  const tag = String(active.tagName || '').toLowerCase()
-  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true
-  return !!active.getAttribute?.('contenteditable')
-}
-
-const handleWeekKeydown = (event) => {
-  if (!event) return
-  if (event.defaultPrevented) return
-  if (event.altKey || event.ctrlKey || event.metaKey) return
-  if (shouldIgnoreKeyboardWeekSwitch()) return
-
-  if (event.key === 'ArrowLeft') {
-    const changed = shiftWeek(-1)
-    if (changed) event.preventDefault()
-    return
-  }
-  if (event.key === 'ArrowRight') {
-    const changed = shiftWeek(1)
-    if (changed) event.preventDefault()
-  }
-}
-
-const handleBack = () => emit('back')
-const jumpToCurrentWeek = () => {
-  if (currentWeek.value) {
-    weekTransitionName.value =
-      Number(currentWeek.value) >= Number(selectedWeek.value) ? 'week-slide-left' : 'week-slide-right'
-    selectedWeek.value = currentWeek.value
-  }
-}
-
-const toggleMenu = () => {
-  showMenu.value = !showMenu.value
-  if (!showMenu.value) {
-    exportCopied.value = false
-  }
-}
-
-const setScheduleCourseCardStyle = (styleKey) => {
-  const nextStyle = normalizeCourseCardStyle(styleKey)
-  if (scheduleCourseCardStyle.value === nextStyle) return
-  scheduleCourseCardStyle.value = nextStyle
-  courseCardRefreshNonce.value += 1
-  uiSettings.scheduleCourseCardStyle = nextStyle
-  flushUiSettings()
-  pushDebugLog('Schedule', `切换课表样式：${nextStyle}`, 'info')
-  try {
-    const snapshot = JSON.parse(localStorage.getItem('hbu_ui_settings_v2') || '{}')
-    pushDebugLog(
-      'Schedule',
-      `课表样式已写入本地缓存：${String(snapshot?.scheduleCourseCardStyle || '') || 'unknown'}`,
-      'debug'
-    )
-  } catch (error) {
-    pushDebugLog('Schedule', '读取课表样式缓存失败', 'warn', error)
-  }
-  nextTick(() => {
-    courseCardRefreshNonce.value += 1
-    pushDebugLog(
-      'Schedule',
-      `课表样式热刷新完成：${nextStyle}，nonce=${courseCardRefreshNonce.value}`,
-      'debug'
-    )
-  })
-  const styleLabelMap = {
-    modern: '现代',
-    traditional: '传统',
-    class: '标准'
-  }
-  showToast(`已切换为${styleLabelMap[nextStyle] || '现代'}样式`, 'success')
-}
-
-const createTimestampSuffix = () => {
-  const now = new Date()
-  const yyyy = String(now.getFullYear())
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  const hh = String(now.getHours()).padStart(2, '0')
-  const mi = String(now.getMinutes()).padStart(2, '0')
-  const ss = String(now.getSeconds()).padStart(2, '0')
-  return `${yyyy}${mm}${dd}-${hh}${mi}${ss}`
-}
-
-const triggerTextFileDownload = (fileName, content, mimeType = 'application/json;charset=utf-8') => {
-  try {
-    const blob = new Blob([content], { type: mimeType })
-    const href = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = href
-    link.download = fileName
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(href)
-    return true
-  } catch {
-    return false
-  }
-}
-
-const encodeBase64Utf8 = (content) => {
-  const bytes = new TextEncoder().encode(String(content || ''))
-  const chunkSize = 0x8000
-  let binary = ''
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, offset + chunkSize)
-    binary += String.fromCharCode(...chunk)
-  }
-  return btoa(binary)
-}
-
-const saveJsonByFilePicker = async (fileName, content) => {
-  if (typeof window.showSaveFilePicker !== 'function') {
-    return { ok: false, canceled: false, location: '' }
-  }
-  try {
-    const handle = await window.showSaveFilePicker({
-      suggestedName: fileName,
-      types: [
-        {
-          description: 'JSON 文件',
-          accept: {
-            'application/json': ['.json']
-          }
-        }
-      ]
-    })
-    const writable = await handle.createWritable()
-    await writable.write(content)
-    await writable.close()
-    return {
-      ok: true,
-      canceled: false,
-      location: handle?.name ? `已保存：${handle.name}` : '已保存到所选位置'
-    }
-  } catch (error) {
-    if (String(error?.name || '').trim() === 'AbortError') {
-      return { ok: true, canceled: true, location: '已取消保存' }
-    }
-    return { ok: false, canceled: false, location: '' }
-  }
-}
-
-const saveJsonByNativeExport = async (fileName, content) => {
-  if (!isTauriRuntime()) {
-    return { ok: false, canceled: false, location: '' }
-  }
-  try {
-    const payload = await invokeNative('save_export_file', {
-      req: {
-        fileName,
-        mimeType: 'application/json',
-        contentBase64: encodeBase64Utf8(content),
-        preferMedia: false
-      }
-    })
-    const path = String(payload?.path || '').trim()
-    return {
-      ok: true,
-      canceled: false,
-      location: path || '已保存到本地导出目录'
-    }
-  } catch (error) {
-    const message = String(error?.message || error || '')
-    if (message.includes('取消')) {
-      return { ok: true, canceled: true, location: '已取消保存' }
-    }
-    return { ok: false, canceled: false, location: '' }
-  }
-}
-
-const isLikelyMobileDevice = () =>
-  // iOS/Android 部分统一收敛到 runtime.ts；Mobile/HarmonyOS 关键字为业务特定补充
-  isMobileLike() || /Mobile|HarmonyOS/i.test(String(navigator.userAgent || ''))
-
-const shareCustomCoursesJson = async (fileName, content) => {
-  try {
-    if (!navigator.share || typeof File === 'undefined') return { ok: false, canceled: false }
-    const file = new File([content], fileName, { type: 'application/json' })
-    await navigator.share({
-      title: 'Mini-HBUT 自定义课程备份',
-      text: '自定义课程 JSON 备份',
-      files: [file]
-    })
-    return { ok: true, canceled: false }
-  } catch (error) {
-    if (String(error?.name || '').trim() === 'AbortError') {
-      return { ok: true, canceled: true }
-    }
-    return { ok: false, canceled: false }
-  }
-}
-
-const toPortableCustomCourse = (course) => {
-  const normalized = normalizeCustomCourse(course)
-  if (!normalized?.name) return null
-  return {
-    id: normalized.source_id || normalized.id || '',
-    source_id: normalized.source_id || normalized.id || '',
-    semester: normalized.semester || '',
-    name: normalized.name || '',
-    teacher: normalized.teacher || '',
-    room: normalized.room || '',
-    weekday: Number(normalized.weekday || 1),
-    period: Number(normalized.period || 1),
-    djs: Number(normalized.djs || 1),
-    weeks: normalizeWeeks(normalized.weeks),
-    color: normalized.color || DEFAULT_COURSE_COLOR
-  }
-}
-
-const readTextFromFile = async (file) => {
-  if (!file) return ''
-  if (typeof file.text === 'function') {
-    return await file.text()
-  }
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('读取文件失败'))
-    reader.readAsText(file, 'utf-8')
-  })
-}
-
-const parseImportedCustomCourse = (item, index) => {
-  if (!item || typeof item !== 'object') {
-    throw new Error(`第 ${index + 1} 条课程数据格式错误`)
-  }
-  const semesterValue = String(item.semester || '').trim()
-  const nameValue = String(item.name || '').trim()
-  const teacherValue = String(item.teacher || '').trim()
-  const roomValue = String(item.room || '').trim()
-  const sourceId = String(item.source_id || item.id || '').trim()
-  const weekdayValue = Number(item.weekday)
-  const periodValue = Number(item.period)
-  const djsValue = Number(item.djs)
-  const weeksValue = normalizeWeeks(item.weeks)
-
-  if (!semesterValue) throw new Error(`第 ${index + 1} 条课程缺少 semester`)
-  if (!nameValue) throw new Error(`第 ${index + 1} 条课程缺少 name`)
-  if (!Number.isFinite(weekdayValue) || weekdayValue < 1 || weekdayValue > 7) {
-    throw new Error(`第 ${index + 1} 条课程 weekday 不合法`)
-  }
-  if (!Number.isFinite(periodValue) || periodValue < 1 || periodValue > 11) {
-    throw new Error(`第 ${index + 1} 条课程 period 不合法`)
-  }
-  const maxSpan = Math.max(1, 12 - periodValue)
-  if (!Number.isFinite(djsValue) || djsValue < 1 || djsValue > maxSpan) {
-    throw new Error(`第 ${index + 1} 条课程 djs 不合法（最多 ${maxSpan}）`)
-  }
-  if (!weeksValue.length) throw new Error(`第 ${index + 1} 条课程 weeks 不能为空`)
-  const colorNorm = normalizeOptionalCourseColor(item.color)
-  // 缺 color / 非法 color：导入时按未设定处理，兼容旧 JSON
-  const colorValue = colorNorm === null ? DEFAULT_COURSE_COLOR : colorNorm
-
-  return {
-    source_id: sourceId,
-    semester: semesterValue,
-    name: nameValue,
-    teacher: teacherValue,
-    room: roomValue,
-    color: colorValue,
-    weekday: weekdayValue,
-    period: periodValue,
-    djs: djsValue,
-    weeks: weeksValue
-  }
-}
-
-const exportCustomCoursesJson = async () => {
-  const sid = String(props.studentId || '').trim()
-  if (!sid) {
-    showToast('请先登录后再导出自定义课程', 'error')
-    return
-  }
-  if (customCourseExporting.value) return
-  customCourseExporting.value = true
-  customCourseExportLocation.value = ''
-  try {
-    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list_all`, {
-      student_id: sid
-    })
-    if (!res.data?.success) {
-      throw new Error(res.data?.error || '导出自定义课程失败')
-    }
-    const list = Array.isArray(res.data?.data) ? res.data.data : []
-    const courses = list.map(toPortableCustomCourse).filter(Boolean)
-    const payload = {
-      version: '1.0.0',
-      exported_at: new Date().toISOString(),
-      student_id: sid,
-      courses
-    }
-    const content = JSON.stringify(payload, null, 2)
-    const fileName = `mini-hbut-custom-courses-${createTimestampSuffix()}.json`
-
-    const pickerResult = await saveJsonByFilePicker(fileName, content)
-    if (pickerResult.ok) {
-      customCourseExportLocation.value = pickerResult.location
-      if (!pickerResult.canceled) {
-        showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
-      }
-      return
-    }
-
-    const preferShare = isLikelyMobileDevice()
-    const shareResult = preferShare
-      ? await shareCustomCoursesJson(fileName, content)
-      : { ok: false, canceled: false }
-    if (shareResult.ok) {
-      customCourseExportLocation.value = shareResult.canceled ? '已取消保存' : '系统文件保存器/分享面板'
-      if (!shareResult.canceled) {
-        showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
-      }
-      return
-    }
-
-    const nativeResult = await saveJsonByNativeExport(fileName, content)
-    if (nativeResult.ok) {
-      customCourseExportLocation.value = nativeResult.location
-      if (!nativeResult.canceled) {
-        showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
-      }
-      return
-    }
-
-    const fallbackShareResult = preferShare
-      ? { ok: false, canceled: false }
-      : await shareCustomCoursesJson(fileName, content)
-    if (fallbackShareResult.ok) {
-      customCourseExportLocation.value = fallbackShareResult.canceled ? '已取消保存' : '系统文件保存器/分享面板'
-      if (!fallbackShareResult.canceled) {
-        showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
-      }
-      return
-    }
-
-    if (triggerTextFileDownload(fileName, content)) {
-      customCourseExportLocation.value = '浏览器默认下载目录'
-      showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
-      return
-    }
-
-    const copied = await copyTextWithFallback(content)
-    if (copied) {
-      customCourseExportLocation.value = '未生成文件，已复制 JSON 到剪贴板'
-      showToast('文件导出失败，已复制 JSON 到剪贴板', 'warning')
-      return
-    }
-    throw new Error('导出失败，请稍后重试')
-  } catch (error) {
-    showToast(String(error?.message || '导出自定义课程失败'), 'error')
-  } finally {
-    customCourseExporting.value = false
-  }
-}
-
-const triggerImportCustomCourses = () => {
-  if (customCourseImporting.value) return
-  customCourseFileInput.value?.click()
-}
-
-const importCustomCoursesFromText = async (content = '') => {
-  const sid = String(props.studentId || '').trim()
-  if (!sid) {
-    throw new Error('请先登录后再导入自定义课程')
-  }
-
-  let parsed
-  try {
-    parsed = JSON.parse(String(content || ''))
-  } catch {
-    throw new Error('JSON 解析失败，请检查文件格式')
-  }
-
-  const importStudentId = String(parsed?.student_id || '').trim()
-  const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.courses) ? parsed.courses : [])
-  if (!rows.length) {
-    throw new Error('导入文件中没有可用课程数据')
-  }
-
-  if (importStudentId && importStudentId !== sid) {
-    const confirmed = await askConfirm({
-      title: '学号不一致，是否继续导入？',
-      lines: [
-        `当前登录学号：${sid}`,
-        `导入文件学号：${importStudentId}`,
-        '继续导入会写入当前登录账号的本地自定义课表。'
-      ],
-      confirmText: '继续导入',
-      cancelText: '取消',
-      danger: false
-    })
-    if (!confirmed) {
-      throw new Error('已取消导入')
-    }
-  }
-
-  const listRes = await axios.post(`${API_BASE}/v2/schedule/custom/list_all`, {
-    student_id: sid
-  })
-  if (!listRes.data?.success) {
-    throw new Error(listRes.data?.error || '读取本地课程失败，无法导入')
-  }
-
-  const existingList = Array.isArray(listRes.data?.data) ? listRes.data.data : []
-  const existingMap = new Map()
-  existingList.forEach((item) => {
-    const normalized = normalizeCustomCourse(item)
-    if (!normalized) return
-    const sourceId = String(normalized.source_id || normalized.id || '').trim()
-    if (!sourceId) return
-    existingMap.set(sourceId, normalized)
-  })
-
-  let added = 0
-  let updated = 0
-  let failed = 0
-
-  for (let index = 0; index < rows.length; index += 1) {
-    try {
-      const course = parseImportedCustomCourse(rows[index], index)
-      const existing = course.source_id ? existingMap.get(course.source_id) : null
-      if (existing && String(existing.semester || '').trim() === course.semester) {
-        const updateRes = await axios.post(`${API_BASE}/v2/schedule/custom/update`, {
-          student_id: sid,
-          semester: course.semester,
-          course_id: course.source_id,
-          name: course.name,
-          teacher: course.teacher,
-          room: course.room,
-          weekday: course.weekday,
-          period: course.period,
-          djs: course.djs,
-          weeks: course.weeks,
-          color: course.color || DEFAULT_COURSE_COLOR
-        })
-        if (!updateRes.data?.success) {
-          throw new Error(updateRes.data?.error || '更新失败')
-        }
-        updated += 1
-        continue
-      }
-
-      const addRes = await axios.post(`${API_BASE}/v2/schedule/custom/add`, {
-        student_id: sid,
-        semester: course.semester,
-        name: course.name,
-        teacher: course.teacher,
-        room: course.room,
-        weekday: course.weekday,
-        period: course.period,
-        djs: course.djs,
-        weeks: course.weeks,
-        color: course.color || DEFAULT_COURSE_COLOR
-      })
-      if (!addRes.data?.success) {
-        throw new Error(addRes.data?.error || '新增失败')
-      }
-      added += 1
-    } catch (error) {
-      failed += 1
-      console.warn('[Schedule] 自定义课程导入失败：', error)
-    }
-  }
-
-  await refreshCustomCourseViews(String(semester.value || semesterDraft.value || '').trim())
-  if (failed > 0) {
-    showToast(`导入完成：新增 ${added}，更新 ${updated}，失败 ${failed}`, 'warning', 4500)
-  } else {
-    showToast(`导入完成：新增 ${added}，更新 ${updated}`, 'success')
-  }
-}
-
-const handleCustomCourseFileChange = async (event) => {
-  const input = event?.target
-  const file = input?.files?.[0]
-  if (!file) return
-  customCourseImporting.value = true
-  try {
-    const content = await readTextFromFile(file)
-    await importCustomCoursesFromText(content)
-  } catch (error) {
-    const message = String(error?.message || '导入失败')
-    if (message !== '已取消导入') {
-      showToast(message, 'error')
-    }
-  } finally {
-    customCourseImporting.value = false
-    if (input) input.value = ''
-  }
-}
-
-const buildExportEventsForWeek = (weekNumber) => {
-  const events = []
-  if (!startDateStr.value) return events
-
-  for (let day = 1; day <= 7; day++) {
-    const iso = getDateForWeekDay(weekNumber, day)
-    if (!iso) continue
-    const courses = getCoursesForDayAndWeek(day, weekNumber)
-    courses.forEach(course => {
-      const startPeriod = Number(course.period) || 1
-      const endPeriod = getCourseEndPeriod(course)
-      const startSlot = timeSchedule.find(t => t.p === startPeriod)
-      const endSlot = timeSchedule.find(t => t.p === endPeriod)
-      if (!startSlot || !endSlot) return
-
-      const start = `${iso}T${startSlot.start}:00`
-      const end = `${iso}T${endSlot.end}:00`
-      const room = course.room_code || course.room || ''
-      const location = [course.building, room].filter(Boolean).join(' ')
-      const timeLabel = `第${weekNumber}周 周${day} 第${startPeriod}-${endPeriod}节 ${startSlot.start}-${endSlot.end}`
-      const description = `时间: ${timeLabel}\n地点: ${location || '未标注'}`
-
-      events.push({
-        summary: course.name,
-        description,
-        location: location || undefined,
-        start,
-        end
-      })
-    })
-  }
-  return events
-}
-
-const buildExportEventsForSemester = () => {
-  const events = []
-  if (!startDateStr.value) return events
-  const maxWeek = scheduleData.value.reduce((acc, course) => {
-    const maxCourseWeek = Array.isArray(course.weeks) && course.weeks.length
-      ? Math.max(...course.weeks)
-      : 0
-    return Math.max(acc, maxCourseWeek)
-  }, 0)
-  const totalWeeks = maxWeek || 25
-  const seen = new Set()
-
-  for (let week = 1; week <= totalWeeks; week++) {
-    for (let day = 1; day <= 7; day++) {
-      const iso = getDateForWeekDay(week, day)
-      if (!iso) continue
-      const courses = getCoursesForDayAndWeek(day, week)
-      courses.forEach(course => {
-        const startPeriod = Number(course.period) || 1
-        const endPeriod = getCourseEndPeriod(course)
-        const startSlot = timeSchedule.find(t => t.p === startPeriod)
-        const endSlot = timeSchedule.find(t => t.p === endPeriod)
-        if (!startSlot || !endSlot) return
-        const start = `${iso}T${startSlot.start}:00`
-        const end = `${iso}T${endSlot.end}:00`
-        const room = course.room_code || course.room || ''
-        const location = [course.building, room].filter(Boolean).join(' ')
-        const timeLabel = `第${week}周 周${day} 第${startPeriod}-${endPeriod}节 ${startSlot.start}-${endSlot.end}`
-        const description = `时间: ${timeLabel}\n地点: ${location || '未标注'}`
-        const teacher = course.teacher || ''
-        const key = `${course.name}|${start}|${end}|${location}|${teacher}`
-        if (seen.has(key)) return
-        seen.add(key)
-        events.push({
-          summary: course.name,
-          description,
-          location: location || undefined,
-          start,
-          end
-        })
-      })
-    }
-  }
-  return events
-}
-
-const exportCalendar = async (mode = 'week') => {
-  exportError.value = ''
-  exportUrl.value = ''
-  exportCopied.value = false
-  if (exporting.value) return
-  if (!props.studentId) {
-    exportError.value = '请先登录后再导出'
-    return
-  }
-  if (!startDateStr.value) {
-    exportError.value = '缺少学期开始日期，暂无法导出'
-    return
-  }
-  exportingMode.value = mode
-  const events = mode === 'semester'
-    ? buildExportEventsForSemester()
-    : buildExportEventsForWeek(selectedWeek.value)
-  if (!events.length) {
-    exportError.value = '当前周暂无可导出的课表数据'
-    return
-  }
-  exporting.value = true
-  try {
-    const uploadEndpoint = String(localStorage.getItem('hbu_temp_upload_endpoint') || '').trim()
-    const payload = {
-      student_id: props.studentId,
-      semester: semester.value,
-      week: selectedWeek.value,
-      events
-    }
-    if (uploadEndpoint) {
-      payload.upload_endpoint = uploadEndpoint
-    }
-    const res = await axios.post(`${API_BASE}/v2/schedule/export_calendar`, payload)
-    if (res.data?.success) {
-      exportUrl.value = res.data.url || ''
-      if (!exportUrl.value) {
-        exportError.value = '导出成功但未返回链接'
-      } else {
-        showToast('日历导出成功，复制链接用浏览器打开即可导入', 'success', 3000)
-        // 自动滚动 Drawer 到底部，保证导出结果可见
-        nextTick(() => {
-          const panel = document.querySelector('.drawer-panel')
-          if (panel) panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' })
-        })
-      }
-    } else {
-      exportError.value = res.data?.error || '导出失败'
-    }
-  } catch (e) {
-    exportError.value = e.response?.data?.error || e.message || '导出失败'
-  } finally {
-    exporting.value = false
-    exportingMode.value = ''
-  }
-}
-
-const copyExportUrl = async () => {
-  if (!exportUrl.value) return
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(exportUrl.value)
-    } else {
-      const textarea = document.createElement('textarea')
-      textarea.value = exportUrl.value
-      textarea.style.position = 'fixed'
-      textarea.style.left = '-9999px'
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-    }
-    exportCopied.value = true
-    setTimeout(() => { exportCopied.value = false }, 2000)
-  } catch (e) {
-    exportError.value = '复制失败，请手动复制'
-  }
-}
-
-const refreshCloudSyncCooldown = () => {
-  const sid = String(props.studentId || '').trim()
-  if (!sid) {
-    syncUploadCooldownMs.value = 0
-    syncDownloadCooldownMs.value = 0
-    return
-  }
-  const uploadState = getCloudSyncCooldownState(sid, 'upload')
-  const downloadState = getCloudSyncCooldownState(sid, 'download')
-  syncUploadCooldownMs.value = Math.max(0, Number(uploadState.remainingMs || 0))
-  syncDownloadCooldownMs.value = Math.max(0, Number(downloadState.remainingMs || 0))
-}
-
-const clearCloudSyncCooldownTimer = () => {
-  if (!syncCooldownTimer) return
-  window.clearInterval(syncCooldownTimer)
-  syncCooldownTimer = null
-}
-
-const ensureCloudSyncCooldownTimer = () => {
-  clearCloudSyncCooldownTimer()
-  syncCooldownTimer = window.setInterval(() => {
-    refreshCloudSyncCooldown()
-  }, 1000)
-}
-
-const refreshScheduleAfterCloudDownload = async (syncResult = {}) => {
-  const sem = String(semester.value || semesterDraft.value || '').trim()
-  if (!sem) return
-  const downloadedSemesters = Array.isArray(syncResult?.academicApplied?.scheduleSemesters)
-    ? syncResult.academicApplied.scheduleSemesters.map((item) => String(item || '').trim()).filter(Boolean)
-    : []
-  const shouldRefreshSchedule = downloadedSemesters.length === 0 || downloadedSemesters.includes(sem)
-  const hasCached = shouldRefreshSchedule ? applyCachedScheduleImmediately(sem) : false
-  await loadCustomCourses(sem)
-  if (!hasCached && shouldRefreshSchedule) {
-    await fetchSchedule(sem)
-  }
-}
-
-const handleCloudSyncUpdated = (event) => {
-  const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {}
-  const sid = String(props.studentId || '').trim()
-  const targetSid = String(detail?.studentId || '').trim()
-  if (!sid || !targetSid || sid !== targetSid) return
-  refreshCloudSyncCooldown()
-  if (detail?.action !== 'download' || !detail?.success) return
-  if (syncDownloading.value) return
-  void refreshScheduleAfterCloudDownload(detail).catch((error) => {
-    console.warn('[Schedule] cloud sync auto refresh failed:', error)
-  })
-}
-
-const handleScheduleVisibilityChange = () => {
-  if (document.hidden) {
-    persistScheduleRenderSnapshot('app-hidden')
-  }
-}
-
-const handleCloudSyncUpload = async () => {
-  if (!hasValidLoginSession()) {
-    await promptLoginRequired()
-    return
-  }
-  const sid = String(props.studentId || '').trim()
-  if (!sid || syncUploading.value || syncDownloading.value) return
-
-  refreshCloudSyncCooldown()
-  if (syncUploadCooldownMs.value > 0) {
-    showToast(`上传冷却中，${syncUploadCooldownText.value}`, 'info')
-    return
-  }
-
-  const sem = String(semester.value || semesterDraft.value || '').trim()
-  const confirmed = await askConfirm({
-    title: '确认上传到云端',
-    lines: [
-      '将覆盖云端已有的自定义课程数据。',
-      `当前学期：${sem || '未选择学期'}`,
-      '确认后将立即执行上传。'
-    ],
-    confirmText: '确认上传',
-    cancelText: '取消',
-    danger: true
-  })
-  if (!confirmed) return
-
-  syncUploading.value = true
-  syncStatusText.value = '正在上传云端备份...'
-  try {
-    const result = await runCloudSyncUpload({
-      studentId: sid,
-      reason: 'schedule-manual-upload',
-      force: false,
-      includeCustomCourses: true,
-      includeAcademic: false,
-      includeSettings: false
-    })
-    if (!result?.success) {
-      if (result?.cooldown) {
-        syncUploadCooldownMs.value = Number(result.remainingMs || 0)
-        showToast(`上传冷却中，${syncUploadCooldownText.value}`, 'info')
-      } else {
-        showToast(result?.error || '云上传失败', 'error')
-      }
-      return
-    }
-    refreshCloudSyncCooldown()
-    showToast('云上传完成', 'success')
-  } catch (e) {
-    showToast(String(e?.message || '云上传失败'), 'error')
-  } finally {
-    syncUploading.value = false
-    syncStatusText.value = ''
-  }
-}
-
-const handleCloudSyncDownload = async () => {
-  if (!hasValidLoginSession()) {
-    await promptLoginRequired()
-    return
-  }
-  const sid = String(props.studentId || '').trim()
-  if (!sid || syncUploading.value || syncDownloading.value) return
-
-  refreshCloudSyncCooldown()
-  if (syncDownloadCooldownMs.value > 0) {
-    showToast(`下载冷却中，${syncDownloadCooldownText.value}`, 'info')
-    return
-  }
-
-  syncDownloading.value = true
-  syncStatusText.value = '正在下载云端备份并覆盖本地课表...'
-  try {
-    const result = await runCloudSyncDownload({
-      studentId: sid,
-      reason: 'schedule-manual-download',
-      force: false,
-      applySettings: false,
-      applyCustomCourses: true,
-      applyAcademic: false
-    })
-    if (!result?.success) {
-      if (result?.cooldown) {
-        syncDownloadCooldownMs.value = Number(result.remainingMs || 0)
-        showToast(`下载冷却中，${syncDownloadCooldownText.value}`, 'info')
-      } else {
-        showToast(result?.error || '云下载失败', 'error')
-      }
-      return
-    }
-    await refreshScheduleAfterCloudDownload(result)
-    refreshCloudSyncCooldown()
-    if (result?.empty) {
-      showToast('云端暂无备份，已记录本次同步', 'info')
-    } else {
-      showToast('云下载完成，已应用自定义课程', 'success')
-    }
-  } catch (e) {
-    showToast(String(e?.message || '云下载失败'), 'error')
-  } finally {
-    syncDownloading.value = false
-    syncStatusText.value = ''
-  }
-}
-
-const handleSessionLogout = () => {
-  scheduleData.value = []
-  remoteScheduleData.value = []
-  customScheduleData.value = []
-  offline.value = false
-  offlineHint.value = ''
-  errorMsg.value = '请先登录后查看课表'
-  initialFetchDone.value = true
-}
-
-const handleSessionOnline = () => {
-  const sid = String(props.studentId || '').trim()
-  if (!sid) return
-  offline.value = false
-  offlineHint.value = ''
-  const targetSemester = String(
-    semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()
-  ).trim()
-  void fetchSchedule(targetSemester)
-}
-
+// ============ 生命周期 ============
 onMounted(async () => {
-  window.addEventListener('keydown', handleWeekKeydown)
-  window.addEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
-  window.addEventListener('hbu-session-online', handleSessionOnline)
-  window.addEventListener('hbu-session-logout', handleSessionLogout)
-  document.addEventListener('visibilitychange', handleScheduleVisibilityChange)
-  refreshCloudSyncCooldown()
-  ensureCloudSyncCooldownTimer()
-  void fetchSemesterOptions()
+  window.addEventListener('keydown', semesterApi.handleWeekKeydown)
+  window.addEventListener(CLOUD_SYNC_UPDATED_EVENT, sync.handleCloudSyncUpdated)
+  window.addEventListener('hbu-session-online', data.handleSessionOnline)
+  window.addEventListener('hbu-session-logout', data.handleSessionLogout)
+  document.addEventListener('visibilitychange', sync.handleScheduleVisibilityChange)
+  sync.refreshCloudSyncCooldown()
+  sync.ensureCloudSyncCooldownTimer()
+  void data.fetchSemesterOptions()
 
   // 下次进入自动切换：后台检测到新学期并已确认有课表数据时生效。
   const switchSemester = consumeScheduleSwitchPending(props.studentId)
@@ -3138,7 +284,10 @@ onMounted(async () => {
     semesterDraft.value = switchSemester
   }
 
-  const lockDetail = readScheduleLockDetail(props.studentId)
+  const lockDetail = readScheduleLockDetail(props.studentId) as {
+    semester?: string
+    reason?: string
+  } | null
   const todaySemester = deriveSemesterByDate()
   if (
     lockDetail?.semester &&
@@ -3159,43 +308,49 @@ onMounted(async () => {
   // 仅当存在“显式锁定学期”时才走秒开锁定路径；
   // 旧版本可能只留下了 hbu_schedule_meta，不能把它当作锁定依据。
   const lockedSemester = String(readScheduleLock(props.studentId) || '').trim()
-  const startupSemester = String(semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()).trim()
-  const startupRenderSnapshot = initialRenderSnapshotApplied ||
-    (startupSemester ? applyStoredScheduleRenderSnapshot(startupSemester, { markBoot: false }) : false)
-  const startupCached = startupRenderSnapshot || (startupSemester ? applyCachedScheduleImmediately(startupSemester) : false)
+  const startupSemester = String(
+    semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()
+  ).trim()
+  const startupRenderSnapshot = data.initialRenderSnapshotApplied ||
+    (startupSemester ? data.applyStoredScheduleRenderSnapshot(startupSemester, { markBoot: false }) : false)
+  const startupCached = startupRenderSnapshot || (startupSemester ? data.applyCachedScheduleImmediately(startupSemester) : false)
   if (startupCached) {
     initialFetchDone.value = true
     errorMsg.value = ''
-    void loadCustomCourses(startupSemester)
+    void data.loadCustomCourses(startupSemester)
   }
   if (lockedSemester) {
     semester.value = lockedSemester
     semesterDraft.value = lockedSemester
 
-    const hasInstantCache = applyCachedScheduleImmediately(lockedSemester)
+    const hasInstantCache = data.applyCachedScheduleImmediately(lockedSemester)
     if (hasInstantCache) {
-      void loadCustomCourses(lockedSemester)
+      void data.loadCustomCourses(lockedSemester)
       // 有缓存时先秒开，再后台刷新，避免每次进入“空白等待”。
-      void fetchSchedule(lockedSemester)
+      void data.fetchSchedule(lockedSemester)
     } else {
-      await fetchSchedule(lockedSemester)
+      await data.fetchSchedule(lockedSemester)
     }
   } else if (props.studentId) {
     const probeAndRefresh = async () => {
       const warmed = await warmupScheduleForStudent(props.studentId, {
         forceProbe: true,
         reason: 'first-enter'
-      })
+      }) as {
+        success?: boolean
+        semester?: string
+        payload?: any
+      }
       if (warmed?.success && warmed?.semester) {
         semester.value = warmed.semester
         semesterDraft.value = warmed.semester
-        if (!applySchedulePayload(warmed.payload, warmed.semester)) {
-          await fetchSchedule(warmed.semester)
+        if (!data.applySchedulePayload(warmed.payload, warmed.semester)) {
+          await data.fetchSchedule(warmed.semester)
         } else {
-          await loadCustomCourses(warmed.semester)
+          await data.loadCustomCourses(warmed.semester)
         }
       } else {
-        await fetchSchedule()
+        await data.fetchSchedule()
       }
     }
     // 首次进入且无锁定学期：允许一次性等待，探测最近有课表的学期并锁定。
@@ -3206,31 +361,30 @@ onMounted(async () => {
     }
   } else {
     if (!startupCached) {
-      await fetchSchedule()
+      await data.fetchSchedule()
     }
   }
 
-  const pendingSemester = consumePendingSemesterPopup()
+  const pendingSemester = consumePendingSemesterPopup(props.studentId)
   if (pendingSemester) {
-    openSemesterPopup(pendingSemester)
+    menu.openSemesterPopup(pendingSemester)
     return
   }
-  if (!isPopupShown()) {
-    openSemesterPopup()
+  if (!menu.isPopupShown()) {
+    menu.openSemesterPopup(semester.value || semesterDraft.value)
   }
-
-  document.addEventListener('click', closeSemesterBadgePopover)
+  document.addEventListener('click', menu.closeSemesterBadgePopover)
 })
 
 onBeforeUnmount(() => {
-  persistScheduleRenderSnapshot('component-unmount')
-  window.removeEventListener('keydown', handleWeekKeydown)
-  window.removeEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
-  window.removeEventListener('hbu-session-online', handleSessionOnline)
-  window.removeEventListener('hbu-session-logout', handleSessionLogout)
-  document.removeEventListener('visibilitychange', handleScheduleVisibilityChange)
-  document.removeEventListener('click', closeSemesterBadgePopover)
-  clearCloudSyncCooldownTimer()
+  data.persistScheduleRenderSnapshot('component-unmount')
+  window.removeEventListener('keydown', semesterApi.handleWeekKeydown)
+  window.removeEventListener(CLOUD_SYNC_UPDATED_EVENT, sync.handleCloudSyncUpdated)
+  window.removeEventListener('hbu-session-online', data.handleSessionOnline)
+  window.removeEventListener('hbu-session-logout', data.handleSessionLogout)
+  document.removeEventListener('visibilitychange', sync.handleScheduleVisibilityChange)
+  document.removeEventListener('click', menu.closeSemesterBadgePopover)
+  sync.clearCloudSyncCooldownTimer()
   if (widgetHighlightTimer) {
     clearTimeout(widgetHighlightTimer)
     widgetHighlightTimer = null
@@ -3241,505 +395,155 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="schedule-view"
-    @touchstart.passive="handleTouchStart"
-    @touchmove.passive="handleTouchMove"
-    @touchend.passive="handleTouchEnd"
-    @touchcancel.passive="handleTouchEnd"
+    @touchstart.passive="semesterApi.handleTouchStart"
+    @touchmove.passive="semesterApi.handleTouchMove"
+    @touchend.passive="semesterApi.handleTouchEnd"
+    @touchcancel.passive="semesterApi.handleTouchEnd"
   >
     <!-- 头部导航 -->
-    <div class="schedule-topbar">
-      <button class="menu-btn btn-ripple" @click="toggleMenu" aria-label="打开课表菜单">
-        <span class="material-symbols-outlined menu-icon">menu</span>
-      </button>
-      <div class="topbar-center">
-        <h1 class="topbar-title">课表</h1>
-        <p class="topbar-semester">{{ semester || '加载中...' }}</p>
-      </div>
-      <div class="topbar-right">
-        <div class="week-selector">
-          <IOSSelect v-model.number="selectedWeek">
-            <option disabled value="0">请选择周次</option>
-            <option v-for="w in totalWeeks" :key="w" :value="w">第{{ w }}周</option>
-          </IOSSelect>
-        </div>
-      </div>
-    </div>
+    <ScheduleTopbar
+      :semester="semester"
+      :selected-week="selectedWeek"
+      :total-weeks="totalWeeks"
+      @update:selected-week="selectedWeek = $event"
+      @toggle-menu="handleToggleMenu"
+    />
 
-    <Transition name="drawer-fade">
-      <div v-if="showMenu" class="drawer-overlay" @click="showMenu = false"></div>
-    </Transition>
-    <Transition name="drawer-slide">
-      <aside v-if="showMenu" class="drawer-panel" @click.stop>
-        <div class="drawer-title">
-          <span class="material-symbols-outlined drawer-title-icon">calendar_month</span>
-          课表工具
-        </div>
-        <div class="drawer-section">
-          <div class="drawer-subtitle" data-step="1">选择学期</div>
-          <div class="drawer-semester-row">
-            <IOSSelect class="drawer-select" v-model="semesterDraft" :disabled="semesterLoading || loading" @change="onSemesterChange">
-              <option disabled value="">请选择学期</option>
-              <option v-for="sem in semesterOptions" :key="sem" :value="sem">{{ sem }}</option>
-            </IOSSelect>
-          </div>
-          <div v-if="semesterError" class="drawer-error">{{ semesterError }}</div>
-        </div>
-
-        <div class="drawer-section">
-          <div class="drawer-subtitle" data-step="2">课程样式</div>
-          <div class="drawer-style-switch" role="tablist" aria-label="课程样式切换">
-            <button
-              v-for="item in courseCardStyleOptions"
-              :key="item.key"
-              type="button"
-              class="drawer-style-chip"
-              :class="{ active: scheduleCourseCardStyle === item.key }"
-              role="tab"
-              :aria-pressed="scheduleCourseCardStyle === item.key"
-              :aria-selected="scheduleCourseCardStyle === item.key"
-              @click.stop="setScheduleCourseCardStyle(item.key)"
-            >
-              <strong>{{ item.label }}</strong>
-            </button>
-          </div>
-        </div>
-
-        <div class="drawer-actions">
-          <div class="drawer-course-group">
-            <div class="drawer-subtitle" data-step="3">自定义课程管理</div>
-            <div class="drawer-course-actions">
-              <button class="drawer-action add-course" :disabled="addingCourse" @click="openAddCourseDialog">
-                <span class="material-symbols-outlined">add_circle</span>
-                添加课程
-              </button>
-              <button class="drawer-action manage-course" :disabled="loadingManageCourses" @click="openManageCoursesDialog">
-                <span class="material-symbols-outlined">folder_copy</span>
-                {{ loadingManageCourses ? '加载中...' : '管理课程' }}
-              </button>
-            </div>
-          </div>
-          <div class="drawer-sync-group">
-            <div class="drawer-subtitle" data-step="4">自定义课程同步</div>
-            <div class="drawer-sync-actions">
-              <button
-                class="drawer-action sync-upload"
-                :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
-                @click="handleCloudSyncUpload"
-              >
-                <span class="material-symbols-outlined">cloud_upload</span>
-                {{ syncUploading ? '云上传中...' : '云上传' }}
-              </button>
-              <button
-                class="drawer-action sync-download"
-                :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
-                @click="handleCloudSyncDownload"
-              >
-                <span class="material-symbols-outlined">cloud_download</span>
-                {{ syncDownloading ? '云下载中...' : '云下载' }}
-              </button>
-            </div>
-            <div class="drawer-sync-actions drawer-sync-actions--json">
-              <button
-                class="drawer-action sync-json-export"
-                :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
-                @click="exportCustomCoursesJson"
-              >
-                <span class="material-symbols-outlined">data_object</span>
-                {{ customCourseExporting ? '导出中...' : '导出 JSON' }}
-              </button>
-              <button
-                class="drawer-action sync-json-import"
-                :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
-                @click="triggerImportCustomCourses"
-              >
-                <span class="material-symbols-outlined">file_upload</span>
-                {{ customCourseImporting ? '导入中...' : '导入 JSON' }}
-              </button>
-            </div>
-            <input
-              ref="customCourseFileInput"
-              type="file"
-              accept=".json,application/json"
-              style="display: none"
-              @change="handleCustomCourseFileChange"
-            >
-            <div class="drawer-sync-status">
-              <span class="drawer-sync-cooldown">上传：{{ syncUploadCooldownText }}</span>
-              <span class="drawer-sync-cooldown">下载：{{ syncDownloadCooldownText }}</span>
-              <span v-if="syncStatusText" class="drawer-sync-running">{{ syncStatusText }}</span>
-              <span v-if="customCourseExportLocation" class="drawer-sync-export-path">导出位置：{{ customCourseExportLocation }}</span>
-            </div>
-          </div>
-          <div class="drawer-subtitle" data-step="5">导出数据</div>
-          <button
-            class="drawer-action"
-            :disabled="exporting"
-            @click="exportCalendar('week')"
-          >
-            <span class="material-symbols-outlined">calendar_today</span>
-            {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
-          </button>
-          <button class="drawer-action ghost" :disabled="exporting" @click="exportCalendar('semester')">
-            <span class="material-symbols-outlined">school</span>
-            {{ exporting && exportingMode === 'semester' ? '正在生成...' : '导出本学期' }}
-          </button>
-        </div>
-        <div class="drawer-tip">生成后复制链接，用浏览器打开即可导入手机日历</div>
-
-        <div v-if="exportUrl" class="export-result">
-          <div class="export-label">本地导入链接</div>
-          <div class="export-row">
-            <input class="export-input" type="text" :value="exportUrl" readonly />
-            <button class="export-copy" @click="copyExportUrl">复制</button>
-          </div>
-          <div v-if="exportCopied" class="export-copied">已复制链接</div>
-        </div>
-
-        <div v-if="exportError" class="export-error">{{ exportError }}</div>
-      </aside>
-    </Transition>
+    <!-- 抽屉：学期/样式/课程管理/同步/导出 -->
+    <ScheduleDrawer
+      :show-menu="showMenu"
+      :semester-options="semesterOptions"
+      :semester-draft="semesterDraft"
+      :semester-loading="semesterLoading"
+      :loading="loading"
+      :semester-error="semesterError"
+      :schedule-course-card-style="scheduleCourseCardStyle"
+      :style-options="styleOptions"
+      :adding-course="addingCourse"
+      :loading-manage-courses="loadingManageCourses"
+      :sync-uploading="syncUploading"
+      :sync-downloading="syncDownloading"
+      :custom-course-importing="customCourseImporting"
+      :custom-course-exporting="customCourseExporting"
+      :sync-upload-cooldown-text="syncUploadCooldownText"
+      :sync-download-cooldown-text="syncDownloadCooldownText"
+      :sync-status-text="syncStatusText"
+      :custom-course-export-location="customCourseExportLocation"
+      :exporting="exporting"
+      :exporting-mode="exportingMode"
+      :export-url="exportUrl"
+      :export-error="exportError"
+      :export-copied="exportCopied"
+      @close="closeMenu"
+      @update:semester-draft="semesterDraft = $event"
+      @semester-change="handleSemesterChange"
+      @set-style="setScheduleCourseCardStyle"
+      @open-add-course="openAddCourseDialog"
+      @open-manage-courses="editor.openManageCoursesDialog"
+      @sync-upload="sync.handleCloudSyncUpload"
+      @sync-download="sync.handleCloudSyncDownload"
+      @export-json="io.exportCustomCoursesJson"
+      @import-json="io.triggerImportCustomCourses"
+      @import-file="io.handleCustomCourseFileChange"
+      @export-calendar="io.exportCalendar"
+      @copy-export-url="io.copyExportUrl"
+    />
 
     <!-- 在线刷新中不展示离线条，避免秒开缓存误报 10s「登录恢复」 -->
-    <div v-if="offline && initialFetchDone && !loading" class="offline-banner">
-      {{ offlineBannerText }}
-    </div>
+    <ScheduleBanners
+      :offline="offline"
+      :initial-fetch-done="initialFetchDone"
+      :loading="loading"
+      :offline-banner-text="offlineBannerText"
+      :vacation-notice="vacationNotice"
+      :error-msg="errorMsg"
+      :current-week="currentWeek"
+      :selected-week="selectedWeek"
+      @jump-current="jumpToCurrentWeek"
+    />
 
-    <div v-if="vacationNotice" class="vacation-banner">
-      {{ vacationNotice }}
-    </div>
-
-    <div v-if="errorMsg" class="error-banner">
-      {{ errorMsg }}
-    </div>
-
-    <Transition name="fade">
-      <div v-if="showAddCourse" class="modal-overlay" @click="closeAddCourseDialog">
-        <div class="modal-content glass add-course-modal" @click.stop>
-          <div class="modal-header">
-            <h3>{{ courseDialogMode === 'edit' ? '修改课程' : '添加课程' }}</h3>
-            <button class="close-btn" @click="closeAddCourseDialog">×</button>
-          </div>
-          <div class="modal-body add-course-body">
-            <div class="add-course-semester">学期：{{ courseDialogSemester }}</div>
-            <label class="add-field">
-              <span>课程名称 *</span>
-              <input v-model.trim="addCourseForm.name" type="text" placeholder="请输入课程名称" />
-            </label>
-            <label class="add-field">
-              <span>教师</span>
-              <input v-model.trim="addCourseForm.teacher" type="text" placeholder="可选" />
-            </label>
-            <label class="add-field">
-              <span>上课地点</span>
-              <input v-model.trim="addCourseForm.room" type="text" placeholder="可选" />
-            </label>
-            <div class="add-field">
-              <span>上课时间 *</span>
-              <IOSSelect v-model.number="addCourseForm.weekday">
-                <option v-for="(label, idx) in weekDayLabels" :key="label" :value="idx + 1">{{ label }}</option>
-              </IOSSelect>
-            </div>
-            <div class="add-row">
-              <label class="add-field">
-                <span>开始节次 *</span>
-                <IOSSelect v-model.number="addCourseForm.period">
-                  <option v-for="p in periodOptions" :key="p" :value="p">第{{ p }}节</option>
-                </IOSSelect>
-              </label>
-              <label class="add-field">
-                <span>上课节数 *</span>
-                <IOSSelect v-model.number="addCourseForm.djs">
-                  <option v-for="s in courseSpanOptions" :key="s" :value="s">{{ s }}节</option>
-                </IOSSelect>
-              </label>
-            </div>
-            <div class="add-field">
-              <span>上课周次 *</span>
-              <button class="week-picker-trigger" @click="showWeekPicker = true">
-                {{ addWeeksCountText }}
-              </button>
-            </div>
-            <div class="add-field">
-              <CourseColorPicker v-model="addCourseForm.color" />
-            </div>
-            <div v-if="addCourseError" class="drawer-error add-course-error">{{ addCourseError }}</div>
-          </div>
-          <div class="add-actions">
-            <button class="drawer-action ghost" :disabled="addingCourse" @click="closeAddCourseDialog">取消</button>
-            <button class="drawer-action" :disabled="addingCourse" @click="submitAddCourse">
-              {{ addingCourse ? `正在${courseDialogMode === 'edit' ? '修改' : '添加'}...` : `${courseDialogMode === 'edit' ? '修改' : '添加'}并确认` }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <Transition name="fade">
-      <div v-if="showManageCourses" class="modal-overlay" @click="closeManageCoursesDialog">
-        <div class="modal-content glass manage-course-modal" @click.stop>
-          <div class="modal-header">
-            <h3>管理课程</h3>
-            <button class="close-btn" @click="closeManageCoursesDialog">×</button>
-          </div>
-          <div class="modal-body manage-course-body">
-            <div v-if="loadingManageCourses" class="manage-course-empty">正在加载自定义课程...</div>
-            <div v-else-if="manageCoursesError" class="manage-course-error">{{ manageCoursesError }}</div>
-            <div v-else-if="!managedCourseGroups.length" class="manage-course-empty">暂未添加自定义课程</div>
-            <div v-else class="manage-course-groups">
-              <section
-                v-for="group in managedCourseGroups"
-                :key="group.semester"
-                class="manage-course-group"
-              >
-                <button class="manage-course-group-header" @click="toggleManageSemester(group.semester)">
-                  <div class="manage-course-group-title">
-                    <strong>{{ group.semester }}</strong>
-                    <span>{{ group.courses.length }} 门</span>
-                  </div>
-                  <span class="manage-course-group-arrow">{{ manageExpandedSemesters[group.semester] ? '收起' : '展开' }}</span>
-                </button>
-                <div v-if="manageExpandedSemesters[group.semester]" class="manage-course-list">
-                  <article
-                    v-for="course in group.courses"
-                    :key="`${group.semester}-${course.source_id || course.id}`"
-                    class="manage-course-card"
-                  >
-                    <div class="manage-course-card-main">
-                      <div class="manage-course-card-name">{{ course.name }}</div>
-                      <div class="manage-course-card-meta">
-                        {{ weekDayLabels[(course.weekday || 1) - 1] }} 第{{ course.period }}-{{ getCourseEndPeriod(course) }}节
-                      </div>
-                      <div class="manage-course-card-meta">周次：{{ course.weeks_text }}</div>
-                      <div v-if="course.teacher || course.room" class="manage-course-card-meta">
-                        {{ [course.teacher, course.room].filter(Boolean).join(' · ') }}
-                      </div>
-                    </div>
-                    <div class="manage-course-card-actions">
-                      <button class="manage-course-btn edit" @click="openEditCourseDialog(course, { reopenManage: true })">修改</button>
-                      <button class="manage-course-btn delete" @click="deleteManagedCourse(course)">删除</button>
-                    </div>
-                  </article>
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <Teleport to="body">
-      <Transition name="sheet-up">
-        <div v-if="showWeekPicker" class="week-picker-mask" @click.self="showWeekPicker = false">
-          <div class="week-picker-sheet">
-            <div class="week-picker-header">
-              <div class="week-picker-title">选择周次</div>
-              <div class="week-picker-ops">
-                <button @click="selectAllAddCourseWeeks">全选</button>
-                <button @click="clearAddCourseWeeks">清空</button>
-              </div>
-            </div>
-            <div class="week-picker-grid">
-              <button
-                v-for="week in semesterWeekOptions"
-                :key="week"
-                class="week-cell"
-                :class="{ active: addCourseForm.weeks.includes(week) }"
-                @click="toggleAddCourseWeek(week)"
-              >
-                第{{ week }}周
-              </button>
-            </div>
-            <button class="week-picker-confirm" @click="showWeekPicker = false">完成</button>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
-
-
-    <button
-      v-if="currentWeek && selectedWeek && selectedWeek !== currentWeek"
-      class="jump-current-btn"
-      @click="jumpToCurrentWeek"
-      title="跳转到当前周"
-    >
-      回到当前周
-    </button>
-
-    <!-- 课表主体容器 -->
-    <Transition :name="weekTransitionName" mode="out-in">
-      <div class="timetable-container" :key="`week-${selectedWeek}`">
-      
-      <!-- 头部日期 -->
-      <div class="date-header">
-        <div class="month-col">
-          <span class="month-num">{{ currentMonth }}</span>
-          <span class="month-label">月</span>
-        </div>
-        
-        <div class="days-row">
-            <div 
-              v-for="(d, index) in weekDates" 
-              :key="index" 
-              class="day-col"
-              :class="{ 'is-today': d.isToday }"
-            >
-              <div class="day-num">{{ d.date }}</div>
-              <div class="day-label">{{ d.dayLabel }}</div>
-            </div>
-        </div>
-      </div>
-      
-      <!-- 滚动区域 -->
-      <div class="grid-body">
-        <!-- 左侧时间轴 -->
-        <div class="time-axis">
-           <div v-for="t in timeSchedule" :key="t.p" class="time-slot">
-              <span class="time-start">{{ t.start }}</span>
-              <span class="period-num">{{ t.p }}</span>
-              <span class="time-end">{{ t.end }}</span>
-           </div>
-        </div>
-        
-        <!-- 课程网格 -->
-        <div class="courses-grid" :key="`courses-grid-${scheduleCourseCardStyle}-${courseCardRefreshNonce}`">
-           <!-- 背景线 -->
-           <div class="grid-lines">
-               <div v-for="i in 11" :key="i" class="line-row"></div>
-           </div>
-           
-           <!-- 每天一列 -->
-           <div v-for="day in 7" :key="day" class="day-column" :class="{ 'is-today-column': isTodayColumn(day) }">
-               <div 
-                  v-for="course in getCoursesForDay(day)" 
-                  :key="course._uid || course.id"
-                  class="course-card"
-                  :class="[
-                    `course-card--${scheduleCourseCardStyle}`,
-                    { conflict: course.is_conflict },
-                    { 'widget-highlight': isWidgetHighlighted(course, day) }
-                  ]"
-                  :style="getCourseStyle(course)"
-                  @click="openDetail(course)"
-               >
-                  <div class="course-name">{{ course.name }}</div>
-                  <div class="course-room">
-                    {{ course.is_conflict ? '点击查看冲突课程详情' : (course.room_code || course.room) }}
-                  </div>
-                  <div
-                    v-if="scheduleCourseCardStyle === 'class' && !course.is_conflict"
-                    class="course-teacher"
-                  >
-                    {{ course.teacher || '未标注教师' }}
-                  </div>
-                </div>
-           </div>
-        </div>
-      </div>
-      
-      </div>
-    </Transition>
+    <!-- 课表主体 -->
+    <ScheduleGrid
+      :week-dates="weekDates"
+      :current-month="currentMonth"
+      :selected-week="selectedWeek"
+      :week-transition-name="weekTransitionName"
+      :schedule-course-card-style="scheduleCourseCardStyle"
+      :course-card-refresh-nonce="courseCardRefreshNonce"
+      :get-courses-for-day="grid.getCoursesForDay"
+      :get-course-style="grid.getCourseCardStyle"
+      :is-widget-highlighted="grid.isWidgetHighlighted"
+      @open-detail="detail.openDetail"
+    />
 
     <!-- 详情弹窗 -->
-    <Transition name="fade">
-      <div v-if="showDetail" class="modal-overlay" @click="showDetail = false">
-        <div class="modal-content glass" @click.stop>
-          <div class="modal-header">
-            <h3>{{ selectedCourse?.name }}</h3>
-            <button class="close-btn" @click="showDetail = false">×</button>
-          </div>
-          <div v-if="selectedCourse?.is_conflict" class="modal-body">
-            <div class="conflict-hint">当前时段存在多个课程重叠，请按下列信息核对。</div>
-            <div
-              v-for="(item, idx) in selectedCourse?.conflict_courses || []"
-              :key="`${item.id || item.name}-${idx}`"
-              class="conflict-item"
-              :class="{ clickable: item.is_custom }"
-              @click="item.is_custom && openConflictCourseDetail(item)"
-            >
-              <div class="conflict-item-title">
-                {{ idx + 1 }}. {{ item.name }}
-                <span v-if="item.is_custom" class="conflict-tag">自定义</span>
-              </div>
-              <div class="conflict-item-row">教师：{{ item.teacher || '未填写' }}</div>
-              <div class="conflict-item-row">
-                地点：{{ [item.building, item.room || item.room_code].filter(Boolean).join(' ') || '未填写' }}
-              </div>
-              <div class="conflict-item-row">
-                时间：周{{ item.weekday }} 第{{ item.period }}-{{ getCourseEndPeriod(item) }}节
-              </div>
-            </div>
-          </div>
-          <div v-else class="modal-body">
-            <div v-if="selectedCourse?.is_custom" class="info-row">
-              <span class="label">类型</span>
-              <span class="value">自定义课程</span>
-            </div>
-            <div class="info-row">
-              <span class="label">教师</span>
-              <span class="value">{{ selectedCourse?.teacher }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">教室</span>
-              <span class="value">{{ selectedCourse?.room }} ({{ selectedCourse?.building }})</span>
-            </div>
-            <div class="info-row">
-              <span class="label">时间</span>
-              <span class="value">周{{ selectedCourse?.weekday }} 第{{ selectedCourse?.period }}-{{ getCourseEndPeriod(selectedCourse) }}节</span>
-            </div>
-            <div class="info-row">
-              <span class="label">周次</span>
-              <span class="value">{{ selectedCourse?.weeks_text }}周</span>
-            </div>
-            <div class="info-row">
-              <span class="label">学分</span>
-              <span class="value">{{ selectedCourse?.credit }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">教学班</span>
-              <span class="value">{{ selectedCourse?.class_name }}</span>
-            </div>
-            <div v-if="selectedCourse?.is_custom" class="custom-course-actions">
-              <button class="custom-delete-btn edit" @click="openEditCourseDialog(selectedCourse, { reopenDetail: true })">修改课程</button>
-              <button class="custom-delete-btn week" @click="deleteCustomCourse('current_week')">删除这一周</button>
-              <button class="custom-delete-btn all" @click="deleteCustomCourse('all')">删除全部周次</button>
-            </div>
-          </div>
-          <div class="detail-copy-actions">
-            <button class="detail-copy-btn" @click="copySelectedCourseDetail">
-              {{ selectedCourse?.is_conflict ? '复制冲突详情' : '复制详情' }}
-            </button>
-          </div>
-          <div v-if="detailActionError" class="detail-action-error">{{ detailActionError }}</div>
-        </div>
-      </div>
-    </Transition>
+    <ScheduleCourseDetail
+      :show-detail="showDetail"
+      :selected-course="selectedCourse"
+      :detail-action-error="detailActionError"
+      @close="showDetail = false"
+      @open-conflict-course-detail="detail.openConflictCourseDetail"
+      @open-edit-course="editor.openEditCourseDialog"
+      @delete-custom-course="editor.deleteCustomCourse"
+      @copy-detail="detail.copySelectedCourseDetail"
+    />
 
-    <Transition name="fade">
-      <div v-if="showConfirmDialog" class="modal-overlay confirm-overlay" @click="closeConfirmDialog(false)">
-        <div class="modal-content confirm-modal" @click.stop>
-          <div class="confirm-title">{{ confirmDialogTitle }}</div>
-          <div class="confirm-lines">
-            <p v-for="(line, idx) in confirmDialogLines" :key="`confirm-${idx}`">{{ line }}</p>
-          </div>
-          <div class="confirm-actions">
-            <button class="confirm-btn cancel" @click="closeConfirmDialog(false)">{{ confirmDialogCancelText }}</button>
-            <button
-              class="confirm-btn"
-              :class="{ danger: confirmDialogDanger }"
-              @click="closeConfirmDialog(true)"
-            >
-              {{ confirmDialogConfirmText }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
+    <!-- 添加/修改课程弹窗 -->
+    <ScheduleAddCourseDialog
+      :show-add-course="showAddCourse"
+      :course-dialog-mode="courseDialogMode"
+      :course-dialog-semester="courseDialogSemester"
+      :add-course-form="addCourseForm"
+      :add-course-error="addCourseError"
+      :adding-course="addingCourse"
+      :course-span-options="courseSpanOptions"
+      :add-weeks-count-text="addWeeksCountText"
+      @close="editor.closeAddCourseDialog"
+      @submit="editor.submitAddCourse"
+      @open-week-picker="showWeekPicker = true"
+    />
+
+    <!-- 管理课程弹窗 -->
+    <ScheduleManageCoursesDialog
+      :show-manage-courses="showManageCourses"
+      :loading-manage-courses="loadingManageCourses"
+      :manage-courses-error="manageCoursesError"
+      :managed-course-groups="managedCourseGroups"
+      :manage-expanded-semesters="manageExpandedSemesters"
+      @close="editor.closeManageCoursesDialog"
+      @toggle-semester="editor.toggleManageSemester"
+      @edit-course="handleEditManagedCourse"
+      @delete-course="editor.deleteManagedCourse"
+    />
+
+    <!-- 周次选择器 -->
+    <ScheduleWeekPicker
+      :show-week-picker="showWeekPicker"
+      :semester-week-options="semesterWeekOptions"
+      :selected-weeks="addCourseForm.weeks"
+      @close="showWeekPicker = false"
+      @toggle-week="editor.toggleAddCourseWeek"
+      @select-all="editor.selectAllAddCourseWeeks"
+      @clear-all="editor.clearAddCourseWeeks"
+    />
+
+    <!-- 确认对话框 -->
+    <ScheduleConfirmDialog
+      :show-confirm-dialog="showConfirmDialog"
+      :confirm-dialog-title="confirmDialogTitle"
+      :confirm-dialog-lines="confirmDialogLines"
+      :confirm-dialog-confirm-text="confirmDialogConfirmText"
+      :confirm-dialog-cancel-text="confirmDialogCancelText"
+      :confirm-dialog-danger="confirmDialogDanger"
+      @confirm="confirmDialog.closeConfirmDialog"
+    />
   </div>
 </template>
 
 <style scoped>
 .schedule-view {
+  /* 以下 CSS 变量与拆分前 ScheduleView.vue（PR #585 之前）保持一致：
+     --slot-height 按视口高度动态计算，使课表随页面高度拉伸；拆分时曾被简化为固定 55px 导致高度压缩 */
   --time-axis-width: 40px;
   --topbar-height: 44px;
   --date-header-height: 50px;
@@ -3767,1339 +571,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
   box-sizing: border-box;
   padding-top: 0;
-}
-
-.schedule-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 16px 6px;
-  min-height: var(--topbar-height);
-  background: #f9f9ff;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  box-shadow: 0 4px 20px -2px rgba(59, 130, 246, 0.05);
-  box-sizing: border-box;
-}
-
-.topbar-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  text-align: center;
-  pointer-events: none;
-}
-
-.topbar-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: #111827;
-  margin: 0;
-  line-height: 1.2;
-}
-
-.topbar-semester {
-  font-size: 11px;
-  color: #9ca3af;
-  margin: 2px 0 0;
-}
-
-.schedule-topbar .menu-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #ffffff;
-  border: 1px solid #f0f0f0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
-}
-
-.schedule-topbar .menu-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-}
-
-.menu-bar {
-  width: 16px;
-  height: 2px;
-  background: #4b5563;
-  border-radius: 1px;
-}
-
-.week-selector {
-  position: relative;
-  background: transparent !important;
-  padding: 0;
-  min-height: 32px;
-  border-radius: 9999px;
-  border: none !important;
-  box-shadow: none !important;
-  display: flex;
-  align-items: center;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.week-selector :deep(.ios26-select-trigger) {
-  min-height: 32px !important;
-  height: 32px !important;
-  line-height: 32px;
-  font-size: 13px;
-  font-weight: 800;
-  padding: 0 11px !important;
-  border-radius: 9999px !important;
-  background: #ffffff !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-  border: 1px solid #f0f0f0 !important;
-}
-
-.week-selector :deep(.ios26-select-value) {
-  white-space: nowrap;
-}
-
-.week-selector :deep(.ios26-select-trigger:focus-visible) {
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-.drawer-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(2px);
-  z-index: 40;
-}
-
-.drawer-panel {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 18px);
-  left: 0;
-  width: min(85vw, 360px);
-  height: calc(100dvh - env(safe-area-inset-top, 0px) - 18px);
-  background: #ffffff;
-  border-right: none;
-  border-top-right-radius: 24px;
-  border-bottom-right-radius: 24px;
-  padding: 24px 20px calc(28px + env(safe-area-inset-bottom, 0px));
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  box-sizing: border-box;
-}
-
-.drawer-panel::-webkit-scrollbar {
-  display: none;
-}
-
-.drawer-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #1f2937;
-  padding: 0 0 16px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid #f0f0f0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.drawer-title-icon {
-  font-size: 22px;
-  color: var(--ui-primary, #2563eb);
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
-  border-radius: 12px;
-}
-
-.drawer-section {
-  display: grid;
-  gap: 12px;
-  padding: 16px 0;
-  border-bottom: 1px dashed #e5e7eb;
-}
-
-.drawer-section:last-child {
-  border-bottom: none;
-}
-
-.drawer-subtitle {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1f2937;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.drawer-subtitle::before {
-  content: attr(data-step);
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--ui-primary, #2563eb);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.drawer-semester-row {
-  display: grid;
-  gap: 8px;
-}
-
-.drawer-select {
-  width: 100%;
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--ui-primary, #2563eb) 20%, #e5e7eb 80%);
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 4%, #ffffff 96%);
-  color: #1f2937;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 0 14px;
-}
-
-.drawer-select:focus {
-  outline: 2px solid color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
-  outline-offset: 1px;
-}
-
-.drawer-error {
-  font-size: 12px;
-  color: #dc2626;
-}
-
-.drawer-style-switch {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: 100%;
-  gap: 0;
-  padding: 4px;
-  border-radius: 16px;
-  border: 1px solid #f0f0f0;
-  background: #f9fafb;
-}
-
-.drawer-style-chip {
-  border: none;
-  background: transparent;
-  color: #6b7280;
-  border-radius: 12px;
-  min-height: 36px;
-  padding: 0 8px;
-  text-align: center;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 500;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
-}
-
-.drawer-style-chip strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.drawer-style-chip.active {
-  color: #ffffff;
-  background: var(--ui-primary, #2563eb);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
-  font-weight: 600;
-}
-
-.drawer-action {
-  padding: 14px 16px;
-  border-radius: 14px;
-  border: none;
-  background: linear-gradient(135deg, #3b82f6, #06b6d4);
-  color: white;
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: transform 0.15s ease;
-}
-
-.drawer-action:active {
-  transform: scale(0.98);
-}
-
-.drawer-actions {
-  display: grid;
-  gap: 10px;
-}
-
-.drawer-course-group {
-  display: grid;
-  gap: 10px;
-}
-
-.drawer-course-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.drawer-course-actions button,
-.drawer-course-actions .drawer-action {
-  padding: 20px 12px;
-  border-radius: 16px;
-  font-size: 14px;
-  font-weight: 600;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.drawer-course-actions button:first-child,
-.drawer-course-actions .drawer-action:first-child {
-  background: linear-gradient(135deg, #f97316, #ec4899);
-  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.2);
-}
-
-.drawer-course-actions button:last-child,
-.drawer-course-actions .drawer-action:last-child {
-  background: linear-gradient(135deg, #6366f1, #3b82f6);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.2);
-}
-
-.drawer-sync-group {
-  display: grid;
-  gap: 10px;
-}
-
-.drawer-sync-actions {
-  display: grid;
-  gap: 10px;
-}
-
-.drawer-sync-actions button,
-.drawer-sync-actions .drawer-action {
-  padding: 14px 16px;
-  border-radius: 14px;
-  font-size: 14px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: transform 0.15s ease;
-}
-
-.drawer-sync-actions button:active,
-.drawer-sync-actions .drawer-action:active {
-  transform: scale(0.98);
-}
-
-.drawer-sync-actions--json {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.drawer-action.ghost {
-  background: #111827;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
-}
-
-.drawer-action.add-course {
-  background: linear-gradient(135deg, #f97316, #ec4899);
-  box-shadow: 0 10px 18px rgba(236, 72, 153, 0.26);
-}
-
-.drawer-action.manage-course {
-  background: linear-gradient(135deg, #8b5cf6, #2563eb);
-  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.22);
-}
-
-.drawer-action.sync-upload {
-  background: linear-gradient(135deg, #0ea5e9, #2563eb);
-  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.24);
-}
-
-.drawer-action.sync-download {
-  background: linear-gradient(135deg, #10b981, #0f766e);
-  box-shadow: 0 10px 18px rgba(15, 118, 110, 0.24);
-}
-
-.drawer-action.sync-json-export {
-  background: linear-gradient(135deg, #6366f1, #2563eb);
-  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.24);
-}
-
-.drawer-action.sync-json-import {
-  background: linear-gradient(135deg, #f97316, #ea580c);
-  box-shadow: 0 10px 18px rgba(234, 88, 12, 0.24);
-}
-
-.drawer-action:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.drawer-sync-status {
-  display: grid;
-  gap: 4px;
-}
-
-.drawer-sync-cooldown,
-.drawer-sync-running {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.4;
-}
-
-.drawer-sync-running {
-  color: #0f766e;
-  font-weight: 600;
-}
-
-.drawer-sync-export-path {
-  font-size: 12px;
-  color: #2563eb;
-  font-weight: 600;
-  line-height: 1.4;
-  word-break: break-all;
-}
-
-.drawer-tip {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.5;
-}
-
-.export-result {
-  padding: 10px;
-  background: #f9fafb;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-}
-
-.export-label {
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 6px;
-}
-
-.export-row {
-  display: flex;
-  gap: 8px;
-}
-
-.export-input {
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid #e5e7eb;
-  font-size: 12px;
-  color: #111827;
-  background: white;
-}
-
-.export-copy {
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: none;
-  background: #111827;
-  color: white;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.export-copied {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #059669;
-  font-weight: 600;
-}
-
-.export-error {
-  font-size: 12px;
-  color: #dc2626;
-  background: #fff1f2;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid #fecdd3;
-}
-
-.drawer-fade-enter-active,
-.drawer-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.drawer-fade-enter-from,
-.drawer-fade-leave-to {
-  opacity: 0;
-}
-
-.drawer-slide-enter-active,
-.drawer-slide-leave-active {
-  transition: transform 0.25s ease;
-}
-
-.drawer-slide-enter-from,
-.drawer-slide-leave-to {
-  transform: translateX(-100%);
-}
-
-/* 日期头 */
-.date-header {
-  height: var(--date-header-height);
-  display: flex;
-  border-bottom: 1px solid #f0f0f0;
-  background: #ffffff;
-  flex-shrink: 0;
-}
-
-.month-col {
-  width: var(--time-axis-width);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  color: #111827;
-  font-size: 14px;
-}
-.month-label {
-  font-size: 10px;
-  font-weight: normal;
-  color: #9ca3af;
-}
-
-.days-row {
-  flex: 1;
-  display: flex;
-}
-
-.day-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-}
-
-.day-col.is-today {
-  background: #dbeafe;
-  border-radius: 8px;
-  color: #2563eb;
-}
-
-.day-col.is-today .day-num {
-  color: #2563eb;
-  font-weight: 800;
-}
-
-.day-num {
-  font-size: 14px;
-  color: #111827;
-  font-weight: 600;
-}
-
-.day-label {
-  font-size: 10px;
-  color: #9ca3af;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1.1;
-}
-
-/* 课表主体 */
-.timetable-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
   position: relative;
 }
 
-.grid-body {
-  flex: 1;
-  display: flex;
-  align-items: stretch;
-  overflow-y: auto;
-  min-height: 0;
-  padding-bottom: var(--schedule-bottom-gap);
-  box-sizing: border-box;
-  position: relative;
-  background: #ffffff;
-  /* 隐藏滚动条 */
-  scrollbar-width: none; 
-}
-.grid-body::-webkit-scrollbar {
-  display: none;
-}
-
-.time-axis {
-  width: var(--time-axis-width);
-  background: #f9fafb;
-  border-right: 1px solid #f0f0f0;
-  display: flex;
-  flex-direction: column;
-  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
-  height: 100%;
-  padding-bottom: var(--schedule-bottom-gap);
-  overflow: hidden;
-  position: relative;
-  align-self: stretch;
-  box-sizing: border-box;
-}
-
-.time-slot {
-  flex: 0 0 var(--slot-height);
-  height: var(--slot-height);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  color: #9ca3af;
-  border-bottom: 1px dashed #f0f0f0;
-}
-
-.period-num {
-  font-size: 14px;
-  font-weight: 700;
-  color: #374151;
-  margin: 2px 0;
-}
-
-.courses-grid {
-  flex: 1;
-  display: flex;
-  position: relative;
-  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
-  padding-bottom: var(--schedule-bottom-gap);
-  height: 100%;
-  box-sizing: border-box;
-}
-
-.grid-lines {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  display: flex;
-  flex-direction: column;
-  pointer-events: none;
-}
-
-.line-row {
-  height: var(--slot-height);
-  border-bottom: 1px dashed #e5e7eb;
-  box-sizing: border-box;
-}
-
-.day-column {
-  flex: 1;
-  display: grid;
-  grid-template-rows: repeat(11, var(--slot-height));
-  grid-template-columns: 1fr; /* 强制单列 */
-  padding: 0 1px;
-  position: relative;
-  min-height: calc(var(--slot-height) * 11);
-}
-
-.day-column.is-today-column::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background: rgba(219, 234, 254, 0.2);
-  border-left: 1px solid rgba(37, 99, 235, 0.08);
-  border-right: 1px solid rgba(37, 99, 235, 0.08);
-}
-
-.course-card {
-  margin: 1px;
-  padding: 4px;
-  background: var(--course-bg, #ffffff) !important;
-  color: var(--course-text, #0f172a) !important;
-  border-color: var(--course-border, #e5e7eb) !important;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  font-size: 11px;
-  font-weight: 700;
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform 0.1s, box-shadow 0.1s;
-  border: var(--course-border-width, 1px) solid var(--course-border, #e5e7eb) !important;
-  border-radius: var(--course-radius, 12px) !important;
-  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
-  z-index: 1;
-}
-
-.schedule-view .courses-grid .day-column > .course-card {
-  border: var(--course-border-width, 1px) solid var(--course-border, #e5e7eb) !important;
-  border-radius: var(--course-radius, 12px) !important;
-  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
-  background: var(--course-bg, #ffffff) !important;
-  color: var(--course-text, #0f172a) !important;
-}
-
-.schedule-view .courses-grid .day-column > .course-card.course-card--modern {
-  border-radius: var(--course-radius, 12px) !important;
-  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
-}
-
-.schedule-view .courses-grid .day-column > .course-card.course-card--traditional {
-  border-radius: 12px !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-  border: 1px solid var(--course-border, #e5e7eb) !important;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 2px;
-}
-
-.schedule-view .courses-grid .day-column > .course-card.course-card--traditional .course-name {
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.3;
-  margin-bottom: 2px;
-}
-
-.schedule-view .courses-grid .day-column > .course-card.course-card--traditional .course-room,
-.schedule-view .courses-grid .day-column > .course-card.course-card--traditional .course-teacher {
-  font-size: 10px;
-  opacity: 0.8;
-  line-height: 1.3;
-}
-
-.schedule-view .courses-grid .day-column > .course-card.course-card--class {
-  border-left: 3px solid var(--course-border, #e5e7eb) !important;
-  border-radius: 12px !important;
-  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
-  padding: 4px 6px;
-  gap: 2px;
-  align-items: flex-start;
-  justify-content: center;
-  text-align: left;
-}
-
-.course-card.conflict .course-name {
-  font-weight: 700;
-}
-
-.course-card.conflict .course-room {
-  font-size: 10px;
-}
-
-.course-card:active {
-  transform: scale(0.98);
-  box-shadow: 0 0 1px rgba(0, 0, 0, 0.1);
-}
-
-/* Widget 深链接高亮动画 */
-.course-card.widget-highlight {
-  animation: widget-highlight-pulse 1.5s ease-in-out 2;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 8px 20px rgba(59, 130, 246, 0.25) !important;
-  z-index: 10 !important;
-}
-
-@keyframes widget-highlight-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 8px 20px rgba(59, 130, 246, 0.25);
-  }
-  50% {
-    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.3), 0 12px 28px rgba(59, 130, 246, 0.35);
-  }
-}
-
-.course-name {
-  font-weight: 700;
-  font-size: 11px;
-  margin-bottom: 2px;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3; /* 标准属性 */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.course-room {
-  font-size: 10px;
-  opacity: 0.88;
-  font-weight: 500;
-}
-
-.course-teacher {
-  font-size: 10px;
-  opacity: 0.72;
-  font-weight: 500;
-  line-height: 1.25;
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  top:0; left:0; right:0; bottom:0;
-  background: rgba(0,0,0,0.4);
-  z-index: 320;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-  padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px);
-  box-sizing: border-box;
-}
-
-.modal-content {
-  background: white;
-  width: 80%;
-  max-width: 320px;
-  border-radius: 20px;
-  padding: 24px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-}
-
-.add-course-modal {
-  width: min(92vw, 400px);
-  max-width: 420px;
-  max-height: min(74dvh, 600px);
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-}
-
-.add-course-body {
-  display: grid;
-  gap: 10px;
-  overflow-y: auto;
-  max-height: calc(min(74dvh, 600px) - 148px);
-  padding-right: 2px;
-}
-
-.add-course-semester {
-  font-size: 12px;
-  color: #475569;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgba(226, 232, 240, 0.55);
-}
-
-.add-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.add-field {
-  display: grid;
-  gap: 6px;
-}
-
-.add-field > span {
-  font-size: 12px;
-  color: #475569;
-  font-weight: 600;
-}
-
-.add-field input,
-.add-field select {
-  width: 100%;
-  min-height: 36px;
-  border-radius: 10px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #0f172a;
-  font-size: 13px;
-  padding: 0 10px;
-  box-sizing: border-box;
-}
-
-.add-field input:focus,
-.add-field select:focus {
-  outline: 2px solid rgba(37, 99, 235, 0.3);
-  outline-offset: 0;
-}
-
-.week-picker-trigger {
-  width: 100%;
-  min-height: 38px;
-  border-radius: 10px;
-  border: 1px dashed #94a3b8;
-  background: rgba(248, 250, 252, 0.95);
-  color: #0f172a;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.add-actions {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.add-course-error {
-  margin-top: -2px;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 20px;
-}
-
-.modal-header h3 {
-  font-size: 18px;
-  color: #111827;
-  margin: 0;
-  line-height: 1.4;
-}
-
-.close-btn {
-  background: #f3f4f6;
-  border: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  color: #6b7280;
-  font-size: 16px;
-  cursor: pointer;
-}
-
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  border-bottom: 1px solid #f9fafb;
-  padding-bottom: 8px;
-}
-
-.info-row:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
-
-.info-row .label {
-  color: #9ca3af;
-  font-size: 13px;
-}
-
-.info-row .value {
-  color: #374151;
-  font-size: 13px;
-  font-weight: 500;
-  text-align: right;
-  max-width: 70%;
-}
-
-.custom-course-actions {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.custom-delete-btn {
-  min-height: 34px;
-  border-radius: 10px;
-  border: none;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.custom-delete-btn.week {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.custom-delete-btn.edit {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.custom-delete-btn.all {
-  background: #dc2626;
-  color: #ffffff;
-}
-
-.detail-copy-actions {
-  margin-top: 12px;
-}
-
-.detail-copy-btn {
-  width: 100%;
-  min-height: 36px;
-  border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.detail-action-error {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #b91c1c;
-  background: #fff1f2;
-  border: 1px solid #fecdd3;
-  border-radius: 10px;
-  padding: 8px 10px;
-}
-
-.conflict-hint {
-  font-size: 12px;
-  color: #475569;
-  margin-bottom: 10px;
-}
-
-.conflict-item {
-  border: 1px solid #fecaca;
-  background: #fff7f7;
-  border-radius: 12px;
-  padding: 10px;
-  margin-bottom: 10px;
-}
-
-.conflict-item.clickable {
-  cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.conflict-item.clickable:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 18px rgba(239, 68, 68, 0.12);
-}
-
-.conflict-item:last-child {
-  margin-bottom: 0;
-}
-
-.conflict-item-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: #7f1d1d;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.conflict-tag {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  border-radius: 999px;
-  padding: 0 8px;
-  font-size: 11px;
-  background: #111827;
-  color: #ffffff;
-}
-
-.conflict-item-row {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #374151;
-}
-
-.manage-course-modal {
-  width: min(92vw, 560px);
-  max-width: 560px;
-}
-
-.manage-course-body {
-  max-height: min(72vh, 560px);
-  overflow-y: auto;
-  display: grid;
-  gap: 12px;
-}
-
-.manage-course-empty,
-.manage-course-error {
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 13px;
-}
-
-.manage-course-empty {
-  background: #f0f9ff;
-  color: #475569;
-}
-
-.manage-course-error {
-  background: #fff1f2;
-  border: 1px solid #fecdd3;
-  color: #b91c1c;
-}
-
-.manage-course-groups {
-  display: grid;
-  gap: 12px;
-}
-
-.manage-course-group {
-  border-radius: 14px;
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
-  overflow: hidden;
-}
-
-.manage-course-group-header {
-  width: 100%;
-  border: none;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  cursor: pointer;
-}
-
-.manage-course-group-title {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-}
-
-.manage-course-group-title strong {
-  font-size: 14px;
-  color: #0f172a;
-}
-
-.manage-course-group-title span,
-.manage-course-group-arrow {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.manage-course-list {
-  display: grid;
-  gap: 10px;
-  padding: 0 12px 12px;
-}
-
-.manage-course-card {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-}
-
-.manage-course-card-main {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.manage-course-card-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.manage-course-card-meta {
-  font-size: 12px;
-  color: #475569;
-}
-
-.manage-course-card-actions {
-  display: grid;
-  gap: 8px;
-}
-
-.manage-course-btn {
-  min-width: 76px;
-  min-height: 34px;
-  border: none;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.manage-course-btn.edit {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.manage-course-btn.delete {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.confirm-overlay {
-  z-index: 360;
-}
-
-.confirm-modal {
-  width: min(90vw, 360px);
-  max-width: 360px;
-  border-radius: 16px;
-  padding: 16px;
-}
-
-.confirm-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.confirm-lines {
-  margin-top: 10px;
-  display: grid;
-  gap: 6px;
-}
-
-.confirm-lines p {
-  margin: 0;
-  font-size: 13px;
-  color: #334155;
-  line-height: 1.4;
-}
-
-.confirm-actions {
-  margin-top: 14px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.confirm-btn {
-  min-height: 36px;
-  border-radius: 10px;
-  border: none;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  color: #ffffff;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-}
-
-.confirm-btn.cancel {
-  background: #e2e8f0;
-  color: #334155;
-}
-
-.confirm-btn.danger {
-  background: linear-gradient(135deg, #dc2626, #b91c1c);
-}
-
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 0.2s;
-}
-.fade-enter-from, .fade-leave-to {
-  opacity: 0;
-}
-
-.week-slide-left-enter-active,
-.week-slide-left-leave-active,
-.week-slide-right-enter-active,
-.week-slide-right-leave-active {
-  transition: transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.24s ease;
-}
-
-.week-slide-left-enter-from {
-  transform: translateX(24px);
-  opacity: 0;
-}
-
-.week-slide-left-leave-to {
-  transform: translateX(-24px);
-  opacity: 0;
-}
-
-.week-slide-right-enter-from {
-  transform: translateX(-24px);
-  opacity: 0;
-}
-
-.week-slide-right-leave-to {
-  transform: translateX(24px);
-  opacity: 0;
-}
-
-.offline-banner {
-  margin: 12px 0 0;
-  padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #b91c1c;
-  border-radius: 12px;
-  font-weight: 600;
-}
-
-.vacation-banner {
-  margin: 12px 0 0;
-  padding: 10px 14px;
-  background: rgba(245, 158, 11, 0.16);
-  border: 1px solid rgba(217, 119, 6, 0.35);
-  color: #92400e;
-  border-radius: 12px;
-  font-weight: 600;
-}
-
-.error-banner {
-  margin: 12px 0 0;
-  padding: 10px 14px;
-  background: rgba(234, 88, 12, 0.12);
-  border: 1px solid rgba(234, 88, 12, 0.3);
-  color: #9a3412;
-  border-radius: 12px;
-  font-weight: 600;
-}
-
-/* 学期通知小标 */
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
+/* 语义化占位（原 semester-badge 无对应 DOM，保留选择器兼容外部样式覆盖） */
 .semester-badge-wrap {
   position: relative;
 }
@@ -5108,21 +583,18 @@ onBeforeUnmount(() => {
   position: relative;
   width: 32px;
   height: 32px;
-  border: 1px solid #f0f0f0;
-  border-radius: 10px;
-  background: #ffffff;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #334155;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  color: #374151;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .semester-badge-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: #f1f5f9;
 }
 
 .semester-badge-dot {
@@ -5133,261 +605,42 @@ onBeforeUnmount(() => {
   height: 8px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 0 2px #ffffff;
-  pointer-events: none;
 }
 
 .semester-badge-popover {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
   min-width: 200px;
-  padding: 12px 14px;
   background: #ffffff;
-  border: 1px solid #f0f0f0;
-  border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
-  text-align: center;
-  z-index: 25;
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  padding: 14px;
+  z-index: 60;
 }
 
 .semester-badge-popover-title {
   font-size: 12px;
-  font-weight: 600;
-  color: #64748b;
+  color: #9ca3af;
 }
 
 .semester-badge-popover-value {
-  margin-top: 4px;
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
   color: #111827;
 }
 
 .semester-badge-popover-desc {
-  margin-top: 4px;
-  font-size: 11px;
-  color: #94a3b8;
-}
-
-.badge-popover-enter-active,
-.badge-popover-leave-active {
-  transition: opacity 0.18s, transform 0.18s;
-}
-
-.badge-popover-enter-from,
-.badge-popover-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-
-.week-picker-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 520;
-  background: rgba(15, 23, 42, 0.48);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.week-picker-sheet {
-  width: min(100vw, 520px);
-  max-height: min(78dvh, 620px);
-  background: #ffffff;
-  border-top-left-radius: 18px;
-  border-top-right-radius: 18px;
-  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
-  box-shadow: 0 -20px 44px rgba(15, 23, 42, 0.28);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.week-picker-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.week-picker-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.week-picker-ops {
-  display: flex;
-  gap: 8px;
-}
-
-.week-picker-ops button {
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  color: #334155;
-  border-radius: 8px;
-  padding: 4px 8px;
   font-size: 12px;
-  cursor: pointer;
-}
-
-.week-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-  overflow-y: auto;
-  padding-right: 2px;
-}
-
-.week-cell {
-  min-height: 34px;
-  border-radius: 10px;
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  color: #334155;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.week-cell.active {
-  border-color: #2563eb;
-  background: #dbeafe;
-  color: #1d4ed8;
-  font-weight: 700;
-}
-
-.week-picker-confirm {
-  min-height: 40px;
-  border-radius: 12px;
-  border: none;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.sheet-up-enter-active,
-.sheet-up-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.sheet-up-enter-active .week-picker-sheet,
-.sheet-up-leave-active .week-picker-sheet {
-  transition: transform 0.24s ease;
-}
-
-.sheet-up-enter-from,
-.sheet-up-leave-to {
-  opacity: 0;
-}
-
-.sheet-up-enter-from .week-picker-sheet,
-.sheet-up-leave-to .week-picker-sheet {
-  transform: translateY(100%);
-}
-
-.jump-current-btn {
-  position: fixed;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: none;
-  background: rgba(59, 130, 246, 0.85);
-  color: white;
-  font-weight: 600;
-  font-size: 12px;
-  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.3);
-  cursor: pointer;
-  z-index: 12;
+  color: #6b7280;
 }
 
 @media (max-width: 768px) {
-  .drawer-panel {
-    top: calc(env(safe-area-inset-top, 0px) + 10px);
-    bottom: 0;
-    height: auto;
-    max-height: none;
-    padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px) + 12px);
-  }
-
-  .schedule-topbar {
-    padding: 8px 12px 6px;
-  }
-
   .schedule-view {
     --time-axis-width: 32px;
     --topbar-height: 42px;
     --date-header-height: 44px;
-  }
-
-  .week-selector {
-    padding: 6px 12px;
-  }
-
-  .week-selector :deep(.ios26-select-trigger) {
-    min-height: 30px !important;
-    height: 30px !important;
-    line-height: 30px !important;
-    font-size: 12px;
-    font-weight: 800;
-    border-radius: 9999px !important;
-  }
-
-  .month-col,
-  .time-axis {
-    width: var(--time-axis-width);
-  }
-
-  .time-slot {
-    font-size: 9px;
-  }
-
-  .period-num {
-    font-size: 12px;
-  }
-
-  .day-column {
-    grid-template-rows: repeat(11, var(--slot-height));
-  }
-
-  .line-row {
-    height: var(--slot-height);
-  }
-
-  .course-card {
-    padding: 3px 2px;
-    margin: 1px 0;
-    font-size: 10px;
-  }
-
-  .course-name {
-    font-size: 10px;
-  }
-
-  .course-room {
-    font-size: 9px;
-  }
-
-  .course-teacher {
-    font-size: 9px;
-  }
-
-  .add-row {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .add-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .week-picker-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 6px;
   }
 }
 </style>

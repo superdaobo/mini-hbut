@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "prebuild": "node scripts/prepare_dist.mjs",
-    "postinstall": "node scripts/patch_capacitor_tar_compat.mjs",
+    "postinstall": "node scripts/patch_capacitor_tar_compat.mjs && node scripts/patch_tauri_cli_shim.mjs",
     "prebuild:web": "node scripts/prepare_dist.mjs",
     "dev": "node scripts/vite_run.mjs",
     "dev:lowmem": "node scripts/vite_dev_lowmem.mjs",
@@ -43,8 +43,11 @@
     "check:rustsec-acceptances": "node scripts/verify_rustsec_acceptances.mjs",
     "audit:dependencies": "node scripts/audit_dependencies.mjs",
     "check:all": "node scripts/check_all.mjs",
-    "check:architecture": "node scripts/check_arch_guards.mjs",
-    "check:release": "node scripts/check_release.mjs",
+    "check:architecture": "node scripts/check_arch_guards.mjs && node scripts/check_god_files.mjs",
+    "check:god-files": "node scripts/check_god_files.mjs",
+    "check:god-files:strict": "node scripts/check_god_files.mjs --strict",
+    "test:god-files": "node --test scripts/check_god_files.test.mjs",
+    "check:release": "node scripts/check_release.mjs && node scripts/check_god_files.mjs --strict",
     "check:release-config": "node scripts/verify_release_config.mjs"
   },
   "dependencies": {

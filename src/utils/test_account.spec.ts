@@ -118,7 +118,7 @@ describe('TestFlight 演示账号工具', () => {
     account.markTestAccountSession()
     const api = await importModule<{
       fetchWithCache: (key: string, fetcher: () => Promise<unknown>, ttl?: number) => Promise<{ data: unknown; demo?: boolean }>
-    }>('src/utils/api.js')
+    }>('src/utils/api.ts')
 
     const result = await api.fetchWithCache('semesters', async () => {
       throw new Error('测试账号不应请求真实学期接口')

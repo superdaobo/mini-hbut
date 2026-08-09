@@ -1,14 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { readAppContractSources, readAxiosAdapterContractSources } from './contract_source_test'
 
 const repoRoot = process.cwd()
 const readText = (relativePath: string) =>
   fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
+const readTree = (relativePath: string) => {
+  const absoluteRoot = path.join(repoRoot, relativePath)
+  if (!fs.existsSync(absoluteRoot)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && /\.(?:ts|vue)$/.test(entry.name)) files.push(absolute)
+    }
+  }
+  walk(absoluteRoot)
+  return files.sort().map((file) => fs.readFileSync(file, 'utf8')).join('\n')
+}
+const readAppSources = () => readAppContractSources() + '\n' + readTree('src/app')
 
 describe('grade teacher async enrichment contract', () => {
   it('keeps the Tauri handler thin and delegates synchronization to the shared GradeService', () => {
-    const source = readText('src-tauri/src/lib.rs')
+    const source = readText('src-tauri/src/transport/tauri/grades.rs')
     const serviceSource = readText('src-tauri/src/grade/service.rs')
     const syncStart = source.indexOf('async fn sync_grades(')
     const syncEnd = source.indexOf('async fn get_grade_teacher_cache', syncStart)
@@ -26,10 +42,11 @@ describe('grade teacher async enrichment contract', () => {
   })
 
   it('limits manual refresh teacher enrichment to the current semester and exposes cached teachers to the frontend', () => {
-    const source = readText('src-tauri/src/lib.rs')
+    const source = readText('src-tauri/src/transport/tauri/grades.rs')
+    const registrySource = readText('src-tauri/src/lib.rs')
     const serviceSource = readText('src-tauri/src/grade/service.rs')
-    const appSource = readText('src/App.vue')
-    const adapterSource = readText('src/utils/axios_adapter.js')
+    const appSource = readAppSources()
+    const adapterSource = readAxiosAdapterContractSources()
 
     expect(source).toContain('async fn get_grade_teacher_cache')
     expect(source).toContain('async fn sync_grade_teachers_current_semester')
@@ -37,8 +54,8 @@ describe('grade teacher async enrichment contract', () => {
     expect(source).toContain('.fetch_course_teachers(&semester)')
     expect(source).toContain('service.save_teacher_cache(&uid, &semester, courses)')
     expect(source).toContain('grade::service::merge_teacher_cache_into_payload')
-    expect(source).toContain('get_grade_teacher_cache,')
-    expect(source).toContain('sync_grade_teachers_current_semester,')
+    expect(registrySource).toContain('transport::tauri::grades::get_grade_teacher_cache,')
+    expect(registrySource).toContain('transport::tauri::grades::sync_grade_teachers_current_semester,')
     expect(serviceSource).toContain('pub fn read_teacher_cache')
     expect(serviceSource).toContain('pub fn save_teacher_cache')
     expect(appSource).toContain('mergeGradeTeacherCache')
@@ -49,14 +66,15 @@ describe('grade teacher async enrichment contract', () => {
   })
 
   it('keeps manual refresh teacher enrichment scoped to the current semester', () => {
-    const source = readText('src-tauri/src/lib.rs')
+    const source = readText('src-tauri/src/transport/tauri/grades.rs')
     const serviceSource = readText('src-tauri/src/grade/service.rs')
-    const appSource = readText('src/App.vue')
-    const adapterSource = readText('src/utils/axios_adapter.js')
+    const appSource = readAppSources()
+    const adapterSource = readAxiosAdapterContractSources()
 
     expect(source).toContain('current_only.unwrap_or(false)')
     expect(serviceSource).toContain('let enrichment = if !current_only')
-    expect(appSource).toContain('fetchGradesFromAPI(studentId.value, { force: true, teacherCurrentOnly: true })')
+    expect(appSource).toContain('fetchGradesFromAPI(state.studentId.value, {')
+    expect(appSource).toContain('teacherCurrentOnly: true')
     expect(adapterSource).toContain('currentOnly: !!data?.teacher_current_only')
   })
 })

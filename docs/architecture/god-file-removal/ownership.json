@@ -1,0 +1,91 @@
+{
+  "integration": {
+    "branch": "phase5/god-file-removal",
+    "worktree": ".agentdock-worktrees/phase5-god-file",
+    "owner": "main-agent"
+  },
+  "rules": {
+    "max_subagents": 6,
+    "max_parallel_writers": 3,
+    "single_owner_entrypoints": [
+      "src/App.vue",
+      "src-tauri/src/lib.rs",
+      "src-tauri/src/http_server.rs",
+      "src-tauri/src/db.rs"
+    ],
+    "subagents_may_push_or_merge": false,
+    "production_migrations_allowed": false
+  },
+  "agents": [
+    {
+      "issue": 572,
+      "name": "baseline-guardian",
+      "branch": "phase5/572-baseline",
+      "worktree": ".agentdock-worktrees/phase5-baseline",
+      "write_paths": ["scripts/check_god_files*", "scripts/lib/god_file_guard.mjs", "docs/architecture/god-file-removal/**", "package.json"]
+    },
+    {
+      "issue": 574,
+      "name": "frontend-app-shell",
+      "branch": "phase5/574-app-shell",
+      "worktree": ".agentdock-worktrees/phase5-app-shell",
+      "write_paths": ["src/App.vue", "src/app/**", "src/shell/**", "src/composables/app/**", "src/stores/**", "src/styles/app-shell.css"]
+    },
+    {
+      "issue": 576,
+      "name": "rust-tauri-transport",
+      "branch": "phase5/576-tauri-transport",
+      "worktree": ".agentdock-worktrees/phase5-tauri",
+      "write_paths": ["src-tauri/src/lib.rs", "src-tauri/src/transport/tauri/**"]
+    },
+    {
+      "issue": 577,
+      "name": "rust-http-transport",
+      "branch": "phase5/577-http-transport",
+      "worktree": ".agentdock-worktrees/phase5-http",
+      "write_paths": ["src-tauri/src/http_server.rs", "src-tauri/src/transport/http/**"]
+    },
+    {
+      "issue": 578,
+      "name": "rust-application",
+      "branch": "phase5/578-application",
+      "worktree": ".agentdock-worktrees/phase5-application",
+      "write_paths": ["src-tauri/src/application/**", "src-tauri/src/modules/online_learning*", "src-tauri/src/modules/chaoxing_class*", "src-tauri/src/http_client/academic*", "src-tauri/src/http_client/electricity*"]
+    },
+    {
+      "issue": 579,
+      "name": "rust-db",
+      "branch": "phase5/579-database",
+      "worktree": ".agentdock-worktrees/phase5-db",
+      "write_paths": ["src-tauri/src/db.rs", "src-tauri/src/db/**", "src-tauri/src/infrastructure/database/**"]
+    },
+    {
+      "issue": 580,
+      "name": "typescript-migration",
+      "branch": "phase5/580-typescript",
+      "worktree": ".agentdock-worktrees/phase5-ts",
+      "write_paths": ["src/utils/cloud_sync*", "src/utils/notify_center*", "src/utils/remote_config*", "src/utils/updater*"]
+    },
+    {
+      "issue": 581,
+      "name": "frontend-schedule",
+      "branch": "phase5/581-schedule",
+      "worktree": ".agentdock-worktrees/phase5-schedule",
+      "write_paths": ["src/components/ScheduleView.vue", "src/features/schedule/**"]
+    },
+    {
+      "issue": 582,
+      "name": "frontend-forum",
+      "branch": "phase5/582-forum",
+      "worktree": ".agentdock-worktrees/phase5-forum",
+      "write_paths": ["src/components/ForumView.vue", "src/features/forum/**"]
+    },
+    {
+      "issue": 583,
+      "name": "frontend-feature-views",
+      "branch": "phase5/583-pages",
+      "worktree": ".agentdock-worktrees/phase5-pages",
+      "write_paths": ["src/components/*View.vue", "src/components/Dashboard.vue", "src/components/LoginV3.vue", "src/features/**", "src/utils/axios_adapter*", "src/utils/more_modules*"]
+    }
+  ]
+}

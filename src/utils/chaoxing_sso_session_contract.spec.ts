@@ -1,14 +1,32 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const read = (relativePath: string) =>
   readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8')
+const readTree = (relativePath: string) => {
+  const root = path.join(process.cwd(), relativePath)
+  if (!existsSync(root)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && entry.name.endsWith('.rs')) files.push(absolute)
+    }
+  }
+  walk(root)
+  return files.sort().map((file) => readFileSync(file, 'utf8')).join('\n')
+}
 
 describe('chaoxing SSO session layer contract (#324-#326)', () => {
   it('exposes unified SSO module with cache, silent relogin and diagnostics', () => {
     const sso = read('src-tauri/src/modules/chaoxing_sso.rs')
     const session = read('src-tauri/src/http_client/session.rs')
-    const classMod = read('src-tauri/src/modules/chaoxing_class.rs')
+    const classMod =
+      read('src-tauri/src/modules/chaoxing_class.rs') +
+      '\n' +
+      readTree('src-tauri/src/modules/chaoxing_class')
 
     expect(sso).toContain('ensure_chaoxing_sso')
     expect(sso).toContain('preheat_after_portal_login')

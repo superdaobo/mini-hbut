@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -13,6 +13,23 @@ import { resolveInsideScenic } from '../features/campus-guide/services/location-
 import type { GeoPoint } from '../features/campus-guide/types'
 
 const read = (relativePath: string) => readFileSync(path.join(process.cwd(), relativePath), 'utf8')
+const readTree = (relativePath: string, extensionPattern: RegExp) => {
+  const root = path.join(process.cwd(), relativePath)
+  if (!existsSync(root)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && extensionPattern.test(entry.name)) files.push(absolute)
+    }
+  }
+  walk(root)
+  return files.sort().map((file) => readFileSync(file, 'utf8')).join('\n')
+}
+const appSources = () => read('src/App.vue') + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
+const towerGoSources = () =>
+  read('src/components/TowerGoView.vue') + '\n' + readTree('src/features/towergo', /\.(?:ts|vue)$/)
 
 describe('P0 multi-module contracts', () => {
   it('#490 TowerGo defaults to center single-fetch (no multi-point grid main path)', () => {
@@ -24,7 +41,7 @@ describe('P0 multi-module contracts', () => {
     expect(batteryLevelTier(66)).toBe(70)
     expect(batteryLevelTier(0)).toBe(0)
 
-    const vue = read('src/components/TowerGoView.vue')
+    const vue = towerGoSources()
     expect(vue).toContain('fetchNearBikesAtCenter')
     expect(vue).toContain('refreshVehiclesAtMapCenter')
     expect(vue).not.toContain('createServiceAreaScanPoints')
@@ -32,7 +49,7 @@ describe('P0 multi-module contracts', () => {
   })
 
   it('tears down TowerGo runtime on unmount', () => {
-    const vue = read('src/components/TowerGoView.vue')
+    const vue = towerGoSources()
     expect(vue).toContain('teardownTowerGoRuntime')
     expect(vue).toContain('activeScanToken += 1')
     expect(vue).toContain('SCAN_REFRESH_INTERVAL_MS')
@@ -40,7 +57,7 @@ describe('P0 multi-module contracts', () => {
   })
 
   it('uses battery-tier MarkerStyle for vehicle and user markers', () => {
-    const vue = read('src/components/TowerGoView.vue')
+    const vue = towerGoSources()
     expect(vue).toContain('buildTowerGoMarkerStyles')
     expect(vue).toContain('MarkerStyle')
     expect(vue).toContain('appleUserDotSvg')
@@ -112,7 +129,7 @@ describe('P0 multi-module contracts', () => {
   })
 
   it('recovers embed bridge on app resume', () => {
-    const app = read('src/App.vue')
+    const app = appSources()
     const embed = read('src/utils/school_website_embed.ts')
     const school = read('src/components/SchoolWebsiteView.vue')
     const more = read('src/components/MoreModuleHostView.vue')
@@ -130,7 +147,7 @@ describe('P0 multi-module contracts', () => {
   })
 
   it('hardens resume against reload loops (#451)', () => {
-    const app = read('src/App.vue')
+    const app = appSources()
     expect(app).toContain('IOS_RESUME_SOFT_REMOUNT_MS')
     expect(app).toContain('IOS_RESUME_HARD_RELOAD_MS')
     expect(app).toContain('IOS_HARD_RELOAD_MAX_PER_SESSION')
@@ -146,7 +163,7 @@ describe('P0 multi-module contracts', () => {
   })
 
   it('exposes ensure_http_bridge API for lifecycle resume (#452)', () => {
-    const httpServer = read('src-tauri/src/http_server.rs')
+    const httpServer = read('src-tauri/src/http_server/mod.rs')
     const lib = read('src-tauri/src/lib.rs')
     const docs = read('src-tauri/docs/http_server.md')
 
@@ -164,7 +181,7 @@ describe('P0 multi-module contracts', () => {
   })
 
   it('wires ensure-then-remount embed resume path (#453)', () => {
-    const app = read('src/App.vue')
+    const app = appSources()
     const embed = read('src/utils/school_website_embed.ts')
     const school = read('src/components/SchoolWebsiteView.vue')
     const more = read('src/components/MoreModuleHostView.vue')

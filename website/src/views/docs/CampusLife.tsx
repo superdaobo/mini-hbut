@@ -49,7 +49,7 @@ const lifeModules = [
     {
         title: '图书查询',
         entry: '首页 -> 资源 -> 图书查询。',
-        source: 'src/components/LibraryView.vue、src-tauri/src/lib.rs、src/utils/axios_adapter.js',
+        source: 'src/components/LibraryView.vue、src-tauri/src/lib.rs、src/utils/axios_adapter.ts',
         usage: [
             '图书查询用于馆藏检索。输入关键词、题名或 ISBN 后点击搜索图书，结果列表展示书名、作者、出版社、馆藏状态等摘要。',
             '筛选区可清空筛选；点击条目会打开图书详情，查看馆藏位置、索书号、可借状态等字段。',
@@ -79,7 +79,7 @@ const lifeModules = [
     {
         title: '资料分享',
         entry: '首页 -> 资源 -> 资料分享。',
-        source: 'src/components/ResourceShareView.vue、src-tauri/src/lib.rs、src/utils/remote_config.js',
+        source: 'src/components/ResourceShareView.vue、src-tauri/src/lib.rs、src/utils/remote_config.ts',
         usage: [
             '资料分享读取远程配置中的 WebDAV 资料源，支持目录浏览、返回上级、文件预览和直链下载。',
             '图片预览、PDF 预览、媒体播放、文本读取和 Office 在线预览会按文件类型选择不同预览通道。',
@@ -94,7 +94,7 @@ const lifeModules = [
     {
         title: '校园助手',
         entry: '首页 -> 资源 -> 校园助手；当前首页元数据可能标注暂不可用。',
-        source: 'src/components/AiChatView.vue、src-tauri/src/modules/ai.rs、src/utils/remote_config.js',
+        source: 'src/components/AiChatView.vue、src-tauri/src/modules/ai.rs、src/utils/remote_config.ts',
         usage: [
             '校园助手连接本地 AI 服务桥接地址，支持会话列表、新建会话、历史消息、流式输出和普通兜底回复。',
             '文件上传限制为 docx、pdf、txt、md，单文件最大 20 MB；上传后会把文件信息附加到会话。',

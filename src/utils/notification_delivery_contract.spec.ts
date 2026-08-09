@@ -3,14 +3,40 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { readAppContractSources, readVueContractSource } from './contract_source_test'
 
 const repoRoot = process.cwd()
 const readText = (relativePath: string) =>
   fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
 
+const readTree = (relativePath: string, extensionPattern: RegExp) => {
+  const root = path.join(repoRoot, relativePath)
+  if (!fs.existsSync(root)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && extensionPattern.test(entry.name)) files.push(absolute)
+    }
+  }
+  walk(root)
+  return files.sort().map((file) => fs.readFileSync(file, 'utf8')).join('\n')
+}
+
+const notificationSources = () =>
+  readVueContractSource('src/components/NotificationView.vue') +
+  '\n' +
+  readTree('src/features/notification', /\.(?:ts|vue)$/)
+
+const appSources = () => readAppContractSources() + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
+
+const tauriTransportSources = () =>
+  readText('src-tauri/src/lib.rs') + '\n' + readTree('src-tauri/src/transport/tauri', /\.rs$/)
+
 describe('notification delivery contract', () => {
   it('does not request system notification permission during manual checks', () => {
-    const source = readText('src/components/NotificationView.vue')
+    const source = notificationSources()
     const manualCheckBlock = source.match(
       /const runManualCheck = async \(\) => \{[\s\S]*?\n\}/
     )?.[0] || ''
@@ -21,7 +47,7 @@ describe('notification delivery contract', () => {
   })
 
   it('only requests Android notification permission from the explicit permission action', () => {
-    const source = readText('src/components/NotificationView.vue')
+    const source = notificationSources()
     const permissionStart = source.indexOf('const handleRequestPermission = async () => {')
     const permissionBlock = permissionStart >= 0 ? source.slice(permissionStart, permissionStart + 700) : ''
     const testNotificationBlock = source.match(
@@ -202,8 +228,13 @@ describe('notification delivery contract', () => {
   })
 
   it('wires school inbox checks through notify_center and Tauri command', () => {
-    const notifySource = readText('src/utils/notify_center.js')
-    const libSource = readText('src-tauri/src/lib.rs')
+    const notifySource =
+      readText('src/utils/notify_center.ts') +
+      '\n' +
+      readText('src/utils/notify_center_checks.ts') +
+      '\n' +
+      readText('src/utils/notify_center_util.ts')
+    const libSource = tauriTransportSources()
 
     expect(notifySource).toContain("schoolInbox: 'hbu_notify_school_inbox'")
     expect(notifySource).toContain('checkSchoolInbox')
@@ -213,7 +244,7 @@ describe('notification delivery contract', () => {
   })
 
   it('syncs school inbox background prefs for Android headless', () => {
-    const bgSource = readText('src/utils/background_fetch.js')
+    const bgSource = readText('src/utils/background_fetch.ts')
     const headlessSource = readText(
       'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
     )
@@ -226,7 +257,7 @@ describe('notification delivery contract', () => {
   })
 
   it('exposes school inbox toggle in notification settings UI', () => {
-    const source = readText('src/components/NotificationView.vue')
+    const source = notificationSources()
     const uiSettings = readText('src/config/ui_settings.ts')
 
     expect(source).toContain('enableSchoolInboxNotices')
@@ -236,12 +267,12 @@ describe('notification delivery contract', () => {
   })
 
   it('registers school inbox browse module on home dashboard and app routing', () => {
-    const dashboard = readText('src/components/Dashboard.vue')
-    const appSource = readText('src/App.vue')
+    const dashboard = readVueContractSource('src/components/Dashboard.vue')
+    const appSource = appSources()
     const uiSettings = readText('src/config/ui_settings.ts')
     const inboxView = readText('src/components/SchoolInboxView.vue')
     const homeSearch = readText('src/utils/home_search.js')
-    const libSource = readText('src-tauri/src/lib.rs')
+    const libSource = tauriTransportSources()
 
     expect(dashboard).toContain("id: 'school_inbox'")
     expect(dashboard).toContain("'school_inbox'")
@@ -261,7 +292,10 @@ describe('notification delivery contract', () => {
   })
 
   it('filters read school inbox items before enqueueing notifications', () => {
-    const notifySource = readText('src/utils/notify_center.js')
+    const notifySource =
+      readText('src/utils/notify_center.ts') +
+      '\n' +
+      readText('src/utils/notify_center_checks.ts')
 
     expect(notifySource).toContain('isSchoolInboxItemRead')
     expect(notifySource).toContain('is_read')
@@ -282,8 +316,8 @@ describe('notification delivery contract', () => {
   })
 
   it('uses Mini-HBUT branding on main tab headers', () => {
-    const dashboard = readText('src/components/Dashboard.vue')
-    const notificationView = readText('src/components/NotificationView.vue')
+    const dashboard = readVueContractSource('src/components/Dashboard.vue')
+    const notificationView = notificationSources()
     const meView = readText('src/components/MeView.vue')
 
     expect(dashboard).toContain('Mini-HBUT')

@@ -7,11 +7,14 @@ const readText = (relativePath: string) =>
   fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
 
 describe('cloud sync grades authority contract', () => {
+  const readCloudSync = () =>
+    readText('src/utils/cloud_sync.ts') + '\n' + readText('src/utils/cloud_sync_snapshot.ts')
+
   it('treats Array latestGrades (including empty) as full authority without unioning local cache', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readCloudSync()
     const buildBlock =
       source.match(
-        /const buildGradeSnapshot = \(studentId, latestGrades = undefined\) => \{[\s\S]*?^const replaceAuthoritativeGradeCaches/m
+        /const buildGradeSnapshot = \([\s\S]*?^const replaceAuthoritativeGradeCaches/m
       )?.[0] || ''
 
     expect(buildBlock).toContain('const hasAuthoritativeList = Array.isArray(latestGrades)')
@@ -27,10 +30,10 @@ describe('cloud sync grades authority contract', () => {
   })
 
   it('replaces local grade caches via clearCacheByPrefix before rewriting shards', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readCloudSync()
     const replaceBlock =
       source.match(
-        /const replaceAuthoritativeGradeCaches = \(studentId, grades = \[\]\) => \{[\s\S]*?^const normalizePersonalInfoPayload/m
+        /const replaceAuthoritativeGradeCaches = \([\s\S]*?^const normalizePersonalInfoPayload/m
       )?.[0] || ''
 
     expect(replaceBlock).toContain('clearCacheByPrefix(`grades:${sid}`)')
@@ -42,10 +45,10 @@ describe('cloud sync grades authority contract', () => {
   })
 
   it('primes academic caches with null-check so empty authority still replaces', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readText('src/utils/cloud_sync_payload.ts')
     const primeBlock =
       source.match(
-        /const primeAcademicCaches = async \(studentId, seedGrades = \[\], options = \{\}\) => \{[\s\S]*?^const shouldAttachChallenge/m
+        /const primeAcademicCaches = async \([\s\S]*$/m
       )?.[0] || ''
 
     expect(primeBlock).toContain('authoritativeGrades')
@@ -58,10 +61,10 @@ describe('cloud sync grades authority contract', () => {
   })
 
   it('applies cloud academic grades via authoritative replace instead of raw setCachedData merge', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readText('src/utils/cloud_sync_apply.ts')
     const applyBlock =
       source.match(
-        /const applyAcademicFromCloud = \(studentId, academic\) => \{[\s\S]*?^const extractCloudData/m
+        /const applyAcademicFromCloud = \([\s\S]*$/m
       )?.[0] || ''
 
     expect(applyBlock).toContain('hasCloudGradesPayload')
@@ -72,7 +75,7 @@ describe('cloud sync grades authority contract', () => {
   })
 
   it('imports clearCacheByPrefix for grade authority replace', () => {
-    const source = readText('src/utils/cloud_sync.js')
+    const source = readText('src/utils/cloud_sync_snapshot.ts')
     expect(source).toMatch(
       /import\s*\{\s*clearCacheByPrefix\s*,\s*setCachedData\s*\}\s*from\s*['"]\.\/api\.js['"]/
     )

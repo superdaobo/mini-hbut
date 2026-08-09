@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readAppContractSources } from './contract_source_test'
 
 const sourcePath = (path: string) => resolve(process.cwd(), path)
 const readSource = (path: string) => {
@@ -26,7 +27,7 @@ describe('me quick links frontend contract', () => {
   })
 
   it('requires login before entering school_website or quick_links', () => {
-    const appSource = readSource('src/App.vue')
+    const appSource = readAppContractSources()
     const navSource = readSource('src/navigation/app_navigation.ts')
 
     expect(navSource).toContain('LOGIN_REQUIRED_ME_VIEWS')
@@ -37,13 +38,13 @@ describe('me quick links frontend contract', () => {
   })
 
   it('registers school_website and quick_links as Me sub views in App.vue', () => {
-    const appSource = readSource('src/App.vue')
+    const appSource = readAppContractSources()
     const navSource = readSource('src/navigation/app_navigation.ts')
 
-    expect(appSource).toContain("const loadSchoolWebsiteView = () => import('./components/SchoolWebsiteView.vue')")
-    expect(appSource).toContain("const loadQuickLinksView = () => import('./components/QuickLinksView.vue')")
-    expect(appSource).toContain('const SchoolWebsiteView = createAsyncPage(loadSchoolWebsiteView)')
-    expect(appSource).toContain('const QuickLinksView = createAsyncPage(loadQuickLinksView)')
+    expect(appSource).toContain("const loadSchoolWebsiteView: Loader = () => import('../components/SchoolWebsiteView.vue')")
+    expect(appSource).toContain("const loadQuickLinksView: Loader = () => import('../components/QuickLinksView.vue')")
+    expect(appSource).toContain('school_website: createAsyncPage(loadSchoolWebsiteView)')
+    expect(appSource).toContain('quick_links: createAsyncPage(loadQuickLinksView)')
     expect(navSource).toMatch(/ME_SUB_VIEWS\s*=\s*\[[\s\S]*'school_website'/)
     expect(navSource).toMatch(/ME_SUB_VIEWS\s*=\s*\[[\s\S]*'quick_links'/)
     expect(navSource).toMatch(/HIERARCHICAL_PARENT_VIEW_MAP[\s\S]*school_website:\s*'me'/)

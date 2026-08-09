@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { decideHomeNavigate, canOpenModule } from './moduleAccess'
+import { readAppContractSources, readVueContractSource } from './contract_source_test'
 
 /**
  * 入口接线 + 生产路径字符串门闩。
@@ -11,7 +12,7 @@ const read = (rel: string) => readFileSync(new URL(`../../${rel}`, import.meta.u
 
 describe('campus entry wiring uses decideHomeNavigate / canOpenModule', () => {
   it('Dashboard.navigateTo calls decideHomeNavigate before emit navigate', () => {
-    const dash = read('src/components/Dashboard.vue')
+    const dash = readVueContractSource('src/components/Dashboard.vue')
     expect(dash).toContain("from '../utils/moduleAccess'")
     expect(dash).toContain('decideHomeNavigate')
     const nav = dash.indexOf('const navigateTo = (moduleId)')
@@ -25,8 +26,8 @@ describe('campus entry wiring uses decideHomeNavigate / canOpenModule', () => {
   })
 
   it('App.goToView calls canOpenModule before goToViewInternal', () => {
-    const app = read('src/App.vue')
-    expect(app).toContain("from './utils/moduleAccess'")
+    const app = readAppContractSources()
+    expect(app).toContain("from '../../utils/moduleAccess'")
     const go = app.indexOf('const goToView = (view')
     const access = app.indexOf('canOpenModule(', go)
     const internal = app.indexOf('goToViewInternal(normalized', go)

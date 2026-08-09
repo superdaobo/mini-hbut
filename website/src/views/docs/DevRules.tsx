@@ -33,7 +33,7 @@ const DevRules = () => {
         <pre className="bg-black/60 rounded-xl p-5 text-xs text-gray-300 overflow-x-auto border border-gray-800">
 {`tauri-app/
   src/                # Vue UI
-  src/utils/axios_adapter.js
+  src/utils/axios_adapter.ts
   src-tauri/
     src/http_client/  # 业务网络层
     src/modules/      # 业务模块

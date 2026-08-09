@@ -1,0 +1,110 @@
+  <div class="resource-share-view module-page">
+    <TPageHeader icon="folder_shared" title="资源网盘" @back="emit('back')">
+      <template #actions>
+        <button class="header-btn" :disabled="loadingList || loadingConfig" @click="refreshCurrent">刷新</button>
+      </template>
+    </TPageHeader>
+
+    <section class="path-card">
+      <button class="path-btn" :disabled="!canGoParent || loadingList" @click="goParent">上一级</button>
+      <div class="breadcrumbs">
+        <button
+          v-for="(crumb, idx) in breadcrumbItems"
+          :key="crumb.path"
+          class="crumb-chip"
+          :class="{ active: idx === breadcrumbItems.length - 1 }"
+          @click="openBreadcrumb(crumb.path)"
+        >
+          {{ crumb.label }}
+        </button>
+      </div>
+    </section>
+
+    <section class="list-card">
+      <div class="list-meta">
+        <span class="count-chip">共 {{ totalCount }} 项</span>
+        <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
+      </div>
+
+      <div v-if="!items.length && !loadingList" class="empty">当前目录为空</div>
+
+      <div class="items-grid">
+        <button v-for="item in items" :key="item.path" class="item-card" @click="openItem(item)">
+          <div class="item-title-row">
+            <span class="item-icon" :class="`type-${getTypeClass(item)}`">{{ getItemIcon(item) }}</span>
+            <span class="item-title">{{ item.name }}</span>
+          </div>
+          <div class="item-meta-row">
+            <span class="meta-chip" :class="`type-${getTypeClass(item)}`">{{ getItemTypeLabel(item) }}</span>
+            <span v-if="!item.isDir" class="meta-size">{{ formatSize(item.size) }}</span>
+            <span class="item-time">{{ formatTime(item.modified) }}</span>
+          </div>
+        </button>
+      </div>
+    </section>
+
+    <div v-if="showPreview" class="preview-overlay" @click.self="closePreview">
+      <div class="preview-modal">
+        <div class="preview-head">
+          <h3>{{ previewTitle }}</h3>
+          <p class="preview-path">{{ previewPath }}</p>
+        </div>
+        <div class="preview-actions">
+          <button class="action-btn" @click="toggleFullscreenPreview">
+            {{ isViewerFullscreen ? '退出全屏预览器' : '全屏预览器' }}
+          </button>
+          <button class="action-btn primary" @click="openDownload">下载</button>
+          <button class="action-btn" @click="closePreview">关闭</button>
+        </div>
+        <div class="preview-body" :class="{ 'viewer-fullscreen': isViewerFullscreen }">
+          <button v-if="isViewerFullscreen" class="viewer-exit-btn" @click="exitViewerFullscreen">← 退出全屏</button>
+          <div v-if="loadingPreview" class="preview-loading">预览加载中...</div>
+          <div v-else-if="previewKind === 'video' || previewKind === 'audio'" class="preview-media-wrap xgplayer-wrap" :class="{ audio: previewKind === 'audio' }">
+            <div id="resource-xgplayer-host" ref="previewPlayerHostRef" class="xgplayer-host"></div>
+          </div>
+          <div v-else-if="previewKind === 'image'" class="preview-image-wrap">
+            <img class="preview-image" :src="previewUrl" alt="preview" @error="onPreviewImageError" />
+          </div>
+          <div v-else-if="previewKind === 'pdf'" class="pdf-viewer">
+            <div class="pdf-toolbar">
+              <button class="pdf-tool-btn" :disabled="pdfCurrentPage <= 1" @click="prevPdfPage">上一页</button>
+              <span class="pdf-page-chip">第 {{ pdfCurrentPage }} / {{ pdfPageCount }} 页</span>
+              <button class="pdf-tool-btn" :disabled="pdfCurrentPage >= pdfPageCount" @click="nextPdfPage">下一页</button>
+              <button class="pdf-tool-btn" :disabled="pdfZoom <= PDF_ZOOM_MIN + 0.001" @click="zoomOutPdf">缩小</button>
+              <button class="pdf-page-chip" @click="resetPdfZoom">{{ pdfZoomText }}</button>
+              <button class="pdf-tool-btn" :disabled="pdfZoom >= PDF_ZOOM_MAX - 0.001" @click="zoomInPdf">放大</button>
+            </div>
+            <div
+              ref="pdfCanvasWrapRef"
+              class="pdf-canvas-wrap"
+              :class="{ panning: isPdfPanning, zoomed: pdfZoom > 1.001 }"
+              @pointerdown="onPdfPanPointerDown"
+              @pointermove="onPdfPanPointerMove"
+              @pointerup="onPdfPanPointerUp"
+              @pointercancel="onPdfPanPointerUp"
+            >
+              <canvas ref="pdfCanvasRef" class="pdf-canvas"></canvas>
+            </div>
+          </div>
+          <iframe
+            v-else-if="previewKind === 'office'"
+            :key="`office-${previewFrameKey}`"
+            class="preview-frame"
+            :src="previewUrl"
+            title="office preview"
+            @error="onPreviewFrameError"
+          />
+          <pre v-else-if="previewKind === 'text'" class="preview-text">{{ previewText }}</pre>
+          <div v-else class="preview-empty">{{ previewHint || '暂不支持该类型在线预览' }}</div>
+        </div>
+        <p v-if="previewHint && previewKind !== 'unknown'" class="preview-hint">{{ previewHint }}</p>
+      </div>
+    </div>
+
+    <div v-if="loadingConfig || loadingList" class="center-loading-overlay">
+      <div class="center-loading-card">
+        <div class="spinner"></div>
+        <p>{{ loadingConfig ? '加载远程配置中...' : '加载目录中...' }}</p>
+      </div>
+    </div>
+  </div>

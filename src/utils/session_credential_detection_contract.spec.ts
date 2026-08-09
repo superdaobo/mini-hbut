@@ -17,8 +17,8 @@ describe('session credential detection contract (#520)', () => {
   })
 
   it('has_restorable_credentials resolves from db user_sessions and keyring', () => {
-    const lib = readText('src-tauri/src/lib.rs')
-    const fnBlock = lib.match(/fn resolve_stored_portal_password\(student_id: &str\) -> Option<String> \{[\s\S]*?\n\}/)?.[0] || ''
+    const auth = readText('src-tauri/src/transport/tauri/auth.rs')
+    const fnBlock = auth.match(/fn resolve_stored_portal_password\(student_id: &str\) -> Option<String> \{[\s\S]*?\n\}/)?.[0] || ''
 
     // DB 会话密码（login 时无条件保存）优先
     expect(fnBlock).toContain('db::get_user_session(DB_FILENAME, sid)')
@@ -29,8 +29,8 @@ describe('session credential detection contract (#520)', () => {
   })
 
   it('auto_relogin_from_stored performs full CAS login and persists credentials', () => {
-    const lib = readText('src-tauri/src/lib.rs')
-    const cmdBlock = lib.match(/async fn auto_relogin_from_stored\([\s\S]*?\n\}/)?.[0] || ''
+    const auth = readText('src-tauri/src/transport/tauri/auth.rs')
+    const cmdBlock = auth.match(/async fn auto_relogin_from_stored\([\s\S]*?\n\}/)?.[0] || ''
 
     expect(cmdBlock).toContain('resolve_stored_portal_password(&sid)')
     expect(cmdBlock).toContain('client.set_credentials(sid.clone(), password.clone())')
@@ -51,18 +51,22 @@ describe('session credential detection contract (#520)', () => {
   })
 
   it('attemptAutoRelogin calls auto_relogin_from_stored for backend-restorable credentials', () => {
-    const app = readText('src/App.vue')
-    const autoReloginBlock = app.match(/const attemptAutoRelogin = async \(\) => \{[\s\S]*?\n\}/)?.[0] || ''
+    const sessionSource = readText('src/app/coordinators/SessionCoordinator.ts')
+    const autoReloginStart = sessionSource.indexOf('const attemptAutoRelogin = async () => {')
+    const autoReloginEnd = sessionSource.indexOf('const refreshSessionSilently = async (options: { quiet?: boolean } = {}) => {', autoReloginStart)
+    const autoReloginBlock = sessionSource.slice(autoReloginStart, autoReloginEnd)
 
     expect(autoReloginBlock).toContain('creds.backendRestorable')
-    expect(autoReloginBlock).toContain("invokeNative('auto_relogin_from_stored', {")
+    expect(autoReloginBlock).toContain("invoke('auto_relogin_from_stored', {")
   })
 
   it('login success triggers proactive session probe to avoid stale expired banner', () => {
-    const app = readText('src/App.vue')
-    const loginBlock = app.match(/const handleLoginSuccess = \(data\) => \{[\s\S]*?\n\}/)?.[0] || ''
+    const authSource = readText('src/app/coordinators/AuthCoordinator.ts')
+    const loginStart = authSource.indexOf('const handleLoginSuccess = (data: unknown) => {')
+    const loginEnd = authSource.indexOf('const handleLogout = async', loginStart)
+    const loginBlock = authSource.slice(loginStart, loginEnd)
 
-    expect(loginBlock).toContain('refreshSessionSilently()')
+    expect(loginBlock).toContain('runtime.session.refreshSessionSilently({ quiet: true })')
     expect(loginBlock).toContain('#520')
   })
 })

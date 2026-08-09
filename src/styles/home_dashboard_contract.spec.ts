@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-
-const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8')
+import { readAppContractSources, readVueContractSource } from '../utils/contract_source_test'
 
 const getRuleBody = (source: string, selector: string) => {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -10,8 +7,8 @@ const getRuleBody = (source: string, selector: string) => {
 }
 
 describe('home dashboard interaction contract', () => {
-  const dashboardVue = () => readSource('src/components/Dashboard.vue')
-  const appVue = () => readSource('src/App.vue')
+  const dashboardVue = () => readVueContractSource('src/components/Dashboard.vue')
+  const appVue = () => readAppContractSources()
 
   it('keeps the HBUT header and search as normal top-of-home content', () => {
     const source = dashboardVue()
@@ -113,7 +110,7 @@ describe('home dashboard interaction contract', () => {
   it('restores the home scroll position when returning from a module', () => {
     const source = appVue()
 
-    expect(source).toContain('const homeScrollSnapshot = ref(0)')
+    expect(source).toContain('homeScrollSnapshot: ref(0)')
     expect(source).toContain('const rememberHomeScrollPosition = ()')
     expect(source).toContain('const restoreHomeScrollPosition = ()')
     expect(source).toContain('HOME_SCROLL_STORAGE_KEY')
@@ -124,10 +121,10 @@ describe('home dashboard interaction contract', () => {
     // 系统返回键 / popstate：落地首页时必须 scrollToTop:false 并 restore，不可冲掉位置
     // （非首页落地仍可用 scrollToTop:true 校正视口，故不能用跨语句贪心正则一刀切）
     expect(source).toMatch(
-      /if \(currentView\.value !== 'home'\) \{\s*recoverViewportAfterTransition\(\{\s*scrollToTop:\s*true/
+      /if \(state\.currentView\.value !== 'home'\) \{\s*runtime\.lifecycle\.recoverViewportAfterTransition\(\{\s*scrollToTop:\s*true/
     )
     expect(source).toMatch(
-      /currentView\.value !== 'home'[\s\S]{0,200}?else \{\s*recoverViewportAfterTransition\(\{\s*scrollToTop:\s*false[\s\S]{0,120}?restoreHomeScrollPosition\(\)/
+      /state\.currentView\.value !== 'home'[\s\S]{0,240}?else \{\s*runtime\.lifecycle\.recoverViewportAfterTransition\(\{\s*scrollToTop:\s*false[\s\S]{0,160}?restoreHomeScrollPosition\(\)/
     )
   })
 })

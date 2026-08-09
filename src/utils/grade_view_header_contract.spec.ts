@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { readAppContractSources } from './contract_source_test'
 
 const repoRoot = process.cwd()
 const readText = (relativePath: string) =>
@@ -16,7 +17,7 @@ describe('grade view header contract', () => {
 
   it('shows a top-right refresh action that asks App.vue to reload grades', () => {
     const gradeSource = readText('src/components/GradeView.vue')
-    const appSource = readText('src/App.vue')
+    const appSource = readAppContractSources()
 
     expect(gradeSource).toContain("defineEmits(['back', 'logout', 'refresh'])")
     expect(gradeSource).toContain('class="grade-stitch-refresh grade-refresh-btn"')
@@ -27,15 +28,18 @@ describe('grade view header contract', () => {
     expect(gradeSource).not.toContain('syncTime.value')
     expect(gradeSource).toContain('class="grade-updated-at"')
     expect(gradeSource).toContain('最新更新时间')
-    expect(appSource).toContain('const resolveGradeSyncTime = (data) =>')
+    expect(appSource).toContain('const resolveGradeSyncTime = (data: GradePayload) =>')
     expect(appSource).toContain('getStaleCachedData')
-    expect(appSource).toContain('const applyStaleGradesSnapshot = (sid) =>')
+    expect(appSource).toContain('const applyStaleGradesSnapshot = (sid: string) =>')
     expect(appSource).toContain('GRADE_CACHE_REFRESH_RETRY_MS')
     expect(appSource).toContain('scheduleGradeRealtimeRetry')
     expect(appSource).toContain('@refresh="handleRefreshGrades"')
     expect(appSource).toContain('const handleRefreshGrades = async () =>')
-    expect(appSource).toContain('fetchGradesFromAPI(studentId.value, { force: true, teacherCurrentOnly: true })')
-    expect(appSource).toContain('const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = false, silent = false } = {})')
+    expect(appSource).toContain('fetchGradesFromAPI(state.studentId.value, {')
+    expect(appSource).toContain('teacherCurrentOnly: true')
+    expect(appSource).toContain('const fetchGradesFromAPI = async (')
+    expect(appSource).toContain('sid: string,')
+    expect(appSource).toContain('{ force = false, teacherCurrentOnly = false, silent = false } = {}')
     expect(appSource).toContain('const showedStaleSnapshot = !force ? applyStaleGradesSnapshot(sid) : false')
     expect(appSource).toContain('setCachedData(`grades:${sid}`, data)')
     expect(appSource).not.toContain('const { data } = await fetchWithCache(`grades:${sid}`, () => fetchGradesRemote(sid))')
@@ -43,7 +47,7 @@ describe('grade view header contract', () => {
     // 成绩必须以教务完整列表为权威源：始终 forceRemote，禁止 SWR 三元分支复活已删除成绩。
     const fetchGradesBlock =
       appSource.match(
-        /const fetchGradesFromAPI = async \(sid, \{ force = false, teacherCurrentOnly = false, silent = false \} = \{\}\) => \{[\s\S]*?^const handleRequireLogin/m
+        /const fetchGradesFromAPI = async \([\s\S]*?\) => \{[\s\S]*?^  const loadGradesForCurrentView/m
       )?.[0] || ''
     expect(fetchGradesBlock).toContain("{ forceRemote: true, priority: 'foreground' }")
     expect(fetchGradesBlock).not.toContain('DEFAULT_SWR_OPTIONS')
@@ -58,11 +62,13 @@ describe('grade view header contract', () => {
   })
 
   it('refreshes grades every time the grades view is opened, even when old data exists', () => {
-    const appSource = readText('src/App.vue')
-    const navigateBlock = appSource.match(/const handleNavigate = async \(target\) => \{[\s\S]*?const handleBackToDashboard/s)?.[0] || ''
+    const navigationSource = readText('src/app/coordinators/NavigationCoordinator.ts')
+    const navigateBlock = navigationSource.match(
+      /const handleNavigate = async \(target: unknown\) => \{[\s\S]*?const handleBackToDashboard/s
+    )?.[0] || ''
 
     expect(navigateBlock).toContain("if (normalized.view === 'grades') {")
-    expect(navigateBlock).toContain('void loadGradesForCurrentView()')
+    expect(navigateBlock).toContain('void runtime.grade.loadGradesForCurrentView()')
     expect(navigateBlock).not.toContain("normalized.view === 'grades' && gradeData.value.length === 0")
   })
 
@@ -81,10 +87,10 @@ describe('grade view header contract', () => {
   })
 
   it('does not report offline grade fallback as a successful manual refresh', () => {
-    const appSource = readText('src/App.vue')
+    const appSource = readAppContractSources()
 
-    expect(appSource).toContain('const lastGradeRefreshUsedOffline = ref(false)')
-    expect(appSource).toContain('lastGradeRefreshUsedOffline.value = !!data?.offline')
+    expect(appSource).toContain('lastGradeRefreshUsedOffline: ref(false)')
+    expect(appSource).toContain('state.lastGradeRefreshUsedOffline.value = !!data?.offline')
     expect(appSource).toContain("showToast('教务系统暂不可用，已显示缓存'")
     expect(appSource).not.toContain("showToast(ok ? '成绩已刷新' : '成绩刷新失败'")
   })

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readAppContractSources } from './contract_source_test'
 
 const readText = (path: string) =>
   readFileSync(resolve(process.cwd(), path), 'utf8')
@@ -40,8 +41,8 @@ describe('android widget contract', () => {
   })
 
   it('handles widget navigation for electricity and exams in App.vue', () => {
-    const app = readText('src/App.vue')
-    expect(app).toContain('handleWidgetNavigatePayload')
+    const app = readAppContractSources()
+    expect(app).toContain('const handleNavigatePayload = (payload')
     expect(app).toContain("hostname === 'electricity'")
     expect(app).toContain("hostname === 'exam'")
     expect(app).toContain("addEventListener('widgetNavigate'")

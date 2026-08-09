@@ -28,10 +28,12 @@ describe('release readiness gates', () => {
     expect(tauriConfig.version).toBe(frozenVersion)
     expect(cargoToml).toContain(`version = "${frozenVersion}"`)
     expect(packageJson.scripts['check:all']).toBe('node scripts/check_all.mjs')
-    expect(packageJson.scripts['check:release']).toBe('node scripts/check_release.mjs')
+    expect(packageJson.scripts['check:release']).toBe(
+      'node scripts/check_release.mjs && node scripts/check_god_files.mjs --strict'
+    )
     expect(packageJson.scripts['check:release-config']).toBe('node scripts/verify_release_config.mjs')
     const releaseConfig = read('scripts/verify_release_config.mjs')
-    expect(releaseConfig).toContain('src/utils/updater.js')
+    expect(releaseConfig).toContain('src/utils/updater.ts')
     expect(releaseConfig).toContain("channel: 'stable'")
     expect(releaseConfig).toContain('/releases/latest.json')
     expect(releaseConfig).toContain('/releases/stable-latest.json')

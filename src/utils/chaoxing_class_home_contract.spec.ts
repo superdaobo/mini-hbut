@@ -1,19 +1,41 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { HOME_MODULE_ORDER_DEFAULT } from '../config/ui_settings'
 import { buildHomeSearchSections } from './home_search'
+import { readAppContractSources, readVueContractSource } from './contract_source_test'
 
 const read = (relativePath: string) =>
   readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8')
+const readTree = (relativePath: string, extensionPattern: RegExp) => {
+  const root = path.join(process.cwd(), relativePath)
+  if (!existsSync(root)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && extensionPattern.test(entry.name)) files.push(absolute)
+    }
+  }
+  walk(root)
+  return files.sort().map((file) => readFileSync(file, 'utf8')).join('\n')
+}
 
 describe('chaoxing_class home integration contract', () => {
   it('registers 资料分享 (chaoxing_class) module in layout, dashboard, app and icon map', () => {
-    const dashboard = read('src/components/Dashboard.vue')
-    const app = read('src/App.vue')
+    const dashboard = readVueContractSource('src/components/Dashboard.vue')
+    const app = readAppContractSources() + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
     const icon = read('src/components/icons/ThemeModuleIcon.vue')
-    const view = read('src/components/ChaoxingClassView.vue')
+    const view =
+      readVueContractSource('src/components/ChaoxingClassView.vue') +
+      '\n' +
+      readTree('src/features/chaoxing', /\.(?:ts|vue)$/)
     const rustMod = read('src-tauri/src/modules/mod.rs')
-    const rustLib = read('src-tauri/src/lib.rs')
+    const rustLib =
+      read('src-tauri/src/lib.rs') +
+      '\n' +
+      readTree('src-tauri/src/transport/tauri', /\.rs$/)
     const protocol = read('docs/chaoxing-protocol.md')
 
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('chaoxing_class')
@@ -21,7 +43,7 @@ describe('chaoxing_class home integration contract', () => {
     expect(dashboard).toContain("{ id: 'chaoxing_class', name: '资料分享'")
     expect(dashboard).toContain("title: '学习通'")
     expect(dashboard).toContain("'chaoxing_class'")
-    expect(app).toContain("const loadChaoxingClassView = () => import('./components/ChaoxingClassView.vue')")
+    expect(app).toContain("const loadChaoxingClassView: Loader = () => import('../components/ChaoxingClassView.vue')")
     expect(app).toContain('chaoxing_class: loadChaoxingClassView')
     expect(app).toContain("currentView === 'chaoxing_class'")
     expect(app).toContain("currentView === 'chaoxing_hub'")
@@ -60,7 +82,10 @@ describe('chaoxing_class home integration contract', () => {
     expect(rustLib).toContain('chaoxing_class_accept_invite')
     expect(rustLib).toContain('spawn_chaoxing_sso_warmup')
     expect(rustLib).toContain('chaoxing_sso_get_diag')
-    const classRs = read('src-tauri/src/modules/chaoxing_class.rs')
+    const classRs =
+      read('src-tauri/src/modules/chaoxing_class.rs') +
+      '\n' +
+      readTree('src-tauri/src/modules/chaoxing_class', /\.rs$/)
     expect(classRs).toContain('get-preview-url')
     expect(classRs).toContain('tch-courseware')
     expect(classRs).toContain('getStudentCourseWareList')
@@ -84,7 +109,8 @@ describe('chaoxing_class home integration contract', () => {
     expect(view).toContain('首次进入需完成门户 SSO')
     expect(rustLib).toContain('keep-alive 学习通补票')
     expect(rustLib).toContain('spawn_chaoxing_sso_warmup')
-    const remote = read('src/utils/remote_config.js')
+    const remote =
+      read('src/utils/remote_config.ts') + '\n' + read('src/utils/remote_config_defaults.ts')
     expect(remote).toContain('chaoxing_class')
     expect(remote).toContain('getChaoxingClassConfig')
     expect(remote).toContain("invite_code: '18853572'")

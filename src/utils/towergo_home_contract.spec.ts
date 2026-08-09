@@ -2,13 +2,14 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { HOME_MODULE_ORDER_DEFAULT } from '../config/ui_settings'
 import { buildHomeSearchSections } from './home_search'
+import { readAppContractSources, readVueContractSource } from './contract_source_test'
 
 const read = (relativePath: string) => readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8')
 
 describe('towergo home integration contract', () => {
   it('registers towergo as a resource module in home layout, dashboard and search', () => {
-    const dashboard = read('src/components/Dashboard.vue')
-    const app = read('src/App.vue')
+    const dashboard = readVueContractSource('src/components/Dashboard.vue')
+    const app = readAppContractSources()
     const icon = read('src/components/icons/ThemeModuleIcon.vue')
 
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('towergo')
@@ -20,7 +21,7 @@ describe('towergo home integration contract', () => {
     expect(dashboard).not.toContain("id: 'smart_orientation'")
     expect(dashboard).toContain("id: 'towergo'")
     expect(dashboard).toContain("['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class']")
-    expect(app).toContain("const loadTowerGoView = () => import('./components/TowerGoView.vue')")
+    expect(app).toContain("const loadTowerGoView: Loader = () => import('../components/TowerGoView.vue')")
     expect(app).toContain("towergo: loadTowerGoView")
     expect(app).toContain("currentView === 'towergo'")
     expect(icon).toContain("towergo: 'electric_bike'")

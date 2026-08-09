@@ -1,0 +1,563 @@
+  <div class="settings-view">
+    <!-- Header -->
+    <header class="settings-page-header">
+      <button class="header-icon-btn" @click="emit('back')">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <h1 class="header-title">设置中心</h1>
+      <div class="header-spacer"></div>
+    </header>
+
+    <!-- Tabs -->
+    <div class="settings-tab-bar">
+      <button class="settings-tab-item" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
+        外观
+      </button>
+      <button class="settings-tab-item" :class="{ active: activeTab === 'backend' }" @click="activeTab = 'backend'">
+        后端
+      </button>
+      <button class="settings-tab-item" :class="{ active: activeTab === 'debug' }" @click="activeTab = 'debug'">
+        调试
+      </button>
+    </div>
+
+    <template v-if="activeTab === 'appearance'">
+      <section class="settings-section glass-card startup-page-section">
+        <div class="startup-page-row">
+          <span class="startup-page-label">启动页面</span>
+          <div class="startup-page-toggle">
+            <button
+              class="toggle-btn btn-ripple"
+              :class="{ active: uiSettings.startupPage === 'home' }"
+              @click="uiSettings.startupPage = 'home'; showToast('启动页面：首页', 'success')"
+            >首页</button>
+            <button
+              class="toggle-btn btn-ripple"
+              :class="{ active: uiSettings.startupPage === 'schedule' }"
+              @click="uiSettings.startupPage = 'schedule'; showToast('启动页面：课表', 'success')"
+            >课表</button>
+          </div>
+        </div>
+        <div class="startup-page-row">
+          <span class="startup-page-label">开屏动画</span>
+          <div class="startup-page-toggle">
+            <button
+              class="toggle-btn btn-ripple"
+              :class="{ active: uiSettings.splashEnabled }"
+              @click="uiSettings.splashEnabled = true; showToast('开屏动画：已开启', 'success')"
+            >开启</button>
+            <button
+              class="toggle-btn btn-ripple"
+              :class="{ active: !uiSettings.splashEnabled }"
+              @click="uiSettings.splashEnabled = false; showToast('开屏动画：已关闭', 'success')"
+            >关闭</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-section glass-card">
+        <div class="section-head">
+          <h3>主题模式</h3>
+        </div>
+        <!-- Day/Night Toggle with Animation -->
+        <div class="theme-toggle-container">
+          <div class="theme-toggle-track" :class="{ 'is-dark': isDarkMode }" @click="toggleDarkMode">
+            <!-- Sky background -->
+            <div class="theme-sky" :class="isDarkMode ? 'theme-sky--night' : 'theme-sky--day'">
+              <div class="theme-stars" :class="{ 'opacity-100': isDarkMode, 'opacity-0': !isDarkMode }">
+                <span v-for="i in 6" :key="i" class="star" :style="{ left: `${10 + i * 14}%`, top: `${15 + (i % 3) * 20}%`, animationDelay: `${i * 0.3}s` }"></span>
+              </div>
+            </div>
+            <!-- Sun/Moon -->
+            <div class="theme-celestial" :class="isDarkMode ? 'theme-celestial--moon' : 'theme-celestial--sun'">
+              <div v-if="!isDarkMode" class="sun-icon">
+                <i class="fas fa-sun"></i>
+              </div>
+              <div v-else class="moon-icon">
+                <i class="fas fa-moon"></i>
+              </div>
+            </div>
+            <!-- Labels -->
+            <div class="theme-labels">
+              <span class="theme-label" :class="{ active: !isDarkMode }">白天</span>
+              <span class="theme-label" :class="{ active: isDarkMode }">夜间</span>
+            </div>
+          </div>
+          <p class="theme-hint">{{ isDarkMode ? '夜间模式已开启，保护您的眼睛' : '白天模式，清爽明亮' }}</p>
+        </div>
+      </section>
+
+      <section class="settings-section glass-card">
+        <h3>界面个性化</h3>
+        <div class="option-group">
+          <label>卡片风格</label>
+          <div class="chip-row">
+            <button
+              v-for="item in cardStyleOptions"
+              :key="item.key"
+              class="option-chip"
+              :class="{ active: uiSettings.profile.cardStyle === item.key }"
+              @click="setProfileOption('cardStyle', item.key, `卡片风格：${item.label}`)"
+            >
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.desc }}</small>
+            </button>
+          </div>
+        </div>
+
+        <div class="option-group">
+          <label>导航样式</label>
+          <div class="chip-row">
+            <button
+              v-for="item in navStyleOptions"
+              :key="item.key"
+              class="option-chip"
+              :class="{ active: uiSettings.profile.navStyle === item.key }"
+              @click="setProfileOption('navStyle', item.key, `导航样式：${item.label}`)"
+            >
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.desc }}</small>
+            </button>
+          </div>
+        </div>
+
+        <div class="option-group">
+          <label>界面密度</label>
+          <div class="chip-row">
+            <button
+              v-for="item in densityOptions"
+              :key="item.key"
+              class="option-chip"
+              :class="{ active: uiSettings.profile.density === item.key }"
+              @click="setProfileOption('density', item.key, `界面密度：${item.label}`)"
+            >
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.desc }}</small>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-section glass-card">
+        <h3>风格套装</h3>
+        <div class="profile-grid">
+          <button
+            v-for="profile in interactionProfiles"
+            :key="profile.key"
+            class="profile-card"
+            @click="handleApplyProfile(profile)"
+          >
+            <strong>{{ profile.label }}</strong>
+            <span>{{ profile.desc }}</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="settings-section glass-card">
+        <h3>字体</h3>
+        <div class="font-actions">
+          <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'default' }" @click="handleSelectFont('default')">
+            默认字体
+          </button>
+          <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'heiti' }" @click="handleSelectFont('heiti')">
+            黑体
+          </button>
+          <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'songti' }" @click="handleSelectFont('songti')">
+            宋体
+          </button>
+          <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'kaiti' }" @click="handleSelectFont('kaiti')">
+            楷体
+          </button>
+          <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'fangsong' }" @click="handleSelectFont('fangsong')">
+            仿宋
+          </button>
+          <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'deyihei' }" @click="handleSelectFont('deyihei')">
+            得意黑（需下载）
+          </button>
+        </div>
+        <div class="font-cdn">
+          <label>字体 CDN 节点</label>
+          <div class="font-cdn-row">
+            <button
+              v-for="option in fontCdnOptions"
+              :key="option.key"
+              class="font-cdn-btn btn-ripple"
+              :class="{ active: fontSettings.cdnProvider === option.key }"
+              @click="handleSelectCdnProvider(option.key)"
+            >
+              <strong>{{ option.label }}</strong>
+              <small>{{ option.desc }}</small>
+            </button>
+          </div>
+        </div>
+        <div class="font-availability">
+          <label>本地字体可用性说明</label>
+          <ul>
+            <li v-for="item in fontLocalAvailability" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+        <div class="font-download-row">
+          <button class="mini-btn btn-ripple" :disabled="downloadingFont" @click="handleDownloadFont(fontSettings.loaded)">
+            {{ downloadingFont ? '下载中...' : fontSettings.loaded ? '重新下载得意黑' : '下载得意黑' }}
+          </button>
+          <button class="mini-btn btn-ripple" :disabled="cdnPrefetching" @click="handlePrefetchFonts(false)">
+            {{ cdnPrefetching ? '缓存中...' : prefetchButtonText }}
+          </button>
+          <button class="mini-btn btn-ripple" :disabled="cdnPrefetching" @click="handlePrefetchFonts(false, true)">
+            {{ cdnPrefetching ? '缓存中...' : '缓存全部字体' }}
+          </button>
+          <span class="hint">字体选择会自动保存；下次打开应用会自动恢复上次字体。</span>
+        </div>
+      </section>
+    </template>
+
+    <section v-else-if="activeTab === 'backend'" class="settings-section glass-card backend-shell">
+      <div class="section-head">
+        <h3>后端与模块参数</h3>
+        <button class="mini-btn btn-ripple" @click="handleResetBackend">恢复默认</button>
+      </div>
+
+      <div class="backend-summary">
+        <span class="status-pill">配置源：{{ backendSourceLabel }}</span>
+        <span class="status-pill">运行时：{{ runtimeLabel }}</span>
+        <span class="status-pill">预览线程：{{ activePreviewThreads }}</span>
+        <span class="status-pill">下载线程：{{ activeDownloadThreads }}</span>
+        <span class="status-pill">设备：{{ activeDeviceLabel }}</span>
+      </div>
+
+      <div class="backend-block">
+        <div class="section-head section-head-compact">
+          <h4>云同步状态</h4>
+          <button class="mini-btn btn-ripple" @click="refreshCloudSyncStatus">刷新状态</button>
+        </div>
+        <p class="hint">用于确认本机云同步上传/下载是否执行成功。</p>
+        <div class="cloud-sync-status-grid">
+          <article class="cloud-sync-status-item">
+            <small>服务状态</small>
+            <strong :class="{ ok: cloudSyncRuntime.enabled, error: !cloudSyncRuntime.enabled }">
+              {{ cloudSyncEnabledText }}
+            </strong>
+          </article>
+          <article class="cloud-sync-status-item">
+            <small>上次上传</small>
+            <strong :class="{ ok: cloudSyncStatus?.lastUploadOk, error: cloudSyncStatus?.lastUploadAt && !cloudSyncStatus?.lastUploadOk }">
+              {{ cloudSyncUploadStatusText }}
+            </strong>
+            <span>{{ formatStatusTime(cloudSyncStatus?.lastUploadAt) }}</span>
+          </article>
+          <article class="cloud-sync-status-item">
+            <small>上次下载</small>
+            <strong :class="{ ok: cloudSyncStatus?.lastDownloadOk, error: cloudSyncStatus?.lastDownloadAt && !cloudSyncStatus?.lastDownloadOk }">
+              {{ cloudSyncDownloadStatusText }}
+            </strong>
+            <span>{{ formatStatusTime(cloudSyncStatus?.lastDownloadAt) }}</span>
+          </article>
+          <article class="cloud-sync-status-item">
+            <small>最近更新</small>
+            <strong>{{ cloudSyncStatusUpdatedAt || '—' }}</strong>
+            <span>学号：{{ cloudSyncStatus?.studentId || currentStudentId }}</span>
+          </article>
+        </div>
+        <p v-if="cloudSyncLastUploadError" class="hint cloud-sync-error">上传错误：{{ cloudSyncLastUploadError }}</p>
+        <p v-if="cloudSyncLastDownloadError" class="hint cloud-sync-error">下载错误：{{ cloudSyncLastDownloadError }}</p>
+      </div>
+
+      <div class="backend-block">
+        <div
+          class="toggle-row"
+          :class="{
+            active: localOnlyModeEnabled,
+            inactive: !localOnlyModeEnabled
+          }"
+        >
+          <div class="toggle-text">
+            <strong>不使用远程配置（仅本地）</strong>
+            <small>开启后只应用本地设置，远程配置将不再覆盖 OCR/上传地址。</small>
+          </div>
+          <div class="toggle-meta">
+            <span
+              class="toggle-badge"
+              :class="{
+                active: localOnlyModeEnabled,
+                inactive: !localOnlyModeEnabled
+              }"
+            >
+              {{ localOnlyModeEnabled ? '仅本地' : '远程配置' }}
+            </span>
+            <button
+              type="button"
+              class="toggle-switch"
+              :class="{ checked: localOnlyModeEnabled }"
+              role="switch"
+              :aria-checked="localOnlyModeEnabled"
+              @click="handleRemoteModeChanged"
+            >
+              <span class="toggle-thumb"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="backend-block">
+        <h4>本地服务设置</h4>
+        <p class="hint">仅支持手动填写地址，不展示本地预设列表。</p>
+        <p class="hint">修改后会自动保存到本地并自动应用到当前运行实例。</p>
+        <p v-if="appSettings.backend.useRemoteConfig" class="hint">
+          当前启用远程配置，远程刷新后 OCR/上传/云同步中转地址可能被覆盖；若需固定使用本地地址，请开启“仅本地”。
+        </p>
+        <div class="backend-grid">
+          <label class="field">
+            <span>OCR 服务器</span>
+            <input
+              type="text"
+              placeholder="https://your-ocr.example/api/ocr/recognize"
+              v-model.trim="appSettings.backend.ocrEndpoint"
+            />
+          </label>
+          <label class="field">
+            <span>临时文件上传服务器</span>
+            <input
+              type="text"
+              placeholder="https://your-upload.example/api/temp/upload"
+              v-model.trim="appSettings.backend.tempUploadEndpoint"
+            />
+          </label>
+          <label class="field">
+            <span>云同步中转地址</span>
+            <input
+              type="text"
+              :placeholder="`默认：${DEFAULT_CLOUD_SYNC_ENDPOINT}`"
+              v-model.trim="appSettings.backend.cloudSyncEndpoint"
+            />
+          </label>
+          <label class="field">
+            <span>云同步秘钥引用（secret_ref）</span>
+            <input
+              type="text"
+              placeholder="默认：kv1-main（仅引用，不是明文秘钥）"
+              v-model.trim="appSettings.backend.cloudSyncSecretRef"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div class="backend-block">
+        <h4>模块参数</h4>
+        <div class="backend-grid">
+          <label class="field">
+            <span>电费查询重试次数</span>
+            <input type="number" min="0" max="5" v-model.number="appSettings.retry.electricity" />
+          </label>
+          <label class="field">
+            <span>空教室查询重试次数</span>
+            <input type="number" min="0" max="5" v-model.number="appSettings.retry.classroom" />
+          </label>
+          <label class="field">
+            <span>重试间隔（ms）</span>
+            <input type="number" min="500" max="10000" step="100" v-model.number="appSettings.retryDelayMs" />
+          </label>
+          <label class="field">
+            <span>通知检查请求超时（ms）</span>
+            <input
+              type="number"
+              min="5000"
+              max="60000"
+              step="500"
+              v-model.number="appSettings.backend.moduleParams.requestTimeoutMs"
+            />
+          </label>
+          <label class="field">
+            <span>功能测速超时（ms）</span>
+            <input
+              type="number"
+              min="3000"
+              max="30000"
+              step="500"
+              v-model.number="appSettings.backend.moduleParams.probeTimeoutMs"
+            />
+          </label>
+          <label class="field">
+            <span>云同步上传冷却（秒，至少120）</span>
+            <input
+              type="number"
+              min="120"
+              max="3600"
+              step="10"
+              v-model.number="appSettings.backend.moduleParams.cloudSyncUploadCooldownSec"
+            />
+          </label>
+          <label class="field">
+            <span>云同步下载冷却（秒，至少10）</span>
+            <input
+              type="number"
+              min="10"
+              max="3600"
+              step="5"
+              v-model.number="appSettings.backend.moduleParams.cloudSyncDownloadCooldownSec"
+            />
+          </label>
+          <label class="field">
+            <span>移动端预览线程</span>
+            <input type="number" min="1" max="8" step="1" v-model.number="appSettings.resourceShare.previewThreadsMobile" />
+          </label>
+          <label class="field">
+            <span>桌面端预览线程</span>
+            <input type="number" min="1" max="12" step="1" v-model.number="appSettings.resourceShare.previewThreadsDesktop" />
+          </label>
+          <label class="field">
+            <span>移动端下载线程</span>
+            <input type="number" min="1" max="8" step="1" v-model.number="appSettings.resourceShare.downloadThreadsMobile" />
+          </label>
+          <label class="field">
+            <span>桌面端下载线程</span>
+            <input type="number" min="1" max="12" step="1" v-model.number="appSettings.resourceShare.downloadThreadsDesktop" />
+          </label>
+        </div>
+        <p class="hint">并发越高速度通常越快，但会提高设备与网络占用。</p>
+      </div>
+
+      <div class="backend-block">
+        <div class="section-head section-head-compact">
+          <h4>功能测试</h4>
+          <button class="mini-btn btn-ripple" :disabled="probeRunning" @click="handleRunConnectivityTest">
+            {{ probeRunning ? '测速中...' : '开始测速' }}
+          </button>
+        </div>
+        <p class="hint">并发测试当前 OCR、上传、云同步、新融合门户、教务系统、超星渠道、一卡通与图书馆地址。</p>
+        <div class="probe-list">
+          <article v-for="item in probeRows" :key="item.id" class="probe-item">
+            <div class="probe-main">
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.desc }}</small>
+              <code class="probe-url">{{ item.url || '未设置地址' }}</code>
+            </div>
+            <span class="probe-state" :class="probeStateClass(item.id)">
+              {{ probeStateText(item.id) }}
+            </span>
+          </article>
+        </div>
+        <p v-if="probeFinishedAt" class="hint">最近测速：{{ probeFinishedAt }}</p>
+      </div>
+    </section>
+
+    <section v-else class="settings-section glass-card debug-shell">
+      <div class="section-head">
+        <h3>调试日志</h3>
+        <div class="debug-head-actions">
+          <button class="mini-btn btn-ripple" @click="refreshDebugPanel">刷新</button>
+          <button class="mini-btn btn-ripple" @click="handleCopyDebugLogs">复制</button>
+          <button class="mini-btn btn-ripple danger" @click="handleClearDebugPanel">清空</button>
+        </div>
+      </div>
+
+      <div class="backend-summary">
+        <span class="status-pill">总日志：{{ debugStats.total }}</span>
+        <span class="status-pill">告警：{{ debugStats.warns }}</span>
+        <span class="status-pill">错误：{{ debugStats.errors }}</span>
+      </div>
+
+      <div class="debug-filter-row">
+        <button
+          v-for="option in debugLevelOptions"
+          :key="option.key"
+          class="debug-filter-btn btn-ripple"
+          :class="{ active: debugFilter === option.key }"
+          @click="debugFilter = option.key"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+
+      <div ref="debugPanelRef" class="debug-log-panel">
+        <article v-for="item in filteredDebugLogs" :key="item.id" class="debug-log-item" :class="`lvl-${item.level}`">
+          <header class="debug-log-head">
+            <span class="debug-time">{{ formatDebugTime(item.ts) }}</span>
+            <span class="debug-level">{{ String(item.level || 'log').toUpperCase() }}</span>
+            <span class="debug-scope">{{ item.scope }}</span>
+          </header>
+          <p class="debug-message">{{ item.message }}</p>
+        </article>
+        <p v-if="!filteredDebugLogs.length" class="hint">暂无日志，执行一次功能后会自动出现。</p>
+      </div>
+    </section>
+
+    <div v-if="showFontModal" class="font-modal">
+      <div class="font-modal-card">
+        <h3>{{ fontModalTitle }}</h3>
+        <p>{{ fontModalDescription }}</p>
+        <div class="font-modal-progress">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: `${fontDownloadProgress}%` }"></div>
+          </div>
+          <span v-if="fontDownloadStatus === 'downloading'">下载中...</span>
+          <span v-else-if="fontDownloadStatus === 'success'">下载完成</span>
+          <span v-else-if="fontDownloadStatus === 'failed'">下载失败</span>
+          <span v-else>等待开始</span>
+        </div>
+        <p v-if="fontDownloadStep" class="font-step">{{ fontDownloadStep }}</p>
+        <p v-if="fontDownloadError" class="font-error">{{ fontDownloadError }}</p>
+        <div class="font-modal-actions">
+          <button
+            v-if="fontDownloadStatus === 'failed' && fontModalRetryMode === 'deyihei'"
+            class="btn-secondary btn-ripple"
+            @click="handleDownloadFont(true)"
+          >
+            重试下载
+          </button>
+          <button
+            v-if="fontDownloadStatus === 'failed' && fontModalRetryMode === 'prefetch'"
+            class="btn-secondary btn-ripple"
+            @click="handlePrefetchFonts(true)"
+          >
+            重试缓存
+          </button>
+          <button class="btn-primary btn-ripple" @click="showFontModal = false">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fullscreen Theme Transition Overlay -->
+  <Teleport to="body">
+    <div v-if="themeTransitioning" class="theme-fullscreen-overlay" :class="themeTransitionType">
+      <!-- Sky scene -->
+      <div class="theme-scene">
+        <!-- Horizon line -->
+        <div class="theme-horizon"></div>
+        <!-- To Light: Sun rises from left, Moon falls to right -->
+        <template v-if="themeTransitionType === 'to-light'">
+          <div class="theme-sun-anim">
+            <div class="sun-body">
+              <i class="fas fa-sun"></i>
+            </div>
+            <div class="sun-rays"></div>
+          </div>
+          <div class="theme-moon-fall">
+            <div class="moon-body" style="width:56px;height:56px;font-size:24px;">
+              <i class="fas fa-moon"></i>
+            </div>
+          </div>
+        </template>
+        <!-- To Dark: Moon rises from left, Sun falls to right -->
+        <template v-if="themeTransitionType === 'to-dark'">
+          <div class="theme-moon-anim">
+            <div class="moon-body">
+              <i class="fas fa-moon"></i>
+            </div>
+            <div class="moon-stars">
+              <span v-for="i in 12" :key="i" class="m-star" :style="{ '--delay': `${i * 0.08}s`, '--x': `${Math.random() * 100}%`, '--y': `${Math.random() * 60}%` }"></span>
+            </div>
+          </div>
+          <div class="theme-sun-fall">
+            <div class="sun-body" style="width:56px;height:56px;font-size:24px;">
+              <i class="fas fa-sun"></i>
+            </div>
+          </div>
+        </template>
+        <!-- Text -->
+        <div class="theme-transition-text">
+          {{ themeTransitionType === 'to-dark' ? '夜间模式' : '白天模式' }}
+        </div>
+      </div>
+    </div>
+  </Teleport>

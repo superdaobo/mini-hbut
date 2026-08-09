@@ -1,16 +1,30 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const read = (relativePath: string) => readFileSync(path.join(process.cwd(), relativePath), 'utf8')
+const readTree = (relativePath: string, extensionPattern: RegExp) => {
+  const root = path.join(process.cwd(), relativePath)
+  if (!existsSync(root)) return ''
+  const files: string[] = []
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(absolute)
+      else if (entry.isFile() && extensionPattern.test(entry.name)) files.push(absolute)
+    }
+  }
+  walk(root)
+  return files.sort().map((file) => readFileSync(file, 'utf8')).join('\n')
+}
 
 describe('campus guide bridge contract', () => {
   it('wires campus-guide proxy through vite dev server and tauri bridge', () => {
     const vite = read('vite.config.ts')
-    const bridge = read('src-tauri/src/http_server.rs')
+    const bridge = read('src-tauri/src/http_server/routes/proxy.rs')
     const shell = read('src/features/campus-guide/views/CampusGuideShell.vue')
     const home = read('src/features/campus-guide/views/CampusGuideHome.vue')
-    const app = read('src/App.vue')
+    const app = read('src/App.vue') + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
 
     expect(vite).toContain("'/campus-guide'")
     expect(vite).toContain("target: 'http://127.0.0.1:4399'")

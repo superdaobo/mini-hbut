@@ -19,7 +19,7 @@
 | #1 / #4 | incomplete-multi-character-sanitization / bad-tag-filter | `src/utils/school_inbox_content.js` | SSR（无 DOM）分支从脆弱正则删 `<script>` 改为**白名单标签重建** tokenizer（`sanitizeHtmlWithoutDom`）：只保留 `ALLOWED_TAGS`，非白名单标签剥除、A 标签仅保留 `https?://` href，覆盖 `</script >` 带空格变体与事件属性 |
 | #2 | double-escaping | `src/components/GlobalScheduleView.vue` | `decodeHtmlEntities` 将 `&amp;` 移到替换链最后，避免 `&amp;lt;` 被双重解码 |
 | #3 | incomplete-sanitization | `src/utils/debug_bridge.ts` | 选择器属性值转义改用 `CSS.escape`（`escapeCssAttributeValue`，含逐字符回退），不再手工只 `replace` 双引号（漏反斜杠） |
-| #8–#13 | incomplete-url-substring-sanitization | `src/utils/updater.js` | `describeUpdateDownloadSource` 改用 `new URL().hostname` 精确匹配，`github.com.evil.com` 不再误判为 GitHub |
+| #8–#13 | incomplete-url-substring-sanitization | `src/utils/updater.runtime.js` | `describeUpdateDownloadSource` 改用 `new URL().hostname` 精确匹配，`github.com.evil.com` 不再误判为 GitHub |
 | #14–#20 | incomplete-url-substring-sanitization | `website/src/sections/Download.tsx` | 新增 `urlHostname`/`isGithubHost`/`looksGithubRelated`，`hasGithubUrl`/`getSourceLabel`/`getSourceIcon`/`isCdn` 全部改为精确 hostname 判断 |
 | #6 / #63–#68 | xss-through-exception | 7 个游戏模块 `main.js`（2048/match3/memory_match/miner/monopoly/parking/stack） | leaderboard 错误提示先写空 `<div>` 再 `textContent` 写入异常文本 |
 | #7 | xss-through-exception | `website/modules-src/hbut_gomoku/project/src/main.js` | 新增 `escapeHtml`，`statusTitle`/`statusDetail` 模板插值一律转义 |

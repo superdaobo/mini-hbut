@@ -231,6 +231,7 @@ pub(super) fn encrypt_password_aes(
 }
 
 /// 功能说明（待补充）
+#[derive(Clone)]
 pub struct HbutClient {
     pub(crate) client: Client,
     pub(super) ocr_client: Client,

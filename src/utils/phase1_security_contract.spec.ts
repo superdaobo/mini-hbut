@@ -7,7 +7,10 @@ const readJson = <T>(relativePath: string): T => JSON.parse(read(relativePath)) 
 
 describe('phase one security boundaries', () => {
   it('protects Bridge routes with a central policy and trusted-origin CORS', () => {
-    const bridge = read('src-tauri/src/http_server.rs')
+    const bridge =
+      read('src-tauri/src/http_server/auth.rs') +
+      '\n' +
+      read('src-tauri/src/http_server/mod.rs')
 
     expect(bridge).toContain('enum BridgeRoutePolicy')
     expect(bridge).toContain('async fn bridge_access_middleware')
@@ -20,12 +23,13 @@ describe('phase one security boundaries', () => {
   })
 
   it('keeps the Bridge on loopback and excludes debug routes from the Release router', () => {
-    const bridge = read('src-tauri/src/http_server.rs')
+    const bridge = read('src-tauri/src/http_server/mod.rs')
 
     expect(bridge).toContain('SocketAddr::from(([127, 0, 0, 1], port))')
     expect(bridge).not.toContain('std::env::var("HBUT_HTTP_BRIDGE_HOST")')
-    expect(bridge).toMatch(/#\[cfg\(debug_assertions\)\]\s+fn debug_routes\(\)/)
-    expect(bridge).toMatch(/#\[cfg\(debug_assertions\)\]\s+let app = app\.merge\(debug_routes\(\)\)/)
+    expect(bridge).toMatch(/#\[cfg\(debug_assertions\)\]\s+let app = app[\s\S]*?\.merge\(routes::debug::debug_router\(\)\)/)
+    expect(bridge).toContain('.merge(routes::schedule::debug_router())')
+    expect(bridge).toContain('.merge(routes::proxy::debug_router())')
   })
 
   it('does not restore capture files in Release builds', () => {
@@ -53,6 +57,14 @@ describe('phase one security boundaries', () => {
     expect(apiDocs).toContain('Authorization: Bearer $HBUT_BRIDGE_TOKEN')
     expect(nonebotDocs).not.toContain('/fetch_grades')
     expect(moreDocs).not.toContain('/fetch_schedule')
+  })
+
+  it('keeps aggregated debug logs in memory and clears legacy persisted logs', () => {
+    const logger = read('src/utils/debug_logger.ts')
+
+    expect(logger).not.toContain('localStorage.setItem(STORAGE_KEY')
+    expect(logger).toContain('localStorage.removeItem(STORAGE_KEY)')
+    expect(logger).toContain('const persistLogs = () => {}')
   })
 
   it('enables CSP and uses an explicit notification capability set', () => {
