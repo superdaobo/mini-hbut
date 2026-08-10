@@ -98,7 +98,7 @@
     "autoprefixer": "10.5.4",
     "esbuild": "^0.28.1",
     "fast-check": "^4",
-    "material-symbols": "^0.45.8",
+    "material-symbols": "^0.45.10",
     "postcss": "8.5.25",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.3.0",
