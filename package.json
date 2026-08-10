@@ -75,7 +75,7 @@
     "dompurify": "^3.4.12",
     "fflate": "^0.8.3",
     "html2canvas": "^1.4.1",
-    "katex": "0.16.47",
+    "katex": "0.18.1",
     "lucide-vue-next": "^1.0.0",
     "marked": "^18.0.9",
     "marked-katex-extension": "5.1.10",
