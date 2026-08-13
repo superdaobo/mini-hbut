@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "version": "v1",
+  "frozenBy": "#615 考试安排变化后台检测（fixture 冻结方：ExamSignatureV1 跨端单一事实源）",
+  "frozenAt": "2026-08-13",
+  "note": "ExamSignatureV1 跨端共享 fixture（Android / iOS / 前端 notify_center_checks 单一事实源）。输入为标准化考试记录数组，expectedSignature 为既定算法输出。任何一端修改算法必须同步更新本文件并三端复验（Node 独立复算见 contract-fixtures/exams-signature-v1-compute.mjs）。数组顺序变化与无关字段变化必须产出与基线相同的 signature（不误报）；新增/删除/日期/时间/地点变化必须产出不同 signature（不漏报）。",
+  "algorithm": {
+    "normalize": "trim all string fields; nil/empty equivalent to empty string; records with blank courseName skipped (no stable identity)",
+    "canonicalLine": "courseName|examDate|examTime|location|seatNo|examType",
+    "fields": [
+      "courseName: 课程名（业务必填，来自教务 kcmc -> course_name）",
+      "examDate: 考试日期（YYYY-MM-DD，来自 ksrq -> exam_date）",
+      "examTime: 考试时间区间原文（如 09:00-11:00，来自 kssj -> exam_time；trim 即可，不做分隔符归一化以免跨端漂移）",
+      "location: 考试地点（jsmc/ksdd -> location；空串合法）",
+      "seatNo: 座位号（zwh -> seat_no；空串合法）",
+      "examType: 考试类型（kslxmc -> exam_type；数据源未稳定提供时为空串）",
+      "不参与签名字段：courseId/semester（仅 native 侧可得，前端 /v2/exams 不返回，纳入会破坏跨端 ledger 去重）与 updatedAt/rawId 等无关字段"
+    ],
+    "sort": "utf8 byte order",
+    "join": "\\n",
+    "hash": "sha256 hex lowercase"
+  },
+  "cases": [
+    {
+      "name": "first-baseline",
+      "description": "首次数据：建立考试 baseline 的输入样例（#615 验收：首次成功只建立 baseline 不通知历史考试）",
+      "records": [
+        { "courseName": "高等数学A", "examDate": "2026-06-22", "examTime": "09:00-11:00", "location": "教1-101", "seatNo": "12", "examType": "正常考试" },
+        { "courseName": "大学英语", "examDate": "2026-06-25", "examTime": "14:00-16:00", "location": "教2-305", "seatNo": "8", "examType": "正常考试" },
+        { "courseName": "体育", "examDate": "2026-06-28", "examTime": "09:00-10:00", "location": "田径场A区", "seatNo": "", "examType": "重修" }
+      ],
+      "expectedSignature": "2323593bb7750bb54def0cb3ebd3667537cdbdcaf0479c0af8745f9ff162f3d5"
+    },
+    {
+      "name": "identical-data",
+      "description": "完全相同数据重复执行：hash 必须与基线一致（#615 验收：同一 signature 不重复通知）",
+      "records": [
+        { "courseName": "高等数学A", "examDate": "2026-06-22", "examTime": "09:00-11:00", "location": "教1-101", "seatNo": "12", "examType": "正常考试" },
+        { "courseName": "大学英语", "examDate": "2026-06-25", "examTime": "14:00-16:00", "location": "教2-305", "seatNo": "8", "examType": "正常考试" },
+        { "courseName": "体育", "examDate": "2026-06-28", "examTime": "09:00-10:00", "location": "田径场A区", "seatNo": "", "examType": "重修" }
+      ],
+      "expectedSignature": "2323593bb7750bb54def0cb3ebd3667537cdbdcaf0479c0af8745f9ff162f3d5"
+    },
+    {
+      "name": "array-order-changed",
+      "description": "完全相同但数组顺序变化：排序后 hash 必须与基线一致（#615 验收：数组顺序变化不触发 exams_changed）",
+      "records": [
+        { "courseName": "体育", "examDate": "2026-06-28", "examTime": "09:00-10:00", "location": "田径场A区", "seatNo": "", "examType": "重修" },
+        { "courseName": "大学英语", "examDate": "2026-06-25", "examTime": "14:00-16:00", "location": "教2-305", "seatNo": "8", "examType": "正常考试" },
+        { "courseName": "高等数学A", "examDate": "2026-06-22", "examTime": "09:00-11:00", "location": "教1-101", "seatNo": "12", "examType": "正常考试" }
+      ],
+      "expectedSignature": "2323593bb7750bb54def0cb3ebd3667537cdbdcaf0479c0af8745f9ff162f3d5"
+    },
+    {
+      "name": "new-exam-added",
+      "description": "新增一门考试：hash 必须与基线不同（#615 验收：新增考试触发一次 exams_changed）",
+      "records": [
+        { "courseName": "高等数学A", "examDate": "2026-06-22", "examTime": "09:00-11:00", "location": "教1-101", "seatNo": "12", "examType": "正常考试" },
+        { "courseName": "大学英语", "examDate": "2026-06-25", "examTime": "14:00-16:00", "location": "教2-305", "seatNo": "8", "examType": "正常考试" },
+        { "courseName": "体育", "examDate": "2026-06-28", "examTime": "09:00-10:00", "location": "田径场A区", "seatNo": "", "examType": "重修" },
+        { "courseName": "程序设计", "examDate": "2026-07-01", "examTime": "09:00-11:00", "location": "教3-201", "seatNo": "23", "examType": "正常考试" }
+      ],
+      "expectedSignature": "c8537263376a68a5485898ac9e46e47b67cc548782aad3a2b1e3a50bdda7cf0d"
+    },
+    {
+      "name": "exam-removed",
+      "description": "删除一门考试：hash 必须与基线不同（#615 验收：删除考试也能稳定检测）",
+      "records": [
+        { "courseName": "高等数学A", "examDate": "2026-06-22", "examTime": "09:00-11:00", "location": "教1-101", "seatNo": "12", "examType": "正常考试" },
+        { "courseName": "大学英语", "examDate": "2026-06-25", "examTime": "14:00-16:00", "location": "教2-305", "seatNo": "8", "examType": "正常考试" }
+      ],
+      "expectedSignature": "47729f0e7ee39aa422b2c531904687b58e1c95abcb29d43ef00fca665e8bb5ca"
+    },
+    {
+      "name": "date-changed",
+      "description": "考试日期变化（大学英语 2026-06-25 -> 2026-06-26）：hash 必须与基线不同（#615 验收：日期变化触发）",
+      "records": [
+        { "courseName": "高等数学A", "examDate": "2026-06-22", "examTime": "09:00-11:00", "location": "教1-101", "seatNo": "12", "examType": "正常考试" },
+        { "courseName": "大学英语", "examDate": "2026-06-26", "examTime": "14:00-16:00", "location": "教2-305", "seatNo": "8", "examType": "正常考试" },
+        { "courseName": "体育", "examDate": "2026-06-28", "examTime": "09:00-10:00", "location": "田径场A区", "seatNo": "", "examType": "重修" }
+      ],
+      "expectedSignature": "6b314b6132bd0be916fc4f0debdef8072bf7cc309d0906ece0cc66ba65c952a6"
+    },
+    {
+      "name": "time-changed",
+      "description": "考试时间变化（高等数学A 09:00-11:00 -> 14:00-16:00）：hash 必须与基线不同（#615 验收：时间变化触发）",
+      "records": [
+        { "courseName": "高等数学A", "examDate": "2026-06-22", "examTime": "14:00-16:00", "location": "教1-101", "seatNo": "12", "examType": "正常考试" },
+        { "courseName": "大学英语", "examDate": "2026-06-25", "examTime": "14:00-16:00", "location": "教2-305", "seatNo": "8", "examType": "正常考试" },
+        { "courseName": "体育", "examDate": "2026-06-28", "examTime": "09:00-10:00", "location": "田径场A区", "seatNo": "", "examType": "重修" }
+      ],
+      "expectedSignature": "95e91d8376a6f97cb82d00380541f9efe17b33809a1acadd10404400e3a4b9ad"
+    },
+    {
+      "name": "location-changed",
+      "description": "考试地点变化（高等数学A 教1-101 -> 教5-502）：hash 必须与基线不同（#615 验收：地点变化触发）",
+      "records": [
+        { "courseName": "高等数学A", "examDate": "2026-06-22", "examTime": "09:00-11:00", "location": "教5-502", "seatNo": "12", "examType": "正常考试" },
+        { "courseName": "大学英语", "examDate": "2026-06-25", "examTime": "14:00-16:00", "location": "教2-305", "seatNo": "8", "examType": "正常考试" },
+        { "courseName": "体育", "examDate": "2026-06-28", "examTime": "09:00-10:00", "location": "田径场A区", "seatNo": "", "examType": "重修" }
+      ],
+      "expectedSignature": "16336cdeeb31590c2bad6e3b41c257dfe0d8d990ca78aef566346fbd3e446b68"
+    },
+    {
+      "name": "unrelated-field-changed",
+      "description": "无关字段变化（rawId/updatedAt/roomId）与前后空白：hash 必须与基线一致（#615 验收：无关字段变化不触发；trim/normalize）",
+      "records": [
+        { "courseName": "  高等数学A  ", "examDate": " 2026-06-22 ", "examTime": " 09:00-11:00 ", "location": " 教1-101 ", "seatNo": " 12 ", "examType": " 正常考试 ", "rawId": "e-1001", "updatedAt": "2026-08-13T12:00:00Z", "roomId": "r-77" },
+        { "courseName": "  大学英语  ", "examDate": " 2026-06-25 ", "examTime": " 14:00-16:00 ", "location": " 教2-305 ", "seatNo": " 8 ", "examType": " 正常考试 ", "rawId": "e-1001", "updatedAt": "2026-08-13T12:00:00Z", "roomId": "r-77" },
+        { "courseName": "  体育  ", "examDate": " 2026-06-28 ", "examTime": " 09:00-10:00 ", "location": " 田径场A区 ", "seatNo": "", "examType": " 重修 ", "rawId": "e-1001", "updatedAt": "2026-08-13T12:00:00Z", "roomId": "r-77" }
+      ],
+      "expectedSignature": "2323593bb7750bb54def0cb3ebd3667537cdbdcaf0479c0af8745f9ff162f3d5"
+    }
+  ]
+}

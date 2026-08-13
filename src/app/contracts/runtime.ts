@@ -111,6 +111,8 @@ export interface SessionCoordinator {
   attemptAutoRelogin(): Promise<boolean>
   attemptOnlineRecovery(options?: { silent?: boolean }): Promise<boolean>
   refreshSessionSilently(options?: { quiet?: boolean }): Promise<void>
+  /** #623：敏感 scope 授权前在线刷新本地学校 session，返回是否验证成功（不触发自动重登风暴） */
+  refreshSessionVerified(options?: { quiet?: boolean }): Promise<boolean>
   persistSessionCookies(): Promise<void>
   startSessionKeepAlive(): void
   stopSessionKeepAlive(): void
@@ -186,7 +188,7 @@ export interface NotificationCoordinator {
   handleWidgetDeeplinkPayload(payload: Record<string, unknown>): void
 }
 
-// #621：Identity 授权请求调度契约（OS 深链 -> 内存调度 -> #622/#623 消费入口）。
+// #621 + #623：Identity 授权请求调度与审批流程契约。
 // IdentityIntent 仅内存（request_id + handoff 不持久化、不打印）。
 export interface IdentityCoordinator {
   /** 稳定入口：提交外部授权意图（minihbut://identity 深链 / 后续二维码扫描） */
@@ -211,6 +213,19 @@ export interface IdentityCoordinator {
   subscribe(listener: () => void): () => void
   /** 释放内部 timer */
   dispose(): void
+  // ── #623 扩展：审批流程（私钥不进 JS；成功后不建立任何常连） ────────────
+  /** 允许当前请求：Rust 签名 + Core approve */
+  approveActive(): Promise<void>
+  /** 拒绝当前请求（best-effort 通知 Core；本地终态不悬空） */
+  denyActive(): Promise<void>
+  /** 取消当前请求（关闭按钮/Escape 等价语义） */
+  cancelActive(): Promise<void>
+  /** 登录成功 resume hook（AuthCoordinator 派发事件后调用） */
+  resumeAfterLogin(): Promise<void>
+  /** 前往现有登录流程（Me 视图）：隐藏 Overlay，意图保留在内存 */
+  goLogin(): void
+  /** 结果页确认：清结果页并推进队列（若上一请求尚未 complete） */
+  confirmResult(): void
 }
 
 export interface GradeCoordinator {

@@ -62,6 +62,17 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     state.studentId.value = localStorage.getItem('hbu_username') || ''
     state.gradeTeacherCache.value = null
     state.gradeTeacherCacheSid.value = state.studentId.value
+    // #623：Identity 授权登录恢复 hook —— 登录成功后通知 IdentityCoordinator
+    // 继续等待中的授权请求（pending IdentityIntent 仅内存保留，不要求用户重新点击网页按钮）。
+    if (state.studentId.value) {
+      try {
+        window.dispatchEvent(new CustomEvent('hbu-identity-login-resumed', {
+          detail: { studentId: state.studentId.value }
+        }))
+      } catch {
+        // 事件派发失败不影响登录主流程
+      }
+    }
     // 跳转到 Dashboard 显示所有模块
     runtime.navigation.applyViewState('home')
     runtime.navigation.replaceHistorySnapshot('home')

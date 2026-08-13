@@ -1,0 +1,47 @@
+/* IdentityResultState.scoped.css —— #623 授权结果页 */
+
+.identity-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 18px 4px 6px;
+}
+
+.identity-result-icon {
+  font-size: 52px;
+}
+
+.identity-result-icon.tone-ok {
+  color: var(--ui-success, #10b981);
+}
+
+.identity-result-icon.tone-warn {
+  color: var(--ui-warning, #f59e0b);
+}
+
+.identity-result-icon.tone-err {
+  color: var(--ui-danger, #ef4444);
+}
+
+.identity-result-title {
+  margin: 10px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ui-text, #0f172a);
+}
+
+.identity-result-desc {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ui-muted, #475569);
+  max-width: 340px;
+}
+
+.identity-result-actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}

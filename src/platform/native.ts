@@ -167,3 +167,47 @@ export const readNativeBinaryFile = async (filePath: string): Promise<Uint8Array
   const fsPlugin = await import('@tauri-apps/plugin-fs')
   return fsPlugin.readFile(filePath)
 }
+
+// ── Identity 设备命令封装（#622 Rust identity_ 命令；#623 消费） ─────────────
+// 安全约定：任何 identity_ 命令都不接受/返回私钥材料；签名在 Rust 侧完成。
+
+/** 查询本机设备身份状态（keyring 可用性 + 是否已有密钥） */
+export const identityDeviceStatus = <T = Record<string, unknown>>() =>
+  invokeNative<T>('identity_device_status')
+
+/** 获取本机设备公钥（首次调用自动创建密钥；无私钥材料） */
+export const identityGetPublicKey = <T = Record<string, unknown>>() =>
+  invokeNative<T>('identity_get_public_key')
+
+/** 设备注册（enrollment）：Rust 用新私钥签名 assertion 并提交 Core */
+export const identityEnrollDevice = <T = Record<string, unknown>>(args: {
+  base_url: string
+  challenge: string
+  device_name: string
+}) => invokeNative<T>('identity_enroll_device', args)
+
+/** 对 AuthRequest 授权上下文签名（approve；私钥不进 JS） */
+export const identitySignAuthRequest = <T = Record<string, unknown>>(args: {
+  request_id: string
+  challenge: string
+  client_id: string
+  scopes: string[]
+  device_id: string
+}) => invokeNative<T>('identity_sign_auth_request', args)
+
+/** 撤销当前设备（提供 base_url 时先调 Core revoke 成功后再删本地 key） */
+export const identityRevokeCurrentDeviceLocal = <T = Record<string, unknown>>(args: {
+  base_url?: string | null
+  device_id?: string | null
+}) => invokeNative<T>('identity_revoke_current_device_local', args)
+
+/** 设备展示名（enrollment device_name 用；不包含任何敏感信息） */
+export const getIdentityDeviceDisplayName = (): string => {
+  const ua = String(globalThis?.navigator?.userAgent || '')
+  if (/iphone|ipad|ipod/i.test(ua)) return 'iOS 设备'
+  if (/android/i.test(ua)) return 'Android 设备'
+  if (/windows/i.test(ua)) return 'Windows PC'
+  if (/mac/i.test(ua)) return 'Mac'
+  if (/linux/i.test(ua)) return 'Linux'
+  return 'Mini-HBUT 设备'
+}

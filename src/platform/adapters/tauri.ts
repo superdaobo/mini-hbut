@@ -52,6 +52,42 @@ const buildBackgroundCheckState = (): BackgroundCheckState => {
   }
 }
 
+/**
+ * #615：把插件 bg_get_state 的 BackgroundCheckState（#611 DTO）映射为
+ * #609 前端契约。只映射非敏感字段；插件真实状态优先，不伪造 ready。
+ */
+const mapPluginStateToContract = (state: Record<string, unknown>): BackgroundCheckState => {
+  const now = new Date().toISOString()
+  const isMobile = isMobileLikeUA()
+  const kind = isMobile
+    ? isAndroidLikeUA()
+      ? 'android-workmanager'
+      : 'ios-bgapprefresh'
+    : 'desktop-foreground'
+  const enabled = state.enabled === true
+  const lastRunAt = state.lastRunAt ? String(state.lastRunAt) : null
+  const lastRunOk = state.lastRunOk === true
+  const error = state.error ? String(state.error) : undefined
+  return {
+    supported: isMobile,
+    enabled,
+    scheduler: {
+      kind,
+      // 插件已配置且启用 -> ready；未启用 -> disabled（真实值，不伪造）
+      status: enabled ? 'ready' : 'disabled'
+    },
+    auth: {
+      status: error ? 'expired' : lastRunAt ? 'ready' : 'unknown'
+    },
+    lastAttemptAt: lastRunAt,
+    lastSuccessAt: lastRunOk ? lastRunAt : null,
+    lastResult: lastRunOk ? 'unchanged' : error ? 'network-error' : 'unknown',
+    lastError: error,
+    reason: error ? `最近一次后台检查异常：${error}` : `后台调度：${kind}`,
+    updatedAt: now
+  }
+}
+
 const normalizePermission = (value: string | undefined): NotificationPermissionState => {
   if (value === 'granted') return 'granted'
   if (value === 'denied') return 'denied'
@@ -267,18 +303,66 @@ export const tauriBridge: PlatformBridge = {
     return tryOpenDesktopPowerSettings()
   },
 
-  // ---- 后台检查能力（#609 契约）：当前为真实状态映射 + 降级实现 ----
+  // ---- 后台检查能力（#609 契约）：真实状态映射 + 插件接线（#615 扩展） ----
 
   async getBackgroundCheckState(): Promise<BackgroundCheckState> {
+    // #615：优先读插件真实状态（bg_get_state），插件未接入时回退静态映射。
+    try {
+      const state = await invokeNative<Record<string, unknown>>('plugin:hbut-background|bg_get_state')
+      if (state && typeof state === 'object' && !state.error) {
+        return mapPluginStateToContract(state)
+      }
+    } catch {
+      // 插件未注册/未接入：走静态映射（不伪造 ready）
+    }
     return buildBackgroundCheckState()
   },
 
-  async setBackgroundCheckConfig(_config: BackgroundCheckConfig): Promise<BackgroundCheckState> {
-    // 未接入 native 插件：不落盘、不伪造，返回真实状态并说明配置暂未生效。
-    const state = buildBackgroundCheckState()
-    return {
-      ...state,
-      reason: `${state.reason}；配置变更暂未生效（需 #611 插件接入后由 native 端落盘）`
+  async setBackgroundCheckConfig(config: BackgroundCheckConfig): Promise<BackgroundCheckState> {
+    // #615：把 #609 契约配置映射为插件 BackgroundConfig 并调用 bg_configure。
+    // business 列表 = 三个 per-feature 开关（grades/exams/school_inbox）；
+    // 插件不可用时如实返回真实状态并说明原因（不伪造 ready、不静默假成功）。
+    const business: string[] = []
+    if (config?.checkGradeChanges) business.push('grades')
+    if (config?.checkExamChanges) business.push('exams')
+    if (config?.checkSchoolInbox) business.push('school_inbox')
+    try {
+      const result = await invokeNative<{ schema?: number; error?: string }>(
+        'plugin:hbut-background|bg_configure',
+        {
+          config: {
+            schema: 1,
+            enabled: !!config?.enabled,
+            intervalMinutes: Number(config?.intervalMinutes || 30),
+            business,
+            scope: null
+          }
+        }
+      )
+      if (result && typeof result === 'object' && (result as Record<string, unknown>).error) {
+        const state = buildBackgroundCheckState()
+        return {
+          ...state,
+          enabled: !!config?.enabled,
+          lastError: String((result as Record<string, unknown>).error),
+          reason: '后台配置同步失败（native 端错误）'
+        }
+      }
+      return {
+        ...buildBackgroundCheckState(),
+        enabled: !!config?.enabled,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        lastResult: 'unknown',
+        reason: `后台检查配置已同步（业务：${business.join(',') || '无'}）`
+      }
+    } catch (error) {
+      // 插件未注册/未接入：返回真实状态并说明配置暂未生效（#611 语义）。
+      const state = buildBackgroundCheckState()
+      return {
+        ...state,
+        reason: `${state.reason}；配置变更暂未生效（后台插件未接入）`
+      }
     }
   },
 
@@ -287,13 +371,43 @@ export const tauriBridge: PlatformBridge = {
     return 'unknown'
   },
 
-  async syncBackgroundCheckContext(_context: BackgroundCheckContext): Promise<boolean> {
-    // 未接入 native 端：不落盘任何上下文，返回 false 表示未同步。
-    return false
+  async syncBackgroundCheckContext(context: BackgroundCheckContext): Promise<boolean> {
+    // #615：把 #609 上下文（studentId/业务列表/登录方式等非敏感信息）同步到插件
+    // （bg_sync_context）；插件未接入时返回 false（不伪造成功）。
+    const sid = String(context?.studentId || '').trim()
+    if (!sid) return false
+    const business: string[] = []
+    if (context?.config?.checkGradeChanges !== false) business.push('grades')
+    if (context?.config?.checkExamChanges !== false) business.push('exams')
+    if (context?.config?.checkSchoolInbox !== false) business.push('school_inbox')
+    try {
+      const result = await invokeNative<{ error?: string }>(
+        'plugin:hbut-background|bg_sync_context',
+        {
+          context: {
+            schema: 1,
+            scope: sid,
+            business,
+            updatedAt: new Date().toISOString()
+          }
+        }
+      )
+      return !(result && typeof result === 'object' && (result as Record<string, unknown>).error)
+    } catch {
+      return false
+    }
   },
 
   async clearBackgroundCheckContext(): Promise<boolean> {
-    return false
+    try {
+      const result = await invokeNative<{ cleared?: boolean; error?: string }>(
+        'plugin:hbut-background|bg_clear_context',
+        { scope: null }
+      )
+      return !(result && typeof result === 'object' && (result as Record<string, unknown>).error)
+    } catch {
+      return false
+    }
   },
 
   async consumeBackgroundEvents(

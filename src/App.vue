@@ -5,10 +5,13 @@ import SplashScreen from './components/SplashScreen.vue'
 import DemoModeBanner from './components/DemoModeBanner.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
 import AppShell from './shell/AppShell.vue'
+import IdentityApprovalOverlay from './features/identity/components/IdentityApprovalOverlay.vue'
 import { VIEW_COMPONENTS } from './app/viewRegistry'
 import { useAppRuntime } from './app/useAppRuntime'
 
-const { state, handlers, isIOSLike, isTestAccountSession } = useAppRuntime()
+// #623：App.vue 只负责挂载 IdentityApprovalOverlay；fetch/crypto/状态机全部在
+// IdentityCoordinator 内完成（防止 App.vue 退化为上帝文件）。
+const { state, handlers, runtime, isIOSLike, isTestAccountSession } = useAppRuntime()
 
 const {
   currentView,
@@ -736,6 +739,14 @@ const {
     @close="closeWorkspaceLayoutEditor"
   />
   <Toast />
+  <!-- #623：Identity 授权确认 Overlay（顶层安全交互；force update/blocking 公告优先） -->
+  <IdentityApprovalOverlay
+    :identity="runtime.identity"
+    :student-id="studentId"
+    :is-logged-in="isLoggedIn"
+    :force-update-visible="showForceUpdate"
+    :blocking-announcement-visible="showBlockingAnnouncement"
+  />
   </AppShell>
 </template>
 

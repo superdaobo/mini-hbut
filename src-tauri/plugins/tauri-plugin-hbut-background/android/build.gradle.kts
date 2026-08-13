@@ -31,6 +31,10 @@ sourceSets {
             exclude("**/GradesCheckWorker.kt")
             exclude("**/GradesCheckScheduler.kt")
             exclude("**/GradesNotificationSender.kt")
+            // #615：新增业务（考试/学校消息）的 Android-only 文件同样排除
+            exclude("**/BusinessChecksWorker.kt")
+            exclude("**/BusinessChecksScheduler.kt")
+            exclude("**/BusinessNotificationSender.kt")
         }
     }
 }

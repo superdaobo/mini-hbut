@@ -56,6 +56,34 @@ export interface CheckResult extends Record<string, unknown> {
   success: boolean
 }
 
+// ============================================================
+// #615 考试变化/学校消息扩展（纯逻辑在 ./exams_signature.ts，避免 axios 依赖链）
+// ------------------------------------------------------------
+// - buildCrossEndExamSignature：跨端 ExamSignatureV1 复刻（fixture 单一事实源）；
+// - readBgFeatureEnabled/BG_FEATURE_KEY_*：per-feature 后台检测开关；
+// - examsChangeBaselineKeyFor/buildExamLedgerEventKey：前台 baseline 与 ledger 去重键。
+// ============================================================
+
+import {
+  BG_FEATURE_KEY_GRADES,
+  BG_FEATURE_KEY_EXAMS,
+  BG_FEATURE_KEY_SCHOOL,
+  buildCrossEndExamSignature,
+  buildExamLedgerEventKey,
+  examsChangeBaselineKeyFor,
+  readBgFeatureEnabled
+} from './exams_signature'
+
+export {
+  BG_FEATURE_KEY_GRADES,
+  BG_FEATURE_KEY_EXAMS,
+  BG_FEATURE_KEY_SCHOOL,
+  buildCrossEndExamSignature,
+  buildExamLedgerEventKey,
+  examsChangeBaselineKeyFor,
+  readBgFeatureEnabled
+}
+
 const isSchoolInboxItemRead = (item: unknown): boolean => {
   const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
   return !!(raw?.is_read ?? raw?.isRead)
@@ -449,6 +477,7 @@ const checkExams = async (
   queue: NoticeItem[]
 ): Promise<ExamsCheckResult> => {
   const timeoutMs = getRequestTimeoutMs()
+  const sid = toSafeText(studentId)
   try {
     const res = await axios.post(
       toApiUrl('/v2/exams'),
@@ -498,6 +527,43 @@ const checkExams = async (
       signature: tomorrowSignature,
       updated_at: nowIso()
     })
+
+    // #615：考试安排变化前台 diff（与后台 native exams_changed 共用跨端 signature）。
+    // 语义：首次成功只建立 baseline（不推历史）；后续发现可感知变化（增删/日期/时间/地点）
+    // 且 per-feature 开启时通知一次；ledger 去重保证后台已弹过的不再重复弹。
+    if (readBgFeatureEnabled(BG_FEATURE_KEY_EXAMS)) {
+      const changeSig = await buildCrossEndExamSignature(exams)
+      const baselineKey = examsChangeBaselineKeyFor(sid)
+      const prevBaseline = toSafeText(localStorage.getItem(baselineKey))
+      if (changeSig && prevBaseline && prevBaseline !== changeSig) {
+        const ledgerKey = await buildExamLedgerEventKey(exams)
+        const alreadyNotified = !!ledgerKey && hasLedgerEntry(sid, ledgerKey)
+        const nativePending = !alreadyNotified && (await hasUnconsumedPresentedEvent(sid, 'exams'))
+        if (!alreadyNotified && !nativePending) {
+          queue.push({
+            title: '考试安排有更新',
+            body: '检测到考试安排变化，请打开 Mini-HBUT 查看详情。',
+            targetView: 'exams',
+            eventKey: ledgerKey || undefined,
+            domain: 'exams'
+          })
+        }
+      }
+      if (changeSig) {
+        localStorage.setItem(baselineKey, changeSig)
+      }
+    }
+
+    // #610 联动：完整考试同步成功后触发未来考试提醒 reconcile（幂等 diff，无变化零系统调用）。
+    if (Array.isArray(exams)) {
+      void import('./local_reminder_scheduler').then((mod) =>
+        mod.reconcileLocalReminders({
+          studentId: sid,
+          exams,
+          reason: 'notify-exams-refresh'
+        }).catch(() => {})
+      ).catch(() => {})
+    }
 
     return {
       success: true,
@@ -909,14 +975,27 @@ const checkSchoolInbox = async (
           return !isSchoolInboxItemRead(item)
         })
 
-    toNotify.forEach((item) => {
+    // #615：按 provider + message ID 生成稳定 eventKey 进统一 ledger 去重——
+    // 后台（native school_message 事件）已通知过的消息，前台不再重复弹（#614 联动）。
+    const notYetNotified = []
+    for (const item of toNotify) {
+      const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+      const id = toSafeText(raw?.id)
+      const eventKey = id ? buildLedgerEventKey('school-message', id) : ''
+      if (eventKey && hasLedgerEntry(sid, eventKey)) continue
+      notYetNotified.push({ item, eventKey })
+    }
+
+    for (const { item, eventKey } of notYetNotified) {
       const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
       queue.push({
         title: toSafeText(raw?.title) || '学校通知',
         body: toSafeText(raw?.summary) || '你有新的学校消息',
-        targetView: 'notifications'
+        targetView: 'notifications',
+        eventKey: eventKey || undefined,
+        domain: 'school-message'
       })
-    })
+    }
 
     writeJSON(stateKey, {
       initialized: true,
@@ -928,7 +1007,7 @@ const checkSchoolInbox = async (
 
     pushDebugLog(
       'Notify',
-      `学校消息检查完成 total=${items.length} trigger=${toNotify.length} first=${isFirstSync ? '1' : '0'}`,
+      `学校消息检查完成 total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
       'info',
       { source: toSafeText(response?.source), loginMode }
     )
@@ -937,7 +1016,7 @@ const checkSchoolInbox = async (
       success: true,
       enabled: true,
       total: items.length,
-      triggered: toNotify.length,
+      triggered: notYetNotified.length,
       source: toSafeText(response?.source),
       checkedAt: toSafeText(response?.fetchedAt),
       baseline: isFirstSync

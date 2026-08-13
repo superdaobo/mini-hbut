@@ -16,6 +16,9 @@
       <button class="settings-tab-item" :class="{ active: activeTab === 'backend' }" @click="activeTab = 'backend'">
         后端
       </button>
+      <button class="settings-tab-item" :class="{ active: activeTab === 'security' }" @click="activeTab = 'security'">
+        安全
+      </button>
       <button class="settings-tab-item" :class="{ active: activeTab === 'debug' }" @click="activeTab = 'debug'">
         调试
       </button>
@@ -438,6 +441,13 @@
         </div>
         <p v-if="probeFinishedAt" class="hint">最近测速：{{ probeFinishedAt }}</p>
       </div>
+    </section>
+
+    <section v-else-if="activeTab === 'security'" class="settings-section identity-security-tab">
+      <div class="section-head">
+        <h3>登录与安全</h3>
+      </div>
+      <IdentityDeviceSettings />
     </section>
 
     <section v-else class="settings-section glass-card debug-shell">

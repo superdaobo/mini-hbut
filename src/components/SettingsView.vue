@@ -30,6 +30,8 @@ import {
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime, isMobileLike } from '../platform/runtime'
 import { showToast } from '../utils/toast'
+// #623：设置中心「登录与安全」设备管理组件（Identity 状态 + 撤销）
+import IdentityDeviceSettings from '../features/identity/components/IdentityDeviceSettings.vue'
 import {
   clearDebugLogs,
   formatDebugTime,

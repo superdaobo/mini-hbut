@@ -1,13 +1,27 @@
 // src/app/coordinators/IdentityCoordinator.spec.ts
 //
 // #621 Lifecycle 关键路径（调度侧）：冷启动缓冲 / 热启动直通 / 去重与超限提示。
+// #623 扩展后：收到请求会自动启动加载流程（fetchRequestDetail 被 mock 为挂起状态，
+// 使本文件聚焦 #621 调度合同；#623 流程细节见 identityCoordinatorFlow.spec.ts）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIdentityCoordinator } from './IdentityCoordinator'
 import { getIdentityIntentSnapshot, resetIdentityIntentStore } from '../../features/identity/identityIntentStore'
+import { resetIdentityUiState } from '../../features/identity/identityStore'
 
 vi.mock('../../utils/toast', () => ({
   showToast: vi.fn()
+}))
+
+// #623 流程依赖：挂起（never resolve），避免加载流程干扰 #621 调度断言
+vi.mock('../../features/identity/identityService', () => ({
+  fetchRequestDetail: vi.fn(() => new Promise(() => {})),
+  fetchEnrollmentChallenge: vi.fn(() => new Promise(() => {})),
+  submitApprove: vi.fn(() => new Promise(() => {})),
+  submitTerminalAction: vi.fn(() => new Promise(() => {})),
+  getIdentityCoreBaseUrl: vi.fn(() => 'https://core.example.test'),
+  isTestAccountBlocked: vi.fn(() => false),
+  createServiceError: vi.fn(() => new Error('mocked'))
 }))
 
 import { showToast } from '../../utils/toast'
@@ -25,6 +39,7 @@ const makeIntent = (requestId: string) => ({
 
 beforeEach(() => {
   resetIdentityIntentStore()
+  resetIdentityUiState()
   vi.useFakeTimers()
   vi.clearAllMocks()
 })
@@ -55,11 +70,14 @@ describe('IdentityCoordinator: 冷启动 / 热启动调度', () => {
     expect(getIdentityIntentSnapshot().active?.requestId).toBe('ar_1111111111111111')
   })
 
-  it('warm start：已 bootstrap 时直接进入队列并成为 active', () => {
+  it('warm start：已 bootstrap 时直接进入队列并成为 active（#623 自动进入加载）', () => {
     const coordinator = createIdentityCoordinator(makeRuntime(true))
     coordinator.submitIntent(makeIntent('ar_1111111111111111'))
     expect(getIdentityIntentSnapshot().active?.requestId).toBe('ar_1111111111111111')
-    expect(getIdentityIntentSnapshot().phase).toBe('received')
+    // #623：提交后自动推进 received -> loading（挂起在 fetchRequestDetail）。
+    // 注意顶层 phase 属于 #621 调度状态（active 变更时重置为 received），
+    // 请求自身的状态机看 active.phase。
+    expect(getIdentityIntentSnapshot().active?.phase).toBe('loading')
   })
 
   it('warm start：多个并发链接进入队列，后来的请求不替换当前', () => {

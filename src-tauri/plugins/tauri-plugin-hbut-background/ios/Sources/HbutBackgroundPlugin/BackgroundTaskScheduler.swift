@@ -40,6 +40,21 @@ public enum BackgroundTaskScheduler {
     /// 必须在 didFinishLaunching 早期调用（不依赖 Vue/WebView 加载完成）；
     /// 重复调用安全（幂等）。
     public static func register(coordinator: GradesCheckCoordinator) {
+        // #615：兼容入口——单 unit runner（仅成绩），等价于旧行为。
+        let runner = BusinessChecksRunner(units: [
+            BusinessCheckUnit(
+                name: "grades",
+                run: { source, done in
+                    coordinator.runOnce(source: source) { done(UnitOutcomeText.grades($0)) }
+                },
+                cancel: { coordinator.cancel() }
+            )
+        ])
+        register(runner: runner)
+    }
+
+    /// #615：注册多 check unit runner（成绩 -> 考试变化 -> 学校消息，预算优先）。
+    public static func register(runner: BusinessChecksRunner) {
         registerLock.lock()
         if registered {
             registerLock.unlock()
@@ -52,7 +67,7 @@ public enum BackgroundTaskScheduler {
             forTaskWithIdentifier: taskIdentifier,
             using: nil
         ) { task in
-            handle(task: task, coordinator: coordinator)
+            handle(task: task, runner: runner)
         }
     }
 
@@ -63,16 +78,16 @@ public enum BackgroundTaskScheduler {
         return registered
     }
 
-    /// handler 核心：expiration 语义 + 尽早重调度 + enabled 检查 + 最小检查。
-    private static func handle(task: BGTask, coordinator: GradesCheckCoordinator) {
+    /// handler 核心：expiration 语义 + 尽早重调度 + enabled 检查 + 最小检查（多 unit 预算内）。
+    private static func handle(task: BGTask, runner: BusinessChecksRunner) {
         guard let refreshTask = task as? BGAppRefreshTask else {
             task.setTaskCompleted(success: false)
             return
         }
         let completer = TaskCompleter()
-        // expiration：取消进行中网络并保证 completion 语义（每个 task 只完成一次）。
+        // expiration：取消进行中工作并保证 completion 语义（每个 task 只完成一次）。
         refreshTask.expirationHandler = {
-            coordinator.cancel()
+            runner.cancel()
             completer.complete(refreshTask, success: false)
         }
         // 尽早安排下一次，避免本任务消耗系统预算后留下空窗。
@@ -84,19 +99,12 @@ public enum BackgroundTaskScheduler {
             completer.complete(refreshTask, success: true)
             return
         }
-        coordinator.runOnce(source: .system) { outcome in
-            let ok: Bool
-            switch outcome {
-            case .disabled, .notConfigured:
-                // 未启用/未配置：任务本身正常结束（业务语义由状态记录）。
-                ok = true
-            case .networkUnavailable, .authExpired, .parseError, .authUnavailable, .cancelled, .busy:
-                // 后台受限/临时失败：按系统语义完成，等待未来调度；expiration 已处理 cancelled。
-                ok = outcome != .cancelled
-            case .baselineEstablished, .noChange, .changed:
-                ok = true
-            }
-            completer.complete(refreshTask, success: ok)
+        // #615：顺序执行成绩/考试变化/学校消息（预算优先；各 unit 独立失败隔离）。
+        // 业务级失败（network/auth/parse/unsupported）已写入各 unit 状态，按系统语义
+        // 正常完成本任务（等待未来调度）；真正的任务失败（expiration 打断）由
+        // expirationHandler 以 success=false 完成（TaskCompleter 保证只完成一次）。
+        runner.runAll(source: .system) { _ in
+            completer.complete(refreshTask, success: true)
         }
     }
 

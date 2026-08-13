@@ -1,0 +1,172 @@
+/* IdentityDeviceSettings.scoped.css —— #623 设置中心「登录与安全」设备管理 */
+
+.identity-device-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.identity-device-section {
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: color-mix(in oklab, var(--ui-surface, #ffffff) 88%, #ffffff 12%);
+}
+
+.identity-device-section .section-head {
+  margin-bottom: 12px;
+}
+
+.identity-device-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: color-mix(in oklab, var(--ui-warning, #f59e0b) 16%, transparent);
+  color: color-mix(in oklab, var(--ui-warning, #f59e0b) 80%, #000 20%);
+}
+
+.identity-device-pill.ok {
+  background: color-mix(in oklab, var(--ui-success, #10b981) 16%, transparent);
+  color: color-mix(in oklab, var(--ui-success, #10b981) 78%, #000 22%);
+}
+
+.identity-device-grid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+}
+
+.identity-device-field {
+  min-width: 0;
+}
+
+.identity-device-field--wide {
+  grid-column: 1 / -1;
+}
+
+.identity-device-field dt {
+  font-size: 12px;
+  color: var(--ui-muted, #475569);
+  margin-bottom: 2px;
+}
+
+.identity-device-field dd {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ui-text, #0f172a);
+  word-break: break-all;
+}
+
+.identity-device-mono {
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+}
+
+.identity-device-hint {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ui-muted, #475569);
+}
+
+.identity-device-error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--ui-danger, #ef4444);
+}
+
+.identity-device-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.identity-device-revoke {
+  border-color: color-mix(in oklab, var(--ui-danger, #ef4444) 45%, transparent) !important;
+  color: var(--ui-danger, #ef4444) !important;
+}
+
+.identity-device-revoke:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 撤销强确认 Modal */
+.identity-revoke-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 21000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  padding-top: max(20px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.identity-revoke-card {
+  width: min(420px, 100%);
+  padding: 22px;
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.97));
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: var(--ui-shadow-strong, 0 20px 50px rgba(15, 23, 42, 0.35));
+}
+
+.identity-revoke-card h3 {
+  margin: 0;
+  font-size: 19px;
+  color: var(--ui-text, #0f172a);
+}
+
+.identity-revoke-desc {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ui-muted, #475569);
+}
+
+.identity-revoke-desc--strong {
+  color: color-mix(in oklab, var(--ui-danger, #ef4444) 82%, #000 18%);
+  font-weight: 600;
+}
+
+.identity-revoke-label {
+  display: block;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--ui-text, #0f172a);
+}
+
+.identity-revoke-input {
+  margin-top: 8px;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: rgba(248, 250, 252, 0.92);
+  color: var(--ui-text, #0f172a);
+  font-size: 15px;
+}
+
+.identity-revoke-input:focus {
+  outline: none;
+  border-color: var(--ui-primary, #2563eb);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--ui-primary, #2563eb) 18%, transparent);
+}
+
+.identity-revoke-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}

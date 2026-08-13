@@ -46,6 +46,11 @@ const enableGradeNotices = ref(true)
 const enablePowerNotices = ref(true)
 const enableClassReminders = ref(true)
 const enableSchoolInboxNotices = ref(true)
+// #615：per-feature 后台检测开关（成绩/考试变化/学校消息，独立 enable/disable）
+const bgFeatureGrades = ref(true)
+const bgFeatureExams = ref(true)
+const bgFeatureSchool = ref(true)
+const bgNativeState = ref(null)
 const classLeadMinutes = ref(30)
 const checkInterval = ref(30)
 const showBatteryPrompt = ref(false)
@@ -125,6 +130,10 @@ const saveSettings = () => {
   localStorage.setItem('hbu_notify_school_inbox', enableSchoolInboxNotices.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_class_lead_min', String(classLeadMinutes.value))
   localStorage.setItem('hbu_notify_interval', String(checkInterval.value))
+  // #615：per-feature 后台检测开关（成绩/考试变化/学校消息独立 enable/disable）
+  localStorage.setItem('hbu_bg_feature_grades', bgFeatureGrades.value ? 'true' : 'false')
+  localStorage.setItem('hbu_bg_feature_exams', bgFeatureExams.value ? 'true' : 'false')
+  localStorage.setItem('hbu_bg_feature_school', bgFeatureSchool.value ? 'true' : 'false')
   syncBackgroundFetchContext({
     studentId: props.studentId,
     settings: {
@@ -139,6 +148,24 @@ const saveSettings = () => {
     },
     dormSelection: selectedPath.value
   }).catch(() => {})
+  // #615：同步 #609 BackgroundCheckConfig 契约到后台插件（native business 列表
+  // 由适配器映射：grades/exams/school_inbox），并刷新真实状态展示。
+  void platformBridge
+    .setBackgroundCheckConfig({
+      enabled: enableBackground.value,
+      checkGradeChanges: bgFeatureGrades.value,
+      checkExamChanges: bgFeatureExams.value,
+      checkSchoolInbox: bgFeatureSchool.value,
+      intervalMinutes: checkInterval.value,
+      schemaVersion: 1,
+      updatedAt: new Date().toISOString()
+    })
+    .then((state) => {
+      bgNativeState.value = state
+    })
+    .catch(() => {
+      // 插件未接入时适配器返回真实状态而非伪造 ready
+    })
   // #610：通知设置变化（开关/提前分钟数）后触发系统预调度 reconcile，
   // 旧 pending 按新设置准确取消/补建
   if (props.studentId) {
@@ -163,6 +190,19 @@ const updateSettingsFromStorage = () => {
   checkInterval.value = [15, 30, 60].includes(settings.intervalMinutes)
     ? settings.intervalMinutes
     : 30
+  // #615：per-feature 开关（默认开启；与前台 notify_center_checks 同一 key）
+  const readFeature = (key, fallback = true) => {
+    try {
+      const raw = localStorage.getItem(key)
+      if (raw === null) return fallback
+      return raw === 'true'
+    } catch {
+      return fallback
+    }
+  }
+  bgFeatureGrades.value = readFeature('hbu_bg_feature_grades')
+  bgFeatureExams.value = readFeature('hbu_bg_feature_exams')
+  bgFeatureSchool.value = readFeature('hbu_bg_feature_school')
 }
 
 const findByValue = (list, value) =>
@@ -260,6 +300,40 @@ const backgroundFetchStatusText = computed(() => {
   if (state?.available) return '可用'
   if (state?.configured) return '已配置（待系统调度）'
   return '未配置'
+})
+
+// #615：per-feature 后台检测状态（真实来源：#609 BackgroundCheckState + 最近快照）
+const bgFeatureStatusText = computed(() => {
+  const state = bgNativeState.value
+  if (!state) return '状态未知'
+  if (!state?.supported) return state?.reason || '当前环境不支持后台检测'
+  if (state?.scheduler?.status === 'unavailable') return '系统调度暂未接入（后台检测不可用）'
+  const lastResult = String(state?.lastResult || 'unknown')
+  const errorText = state?.lastError ? `（${state.lastError}）` : ''
+  return `调度 ${state?.scheduler?.kind || 'unknown'} · 最近结果 ${lastResult}${errorText}`
+})
+
+// 学校消息：provider 后台不受支持时显示真实 unsupported/foreground-only 状态，
+// 而不是静默假成功（#615 验收：设置页显示真实状态）
+const schoolFeatureStatusText = computed(() => {
+  const school = schoolInboxSummary.value
+  const enabled = bgFeatureSchool.value
+  if (!enabled) return '已关闭'
+  if (school?.error) return `前台检测：${school.error}`
+  if (school?.total != null) {
+    const sourceText = school?.source === 'chaoxing' ? '学习通' : '教务'
+    return `前台检测可用（${sourceText}，共 ${school.total} 条）`
+  }
+  const state = bgNativeState.value
+  if (state && !state?.supported) return '当前环境不支持后台检测（前台可检测）'
+  return '等待检测'
+})
+
+const examsFeatureStatusText = computed(() => {
+  const exams = examSummary.value
+  if (!bgFeatureExams.value) return '已关闭'
+  if (exams?.total != null) return `共 ${exams.total} 门考试（明日 ${exams.tomorrowCount || 0} 门）`
+  return '等待检测'
 })
 
 const keepAliveStatusText = computed(() => {
@@ -641,6 +715,14 @@ const refreshRuntimeStates = async () => {
     backgroundFetchState.value = null
   }
 
+  // #615：真实后台检查状态（supported/scheduler/auth/lastResult/error），
+  // 不伪造 ready（#609 契约；插件未接入时如实显示 unavailable）
+  try {
+    bgNativeState.value = await platformBridge.getBackgroundCheckState()
+  } catch {
+    bgNativeState.value = null
+  }
+
   try {
     const state = await platformBridge.getAggressiveKeepAliveState()
     aggressiveKeepAliveSupported.value = !!state?.supported
@@ -685,6 +767,11 @@ const handleBackgroundToggle = async () => {
 }
 
 const handleOtherSettingChange = () => {
+  saveSettings()
+}
+
+// #615：per-feature 开关变化 -> 落盘 + 同步 #609 配置到后台插件
+const handleBgFeatureChange = () => {
   saveSettings()
 }
 
@@ -988,6 +1075,35 @@ watch(
             <option :value="30">每 30 分钟</option>
             <option :value="60">每 1 小时</option>
           </select>
+        </div>
+
+        <!-- #615：per-feature 独立开关（成绩变化 / 考试安排变化 / 学校消息） -->
+        <div class="sync-features-block">
+          <div class="sync-feature-row">
+            <span class="sync-feature-label">成绩变化检测</span>
+            <span class="sync-feature-status">{{ bgNativeState ? (bgFeatureGrades ? '开启' : '关闭') : '' }}</span>
+            <label class="toggle-switch" @click.stop>
+              <input type="checkbox" v-model="bgFeatureGrades" @change="handleBgFeatureChange">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="sync-feature-row">
+            <span class="sync-feature-label">考试安排变化检测</span>
+            <span class="sync-feature-status">{{ examsFeatureStatusText }}</span>
+            <label class="toggle-switch" @click.stop>
+              <input type="checkbox" v-model="bgFeatureExams" @change="handleBgFeatureChange">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="sync-feature-row">
+            <span class="sync-feature-label">学校消息检测</span>
+            <span class="sync-feature-status">{{ schoolFeatureStatusText }}</span>
+            <label class="toggle-switch" @click.stop>
+              <input type="checkbox" v-model="bgFeatureSchool" @change="handleBgFeatureChange">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <p class="sync-feature-hint">后台检测状态：{{ bgFeatureStatusText }}</p>
         </div>
       </section>
 

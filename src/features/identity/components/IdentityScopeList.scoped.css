@@ -1,0 +1,124 @@
+/* IdentityScopeList.scoped.css —— #623 权限列表（风险分组展示） */
+
+.identity-scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.identity-scope-group {
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--ui-muted, #475569) 22%, transparent);
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--ui-surface, #ffffff) 72%, transparent);
+}
+
+.identity-scope-group-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-muted, #475569);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.identity-scope-group-title-icon {
+  font-size: 15px;
+}
+
+.identity-scope-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.identity-scope-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.identity-scope-icon {
+  flex: none;
+  margin-top: 1px;
+  font-size: 18px;
+  color: var(--ui-muted, #475569);
+}
+
+.identity-scope-text {
+  min-width: 0;
+}
+
+.identity-scope-text strong {
+  font-size: 13.5px;
+  color: var(--ui-text, #0f172a);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  word-break: break-all;
+}
+
+.identity-scope-text p {
+  margin: 1px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ui-muted, #475569);
+}
+
+/* 敏感组：图标 + 边框 + 文字三重标识（不只依赖颜色） */
+.identity-scope-group--sensitive {
+  border-color: color-mix(in oklab, var(--ui-warning, #f59e0b) 52%, transparent);
+  background: color-mix(in oklab, var(--ui-warning, #f59e0b) 7%, var(--ui-surface, #ffffff) 68%);
+}
+
+.identity-scope-group--sensitive .identity-scope-group-title {
+  color: color-mix(in oklab, var(--ui-warning, #f59e0b) 84%, #000 16%);
+}
+
+.identity-scope-item--sensitive .identity-scope-icon {
+  color: color-mix(in oklab, var(--ui-warning, #f59e0b) 78%, #000 22%);
+}
+
+.identity-scope-notice {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ui-muted, #475569);
+  background: color-mix(in oklab, var(--ui-warning, #f59e0b) 12%, transparent);
+}
+
+.identity-scope-notice-icon {
+  flex: none;
+  font-size: 16px;
+  margin-top: 1px;
+}
+
+.identity-scope-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ui-muted, #475569);
+}
+
+/* 非官方声明：固定展示（#617 信任边界） */
+.identity-nonofficial {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ui-muted, #475569);
+}
+
+.identity-nonofficial-icon {
+  flex: none;
+  font-size: 15px;
+  margin-top: 1px;
+}

@@ -380,6 +380,25 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     return fallback
   }
 
+  // #623：敏感 scope（student.identity）授权前的在线会话校验。
+  // 与 refreshSessionSilently 不同：返回是否验证成功（true = 学校会话在线可验证），
+  // 失败时不触发自动重登/维护横幅风暴（由 Identity 流程决定后续 restore/login）。
+  const refreshSessionVerified = async (options: { quiet?: boolean } = {}): Promise<boolean> => {
+    void options
+    if (isTestAccountSession()) return true
+    const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
+    if (!cookies) return false
+    if (!hasTauri) return false
+    try {
+      await invoke('refresh_session')
+      await persistSessionCookies()
+      return true
+    } catch (e) {
+      state.jwxtSessionLastError.value = formatSessionError(e)
+      return false
+    }
+  }
+
   const refreshSessionSilently = async (options: { quiet?: boolean } = {}) => {
     if (isTestAccountSession()) return
     const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
@@ -740,6 +759,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     attemptAutoRelogin,
     attemptOnlineRecovery,
     refreshSessionSilently,
+    refreshSessionVerified,
     persistSessionCookies,
     startSessionKeepAlive,
     stopSessionKeepAlive,
