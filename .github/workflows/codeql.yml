@@ -30,34 +30,54 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  analyze:
-    name: Analyze (${{ matrix.language }})
+  # #598 分层：PR 只保留 javascript-typescript 快速安全反馈（非 required）
+  # push main / schedule / workflow_dispatch 运行完整 3 语言。
+  # 注意：job 级 if 不能引用 matrix 上下文（会在 workflow 解析阶段报错），
+  # 因此将原矩阵拆为三个命名 job，display name 保持不变（required check 名）。
+  analyze-javascript-typescript:
+    name: Analyze (javascript-typescript)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [javascript-typescript, rust, actions]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4.37.4
+        with:
+          languages: javascript-typescript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v4.37.4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4.37.4
+        with:
+          category: "/language:javascript-typescript"
+
+  analyze-rust:
+    name: Analyze (rust)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node (Rust autobuild prerequisite)
-        if: matrix.language == 'rust'
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
 
       - name: Build frontend dist (Rust autobuild prerequisite)
-        if: matrix.language == 'rust'
         run: |
           npm ci --prefer-offline --no-audit --no-fund
           npm run build
 
       - name: Install Linux dependencies (Rust autobuild prerequisite)
-        if: matrix.language == 'rust'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -73,7 +93,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4.37.4
         with:
-          languages: ${{ matrix.language }}
+          languages: rust
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4.37.4
@@ -81,4 +101,27 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4.37.4
         with:
-          category: "/language:${{ matrix.language }}"
+          category: "/language:rust"
+
+  analyze-actions:
+    name: Analyze (actions)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4.37.4
+        with:
+          languages: actions
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v4.37.4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4.37.4
+        with:
+          category: "/language:actions"
