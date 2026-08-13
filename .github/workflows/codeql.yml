@@ -32,6 +32,9 @@ env:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # #598：PR 只保留 javascript-typescript 快速安全反馈（非 required）
+    # push main / schedule / workflow_dispatch 运行完整 3 语言
+    if: github.event_name != 'pull_request' || matrix.language == 'javascript-typescript'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
