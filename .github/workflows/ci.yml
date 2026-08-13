@@ -194,7 +194,10 @@ jobs:
 
   # 稳定名称的 PR Gate：#598 要求 required check 名称稳定，不出现永久 Pending
   # 只接受 success / skipped，任何 failure / cancelled / timed_out 都阻断合并
+  # name 必须保持 "PR Gate"（job 无 name 时 check 名会变成小写 job id，
+  # 与 branch protection 的 required context 大小写不匹配导致永久 BLOCKED）
   pr-gate:
+    name: PR Gate
     needs: [changes, test-frontend, test-rust, test-rust-windows]
     if: always()
     runs-on: ubuntu-latest

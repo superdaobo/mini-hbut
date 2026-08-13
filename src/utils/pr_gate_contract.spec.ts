@@ -35,6 +35,8 @@ describe('PR fast gate', () => {
 
   it('always reports a stable PR Gate that only accepts success or skipped', () => {
     expect(workflow).toContain('pr-gate:')
+    // check 显示名必须与 branch protection required context 精确一致（大小写敏感）
+    expect(workflow).toContain('name: PR Gate')
     expect(workflow).toContain('if: always()')
     expect(workflow).toContain('success|skipped')
     // 禁止 continue-on-error 把真实失败伪装成成功（#598 非目标）
