@@ -1,7 +1,12 @@
 /**
  * cloud_sync_transport：云同步代理 HTTP 传输与一次性鉴权挑战（challenge）管理。
+ *
+ * #629 双轨：请求优先携带 Mini-HBUT Identity access token（Authorization: Bearer），
+ * token 缺失时回退 legacy challenge 流程（服务端 LEGACY_GRACE 期内兼容）；
+ * 401 只触发一次 refresh（identity 单次刷新 + challenge 重取），不无限循环。
  */
 import type { CloudSyncRuntimeConfig } from './cloud_sync_config.js'
+import { getIdentityAccessToken } from './identity_access_token.js'
 import {
   CHALLENGE_FALLBACK_TTL_MS,
   CHALLENGE_SKEW_MS,
@@ -88,7 +93,10 @@ export const requestCloudSync = async (
   const timeoutMs = Math.max(3000, Number(config?.timeoutMs || DEFAULT_TIMEOUT_MS))
   const makeController = () => (typeof AbortController !== 'undefined' ? new AbortController() : null)
 
-  const sendOnce = async (challengeToken = ''): Promise<{
+  const sendOnce = async (
+    challengeToken = '',
+    identityToken: string | null = null
+  ): Promise<{
     response: Response
     parsed: unknown
     text: string
@@ -103,6 +111,10 @@ export const requestCloudSync = async (
       }
       if (body !== undefined) {
         headers['Content-Type'] = 'application/json'
+      }
+      // #629：Identity access token 优先（内存/session 层）；无 token 时走 legacy challenge
+      if (identityToken) {
+        headers.Authorization = `Bearer ${identityToken}`
       }
       if (challengeToken) {
         headers['x-cloud-sync-challenge'] = challengeToken
@@ -125,8 +137,9 @@ export const requestCloudSync = async (
   if (!skipChallenge && shouldAttachChallenge(path)) {
     challengeToken = await loadCloudSyncChallenge(config, false)
   }
+  let identityToken = await getIdentityAccessToken()
 
-  let { response, parsed, text } = await sendOnce(challengeToken)
+  let { response, parsed, text } = await sendOnce(challengeToken, identityToken)
   // OCR 中转 challenge 为一次性令牌，请求后立即作废，避免后续复用触发 401。
   if (challengeToken) {
     clearCloudSyncChallengeState()
@@ -138,9 +151,11 @@ export const requestCloudSync = async (
     shouldAttachChallenge(path) &&
     response.status === 401
   ) {
+    // 401 统一单次 refresh：identity token 刷新一次 + challenge 重取一次，不无限循环
     clearCloudSyncChallengeState()
+    identityToken = await getIdentityAccessToken(true)
     challengeToken = await loadCloudSyncChallenge(config, true)
-    ;({ response, parsed, text } = await sendOnce(challengeToken))
+    ;({ response, parsed, text } = await sendOnce(challengeToken, identityToken))
     if (challengeToken) {
       clearCloudSyncChallengeState()
     }

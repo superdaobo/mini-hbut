@@ -1,6 +1,7 @@
 import { isTestAccountSession } from './test_account.js'
 import { resolveTestAccountForumResponse } from './test_account_fixtures.js'
 import { encryptData, decryptData } from './encryption.js'
+import { getIdentityAccessToken } from './identity_access_token.js'
 
 const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
 const TOKEN_CACHE_KEY_PREFIX = 'hbu_forum_token:'
@@ -33,33 +34,21 @@ export const buildForumApiBase = (forumConfig = {}) => {
 
 const tokenCacheKey = (studentId, apiBase = '') => `${TOKEN_CACHE_KEY_PREFIX}${encodeCachePart(studentId)}:${encodeCachePart(apiBase)}`
 
-const readCachedToken = (studentId, apiBase = '') => {
-  if (!studentId || typeof localStorage === 'undefined') return ''
-  try {
-    const raw = localStorage.getItem(tokenCacheKey(studentId, apiBase))
-    if (!raw) return ''
-    const parsed = JSON.parse(raw)
-    if (!parsed?.token) return ''
-    if (Number(parsed.expires_at || 0) * 1000 < Date.now() + 30 * 1000) return ''
-    return parsed.token
-  } catch {
-    return ''
-  }
-}
-
-const writeCachedToken = (studentId, apiBase, payload) => {
-  if (!studentId || typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(tokenCacheKey(studentId, apiBase), JSON.stringify(payload || {}))
-  } catch {
-    // ignore
-  }
-}
-
-const clearCachedToken = (studentId, apiBase = '') => {
+// #629 Phase C：token 不再落 localStorage 明文。
+// - 读取路径完全移除（历史明文缓存不会再次被信任）；
+// - 仅保留“清理历史明文”的写入路径：遇到旧版遗留的 token 条目时直接删除，
+//   避免明文凭据在本地存储中继续残留（与旧 admin_secret 清理策略一致）。
+const purgeLegacyTokenCache = (studentId, apiBase = '') => {
   if (!studentId || typeof localStorage === 'undefined') return
   try {
     localStorage.removeItem(tokenCacheKey(studentId, apiBase))
+    const tokenPrefix = `${TOKEN_CACHE_KEY_PREFIX}${encodeCachePart(studentId)}:`
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index)
+      if (key?.startsWith(tokenPrefix)) {
+        localStorage.removeItem(key)
+      }
+    }
   } catch {
     // ignore
   }
@@ -107,6 +96,7 @@ export const writeForumProfile = (studentId, profile = {}) => {
   if (!sid || typeof localStorage === 'undefined') return normalized
   try {
     localStorage.setItem(`${PROFILE_CACHE_KEY_PREFIX}${sid}`, JSON.stringify(normalized))
+    // 清理历史明文 token 缓存（#629：token 只驻留内存，不再持久化）
     const tokenPrefix = `${TOKEN_CACHE_KEY_PREFIX}${encodeCachePart(sid)}:`
     for (let index = localStorage.length - 1; index >= 0; index -= 1) {
       const key = localStorage.key(index)
@@ -241,8 +231,9 @@ export const createForumApiClient = ({
     })
     let response = await fetchRequest()
     if (auth && response.status === 401) {
+      // #629：401 统一单次 refresh（identity 优先，失败回退 legacy 重取），不无限循环
       memoryToken = ''
-      clearCachedToken(sid, base)
+      purgeLegacyTokenCache(sid, base)
       response = await fetchRequest(true)
     }
     return parseJsonResponse(response, { includeMeta, requestEtag: etag })
@@ -250,16 +241,15 @@ export const createForumApiClient = ({
 
   const getToken = async (forceRefresh = false) => {
     if (!forceRefresh && memoryToken) return memoryToken
-    if (!forceRefresh) {
-      const cached = readCachedToken(sid, base)
-      if (cached) {
-        memoryToken = cached
-        return cached
-      }
+    // #629 Phase C：first-party Identity access token 优先（内存/session 层，不落 localStorage）
+    const identityToken = await getIdentityAccessToken(forceRefresh)
+    if (identityToken) {
+      memoryToken = identityToken
+      return identityToken
     }
+    // 双轨灰度：无 identity token 时回退 legacy（服务端 LEGACY_GRACE 期内兼容）
     if (forceRefresh) {
       memoryToken = ''
-      clearCachedToken(sid, base)
     }
     if (tokenPromise) return tokenPromise
     tokenPromise = request('/auth/token', {
@@ -274,7 +264,7 @@ export const createForumApiClient = ({
       auth: false
       })
       .then((payload) => {
-        writeCachedToken(sid, base, payload)
+        // token 只驻留内存：不再写入 localStorage（#629 安全要求）
         memoryToken = payload.token
         return payload.token
       })

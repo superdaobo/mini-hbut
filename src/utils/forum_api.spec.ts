@@ -130,22 +130,12 @@ describe('forum api config', () => {
     expect(calls[0].init?.headers).not.toHaveProperty('Authorization')
   })
 
-  it('refreshes a stale cached token once when an authorized request is rejected', async () => {
-    const storage = new Map<string, string>()
-    storage.set('hbu_forum_token:2510231106:https%3A%2F%2Fexample.com%2Fapi%2Fforum', JSON.stringify({
-      token: 'stale-token',
-      expires_at: Math.floor(Date.now() / 1000) + 3600
-    }))
-    vi.stubGlobal('localStorage', {
-      getItem: (key: string) => storage.get(key) || null,
-      setItem: (key: string, value: string) => storage.set(key, value),
-      removeItem: (key: string) => storage.delete(key)
-    })
-
+  it('refreshes the token once when an authorized request is rejected with 401', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = []
     const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url, init })
       const auth = String((init?.headers as Record<string, string>)?.Authorization || '')
+      // 第一次拿到的 legacy token 被服务端拒绝（过期/吊销）→ 401
       if (url.endsWith('/threads') && auth === 'Bearer stale-token') {
         return {
           ok: false,
@@ -154,10 +144,14 @@ describe('forum api config', () => {
         }
       }
       if (url.endsWith('/auth/token')) {
+        const stale = calls.filter((call) => call.url.endsWith('/auth/token')).length === 1
         return {
           ok: true,
           status: 200,
-          json: async () => ({ token: 'fresh-token', expires_at: Math.floor(Date.now() / 1000) + 3600 })
+          json: async () => ({
+            token: stale ? 'stale-token' : 'fresh-token',
+            expires_at: Math.floor(Date.now() / 1000) + 3600
+          })
         }
       }
       return {
@@ -167,35 +161,33 @@ describe('forum api config', () => {
       }
     }) as unknown as typeof fetch
 
-    try {
-      const client = createForumApiClient({
-        apiBase: 'https://example.com',
-        studentId: '2510231106',
-        nickname: '管理员',
-        fetcher
-      })
+    const client = createForumApiClient({
+      apiBase: 'https://example.com',
+      studentId: '2510231106',
+      nickname: '管理员',
+      fetcher
+    })
 
-      const thread = await client.createThread({
-        category_id: 1,
-        title: '刷新后成功',
-        content_md: '内容',
-        attachment_ids: []
-      })
+    const thread = await client.createThread({
+      category_id: 1,
+      title: '刷新后成功',
+      content_md: '内容',
+      attachment_ids: []
+    })
 
-      expect(thread.title).toBe('刷新后成功')
-      expect(calls.map((call) => call.url)).toEqual([
-        'https://example.com/api/forum/threads',
-        'https://example.com/api/forum/auth/token',
-        'https://example.com/api/forum/threads'
-      ])
-      expect(calls[0].init?.headers).toMatchObject({ Authorization: 'Bearer stale-token' })
-      expect(calls[2].init?.headers).toMatchObject({ Authorization: 'Bearer fresh-token' })
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    expect(thread.title).toBe('刷新后成功')
+    // 401 只触发一次 refresh：auth/token(stale) → threads(401) → auth/token(fresh) → threads(200)
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://example.com/api/forum/auth/token',
+      'https://example.com/api/forum/threads',
+      'https://example.com/api/forum/auth/token',
+      'https://example.com/api/forum/threads'
+    ])
+    expect(calls[1].init?.headers).toMatchObject({ Authorization: 'Bearer stale-token' })
+    expect(calls[3].init?.headers).toMatchObject({ Authorization: 'Bearer fresh-token' })
   })
 
-  it('scopes cached forum tokens by api endpoint and clears scoped tokens when profile changes', async () => {
+  it('purges legacy plaintext forum tokens from localStorage on profile change and never writes new ones', async () => {
     const storage = new Map<string, string>()
     storage.set('hbu_forum_token:2510231106:https%3A%2F%2Fold.example%2Fapi%2Fforum', JSON.stringify({
       token: 'old-space-token',
@@ -242,13 +234,13 @@ describe('forum api config', () => {
         'https://new.example/api/forum/checkins'
       ])
       expect(calls[1].init?.headers).toMatchObject({ Authorization: 'Bearer new-space-token' })
-      expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fold.example%2Fapi%2Fforum')).toBe(true)
-      expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fnew.example%2Fapi%2Fforum')).toBe(true)
+      // #629：新 token 只驻留内存，绝不写入 localStorage（新旧 endpoint 都不落盘）
+      expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fnew.example%2Fapi%2Fforum')).toBe(false)
 
       writeForumProfile('2510231106', { nickname: '新昵称' })
 
+      // profile 变更时清理历史明文 token（含旧 endpoint 遗留）
       expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fold.example%2Fapi%2Fforum')).toBe(false)
-      expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fnew.example%2Fapi%2Fforum')).toBe(false)
     } finally {
       vi.unstubAllGlobals()
     }
