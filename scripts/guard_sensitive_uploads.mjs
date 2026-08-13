@@ -22,12 +22,19 @@ export const sensitivePatterns = [
     name: '敏感环境变量',
     regex: /\b(?:TURSO_TOKEN|TURSO_DB_AUTH_TOKEN|CLOUDFLARE_API_TOKEN|STATUS_EMAIL_RESEND_API_KEY)\b\s*[:=]\s*["'][^"'\r\n]+["']/g,
   },
-  // ---- Identity Platform 敏感值类别（#618）----
+  // ---- Identity Platform 敏感值类别（#618 + #626 扩展）----
   // 密钥类环境变量赋值（要求带引号；.env.example 占位无引号，不会误报）
   {
     name: 'Identity 平台密钥类环境变量赋值',
     regex:
-      /\b(?:IDENTITY_DATABASE_URL|IDENTITY_JWKS_JSON|IDENTITY_SIGNING_KEY|IDENTITY_PAIRWISE_SUBJECT_KEY|IDENTITY_CLIENT_SECRET_KEK|IDENTITY_HANDOFF_HMAC_KEY|WEB_SESSION_SECRET|DEVELOPER_OIDC_CLIENT_SECRET)\b\s*[:=]\s*["'][^"'\r\n]{6,}["']/g,
+      /\b(?:IDENTITY_DATABASE_URL|IDENTITY_JWKS_JSON|IDENTITY_SIGNING_KEY|IDENTITY_PAIRWISE_SUBJECT_KEY|IDENTITY_CLIENT_SECRET_KEK|IDENTITY_HANDOFF_HMAC_KEY|IDENTITY_COOKIE_KEYS|IDENTITY_SERVICE_TOKEN|IDENTITY_STATIC_CLIENTS_JSON|WEB_SESSION_SECRET|DEVELOPER_OIDC_CLIENT_SECRET)\b\s*[:=]\s*["'][^"'\r\n]{6,}["']/g,
+  },
+  // #626：handoff / 服务令牌样例赋值（Web BFF 转发头；fixture/日志样例不得进仓库）
+  // 头名允许被引号包裹（JSON 风格），如 "x-identity-handoff": "..."；
+  // 值 ≥ 16 字符才命中，短占位/说明文字不误报。
+  {
+    name: 'Identity handoff/令牌样例赋值',
+    regex: /\b(?:x-identity-handoff|x-identity-service-token)["']?\s*[:=]\s*["'][A-Za-z0-9_-]{16,}["']/gi,
   },
   // Vercel API Token（vercel_ 前缀）
   { name: 'Vercel Token', regex: /\bvercel_[A-Za-z0-9]{20,}\b/g },
@@ -245,6 +252,10 @@ function runSelfTest() {
     ['Identity 环境变量', 'const env = { IDENTITY_CLIENT_SECRET_KEK: "0123456789abcdef0123456789abcdef" };'],
     ['Identity DB env', 'process.env.IDENTITY_DATABASE_URL = "postgresql://u:pw@host/db";'],
     ['已有 HF Token 回归', 'const k = "hf_abcdefghijklmnopqrstuvwxyz";'],
+    ['#626 服务令牌 env', 'process.env.IDENTITY_SERVICE_TOKEN = "svc-token-0123456789abcdef0123456789abcdef";'],
+    ['#626 Cookie 密钥 env', 'const keys = { IDENTITY_COOKIE_KEYS: "cookie-sign-key-0123456789abcdef0123456789abcdef" };'],
+    ['#626 handoff 头样例', 'fetch(url, { headers: { "x-identity-handoff": "ho_7hF2kPq9wXyZ4vB6nM1cJ8dL3sA5tR0uE0123" } });'],
+    ['#626 服务令牌头样例', 'const h = { "x-identity-service-token": "svc-token-0123456789abcdef0123456789abcdef" };'],
   ]
   const negative = [
     ['普通 JSON', '{"name":"张三","scores":[98,87,76],"remark":"d: ok","note":"kty not really"}'],
@@ -255,6 +266,9 @@ function runSelfTest() {
     ['普通 vercel 字样', '访问 vercel.com 部署，token 请勿提交'],
     ['短 client_secret 值', '{"client_secret":"none"}'],
     ['普通文本', '今天天气不错，成绩查询应用工作正常。'],
+    ['#626 短 handoff 值（低于阈值不误报）', 'headers: { "x-identity-handoff": "short" }'],
+    ['#626 无引号 env 占位', 'IDENTITY_SERVICE_TOKEN=<your-service-token>'],
+    ['#626 普通 header 说明文字', '文档提到 x-identity-handoff header 用于转发凭据，不携带具体值'],
   ]
   const failures = []
   for (const [label, text] of positive) {
