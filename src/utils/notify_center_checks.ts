@@ -10,7 +10,7 @@ import {
   readScheduleLock
 } from './schedule_prefetch.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
-import { getRuntime, platformBridge } from '../platform'
+import { platformBridge } from '../platform'
 import { pushDebugLog } from './debug_logger'
 import { writeElectricityToWidget, writeExamToWidget } from './widget_bridge'
 import {
@@ -103,23 +103,8 @@ export const readSchoolInboxState = (studentId: string): { initialized: boolean;
   }
 }
 
-export const syncSchoolInboxBackgroundPrefs = (
-  studentId: string,
-  settings: NotifySettingsFull,
-  knownIds: unknown[] = []
-): void => {
-  if (getRuntime() !== 'capacitor') return
-  try {
-    localStorage.setItem('hbu_bg_enable_school_inbox', settings?.enableSchoolInbox ? '1' : '0')
-    localStorage.setItem('hbu_bg_login_method', resolveLoginMode())
-    localStorage.setItem(
-      `hbu_bg_school_inbox_state:${studentId}`,
-      JSON.stringify(Array.isArray(knownIds) ? knownIds : [])
-    )
-  } catch {
-    // ignore
-  }
-}
+// #616：旧 Capacitor Headless 专用的 hbu_bg_* 后台预写函数已随 Headless 退役
+// 整体删除；前台去重快照（schoolInboxStateKeyFor）继续生效。
 
 const snapshotChaoxingNoticeCookie = async (loginMode: unknown): Promise<void> => {
   const mode = toSafeText(loginMode).toLowerCase()
@@ -936,11 +921,6 @@ const checkSchoolInbox = async (
     return { success: true, enabled: false, total: 0, triggered: 0 }
   }
   if (!isTauriRuntime()) {
-    syncSchoolInboxBackgroundPrefs(
-      sid,
-      settings,
-      readJSON<{ ids?: unknown[] }>(schoolInboxStateKeyFor(sid), {})?.ids || []
-    )
     return {
       success: false,
       enabled: true,
@@ -1003,7 +983,6 @@ const checkSchoolInbox = async (
       updated_at: nowIso()
     })
     await snapshotChaoxingNoticeCookie(loginMode)
-    syncSchoolInboxBackgroundPrefs(sid, settings, allIds)
 
     pushDebugLog(
       'Notify',

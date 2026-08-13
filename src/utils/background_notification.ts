@@ -59,8 +59,8 @@ export interface ConsumeInboxInput {
   studentId: string
   /** 触发来源（resume / launch / notification-click 等，仅日志）。 */
   reason?: string
-  /** 域同步器（默认：grades -> Rust sync_grades；测试注入）。 */
-  syncDomain?: (domain: string) => Promise<DomainSyncResult>
+  /** 域同步器（默认：grades -> Rust sync_grades；exams -> Rust fetch_exams + #610 reconcile；测试注入）。 */
+  syncDomain?: (domain: string, studentId: string) => Promise<DomainSyncResult>
 }
 
 export interface ConsumeInboxResult {
@@ -159,8 +159,45 @@ export const eventTypeToDomain = (type: BackgroundDetectedEventType): string => 
 
 // ---- 默认域同步器 ----
 
-/** 默认域同步器：#614 首批仅 grades 域接入 Rust 完整同步；其他域只消费不触发业务请求。 */
-const defaultSyncDomain = async (domain: string): Promise<DomainSyncResult> => {
+/**
+ * 默认域同步器：
+ * - grades：#614 首批闭环，Rust sync_grades 完整同步；
+ * - exams：#615 扩展——完整 fetch_exams 成功后同步更新 cache，并触发
+ *   Scheduled Exam Reminder reconcile（#610 联动：resume 完整考试同步后重建
+ *   未来考试提醒，幂等 diff 保证无变化时零系统调用）；
+ * - 其他域（school-message 等）：只消费不触发业务请求（前台完整同步路径另行处理）。
+ */
+const defaultSyncDomain = async (domain: string, studentId: string): Promise<DomainSyncResult> => {
+  const sid = toSafeText(studentId)
+  if (domain === 'exams') {
+    try {
+      const native = await import('../platform/native')
+      if (!native.isTauriRuntime()) return { ok: false, error: 'unsupported-runtime' }
+      const res = (await native.invokeNative('fetch_exams', { semester: '' })) as
+        | { success?: boolean; data?: unknown; error?: unknown }
+        | null
+      if (!res?.success) {
+        const message = toSafeText(res?.error || 'fetch_exams 失败')
+        return { ok: false, error: message ? message.slice(0, 120) : 'fetch_exams 失败' }
+      }
+      const exams = Array.isArray(res.data) ? (res.data as Array<Record<string, unknown>>) : []
+      // 同步 cache（与前台 checkExams 写同一 key，供后续 UI/读取兜底）
+      if (sid) {
+        const api = await import('./api.js')
+        api.setCachedData(`exams:${sid}:current`, { success: true, data: exams })
+      }
+      // #610 联动：完整考试同步成功后触发未来考试提醒 reconcile（幂等 diff）。
+      if (sid) {
+        void import('./local_reminder_scheduler').then((mod) =>
+          mod.reconcileLocalReminders({ studentId: sid, exams, reason: 'bg-inbox-exams' }).catch(() => {})
+        ).catch(() => {})
+      }
+      return { ok: true }
+    } catch (error) {
+      const message = toSafeText((error as Error | undefined)?.message || error)
+      return { ok: false, error: message ? message.slice(0, 120) : 'fetch_exams 调用失败' }
+    }
+  }
   if (domain !== 'grades') return { ok: true }
   try {
     const native = await import('../platform/native')
@@ -269,7 +306,7 @@ export const consumeBackgroundEventsOnce = async (
       const list = byDomain.get(domain) || []
       let result: DomainSyncResult
       try {
-        result = await syncDomain(domain)
+        result = await syncDomain(domain, sid)
       } catch (error) {
         const message = toSafeText((error as Error | undefined)?.message || error)
         result = { ok: false, error: message ? message.slice(0, 120) : 'sync 调用异常' }

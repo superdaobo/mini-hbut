@@ -5,10 +5,8 @@
 import { LONG_TTL, getCachedData } from './api.js'
 import { compareSemesterDesc } from './semester.js'
 import { useAppSettings } from './app_settings'
-import { isCapacitorRuntime } from '../platform/native'
 
 const RAW_API_BASE = import.meta.env.VITE_API_BASE || '/api'
-const FALLBACK_API_BASE = 'https://hbut.6661111.xyz/api'
 export const DEFAULT_CHANNEL_ID = 'hbut-default'
 export const DEFAULT_INTERVAL_MINUTES = 30
 export const MIN_INTERVAL_MINUTES = 15
@@ -162,14 +160,17 @@ export const getNotifySettings = (): NotifySettingsFull => {
   }
 }
 
+/**
+ * 通知检查使用的业务 API base（前台/桌面开发用途）。
+ *
+ * #616：旧 Capacitor 后台链路的 `hbu_bg_api_base` 原生同步与
+ * `https://hbut.6661111.xyz/api` 隐式 fallback 已退役——移动后台检查
+ * （WorkManager/BGAppRefresh，#612/#613/#615）直接访问学校站点，不再依赖
+ * Mini-HBUT 用户后端。此处保留 `VITE_API_BASE || '/api'` 供前台/开发环境使用。
+ */
 export const getApiBase = (): string => {
   const base = String(RAW_API_BASE || '').trim()
   if (/^https?:\/\//i.test(base)) return base
-  if (isCapacitorRuntime()) {
-    const fromNative = String(localStorage.getItem('hbu_bg_api_base') || '').trim()
-    if (/^https?:\/\//i.test(fromNative)) return fromNative
-    return FALLBACK_API_BASE
-  }
   return base || '/api'
 }
 

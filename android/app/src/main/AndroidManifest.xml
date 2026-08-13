@@ -56,21 +56,8 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
 
-        <service
-            android:name=".KeepAliveForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <receiver
-            android:name=".BootCompletedReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
+        <!-- #616：旧保活前台服务与 BOOT 自动启动接收器已退役；
+             正式移动后台由 Tauri 插件 WorkManager 承担，周期 work 由系统在重启后自动恢复。 -->
 
         <!-- 今日课程小组件 Provider -->
         <receiver
@@ -127,9 +114,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- #616：BOOT 完成/前台服务/唤醒锁等旧保活相关权限随旧接收器与前台服务
+         一并移除；Widget 周期刷新与移动后台均依赖 WorkManager（系统自行恢复，无需接收器）。 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 </manifest>

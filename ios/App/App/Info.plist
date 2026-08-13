@@ -44,15 +44,14 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- #616：旧 Capacitor BackgroundFetch 已退役。移除 processing 后台模式与旧
+	     BGTask 标识（com.transistorsoft.fetch / com.hbut.mini.notify.periodic）；
+	     保留 fetch（BGAppRefresh 必需模式）。正式 Tauri iOS 的 BGAppRefresh
+	     标识（com.hbut.mini.background.grades-refresh）由 Tauri 生成工程
+	     （src-tauri/gen/apple）按插件 INTEGRATION.md 配置，不在此维护。 -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
-		<string>processing</string>
-	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.transistorsoft.fetch</string>
-		<string>com.hbut.mini.notify.periodic</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>

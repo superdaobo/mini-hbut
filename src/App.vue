@@ -283,6 +283,7 @@ const {
 
       <SettingsView
         v-else-if="currentView === 'settings'"
+        :identity="runtime.identity"
         @back="handleBackToMe"
         @openWorkspaceLayout="openWorkspaceLayoutEditor"
       />

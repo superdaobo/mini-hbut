@@ -32,6 +32,8 @@ import { detectRuntime, isMobileLike } from '../platform/runtime'
 import { showToast } from '../utils/toast'
 // #623：设置中心「登录与安全」设备管理组件（Identity 状态 + 撤销）
 import IdentityDeviceSettings from '../features/identity/components/IdentityDeviceSettings.vue'
+// #627：设置中心「登录与安全」扫一扫登录入口（跨设备二维码授权）
+import IdentityQrLoginEntry from '../features/identity/qr/IdentityQrLoginEntry.vue'
 import {
   clearDebugLogs,
   formatDebugTime,
@@ -46,6 +48,11 @@ import {
 } from '../utils/night_mode'
 
 const emit = defineEmits(['back', 'openWorkspaceLayout'])
+
+// #627：扫一扫登录入口需要 IdentityCoordinator（由 App.vue 注入；web 预览等环境为 null）
+const props = defineProps({
+  identity: { type: Object, default: null }
+})
 
 const REMOTE_CONFIG_MODE_EVENT = 'hbu-remote-config-mode-changed'
 const REMOTE_UPLOAD_ENDPOINT_KEY = 'hbu_temp_upload_endpoint'

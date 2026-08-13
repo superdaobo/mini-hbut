@@ -42,12 +42,14 @@ def copy_widget_sources():
 
 
 def copy_native_sources():
-    """复制 Tauri Android 可直接编译的原生后台源码。"""
-    source_files = [
+    """复制 Tauri Android 可直接编译的原生源码（#616：仅 Widget 相关，无保活类）。"""
+    source_files: list[str] = []
+    # #616：旧 KeepAliveForegroundService / BootCompletedReceiver / Headless /
+    # Capacitor-only 插件类一律视为 stale，从生成的 Tauri 工程中移除
+    # （widget 自身为 Kotlin，由 copy_widget_sources 复制）。
+    stale_capacitor_sources = [
         "java/com/hbut/mini/KeepAliveForegroundService.java",
         "java/com/hbut/mini/BootCompletedReceiver.java",
-    ]
-    stale_capacitor_sources = [
         "java/com/hbut/mini/HBUTNativePlugin.java",
         "java/com/hbut/mini/MiniHbutWidgetPlugin.java",
         "java/com/hbut/mini/BackgroundFetchHeadlessTask.java",
@@ -70,7 +72,7 @@ def copy_native_sources():
         count += 1
         print(f"  [COPY] {rel_path}")
     print(f"[OK] Copied {count} native Android files")
-    return count > 0
+    return True
 
 
 def copy_widget_resources():
@@ -121,14 +123,44 @@ def patch_manifest():
         return False
 
     text = manifest_path.read_text(encoding="utf-8")
+
+    # #616：清理旧版脚本注入的保活 service / BOOT receiver 与对应权限
+    # （旧生成的 Tauri 工程升级时幂等移除，防止残留类引用导致构建失败）。
+    stale_blocks = [
+        '''        <service
+            android:name=".KeepAliveForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />''',
+        '''        <receiver
+            android:name=".BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>''',
+    ]
+    for block in stale_blocks:
+        if block in text:
+            text = text.replace(block, "", 1)
+            print("  [REMOVE] stale KeepAlive/BootCompleted manifest entry")
+    for stale_perm in (
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+    ):
+        text = text.replace(f'    <uses-permission android:name="{stale_perm}" />\n', "")
+
     before_application = '    <uses-permission android:name="android.permission.INTERNET" />\n\n    <application'
     if before_application in text:
+        # #616：POST_NOTIFICATIONS / REQUEST_IGNORE_BATTERY_OPTIMIZATIONS 保留；
+        # RECEIVE_BOOT_COMPLETED / FOREGROUND_SERVICE* / WAKE_LOCK 已随旧
+        # BootCompletedReceiver / KeepAliveForegroundService 退役，不再注入。
         required_permissions = [
             "android.permission.POST_NOTIFICATIONS",
-            "android.permission.RECEIVE_BOOT_COMPLETED",
-            "android.permission.WAKE_LOCK",
-            "android.permission.FOREGROUND_SERVICE",
-            "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
             "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         ]
         inserts = ""
@@ -143,26 +175,6 @@ def patch_manifest():
             )
 
     application_entries = []
-    if "KeepAliveForegroundService" not in text:
-        application_entries.append('''
-        <service
-            android:name=".KeepAliveForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />''')
-
-    if "BootCompletedReceiver" not in text:
-        application_entries.append('''
-        <receiver
-            android:name=".BootCompletedReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>''')
-
     if "TodayCoursesProvider" not in text:
         application_entries.append('''
         <!-- 今日课程小组件 Provider -->

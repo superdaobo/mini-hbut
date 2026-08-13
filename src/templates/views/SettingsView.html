@@ -447,6 +447,8 @@
       <div class="section-head">
         <h3>登录与安全</h3>
       </div>
+      <!-- #627：跨设备扫码登录入口（与同设备 Deep Link 共用同一 AuthRequest） -->
+      <IdentityQrLoginEntry :identity="identity" />
       <IdentityDeviceSettings />
     </section>
 

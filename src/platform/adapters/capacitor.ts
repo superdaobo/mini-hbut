@@ -11,9 +11,11 @@ import type {
 } from '../types'
 import { isIOSLike } from '../runtime'
 
-// ---- 后台检查能力：Capacitor 迁移期降级（#609）----
-// 旧 BackgroundFetch 路径仍由 src/utils/background_fetch.ts 维护真实状态；
-// 新统一后台能力不在此承诺，kind 仅标记来源，status 保持 unavailable。
+// ---- 后台检查能力：Capacitor 迁移期降级（#609 / #616）----
+// #616：旧 BackgroundFetch 路径（src/utils/background_fetch.ts）与
+// KeepAliveForegroundService 已整体退役；Capacitor 壳不再提供移动后台调度，
+// 正式移动后台由 Tauri 插件（Android WorkManager / iOS BGAppRefresh）承担。
+// kind 仅标记来源，status 保持 unavailable，绝不伪造 ready。
 
 const buildBackgroundCheckState = (): BackgroundCheckState => ({
   supported: true,
@@ -23,7 +25,7 @@ const buildBackgroundCheckState = (): BackgroundCheckState => ({
   lastAttemptAt: null,
   lastSuccessAt: null,
   lastResult: 'unknown',
-  reason: 'Capacitor 迁移期：旧 BackgroundFetch 状态由 background_fetch.ts 维护，新统一后台能力待 #611 接入',
+  reason: 'Capacitor 壳已退役 BackgroundFetch（#616）：移动后台检查请使用 Tauri 构建（WorkManager/BGAppRefresh）',
   updatedAt: new Date().toISOString()
 })
 
@@ -254,77 +256,23 @@ export const capacitorBridge: PlatformBridge = {
     return this.openUri(target)
   },
 
-  async setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState> {
-    // iOS 不支持前台服务保活，返回友好提示（平台判断收敛到 runtime.ts）
-    if (isIOSLike()) {
-      return {
-        supported: false,
-        active: false,
-        source: 'ios',
-        reason: 'iOS 不支持前台服务，后台任务由系统调度'
-      }
-    }
-    const native = await getHBUTNativePlugin()
-    if (!native?.setForegroundService) {
-      return {
-        supported: false,
-        active: false,
-        source: 'capacitor',
-        reason: '未注册 HBUTNative 原生插件'
-      }
-    }
-    try {
-      const result = await native.setForegroundService({ enabled: !!enable })
-      return {
-        supported: true,
-        active: !!result?.active,
-        source: String(result?.source || 'android-foreground-service'),
-        reason: String(result?.reason || '')
-      }
-    } catch (error) {
-      return {
-        supported: true,
-        active: false,
-        source: 'android-foreground-service',
-        reason: String(error || '前台服务调用失败')
-      }
+  async setAggressiveKeepAlive(_enable: boolean): Promise<KeepAliveState> {
+    // #616：KeepAliveForegroundService 已退役（#608 红线 5），Capacitor 壳不再
+    // 提供前台服务保活；返回 unsupported，避免设置页误显示“保活成功”。
+    return {
+      supported: false,
+      active: false,
+      source: 'capacitor',
+      reason: '前台服务保活已退役（#616）：后台检查由 Tauri 构建的 WorkManager/BGAppRefresh 提供'
     }
   },
 
   async getAggressiveKeepAliveState(): Promise<KeepAliveState> {
-    // iOS 不支持前台服务保活（平台判断收敛到 runtime.ts）
-    if (isIOSLike()) {
-      return {
-        supported: false,
-        active: false,
-        source: 'ios',
-        reason: 'iOS 不支持前台服务，后台任务由系统调度'
-      }
-    }
-    const plugin = await getHBUTNativePlugin()
-    if (!plugin?.getForegroundServiceState) {
-      return {
-        supported: false,
-        active: false,
-        source: 'capacitor',
-        reason: '未注册 HBUTNative 原生插件'
-      }
-    }
-    try {
-      const result = await plugin.getForegroundServiceState()
-      return {
-        supported: true,
-        active: !!result?.active,
-        source: String(result?.source || 'android-foreground-service'),
-        reason: String(result?.reason || '')
-      }
-    } catch (error) {
-      return {
-        supported: true,
-        active: false,
-        source: 'android-foreground-service',
-        reason: String(error || '前台服务状态读取失败')
-      }
+    return {
+      supported: false,
+      active: false,
+      source: 'capacitor',
+      reason: '前台服务保活已退役（#616）'
     }
   },
 

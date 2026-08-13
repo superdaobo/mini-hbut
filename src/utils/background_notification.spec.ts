@@ -176,7 +176,7 @@ describe('场景 A：后台先发现（presented=true）→ 前台不再重复�
     expect(result.suppressed).toBe(1)
     expect(result.acked).toBe(1)
     expect(okSync).toHaveBeenCalledTimes(1)
-    expect(okSync).toHaveBeenCalledWith('grades')
+    expect(okSync).toHaveBeenCalledWith('grades', 's1')
     // ledger 已记录「S2 已通知」→ 前台 checkGrades 查询命中，不再弹第二条
     expect(hasLedgerEntry('s1', buildLedgerEventKey('grades', 'S2'))).toBe(true)
     // 事件按 native id 精确 ack

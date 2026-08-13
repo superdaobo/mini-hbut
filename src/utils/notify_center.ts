@@ -3,9 +3,8 @@
  * 检查逻辑在 ./notify_center_checks.ts，常量/工具在 ./notify_center_util.ts。
  */
 import { isCapacitorRuntime } from '../platform/native'
-import { getRuntime, platformBridge } from '../platform'
+import { getRuntime } from '../platform'
 import { pushDebugLog } from './debug_logger'
-import { clearBackgroundFetchContext, syncBackgroundFetchContext } from './background_fetch.js'
 import {
   APP_BOOT_ID,
   DEFAULT_INTERVAL_MINUTES,
@@ -15,7 +14,6 @@ import {
   getNotifySettings,
   nowIso,
   readJSON,
-  resolveLoginMode,
   schoolInboxStateKeyFor,
   snapshotKeyFor,
   toSafeText,
@@ -32,7 +30,6 @@ import {
   checkClassReminder,
   checkSchoolInbox,
   sendQueuedNotifications,
-  syncSchoolInboxBackgroundPrefs,
   syncWidgetData
 } from './notify_center_checks.js'
 import { reconcileLocalReminders } from './local_reminder_scheduler'
@@ -87,7 +84,6 @@ export const markSchoolInboxNotified = (studentId: unknown, itemId: unknown): bo
     ids: nextIds,
     updated_at: nowIso()
   })
-  syncSchoolInboxBackgroundPrefs(sid, getNotifySettings(), nextIds)
   return true
 }
 
@@ -118,14 +114,6 @@ export const runNotificationCheck = async (
 
   const settings = getNotifySettings()
   const dormSelection = getDormSelection()
-
-  if (isCapacitorRuntime()) {
-    await syncBackgroundFetchContext({
-      studentId: sid,
-      settings,
-      dormSelection
-    })
-  }
 
   const shouldRun =
     launchCheck || reason === 'manual' || reason === 'resume' || settings.enableBackground
@@ -231,16 +219,6 @@ export const runNotificationCheck = async (
   // 同步数据到 Android 小组件
   syncWidgetData(snapshot).catch(() => {})
 
-  if (isCapacitorRuntime()) {
-    await syncBackgroundFetchContext({
-      studentId: sid,
-      settings,
-      dormSelection,
-      schoolInboxState: readJSON<{ ids?: unknown[] }>(schoolInboxStateKeyFor(sid), {})?.ids || [],
-      loginMethod: resolveLoginMode()
-    })
-  }
-
   return snapshot
 }
 
@@ -301,19 +279,6 @@ export const startNotificationMonitor = async (
   monitorOnUpdate = typeof onUpdate === 'function' ? onUpdate : null
 
   const settings = getNotifySettings()
-  if (isCapacitorRuntime()) {
-    await syncBackgroundFetchContext({
-      studentId: sid,
-      settings,
-      dormSelection: getDormSelection()
-    })
-    try {
-      const keepAlive = await platformBridge.setAggressiveKeepAlive(!!settings.enableBackground)
-      pushDebugLog('Notify', `移动端前台服务状态 active=${keepAlive.active ? '1' : '0'}`, 'debug', keepAlive)
-    } catch (error) {
-      pushDebugLog('Notify', '移动端前台服务切换失败', 'warn', error)
-    }
-  }
   const intervalMinutes = Math.max(
     MIN_INTERVAL_MINUTES,
     Number(settings.intervalMinutes || DEFAULT_INTERVAL_MINUTES)
@@ -360,14 +325,6 @@ export const stopNotificationMonitor = async (): Promise<void> => {
   monitorChecking = false
   monitorOnUpdate = null
   pushDebugLog('Notify', '通知轮询已停止', 'debug')
-  if (isCapacitorRuntime()) {
-    try {
-      await platformBridge.setAggressiveKeepAlive(false)
-    } catch {
-      // ignore
-    }
-    await clearBackgroundFetchContext()
-  }
 }
 
 export const getLastNotifySnapshot = (studentId: unknown): NotificationSnapshot | null =>

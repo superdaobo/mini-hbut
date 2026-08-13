@@ -77,17 +77,28 @@ describe('notification delivery contract', () => {
     expect(workerSource).not.toContain('占位文件')
   })
 
-  it('keeps Android headless background fetch writing fresh widget snapshots', () => {
-    const source = readText(
-      'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
-    )
+  it('keeps widget refresh on WorkManager instead of legacy headless/keepalive paths (#616)', () => {
+    const mainSource = readText('android/app/src/main/java/com/hbut/mini/MainActivity.java')
+    const manifest = readText('android/app/src/main/AndroidManifest.xml')
+    const root = path.join(repoRoot, 'android/app/src/main/java/com/hbut/mini')
 
-    expect(source).toContain('Headless fetch event received')
-    expect(source).toContain('WidgetDataStore')
-    expect(source).toContain('updateTodayCoursesWidget(context, prefs, studentId, courses, currentWeek)')
-    expect(source).toContain('updateExamWidget(context, prefs, exams)')
-    expect(source).toContain('updateElectricityWidget(context, prefs, quantity, rawSelection)')
-    expect(source).toContain('WidgetRefreshScheduler.INSTANCE.triggerAllImmediate(context)')
+    expect(fs.existsSync(path.join(root, 'BackgroundFetchHeadlessTask.java'))).toBe(false)
+    expect(fs.existsSync(path.join(root, 'KeepAliveForegroundService.java'))).toBe(false)
+    expect(fs.existsSync(path.join(root, 'BootCompletedReceiver.java'))).toBe(false)
+    expect(mainSource).not.toContain('registerHeadlessTask')
+    expect(manifest).not.toContain('KeepAliveForegroundService')
+    expect(manifest).not.toContain('BootCompletedReceiver')
+    expect(manifest).not.toContain('RECEIVE_BOOT_COMPLETED')
+    expect(manifest).not.toContain('FOREGROUND_SERVICE')
+  })
+
+  it('keeps widget providers and WorkManager refresh registered in the Android manifest', () => {
+    const manifest = readText('android/app/src/main/AndroidManifest.xml')
+
+    expect(manifest).toContain('com.hbut.mini.widget.TodayCoursesProvider')
+    expect(manifest).toContain('com.hbut.mini.widget.ElectricityWidgetProvider')
+    expect(manifest).toContain('com.hbut.mini.widget.ExamWidgetProvider')
+    expect(manifest).toContain('com.hbut.mini.widget.TodayCoursesRemoteViewsService')
   })
 
   it('exposes Android notification settings without using the runtime permission prompt path', () => {
@@ -96,6 +107,7 @@ describe('notification delivery contract', () => {
 
     expect(nativeSource).toContain('openNotificationSettings')
     expect(nativeSource).toContain('Settings.ACTION_APP_NOTIFICATION_SETTINGS')
+    expect(nativeSource).not.toContain('KeepAliveForegroundService')
     expect(capacitorSource).toContain('plugin.openNotificationSettings')
   })
 
@@ -105,17 +117,22 @@ describe('notification delivery contract', () => {
 
     expect(source).toContain('androidx.work:work-runtime-ktx:2.9.0')
     expect(source).toContain('copy_native_sources')
-    expect(source).toContain('KeepAliveForegroundService.java')
-    expect(source).toContain('BootCompletedReceiver.java')
+    // #616：KeepAlive/BootCompleted 进入 stale 清单，从生成工程移除而非复制
     expect(source).toContain('stale_capacitor_sources')
     expect(source).toContain('stale.unlink()')
+    expect(source).toContain('java/com/hbut/mini/KeepAliveForegroundService.java')
+    expect(source).toContain('java/com/hbut/mini/BootCompletedReceiver.java')
     expect(source).toContain('res/drawable/ic_stat_mini_hbut.xml')
-    expect(source).toContain('if "KeepAliveForegroundService" not in text:')
-    expect(source).toContain('if "BootCompletedReceiver" not in text:')
+    expect(source).not.toContain('if "KeepAliveForegroundService" not in text:')
+    expect(source).not.toContain('if "BootCompletedReceiver" not in text:')
+    // 注入的权限清单不再包含旧保活/BOOT 权限
+    const requiredBlock = source.match(/required_permissions = \[[\s\S]*?\]/)?.[0] || ''
+    expect(requiredBlock).not.toContain('FOREGROUND_SERVICE')
+    expect(requiredBlock).not.toContain('RECEIVE_BOOT_COMPLETED')
+    expect(requiredBlock).not.toContain('WAKE_LOCK')
     expect(widgetRegisteredCheck).toBeGreaterThan(0)
     expect(source.slice(Math.max(0, widgetRegisteredCheck - 160), widgetRegisteredCheck)).not.toContain('return True')
     expect(source).toContain('android:exported="true"')
-    expect(source).toContain('FOREGROUND_SERVICE_DATA_SYNC')
   })
 
   it('does not inject Capacitor-only Java sources into generated Tauri Android projects', () => {
@@ -162,8 +179,9 @@ describe('notification delivery contract', () => {
       })
 
       expect(output).toContain('True')
-      expect(fs.existsSync(path.join(generatedNativeDir, 'KeepAliveForegroundService.java'))).toBe(true)
-      expect(fs.existsSync(path.join(generatedNativeDir, 'BootCompletedReceiver.java'))).toBe(true)
+      // #616：全部 Capacitor-only/保活类都不再进入生成的 Tauri 工程
+      expect(fs.existsSync(path.join(generatedNativeDir, 'KeepAliveForegroundService.java'))).toBe(false)
+      expect(fs.existsSync(path.join(generatedNativeDir, 'BootCompletedReceiver.java'))).toBe(false)
       expect(fs.existsSync(path.join(generatedNativeDir, 'HBUTNativePlugin.java'))).toBe(false)
       expect(fs.existsSync(path.join(generatedNativeDir, 'MiniHbutWidgetPlugin.java'))).toBe(false)
       expect(fs.existsSync(path.join(generatedNativeDir, 'BackgroundFetchHeadlessTask.java'))).toBe(false)
@@ -182,18 +200,19 @@ describe('notification delivery contract', () => {
     expect(source).toContain("'alert'")
   })
 
-  it('uses a monochrome Android status-bar icon for native notification builders', () => {
-    const backgroundFetchSource = readText(
-      'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
-    )
-    const keepAliveSource = readText(
-      'android/app/src/main/java/com/hbut/mini/KeepAliveForegroundService.java'
-    )
+  it('uses a monochrome/system status-bar small icon in native notification builders (#616)', () => {
+    // 旧 HeadlessTask / KeepAliveForegroundService 已退役；新 Tauri 后台插件
+    // 的本地通知一律使用系统单色小图标（stat_notify_*），不得用彩色启动图标。
+    const root = path.join(repoRoot, 'android/app/src/main/java/com/hbut/mini')
+    expect(fs.existsSync(path.join(root, 'BackgroundFetchHeadlessTask.java'))).toBe(false)
+    expect(fs.existsSync(path.join(root, 'KeepAliveForegroundService.java'))).toBe(false)
 
-    expect(backgroundFetchSource).toContain('setSmallIcon(R.drawable.ic_stat_mini_hbut)')
-    expect(keepAliveSource).toContain('setSmallIcon(R.drawable.ic_stat_mini_hbut)')
-    expect(backgroundFetchSource).not.toContain('setSmallIcon(R.mipmap.ic_launcher)')
-    expect(keepAliveSource).not.toContain('setSmallIcon(R.mipmap.ic_launcher)')
+    const pluginSources = readTree(
+      'src-tauri/plugins/tauri-plugin-hbut-background/android/src/main/kotlin/com/hbut/mini/background',
+      /\.kt$/
+    )
+    expect(pluginSources).toContain('setSmallIcon')
+    expect(pluginSources).not.toContain('setSmallIcon(R.mipmap.ic_launcher)')
   })
 
   it('keeps local debug Android installs separate from the signed production package', () => {
@@ -207,24 +226,11 @@ describe('notification delivery contract', () => {
     expect(releaseBlock).not.toContain('applicationIdSuffix')
   })
 
-  it('keeps Android BackgroundFetch headless class names aligned with each application id', () => {
-    const pluginSource = readText(
-      'node_modules/@transistorsoft/capacitor-background-fetch/android/src/main/java/com/transistorsoft/bgfetch/capacitor/BackgroundFetchPlugin.java'
-    )
-    const mainActivitySource = readText('android/app/src/main/java/com/hbut/mini/MainActivity.java')
-    const releaseHeadlessSource = readText(
-      'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
-    )
-    const debugHeadlessSource = readText(
-      'android/app/src/debug/java/com/hbut/mini/debug/BackgroundFetchHeadlessTask.java'
-    )
+  it('retires the Capacitor BackgroundFetch dependency graph (#616)', () => {
+    const packageJson = readText('package.json')
 
-    expect(pluginSource).toContain('getContext().getPackageName() + "." + HEADLESS_CLASSNAME')
-    expect(mainActivitySource).not.toContain('registerHeadlessTask')
-    expect(releaseHeadlessSource).toContain('package com.hbut.mini;')
-    expect(debugHeadlessSource).toContain('package com.hbut.mini.debug;')
-    expect(debugHeadlessSource).toContain('new com.hbut.mini.BackgroundFetchHeadlessTask()')
-    expect(debugHeadlessSource).toContain('onFetch(Context context, BGTask task)')
+    expect(packageJson).not.toContain('@transistorsoft/capacitor-background-fetch')
+    expect(packageJson).not.toContain('@capacitor/preferences')
   })
 
   it('wires school inbox checks through notify_center and Tauri command', () => {
@@ -243,17 +249,23 @@ describe('notification delivery contract', () => {
     expect(libSource).toContain('school_inbox_fetch')
   })
 
-  it('syncs school inbox background prefs for Android headless', () => {
-    const bgSource = readText('src/utils/background_fetch.ts')
-    const headlessSource = readText(
-      'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
-    )
+  it('no longer syncs legacy hbu_bg_* prefs or headless school inbox state (#616)', () => {
+    const notifySource =
+      readText('src/utils/notify_center.ts') +
+      '\n' +
+      readText('src/utils/notify_center_checks.ts') +
+      '\n' +
+      readText('src/utils/notify_center_util.ts')
+    const root = path.join(repoRoot, 'android/app/src/main/java/com/hbut/mini')
 
-    expect(bgSource).toContain('hbu_bg_enable_school_inbox')
-    expect(bgSource).toContain('hbu_bg_login_method')
-    expect(bgSource).toContain('hbu_bg_school_inbox_state:')
-    expect(headlessSource).toContain('checkSchoolInbox')
-    expect(headlessSource).toContain('notice.chaoxing.com/apis/other/getNoticeList')
+    // 前台去重快照键保留；旧 Headless 专用键与类全部退出
+    expect(notifySource).toContain("schoolInbox: 'hbu_notify_school_inbox'")
+    expect(notifySource).toContain('schoolInboxStateKeyFor')
+    expect(notifySource).not.toContain('syncSchoolInboxBackgroundPrefs')
+    expect(notifySource).not.toContain('hbu_bg_enable_school_inbox')
+    expect(notifySource).not.toContain('hbu_bg_login_method')
+    expect(notifySource).not.toContain("'hbu_bg_api_base'")
+    expect(fs.existsSync(path.join(root, 'BackgroundFetchHeadlessTask.java'))).toBe(false)
   })
 
   it('exposes school inbox toggle in notification settings UI', () => {
@@ -306,13 +318,14 @@ describe('notification delivery contract', () => {
 
   it('syncs school inbox read state into notify dedup snapshot', () => {
     const inboxView = readText('src/components/SchoolInboxView.vue')
-    const headlessSource = readText(
-      'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
-    )
+    const notifySource =
+      readText('src/utils/notify_center.ts') + '\n' + readText('src/utils/notify_center_checks.ts')
 
+    // 前台已读去重（markSchoolInboxNotified -> hbu_notify_school_inbox_state:*）继续生效
     expect(inboxView).toContain('markSchoolInboxNotified')
-    expect(headlessSource).toContain('optString("isread"')
-    expect(headlessSource).toContain('!isRead')
+    expect(notifySource).toContain('markSchoolInboxNotified')
+    expect(notifySource).toContain('schoolInboxStateKeyFor')
+    expect(notifySource).toContain('is_read')
   })
 
   it('uses Mini-HBUT branding on main tab headers', () => {

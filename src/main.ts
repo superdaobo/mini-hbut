@@ -8,9 +8,7 @@ import { initUiSettings } from './utils/ui_settings'
 import { initAppSettings } from './utils/app_settings'
 import { initFontSettings } from './utils/font_settings'
 import { initThemeBridge } from './utils/theme-bridge'
-import { initBackgroundFetchScheduler } from './utils/background_fetch'
-import { runNotificationCheck } from './utils/notify_center'
-import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
+import { migrateLegacyBackgroundState } from './utils/legacy_background_migration'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
 import { installGlobalErrorCapture, attachVueErrorCapture } from './utils/crash_reporter'
 import { invokeNative, isTauriRuntime } from './platform/native'
@@ -65,6 +63,10 @@ const runDeferredInitializers = () => {
         console.warn('[Bootstrap] markdown runtime init failed:', error)
       })
 
+    // #616：旧 Capacitor BackgroundFetch 已退役；升级用户旧后台开关
+    // 幂等迁移到新 config（hbu_notify_*），旧键同步清理。
+    void migrateLegacyBackgroundState()
+
     if (isTauriRuntime()) {
       void invokeNative<{ enableBridgeTools?: boolean } | null>('get_debug_runtime_config')
         .then((config) => {
@@ -75,29 +77,6 @@ const runDeferredInitializers = () => {
           console.warn('[Bootstrap] debug bridge init failed:', error)
         })
     }
-
-    void initBackgroundFetchScheduler(async ({ studentId, reason, taskId }) => {
-      try {
-        await runNotificationCheck({
-          studentId,
-          reason: reason || 'background-fetch',
-          launchCheck: false,
-          allowPermissionPrompt: false
-        })
-      } catch (error) {
-        console.warn('[BackgroundFetch] check failed:', taskId, error)
-      }
-      try {
-        await runCampusNetworkAutoLogin({
-          studentId,
-          reason: reason || 'background-fetch'
-        })
-      } catch (error) {
-        console.warn('[BackgroundFetch] campus network failed:', taskId, error)
-      }
-    }).catch((error) => {
-      console.warn('[Bootstrap] background fetch init failed:', error)
-    })
   }
 
   // 官网演示：立即加载字体（详情页一进就要图标）

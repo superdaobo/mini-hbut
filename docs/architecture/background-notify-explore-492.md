@@ -382,3 +382,39 @@ Headless 约束（代码注释/逻辑）：
 ---
 
 *探索完成日期：2026-07-24 · 对应 GitHub issue #492 · 只读分析，无实现变更*
+
+---
+
+## 13. 最终架构落地（#608/#609–#616 更新，取代 §4 探索建议）
+
+> 本节是 #608 Epic 与 #616 收口后的**正式现状**，探索期建议（§4 路径 A）已按
+> “纯本地 Path A”落地为 Tauri 原生实现。**以下 legacy 路径禁止重新引入。**
+
+### 13.1 三层通知模型
+
+| 层 | 场景 | 实现 | 入口 |
+|----|------|------|------|
+| L1 已知时间 | 课程/考试提醒到点 | 系统预调度 Local Notification | `src/utils/local_reminder_scheduler.ts` ↔ `schedule_local_notification_native`（#610） |
+| L2 未知变化 | 成绩/考试安排/学校消息变化 | Android WorkManager / iOS BGAppRefresh（baseline/diff，首次不通知） | `tauri-plugin-hbut-background`（#611/#612/#613/#615） |
+| L3 最终一致 | App launch/resume/foreground 完整同步 | Rust 业务层 `sync_grades` 等 + Event Inbox/Ledger 去重 | `src/utils/background_notification.ts` + `notification_event_ledger.ts`（#614） |
+
+### 13.2 平台限制与调试入口
+
+- Android：WorkManager 15/30/60 分钟为调度偏好，非严格定时；`enqueueUniquePeriodicWork(UPDATE)` 幂等；重启后由系统恢复，无需 BOOT 接收器。
+- iOS：BGAppRefresh 为 Best Effort；标识 `com.hbut.mini.background.grades-refresh`（生成工程 Info.plist，见插件 `ios/INTEGRATION.md`）；系统调试触发 `_simulateLaunchForTaskWithIdentifier:`。
+- 调试命令：`plugin:hbut-background|bg_get_state` / `bg_run_now` / `bg_peek_events` / `bg_consume_events`（7 个固定命令，DTO 不含敏感认证材料）。
+
+### 13.3 已退役 legacy（#616，禁止重新引入）
+
+- `@transistorsoft/capacitor-background-fetch`、`@capacitor/preferences`（依赖图已退出）；
+- `BackgroundFetchHeadlessTask.java`、`KeepAliveForegroundService.java`、`BootCompletedReceiver.java`（含 `src-tauri/gen/android` 副本）；
+- `HBUTNativePlugin` 前台服务保活入口（保留电池优化/通知设置跳转）；
+- `hbu_bg_*` 旧键（由 `src/utils/legacy_background_migration.ts` 幂等清理）；
+- iOS 旧 BGTask 标识 `com.transistorsoft.fetch` / `com.hbut.mini.notify.periodic` 与 `processing` 后台模式；
+- 移动后台的 Mini-HBUT API fallback（`https://hbut.6661111.xyz/api`）；移动后台直接访问学校站点，开发网站域名引用保留。
+
+### 13.4 保留项
+
+- Android Widget（Kotlin，`android/app/.../widget/**` + `scripts/patch_android_widget.py`）；
+- 桌面端 keep-screen-on / 前台轮询（与移动后台状态分离）；
+- 前端前台通知检查链（`notify_center*`）与本地通知能力。

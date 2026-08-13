@@ -23,10 +23,6 @@ import {
   getNotificationMonitorSettings,
   runNotificationCheck
 } from '../utils/notify_center.js'
-import {
-  getBackgroundFetchRuntimeState,
-  syncBackgroundFetchContext
-} from '../utils/background_fetch.js'
 import { reconcileLocalReminders } from '../utils/local_reminder_scheduler'
 import { formatRelativeTime } from '../utils/time.js'
 
@@ -58,7 +54,6 @@ const backgroundLockEnabled = ref(false)
 const backgroundLockSource = ref('')
 const aggressiveKeepAliveSupported = ref(false)
 const keepAliveReason = ref('')
-const backgroundFetchState = ref(null)
 
 const permissionState = ref('unknown')
 const statusMessage = ref('')
@@ -134,20 +129,6 @@ const saveSettings = () => {
   localStorage.setItem('hbu_bg_feature_grades', bgFeatureGrades.value ? 'true' : 'false')
   localStorage.setItem('hbu_bg_feature_exams', bgFeatureExams.value ? 'true' : 'false')
   localStorage.setItem('hbu_bg_feature_school', bgFeatureSchool.value ? 'true' : 'false')
-  syncBackgroundFetchContext({
-    studentId: props.studentId,
-    settings: {
-      enableBackground: enableBackground.value,
-      enableExamReminder: enableExamReminders.value,
-      enableGradeNotice: enableGradeNotices.value,
-      enablePowerNotice: enablePowerNotices.value,
-      enableClassReminder: enableClassReminders.value,
-      enableSchoolInbox: enableSchoolInboxNotices.value,
-      classLeadMinutes: classLeadMinutes.value,
-      intervalMinutes: checkInterval.value
-    },
-    dormSelection: selectedPath.value
-  }).catch(() => {})
   // #615：同步 #609 BackgroundCheckConfig 契约到后台插件（native business 列表
   // 由适配器映射：grades/exams/school_inbox），并刷新真实状态展示。
   void platformBridge
@@ -293,15 +274,6 @@ const nextClassText = computed(() => {
   return `${when}：${next.name}（${next.startClock || '--:--'} ${next.room || '教室待定'}）`
 })
 
-const backgroundFetchStatusText = computed(() => {
-  const state = backgroundFetchState.value
-  if (!state) return '状态未知'
-  if (!state?.supported) return state?.reason || '当前环境不支持'
-  if (state?.available) return '可用'
-  if (state?.configured) return '已配置（待系统调度）'
-  return '未配置'
-})
-
 // #615：per-feature 后台检测状态（真实来源：#609 BackgroundCheckState + 最近快照）
 const bgFeatureStatusText = computed(() => {
   const state = bgNativeState.value
@@ -336,6 +308,8 @@ const examsFeatureStatusText = computed(() => {
   return '等待检测'
 })
 
+// #616：keep-screen-on / 前台保活仅作为桌面端能力展示（移动端不再把它
+// 描述为后台智能检查成功；移动端调度状态见 bgFeatureStatusText）。
 const keepAliveStatusText = computed(() => {
   if (!aggressiveKeepAliveSupported.value) return keepAliveReason.value || '未启用'
   return backgroundLockEnabled.value ? '已运行' : '未运行'
@@ -709,11 +683,6 @@ const runManualCheck = async () => {
 
 const refreshRuntimeStates = async () => {
   currentRuntime.value = getRuntime()
-  try {
-    backgroundFetchState.value = await getBackgroundFetchRuntimeState()
-  } catch {
-    backgroundFetchState.value = null
-  }
 
   // #615：真实后台检查状态（supported/scheduler/auth/lastResult/error），
   // 不伪造 ready（#609 契约；插件未接入时如实显示 unavailable）
@@ -737,23 +706,27 @@ const refreshRuntimeStates = async () => {
 
 const handleBackgroundToggle = async () => {
   saveSettings()
+  // #616：Capacitor 壳不再启动前台服务保活（已退役）。移动端真实后台调度由
+  // Tauri 插件配置（saveSettings 内 setBackgroundCheckConfig）负责；
+  // Android 仍提示电池优化白名单（对 WorkManager 调度有实际影响）。
   if (currentRuntime.value === 'capacitor') {
-    const keepAlive = await platformBridge.setAggressiveKeepAlive(enableBackground.value)
-    aggressiveKeepAliveSupported.value = !!keepAlive?.supported
-    backgroundLockEnabled.value = !!keepAlive?.active
-    backgroundLockSource.value = String(keepAlive?.source || '')
-    keepAliveReason.value = String(keepAlive?.reason || '')
     if (enableBackground.value && isAndroid()) {
       showBatteryPrompt.value = true
-    }
-    if (enableBackground.value && !isAndroid() && currentRuntime.value === 'capacitor') {
-      statusMessage.value = 'iOS 后台任务由系统自动调度，前台服务保活不可用。请确保已授予通知权限。'
     }
     await refreshRuntimeStates()
     return
   }
 
   if (isTauriRuntime()) {
+    if (isAndroid() || isIOSLike()) {
+      // 移动端 Tauri：桌面 keep-screen-on 不适用于移动后台；仅刷新真实调度状态
+      if (enableBackground.value && isAndroid()) {
+        showBatteryPrompt.value = true
+      }
+      await refreshRuntimeStates()
+      return
+    }
+    // 桌面端：keep-screen-on / 前台保活仍是桌面产品能力（#608 非目标保留）
     if (enableBackground.value) {
       const result = await enableBackgroundPowerLock()
       backgroundLockEnabled.value = result.enabled
@@ -881,13 +854,8 @@ onMounted(async () => {
   await ensureAndroidChannel()
   await refreshRuntimeStates()
 
-  if (enableBackground.value && currentRuntime.value === 'capacitor') {
-    const keepAlive = await platformBridge.setAggressiveKeepAlive(true)
-    aggressiveKeepAliveSupported.value = !!keepAlive?.supported
-    backgroundLockEnabled.value = !!keepAlive?.active
-    backgroundLockSource.value = String(keepAlive?.source || '')
-    keepAliveReason.value = String(keepAlive?.reason || '')
-  } else if (enableBackground.value && isTauriRuntime()) {
+  // #616：移动端不再自动启动前台服务保活（已退役）；桌面端保留 keep-screen-on
+  if (enableBackground.value && isTauriRuntime() && !isAndroidLike() && !isIOSLike()) {
     const result = await enableBackgroundPowerLock()
     backgroundLockEnabled.value = result.enabled
     backgroundLockSource.value = result.source.join(' + ')
@@ -1241,10 +1209,10 @@ watch(
         <div class="notify-end-hint">长按卡片进入管理模式</div>
       </section>
 
-      <!-- Background Status -->
+      <!-- 后台状态（#616：保活仅桌面端展示；移动端展示真实调度状态） -->
       <div class="status-row" v-if="enableBackground">
-        <span class="status-pill soft">保活：{{ backgroundLockStatusText }}</span>
-        <span class="status-pill soft">调度：{{ backgroundFetchStatusText }}</span>
+        <span v-if="currentRuntime === 'tauri' && !isAndroidLike() && !isIOSLike()" class="status-pill soft">保活：{{ backgroundLockStatusText }}</span>
+        <span class="status-pill soft">调度：{{ bgFeatureStatusText }}</span>
       </div>
     </main>
 
