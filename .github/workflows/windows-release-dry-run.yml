@@ -1,6 +1,8 @@
 name: Windows Release Dry Run
 
 on:
+  # #598：普通源码 PR 不再触发完整 NSIS Release build + smoke
+  # 仅 packaging / release 配置相关变更才在 PR 与 main 上运行
   pull_request:
     branches: [main]
     paths:
@@ -8,9 +10,29 @@ on:
       - "package.json"
       - "package-lock.json"
       - "vite.config.*"
-      - "src/**"
-      - "src-tauri/**"
-      - "scripts/**"
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/tauri.conf.json"
+      - "src-tauri/build.rs"
+      - "src-tauri/icons/**"
+      - "scripts/ci/windows_release_smoke.ps1"
+      - "scripts/verify_release_config.mjs"
+      - ".github/workflows/release.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/windows-release-dry-run.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.*"
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/tauri.conf.json"
+      - "src-tauri/build.rs"
+      - "src-tauri/icons/**"
+      - "scripts/ci/windows_release_smoke.ps1"
+      - "scripts/verify_release_config.mjs"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 concurrency:

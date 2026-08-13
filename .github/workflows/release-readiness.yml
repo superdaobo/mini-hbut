@@ -1,8 +1,7 @@
 name: Release Readiness
 
 on:
-  pull_request:
-    branches: [main]
+  # #598：完整 Release Readiness 后置到 main 合并后，普通 PR 不再重复执行 check:all
   push:
     branches: [main]
   workflow_dispatch:
