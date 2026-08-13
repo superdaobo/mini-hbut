@@ -30,7 +30,33 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # PR 变更范围检测：输出 frontend / rust 两个范围
+  # 该 job 必须始终运行（不能按事件 skip）——否则 needs 链会把下游 job 一并跳过，
+  # 导致 push main 的全量验证静默失效（#598 修复记录）
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      # push / 非 PR 事件输出恒 true（全量验证）；PR 事件取 paths-filter 实际结果
+      frontend: ${{ github.event_name == 'pull_request' && steps.filter.outputs.frontend || 'true' }}
+      rust: ${{ github.event_name == 'pull_request' && steps.filter.outputs.rust || 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            frontend:
+              - 'src/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'vite.config.*'
+            rust:
+              - 'src-tauri/**'
+
   test-frontend:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,6 +116,8 @@ jobs:
         run: npm exec -- tauri info
 
   test-rust:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -132,3 +160,62 @@ jobs:
 
       - name: Cargo clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib
+
+  # Windows-only 编译保护：只做 cargo check，不构建 NSIS、不启动 EXE、不上传产物
+  # 替代旧的 Windows Release Dry Run 对普通源码 PR 的全量打包（#598 Layer 4）
+  test-rust-windows:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install frontend deps
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build frontend dist (tauri build.rs prerequisite)
+        run: npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          shared-key: mini-hbut-pr-rust-check-windows
+
+      - name: Cargo check (Windows-only compile protection)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --lib
+
+  # 稳定名称的 PR Gate：#598 要求 required check 名称稳定，不出现永久 Pending
+  # 只接受 success / skipped，任何 failure / cancelled / timed_out 都阻断合并
+  # name 必须保持 "PR Gate"（job 无 name 时 check 名会变成小写 job id，
+  # 与 branch protection 的 required context 大小写不匹配导致永久 BLOCKED）
+  pr-gate:
+    name: PR Gate
+    needs: [changes, test-frontend, test-rust, test-rust-windows]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required gate results
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          FRONTEND: ${{ needs.test-frontend.result }}
+          RUST: ${{ needs.test-rust.result }}
+          RUST_WINDOWS: ${{ needs.test-rust-windows.result }}
+        run: |
+          for gate in "$CHANGES" "$FRONTEND" "$RUST" "$RUST_WINDOWS"; do
+            case "$gate" in
+              success|skipped) ;;
+              *)
+                echo "PR Gate blocked: required check ended with '$gate'"
+                exit 1
+                ;;
+            esac
+          done
+          echo "PR Gate: all required checks passed (success or skipped)"

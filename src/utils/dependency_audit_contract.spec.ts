@@ -10,6 +10,8 @@ describe('dependency audit governance', () => {
     const workflow = read('.github/workflows/dependency-audit.yml')
     expect(workflow).toContain('contents: read')
     expect(workflow).toContain('persist-credentials: false')
+    expect(workflow).toContain('actions/cache@v4')
+    expect(workflow).toContain('~/.cargo/bin/cargo-audit')
     expect(workflow).toContain('cargo install cargo-audit --locked --version 0.22.2')
     expect(workflow).toContain('node scripts/verify_rustsec_acceptances.mjs')
     expect(workflow).toContain('cargo audit --file src-tauri/Cargo.lock')
