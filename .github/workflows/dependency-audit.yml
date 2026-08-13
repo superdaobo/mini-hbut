@@ -67,7 +67,14 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
+      - name: Cache pinned cargo-audit binary
+        uses: actions/cache@v4
+        id: cargo-audit-cache
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-0.22.2
       - name: Install pinned cargo-audit
+        if: steps.cargo-audit-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-audit --locked --version 0.22.2
       - name: Verify accepted advisory scopes
         run: node scripts/verify_rustsec_acceptances.mjs
