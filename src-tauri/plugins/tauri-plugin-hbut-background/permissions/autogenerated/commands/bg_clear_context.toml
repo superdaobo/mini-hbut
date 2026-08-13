@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-bg-clear-context"
+description = "Enables the bg_clear_context command without any pre-configured scope."
+commands.allow = ["bg_clear_context"]
+
+[[permission]]
+identifier = "deny-bg-clear-context"
+description = "Denies the bg_clear_context command without any pre-configured scope."
+commands.deny = ["bg_clear_context"]

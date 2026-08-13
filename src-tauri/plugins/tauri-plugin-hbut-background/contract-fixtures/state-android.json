@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "platform": "android",
+  "source": "android",
+  "enabled": true,
+  "configured": true,
+  "scope": "2024010101",
+  "lastRunAt": "2026-08-13T10:05:00Z",
+  "lastRunOk": true,
+  "pendingEvents": 1,
+  "error": null
+}

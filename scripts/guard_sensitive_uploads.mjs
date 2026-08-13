@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 
 const repoRoot = process.cwd()
 const blockedPaths = new Set([
@@ -11,7 +12,7 @@ const blockedPaths = new Set([
   'scripts/query_turso.py',
 ])
 
-const sensitivePatterns = [
+export const sensitivePatterns = [
   { name: 'Turso libsql 地址', regex: /libsql:\/\/[^\s"'`]+/g },
   { name: 'JWT/Turso 令牌', regex: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g },
   { name: 'HuggingFace Token', regex: /\bhf_[A-Za-z0-9]{20,}\b/g },
@@ -20,6 +21,27 @@ const sensitivePatterns = [
   {
     name: '敏感环境变量',
     regex: /\b(?:TURSO_TOKEN|TURSO_DB_AUTH_TOKEN|CLOUDFLARE_API_TOKEN|STATUS_EMAIL_RESEND_API_KEY)\b\s*[:=]\s*["'][^"'\r\n]+["']/g,
+  },
+  // ---- Identity Platform 敏感值类别（#618）----
+  // 密钥类环境变量赋值（要求带引号；.env.example 占位无引号，不会误报）
+  {
+    name: 'Identity 平台密钥类环境变量赋值',
+    regex:
+      /\b(?:IDENTITY_DATABASE_URL|IDENTITY_JWKS_JSON|IDENTITY_SIGNING_KEY|IDENTITY_PAIRWISE_SUBJECT_KEY|IDENTITY_CLIENT_SECRET_KEK|IDENTITY_HANDOFF_HMAC_KEY|WEB_SESSION_SECRET|DEVELOPER_OIDC_CLIENT_SECRET)\b\s*[:=]\s*["'][^"'\r\n]{6,}["']/g,
+  },
+  // Vercel API Token（vercel_ 前缀）
+  { name: 'Vercel Token', regex: /\bvercel_[A-Za-z0-9]{20,}\b/g },
+  // PostgreSQL/Neon 连接串（含 user:pass@ 凭据；排除 <> 占位符避免误报模板）
+  {
+    name: 'PostgreSQL 连接串（含密码）',
+    regex: /\b(?:postgres|postgresql|neon):\/\/[^:\s<>"'`\r\n]+:[^@\s<>"'`\r\n]+@/g,
+  },
+  // PEM 私钥块
+  { name: 'PEM 私钥块', regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
+  // OIDC 私钥 JWK：kty 与 d（私钥参数）同现才命中，普通 JSON 不会误报
+  {
+    name: 'OIDC 私钥 JWK（kty+d 组合）',
+    regex: /"kty"\s*:\s*"[A-Za-z0-9_]+"[\s\S]{0,300}?"d"\s*:\s*"[A-Za-z0-9_\-]{10,}"/g,
   },
 ]
 
@@ -47,7 +69,7 @@ function summarizeMatch(text, index) {
   return text.slice(start, end).replace(/\s+/g, ' ').trim()
 }
 
-function scanContent(filePath, text, source) {
+export function scanContent(filePath, text, source) {
   const findings = []
   const normalizedPath = normalizePath(filePath)
   if (blockedPaths.has(normalizedPath)) {
@@ -57,6 +79,14 @@ function scanContent(filePath, text, source) {
       rule: '禁止提交的敏感脚本',
       excerpt: normalizedPath,
     })
+  }
+  // 自身豁免：guard 脚本与其测试文件内含构造的假敏感样例（fixture 自检），
+  // 扫描会误报为真实泄漏；这两个文件本身是检测逻辑，不携带真实密钥。
+  if (
+    normalizedPath === 'scripts/guard_sensitive_uploads.mjs' ||
+    normalizedPath === 'scripts/guard_sensitive_uploads.test.mjs'
+  ) {
+    return findings
   }
   if (!text || /\0/.test(text)) return findings
   for (const pattern of sensitivePatterns) {
@@ -174,6 +204,10 @@ function scanSingleFile(filePath) {
 
 function main() {
   const mode = process.argv[2]
+  if (mode === 'self-test') {
+    runSelfTest()
+    return
+  }
   if (mode === 'pre-commit') {
     printFindingsAndExit(scanFilesWithReader(getStagedFiles(), readStagedBlob, 'staged'))
     return
@@ -193,8 +227,56 @@ function main() {
     console.log('[SecretGuard] 未发现敏感内容。')
     return
   }
-  console.error('用法: node scripts/guard_sensitive_uploads.mjs <pre-commit|pre-push|scan-file>')
+  console.error('用法: node scripts/guard_sensitive_uploads.mjs <pre-commit|pre-push|scan-file|self-test>')
   process.exit(2)
 }
 
-main()
+/**
+ * 内置 fixture 自检（node scripts/guard_sensitive_uploads.mjs self-test）：
+ * 正例必须全部命中，反例必须全部不命中；防止新增敏感类别误伤普通内容。
+ */
+function runSelfTest() {
+  const positive = [
+    ['Vercel Token', 'const t = "vercel_abc123ABC456def789GHI012jkl345";'],
+    ['PG 连接串', 'DATABASE_URL=postgresql://admin:s3cr3t-pass!word@db.neon.tech/mini_hbut'],
+    ['PG 连接串 neon', 'const u = "neon://dbuser:pa55w0rd@ep-foo-1.us-east-2.aws.neon.tech/db";'],
+    ['PEM 私钥', '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFA\n-----END PRIVATE KEY-----'],
+    ['OIDC 私钥 JWK', '{"kty":"EC","crv":"P-256","d":"abcdefghijklmnopqrstuvwxyz123456","x":"AA","y":"BB"}'],
+    ['Identity 环境变量', 'const env = { IDENTITY_CLIENT_SECRET_KEK: "0123456789abcdef0123456789abcdef" };'],
+    ['Identity DB env', 'process.env.IDENTITY_DATABASE_URL = "postgresql://u:pw@host/db";'],
+    ['已有 HF Token 回归', 'const k = "hf_abcdefghijklmnopqrstuvwxyz";'],
+  ]
+  const negative = [
+    ['普通 JSON', '{"name":"张三","scores":[98,87,76],"remark":"d: ok","note":"kty not really"}'],
+    ['短 d 值 JSON', '{"kty":"RSA","d":"123"}'],
+    ['.env.example 占位（无引号+尖括号）', 'IDENTITY_DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<database>'],
+    ['issuer 环境变量（非敏感）', 'IDENTITY_ISSUER=https://id.xn--vhq74jc2fzpchter27a.com'],
+    ['无凭据 pg URL', 'const db = "postgres://localhost:5432/myapp";'],
+    ['普通 vercel 字样', '访问 vercel.com 部署，token 请勿提交'],
+    ['短 client_secret 值', '{"client_secret":"none"}'],
+    ['普通文本', '今天天气不错，成绩查询应用工作正常。'],
+  ]
+  const failures = []
+  for (const [label, text] of positive) {
+    const findings = scanContent('fixtures/positive.txt', text, 'self-test')
+    if (findings.length === 0) failures.push(`[正例未命中] ${label}`)
+  }
+  for (const [label, text] of negative) {
+    const findings = scanContent('fixtures/negative.txt', text, 'self-test')
+    if (findings.length > 0) {
+      failures.push(`[反例误报] ${label} -> ${findings.map((f) => f.rule).join(', ')}`)
+    }
+  }
+  if (failures.length) {
+    console.error(`\n[SecretGuard self-test] ${failures.length} 项失败：`)
+    for (const failure of failures) console.error(`- ${failure}`)
+    process.exit(1)
+  }
+  console.log(`[SecretGuard self-test] 通过（正例 ${positive.length} 项 / 反例 ${negative.length} 项）。`)
+}
+
+// 被单测 import 时不执行 CLI 主流程
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMain) {
+  main()
+}

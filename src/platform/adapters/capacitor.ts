@@ -1,10 +1,31 @@
 import type {
+  BackgroundCheckConfig,
+  BackgroundCheckContext,
+  BackgroundCheckResult,
+  BackgroundCheckState,
+  BackgroundDetectedEvent,
   KeepAliveState,
   NotificationPermissionState,
   NotifyPayload,
   PlatformBridge
 } from '../types'
 import { isIOSLike } from '../runtime'
+
+// ---- 后台检查能力：Capacitor 迁移期降级（#609）----
+// 旧 BackgroundFetch 路径仍由 src/utils/background_fetch.ts 维护真实状态；
+// 新统一后台能力不在此承诺，kind 仅标记来源，status 保持 unavailable。
+
+const buildBackgroundCheckState = (): BackgroundCheckState => ({
+  supported: true,
+  enabled: false,
+  scheduler: { kind: 'capacitor-background-fetch', status: 'unavailable' },
+  auth: { status: 'unknown' },
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  lastResult: 'unknown',
+  reason: 'Capacitor 迁移期：旧 BackgroundFetch 状态由 background_fetch.ts 维护，新统一后台能力待 #611 接入',
+  updatedAt: new Date().toISOString()
+})
 
 const getWindow = () => (typeof window === 'undefined' ? undefined : (window as any))
 const getCapacitor = () => getWindow()?.Capacitor
@@ -351,5 +372,33 @@ export const capacitorBridge: PlatformBridge = {
     } catch {
       return false
     }
+  },
+
+  // ---- 后台检查能力（#609 契约）：迁移期降级，不伪造 ready ----
+
+  async getBackgroundCheckState(): Promise<BackgroundCheckState> {
+    return buildBackgroundCheckState()
+  },
+
+  async setBackgroundCheckConfig(_config: BackgroundCheckConfig): Promise<BackgroundCheckState> {
+    return buildBackgroundCheckState()
+  },
+
+  async runBackgroundCheckNow(): Promise<BackgroundCheckResult> {
+    return 'unknown'
+  },
+
+  async syncBackgroundCheckContext(_context: BackgroundCheckContext): Promise<boolean> {
+    return false
+  },
+
+  async clearBackgroundCheckContext(): Promise<boolean> {
+    return false
+  },
+
+  async consumeBackgroundEvents(
+    _handler: (event: BackgroundDetectedEvent) => void | Promise<void>
+  ): Promise<(() => void) | null> {
+    return null
   }
 }

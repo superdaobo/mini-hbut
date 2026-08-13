@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "scope": "2024010101",
+  "business": ["grades", "exams"],
+  "updatedAt": "2026-08-13T10:00:00Z"
+}

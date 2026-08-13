@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-bg-consume-events"
+description = "Enables the bg_consume_events command without any pre-configured scope."
+commands.allow = ["bg_consume_events"]
+
+[[permission]]
+identifier = "deny-bg-consume-events"
+description = "Denies the bg_consume_events command without any pre-configured scope."
+commands.deny = ["bg_consume_events"]

@@ -27,6 +27,7 @@ import {
   getBackgroundFetchRuntimeState,
   syncBackgroundFetchContext
 } from '../utils/background_fetch.js'
+import { reconcileLocalReminders } from '../utils/local_reminder_scheduler'
 import { formatRelativeTime } from '../utils/time.js'
 
 const props = defineProps({
@@ -138,6 +139,14 @@ const saveSettings = () => {
     },
     dormSelection: selectedPath.value
   }).catch(() => {})
+  // #610：通知设置变化（开关/提前分钟数）后触发系统预调度 reconcile，
+  // 旧 pending 按新设置准确取消/补建
+  if (props.studentId) {
+    void reconcileLocalReminders({
+      studentId: props.studentId,
+      reason: 'notification-settings'
+    }).catch(() => {})
+  }
 }
 
 const updateSettingsFromStorage = () => {
@@ -247,7 +256,6 @@ const nextClassText = computed(() => {
 const backgroundFetchStatusText = computed(() => {
   const state = backgroundFetchState.value
   if (!state) return '状态未知'
-  if (state?.runtime === 'tauri') return '桌面前台轮询（已启用）'
   if (!state?.supported) return state?.reason || '当前环境不支持'
   if (state?.available) return '可用'
   if (state?.configured) return '已配置（待系统调度）'

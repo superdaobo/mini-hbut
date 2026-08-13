@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "enabled": true,
+  "intervalMinutes": 30,
+  "business": ["grades", "exams"],
+  "scope": "2024010101"
+}

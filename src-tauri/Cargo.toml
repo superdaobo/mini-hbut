@@ -35,6 +35,8 @@ tauri-plugin-notification = "2.3"
 tauri-plugin-autostart = "2.5"
 tauri-plugin-keep-screen-on = "0.1.4"
 tauri-plugin-window-state = "2.4"
+# 自研移动后台插件骨架（#611）：Android WorkManager / iOS BGTask 统一原生承载层。
+tauri-plugin-hbut-background = { path = "plugins/tauri-plugin-hbut-background" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart", "rustls-tls", "stream"] }
@@ -102,6 +104,12 @@ tempfile = "3"
 # 测试专用：qr_decode.rs 的 #[cfg(test)] 单测用 qrcode 生成 QR 图（签到解码本身用 rqrr）。
 # 不进入发布依赖图（[dependencies] 中 qrcode 仍为 optional，仅 mobile-full 启用）。
 qrcode = "0.14"
+
+# 自研插件 workspace（#611：tauri-plugin-hbut-background 移动后台插件骨架）。
+# 后续自研插件统一追加到 members；release profile 与 lint 配置随 workspace 根生效。
+[workspace]
+members = ["plugins/tauri-plugin-hbut-background"]
+resolver = "2"
 
 [lints.clippy]
 unwrap_used = "warn"

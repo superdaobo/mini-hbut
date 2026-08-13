@@ -3,11 +3,31 @@ import { tauriBridge } from './adapters/tauri'
 import { webBridge } from './adapters/web'
 import { detectRuntime } from './runtime'
 import type {
+  BackgroundCheckConfig,
+  BackgroundCheckContext,
+  BackgroundCheckResult,
+  BackgroundCheckState,
+  BackgroundDetectedEvent,
   NotificationPermissionState,
   NotifyPayload,
   PlatformBridge,
   RuntimePlatform
 } from './types'
+export type {
+  BackgroundAuthStatus,
+  BackgroundCheckConfig,
+  BackgroundCheckContext,
+  BackgroundCheckResult,
+  BackgroundCheckState,
+  BackgroundDetectedEvent,
+  BackgroundDetectedEventType,
+  BackgroundSchedulerKind,
+  BackgroundSchedulerStatus,
+  NotificationScheduler,
+  ScheduledReminderInfo,
+  ScheduledReminderInput
+} from './types'
+export { normalizeBackgroundDetectedEvent } from './types'
 
 const pickBridge = (): PlatformBridge => {
   const runtime = detectRuntime()
@@ -57,5 +77,26 @@ export const platformBridge = {
   },
   async openNotificationSettings() {
     return pickBridge().openNotificationSettings()
+  },
+  // ---- 后台检查能力（#609 契约）----
+  async getBackgroundCheckState(): Promise<BackgroundCheckState> {
+    return pickBridge().getBackgroundCheckState()
+  },
+  async setBackgroundCheckConfig(config: BackgroundCheckConfig) {
+    return pickBridge().setBackgroundCheckConfig(config)
+  },
+  async runBackgroundCheckNow(): Promise<BackgroundCheckResult> {
+    return pickBridge().runBackgroundCheckNow()
+  },
+  async syncBackgroundCheckContext(context: BackgroundCheckContext) {
+    return pickBridge().syncBackgroundCheckContext(context)
+  },
+  async clearBackgroundCheckContext() {
+    return pickBridge().clearBackgroundCheckContext()
+  },
+  async consumeBackgroundEvents(
+    handler: (event: BackgroundDetectedEvent) => void | Promise<void>
+  ) {
+    return pickBridge().consumeBackgroundEvents(handler)
   }
 }

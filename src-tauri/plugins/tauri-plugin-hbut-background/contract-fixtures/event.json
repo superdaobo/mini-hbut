@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "evt-1755000000000-1",
+  "source": "android",
+  "kind": "synthetic_run",
+  "scope": "2024010101",
+  "occurredAt": "2026-08-13T10:05:00Z",
+  "payload": {
+    "synthetic": true,
+    "message": "Kotlin 执行成功"
+  }
+}

@@ -297,17 +297,21 @@ export const initBackgroundFetchScheduler = async (onEvent?: BackgroundFetchEven
 export const getBackgroundFetchRuntimeState = async (): Promise<BackgroundFetchRuntimeState> => {
   const runtime = getRuntime()
   if (runtime === 'tauri') {
+    // #609 语义修正：Tauri 不存在 Capacitor BackgroundFetch，之前把前台 interval
+    // 伪报为 supported/configured/available=true（mode='foreground-interval'），
+    // 会让移动端被错误显示为“后台调度已就绪”。现在明确降级：
+    // 桌面端仅前台轮询；移动端真实后台检查由新 PlatformBridge 契约（#609/#611+）接入。
     return {
       runtime,
-      supported: true,
-      configured: true,
-      available: true,
-      statusCode: 0,
-      mode: 'foreground-interval',
+      supported: false,
+      configured: false,
+      available: false,
+      statusCode: -1,
+      mode: 'unsupported',
       lastRunAt: backgroundFetchLastRunAt,
       lastTaskId: backgroundFetchLastTaskId,
       lastError: backgroundFetchLastError,
-      reason: '桌面端使用前台轮询，不依赖移动端后台调度插件'
+      reason: 'Tauri 无系统 BackgroundFetch：桌面端仅前台轮询，移动端后台检查待 #611 插件接入'
     }
   }
 
@@ -322,7 +326,7 @@ export const getBackgroundFetchRuntimeState = async (): Promise<BackgroundFetchR
       lastRunAt: backgroundFetchLastRunAt,
       lastTaskId: backgroundFetchLastTaskId,
       lastError: backgroundFetchLastError,
-      reason: '当前环境不支持 BackgroundFetch'
+      reason: 'Web/浏览器环境不支持 BackgroundFetch：页面关闭后无任何后台能力'
     }
   }
 

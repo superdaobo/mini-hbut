@@ -1,4 +1,9 @@
 import type {
+  BackgroundCheckConfig,
+  BackgroundCheckContext,
+  BackgroundCheckResult,
+  BackgroundCheckState,
+  BackgroundDetectedEvent,
   KeepAliveState,
   NotificationPermissionState,
   NotifyPayload,
@@ -14,6 +19,20 @@ const normalizePermission = (value: string | undefined): NotificationPermissionS
 const openByWindow = (target: string) => {
   window.open(target, '_blank', 'noopener,noreferrer')
 }
+
+// ---- 后台检查能力：Web 无任何后台调度，统一安全降级（#609）----
+
+const buildBackgroundCheckState = (): BackgroundCheckState => ({
+  supported: false,
+  enabled: false,
+  scheduler: { kind: 'unsupported', status: 'unavailable' },
+  auth: { status: 'unknown' },
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  lastResult: 'unknown',
+  reason: 'Web 环境不支持后台智能检查：页面关闭后无任何调度能力',
+  updatedAt: new Date().toISOString()
+})
 
 export const webBridge: PlatformBridge = {
   runtime: 'web',
@@ -121,5 +140,33 @@ export const webBridge: PlatformBridge = {
 
   async openNotificationSettings() {
     return false
+  },
+
+  // ---- 后台检查能力（#609 契约）：Web 一律安全降级，不抛未处理异常 ----
+
+  async getBackgroundCheckState(): Promise<BackgroundCheckState> {
+    return buildBackgroundCheckState()
+  },
+
+  async setBackgroundCheckConfig(_config: BackgroundCheckConfig): Promise<BackgroundCheckState> {
+    return buildBackgroundCheckState()
+  },
+
+  async runBackgroundCheckNow(): Promise<BackgroundCheckResult> {
+    return 'unknown'
+  },
+
+  async syncBackgroundCheckContext(_context: BackgroundCheckContext): Promise<boolean> {
+    return false
+  },
+
+  async clearBackgroundCheckContext(): Promise<boolean> {
+    return false
+  },
+
+  async consumeBackgroundEvents(
+    _handler: (event: BackgroundDetectedEvent) => void | Promise<void>
+  ): Promise<(() => void) | null> {
+    return null
   }
 }

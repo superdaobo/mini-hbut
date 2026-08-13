@@ -20,6 +20,9 @@
     "notification:allow-create-channel",
     "notification:allow-list-channels",
     "notification:allow-register-listener",
+    "notification:allow-get-pending",
+    "notification:allow-cancel",
+    "hbut-background:default",
     "shell:default",
     "window-state:default"
   ]

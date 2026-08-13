@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-bg-get-state"
+description = "Enables the bg_get_state command without any pre-configured scope."
+commands.allow = ["bg_get_state"]
+
+[[permission]]
+identifier = "deny-bg-get-state"
+description = "Denies the bg_get_state command without any pre-configured scope."
+commands.deny = ["bg_get_state"]

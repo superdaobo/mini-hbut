@@ -314,6 +314,14 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     // 回前台时重算跨天定时器剩余时间
     if (state.studentId.value) {
       runtime.notification.scheduleWidgetCrossDayTimer()
+      // #610：resume/跨天后第一次活跃 → 触发系统预调度 reconcile
+      // （窗口随"今天"滚动，跨天自然重算；幂等 diff 保证无变化时零系统调用）
+      void import('../../utils/local_reminder_scheduler').then((mod) =>
+        mod.reconcileLocalReminders({
+          studentId: state.studentId.value,
+          reason: 'resume'
+        }).catch(() => {})
+      ).catch(() => {})
     }
     void runCampusNetworkAutoLogin({
       studentId: state.studentId.value,

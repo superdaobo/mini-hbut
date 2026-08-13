@@ -1,0 +1,50 @@
+# 插件默认权限集：7 个固定跨端 API 全部对主窗口开放。
+# 本插件是应用自研内部插件，全部 command 由前端封装（guest-js）调用；
+# 后续如需要更细粒度可拆分权限，参考 Tauri 2 permission 语法补充。
+
+[default]
+description = "Default permissions for the hbut-background plugin"
+permissions = [
+  "allow-bg-configure",
+  "allow-bg-disable",
+  "allow-bg-sync-context",
+  "allow-bg-get-state",
+  "allow-bg-run-now",
+  "allow-bg-consume-events",
+  "allow-bg-clear-context",
+]
+
+[[permission]]
+identifier = "allow-bg-configure"
+description = "Allows invoking the bg_configure command (保存用户后台配置并更新系统调度)"
+commands.allowed = ["bg_configure"]
+
+[[permission]]
+identifier = "allow-bg-disable"
+description = "Allows invoking the bg_disable command (关闭系统调度并保留诊断状态)"
+commands.allowed = ["bg_disable"]
+
+[[permission]]
+identifier = "allow-bg-sync-context"
+description = "Allows invoking the bg_sync_context command (更新非敏感后台执行上下文)"
+commands.allowed = ["bg_sync_context"]
+
+[[permission]]
+identifier = "allow-bg-get-state"
+description = "Allows invoking the bg_get_state command (读取统一 BackgroundCheckState)"
+commands.allowed = ["bg_get_state"]
+
+[[permission]]
+identifier = "allow-bg-run-now"
+description = "Allows invoking the bg_run_now command (开发/调试一次性执行入口)"
+commands.allowed = ["bg_run_now"]
+
+[[permission]]
+identifier = "allow-bg-consume-events"
+description = "Allows invoking the bg_consume_events command (读取并清理 native event inbox)"
+commands.allowed = ["bg_consume_events"]
+
+[[permission]]
+identifier = "allow-bg-clear-context"
+description = "Allows invoking the bg_clear_context command (账号退出/切换时清理后台上下文)"
+commands.allowed = ["bg_clear_context"]

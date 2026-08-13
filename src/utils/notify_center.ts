@@ -35,6 +35,7 @@ import {
   syncSchoolInboxBackgroundPrefs,
   syncWidgetData
 } from './notify_center_checks.js'
+import { reconcileLocalReminders } from './local_reminder_scheduler'
 
 export interface NotificationSettings extends Record<string, unknown> {
   enableBackground?: boolean
@@ -181,6 +182,15 @@ export const runNotificationCheck = async (
     checkClassReminder(sid, settings, queue, schedule),
     checkSchoolInbox(sid, settings, queue)
   ])
+
+  // #610：后台静默课表刷新成功后触发系统预调度 reconcile（幂等，diff 无变化时零系统调用）
+  if (schedule?.success) {
+    void reconcileLocalReminders({
+      studentId: sid,
+      semesterHint: String(schedule?.semester || ''),
+      reason: 'notify-schedule-refresh'
+    }).catch(() => {})
+  }
 
   const sent = await sendQueuedNotifications(queue, allowPermissionPrompt)
   pushDebugLog(

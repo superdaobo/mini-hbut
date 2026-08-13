@@ -102,7 +102,10 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_fs::init());
+        .plugin(tauri_plugin_fs::init())
+        // #611：自研移动后台插件骨架（Android WorkManager / iOS BGTask 统一承载层）。
+        // 7 个 API 由插件内部注册：configure/disable/syncContext/getState/runNow/consumeEvents/clearContext。
+        .plugin(tauri_plugin_hbut_background::init());
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
@@ -414,6 +417,9 @@ pub fn run() {
             transport::tauri::system::resource_share_list_dir_native,
             transport::tauri::notification::send_test_notification_native,
             transport::tauri::notification::send_local_notification_native,
+            transport::tauri::notification::schedule_local_notification_native,
+            transport::tauri::notification::get_pending_local_notifications_native,
+            transport::tauri::notification::cancel_local_notifications_native,
             transport::tauri::notification::get_notification_permission_native,
             transport::tauri::notification::request_notification_permission_native,
             transport::tauri::auth::login,

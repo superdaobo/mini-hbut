@@ -1,0 +1,7 @@
+{
+  "schema": 999,
+  "enabled": true,
+  "intervalMinutes": 30,
+  "business": ["grades"],
+  "scope": "2024010101"
+}

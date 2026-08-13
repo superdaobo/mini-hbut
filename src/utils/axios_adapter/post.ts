@@ -1,6 +1,7 @@
 import { isTestAccountSession } from '../test_account.js';
 import { resolveTestAccountHttpResponse } from '../test_account_fixtures.js';
 import { handleAuthPost } from './auth';
+import { reconcileLocalReminders } from '../local_reminder_scheduler';
 import {
   asRecord,
   bridgePost,
@@ -16,6 +17,13 @@ import {
 export const post = async (url: string, data: JsonObject = {}, _config: JsonObject = {}) => {
     console.log('[Axios Adapter] POST request received:', url);
     console.log('[Axios Adapter] POST data:', JSON.stringify(data));
+
+    // #610：自定义课程 CRUD 成功后触发系统预调度 reconcile（课表变化后旧 pending 清理/补建）
+    const fireCustomCourseReconcile = () => {
+        const sid = String(data?.student_id || data?.studentId || '').trim();
+        if (!sid) return;
+        void reconcileLocalReminders({ studentId: sid, reason: 'custom-course-crud' }).catch(() => {});
+    };
     try {
         const testAccountResponse = resolveTestAccountHttpResponse('post', url, data);
         if (testAccountResponse && (isTestAccountSession() || url.includes('/v2/start_login'))) {
@@ -70,15 +78,32 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
             }
         }
         if (url.includes('/v2/schedule/query')) {
+            let schedule: JsonObject = {};
             if (!hasTauri) {
                 const res = await bridgePost('/sync_schedule', data || {});
                 if (res?.success && res?.data) {
-                    return mockResponse({ success: true, ...res.data });
+                    schedule = { success: true, ...(asRecord(res.data)) };
+                } else {
+                    return mockResponse({ success: false, error: errorMessage(res.error) || '获取课表失败' });
                 }
-                return mockResponse({ success: false, error: errorMessage(res.error) || '获取课表失败' });
+            } else {
+                const raw = await invoke('sync_schedule', { semester: data?.semester || null });
+                schedule = asRecord(raw);
             }
-            const schedule = await invoke('sync_schedule', { semester: data?.semester || null });
-            return mockResponse({ success: true, ...schedule });
+            // #610：课表同步成功后触发系统预调度 reconcile（幂等，重复同步不重复创建）
+            const schedulePayload = asRecord(schedule);
+            const scheduleSid = String(data?.student_id || '');
+            if (scheduleSid) {
+                void reconcileLocalReminders({
+                    studentId: scheduleSid,
+                    courses: Array.isArray(schedulePayload.data)
+                        ? (schedulePayload.data as Array<Record<string, unknown>>)
+                        : null,
+                    scheduleMeta: (schedulePayload.meta as Record<string, unknown>) || null,
+                    reason: 'schedule-sync'
+                }).catch(() => {});
+            }
+            return mockResponse({ success: true, ...schedulePayload });
         }
         if (url.includes('/v2/schedule/custom/list_all')) {
             try {
@@ -119,10 +144,12 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
             try {
                 if (hasTauri) {
                     const payload = await invoke('add_custom_schedule_course', { req: data || {} });
+                    fireCustomCourseReconcile();
                     return mockResponse(payload);
                 }
                 const res = await bridgePost('/schedule/custom/add', data || {});
                 if (res?.success && res?.data) {
+                    fireCustomCourseReconcile();
                     return mockResponse({ success: true, ...res.data });
                 }
                 return mockResponse({ success: false, error: errorMessage(res.error) || '添加自定义课程失败' });
@@ -134,10 +161,12 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
             try {
                 if (hasTauri) {
                     const payload = await invoke('update_custom_schedule_course', { req: data || {} });
+                    fireCustomCourseReconcile();
                     return mockResponse(payload);
                 }
                 const res = await bridgePost('/schedule/custom/update', data || {});
                 if (res?.success && res?.data) {
+                    fireCustomCourseReconcile();
                     return mockResponse({ success: true, ...res.data });
                 }
                 return mockResponse({ success: false, error: errorMessage(res.error) || '修改自定义课程失败' });
@@ -149,10 +178,12 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
             try {
                 if (hasTauri) {
                     const payload = await invoke('delete_custom_schedule_course', { req: data || {} });
+                    fireCustomCourseReconcile();
                     return mockResponse(payload);
                 }
                 const res = await bridgePost('/schedule/custom/delete', data || {});
                 if (res?.success && res?.data) {
+                    fireCustomCourseReconcile();
                     return mockResponse({ success: true, ...res.data });
                 }
                 return mockResponse({ success: false, error: errorMessage(res.error) || '删除自定义课程失败' });
@@ -207,6 +238,15 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
                             seat_no: exam.seat_number || exam.seat_no || ''
                         };
                     });
+                    // #610：考试同步成功后触发系统预调度 reconcile（确定性考试提醒，重复同步不重复登记）
+                    const examSid = String(data?.student_id || '');
+                    if (examSid) {
+                        void reconcileLocalReminders({
+                            studentId: examSid,
+                            exams: transformedExams as Array<Record<string, unknown>>,
+                            reason: 'exams-sync'
+                        }).catch(() => {});
+                    }
                     return mockResponse({ ...base, success: true, data: transformedExams });
                 }
                 return mockResponse(Object.keys(base).length ? base : { success: false, error: '获取考试失败' });

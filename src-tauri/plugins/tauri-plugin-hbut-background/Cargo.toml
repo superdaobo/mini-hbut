@@ -1,0 +1,39 @@
+[package]
+name = "tauri-plugin-hbut-background"
+version = "0.1.0"
+edition = "2021"
+description = "Mini-HBUT 自研 Tauri 2 移动后台插件（骨架）：Android WorkManager / iOS BGTask 的统一原生承载层"
+authors = ["HBUT Helper Team"]
+license = "GPL-3.0-or-later"
+# links 必须与 package.name 一致：主应用通过该字段发现/收集插件权限（官方插件规范）。
+links = "tauri-plugin-hbut-background"
+
+# 本插件是 src-tauri workspace 成员；release profile 继承 workspace 根（src-tauri/Cargo.toml）。
+
+[lib]
+name = "tauri_plugin_hbut_background"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+# 插件 ACL/权限 schema 生成（不需要 tauri.conf.json，官方插件模板语义）。
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+log = "0.4"
+
+# Android 原生桥：JNI 调用 Kotlin 插件骨架（HbutBackgroundPlugin 静态方法）。
+# 仅在 android target 编译，Windows/桌面构建不引入。
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

@@ -34,6 +34,7 @@ import {
   setUsageTrackingStudentId
 } from '../../utils/usage_tracker.js'
 import { scheduleUsageUpload } from '../../utils/usage_uploader.js'
+import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/local_reminder_scheduler'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
 export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
@@ -100,6 +101,13 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
         startNotificationMonitor({ studentId: state.studentId.value }).catch((e) => {
           console.warn('[Notify] 启动通知监控失败:', e)
         })
+        // #610：登录/本地身份恢复后触发系统预调度 reconcile（补建窗口内提醒）
+        void reconcileLocalReminders({
+          studentId: state.studentId.value,
+          reason: 'login'
+        }).catch((e) => {
+          console.warn('[Reminder] 登录后预调度 reconcile 失败:', e)
+        })
         resetCloudSyncCooldownForSession(state.studentId.value)
         runAutoCloudSyncAfterLogin({
           studentId: state.studentId.value,
@@ -149,6 +157,11 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       window.dispatchEvent(new CustomEvent('hbu-session-logout', {
         detail: { studentId: logoutSid, manual: true }
       }))
+      // #610：手动登出 = 取消该系统预调度提醒（确定的产品会话策略）；
+      // 自动登出（会话过期）不清除，恢复后提醒仍有效。
+      void clearRemindersForLogout(logoutSid).catch((e) => {
+        console.warn('[Reminder] 登出清理预调度提醒失败:', e)
+      })
     }
 
     runtime.navigation.applyViewState('home')

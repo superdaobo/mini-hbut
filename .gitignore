@@ -105,6 +105,14 @@ goal-*/
 # Local independent forum backend repository
 forum-backend/
 
+# Local private Mini-HBUT Identity Platform (Vercel CLI, 无 Git 部署)
+# 服务端私有源码不进主仓库；客户端代码 src/、src-tauri/ 不受影响
+/identity-platform/
+
+# Vercel local metadata (vercel link 生成，含 project/org 信息)
+.vercel/
+**/.vercel/
+
 # Permanently blocked secret-bearing scripts
 scripts/analyze_turso_grades.py
 scripts/query_turso.py
