@@ -1,0 +1,6 @@
+# 构建产物（本目录为纯 JVM 单测工程，gradle 运行时生成）
+build/
+.gradle/
+.gradle/
+kotlin/
+*.class

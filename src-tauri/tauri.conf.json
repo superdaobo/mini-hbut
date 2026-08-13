@@ -52,5 +52,18 @@
         "silent": true
       }
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["minihbut"]
+      },
+      "mobile": [
+        {
+          "scheme": ["minihbut"],
+          "appLink": false
+        }
+      ]
+    }
   }
 }

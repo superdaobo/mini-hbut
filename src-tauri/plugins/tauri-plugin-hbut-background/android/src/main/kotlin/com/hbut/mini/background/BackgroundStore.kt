@@ -173,12 +173,26 @@ class BackgroundStore(private val dir: File) {
         }
     }
 
-    /** 原子写：tmp 文件 + rename。 */
+    /** 原子写：tmp 文件 + move 覆盖（Windows/Android 上 File.renameTo 无法覆盖已存在目标）。 */
     private fun saveAtomic(name: String, value: Any) {
         val tmp = File(dir, "$name.tmp-${System.currentTimeMillis()}")
         tmp.writeText(value.toString())
         val target = path(name)
-        if (!tmp.renameTo(target)) {
+        try {
+            // 优先原子移动；个别文件系统不支持时退化为普通覆盖移动
+            try {
+                java.nio.file.Files.move(
+                    tmp.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                )
+            } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
+                java.nio.file.Files.move(
+                    tmp.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+        } catch (e: Exception) {
             tmp.delete()
             throw StoreException("原子写入失败: $name")
         }

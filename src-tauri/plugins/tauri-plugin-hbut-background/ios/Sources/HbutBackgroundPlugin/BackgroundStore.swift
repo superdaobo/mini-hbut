@@ -20,11 +20,34 @@ public enum StoreError: Error, LocalizedError {
 }
 
 /// 落盘存储：目录构造与 App 容器解耦（真机由调用方传 applicationSupportURL 等目录）。
+/// 单账号的成绩 baseline 条目（#613：按 scope 隔离，切换账号不污染）。
+public struct GradesBaselineEntry: Codable, Equatable {
+    public var signature: String
+    public var updatedAt: String
+
+    public init(signature: String, updatedAt: String) {
+        self.signature = signature
+        self.updatedAt = updatedAt
+    }
+}
+
+/// 全部账号的 baseline 表（grades-baseline.json，含 schema 版本）。
+public struct GradesBaselineMap: Codable, Equatable {
+    public var schema: Int
+    public var baselines: [String: GradesBaselineEntry]
+
+    public init(schema: Int = bgSchemaVersion, baselines: [String: GradesBaselineEntry] = [:]) {
+        self.schema = schema
+        self.baselines = baselines
+    }
+}
+
 public class BackgroundStore {
     public static let configFile = "config.json"
     public static let contextFile = "context.json"
     public static let stateFile = "state.json"
     public static let eventsFile = "events.json"
+    public static let baselineFile = "grades-baseline.json"
 
     private let dir: URL
     private let fileManager: FileManager
@@ -120,7 +143,40 @@ public class BackgroundStore {
         try saveEvents(kept)
         let removed = events.count - kept.count
         if removed > 0 { clearedAny = true }
+        // baseline 按 scope 隔离：账号切换/退出时同步清理（#613）
+        var baseline = loadGradesBaseline()
+        if baseline.baselines.removeValue(forKey: scope) != nil {
+            try saveGradesBaseline(baseline)
+            clearedAny = true
+        }
         return (clearedAny, removed)
+    }
+
+    // ---- grades baseline（#613：按 scope 隔离） ----
+
+    /// 读取全部账号 baseline 表（缺失/损坏返回空表）。
+    public func loadGradesBaseline() -> GradesBaselineMap {
+        guard let data = loadChecked(name: Self.baselineFile) else {
+            return GradesBaselineMap()
+        }
+        return (try? JSONDecoder().decode(GradesBaselineMap.self, from: data)) ?? GradesBaselineMap()
+    }
+
+    /// 原子写 baseline 表。
+    public func saveGradesBaseline(_ map: GradesBaselineMap) throws {
+        try saveAtomic(name: Self.baselineFile, value: map)
+    }
+
+    /// 读取指定 scope 的 baseline 条目。
+    public func loadGradesBaseline(scope: String) -> GradesBaselineEntry? {
+        loadGradesBaseline().baselines[scope]
+    }
+
+    /// 写入指定 scope 的 baseline（不存在则创建）。
+    public func setGradesBaseline(signature: String, scope: String, updatedAt: String) throws {
+        var map = loadGradesBaseline()
+        map.baselines[scope] = GradesBaselineEntry(signature: signature, updatedAt: updatedAt)
+        try saveGradesBaseline(map)
     }
 
     // ---- 内部实现 ----

@@ -1,0 +1,191 @@
+{
+  "schema": 1,
+  "version": "v1",
+  "note": "iOS 本地回退 fixture：#612 已冻结共享 contract-fixtures/grades-signature-v1.json（2026-08-13），本文件内容与共享版完全一致（已三端复验）。测试读取「共享优先、本地回退」，共享版缺失时使用本文件。",
+  "algorithm": {
+    "normalize": "trim all string fields; empty courseType/score equivalent to nil; credit formatted %.6f; numeric score: integral -> integer string (e.g. 92), fractional -> decimal string (e.g. 92.5); records with empty courseName skipped",
+    "canonicalLine": "courseName|courseType|credit|score",
+    "sort": "utf8 byte order",
+    "join": "\\n",
+    "hash": "sha256 hex lowercase"
+  },
+  "cases": [
+    {
+      "name": "first-baseline",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        },
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        }
+      ],
+      "expectedSignature": "c03c0e7f0c5e8d486cd1eb49ca64523388038cfe2fb64534b949e57c21d9aace"
+    },
+    {
+      "name": "identical-data",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        },
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        }
+      ],
+      "expectedSignature": "c03c0e7f0c5e8d486cd1eb49ca64523388038cfe2fb64534b949e57c21d9aace"
+    },
+    {
+      "name": "array-order-changed",
+      "records": [
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        },
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        }
+      ],
+      "expectedSignature": "c03c0e7f0c5e8d486cd1eb49ca64523388038cfe2fb64534b949e57c21d9aace"
+    },
+    {
+      "name": "new-course-added",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        },
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        },
+        {
+          "courseName": "程序设计",
+          "courseType": "选修",
+          "credit": 2.5,
+          "score": 90
+        }
+      ],
+      "expectedSignature": "de99ae0269db967da2f98509b18d154596796bab48ddf7852e3f5f4a39e5eaaa"
+    },
+    {
+      "name": "score-changed",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 95
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        },
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        }
+      ],
+      "expectedSignature": "3c1b388c3fc2b175ccaf4ee26e93c8e1afd9d52f5a08e40f319d565e75f69d73"
+    },
+    {
+      "name": "record-removed",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        }
+      ],
+      "expectedSignature": "6b3d7d0d808b7971360dd90ec2db2163d57c849e97dd73d6f4e076ea78240497"
+    },
+    {
+      "name": "unrelated-field-changed",
+      "records": [
+        {
+          "courseName": "  高等数学A  ",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92,
+          "updatedAt": "2026-08-13T12:00:00Z",
+          "rank": 3,
+          "rawId": "g-1001"
+        },
+        {
+          "courseName": "  大学英语  ",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85,
+          "updatedAt": "2026-08-13T12:00:00Z",
+          "rank": 3,
+          "rawId": "g-1001"
+        },
+        {
+          "courseName": "  体育  ",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀",
+          "updatedAt": "2026-08-13T12:00:00Z",
+          "rank": 3,
+          "rawId": "g-1001"
+        }
+      ],
+      "expectedSignature": "c03c0e7f0c5e8d486cd1eb49ca64523388038cfe2fb64534b949e57c21d9aace"
+    }
+  ]
+}

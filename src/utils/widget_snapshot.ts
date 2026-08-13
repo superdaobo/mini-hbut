@@ -2,6 +2,8 @@
 // 纯函数：从 Schedule_Cache 派生 TodayCourseSnapshot，无 I/O、无副作用
 
 import type { TodayCourseSnapshot, WidgetCourse } from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
+// #621：深链生成逻辑统一收敛到 src/platform/deep_link.ts（单一 minihbut:// 入口），此处仅薄委托。
+import { buildMiniHbutDeepLink } from '../platform/deep_link'
 
 /**
  * 节次 → 时间映射表（与 Dashboard / notify_center 保持一致）
@@ -350,6 +352,9 @@ export function a11yLabel(course: WidgetCourse): string {
 
 // ─── buildDeepLink ─────────────────────────────────────────────────────────────
 
+// #621：深链生成逻辑已统一迁移到 src/platform/deep_link.ts（单一 minihbut:// 入口）。
+// 此处保留薄委托，保持原导出签名与行为，避免影响既有调用方。
+
 /**
  * 构造 Widget 点击跳转的 deep link URL
  * - 基础：minihbut://schedule?date=YYYY-MM-DD&source=widget
@@ -360,11 +365,10 @@ export function buildDeepLink(
   snapshot: TodayCourseSnapshot,
   row?: WidgetCourse,
 ): string {
-  let url = `minihbut://schedule?date=${snapshot.date}&source=widget`
-  if (row != null && typeof row.period_start === 'number' && row.period_start >= 1) {
-    url += `&period=${row.period_start}`
-  }
-  return url
+  return buildMiniHbutDeepLink({
+    date: snapshot.date,
+    period: row != null && typeof row.period_start === 'number' ? row.period_start : undefined
+  })
 }
 
 // ─── renderFromBytes ──────────────────────────────────────────────────────────

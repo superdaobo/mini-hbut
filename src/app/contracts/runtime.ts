@@ -11,6 +11,11 @@ import type {
   useNavigationStore,
   useUpdateStore
 } from '../../stores'
+import type {
+  IdentityIntent,
+  IdentityIntentPhase,
+  IdentityIntentSnapshot
+} from '../../features/identity/identityIntentStore'
 import type { AppState } from '../state/appState'
 
 export type AuthStore = ReturnType<typeof useAuthStore>
@@ -181,6 +186,33 @@ export interface NotificationCoordinator {
   handleWidgetDeeplinkPayload(payload: Record<string, unknown>): void
 }
 
+// #621：Identity 授权请求调度契约（OS 深链 -> 内存调度 -> #622/#623 消费入口）。
+// IdentityIntent 仅内存（request_id + handoff 不持久化、不打印）。
+export interface IdentityCoordinator {
+  /** 稳定入口：提交外部授权意图（minihbut://identity 深链 / 后续二维码扫描） */
+  submitIntent(intent: IdentityIntent): void
+  /** App shell bootstrap 完成后冲刷冷启动缓冲（由 useAppRuntime 调用） */
+  flushPendingIntents(): void
+  /** 完成/拒绝/过期当前请求：终态（done/error）后自动推进队列中的下一个 */
+  completeIntent(requestId: string, status: 'done' | 'error', error?: string): void
+  /** 丢弃指定请求（队列内或活跃） */
+  dismissIntent(requestId: string): void
+  /** 推进活跃请求状态（#622 GET request detail 后调用） */
+  setPhase(
+    requestId: string,
+    phase: Exclude<IdentityIntentPhase, 'done' | 'error'> | 'error',
+    options?: { detail?: unknown; error?: string }
+  ): void
+  /** 重置（登出/测试） */
+  reset(): void
+  /** 当前调度快照（#623 overlay 用） */
+  getSnapshot(): IdentityIntentSnapshot
+  /** 订阅调度变化（返回退订函数） */
+  subscribe(listener: () => void): () => void
+  /** 释放内部 timer */
+  dispose(): void
+}
+
 export interface GradeCoordinator {
   loadGradesForCurrentView(options?: Record<string, unknown>): Promise<boolean>
   fetchGradesFromAPI(
@@ -240,6 +272,7 @@ export interface AppRuntime {
   update: UpdateCoordinator
   remoteConfig: RemoteConfigCoordinator
   notification: NotificationCoordinator
+  identity: IdentityCoordinator
   grade: GradeCoordinator
   handlers: AppHandlers
 }

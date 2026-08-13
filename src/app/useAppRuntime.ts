@@ -16,6 +16,7 @@ import { createGradeCoordinator } from './coordinators/GradeCoordinator'
 import { createUpdateCoordinator } from './coordinators/UpdateCoordinator'
 import { createRemoteConfigCoordinator } from './coordinators/RemoteConfigCoordinator'
 import { createNotificationCoordinator } from './coordinators/NotificationCoordinator'
+import { createIdentityCoordinator } from './coordinators/IdentityCoordinator'
 import { isIOSLike as detectIOSLike } from '../platform/runtime'
 import { isTestAccountSession } from '../utils/test_account.js'
 import { startNotificationMonitor, stopNotificationMonitor } from '../utils/notify_center.js'
@@ -54,6 +55,7 @@ export const useAppRuntime = () => {
   runtime.update = createUpdateCoordinator(runtime)
   runtime.remoteConfig = createRemoteConfigCoordinator(runtime)
   runtime.notification = createNotificationCoordinator(runtime)
+  runtime.identity = createIdentityCoordinator(runtime)
 
   const { state } = runtime
   const startup = runtime.navigation.readStartupSnapshot()
@@ -165,6 +167,8 @@ export const useAppRuntime = () => {
     const splashFailsafe = window.setTimeout(() => {
       if (state.showSplash.value) dismissSplash('failsafe-2.5s')
       state.mutable.appBootstrapped = true
+      // #621：bootstrap 完成后冲刷冷启动深链缓冲（内存 PendingExternalIntent -> Identity 调度）
+      runtime.identity.flushPendingIntents()
     }, 2500)
 
     document.addEventListener('click', handleGlobalLinkClick, true)
@@ -189,6 +193,8 @@ export const useAppRuntime = () => {
     }
     dismissSplash(cachedIdentity ? 'cached-identity' : 'enter-ui-first')
     state.mutable.appBootstrapped = true
+    // #621：bootstrap 完成后冲刷冷启动深链缓冲（幂等：无缓冲时直接返回）
+    runtime.identity.flushPendingIntents()
     runtime.navigation.replaceHistorySnapshot(state.currentView.value)
     runtime.session.ensureConfigAccess()
     window.clearTimeout(splashFailsafe)
@@ -297,6 +303,7 @@ export const useAppRuntime = () => {
     runtime.session.stopJwxtRecoveryPolling()
     runtime.remoteConfig.stopRemoteConfigRefresh()
     runtime.notification.stopWidgetCrossDayTimer()
+    runtime.identity.dispose()
     if (typeof state.mutable.removeNotificationActionListener === 'function') {
       state.mutable.removeNotificationActionListener()
       state.mutable.removeNotificationActionListener = null

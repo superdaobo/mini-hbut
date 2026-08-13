@@ -40,12 +40,16 @@ describe('android widget contract', () => {
     expect(manifest).toContain('android:host="exam"')
   })
 
-  it('handles widget navigation for electricity and exams in App.vue', () => {
+  it('handles widget navigation for electricity and exams (unified deep-link parser)', () => {
     const app = readAppContractSources()
+    const deepLink = readText('src/platform/deep_link.ts')
     expect(app).toContain('const handleNavigatePayload = (payload')
-    expect(app).toContain("hostname === 'electricity'")
-    expect(app).toContain("hostname === 'exam'")
     expect(app).toContain("addEventListener('widgetNavigate'")
+    // #621：深链解析统一迁移到 src/platform/deep_link.ts（单一 minihbut:// 入口），
+    // electricity/exam host 映射与 widgetNavigate 事件消费仍保持原契约。
+    expect(deepLink).toContain("host === 'electricity'")
+    expect(deepLink).toContain("host === 'exam'")
+    expect(deepLink).toContain('parseMiniHbutDeepLink')
   })
 
   it('supports responsive today-courses widget layouts', () => {

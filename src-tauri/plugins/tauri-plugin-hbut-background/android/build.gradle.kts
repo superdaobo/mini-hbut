@@ -21,19 +21,24 @@ kotlin {
     jvmToolchain(17)
 }
 
-// HbutBackgroundPlugin.kt 依赖 android.content.Context，仅真机编译（#612 集成进 app 工程）；
-// JVM 单测工程（models + store 为纯 Kotlin/org.json）排除该文件。
+// Android-only 文件依赖 android.*/androidx.work/androidx.core，仅真机编译（#612 集成进 app 工程）；
+// JVM 单测工程排除这些文件。其余文件（models/store/signature/parser/core/policy/http fetcher）
+// 为纯 Kotlin + org.json + java.net，JVM 单测直接覆盖。
 sourceSets {
     main {
         kotlin {
             exclude("**/HbutBackgroundPlugin.kt")
+            exclude("**/GradesCheckWorker.kt")
+            exclude("**/GradesCheckScheduler.kt")
+            exclude("**/GradesNotificationSender.kt")
         }
     }
 }
 
 tasks.test {
-    // 契约测试读取插件根目录的 contract-fixtures（三端共享单一事实源）
-    systemProperty("contract.fixtures.dir", "${projectDir.parentFile.parentFile}/contract-fixtures")
+    // 契约测试读取插件根目录的 contract-fixtures（三端共享单一事实源）。
+    // 注意：projectDir = android/，其父目录即插件根目录（tauri-plugin-hbut-background）。
+    systemProperty("contract.fixtures.dir", "${projectDir.parentFile}/contract-fixtures")
     testLogging {
         events("passed", "failed")
     }

@@ -1,6 +1,9 @@
 import type { AppRuntime, NotificationCoordinator } from '../contracts/runtime'
-import { isCapacitorRuntime } from '../../platform/native'
 import { platformBridge } from '../../platform'
+import {
+  installMiniHbutDeepLinkListeners,
+  type MiniHbutDeepLink
+} from '../../platform/deep_link'
 import { resolveNotificationActionTarget } from '../../platform/notification_actions'
 import { tryWriteSnapshotFromCache } from '../../utils/widget_bridge'
 import { isTestAccountSession } from '../../utils/test_account.js'
@@ -57,27 +60,6 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
     runtime.navigation.goToView(view, { push: true })
   }
 
-  const parseOpenUrl = (urlText: string) => {
-    try {
-      const url = new URL(urlText)
-      if (url.protocol !== 'minihbut:') return null
-      const source = url.searchParams.get('source') || 'widget'
-      if (url.hostname === 'schedule') {
-        return {
-          kind: 'schedule',
-          date: url.searchParams.get('date') || '',
-          period: url.searchParams.get('period') || '',
-          source
-        }
-      }
-      if (url.hostname === 'electricity') return { kind: 'navigate', view: 'electricity', source }
-      if (url.hostname === 'exam') return { kind: 'navigate', view: 'exams', source }
-      return null
-    } catch {
-      return null
-    }
-  }
-
   const runAfterBoot = (callback: () => void) => {
     if (state.mutable.appBootstrapped) return callback()
     const timer = window.setInterval(() => {
@@ -86,6 +68,31 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
       callback()
     }, 100)
     window.setTimeout(() => window.clearInterval(timer), 5000)
+  }
+
+  // #621：统一深链分发（widget / identity 共用同一 parser 与监听入口）。
+  // 深链解析已迁移到 src/platform/deep_link.ts；widget 保持原行为，identity 进入 IdentityCoordinator。
+  const dispatchMiniHbutDeepLink = (link: MiniHbutDeepLink) => {
+    if (link.kind === 'widget-schedule') {
+      runAfterBoot(() =>
+        handleWidgetDeeplinkPayload({
+          date: link.date,
+          period: link.period,
+          source: link.source
+        })
+      )
+      return
+    }
+    if (link.kind === 'navigate') {
+      runAfterBoot(() => handleNavigatePayload({ view: link.view, source: link.source }))
+      return
+    }
+    // identity：交给 IdentityCoordinator（内部处理冷启动缓冲与队列调度）
+    runtime.identity.submitIntent({
+      requestId: link.requestId,
+      handoff: link.handoff,
+      arrivedAt: Date.now()
+    })
   }
 
   const installWidgetDeeplinkListeners = () => {
@@ -106,17 +113,10 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
       }
     }) as EventListener)
 
-    if (!isCapacitorRuntime()) return
-    void import('@capacitor/app').then((mod) => {
-      void mod.App.addListener('appUrlOpen', (event) => {
-        const payload = event?.url ? parseOpenUrl(event.url) : null
-        if (!payload) return
-        runAfterBoot(() => {
-          if (payload.kind === 'schedule') handleWidgetDeeplinkPayload(payload)
-          else handleNavigatePayload(payload)
-        })
-      })
-    }).catch(() => {})
+    // #621：统一深链监听（Tauri getCurrent/onOpenUrl + Capacitor appUrlOpen 兼容）。
+    // 迁移前 NotificationCoordinator 维护独立 parseOpenUrl + Capacitor appUrlOpen 分支，
+    // 现已统一收敛到 deep_link.ts，widget 与 identity 走同一 parser/dispatcher。
+    void installMiniHbutDeepLinkListeners(dispatchMiniHbutDeepLink)
   }
 
   const installNotificationActionListener = async () => {

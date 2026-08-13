@@ -23,6 +23,7 @@
     "notification:allow-get-pending",
     "notification:allow-cancel",
     "hbut-background:default",
+    "deep-link:default",
     "shell:default",
     "window-state:default"
   ]

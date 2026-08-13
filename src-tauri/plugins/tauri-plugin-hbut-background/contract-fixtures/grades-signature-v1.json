@@ -1,0 +1,200 @@
+{
+  "schema": 1,
+  "version": "v1",
+  "frozenBy": "#612 Android WorkManager MVP（fixture 冻结方）",
+  "frozenAt": "2026-08-13",
+  "note": "GradeSignatureV1 跨端共享 fixture（Android #612 / iOS #613 单一事实源）。输入为标准化成绩记录数组，expectedSignature 为既定算法输出。任何一端修改算法必须同步更新本文件并三端复验。数组顺序变化与无关字段变化必须产出与基线相同的 signature（不误报）；新增/删除/成绩变化必须产出不同 signature（不漏报）。",
+  "algorithm": {
+    "normalize": "trim all string fields; empty courseType/score equivalent to nil; credit formatted %.6f (IEEE double, printf semantics); numeric score: integral -> integer string (e.g. 92), fractional -> decimal string (e.g. 92.5); records with empty courseName skipped",
+    "canonicalLine": "courseName|courseType|credit|score",
+    "sort": "utf8 byte order",
+    "join": "\\n",
+    "hash": "sha256 hex lowercase"
+  },
+  "cases": [
+    {
+      "name": "first-baseline",
+      "description": "首次数据：建立 baseline 的输入样例（#612 验收：首次只建 baseline 不通知）",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        },
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        }
+      ],
+      "expectedSignature": "c03c0e7f0c5e8d486cd1eb49ca64523388038cfe2fb64534b949e57c21d9aace"
+    },
+    {
+      "name": "identical-data",
+      "description": "完全相同数据重复执行：hash 必须与基线一致（#612 验收：相同数据不重复通知）",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        },
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        }
+      ],
+      "expectedSignature": "c03c0e7f0c5e8d486cd1eb49ca64523388038cfe2fb64534b949e57c21d9aace"
+    },
+    {
+      "name": "array-order-changed",
+      "description": "完全相同但数组顺序变化：排序后 hash 必须与基线一致（#612 验收：shared fixture 对数组顺序变化不误报）",
+      "records": [
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        },
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        }
+      ],
+      "expectedSignature": "c03c0e7f0c5e8d486cd1eb49ca64523388038cfe2fb64534b949e57c21d9aace"
+    },
+    {
+      "name": "new-course-added",
+      "description": "新增一门成绩：hash 必须与基线不同（#612 验收：新增成绩生成一次 grades_changed）",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        },
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        },
+        {
+          "courseName": "程序设计",
+          "courseType": "选修",
+          "credit": 2.5,
+          "score": 90
+        }
+      ],
+      "expectedSignature": "de99ae0269db967da2f98509b18d154596796bab48ddf7852e3f5f4a39e5eaaa"
+    },
+    {
+      "name": "score-changed",
+      "description": "已有课程成绩改变（高等数学 92 -> 95）：hash 必须与基线不同（#612 验收：成绩改变生成一次 grades_changed）",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 95
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        },
+        {
+          "courseName": "体育",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀"
+        }
+      ],
+      "expectedSignature": "3c1b388c3fc2b175ccaf4ee26e93c8e1afd9d52f5a08e40f319d565e75f69d73"
+    },
+    {
+      "name": "record-removed",
+      "description": "删除一条成绩记录：hash 必须与基线不同（#612 验收：删除记录也能稳定检测）",
+      "records": [
+        {
+          "courseName": "高等数学A",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92
+        },
+        {
+          "courseName": "大学英语",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85
+        }
+      ],
+      "expectedSignature": "6b3d7d0d808b7971360dd90ec2db2163d57c849e97dd73d6f4e076ea78240497"
+    },
+    {
+      "name": "unrelated-field-changed",
+      "description": "无关字段变化（updatedAt/rank/rawId 等）与前后空白：hash 必须与基线一致（#612 验收：无关字段不误报；trim/normalize）",
+      "records": [
+        {
+          "courseName": "  高等数学A  ",
+          "courseType": "必修",
+          "credit": 5,
+          "score": 92,
+          "updatedAt": "2026-08-13T12:00:00Z",
+          "rank": 3,
+          "rawId": "g-1001"
+        },
+        {
+          "courseName": "  大学英语  ",
+          "courseType": "必修",
+          "credit": 3,
+          "score": 85,
+          "updatedAt": "2026-08-13T12:00:00Z",
+          "rank": 3,
+          "rawId": "g-1001"
+        },
+        {
+          "courseName": "  体育  ",
+          "courseType": "必修",
+          "credit": 1,
+          "score": "优秀",
+          "updatedAt": "2026-08-13T12:00:00Z",
+          "rank": 3,
+          "rawId": "g-1001"
+        }
+      ],
+      "expectedSignature": "c03c0e7f0c5e8d486cd1eb49ca64523388038cfe2fb64534b949e57c21d9aace"
+    }
+  ]
+}

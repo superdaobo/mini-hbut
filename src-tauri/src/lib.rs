@@ -90,6 +90,21 @@ const GRADE_TEACHER_CACHE_TABLE: &str = "grade_teacher_cache";
 pub fn run() {
     let builder = tauri::Builder::default();
 
+    // #621：Single Instance 必须最早注册（Windows/Linux 深链第二实例启动时，
+    // 由它把 argv 交给已运行实例；deep-link 插件随后统一转发到前端 onOpenUrl 事件）。
+    // 回调只负责聚焦已运行窗口，不解析/不打印完整 deep-link（argv 含 handoff secret）。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+
+    // #621：统一 minihbut:// 深链插件（desktop + mobile 同 source 配置，见 tauri.conf.json plugins.deep-link）。
+    let builder = builder.plugin(tauri_plugin_deep_link::init());
+
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_autostart::init(
         tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -112,6 +127,13 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // #621：Linux 始终由插件注册 scheme；Windows 仅 debug（dev）注册，生产由安装器注册，
+            // 避免每次启动篡改系统协议关联。
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let _ = app.deep_link().register_all();
+            }
             if let Ok(app_data_path) = app.path().app_data_dir() {
                 let _ = std::fs::create_dir_all(&app_data_path);
                 std::env::set_var(

@@ -9,10 +9,12 @@ final class ContractTests: XCTestCase {
 
     private func fixture(_ name: String) throws -> Data {
         // #file = ios/Tests/HbutBackgroundPluginTests/ContractTests.swift
+        // 删 4 层到插件根（ios/Tests/HbutBackgroundPluginTests -> ... -> 插件根）再进 contract-fixtures
         let url = URL(fileURLWithPath: #file)
             .deletingLastPathComponent() // Tests/HbutBackgroundPluginTests
             .deletingLastPathComponent() // Tests
             .deletingLastPathComponent() // ios
+            .deletingLastPathComponent() // 插件根（与 contract-fixtures 平级）
             .appendingPathComponent("contract-fixtures")
             .appendingPathComponent(name)
         return try Data(contentsOf: url)

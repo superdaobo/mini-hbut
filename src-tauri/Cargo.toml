@@ -35,6 +35,8 @@ tauri-plugin-notification = "2.3"
 tauri-plugin-autostart = "2.5"
 tauri-plugin-keep-screen-on = "0.1.4"
 tauri-plugin-window-state = "2.4"
+# #621：统一 minihbut:// 深链入口（desktop + mobile 共用 source 配置；Windows/Linux 生产注册由安装器完成）。
+tauri-plugin-deep-link = "2"
 # 自研移动后台插件骨架（#611）：Android WorkManager / iOS BGTask 统一原生承载层。
 tauri-plugin-hbut-background = { path = "plugins/tauri-plugin-hbut-background" }
 serde = { version = "1.0", features = ["derive"] }
@@ -74,6 +76,8 @@ smcrypto = "0.3.1"
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 notify-rust = "4.18"
 xcap = "0.7"
+# #621：Single Instance + deep-link feature：Windows/Linux 第二实例启动时把深链转发给已运行实例。
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "0.15"
