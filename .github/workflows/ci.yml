@@ -30,18 +30,20 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  # PR 变更范围检测：仅 pull_request 事件运行，输出 frontend / rust 两个范围
-  # push 到 main/dev 时不做裁剪（全量验证），由下游 job 的 if 条件兜底
+  # PR 变更范围检测：输出 frontend / rust 两个范围
+  # 该 job 必须始终运行（不能按事件 skip）——否则 needs 链会把下游 job 一并跳过，
+  # 导致 push main 的全量验证静默失效（#598 修复记录）
   changes:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
-      frontend: ${{ steps.filter.outputs.frontend }}
-      rust: ${{ steps.filter.outputs.rust }}
+      # push / 非 PR 事件输出恒 true（全量验证）；PR 事件取 paths-filter 实际结果
+      frontend: ${{ github.event_name == 'pull_request' && steps.filter.outputs.frontend || 'true' }}
+      rust: ${{ github.event_name == 'pull_request' && steps.filter.outputs.rust || 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name == 'pull_request'
         with:
           filters: |
             frontend:
