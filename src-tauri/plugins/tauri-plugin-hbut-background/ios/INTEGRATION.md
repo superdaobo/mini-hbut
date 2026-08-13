@@ -114,19 +114,51 @@ App 初始化 → 注册 task identifier/handler（不依赖 Vue mounted）
 
 ---
 
-## 6. Rust ↔ Swift 桥接入点（需主 Agent 收口，不在本 Agent 写边界内）
+## 6. Rust ↔ Swift 桥（#614 已收口，源码已就绪）
 
-本 Agent 未改动 `src-tauri/plugins/tauri-plugin-hbut-background/src/**`（#613 写边界）。
-Rust `mobile.rs` 的 ios 分支目前仍返回 synthetic（#611 状态）。接入 BGTask 真实业务时：
+> 状态（#614）：Rust `mobile.rs` ios 分支已从 synthetic 改为真实 FFI 桥，
+> Swift 侧新增 `CFFIBridge.swift`（@_cdecl 导出）。**Windows 本机无法编译/验证 iOS target**，
+> 以下为已完成的代码级接入，待 macOS/Xcode 构建验证。
 
-1. `mobile.rs` ios 分支改为 FFI/`swift-rs` 调用本插件入口（方法签名与 Kotlin 桥对齐）：
-   `configure / disable / syncContext / setSecureEnvelope / runNow / getStateJson /
-   consumeEvents / clearContext`（均返回 JSON 字符串）。
-2. **安全材料写入**：Rust 会话层把「已完成认证的最小请求材料」
-   （endpoint + 认证头等）经 `setSecureEnvelope` 写入 Keychain
-   （`SecureStore`，按 scope 隔离；明文密码不得交给 Swift，#608 红线 2）。
-3. `registerBackgroundTask()` 由 AppDelegate 直接调用（不依赖桥），
-   其余入口由 Rust 经桥转发。
+### 6.1 桥符号与调用约定
+
+Rust `mobile.rs`（`#[cfg(target_os = "ios")]`）通过 `extern "C"` 声明调用
+`ios/Sources/HbutBackgroundPlugin/CFFIBridge.swift` 导出的符号：
+
+| Rust 调用 | Swift 符号 | 语义 |
+|---|---|---|
+| `run_native` | `hbut_bg_run_now(scope, forceSynthetic, storeDir)` | runNow 走 Swift 真实核心（source=manual） |
+| `configure_native` | `hbut_bg_configure(configJson, storeDir)` | 保存配置 + 提交 BGAppRefresh request |
+| `disable_native` | `hbut_bg_disable(keepDiagnostics, storeDir)` | 取消 pending + 落盘 enabled=false |
+| `sync_context_native` | `hbut_bg_sync_context(contextJson, storeDir)` | 保存 context + ready 后补调度 |
+| `clear_context_native` | `hbut_bg_clear_context(scope, storeDir)` | 清理 context/state/events/baseline + Keychain |
+| `set_secure_envelope`（Rust 会话层调用） | `hbut_bg_set_secure_envelope(envelopeJson, storeDir)` | 认证材料写入 Keychain（#608 红线 2） |
+| （释放） | `hbut_bg_free_string(ptr)` | 释放返回的 JSON 字符串 |
+
+约定：
+
+- 返回统一 JSON 字符串（`RunSummary` / config / state 等，与 Kotlin 桥同构），
+  Rust 侧解析并如实映射成败（不伪造 ready）；
+- 入参 C 字符串可空（nil 表示缺省）；布尔用 Int32（0/1）；
+- `storeDir` 由 Rust 传入（Rust `app_data_dir/background`），保证与 Rust/Kotlin 共享同一
+  `events.json`；BGTask 场景（无 Rust 进程）由 Swift `defaultDir()` 兜底。
+
+### 6.2 接入前置（Xcode 工程侧，未在本仓库内）
+
+1. `tauri ios init` 生成 `src-tauri/gen/ios/`；
+2. 按本文档第 3 节配置 Info.plist（`UIBackgroundModes=fetch` +
+   `BGTaskSchedulerPermittedIdentifiers`）；
+3. 按本文档第 5 节以 SPM 本地包方式加入 `ios/` 目录（`@_cdecl` 符号随 App 链接）；
+4. AppDelegate `didFinishLaunchingWithOptions` 调用
+   `HbutBackgroundPlugin.registerBackgroundTask()`（注册 handler + 修复调度）；
+5. 构建验证：`cargo build --target aarch64-apple-ios` 应能链接通过（符号由 Swift 提供）。
+
+> 注意：**安全材料写入**（`setSecureEnvelope` → Keychain）由 Rust 会话层按需调用
+> （#608 红线 2：JS 不得提交认证材料）；FFI 符号与 Rust wrapper（mobile.rs
+> `ios::set_secure_envelope`）已在 #614 收口就绪，Rust 会话层登录成功后可直调；
+> Android 侧等价能力为 `filesDir/hbut_cookie_snapshot.json`（主应用
+> `src-tauri/src/http_client/session.rs` 写入）。iOS 会话层调用点接入
+> （`src-tauri/src/**`，#622 范围）不在本 Issue 内实现。
 
 ---
 

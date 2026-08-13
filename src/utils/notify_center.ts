@@ -192,7 +192,7 @@ export const runNotificationCheck = async (
     }).catch(() => {})
   }
 
-  const sent = await sendQueuedNotifications(queue, allowPermissionPrompt)
+  const sent = await sendQueuedNotifications(queue, allowPermissionPrompt, sid)
   pushDebugLog(
     'Notify',
     `通知检查完成 queue=${queue.length} sent=${sent.length}`,

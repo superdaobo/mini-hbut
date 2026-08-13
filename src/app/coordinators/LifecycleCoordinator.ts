@@ -311,7 +311,7 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     })
     // 回前台：探测 loopback bridge，并通知内嵌页恢复（官网/模块）
     void recoverEmbeddedWebAfterResume(targetView, idle)
-    // 回前台时重算跨天定时器剩余时间
+    // 回前台：重算跨天定时器剩余时间
     if (state.studentId.value) {
       runtime.notification.scheduleWidgetCrossDayTimer()
       // #610：resume/跨天后第一次活跃 → 触发系统预调度 reconcile
@@ -321,6 +321,17 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
           studentId: state.studentId.value,
           reason: 'resume'
         }).catch(() => {})
+      ).catch(() => {})
+      // #614：resume/launch → 消费 native background event inbox。
+      // 聚合同域事件 → 每域一次 Rust 完整同步 → 写通知去重 ledger → ack；
+      // 模块内 single-flight 与 320ms 重入节流共同保证连发不并发重复同步。
+      void import('../../utils/background_notification').then((mod) =>
+        mod.consumeBackgroundEventsOnce({
+          studentId: state.studentId.value,
+          reason: source
+        }).catch((error) => {
+          console.warn('[BackgroundInbox] consume failed:', error)
+        })
       ).catch(() => {})
     }
     void runCampusNetworkAutoLogin({

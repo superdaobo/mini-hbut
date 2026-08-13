@@ -6,6 +6,7 @@
 //!   desktop no-op；测试注入假 runner 验证闭环，不依赖 Tauri AppHandle；
 //! - runNow 闭环：Rust 内存状态 -> NativeRunner -> 更新 state + 追加 event -> 落盘 -> 前端回读。
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::dto::{
@@ -20,6 +21,47 @@ pub trait NativeRunner: Send + Sync {
     /// 请求 native 执行一次检查。返回 None 表示当前平台无 native 承载（desktop/web）。
     /// 实现必须返回真实平台结果，不统一伪造 ready。
     fn run_native(&self, scope: &Option<String>, force_synthetic: bool) -> Option<RunSummary>;
+
+    /// 通知 native 更新系统调度（Android WorkManager 唯一周期 work / iOS BGAppRefresh request）。
+    /// 返回 None 表示无 native 承载（desktop/web，配置已由 Rust 落盘）；
+    /// Some(Err) 表示 native 报告失败（如实返回，不伪造 ready）。
+    fn configure_native(&self, config_json: &str) -> Option<Result<(), String>> {
+        let _ = config_json;
+        None
+    }
+
+    /// 通知 native 取消系统调度（disable 语义，与 configure_native 对应）。
+    fn disable_native(&self, keep_diagnostics: bool) -> Option<Result<(), String>> {
+        let _ = keep_diagnostics;
+        None
+    }
+
+    /// 通知 native 同步后台上下文（iOS 在 context 就绪后补提交调度；Android 落盘幂等）。
+    fn sync_context_native(&self, context_json: &str) -> Option<Result<(), String>> {
+        let _ = context_json;
+        None
+    }
+
+    /// 通知 native 按 scope 清理（Android baseline runtime / iOS Keychain 安全材料）。
+    fn clear_context_native(&self, scope: &str) -> Option<Result<(), String>> {
+        let _ = scope;
+        None
+    }
+}
+
+/// 合并磁盘事件与内存事件（按 id 去重，磁盘优先且保持顺序）。
+/// 磁盘是 native 进程（Kotlin/Swift）追加的真实业务事件（grades_changed），
+/// 必须优先保留：任何「以内存快照覆盖盘」的写路径都不允许吞掉 native 新写的事件
+/// （#614 收口 #612 报告的 runNow 覆盖 bug）。
+fn merge_events(disk: &[BackgroundEvent], memory: &[BackgroundEvent]) -> Vec<BackgroundEvent> {
+    let mut merged: Vec<BackgroundEvent> = disk.to_vec();
+    let mut seen: std::collections::HashSet<String> = merged.iter().map(|e| e.id.clone()).collect();
+    for evt in memory {
+        if seen.insert(evt.id.clone()) {
+            merged.push(evt.clone());
+        }
+    }
+    merged
 }
 
 /// 插件全局状态（由插件 manage 到 Tauri 应用）。
@@ -70,6 +112,21 @@ impl PluginState {
 
     pub fn platform(&self) -> BackgroundPlatform {
         self.lock().platform
+    }
+
+    /// 事件/上下文落盘目录（native runner 需要同一目录才能共享事件文件）。
+    pub fn store_dir(&self) -> PathBuf {
+        self.lock().store.dir().to_path_buf()
+    }
+
+    /// 当前生效 scope（state.scope 优先，其次 context.scope；供 native 清理对齐）。
+    pub fn current_scope(&self) -> Option<String> {
+        let inner = self.lock();
+        inner
+            .state
+            .scope
+            .clone()
+            .or_else(|| inner.context.as_ref().map(|c| c.scope.clone()))
     }
 
     // ---- configure ----
@@ -193,23 +250,33 @@ impl PluginState {
         inner.state.last_run_ok = Some(summary.ok);
         if summary.ok {
             inner.state.error = None;
-            // 每次 runNow 追加一条 synthetic 事件，构成 state/event 回读闭环。
-            inner.seq += 1;
-            let event_id = crate::dto::new_event_id(inner.seq);
-            let platform = inner.platform;
-            let scope_for_event = scope.clone();
-            inner.events.push(BackgroundEvent {
-                schema: BG_SCHEMA_VERSION,
-                id: event_id,
-                source: event_source(platform, summary.ok),
-                kind: "synthetic_run".to_string(),
-                scope: scope_for_event,
-                occurred_at: now_rfc3339(),
-                payload: serde_json::json!({
-                    "synthetic": true,
-                    "message": summary.message,
-                }),
-            });
+            // #614 收口 #612 覆盖 bug：App 运行期间 native（Android runNow / iOS BGTask）
+            // 会把真实业务事件（grades_changed）直接追加进磁盘 events.json；
+            // 必须先 reload 磁盘并与内存按 id 合并，绝不能用内存快照覆盖盘上事件。
+            let on_disk = inner.store.load_events();
+            inner.events = merge_events(&on_disk, &inner.events);
+            if summary.synthetic {
+                // 开发态/desktop synthetic：native 未写事件，追加 synthetic 事件保持管道闭环（#611）。
+                inner.seq += 1;
+                let event_id = crate::dto::new_event_id(inner.seq);
+                let platform = inner.platform;
+                let scope_for_event = scope.clone();
+                inner.events.push(BackgroundEvent {
+                    schema: BG_SCHEMA_VERSION,
+                    id: event_id,
+                    source: event_source(platform, summary.ok),
+                    kind: "synthetic_run".to_string(),
+                    scope: scope_for_event,
+                    occurred_at: now_rfc3339(),
+                    payload: serde_json::json!({
+                        "synthetic": true,
+                        "message": summary.message,
+                    }),
+                });
+            }
+            // 真实 native 成功（summary.synthetic=false）不追加 synthetic 事件：
+            // - events_produced > 0：native 已写真实事件（grades_changed）；
+            // - events_produced == 0：无变化（baselined/unchanged/deduplicated），无事件可写。
             // 容量上限：超出丢弃最旧。
             if inner.events.len() > EVENT_INBOX_CAP {
                 let overflow = inner.events.len() - EVENT_INBOX_CAP;
@@ -230,13 +297,66 @@ impl PluginState {
         Ok(summary)
     }
 
-    // ---- consumeEvents ----
+    // ---- peekEvents / consumeEvents ----
+    //
+    // #614 消费语义（at-least-once + ack）：
+    // - `peek_events`：只读不删，供「完整同步成功后再 ack」的消费链使用，
+    //   保证 App 读取到事件后如果 Rust 完整同步失败，事件不会被提前删除
+    //   （下次 resume 仍可重试补同步）；
+    // - `consume_events(limit, ids)`：ack。显式 ids 时只删除匹配 id 的事件
+    //   （精确 ack，账号隔离：不误删其他 scope 的事件）；缺省保持 limit 语义
+    //   （FIFO drain，向后兼容 #611 固定 API）。
+
+    /// 读取事件（先与磁盘合并），不删除任何条目；remaining 为本次未读取数量。
+    pub fn peek_events(&self, limit: Option<usize>) -> Result<ConsumeEventsResult, String> {
+        let mut inner = self.lock();
+        // 与 consume 相同：先与磁盘合并，App 运行期间 native 追加的事件同样可见。
+        let on_disk = inner.store.load_events();
+        inner.events = merge_events(&on_disk, &inner.events);
+        let take = limit.unwrap_or(inner.events.len()).min(inner.events.len());
+        Ok(ConsumeEventsResult {
+            schema: BG_SCHEMA_VERSION,
+            events: inner.events[..take].to_vec(),
+            remaining: inner.events.len() - take,
+        })
+    }
 
     /// 消费事件：按明确语义移除已消费条目并持久化，返回结果与剩余数。
-    pub fn consume_events(&self, limit: Option<usize>) -> Result<ConsumeEventsResult, String> {
+    /// `ids` 非空时只删除匹配 id 的事件（精确 ack）；否则按 limit FIFO drain。
+    pub fn consume_events(
+        &self,
+        limit: Option<usize>,
+        ids: Option<Vec<String>>,
+    ) -> Result<ConsumeEventsResult, String> {
         let mut inner = self.lock();
-        let take = limit.unwrap_or(inner.events.len()).min(inner.events.len());
-        let consumed: Vec<BackgroundEvent> = inner.events.drain(..take).collect();
+        // #614：先与磁盘合并再消费——App 运行期间 native 周期任务（WorkManager/BGTask）
+        // 可能已追加新事件，避免内存快照漏读盘上未消费事件。
+        let on_disk = inner.store.load_events();
+        inner.events = merge_events(&on_disk, &inner.events);
+        let consumed: Vec<BackgroundEvent> = if let Some(ids) = ids {
+            if ids.is_empty() {
+                // 空 ids：no-op（不删除任何事件），避免「空列表 = 全删」的意外语义。
+                return Ok(ConsumeEventsResult {
+                    schema: BG_SCHEMA_VERSION,
+                    events: Vec::new(),
+                    remaining: inner.events.len(),
+                });
+            }
+            let targets: std::collections::HashSet<String> = ids.into_iter().collect();
+            let mut matched = Vec::with_capacity(targets.len());
+            inner.events.retain(|evt| {
+                if targets.contains(&evt.id) {
+                    matched.push(evt.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            matched
+        } else {
+            let take = limit.unwrap_or(inner.events.len()).min(inner.events.len());
+            inner.events.drain(..take).collect()
+        };
         inner
             .store
             .save_events(&inner.events)
@@ -291,6 +411,9 @@ impl PluginState {
             inner.state.last_run_ok = None;
             inner.state.error = None;
         }
+        // #614：过滤前先与磁盘合并，防止 native 新事件（其他 scope）被内存快照覆盖。
+        let on_disk = inner.store.load_events();
+        inner.events = merge_events(&on_disk, &inner.events);
         let before = inner.events.len();
         inner.events.retain(|e| e.scope.as_deref() != Some(&target));
         let memory_removed = before - inner.events.len();
@@ -494,7 +617,7 @@ mod tests {
         assert_eq!(s.pending_events, 1, "runNow 后应有一条 synthetic 事件");
 
         // 事件回读（闭环的 JS 侧读取路径等价于 consume_events）
-        let result = state.consume_events(None).expect("消费失败");
+        let result = state.consume_events(None, None).expect("消费失败");
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].kind, "synthetic_run");
         assert_eq!(result.remaining, 0);
@@ -556,7 +679,7 @@ mod tests {
             BackgroundSource::Android,
             "source 必须如实反映平台"
         );
-        let result = state.consume_events(None).expect("消费失败");
+        let result = state.consume_events(None, None).expect("消费失败");
         assert_eq!(result.events[0].source, BackgroundSource::Android);
     }
 
@@ -575,12 +698,159 @@ mod tests {
                 )
                 .expect("runNow 失败");
         }
-        let result = state.consume_events(None).expect("消费失败");
+        let result = state.consume_events(None, None).expect("消费失败");
         assert_eq!(
             result.events.len(),
             EVENT_INBOX_CAP,
             "inbox 容量上限必须生效"
         );
+    }
+
+    /// #614 收口 #612 覆盖 bug：runNow 成功后不得以内存快照覆盖盘上 native 事件。
+    #[test]
+    fn run_now_merges_disk_events_without_overwrite() {
+        let state = test_state(BackgroundPlatform::Android, BackgroundSource::Android);
+        state.configure(&sample_config(true)).expect("配置失败");
+        // 模拟 native（Kotlin runNow 真实核心）绕过 Rust 内存、直接向盘上追加 grades_changed 事件。
+        state
+            .inner()
+            .store
+            .append_event(BackgroundEvent {
+                schema: BG_SCHEMA_VERSION,
+                id: "evt-native-grades".to_string(),
+                source: BackgroundSource::Android,
+                kind: "grades_changed".to_string(),
+                scope: Some("2024010101".to_string()),
+                occurred_at: now_rfc3339(),
+                payload: serde_json::json!({
+                    "type": "grades-changed",
+                    "source": "android-workmanager",
+                    "targetView": "grades",
+                    "presented": true,
+                    "signature": "S2",
+                }),
+            })
+            .expect("native 写盘失败");
+
+        // Rust 侧执行 runNow（synthetic 管道闭环），成功路径会写回事件文件。
+        state
+            .perform_run_now(
+                &RunNowRequest {
+                    scope: None,
+                    force_synthetic: Some(true),
+                },
+                &FakeRunner::none(),
+            )
+            .expect("runNow 失败");
+
+        // 盘上 native 事件必须仍在（未被内存快照覆盖），且 synthetic 事件已追加。
+        let loaded = state.inner().store.load_events();
+        let kinds: Vec<&str> = loaded.iter().map(|e| e.kind.as_str()).collect();
+        assert!(
+            kinds.contains(&"grades_changed"),
+            "native 事件被覆盖: {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&"synthetic_run"),
+            "synthetic 事件缺失: {kinds:?}"
+        );
+    }
+
+    /// 真实 native 成功（synthetic=false 且 events_produced>0）时不再追加 synthetic 事件。
+    #[test]
+    fn run_now_native_real_does_not_append_synthetic() {
+        let state = test_state(BackgroundPlatform::Android, BackgroundSource::Android);
+        state.configure(&sample_config(true)).expect("配置失败");
+        let runner = FakeRunner::some(RunSummary {
+            ok: true,
+            synthetic: false,
+            events_produced: 1,
+            message: Some("发现成绩变化，已写 grades_changed 事件".to_string()),
+        });
+        state
+            .perform_run_now(
+                &RunNowRequest {
+                    scope: None,
+                    force_synthetic: None,
+                },
+                &runner,
+            )
+            .expect("runNow 失败");
+        assert_eq!(
+            state.get_state().pending_events,
+            0,
+            "native 已产事件时不得追加 synthetic 事件"
+        );
+    }
+
+    /// consume 前先与磁盘合并：App 运行期间 native 追加的盘上事件可被消费（不丢事件）。
+    #[test]
+    fn consume_events_reads_disk_only_events() {
+        let state = test_state(BackgroundPlatform::Android, BackgroundSource::Android);
+        // 模拟 native 进程（WorkManager）在 App 运行时直接写盘（内存尚不知情）。
+        state
+            .inner()
+            .store
+            .append_event(BackgroundEvent {
+                schema: BG_SCHEMA_VERSION,
+                id: "evt-worker-1".to_string(),
+                source: BackgroundSource::Android,
+                kind: "grades_changed".to_string(),
+                scope: Some("2024010101".to_string()),
+                occurred_at: now_rfc3339(),
+                payload: serde_json::json!({"signature": "S3"}),
+            })
+            .expect("native 写盘失败");
+        let result = state.consume_events(None, None).expect("消费失败");
+        assert_eq!(result.events.len(), 1, "盘上事件必须被消费");
+        assert_eq!(result.events[0].id, "evt-worker-1");
+        assert_eq!(result.remaining, 0);
+    }
+
+    /// clear_context 过滤前先合并盘：其他 scope 的盘上事件不被内存快照覆盖。
+    #[test]
+    fn clear_context_keeps_disk_events_of_other_scope() {
+        let state = test_state(BackgroundPlatform::Android, BackgroundSource::Android);
+        state.configure(&sample_config(true)).expect("配置失败");
+        state
+            .sync_context(&BackgroundContext {
+                schema: BG_SCHEMA_VERSION,
+                scope: "2024010101".to_string(),
+                business: vec!["grades".to_string()],
+                updated_at: now_rfc3339(),
+            })
+            .expect("sync_context 失败");
+        // 盘上有 s2 事件（内存不知情），内存只有 s1 的 synthetic 事件。
+        state
+            .inner()
+            .store
+            .append_event(BackgroundEvent {
+                schema: BG_SCHEMA_VERSION,
+                id: "evt-s2-disk".to_string(),
+                source: BackgroundSource::Android,
+                kind: "grades_changed".to_string(),
+                scope: Some("account-2".to_string()),
+                occurred_at: now_rfc3339(),
+                payload: serde_json::json!({}),
+            })
+            .expect("native 写盘失败");
+        state
+            .perform_run_now(
+                &RunNowRequest {
+                    scope: None,
+                    force_synthetic: Some(true),
+                },
+                &FakeRunner::none(),
+            )
+            .expect("runNow 失败");
+
+        let result = state
+            .clear_context(&Some("2024010101".to_string()))
+            .expect("清理失败");
+        assert!(result.cleared);
+        let remaining = state.inner().store.load_events();
+        assert_eq!(remaining.len(), 1, "s2 盘上事件必须保留");
+        assert_eq!(remaining[0].id, "evt-s2-disk");
     }
 
     #[test]
@@ -598,10 +868,10 @@ mod tests {
                 )
                 .expect("runNow 失败");
         }
-        let first = state.consume_events(Some(2)).expect("消费失败");
+        let first = state.consume_events(Some(2), None).expect("消费失败");
         assert_eq!(first.events.len(), 2);
         assert_eq!(first.remaining, 1);
-        let second = state.consume_events(Some(5)).expect("消费失败");
+        let second = state.consume_events(Some(5), None).expect("消费失败");
         assert_eq!(second.events.len(), 1);
         assert_eq!(second.remaining, 0);
     }
@@ -654,5 +924,147 @@ mod tests {
             .expect("清理失败");
         assert!(!result.cleared, "不匹配 scope 应为 no-op");
         assert_eq!(state.get_state().scope.as_deref(), Some("2024010101"));
+    }
+
+    /// #614：peek 只读不删——完整同步失败场景下事件必须保留（at-least-once 消费前提）。
+    #[test]
+    fn peek_events_does_not_remove() {
+        let state = test_state(BackgroundPlatform::Android, BackgroundSource::Android);
+        state.configure(&sample_config(true)).expect("配置失败");
+        let runner = FakeRunner::none();
+        for _ in 0..2 {
+            state
+                .perform_run_now(
+                    &RunNowRequest {
+                        scope: None,
+                        force_synthetic: None,
+                    },
+                    &runner,
+                )
+                .expect("runNow 失败");
+        }
+        let peek = state.peek_events(None).expect("peek 失败");
+        assert_eq!(peek.events.len(), 2, "peek 必须返回全部事件");
+        assert_eq!(peek.remaining, 0);
+        // peek 后 inbox 不变：仍可再次 peek 与消费
+        let peek2 = state.peek_events(None).expect("peek 失败");
+        assert_eq!(peek2.events.len(), 2);
+        assert_eq!(state.get_state().pending_events, 2);
+        let result = state.consume_events(None, None).expect("消费失败");
+        assert_eq!(result.events.len(), 2, "peek 不得影响后续消费");
+    }
+
+    /// #614：peek 的 limit 语义——只读前 N 条，remaining 为未读取数量。
+    #[test]
+    fn peek_events_limit_reads_prefix_only() {
+        let state = test_state(BackgroundPlatform::Ios, BackgroundSource::Ios);
+        let runner = FakeRunner::none();
+        for _ in 0..3 {
+            state
+                .perform_run_now(
+                    &RunNowRequest {
+                        scope: None,
+                        force_synthetic: None,
+                    },
+                    &runner,
+                )
+                .expect("runNow 失败");
+        }
+        let peek = state.peek_events(Some(1)).expect("peek 失败");
+        assert_eq!(peek.events.len(), 1);
+        assert_eq!(peek.remaining, 2, "remaining 应为未读取数量");
+        // 前 N 条事件与 FIFO 消费顺序一致（避免「peek A 后 ack 到 B」的错删）
+        let first = peek.events[0].clone();
+        let consumed = state.consume_events(None, None).expect("消费失败");
+        assert_eq!(consumed.events[0].id, first.id);
+    }
+
+    /// #614：consume 显式 ids 时只删除匹配事件（精确 ack），其他事件保留。
+    #[test]
+    fn consume_events_by_ids_acks_only_matching() {
+        let state = test_state(BackgroundPlatform::Android, BackgroundSource::Android);
+        state.configure(&sample_config(true)).expect("配置失败");
+        state
+            .inner()
+            .store
+            .append_event(BackgroundEvent {
+                schema: BG_SCHEMA_VERSION,
+                id: "evt-a".to_string(),
+                source: BackgroundSource::Android,
+                kind: "grades_changed".to_string(),
+                scope: Some("account-1".to_string()),
+                occurred_at: now_rfc3339(),
+                payload: serde_json::json!({"signature": "S2"}),
+            })
+            .expect("写盘失败");
+        state
+            .inner()
+            .store
+            .append_event(BackgroundEvent {
+                schema: BG_SCHEMA_VERSION,
+                id: "evt-b".to_string(),
+                source: BackgroundSource::Android,
+                kind: "grades_changed".to_string(),
+                scope: Some("account-2".to_string()),
+                occurred_at: now_rfc3339(),
+                payload: serde_json::json!({"signature": "S3"}),
+            })
+            .expect("写盘失败");
+
+        // 只 ack evt-a：evt-b（其他 scope）必须保留
+        let result = state
+            .consume_events(None, Some(vec!["evt-a".to_string()]))
+            .expect("消费失败");
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].id, "evt-a");
+        assert_eq!(result.remaining, 1);
+        let leftover = state.peek_events(None).expect("peek 失败");
+        assert_eq!(leftover.events.len(), 1);
+        assert_eq!(leftover.events[0].id, "evt-b", "非目标事件不得被误删");
+    }
+
+    /// #614：consume 显式空 ids 为 no-op（防止「空列表 = 全删」意外语义）。
+    #[test]
+    fn consume_events_empty_ids_is_noop() {
+        let state = test_state(BackgroundPlatform::Android, BackgroundSource::Android);
+        state.configure(&sample_config(true)).expect("配置失败");
+        let runner = FakeRunner::none();
+        state
+            .perform_run_now(
+                &RunNowRequest {
+                    scope: None,
+                    force_synthetic: None,
+                },
+                &runner,
+            )
+            .expect("runNow 失败");
+        let result = state
+            .consume_events(None, Some(Vec::new()))
+            .expect("消费失败");
+        assert_eq!(result.events.len(), 0);
+        assert_eq!(result.remaining, 1, "空 ids 不得删除任何事件");
+        assert_eq!(state.get_state().pending_events, 1);
+    }
+
+    /// #614：ids 中不存在的 id 被忽略，不报错（幂等 ack）。
+    #[test]
+    fn consume_events_by_ids_tolerates_unknown_ids() {
+        let state = test_state(BackgroundPlatform::Android, BackgroundSource::Android);
+        state.configure(&sample_config(true)).expect("配置失败");
+        let runner = FakeRunner::none();
+        state
+            .perform_run_now(
+                &RunNowRequest {
+                    scope: None,
+                    force_synthetic: None,
+                },
+                &runner,
+            )
+            .expect("runNow 失败");
+        let result = state
+            .consume_events(None, Some(vec!["no-such-id".to_string()]))
+            .expect("消费失败");
+        assert_eq!(result.events.len(), 0, "未知 id 不得误删事件");
+        assert_eq!(result.remaining, 1);
     }
 }

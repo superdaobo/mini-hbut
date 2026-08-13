@@ -33,7 +33,8 @@ src-tauri/plugins/tauri-plugin-hbut-background/
 | syncContext | `bg_sync_context` | 只接收非敏感控制信息（敏感材料禁止入 DTO，#608 红线 2） |
 | getState | `bg_get_state` | 返回真实 platform/source，不统一伪造 ready |
 | runNow | `bg_run_now` | JS→Rust→native→state/event→JS 闭环（骨架 synthetic） |
-| consumeEvents | `bg_consume_events` | 按明确语义消费并清理 inbox |
+| peekEvents | `bg_peek_events` | 只读 inbox 不删除（#614：同步成功后再 ack 的 at-least-once 前提） |
+| consumeEvents | `bg_consume_events` | ack 语义：显式 ids 精确 ack / 缺省 limit FIFO 消费并清理 |
 | clearContext | `bg_clear_context` | 按 scope 清理 context/state/events（账号切换） |
 
 ## 平台语义（不伪造 ready）

@@ -1,0 +1,47 @@
+{
+  "label": "Mini-HBUT Identity #622 canonical 签名 golden fixture（Rust/Node 共享）",
+  "version": "MINI-HBUT-AUTH-V1 / MINI-HBUT-ENROLL-V1",
+  "note": "canonical 规范：UTF-8、LF 换行、字段固定顺序、最后一行后有一个 LF；scope 规范化 = 去重+字典序+单空格 join 后 SHA-256(base64url)；Ed25519 直接签 canonical 字节。",
+  "signing_key": {
+    "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "public_x_b64url": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "public_key_jwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    },
+    "public_key_fingerprint": "3XVRUPziMiGkvOFc1OqavGPo7hGfPu2xOhb7PusVwOA"
+  },
+  "auth": {
+    "request_id": "ar_qhjINIITtkzwIg5pU3K9ew",
+    "challenge": "0kQm4vN6pR9sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j",
+    "client_id": "client_3f9a2b1c4d5e6f7a8b9c0d1e2f3a4b5c",
+    "scopes": [
+      "student.identity",
+      "openid",
+      "profile",
+      "openid"
+    ],
+    "normalized_scopes": [
+      "openid",
+      "profile",
+      "student.identity"
+    ],
+    "scope_hash": "dOQbUxnF_2WvdYoMq0brghFj_-Hb1YfJG4YIcOV41kk",
+    "device_id": "0198a1b2c3d4e5f6a7b8c9d0",
+    "decision": "approve",
+    "issued_at": 1755000000,
+    "nonce": "n4v6pR9sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j0kQm",
+    "canonical_text": "MINI-HBUT-AUTH-V1\nrequest_id=ar_qhjINIITtkzwIg5pU3K9ew\nchallenge=0kQm4vN6pR9sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j\nclient_id=client_3f9a2b1c4d5e6f7a8b9c0d1e2f3a4b5c\nscope_hash=dOQbUxnF_2WvdYoMq0brghFj_-Hb1YfJG4YIcOV41kk\ndevice_id=0198a1b2c3d4e5f6a7b8c9d0\ndecision=approve\nissued_at=1755000000\nnonce=n4v6pR9sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j0kQm\n",
+    "signature": "F7qKawT8fg7HZkG70MLHTircYMpT8br0eYsF_ZST8mGo1hm4-2nJrmiy5jPjBbU6Q0SUdQDL59f3KUfCBKOVCg"
+  },
+  "enroll": {
+    "challenge": "cH2pQ9sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j0kQm4vN6pR",
+    "student_id": "2023010101",
+    "student_name": "张三",
+    "issued_at": 1755000000,
+    "nonce": "eR7sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j0kQm4vN6pR9",
+    "canonical_text": "MINI-HBUT-ENROLL-V1\nchallenge=cH2pQ9sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j0kQm4vN6pR\npublic_key_fingerprint=3XVRUPziMiGkvOFc1OqavGPo7hGfPu2xOhb7PusVwOA\nstudent_id=2023010101\nstudent_name=张三\nissued_at=1755000000\nnonce=eR7sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j0kQm4vN6pR9\n",
+    "signature": "6HVHG4ajY1xFZXh3gmN8LrjovmpGbTxXbjoiultoezt6yHgMX6ZlNr-rCOjqNo3XupvP-5DFxlAnYv4CTjkJAg"
+  }
+}

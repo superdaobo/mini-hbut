@@ -72,6 +72,8 @@ dashmap = "6"
 url = "2"
 keyring = "3"
 smcrypto = "0.3.1"
+# #622：设备 Ed25519 密钥与 approve 签名（V1 固定 Ed25519；私钥只进 OS keyring，fail closed）。
+ed25519-dalek = { version = "2", features = ["zeroize"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 notify-rust = "4.18"

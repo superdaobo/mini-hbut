@@ -96,9 +96,18 @@ export function runNow(request?: RunNowRequest): Promise<BackgroundCheckState> {
   return invoke("plugin:hbut-background|bg_run_now", { request: request ?? null });
 }
 
-/** consumeEvents：读取并清理 native event inbox。 */
-export function consumeEvents(limit?: number): Promise<ConsumeEventsResult> {
-  return invoke("plugin:hbut-background|bg_consume_events", { limit: limit ?? null });
+/** consumeEvents：ack 语义。ids 非空时只删除匹配 id 的事件（精确 ack，
+ *  前端在完整同步成功后调用）；缺省保持 #611 固定语义（limit FIFO drain）。 */
+export function consumeEvents(limit?: number, ids?: string[]): Promise<ConsumeEventsResult> {
+  return invoke("plugin:hbut-background|bg_consume_events", {
+    limit: limit ?? null,
+    ids: ids && ids.length > 0 ? ids : null,
+  });
+}
+
+/** peekEvents：只读 event inbox，不删除任何条目（#614：同步成功后再 ack 的前提）。 */
+export function peekEvents(limit?: number): Promise<ConsumeEventsResult> {
+  return invoke("plugin:hbut-background|bg_peek_events", { limit: limit ?? null });
 }
 
 /** clearContext：账号退出/切换时清理对应后台上下文、状态与事件。 */

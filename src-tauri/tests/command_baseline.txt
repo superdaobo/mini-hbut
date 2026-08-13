@@ -192,3 +192,8 @@ usage_stats_cmd::usage_stats_get_personal_summary
 usage_stats_cmd::usage_stats_list_pending_upload
 usage_stats_cmd::usage_stats_mark_uploaded
 modules::weather::fetch_weather
+identity::commands::identity_device_status
+identity::commands::identity_get_public_key
+identity::commands::identity_enroll_device
+identity::commands::identity_sign_auth_request
+identity::commands::identity_revoke_current_device_local

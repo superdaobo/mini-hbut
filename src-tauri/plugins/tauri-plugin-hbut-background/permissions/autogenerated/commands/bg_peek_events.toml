@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-bg-peek-events"
+description = "Enables the bg_peek_events command without any pre-configured scope."
+commands.allow = ["bg_peek_events"]
+
+[[permission]]
+identifier = "deny-bg-peek-events"
+description = "Denies the bg_peek_events command without any pre-configured scope."
+commands.deny = ["bg_peek_events"]

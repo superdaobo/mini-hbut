@@ -1,4 +1,4 @@
-# 插件默认权限集：7 个固定跨端 API 全部对主窗口开放。
+# 插件默认权限集：全部跨端 API 对主窗口开放（7 个固定 API + #614 peekEvents）。
 # 本插件是应用自研内部插件，全部 command 由前端封装（guest-js）调用；
 # 后续如需要更细粒度可拆分权限，参考 Tauri 2 permission 语法补充。
 
@@ -10,6 +10,7 @@ permissions = [
   "allow-bg-sync-context",
   "allow-bg-get-state",
   "allow-bg-run-now",
+  "allow-bg-peek-events",
   "allow-bg-consume-events",
   "allow-bg-clear-context",
 ]
@@ -40,8 +41,13 @@ description = "Allows invoking the bg_run_now command (开发/调试一次性执
 commands.allowed = ["bg_run_now"]
 
 [[permission]]
+identifier = "allow-bg-peek-events"
+description = "Allows invoking the bg_peek_events command (只读 event inbox，#614 at-least-once 消费)"
+commands.allowed = ["bg_peek_events"]
+
+[[permission]]
 identifier = "allow-bg-consume-events"
-description = "Allows invoking the bg_consume_events command (读取并清理 native event inbox)"
+description = "Allows invoking the bg_consume_events command (按 id 精确 ack / limit FIFO 消费并清理 inbox)"
 commands.allowed = ["bg_consume_events"]
 
 [[permission]]

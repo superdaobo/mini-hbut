@@ -18,6 +18,8 @@ pub mod grade;
 pub mod http_client;
 #[cfg(feature = "bridge")]
 pub mod http_server;
+// #622：设备 Enrollment / Ed25519 签名批准 / 设备撤销（私钥只进 OS keyring，fail closed）。
+pub mod identity;
 pub mod modules;
 pub mod parser;
 pub mod qxzkb_options;
@@ -607,6 +609,12 @@ pub fn run() {
             usage_stats_cmd::usage_stats_list_pending_upload,
             usage_stats_cmd::usage_stats_mark_uploaded,
             modules::weather::fetch_weather,
+            // #622：设备身份 commands（统一 identity_ 前缀；追加，不删 #610/#621 的注册）
+            identity::commands::identity_device_status,
+            identity::commands::identity_get_public_key,
+            identity::commands::identity_enroll_device,
+            identity::commands::identity_sign_auth_request,
+            identity::commands::identity_revoke_current_device_local,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

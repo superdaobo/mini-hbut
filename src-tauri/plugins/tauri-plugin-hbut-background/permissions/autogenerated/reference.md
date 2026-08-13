@@ -9,6 +9,7 @@ Default permissions for the hbut-background plugin
 - `allow-bg-sync-context`
 - `allow-bg-get-state`
 - `allow-bg-run-now`
+- `allow-bg-peek-events`
 - `allow-bg-consume-events`
 - `allow-bg-clear-context`
 
@@ -154,6 +155,32 @@ Denies the bg_get_state command without any pre-configured scope.
 <tr>
 <td>
 
+`hbut-background:allow-bg-peek-events`
+
+</td>
+<td>
+
+Enables the bg_peek_events command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hbut-background:deny-bg-peek-events`
+
+</td>
+<td>
+
+Denies the bg_peek_events command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `hbut-background:allow-bg-run-now`
 
 </td>
@@ -271,12 +298,25 @@ Allows invoking the bg_run_now command (开发/调试一次性执行入口)
 <tr>
 <td>
 
+`hbut-background:allow-bg-peek-events`
+
+</td>
+<td>
+
+Allows invoking the bg_peek_events command (只读 event inbox，#614 at-least-once 消费)
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `hbut-background:allow-bg-consume-events`
 
 </td>
 <td>
 
-Allows invoking the bg_consume_events command (读取并清理 native event inbox)
+Allows invoking the bg_consume_events command (按 id 精确 ack / limit FIFO 消费并清理 inbox)
 
 </td>
 </tr>

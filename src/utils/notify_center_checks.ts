@@ -14,6 +14,13 @@ import { getRuntime, platformBridge } from '../platform'
 import { pushDebugLog } from './debug_logger'
 import { writeElectricityToWidget, writeExamToWidget } from './widget_bridge'
 import {
+  buildCrossEndGradeSignature,
+  buildLedgerEventKey,
+  hasLedgerEntry,
+  recordLedgerEntry
+} from './notification_event_ledger'
+import { hasUnconsumedPresentedEvent } from './background_notification'
+import {
   APP_BOOT_ID,
   DEFAULT_CHANNEL_ID,
   NotifySettingsFull,
@@ -224,11 +231,22 @@ interface NoticeItem {
   title?: unknown
   body?: unknown
   targetView?: unknown
+  /** #614：业务去重 eventKey（发送成功后写入 Notification Event Ledger） */
+  eventKey?: unknown
+  /** #614：业务域（grades/exams/...） */
+  domain?: unknown
+}
+
+/** #614：由成绩数据派生统一 ledger 去重 key（跨端 GradeSignatureV1 语义）。 */
+const buildGradeLedgerEventKey = async (grades: unknown): Promise<string> => {
+  const signature = await buildCrossEndGradeSignature(grades)
+  return signature ? buildLedgerEventKey('grades', signature) : ''
 }
 
 const sendQueuedNotifications = async (
   queue: NoticeItem[],
-  allowPrompt = false
+  allowPrompt = false,
+  studentId = ''
 ): Promise<NoticeItem[]> => {
   if (!Array.isArray(queue) || queue.length === 0) return []
   const canNotify = await ensureNotifyReady(allowPrompt)
@@ -246,7 +264,18 @@ const sendQueuedNotifications = async (
         id: Math.floor(Date.now() / 1000) + i,
         targetView: String(notice.targetView || 'notifications')
       })
-      if (ok) sent.push(notice)
+      if (ok) {
+        sent.push(notice)
+        // #614：发送成功后记录「已通知」账本（跨后台/前台去重共享语义；
+        // 发送失败不记录——下次检查仍有机会补通知）
+        if (studentId && notice.eventKey) {
+          recordLedgerEntry(
+            toSafeText(studentId),
+            toSafeText(notice.eventKey),
+            toSafeText(notice.domain) || 'unknown'
+          )
+        }
+      }
     } catch {
       // ignore single notification error
     }
@@ -343,6 +372,7 @@ const checkGrades = async (
   settings: NotifySettingsFull,
   queue: NoticeItem[]
 ): Promise<GradesCheckResult> => {
+  const sid = toSafeText(studentId)
   const timeoutMs = getRequestTimeoutMs()
   try {
     const res = await axios.post(
@@ -371,11 +401,21 @@ const checkGrades = async (
     localStorage.setItem(sigKey, signature)
 
     if (changed && settings.enableGradeNotice) {
-      queue.push({
-        title: '成绩有更新',
-        body: `检测到新的成绩变动，共 ${grades.length} 条成绩记录，请进入应用查看详情。`,
-        targetView: 'grades'
-      })
+      // #614：发送通知前必须查询统一 ledger / inbox 事件状态：
+      // - ledger 已有「同 eventKey 已通知」记录（后台或前台此前已弹过）→ 只同步不重复弹；
+      // - inbox 存在同账号未消费的「已展示」grades 事件（时序兜底）→ 同样抑制。
+      const ledgerKey = await buildGradeLedgerEventKey(grades)
+      const alreadyNotified = !!ledgerKey && hasLedgerEntry(sid, ledgerKey)
+      const nativePending = !alreadyNotified && (await hasUnconsumedPresentedEvent(sid, 'grades'))
+      if (!alreadyNotified && !nativePending) {
+        queue.push({
+          title: '成绩有更新',
+          body: `检测到新的成绩变动，共 ${grades.length} 条成绩记录，请进入应用查看详情。`,
+          targetView: 'grades',
+          eventKey: ledgerKey || undefined,
+          domain: 'grades'
+        })
+      }
     }
 
     return {

@@ -355,6 +355,18 @@
           "markdownDescription": "Denies the bg_get_state command without any pre-configured scope."
         },
         {
+          "description": "Enables the bg_peek_events command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bg-peek-events",
+          "markdownDescription": "Enables the bg_peek_events command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bg_peek_events command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bg-peek-events",
+          "markdownDescription": "Denies the bg_peek_events command without any pre-configured scope."
+        },
+        {
           "description": "Enables the bg_run_now command without any pre-configured scope.",
           "type": "string",
           "const": "allow-bg-run-now",
@@ -379,10 +391,10 @@
           "markdownDescription": "Denies the bg_sync_context command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the hbut-background plugin\n#### This default permission set includes:\n\n- `allow-bg-configure`\n- `allow-bg-disable`\n- `allow-bg-sync-context`\n- `allow-bg-get-state`\n- `allow-bg-run-now`\n- `allow-bg-consume-events`\n- `allow-bg-clear-context`",
+          "description": "Default permissions for the hbut-background plugin\n#### This default permission set includes:\n\n- `allow-bg-configure`\n- `allow-bg-disable`\n- `allow-bg-sync-context`\n- `allow-bg-get-state`\n- `allow-bg-run-now`\n- `allow-bg-peek-events`\n- `allow-bg-consume-events`\n- `allow-bg-clear-context`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the hbut-background plugin\n#### This default permission set includes:\n\n- `allow-bg-configure`\n- `allow-bg-disable`\n- `allow-bg-sync-context`\n- `allow-bg-get-state`\n- `allow-bg-run-now`\n- `allow-bg-consume-events`\n- `allow-bg-clear-context`"
+          "markdownDescription": "Default permissions for the hbut-background plugin\n#### This default permission set includes:\n\n- `allow-bg-configure`\n- `allow-bg-disable`\n- `allow-bg-sync-context`\n- `allow-bg-get-state`\n- `allow-bg-run-now`\n- `allow-bg-peek-events`\n- `allow-bg-consume-events`\n- `allow-bg-clear-context`"
         },
         {
           "description": "Allows invoking the bg_configure command (保存用户后台配置并更新系统调度)",
@@ -415,10 +427,16 @@
           "markdownDescription": "Allows invoking the bg_run_now command (开发/调试一次性执行入口)"
         },
         {
-          "description": "Allows invoking the bg_consume_events command (读取并清理 native event inbox)",
+          "description": "Allows invoking the bg_peek_events command (只读 event inbox，#614 at-least-once 消费)",
+          "type": "string",
+          "const": "allow-bg-peek-events",
+          "markdownDescription": "Allows invoking the bg_peek_events command (只读 event inbox，#614 at-least-once 消费)"
+        },
+        {
+          "description": "Allows invoking the bg_consume_events command (按 id 精确 ack / limit FIFO 消费并清理 inbox)",
           "type": "string",
           "const": "allow-bg-consume-events",
-          "markdownDescription": "Allows invoking the bg_consume_events command (读取并清理 native event inbox)"
+          "markdownDescription": "Allows invoking the bg_consume_events command (按 id 精确 ack / limit FIFO 消费并清理 inbox)"
         },
         {
           "description": "Allows invoking the bg_clear_context command (账号退出/切换时清理后台上下文)",

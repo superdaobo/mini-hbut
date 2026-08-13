@@ -305,6 +305,44 @@ export const tauriBridge: PlatformBridge = {
 }
 
 // ============================================================================
+// #614 Background Event Inbox 适配（与 Rust 插件 tauri-plugin-hbut-background 对接）
+// 说明：插件是 pull 模型（无 push 订阅），因此不走 PlatformBridge.consumeBackgroundEvents
+// （#609 冻结的订阅式契约，未接入 push 时保持返回 null），而是由
+// src/utils/background_notification.ts 通过本导出函数主动 peek/ack：
+//   peek：bg_peek_events（只读不删，#614 at-least-once 消费前提）；
+//   ack ：bg_consume_events(ids)（按 native id 精确 ack，账号隔离不误删）。
+// 非 Tauri 运行时（web/capacitor/测试）返回空数组/false，上层安全降级。
+// ============================================================================
+
+/** 读取 native background event inbox（不删除；无插件/非 Tauri 返回空数组）。 */
+export const peekBackgroundEvents = async (limit?: number): Promise<unknown[]> => {
+  try {
+    const result = await invokeNative<{ events?: unknown }>(
+      'plugin:hbut-background|bg_peek_events',
+      { limit: limit ?? null }
+    )
+    return Array.isArray(result?.events) ? result.events : []
+  } catch {
+    return []
+  }
+}
+
+/** 按 native id 精确 ack（删除已完整同步成功的事件；无插件/非 Tauri 返回 false）。 */
+export const ackBackgroundEvents = async (ids: string[]): Promise<boolean> => {
+  const list = Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id.length > 0) : []
+  if (list.length === 0) return true
+  try {
+    await invokeNative('plugin:hbut-background|bg_consume_events', {
+      limit: null,
+      ids: list
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ============================================================================
 // #610 系统预调度分支（Local Reminder Scheduler 使用）
 // 说明：PlatformBridge 契约定义由 #609 独占，本处以独立导出函数提供 scheduled
 // 能力，不改动 src/platform/types.ts。与 #609 NotificationScheduler 的对接：

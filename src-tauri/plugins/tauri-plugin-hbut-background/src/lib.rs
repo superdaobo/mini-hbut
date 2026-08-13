@@ -33,6 +33,7 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
             commands::bg_sync_context,
             commands::bg_get_state,
             commands::bg_run_now,
+            commands::bg_peek_events,
             commands::bg_consume_events,
             commands::bg_clear_context,
         ])
