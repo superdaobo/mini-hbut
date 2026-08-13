@@ -13,13 +13,17 @@ describe('PR fast gate', () => {
     expect(workflow).toContain('dorny/paths-filter@v3')
     expect(workflow).toContain("'src/**'")
     expect(workflow).toContain("'src-tauri/**'")
-    expect(workflow).toContain('frontend: ${{ steps.filter.outputs.frontend }}')
-    expect(workflow).toContain('rust: ${{ steps.filter.outputs.rust }}')
+    expect(workflow).toContain("frontend: ${{ github.event_name == 'pull_request' && steps.filter.outputs.frontend || 'true' }}")
+    expect(workflow).toContain("rust: ${{ github.event_name == 'pull_request' && steps.filter.outputs.rust || 'true' }}")
   })
 
   it('keeps frontend/rust jobs conditional on PR but always active on push', () => {
     expect(workflow).toContain("if: github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true'")
     expect(workflow).toContain("if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'")
+    // changes job 必须始终运行（不能在非 PR 事件 skip），否则 needs 链会把下游
+    // job 一并跳过，导致 push main 全量验证静默失效
+    expect(workflow).toContain("frontend: ${{ github.event_name == 'pull_request' && steps.filter.outputs.frontend || 'true' }}")
+    expect(workflow).toContain("rust: ${{ github.event_name == 'pull_request' && steps.filter.outputs.rust || 'true' }}")
   })
 
   it('provides a Windows-only cargo check without packaging an installer', () => {
