@@ -21,6 +21,13 @@ android/
     │   ├── GradesCheckScheduler.kt  # WorkManager 调度封装（#612：unique periodic work）
     │   ├── GradesCheckWorker.kt     # CoroutineWorker（#612：生命周期/result/retry 决策）
     │   ├── GradesNotificationSender.kt # 成绩变化系统通知（#612：权限容错/channel）
+    │   ├── BusinessChecksPolicy.kt     # #615 考试/学校消息调度策略纯函数
+    │   ├── BusinessChecksScheduler.kt  # #615 唯一周期 work 调度
+    │   ├── BusinessChecksWorker.kt     # #615 业务检查 Worker（考试变化/学校消息）
+    │   ├── BusinessNotificationSender.kt # #615 考试/学校消息通知（品牌小图标 ic_stat_mini_hbut）
+    │   ├── BusinessRuntimeStore.kt     # #615 业务基线/去重 ledger
+    │   ├── ExamsCheckCore.kt / ExamsHttpFetcher.kt / ExamsParser.kt / ExamSignatureV1.kt
+    │   ├── SchoolInboxCheckCore.kt / SchoolInboxHttpFetcher.kt
     │   └── HbutBackgroundPlugin.kt  # JNI 入口 object（#611 契约 + #612 真实链路接入）
     └── test/kotlin/com/hbut/mini/background/
         ├── ModelsContractTest.kt            # #611 契约测试

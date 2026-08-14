@@ -10,8 +10,7 @@ type PngColor = {
   alpha: number
 }
 
-const readCenterColor = (relativePath: string): PngColor => {
-  const buffer = fs.readFileSync(path.join(process.cwd(), relativePath))
+const readPngPixel = (buffer: Buffer, pixelX: number, pixelY: number, label: string): PngColor => {
   let offset = 8
   let width = 0
   let height = 0
@@ -38,15 +37,13 @@ const readCenterColor = (relativePath: string): PngColor => {
 
   const raw = zlib.inflateSync(Buffer.concat(idatChunks))
   const bytesPerPixel = colorType === 6 ? 4 : colorType === 2 ? 3 : 0
-  expect(bytesPerPixel, `${relativePath} color type`).toBeGreaterThan(0)
-  expect(bitDepth, `${relativePath} bit depth`).toBe(8)
+  expect(bytesPerPixel, `${label} color type`).toBeGreaterThan(0)
+  expect(bitDepth, `${label} bit depth`).toBe(8)
 
   const stride = width * bytesPerPixel
   let cursor = 0
   let previous = Buffer.alloc(stride)
-  const centerY = Math.floor(height / 2)
-  const centerX = Math.floor(width / 2)
-  let centerColor: PngColor | null = null
+  let pixelColor: PngColor | null = null
 
   for (let y = 0; y < height; y += 1) {
     const filter = raw[cursor]
@@ -73,17 +70,17 @@ const readCenterColor = (relativePath: string): PngColor => {
       row[x] = value
     }
 
-    if (y === centerY) {
-      const index = centerX * bytesPerPixel
+    if (y === pixelY) {
+      const index = pixelX * bytesPerPixel
       if (bytesPerPixel === 4) {
-        centerColor = {
+        pixelColor = {
           red: row[index],
           green: row[index + 1],
           blue: row[index + 2],
           alpha: row[index + 3]
         }
       } else {
-        centerColor = {
+        pixelColor = {
           red: row[index],
           green: row[index + 1],
           blue: row[index + 2],
@@ -95,8 +92,24 @@ const readCenterColor = (relativePath: string): PngColor => {
     previous = row
   }
 
-  expect(centerColor, `${relativePath} center color`).not.toBeNull()
-  return centerColor!
+  expect(pixelColor, `${label} pixel`).not.toBeNull()
+  return pixelColor!
+}
+
+const readCenterColor = (relativePath: string): PngColor => {
+  const buffer = fs.readFileSync(path.join(process.cwd(), relativePath))
+  // PNG IHDR 固定布局：width = offset 16..20，height = offset 20..24
+  const width = buffer.readUInt32BE(16)
+  const height = buffer.readUInt32BE(20)
+  return readPngPixel(buffer, Math.floor(width / 2), Math.floor(height / 2), relativePath)
+}
+
+/** 读取 SVG 内嵌 PNG（data:image/png;base64,..）的解码缓冲。 */
+const readSvgEmbeddedPng = (relativePath: string): Buffer => {
+  const svg = fs.readFileSync(path.join(process.cwd(), relativePath), 'utf8')
+  const match = svg.match(/data:image\/png;base64,([A-Za-z0-9+/=]+)/)
+  expect(match, `${relativePath} embedded png`).not.toBeNull()
+  return Buffer.from(match![1], 'base64')
 }
 
 const colorDistance = (left: PngColor, right: PngColor) =>
@@ -134,6 +147,15 @@ describe('iOS launcher icon resources', () => {
       const colorType = buffer[25]
       expect(colorType, iconPath).toBe(2)
     }
+  })
+
+  it('keeps web favicon aligned with the current brand icon (#631)', () => {
+    // 旧 favicon 为白底浅蓝旧 logo（四角接近白色）；新图标为品牌蓝底（四角蓝）。
+    // 校验角落像素蓝底特征，防止旧标识再次随 public/favicon.svg 打进 App 包。
+    const faviconPng = readSvgEmbeddedPng('public/favicon.svg')
+    const corner = readPngPixel(faviconPng, 8, 8, 'public/favicon.svg corner')
+    expect(corner.red, '旧图标白底（red 接近 255）').toBeLessThan(130)
+    expect(corner.blue, '品牌蓝底').toBeGreaterThan(190)
   })
 
   it('requires iOS workflows to regenerate icons before syncing into Tauri assets', () => {
