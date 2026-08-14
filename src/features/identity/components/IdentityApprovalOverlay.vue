@@ -214,6 +214,11 @@ onBeforeUnmount(() => {
 
           <!-- 就绪：展示应用/权限/当前身份 + 允许/拒绝 -->
           <div v-else-if="phase === 'ready' && ui.requestDetail" class="identity-approval-body">
+            <!-- 测试应用横幅：仅授权链路测试，不获取真实数据 -->
+            <div v-if="ui.requestDetail.client.is_test" class="identity-test-banner" role="note">
+              🧪 <strong>测试应用</strong>：本授权仅用于链路测试，
+              不会获取、保存或使用你的任何真实数据。
+            </div>
             <IdentityClientCard :client="ui.requestDetail.client" />
             <IdentityScopeList :scopes="ui.requestDetail.scopes" />
 

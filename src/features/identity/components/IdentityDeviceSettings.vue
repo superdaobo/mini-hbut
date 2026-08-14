@@ -125,6 +125,10 @@ defineExpose({ refreshDeviceStatus })
         <h3>Mini-HBUT Identity</h3>
         <span class="identity-device-pill" :class="{ ok: ui.deviceStatus?.available }">{{ serviceEnabledText }}</span>
       </div>
+      <p class="identity-test-note">
+        🧪 <strong>测试说明</strong>：当前连接的身份服务为测试部署（id.湖北工业大学.com 测试环境）。
+        授权测试应用（如 mini-hbut-test）时不会获取你的真实数据；正式环境上线后会移除本说明。
+      </p>
       <dl class="identity-device-grid">
         <div class="identity-device-field">
           <dt>当前设备</dt>

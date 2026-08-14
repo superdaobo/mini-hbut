@@ -23,6 +23,8 @@ export interface IdentityClientInfo {
   homepage_host: string
   developer_display_name: string
   review_status: string
+  /** 测试应用标记（Core 判定）：授权栏据此展示"测试、不获取数据"说明 */
+  is_test?: boolean
 }
 
 /**

@@ -227,3 +227,21 @@
 .identity-allow-btn {
   flex: 1.4;
 }
+
+/* 测试应用横幅（#623 扩展：client.is_test 时展示，说明不获取真实数据） */
+.identity-test-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px dashed #eab308;
+  border-radius: 10px;
+  background: rgba(234, 179, 8, 0.08);
+  color: #854d0e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.identity-test-banner strong {
+  color: #a16207;
+}
