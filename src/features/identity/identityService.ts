@@ -23,8 +23,8 @@ import type {
 } from './types'
 import { IdentityServiceError } from './types'
 
-/** Core 生产域名占位（待用户确认，见 docs/parallel-execution/PLAN.md §5；本地/Preview 用 localStorage 覆盖） */
-export const IDENTITY_CORE_BASE_URL_DEFAULT = 'https://core.xn--vhq74jc2fzpchter27a.com'
+/** Core 生产域名（已上线：id.湖北工业大学.com，Vercel Production；本地/Preview 可用 localStorage 覆盖） */
+export const IDENTITY_CORE_BASE_URL_DEFAULT = 'https://id.xn--vhq74jc2fzpchter27a.com'
 
 /** 本地覆盖键（dev/preview 用；仅 URL 非敏感） */
 export const IDENTITY_CORE_BASE_URL_KEY = 'hbu_identity_core_base_url'
