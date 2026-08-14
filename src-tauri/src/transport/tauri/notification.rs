@@ -118,13 +118,10 @@ pub(crate) fn schedule_local_notification_native(
 pub(crate) fn get_pending_local_notifications_native(
     app: tauri::AppHandle,
 ) -> Result<Vec<serde_json::Value>, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = app;
-        return Ok(Vec::new());
-    }
-
-    #[cfg(not(target_os = "windows"))]
+    // tauri-plugin-notification 2.3.3 仅在移动端实现提供 Notification::pending()
+    // （desktop.rs 无此方法，Linux/macOS 桌面编译会 E0599）。
+    // 桌面端（Windows/macOS/Linux）统一返回空列表，与 Windows 分支行为一致。
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         let pending = app
             .notification()
@@ -145,6 +142,12 @@ pub(crate) fn get_pending_local_notifications_native(
         }
         Ok(items)
     }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = app;
+        Ok(Vec::new())
+    }
 }
 
 /// 取消指定的系统 pending 提醒（只允许取消 Mini-HBUT 自己登记过的 id）。
@@ -153,16 +156,19 @@ pub(crate) fn cancel_local_notifications_native(
     app: tauri::AppHandle,
     ids: Vec<i32>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
+    // 同 get_pending：Notification::cancel() 仅移动端实现提供，桌面端直接返回成功。
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        let _ = (app, ids);
-        return Ok(());
+        app.notification()
+            .cancel(ids)
+            .map_err(|e| format!("cancel pending notifications failed: {e}"))
     }
 
-    #[cfg(not(target_os = "windows"))]
-    app.notification()
-        .cancel(ids)
-        .map_err(|e| format!("cancel pending notifications failed: {e}"))
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = (app, ids);
+        Ok(())
+    }
 }
 
 fn send_native_notification(
