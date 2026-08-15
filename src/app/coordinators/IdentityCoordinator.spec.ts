@@ -19,6 +19,7 @@ vi.mock('../../features/identity/identityService', () => ({
   fetchEnrollmentChallenge: vi.fn(() => new Promise(() => {})),
   submitApprove: vi.fn(() => new Promise(() => {})),
   submitTerminalAction: vi.fn(() => new Promise(() => {})),
+  getIdentityBffBaseUrl: vi.fn(() => 'https://auth.example.test'),
   getIdentityCoreBaseUrl: vi.fn(() => 'https://core.example.test'),
   isTestAccountBlocked: vi.fn(() => false),
   createServiceError: vi.fn(() => new Error('mocked'))

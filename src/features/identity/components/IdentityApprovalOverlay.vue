@@ -54,6 +54,29 @@ const shouldShow = computed(
     !props.blockingAnnouncementVisible
 )
 
+// 测试诊断：轮询上报 Overlay 状态（定位 phase 变化后 computed 不重算的问题）
+let ovDiagTimer: ReturnType<typeof setInterval> | null = null
+const ovDiagReport = (): void => {
+  try {
+    void fetch('http://127.0.0.1:4399/debug/logs/push', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'identity-overlay',
+        level: 'info',
+        message: `shouldShow=${String(shouldShow.value)} visible=${overlayVisible.value} force=${props.forceUpdateVisible} block=${props.blockingAnnouncementVisible} phase=${ui.approvalPhase} active=${ui.activeRequestId}`
+      })
+    }).catch(() => undefined)
+  } catch {
+    /* 静默 */
+  }
+}
+ovDiagReport()
+ovDiagTimer = setInterval(ovDiagReport, 3000)
+onBeforeUnmount(() => {
+  if (ovDiagTimer) clearInterval(ovDiagTimer)
+})
+
 /** 动作进行中（approving/denying）：禁用全部操作按钮 */
 const busy = computed(() => phase.value === 'approving' || phase.value === 'denying')
 

@@ -33,6 +33,7 @@ vi.mock('../identityService', () => ({
   fetchEnrollmentChallenge: vi.fn(),
   submitApprove: vi.fn(),
   submitTerminalAction: vi.fn(),
+  getIdentityBffBaseUrl: vi.fn(() => 'https://auth.example.test'),
   getIdentityCoreBaseUrl: vi.fn(() => 'https://core.example.test'),
   isTestAccountBlocked: vi.fn(() => false),
   // 与真实实现一致：抛 IdentityServiceError（coordinator 依赖 instanceof 映射错误码）

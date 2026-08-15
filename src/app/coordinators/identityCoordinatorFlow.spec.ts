@@ -42,6 +42,7 @@ vi.mock('../../features/identity/identityService', () => ({
   submitApprove: vi.fn(),
   submitTerminalAction: vi.fn(),
   getIdentityCoreBaseUrl: vi.fn(() => 'https://core.example.test'),
+  getIdentityBffBaseUrl: vi.fn(() => 'https://auth.example.test'),
   isTestAccountBlocked: vi.fn(() => false),
   createServiceError: vi.fn((_code: string, message?: string) => new Error(message || 'mocked'))
 }))
@@ -449,17 +450,20 @@ describe('#623 授权流程：审批动作', () => {
     coordinator.submitIntent(makeIntent('ar_1111111111111111'))
     await flushAsync()
     await coordinator.approveActive()
-    // Rust 侧签名参数：只有签名上下文，没有私钥字段
-    const signArgs = vi.mocked(invokeNative).mock.calls.find(
+    // Rust 侧签名参数：invokeNative 统一 input 包装；只有签名上下文，没有私钥字段
+    const signCall = vi.mocked(invokeNative).mock.calls.find(
       ([command]) => command === 'identity_sign_auth_request'
     )?.[1]
-    expect(signArgs).toEqual({
-      request_id: 'ar_1111111111111111',
-      challenge: 'challenge-abc-123',
-      client_id: 'mh_client_1',
-      scopes: ['openid'],
-      device_id: 'dev_test_1'
+    expect(signCall).toEqual({
+      input: {
+        request_id: 'ar_1111111111111111',
+        challenge: 'challenge-abc-123',
+        client_id: 'mh_client_1',
+        scopes: ['openid'],
+        device_id: 'dev_test_1'
+      }
     })
+    const signArgs = signCall?.input as Record<string, unknown>
     expect(signArgs).not.toHaveProperty('private_key')
     expect(signArgs).not.toHaveProperty('privateKey')
     expect(signArgs).not.toHaveProperty('seed')

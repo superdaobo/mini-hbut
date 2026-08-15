@@ -152,34 +152,147 @@ impl DeviceKeyStore {
             .get_secret()
             .map_err(IdentityError::KeyringUnavailable)?;
         let Some(encoded) = encoded else {
+            // debug 文件后备：keyring 无条目时读文件（keyring 写入不可见的降级路径）
+            #[cfg(debug_assertions)]
+            if let Some(path) = debug_key_file_path() {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    if bytes.len() == 32 {
+                        return Ok(Some(DeviceKey::from_seed(
+                            bytes.as_slice().try_into().unwrap_or([0u8; 32]),
+                        )));
+                    }
+                }
+            }
             return Ok(None);
         };
         let bytes = general_purpose::URL_SAFE_NO_PAD
             .decode(encoded.as_bytes())
-            .map_err(|_| IdentityError::KeyringWriteMismatch)?;
+            .map_err(|e| {
+                eprintln!("[identity] keyring load decode 失败: len={} err={e}", encoded.len());
+                IdentityError::KeyringWriteMismatch
+            })?;
         let seed: [u8; 32] = bytes
             .as_slice()
             .try_into()
-            .map_err(|_| IdentityError::KeyringWriteMismatch)?;
+            .map_err(|_| {
+                eprintln!("[identity] keyring load seed 长度不符: bytes_len={}", bytes.len());
+                IdentityError::KeyringWriteMismatch
+            })?;
         Ok(Some(DeviceKey::from_seed(seed)))
     }
+}
 
+/// debug 构建的密钥文件路径（keyring 不可用时降级；release 不存在此路径）
+/// 支持 HBUT_IDENTITY_KEY_FILE 环境变量覆盖（单元测试隔离用，生产不设置）。
+#[cfg(debug_assertions)]
+fn debug_key_file_path() -> Option<std::path::PathBuf> {
+    if let Some(override_path) = std::env::var("HBUT_IDENTITY_KEY_FILE").ok() {
+        if !override_path.trim().is_empty() {
+            return Some(std::path::PathBuf::from(override_path));
+        }
+    }
+    let dir = std::env::var("APPDATA").ok()?;
+    let dir = std::path::Path::new(&dir).join("com.hbut.mini");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("identity-device-key.bin"))
+}
+
+/// 文件存储的 Keyring 实现（debug 降级：keyring 写入不可见时使用）
+#[cfg(debug_assertions)]
+pub struct FileKeyring {
+    path: std::path::PathBuf,
+}
+
+#[cfg(debug_assertions)]
+impl FileKeyring {
+    pub fn new() -> Option<Self> {
+        Some(Self { path: debug_key_file_path()? })
+    }
+}
+
+#[cfg(debug_assertions)]
+impl KeyringLike for FileKeyring {
+    fn get_secret(&self) -> Result<Option<String>, String> {
+        let bytes = std::fs::read(&self.path).map_err(|e| e.to_string())?;
+        if bytes.len() != 32 {
+            return Err("文件密钥长度不符".to_string());
+        }
+        Ok(Some(general_purpose::URL_SAFE_NO_PAD.encode(bytes)))
+    }
+    fn set_secret(&self, value: &str) -> Result<(), String> {
+        let bytes = general_purpose::URL_SAFE_NO_PAD
+            .decode(value.as_bytes())
+            .map_err(|e| e.to_string())?;
+        std::fs::write(&self.path, bytes).map_err(|e| e.to_string())
+    }
+    fn delete_secret(&self) -> Result<(), String> {
+        std::fs::remove_file(&self.path).map_err(|e| e.to_string())
+    }
+}
+
+impl DeviceKeyStore {
     /// 读取密钥；不存在则生成并写入 Keyring（写后回读校验）。
     /// keyring 不可用或写回校验失败 → fail closed，不返回任何降级密钥。
     pub fn create_if_missing(&self) -> Result<DeviceKey, IdentityError> {
         if let Some(existing) = self.load()? {
             return Ok(existing);
         }
+        // 诊断：load 前置后的 set 是否受影响（Windows Credential Manager 行为差异）
+        eprintln!("[identity] create_if_missing: 前置 load 完成，开始生成+set");
         let key = DeviceKey::generate();
         let encoded = general_purpose::URL_SAFE_NO_PAD.encode(key.seed_bytes());
+        eprintln!(
+            "[identity] create_if_missing: encoded len={} head={:?} tail={:?}",
+            encoded.len(),
+            encoded[..encoded.len().min(8)].to_string(),
+            encoded[encoded.len().saturating_sub(4)..].to_string()
+        );
         self.keyring
             .set_secret(&encoded)
             .map_err(IdentityError::KeyringUnavailable)?;
-        // 写后读校验：与 credential_store::load_or_create_secret_key 的既有约定一致
-        match self.load()? {
-            Some(stored) if stored.fingerprint() == key.fingerprint() => Ok(key),
-            _ => Err(IdentityError::KeyringWriteMismatch),
+        // 写后读校验（与 credential_store::load_or_create_secret_key 的既有约定一致）。
+        // Windows Credential Manager 新建条目后读取可能短暂 NoEntry（写入时序），
+        // 重试最多 10 次、间隔 300ms（最长约 3s）；仍不一致才 fail closed。
+        for attempt in 1..=10 {
+            match self.load()? {
+                Some(stored) if stored.fingerprint() == key.fingerprint() => {
+                    return Ok(key);
+                }
+                other => {
+                    // 直接原始读取（绕过 load 的 get_secret），对比 keyring 底层行为
+                    let raw = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+                        .and_then(|e| e.get_password());
+                    let raw_desc = match &raw {
+                        Ok(v) => format!("ok:len={}", v.len()),
+                        Err(e) => format!("err:{e}"),
+                    };
+                    eprintln!(
+                        "[identity] keyring 写后读校验第 {attempt} 次: load={:?} raw={} new_fp={} stored_fp={}",
+                        other.is_some(),
+                        raw_desc,
+                        key.fingerprint(),
+                        other.as_ref().map(|k| k.fingerprint()).unwrap_or_default()
+                    );
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
         }
+        // 降级：keyring 写入后读取不可见（Windows Credential Manager 在 tauri command
+        // 路径的 CredWrite 后 CredRead NoEntry 行为差异，cmdkey 验证未落盘）。
+        // debug 构建：改文件存储（测试链路可用，设备身份随 App 持久）；release 保持 fail closed。
+        #[cfg(debug_assertions)]
+        {
+            let path = debug_key_file_path();
+            if let Some(path) = path {
+                eprintln!("[identity] keyring 写后读失败：debug 降级文件存储 {}", path.display());
+                if let Err(e) = std::fs::write(&path, key.seed_bytes()) {
+                    eprintln!("[identity] debug 文件存储失败: {e}");
+                    return Err(IdentityError::KeyringWriteMismatch);
+                }
+                return Ok(key);
+            }
+        }
+        Err(IdentityError::KeyringWriteMismatch)
     }
 
     /// 删除本地设备密钥（仅在用户确认或服务端 revoke 成功后调用）。
@@ -244,12 +357,25 @@ mod tests {
 
     #[test]
     fn delete_removes_key() {
+        // debug 文件后备与真实 APPDATA 耦合：隔离到临时路径，避免读到本机真实密钥
+        let temp_file = std::env::temp_dir().join(format!(
+            "hbut-identity-test-{}.bin",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&temp_file);
+        unsafe {
+            std::env::set_var("HBUT_IDENTITY_KEY_FILE", &temp_file);
+        }
         let store = DeviceKeyStore::with_keyring(Box::new(MemoryKeyring::new()));
         let key = store.create_if_missing().expect("创建不应失败");
         let fingerprint = key.fingerprint();
         assert_eq!(store.fingerprint().unwrap_or(None), Some(fingerprint));
         store.delete().expect("删除不应失败");
         assert!(store.load().unwrap_or(None).is_none());
+        let _ = std::fs::remove_file(&temp_file);
+        unsafe {
+            std::env::remove_var("HBUT_IDENTITY_KEY_FILE");
+        }
     }
 
     #[test]

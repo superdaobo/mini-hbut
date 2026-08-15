@@ -37,7 +37,11 @@ impl RealKeyring {
     }
 
     fn entry(&self) -> Result<keyring::Entry, String> {
-        keyring::Entry::new(&self.service, &self.account).map_err(|e| e.to_string())
+        // 显式 target（与 Windows 默认拼接 {user}.{service} 一致），
+        // 避免默认路径在部分 Windows 版本上 CredWrite 后不可见的问题。
+        let target = format!("{}.{}", self.account, self.service);
+        keyring::Entry::new_with_target(&target, &self.service, &self.account)
+            .map_err(|e| e.to_string())
     }
 }
 

@@ -61,10 +61,12 @@ impl IdentityApiClient {
     pub async fn enroll_device(
         &self,
         body: &EnrollDeviceBody,
+        handoff: &str,
     ) -> Result<EnrollDeviceResponse, IdentityError> {
         let resp = self
             .http
             .post(self.url("/api/v1/app/devices/enroll"))
+            .header("Authorization", format!("Handoff {handoff}"))
             .json(body)
             .send()
             .await

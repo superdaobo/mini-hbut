@@ -65,3 +65,32 @@ curl https://id.xn--vhq74jc2fzpchter27a.com/oauth/userinfo \
 | App 提示未绑定设备 | 先完成设备 Enrollment（授权流程会自动引导） |
 | 授权码换 token 失败 | 检查 verifier 一致 + code 未过期（60 秒） |
 | 要求 student.identity | 使用 `scope=openid profile student.identity`，App 内需在线刷新学校会话 |
+
+## 六、2026-08-15 全链路实测记录（MCP 浏览器 → App → Core）
+
+**结果：完整链路验证通过**（请求 `ar_zHOsC3BbcqByguz9OibcIg`）：
+
+1. 浏览器打开 authorize → Core 创建 AuthRequest + Interaction → 302 到接力页
+2. 接力页显示测试横幅 + 二维码 + 倒计时（`#h=` fragment 格式）
+3. App 内 Overlay 显示授权请求 → 点「允许」→ Rust Ed25519 签名 → approve 200
+4. Core 状态：`APPROVED`（03:42:16）→ `INTERACTION_FINISHED`（03:42:17）→ `CODE_ISSUED`
+5. 接力页自动 resume → 浏览器跳转回调页拿到授权码
+6. 换 token 成功：`access_token`（1h）+ `id_token`（RS256，amr=`mini_hbut_app,device_key`）
+7. UserInfo：`{"sub":"s3hDnTj-...","name":"杨道博","preferred_username":"杨道博"}`
+
+**期间修复的问题**：
+
+| 现象 | 根因 | 修复 |
+|---|---|---|
+| 接力页卡 LOADING | fragment `#h=` 不匹配 + CSP 缺 unsafe-inline | 已修复（Core interaction.ts + web headers.ts） |
+| App 网络不可用 | 默认 baseUrl 占位 core. 域名 | 改 id. 域名（commit 64fb2f06） |
+| WebView2 全网络禁用 | 系统网络策略 | 身份请求走 Rust 代理 identity_core_fetch |
+| approve 后 Core 状态不变 | 误查了排队中的新请求（结果页未确认不推进队列） | 行为正确：结果页确认后队列才推进 |
+| resume 未执行 | 浏览器接力页未保持打开 | 测试操作要求：接力页保持到 approve 完成 |
+
+**调试接口**（debug 构建，HTTP Bridge :4399）：
+
+- `POST /debug/identity-intent`：注入 `minihbut://identity` 深链（模拟 App 唤起）
+- `GET /debug/identity-core-diag`：Rust reqwest 到 Core 连通性
+- `POST /debug/frontend-eval`：WebView 内执行 JS（结果写 `document.title` 前缀 `DIAG:` 回读）
+- `POST /debug/keyring-probe`：keyring 写后读探测

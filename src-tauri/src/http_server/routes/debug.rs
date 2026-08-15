@@ -535,4 +535,167 @@ pub(crate) fn debug_router() -> Router<HttpState> {
         .route("/debug/chaoxing/session", post(debug_chaoxing_session))
         .route("/debug/chaoxing/courses", post(debug_chaoxing_courses))
         .route("/debug/inbox", post(debug_inbox_fetch))
+        .route("/debug/identity-core-diag", get(identity_core_diag))
+        .route("/debug/identity-intent", post(debug_identity_intent))
+        .route("/debug/frontend-eval", post(debug_frontend_eval))
+        .route("/debug/keyring-probe", post(debug_keyring_probe))
+}
+
+// ────────────────────────────────────────────────────────────
+/// 身份服务（Mini-HBUT Identity Core）连通性诊断（测试链路调试用）
+/// GET /debug/identity-core-diag
+/// 返回：App 本机（Rust reqwest 网络栈）到 id.湖北工业大学.com 的真实连通性，
+/// 用于区分"App 网络/域名问题"与"身份服务问题"。
+async fn identity_core_diag(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_debug_or_dev(&state)?;
+    let core_url = "https://id.xn--vhq74jc2fzpchter27a.com";
+    let mut result = serde_json::json!({
+        "core_base_url": core_url,
+        "checks": {},
+        "hint": "前端实际请求地址由 src/features/identity/identityService.ts 的 IDENTITY_CORE_BASE_URL_DEFAULT 决定（可被 localStorage hbu_identity_core_base_url 覆盖）",
+    });
+
+    for (name, path) in [("healthz", "/healthz"), ("readyz", "/readyz")] {
+        let url = format!("{core_url}{path}");
+        let started = std::time::Instant::now();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build();
+        match client {
+            Err(e) => {
+                result["checks"][name] = serde_json::json!({ "ok": false, "error": format!("客户端构建失败: {e}") });
+            }
+            Ok(c) => match c.get(&url).send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let body = resp.text().await.unwrap_or_default();
+                    result["checks"][name] = serde_json::json!({
+                        "ok": status == 200,
+                        "status": status,
+                        "ms": started.elapsed().as_millis(),
+                        "body": body.chars().take(120).collect::<String>(),
+                    });
+                }
+                Err(e) => {
+                    result["checks"][name] = serde_json::json!({
+                        "ok": false,
+                        "error": format!("请求失败: {e}"),
+                        "ms": started.elapsed().as_millis(),
+                    });
+                }
+            },
+        }
+    }
+    Ok(ok(result))
+}
+
+// ────────────────────────────────────────────────────────────
+/// 模拟身份授权 deep link（测试链路用）：注入 minihbut://identity intent
+/// POST /debug/identity-intent  body: { "request_id": "ar_...", "handoff": "..." }
+/// 与真实 deep link 走同一条前端路径（appUrlOpen 事件 → IdentityCoordinator）。
+#[derive(Debug, Deserialize)]
+struct DebugIdentityIntentRequest {
+    request_id: String,
+    handoff: String,
+}
+
+async fn debug_identity_intent(
+    State(state): State<HttpState>,
+    Json(req): Json<DebugIdentityIntentRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_debug_or_dev(&state)?;
+    let url = format!(
+        "minihbut://identity?request_id={}&handoff={}",
+        req.request_id, req.handoff
+    );
+    // Tauri 分支监听 deep-link://new-url（tauri-plugin-deep-link onOpenUrl）；
+    // appUrlOpen 是 Capacitor 分支事件（App 已迁移 Tauri，仅保留兼容注释）。
+    state
+        .app
+        .emit("deep-link://new-url", serde_json::json!([url]))
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "intent 注入失败", e.to_string()))?;
+    Ok(ok(serde_json::json!({ "injected": true, "url": url })))
+}
+
+// ────────────────────────────────────────────────────────────
+/// 前端诊断（测试链路用）：Rust 侧在 WebView 里执行 JS 并返回结果
+/// POST /debug/frontend-eval  body: { "js": "..." }
+/// 用于读取前端状态/localStorage（如身份流程诊断），仅 debug 构建。
+#[derive(Debug, Deserialize)]
+struct DebugFrontendEvalRequest {
+    js: String,
+}
+
+async fn debug_frontend_eval(
+    State(state): State<HttpState>,
+    Json(req): Json<DebugFrontendEvalRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_debug_or_dev(&state)?;
+    let window = state
+        .app
+        .get_webview_window("main")
+        .ok_or_else(|| err(StatusCode::INTERNAL_SERVER_ERROR, "webview_missing", "找不到 main WebView".to_string()))?;
+    // tauri eval 是 fire-and-forget；约定前端把诊断结果写入 document.title（DIAG:... 前缀），
+    // 这里执行后读回 title 作为返回值（仅 debug 构建的测试链路约定）。
+    window
+        .eval(&req.js)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "eval_failed", e.to_string()))?;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let title = window.title().unwrap_or_default();
+    let result = title.strip_prefix("DIAG:").map(|s| s.to_string());
+    Ok(ok(serde_json::json!({ "diag": result })))
+}
+
+// ────────────────────────────────────────────────────────────
+/// 在 App 进程内直接探测 keyring set/get（定位设备密钥写后读不一致）
+#[derive(Debug, Deserialize)]
+struct DebugKeyringProbeRequest {
+    value: String,
+}
+
+async fn debug_keyring_probe(
+    State(state): State<HttpState>,
+    Json(req): Json<DebugKeyringProbeRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_debug_or_dev(&state)?;
+    let entry = keyring::Entry::new("mini-hbut-identity", "device-ed25519-v1")
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "entry_failed", e.to_string()))?;
+    let set_result = entry.set_password(&req.value);
+    let get_result = entry.get_password();
+    let same = match (&set_result, &get_result) {
+        (Ok(()), Ok(v)) => Some(v == &req.value),
+        _ => None,
+    };
+    let _ = entry.delete_credential();
+
+    // 复现 create_if_missing 流程：先 get（NoEntry）→ set 同值 → get
+    let e2 = keyring::Entry::new("mini-hbut-identity", "device-ed25519-v1").unwrap();
+    let pre = e2.get_password();
+    let set2 = e2.set_password(&req.value);
+    let post = e2.get_password();
+    let _ = e2.delete_credential();
+
+    // 真实路径：DeviceKeyStore::real().create_if_missing()（enroll 的同款调用）
+    let store = crate::identity::device_key::DeviceKeyStore::real();
+    let real_result = store.create_if_missing().map(|k| k.fingerprint());
+
+    Ok(ok(serde_json::json!({
+        "set": set_result.is_ok(),
+        "get_ok": get_result.is_ok(),
+        "get_len": get_result.as_ref().map(|v| v.len()).unwrap_or(0),
+        "same": same,
+        "get_err": get_result.as_ref().err().map(|e| e.to_string()),
+        "repro_pre": pre.is_ok(),
+        "repro_set": set2.is_ok(),
+        "repro_post": post.as_ref().map(|v| v.len()).unwrap_or(0),
+        "repro_post_err": post.as_ref().err().map(|e| e.to_string()),
+        "real_create": real_result.is_ok(),
+        "real_fp": real_result.unwrap_or_default(),
+    })))
 }

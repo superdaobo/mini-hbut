@@ -192,6 +192,20 @@ export const getRemainingSeconds = (detail: IdentityRequestDetail | null): numbe
 // ─── 写操作（仅 IdentityCoordinator 调用） ───────────────────────────────────
 
 /** 推进 12 相位 + 可选错误信息（coordinator 统一入口，防止组件直接改状态） */
+/** 测试诊断：把授权状态推进上报到本地 bridge（仅 debug 构建存在该端点；失败静默） */
+const diagReport = (event: string, details?: Record<string, unknown>): void => {
+  try {
+    void fetch('http://127.0.0.1:4399/debug/logs/push', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: 'identity-store', level: 'info', message: event, details }),
+      signal: AbortSignal.timeout(1500)
+    }).catch(() => undefined)
+  } catch {
+    /* 静默 */
+  }
+}
+
 export const setIdentityApprovalPhase = (
   phase: IdentityApprovalPhase,
   options: {
@@ -204,6 +218,7 @@ export const setIdentityApprovalPhase = (
 ): void => {
   state.approvalPhase = phase
   if (options.requestId !== undefined) state.activeRequestId = options.requestId
+  diagReport('phase_set', { phase, active: state.activeRequestId })
   if (options.detail !== undefined) state.requestDetail = options.detail
   if (options.errorCode !== undefined) state.errorCode = options.errorCode
   if (options.message !== undefined) state.userSafeMessage = options.message
