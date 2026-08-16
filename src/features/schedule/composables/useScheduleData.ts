@@ -387,8 +387,11 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
       offlineHint.value = ''
     }
     try {
+      // #633：切换学期时必须连远程课表一起清空——否则新学期请求失败/无数据时，
+      // 旧学期的 remoteScheduleData 会被当成"本学期缓存"展示（误报离线横幅 + 错课表）。
       if (requestedSemester && requestedSemester !== previousSemester) {
         customScheduleData.value = []
+        remoteScheduleData.value = []
         mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
       }
       if (requestedSemester) {
