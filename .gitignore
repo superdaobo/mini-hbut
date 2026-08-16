@@ -105,9 +105,19 @@ goal-*/
 # Local independent forum backend repository
 forum-backend/
 
-# Local private Mini-HBUT Identity Platform (Vercel CLI, 无 Git 部署)
-# 服务端私有源码不进主仓库；客户端代码 src/、src-tauri/ 不受影响
-/identity-platform/
+# Mini-HBUT Identity Platform 源码进入主仓库；本地 secrets / Vercel 元数据 / 测试产物继续忽略
+/identity-platform/**/.env
+/identity-platform/**/.env.*
+!/identity-platform/**/.env.example
+/identity-platform/**/coverage/
+/identity-platform/**/playwright-report/
+/identity-platform/**/test-results/
+/identity-platform/**/.turbo/
+/identity-platform/**/.pnpm-store/
+/identity-platform/**/.cache/
+/identity-platform/**/*.sqlite
+/identity-platform/**/*.sqlite3
+/identity-platform/**/*.db
 
 # Vercel local metadata (vercel link 生成，含 project/org 信息)
 .vercel/

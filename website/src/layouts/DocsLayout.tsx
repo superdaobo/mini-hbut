@@ -56,6 +56,7 @@ const docsNavSections = [
         title: '开发者文档',
         links: [
             { path: '/docs/developer', label: '开发者总览', icon: <Code2 size={18} /> },
+            { path: '/docs/identity-oidc', label: 'OIDC 接入指南', icon: <ShieldCheck size={18} /> },
             { path: '/docs/architecture', label: '架构与数据流', icon: <Layers size={18} /> },
             { path: '/docs/platform-tauri', label: '平台与 Tauri', icon: <Cpu size={18} /> },
             { path: '/docs/module-system', label: '模块系统', icon: <Building2 size={18} /> },
@@ -148,10 +149,16 @@ const recommendedReadingByPath: Record<string, Array<{ path: string; label: stri
         { path: '/docs/faq', label: '旧版 FAQ', desc: '查阅旧版问答中的历史说明。' },
     ],
     '/docs/developer': [
+        { path: '/docs/identity-oidc', label: 'OIDC 接入指南', desc: '第三方网站、服务端和 Native Client 接入 Mini-HBUT Identity。' },
         { path: '/docs/architecture', label: '架构与数据流', desc: '继续展开 API、缓存、SQLite、通知和 Widget 数据关系。' },
         { path: '/docs/platform-tauri', label: '平台与 Tauri', desc: '继续展开原生桥接、权限和运行时能力矩阵。' },
-        { path: '/docs/module-system', label: '模块系统', desc: '继续展开更多模块、manifest、bundle 和 iframe 宿主。' },
         { path: '/docs/reference', label: '参考资料', desc: '用源码索引定位组件、工具、后端和脚本。' },
+    ],
+    '/docs/identity-oidc': [
+        { path: '/docs/security-privacy', label: '安全与隐私', desc: '继续理解 Mini-HBUT 本体的 Cookie、凭据、Token 与安全边界。' },
+        { path: '/docs/platform-tauri', label: '平台与 Tauri', desc: '查看 App Approval 所依赖的 Tauri Deep Link、原生命令和平台桥接。' },
+        { path: '/docs/architecture', label: '架构与数据流', desc: '理解 Identity 与现有客户端/后端模块的整体数据流。' },
+        { path: '/docs/reference/dev-rules', label: '开发规范', desc: '进入仓库工程约束、质量门禁和安全提交规范。' },
     ],
     '/docs/architecture': [
         { path: '/docs/developer', label: '开发者总览', desc: '回到整体源码阅读路径。' },

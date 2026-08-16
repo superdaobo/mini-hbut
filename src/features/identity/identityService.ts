@@ -24,7 +24,7 @@ import type {
 import { IdentityServiceError } from './types'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
-/** Core 生产域名（已上线：id.湖北工业大学.com，Vercel Production；本地/Preview 可用 localStorage 覆盖） */
+/** Core 生产域名（已上线：id.湖北工业大学.com，Vercel Production）。 */
 export const IDENTITY_CORE_BASE_URL_DEFAULT = 'https://id.xn--vhq74jc2fzpchter27a.com'
 
 /**
@@ -45,13 +45,13 @@ export const reportIdentityDiag = (event: string, details?: Record<string, unkno
   }
 }
 
-/** 本地覆盖键（dev/preview 用；仅 URL 非敏感） */
+/** 本地开发覆盖键：仅 DEV 构建 + localhost/127.0.0.1/[::1] 生效，Production 永不信任 localStorage origin。 */
 export const IDENTITY_CORE_BASE_URL_KEY = 'hbu_identity_core_base_url'
 
 /** Web BFF 生产域名（auth.湖北工业大学.com）：详情/状态/resume 走 BFF（Core 的 requests 受 service-token 保护，#626） */
 export const IDENTITY_BFF_BASE_URL_DEFAULT = 'https://auth.xn--vhq74jc2fzpchter27a.com'
 
-/** BFF 本地覆盖键（测试用） */
+/** BFF 本地开发覆盖键（规则同 Core）。 */
 export const IDENTITY_BFF_BASE_URL_KEY = 'hbu_identity_bff_base_url'
 
 /** 请求超时（ms）：授权相关请求不允许无限等待 */
@@ -71,36 +71,37 @@ export const isTestAccountBlocked = (): boolean => {
   }
 }
 
-/** 解析 Core base URL：仅接受 http(s) 绝对地址；非法回退默认占位 */
-export const getIdentityBffBaseUrl = (): string => {
+const resolveLocalIdentityOverride = (storageKey: string, fallback: string): string => {
+  // Production / Preview 前端永不从 localStorage 决定凭据发送 origin。
+  // 仅 Vite DEV 本地联调允许 loopback HTTP；外部 Preview 必须通过受审查的应用构建配置/正式域名完成。
+  if (!import.meta.env.DEV || typeof localStorage === 'undefined') return fallback
   try {
-    const override = localStorage.getItem(IDENTITY_BFF_BASE_URL_KEY)
-    if (override) {
-      const url = new URL(override.trim())
-      if (url.protocol === 'https:' || url.protocol === 'http:') {
-        return url.toString().replace(/\/+$/, '')
-      }
+    const override = localStorage.getItem(storageKey)?.trim()
+    if (!override) return fallback
+    const url = new URL(override)
+    const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+    if (
+      url.protocol !== 'http:'
+      || !loopback
+      || url.username
+      || url.password
+      || url.pathname !== '/'
+      || url.search
+      || url.hash
+    ) {
+      return fallback
     }
+    return url.origin
   } catch {
-    /* 覆盖值非法时回退默认 */
+    return fallback
   }
-  return IDENTITY_BFF_BASE_URL_DEFAULT
 }
 
-export const getIdentityCoreBaseUrl = (): string => {
-  try {
-    const override = localStorage.getItem(IDENTITY_CORE_BASE_URL_KEY)
-    if (override) {
-      const url = new URL(override.trim())
-      if (url.protocol === 'https:' || url.protocol === 'http:') {
-        return url.toString().replace(/\/+$/, '')
-      }
-    }
-  } catch {
-    // 本地配置非法：回退默认
-  }
-  return IDENTITY_CORE_BASE_URL_DEFAULT
-}
+export const getIdentityBffBaseUrl = (): string =>
+  resolveLocalIdentityOverride(IDENTITY_BFF_BASE_URL_KEY, IDENTITY_BFF_BASE_URL_DEFAULT)
+
+export const getIdentityCoreBaseUrl = (): string =>
+  resolveLocalIdentityOverride(IDENTITY_CORE_BASE_URL_KEY, IDENTITY_CORE_BASE_URL_DEFAULT)
 
 const safeHeaders = (headers: Record<string, string>): Record<string, string> => headers
 

@@ -76,6 +76,32 @@ function summarizeMatch(text, index) {
   return text.slice(start, end).replace(/\s+/g, ' ').trim()
 }
 
+function lineAt(text, index) {
+  const start = text.lastIndexOf('\n', Math.max(0, index - 1)) + 1
+  const next = text.indexOf('\n', index)
+  const end = next === -1 ? text.length : next
+  return text.slice(start, end)
+}
+
+function isIdentityEnvNameMirror(matchText) {
+  const match = /^([A-Z0-9_]+)\s*[:=]\s*(["'])([^"']+)\2$/.exec(matchText.trim())
+  return Boolean(match && match[1] === match[3])
+}
+
+function isExplicitIdentityTestFixture(normalizedPath, text, index) {
+  const isIdentityTest =
+    normalizedPath.startsWith('identity-platform/')
+    && (
+      normalizedPath.includes('/tests/')
+      || normalizedPath.startsWith('identity-platform/e2e/')
+    )
+  if (!isIdentityTest) return false
+
+  // 测试目录也不能整体跳过扫描：只有同一行显式标注的固定假凭据才允许。
+  // 这样未来即使有人误把真实 token/连接串写进 tests/e2e，SecretGuard 仍会阻断提交。
+  return /secretguard:\s*allow-test-fixture\b/i.test(lineAt(text, index))
+}
+
 export function scanContent(filePath, text, source) {
   const findings = []
   const normalizedPath = normalizePath(filePath)
@@ -100,6 +126,15 @@ export function scanContent(filePath, text, source) {
     pattern.regex.lastIndex = 0
     let match
     while ((match = pattern.regex.exec(text)) !== null) {
+      if (
+        pattern.name === 'Identity 平台密钥类环境变量赋值'
+        && isIdentityEnvNameMirror(match[0])
+      ) {
+        continue
+      }
+      if (isExplicitIdentityTestFixture(normalizedPath, text, match.index)) {
+        continue
+      }
       findings.push({
         file: normalizedPath,
         source,

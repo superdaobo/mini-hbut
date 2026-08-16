@@ -101,6 +101,7 @@ const platformBoundaries = [
 ];
 
 const readingPath = [
+    ['OIDC 接入指南', '/docs/identity-oidc', '第三方网站、服务端或 Native Client 接入 Mini-HBUT Identity 时，从这里读取唯一正式接入文档。'],
     ['架构与数据流', '/docs/architecture', '继续展开 API、缓存、状态恢复、SQLite、通知和 Widget 数据关系。'],
     ['平台与 Tauri', '/docs/platform-tauri', '继续展开 Tauri command、Rust modules、HTTP client、Capacitor/Web 能力矩阵。'],
     ['模块系统', '/docs/module-system', '继续展开 module_center、more_modules、manifest、iframe 宿主和 website/modules-src 构建链。'],

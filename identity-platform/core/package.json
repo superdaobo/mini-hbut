@@ -1,0 +1,37 @@
+{
+  "name": "@mini-hbut/identity-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mini-HBUT Identity Platform Core（Koa，Vercel Project A：mini-hbut-identity-core）",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json",
+    "migrate:up": "tsx src/scripts/migrate.ts up",
+    "migrate:rollback": "tsx src/scripts/migrate.ts rollback",
+    "admin:grant": "tsx scripts/admin-grant.ts"
+  },
+  "dependencies": {
+    "@koa/router": "15.7.0",
+    "dotenv": "17.4.2",
+    "koa": "2.16.4",
+    "oidc-provider": "9.11.3",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/koa": "2.15.2",
+    "@types/koa__router": "12.0.5",
+    "@types/node": "^24.0.0",
+    "@types/pg": "8.21.0",
+    "pg-mem": "^3.0.14",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

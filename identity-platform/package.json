@@ -1,0 +1,21 @@
+{
+  "name": "mini-hbut-identity-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mini-HBUT OIDC / App Approval 身份平台（源码随主仓库版本管理，Vercel CLI 手动部署）",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "check": "pnpm -r run typecheck && pnpm -r run test && pnpm -r run build",
+    "check:core": "pnpm --filter @mini-hbut/identity-core run typecheck && pnpm --filter @mini-hbut/identity-core run test && pnpm --filter @mini-hbut/identity-core run build",
+    "check:web": "pnpm --filter @mini-hbut/identity-web run typecheck && pnpm --filter @mini-hbut/identity-web run test && pnpm --filter @mini-hbut/identity-web run build",
+    "deploy:preview": "node scripts/deploy.mjs preview",
+    "deploy:prod": "node scripts/deploy.mjs prod"
+  },
+  "devDependencies": {
+    "undici": "^8.10.0",
+    "vercel": "^58.11.0"
+  }
+}

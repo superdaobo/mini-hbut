@@ -17,8 +17,55 @@ use super::models::{
     current_platform, DeviceStatusPayload, EnrollPayload, PublicKeyPayload, SignAuthRequestInput,
 };
 
+const IDENTITY_CORE_ORIGIN: &str = "https://id.xn--vhq74jc2fzpchter27a.com";
+const IDENTITY_AUTH_ORIGIN: &str = "https://auth.xn--vhq74jc2fzpchter27a.com";
+const IDENTITY_ORIGIN_WHITELIST: &[&str] = &[IDENTITY_CORE_ORIGIN, IDENTITY_AUTH_ORIGIN];
+
 fn real_store() -> DeviceKeyStore {
     DeviceKeyStore::real()
+}
+
+fn validate_identity_core_base_url(
+    input: &str,
+    allow_local_dev: bool,
+) -> Result<String, IdentityError> {
+    let raw = input.trim();
+    if raw.is_empty() {
+        return Err(IdentityError::CoreBaseUrlMissing);
+    }
+    let parsed = url::Url::parse(raw)
+        .map_err(|_| IdentityError::InvalidInput("Identity Core 地址格式非法".to_string()))?;
+    if parsed.username() != ""
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || !matches!(parsed.path(), "" | "/")
+    {
+        return Err(IdentityError::InvalidInput(
+            "Identity Core 地址只能是受信任 origin".to_string(),
+        ));
+    }
+    let origin = parsed.origin().ascii_serialization();
+    if origin == IDENTITY_CORE_ORIGIN {
+        return Ok(IDENTITY_CORE_ORIGIN.to_string());
+    }
+    if allow_local_dev
+        && parsed.scheme() == "http"
+        && matches!(parsed.host_str(), Some("127.0.0.1") | Some("localhost"))
+    {
+        return Ok(origin);
+    }
+    Err(IdentityError::InvalidInput(
+        "拒绝向非受信任 Identity Core 发送设备身份数据".to_string(),
+    ))
+}
+
+fn resolve_identity_core_base_url(input: &str) -> Result<String, IdentityError> {
+    let allow_local_dev = cfg!(debug_assertions)
+        && std::env::var("HBUT_IDENTITY_ALLOW_LOCAL_CORE")
+            .map(|value| value == "1")
+            .unwrap_or(false);
+    validate_identity_core_base_url(input, allow_local_dev)
 }
 
 /// 查询设备身份本地状态（keyring 不可用时返回 available=false，不抛错，便于前端展示降级原因）。
@@ -66,10 +113,7 @@ pub(crate) async fn identity_enroll_device(
     device_name: String,
     handoff: String,
 ) -> Result<EnrollPayload, String> {
-    let base_url = base_url.trim().to_string();
-    if base_url.is_empty() {
-        return Err(IdentityError::CoreBaseUrlMissing.to_string());
-    }
+    let base_url = resolve_identity_core_base_url(&base_url).map_err(|e| e.to_string())?;
     let device_name = device_name.trim().to_string();
     if device_name.is_empty() || device_name.chars().count() > 64 {
         return Err(
@@ -183,6 +227,7 @@ pub(crate) async fn identity_revoke_current_device_local(
         .filter(|b| !b.is_empty());
 
     if let Some(base_url) = base_url {
+        let base_url = resolve_identity_core_base_url(&base_url).map_err(|e| e.to_string())?;
         let device_id = device_id
             .ok_or_else(|| {
                 IdentityError::InvalidInput(
@@ -224,11 +269,6 @@ pub(crate) async fn identity_revoke_current_device_local(
 /// 安全：origin 白名单（Core + BFF，防 SSRF）；handoff 只经 header 传递。
 /// 注意：/api/v1/requests/** 在 Core 受 service-token 保护（#626，BFF 通道），
 /// App 侧详情/状态/resume 走 BFF（auth.域名），approve/enroll 走 Core app 端点。
-const IDENTITY_ORIGIN_WHITELIST: &[&str] = &[
-    "https://id.xn--vhq74jc2fzpchter27a.com",
-    "https://auth.xn--vhq74jc2fzpchter27a.com",
-];
-
 #[derive(serde::Deserialize)]
 pub(crate) struct IdentityCoreFetchInput {
     method: String,
@@ -281,10 +321,58 @@ pub(crate) async fn identity_core_fetch(
     if let Some(b) = &input.body {
         req = req.json(b);
     }
-    let resp = req.send().await.map_err(|e| {
-        format!("identity_core_fetch: 请求失败: {e}")
-    })?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("identity_core_fetch: 请求失败: {e}"))?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
     Ok(IdentityCoreFetchOutput { status, body })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    #[test]
+    fn identity_core_origin_accepts_only_canonical_production() {
+        assert_eq!(
+            validate_identity_core_base_url(IDENTITY_CORE_ORIGIN, false).unwrap(),
+            IDENTITY_CORE_ORIGIN
+        );
+        assert_eq!(
+            validate_identity_core_base_url("https://id.xn--vhq74jc2fzpchter27a.com/", false)
+                .unwrap(),
+            IDENTITY_CORE_ORIGIN
+        );
+    }
+
+    #[test]
+    fn identity_core_origin_rejects_untrusted_or_decorated_urls() {
+        for value in [
+            "https://evil.example",
+            "https://id.xn--vhq74jc2fzpchter27a.com.evil.example",
+            "https://id.xn--vhq74jc2fzpchter27a.com/api",
+            "https://user@id.xn--vhq74jc2fzpchter27a.com",
+            "https://id.xn--vhq74jc2fzpchter27a.com?next=https://evil.example",
+            "https://id.xn--vhq74jc2fzpchter27a.com/#fragment",
+        ] {
+            assert!(
+                validate_identity_core_base_url(value, false).is_err(),
+                "应拒绝 {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn identity_core_local_origin_requires_explicit_dev_allowance() {
+        for value in ["http://127.0.0.1:3300", "http://localhost:3300"] {
+            assert!(validate_identity_core_base_url(value, false).is_err());
+            assert_eq!(validate_identity_core_base_url(value, true).unwrap(), value);
+        }
+        assert!(validate_identity_core_base_url("https://localhost:3300", true).is_err());
+        assert!(validate_identity_core_base_url("http://192.168.1.20:3300", true).is_err());
+    }
 }

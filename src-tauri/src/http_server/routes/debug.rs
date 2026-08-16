@@ -555,7 +555,7 @@ async fn identity_core_diag(
     let mut result = serde_json::json!({
         "core_base_url": core_url,
         "checks": {},
-        "hint": "前端实际请求地址由 src/features/identity/identityService.ts 的 IDENTITY_CORE_BASE_URL_DEFAULT 决定（可被 localStorage hbu_identity_core_base_url 覆盖）",
+        "hint": "Production Identity origin 固定为 canonical id/auth 域名；仅 DEV + loopback 可使用 localStorage 覆盖，Rust 侧还会再次校验目标 origin",
     });
 
     for (name, path) in [("healthz", "/healthz"), ("readyz", "/readyz")] {
@@ -566,7 +566,8 @@ async fn identity_core_diag(
             .build();
         match client {
             Err(e) => {
-                result["checks"][name] = serde_json::json!({ "ok": false, "error": format!("客户端构建失败: {e}") });
+                result["checks"][name] =
+                    serde_json::json!({ "ok": false, "error": format!("客户端构建失败: {e}") });
             }
             Ok(c) => match c.get(&url).send().await {
                 Ok(resp) => {
@@ -617,7 +618,13 @@ async fn debug_identity_intent(
     state
         .app
         .emit("deep-link://new-url", serde_json::json!([url]))
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "intent 注入失败", e.to_string()))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "intent 注入失败",
+                e.to_string(),
+            )
+        })?;
     Ok(ok(serde_json::json!({ "injected": true, "url": url })))
 }
 
@@ -636,15 +643,22 @@ async fn debug_frontend_eval(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_or_dev(&state)?;
-    let window = state
-        .app
-        .get_webview_window("main")
-        .ok_or_else(|| err(StatusCode::INTERNAL_SERVER_ERROR, "webview_missing", "找不到 main WebView".to_string()))?;
+    let window = state.app.get_webview_window("main").ok_or_else(|| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "webview_missing",
+            "找不到 main WebView".to_string(),
+        )
+    })?;
     // tauri eval 是 fire-and-forget；约定前端把诊断结果写入 document.title（DIAG:... 前缀），
     // 这里执行后读回 title 作为返回值（仅 debug 构建的测试链路约定）。
-    window
-        .eval(&req.js)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "eval_failed", e.to_string()))?;
+    window.eval(&req.js).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "eval_failed",
+            e.to_string(),
+        )
+    })?;
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let title = window.title().unwrap_or_default();
     let result = title.strip_prefix("DIAG:").map(|s| s.to_string());
@@ -664,8 +678,13 @@ async fn debug_keyring_probe(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_or_dev(&state)?;
-    let entry = keyring::Entry::new("mini-hbut-identity", "device-ed25519-v1")
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "entry_failed", e.to_string()))?;
+    let entry = keyring::Entry::new("mini-hbut-identity", "device-ed25519-v1").map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "entry_failed",
+            e.to_string(),
+        )
+    })?;
     let set_result = entry.set_password(&req.value);
     let get_result = entry.get_password();
     let same = match (&set_result, &get_result) {
