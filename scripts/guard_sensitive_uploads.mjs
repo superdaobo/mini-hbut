@@ -6,7 +6,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
-const repoRoot = process.cwd()
+// 惰性获取仓库根（#644）：脚本可从任意 cwd 运行（CLI / deploy 临时仓库 / 单测 chdir），
+// 每次执行 git 命令时取当前 cwd，避免模块加载时固化路径。
+function getRepoRoot() {
+  return process.cwd()
+}
+
 const blockedPaths = new Set([
   'scripts/analyze_turso_grades.py',
   'scripts/query_turso.py',
@@ -54,7 +59,7 @@ export const sensitivePatterns = [
 
 function runGit(args, options = {}) {
   const result = spawnSync('git', args, {
-    cwd: repoRoot,
+    cwd: getRepoRoot(),
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
     ...options,
@@ -182,8 +187,9 @@ function getPushCommitsFromStdin(stdinText) {
 }
 
 function getChangedFilesForCommit(commit) {
+  // --root: 对根提交（无父）与空树比较，否则 diff-tree 对 root commit 输出为空（#644）
   const result = runGit(
-    ['diff-tree', '--no-commit-id', '--name-only', '-r', '--diff-filter=ACMR', commit],
+    ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', '--diff-filter=ACMR', commit],
     { allowFailure: true },
   )
   if (result.status !== 0) return []
@@ -222,6 +228,39 @@ function scanFilesWithReader(files, reader, sourceLabel) {
 
 function scanPush(stdinText) {
   const commits = getPushCommitsFromStdin(stdinText)
+  return scanCommits(commits)
+}
+
+/**
+ * 解析 commit range 为待扫描提交列表（#644）。
+ * range 形如 "<before>..<after>"（CI push 用 before/after，PR 用 base/head）；
+ * before 缺失或全零（首次 push / 含根提交的场景）时扫描 after 的全部祖先（含根提交）。
+ * range 无法解析、after 缺失或 git 读取失败时抛错——调用方必须转为非零退出，绝不能静默放行。
+ */
+export function getCommitsForRange(range) {
+  if (!range || !range.includes('..')) {
+    throw new Error(`无效的 commit range: ${JSON.stringify(range)}（应为 before..after）`)
+  }
+  const [before, after] = range.split('..')
+  const afterSha = (after || '').trim()
+  if (!afterSha || /\s/.test(afterSha) || afterSha.includes('..')) {
+    throw new Error(`无效的 commit range: ${JSON.stringify(range)}（after 缺失或不是合法引用）`)
+  }
+  const beforeSha = (before || '').trim()
+  const isRootScenario = !beforeSha || /^0+$/.test(beforeSha)
+  // runGit 在 rev-list 失败时抛错（无法读取 Git 范围 → 非静默放行）
+  const args = isRootScenario
+    ? ['rev-list', afterSha]
+    : ['rev-list', `${beforeSha}..${afterSha}`]
+  const result = runGit(args)
+  return result.stdout
+    .split(/\r?\n/)
+    .map((commit) => commit.trim())
+    .filter(Boolean)
+}
+
+/** 逐个提交扫描变更文件（新内容；删除 D 不引入敏感内容，重命名 R 扫新 blob） */
+export function scanCommits(commits) {
   const findings = []
   const seen = new Set()
   for (const commit of commits) {
@@ -239,9 +278,29 @@ function scanPush(stdinText) {
 }
 
 function scanSingleFile(filePath) {
-  const absolutePath = path.resolve(repoRoot, filePath)
+  const absolutePath = path.resolve(getRepoRoot(), filePath)
   const text = readFileSync(absolutePath, 'utf8')
   return scanContent(filePath, text, 'scan-file')
+}
+
+/** 显式文件集合扫描（#644）：从工作区读取指定文件内容；文件缺失时抛错（非静默放行） */
+function scanExplicitFiles(files) {
+  const findings = []
+  for (const filePath of files) {
+    const absolutePath = path.resolve(getRepoRoot(), filePath)
+    let text
+    try {
+      text = readFileSync(absolutePath, 'utf8')
+    } catch (err) {
+      // ENOENT：文件已被删除（如迁移中并行删除的旧壳），不会进入提交，跳过扫描；
+      // 其他错误（权限等）属于扫描失败，必须抛错阻止放行。
+      if (err.code === 'ENOENT') continue
+      throw err
+    }
+    findings.push(...scanContent(filePath, text, 'scan-files'))
+    if (findings.length >= 12) return findings
+  }
+  return findings
 }
 
 function main() {
@@ -259,6 +318,50 @@ function main() {
     printFindingsAndExit(scanPush(stdinText))
     return
   }
+  if (mode === 'scan-range') {
+    const range = process.argv[3]
+    if (!range) {
+      console.error('用法: node scripts/guard_sensitive_uploads.mjs scan-range <before>..<after>')
+      process.exit(2)
+    }
+    try {
+      // #644: commit range 模式（CI push 用 before/after，PR 用 base/head）。
+      // 无法读取 Git 范围 / 扫描失败时必须非零退出，不能静默放行。
+      printFindingsAndExit(scanCommits(getCommitsForRange(range)))
+    } catch (err) {
+      console.error(`[SecretGuard] commit range 扫描失败，已阻止放行: ${err.message}`)
+      process.exit(1)
+    }
+    console.log(`[SecretGuard] 未发现敏感内容（range: ${range}）。`)
+    return
+  }
+  if (mode === 'scan-files') {
+    const args = process.argv.slice(3)
+    // 无参数或 "-" 时从 stdin 读文件列表（每行一个路径），
+    // 支持 check_all 全量已跟踪文件等大集合（避免命令行参数超长）。
+    let files = args.length === 1 && args[0] === '-' ? [] : args
+    if (args.length === 0 || (args.length === 1 && args[0] === '-')) {
+      files = readFileSync(0, 'utf8')
+        .split(/\r?\n/)
+        .map(normalizePath)
+        .filter(Boolean)
+    }
+    if (!files.length) {
+      console.error('用法: node scripts/guard_sensitive_uploads.mjs scan-files <path> [<path> ...]')
+      console.error('      或: git ls-files -z | node scripts/guard_sensitive_uploads.mjs scan-files -')
+      process.exit(2)
+    }
+    try {
+      // #644: 显式文件集合模式（check_all 全量已跟踪文件 / 自动提交脚本），
+      // 不依赖暂存区；文件读取失败时抛错非零退出。
+      printFindingsAndExit(scanExplicitFiles(files))
+    } catch (err) {
+      console.error(`[SecretGuard] 文件集合扫描失败，已阻止放行: ${err.message}`)
+      process.exit(1)
+    }
+    console.log('[SecretGuard] 未发现敏感内容。')
+    return
+  }
   if (mode === 'scan-file') {
     const target = process.argv[3]
     if (!target) {
@@ -269,7 +372,7 @@ function main() {
     console.log('[SecretGuard] 未发现敏感内容。')
     return
   }
-  console.error('用法: node scripts/guard_sensitive_uploads.mjs <pre-commit|pre-push|scan-file|self-test>')
+  console.error('用法: node scripts/guard_sensitive_uploads.mjs <pre-commit|pre-push|scan-range|scan-files|scan-file|self-test>')
   process.exit(2)
 }
 

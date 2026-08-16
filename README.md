@@ -174,6 +174,22 @@ npm run cap:open:android
 npm run cap:open:ios
 ```
 
+## 🛡️ Git hooks（提交保护）
+
+仓库通过 Git hooks + CI 双门禁防止密钥、令牌与生成物进入提交（#644）：
+
+- **本地 hooks（快速反馈）**：`.githooks/pre-commit`（扫描暂存内容）与 `.githooks/pre-push`（扫描待推送提交），调用根级 `scripts/guard_sensitive_uploads.mjs`
+- **CI（最终强制门禁）**：`.github/workflows/ci.yml` 的 `secret-guard` job 独立无条件运行，以 commit range 模式扫描 push（before..after）/ PR（base..head）的全部新增提交，不依赖本地暂存区
+
+安装 / 校验本地 hooks（推荐 clone 后执行一次）：
+
+```bash
+node scripts/install_githooks.mjs        # 设置 core.hooksPath=.githooks 并校验
+node scripts/install_githooks.mjs check  # 仅校验
+```
+
+> Windows 说明：Git for Windows 支持 `core.hooksPath`，hook 为 sh 脚本由 git 经 bash 执行，不依赖 NTFS 上的 POSIX 可执行位；仓库内以 `100755` 记录，POSIX 检出自动可执行。
+
 ## 🔌 本地 HTTP Bridge
 
 默认地址：`http://127.0.0.1:4399`
