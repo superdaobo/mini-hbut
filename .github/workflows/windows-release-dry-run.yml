@@ -71,6 +71,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
 

@@ -90,6 +90,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install dependencies
         working-directory: apps/client
@@ -157,6 +158,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install frontend deps and build dist
         working-directory: apps/client
@@ -207,6 +209,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install frontend deps
         working-directory: apps/client

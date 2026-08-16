@@ -193,6 +193,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -428,6 +429,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -501,6 +503,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -610,6 +613,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install Frontend Dependencies
         working-directory: apps/client
@@ -807,6 +811,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
