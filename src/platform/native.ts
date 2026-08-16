@@ -201,6 +201,12 @@ export const identityRevokeCurrentDeviceLocal = <T = Record<string, unknown>>(ar
   device_id?: string | null
 }) => invokeNative<T>('identity_revoke_current_device_local', args)
 
+/** 拉取本机授权历史（设备签名认证；「授权记录」页数据源） */
+export const identityFetchAuthHistory = <T = Record<string, unknown>>(args: {
+  base_url?: string
+  device_id: string
+}) => invokeNative<T>('identity_fetch_auth_history', args)
+
 /** 设备展示名（enrollment device_name 用；不包含任何敏感信息） */
 export const getIdentityDeviceDisplayName = (): string => {
   const ua = String(globalThis?.navigator?.userAgent || '')

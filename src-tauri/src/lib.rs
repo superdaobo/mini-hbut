@@ -616,6 +616,7 @@ pub fn run() {
             identity::commands::identity_enroll_device,
             identity::commands::identity_sign_auth_request,
             identity::commands::identity_revoke_current_device_local,
+            identity::commands::identity_fetch_auth_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

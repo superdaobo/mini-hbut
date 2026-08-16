@@ -146,3 +146,45 @@ export async function transitionAuthRequest(
   row.requested_scopes = parseJsonb<string[]>(row.requested_scopes)
   return row
 }
+
+/** 授权历史行：auth_requests JOIN oauth_applications/developers 的展示视图 */
+export interface AuthHistoryByDeviceRow extends QueryResultRow {
+  request_id: string
+  approved_at: Date
+  status: AuthRequestStatus
+  client_id: string
+  app_name: string | null
+  homepage_url: string | null
+  developer_display_name: string | null
+  app_status: string | null
+  requested_scopes: string[]
+}
+
+/**
+ * 按设备查询授权历史（「授权记录」页数据源）：
+ * 只取本设备批准过、且已进入终态链路（approve 之后任一状态）的请求，
+ * 按批准时间倒序，上限由 limit 控制（防响应过大）。
+ */
+export async function listAuthRequestsByDevice(
+  sql: SqlExecutor,
+  deviceId: string,
+  limit = 50,
+): Promise<AuthHistoryByDeviceRow[]> {
+  const result = await sql.query<AuthHistoryByDeviceRow>(
+    `SELECT ar.id AS request_id, ar.approved_at, ar.status, ar.client_id, ar.requested_scopes,
+            app.name AS app_name, app.homepage_url, app.status AS app_status,
+            dev.display_name AS developer_display_name
+       FROM auth_requests ar
+       JOIN oauth_applications app ON app.client_id = ar.client_id
+       LEFT JOIN developers dev ON dev.id = app.owner_developer_id
+      WHERE ar.approved_device_id = $1
+        AND ar.status IN ('APPROVED', 'INTERACTION_FINISHED', 'CODE_ISSUED', 'CONSUMED')
+      ORDER BY ar.approved_at DESC, ar.id DESC
+      LIMIT $2`,
+    [deviceId, limit],
+  )
+  return result.rows.map((row) => ({
+    ...row,
+    requested_scopes: parseJsonb<string[]>(row.requested_scopes),
+  }))
+}

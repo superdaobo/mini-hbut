@@ -31,8 +31,8 @@ export const API_PREFIX = '/api/v1'
 /** x-identity-handoff 请求头（#630：Web 接力凭据，绝不出现在日志） */
 export const HANDOFF_HEADER = 'x-identity-handoff'
 
-/** scope 展示元数据（#630 RequestScopeDTO：id/label/risk） */
-const SCOPE_META: Record<string, { label: string; risk: 'basic' | 'sensitive' }> = {
+/** scope 展示元数据（#630 RequestScopeDTO：id/label/risk；app API 授权历史复用） */
+export const SCOPE_META: Record<string, { label: string; risk: 'basic' | 'sensitive' }> = {
   openid: { label: '身份标识（openid）', risk: 'basic' },
   profile: { label: '基础资料（昵称/显示名）', risk: 'basic' },
   'student.identity': { label: '学校身份信息（学号/姓名/验证方式）', risk: 'sensitive' },

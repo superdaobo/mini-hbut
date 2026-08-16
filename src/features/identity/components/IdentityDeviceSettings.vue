@@ -173,13 +173,13 @@ defineExpose({ refreshDeviceStatus })
       </div>
     </section>
 
-    <!-- 授权记录：V1.1 预留入口（TODO: #623 可选范围，展示哪些 Client 获得过哪些 scope 并允许 revoke consent） -->
+    <!-- 授权记录：入口引导（完整列表在「我的 → 授权记录」页） -->
     <section class="identity-device-section glass-card">
       <div class="section-head">
         <h3>授权记录</h3>
       </div>
       <p class="identity-device-hint">
-        未来版本将展示哪些应用获得过哪些权限，并支持撤销历史授权（V1.1 预留）。
+        本设备批准过的身份授权（哪些应用、何时、授权了哪些权限）可在「我的 → 授权记录」查看。
       </p>
     </section>
 

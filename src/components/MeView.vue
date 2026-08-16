@@ -112,6 +112,7 @@ const handleOpenQuickLinks = () => emit('navigate', 'quick_links')
 const handleOpenCampusNetwork = () => emit('navigate', 'campus_network')
 const handleOpenMore = () => emit('navigate', 'more')
 const handleOpenPrivacyData = () => emit('navigate', 'privacy_data')
+const handleOpenAuthHistory = () => emit('navigate', 'identity_auth_history')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
 const policySession = () => ({
@@ -254,6 +255,12 @@ const handleShowLegal = async (tab) => {
           <span class="material-symbols-outlined" style="color: #2E7D32;">shield</span>
         </div>
         <span class="grid-label">隐私与数据</span>
+      </button>
+      <button class="grid-item" @click="handleOpenAuthHistory">
+        <div class="grid-icon-box" style="background: #EDE7F6;">
+          <span class="material-symbols-outlined" style="color: #5E35B1;">history</span>
+        </div>
+        <span class="grid-label">授权记录</span>
       </button>
       <button class="grid-item" @click="handleOpenExport">
         <div class="grid-icon-box" style="background: #E6F4EA;">

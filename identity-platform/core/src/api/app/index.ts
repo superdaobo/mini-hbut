@@ -14,12 +14,14 @@
  *   POST /api/v1/app/devices/enroll                   Handoff
  *   GET  /api/v1/app/devices/me                       Device 签名（MINI-HBUT-DEVICE-API-V1）
  *   POST /api/v1/app/devices/:id/revoke               Device 签名（自撤销，V1 仅本机）
+ *   GET  /api/v1/app/devices/me/auth-history          Device 签名（本机授权记录）
  *   POST /api/v1/app/auth-requests/:id/approve        Handoff + Ed25519 签名
  */
 import type Router from '@koa/router'
 import type { SqlExecutor } from '../../db/types.js'
 import { registerDeviceRoutes, type DevicesApiDeps } from './devices.js'
 import { registerAuthRequestRoutes, type ApproveApiDeps } from './auth-requests.js'
+import { registerAuthHistoryRoutes } from './auth-history.js'
 import type { AppAuthDeps, ClockSkewConfig } from './auth.js'
 
 /** registerAppRoutes 依赖（与 #620 ApiDeps 结构兼容；provider 预留） */
@@ -60,4 +62,5 @@ export function registerAppRoutes(router: Router, deps: AppRoutesDeps): void {
   }
   registerDeviceRoutes(router, deviceDeps)
   registerAuthRequestRoutes(router, approveDeps)
+  registerAuthHistoryRoutes(router, approveDeps)
 }

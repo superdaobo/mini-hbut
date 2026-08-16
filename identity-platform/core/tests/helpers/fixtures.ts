@@ -25,6 +25,8 @@ export async function createClientFixture(
     status?: 'active' | 'suspended' | 'revoked' | 'draft'
     /** 自定义 redirect_uri（默认 https://app.example.com/cb，kind=web_https） */
     redirectUris?: Array<{ uri: string; kind: 'web_https' | 'native_loopback' }>
+    /** 自定义 homepage_url（默认 https://app.example.com） */
+    homepageUrl?: string
   } = {},
 ): Promise<ClientFixture> {
   const { userId } = await createUserWithHbutIdentity(sql, {
@@ -41,6 +43,7 @@ export async function createClientFixture(
       name: '测试应用',
       clientType: opts.clientType ?? 'web_confidential',
       redirectUris: opts.redirectUris ?? [{ uri: 'https://app.example.com/cb', kind: 'web_https' }],
+      homepageUrl: opts.homepageUrl ?? 'https://app.example.com',
       requestedScopes: opts.scopes ?? ['openid', 'profile'],
     },
     { clientSecretKek: TEST_KEK },

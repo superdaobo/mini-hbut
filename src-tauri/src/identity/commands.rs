@@ -263,6 +263,51 @@ pub(crate) async fn identity_revoke_current_device_local(
     store.delete().map_err(|e| e.to_string())
 }
 
+/// 拉取本机授权历史（「授权记录」页数据源）：
+/// 设备签名（GET /api/v1/app/devices/me/auth-history）后返回 Core 响应体，
+/// 与 revoke 同款签名链路（method/path 由服务端取请求自身值，防中间人改写）。
+#[tauri::command]
+pub(crate) async fn identity_fetch_auth_history(
+    base_url: Option<String>,
+    device_id: String,
+) -> Result<IdentityCoreFetchOutput, String> {
+    let base_url = base_url
+        .map(|b| b.trim().to_string())
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| IDENTITY_CORE_ORIGIN.to_string());
+    let base_url = resolve_identity_core_base_url(&base_url).map_err(|e| e.to_string())?;
+    let device_id = device_id.trim().to_string();
+    if device_id.is_empty() {
+        return Err(IdentityError::InvalidInput(
+            "查询授权历史需要 device_id（enroll 返回值）".to_string(),
+        )
+        .to_string());
+    }
+    let store = real_store();
+    let key = store
+        .load()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| IdentityError::NotEnrolled)
+        .map_err(|e| e.to_string())?;
+    let issued_at = canonical::now_unix_seconds();
+    let nonce = canonical::new_nonce();
+    let canonical_text = canonical::build_device_api_canonical(&DeviceApiCanonicalInput {
+        method: "GET",
+        path: "/api/v1/app/devices/me/auth-history",
+        device_id: &device_id,
+        issued_at,
+        nonce: &nonce,
+    })
+    .map_err(|e| e.to_string())?;
+    let signature = canonical::encode_signature(&key.sign(canonical_text.as_bytes()));
+    let client = IdentityApiClient::new(base_url);
+    let body = client
+        .fetch_auth_history(&device_id, issued_at, &nonce, &signature)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(IdentityCoreFetchOutput { status: 200, body })
+}
+
 /// Identity 代理请求（#623 架构修正）：
 /// WebView fetch 在部分 Windows 环境被系统网络策略阻断（仅 localhost 可达），
 /// 身份请求改走 Rust 网络栈（与 App 其他业务一致）。
