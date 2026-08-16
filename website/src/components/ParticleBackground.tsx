@@ -13,6 +13,8 @@ export default function ParticleBackground() {
     if (!ctx) return;
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // 移动端降低粒子数与连线开销，减少滚动时 Canvas 压力（#637）
+    const mobile = window.matchMedia('(max-width: 768px)').matches;
     let w = 0;
     let h = 0;
     let raf = 0;
@@ -27,7 +29,9 @@ export default function ParticleBackground() {
       canvas.width = w * dpr;
       canvas.height = h * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const count = Math.min(90, Math.floor((w * h) / 22000));
+      const density = mobile ? 52000 : 22000;
+      const maxCount = mobile ? 36 : 90;
+      const count = Math.min(maxCount, Math.floor((w * h) / density));
       pts = Array.from({ length: count }, () => ({
         x: Math.random() * w,
         y: Math.random() * h,
@@ -42,19 +46,21 @@ export default function ParticleBackground() {
     const draw = () => {
       t += 0.016;
       ctx.clearRect(0, 0, w, h);
-      for (let i = 0; i < pts.length; i++) {
-        for (let j = i + 1; j < pts.length; j++) {
-          const dx = pts[i].x - pts[j].x;
-          const dy = pts[i].y - pts[j].y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < 120 * 120) {
-            const a = (1 - Math.sqrt(d2) / 120) * 0.1;
-            ctx.strokeStyle = `rgba(56, 189, 248, ${a})`;
-            ctx.lineWidth = 0.6;
-            ctx.beginPath();
-            ctx.moveTo(pts[i].x, pts[i].y);
-            ctx.lineTo(pts[j].x, pts[j].y);
-            ctx.stroke();
+      if (!mobile) {
+        for (let i = 0; i < pts.length; i++) {
+          for (let j = i + 1; j < pts.length; j++) {
+            const dx = pts[i].x - pts[j].x;
+            const dy = pts[i].y - pts[j].y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < 120 * 120) {
+              const a = (1 - Math.sqrt(d2) / 120) * 0.1;
+              ctx.strokeStyle = `rgba(56, 189, 248, ${a})`;
+              ctx.lineWidth = 0.6;
+              ctx.beginPath();
+              ctx.moveTo(pts[i].x, pts[i].y);
+              ctx.lineTo(pts[j].x, pts[j].y);
+              ctx.stroke();
+            }
           }
         }
       }

@@ -173,7 +173,9 @@ function ShowcaseScroll() {
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end end'] });
-  const smooth = useSpring(scrollYProgress, { stiffness: 58, damping: 17, mass: 0.6 });
+  // 移动端直接跟随滚动，去掉 spring 惯性，减少逐帧计算（#637）
+  const spring = useSpring(scrollYProgress, { stiffness: 58, damping: 17, mass: 0.6 });
+  const smooth = isMobile ? scrollYProgress : spring;
 
   const [active, setActive] = useState(0);
   useMotionValueEvent(smooth, 'change', (v) => {
@@ -181,7 +183,8 @@ function ShowcaseScroll() {
     setActive((prev) => (prev === i ? prev : i));
   });
 
-  const cams = isMobile ? CAMS.map((c) => ({ ...c, x: 0, y: -40, s: c.s * 0.78 })) : CAMS;
+  // 移动端去掉 rotateX/rotateY 3D 运镜，仅保留 2D 位移与缩放（#637）
+  const cams = isMobile ? CAMS.map((c) => ({ ry: 0, rx: 0, s: c.s * 0.78, x: 0, y: -40 })) : CAMS;
   const input = META.map((_, i) => i / (N - 1));
   const ry = useTransform(smooth, input, cams.map((c) => c.ry));
   const rx = useTransform(smooth, input, cams.map((c) => c.rx));
@@ -210,13 +213,16 @@ function ShowcaseScroll() {
       <div className="sticky top-0 flex h-svh items-center justify-center overflow-x-clip overflow-y-hidden">
         <div className="absolute inset-0 -z-10">
           <div className="absolute inset-0 bg-gradient-to-b from-[#0a0f1a] via-[#050a14] to-[#0a0f1a]" />
-          <div className="aurora-blob left-[-8%] top-[5%] h-[420px] w-[420px] bg-cyan-500/[0.09]" />
+          {/* 高成本装饰（大 blur + 无限旋转 + 粒子）移动端隐藏，避免渲染进程压力（#637） */}
+          <div className="aurora-blob hidden md:block left-[-8%] top-[5%] h-[420px] w-[420px] bg-cyan-500/[0.09]" />
           <div
-            className="aurora-blob right-[-6%] bottom-[0%] h-[380px] w-[380px] bg-violet-500/[0.08]"
+            className="aurora-blob hidden md:block right-[-6%] bottom-[0%] h-[380px] w-[380px] bg-violet-500/[0.08]"
             style={{ animationDelay: '-9s' }}
           />
           <div className="bg-grid absolute inset-0 opacity-70" />
-          <ParticleBackground />
+          <div className="hidden md:block">
+            <ParticleBackground />
+          </div>
         </div>
 
         <div className="absolute left-1/2 top-[4.5%] z-20 -translate-x-1/2 text-center">
@@ -227,14 +233,14 @@ function ShowcaseScroll() {
         {/* 机身水平位移由 transform 完成；外层保持视口居中，避免 sticky 失效后机身整块滚出 */}
         <div className="phone-scene z-10 flex items-center justify-center">
           <motion.div style={{ transform }} className="phone-3d relative will-change-transform">
-            <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[540px] w-[540px] -translate-x-1/2 -translate-y-1/2">
+            <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 hidden h-[540px] w-[540px] -translate-x-1/2 -translate-y-1/2 md:block">
               <div className="animate-spin-slower absolute inset-0 rounded-full border border-dashed border-cyan-400/15" />
               <div className="animate-spin-slower-rev absolute inset-12 rounded-full border border-violet-400/10" />
               <div className="absolute left-1/2 top-1/2 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400/12 blur-[70px]" />
             </div>
             <motion.div
               style={{ opacity: glowOpacity }}
-              className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400/[0.13] blur-[80px]"
+              className="pointer-events-none absolute left-1/2 top-1/2 -z-10 hidden h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400/[0.13] blur-[80px] md:block"
             />
 
             <div className="relative h-[min(560px,72svh)] w-[min(272px,72vw)] max-w-[272px] rounded-[2.75rem] bg-gradient-to-b from-slate-700/80 via-slate-800 to-slate-900 p-[3px] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8),0_0_60px_-20px_rgba(34,211,238,0.3)]">

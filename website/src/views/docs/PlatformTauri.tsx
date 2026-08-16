@@ -100,7 +100,7 @@ const tauriConfig = [
         title: 'Tauri 配置',
         source: 'src-tauri/tauri.conf.json',
         items: [
-            '产品名是 Mini-HBUT，版本 1.3.6，identifier 是 com.hbut.mini。',
+            '产品名是 Mini-HBUT，版本 1.4.6，identifier 是 com.hbut.mini。',
             'dev 阶段执行 npm run dev，devUrl 为 http://localhost:1420；build 阶段执行 npm run build && node scripts/check_dist_boundary.mjs，frontendDist 指向 ../dist。',
             '主窗口标题是 Mini-HBUT - 湖北工业大学教务助手，默认 420 x 720，最小 380 x 600，可缩放并居中。',
             'bundle.active 为 true，targets 为 all；Windows NSIS 使用 lzma 压缩和 SimpChinese，WebView2 使用 downloadBootstrapper 且 silent。',
