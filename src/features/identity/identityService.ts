@@ -17,12 +17,20 @@
 
 import type {
   IdentityApproveResult,
+  IdentityAuthHistoryItem,
+  IdentityAuthHistoryResponse,
   IdentityRequestDetail,
   IdentitySignedApproval,
   IdentityUserSafeErrorCode
 } from './types'
 import { IdentityServiceError } from './types'
-import { invokeNative, isTauriRuntime } from '../../platform/native'
+import { invokeNative, isTauriRuntime, identityFetchAuthHistory } from '../../platform/native'
+
+/**
+ * 本机设备 ID 的 localStorage key（与 identityStore.ts 的 IDENTITY_DEVICE_ID_KEY 保持一致）。
+ * 本地定义而非 import identityStore：identityService 保持纯 TS、无 Vue 依赖（#623 契约）。
+ */
+export const IDENTITY_DEVICE_ID_KEY = 'hbu_identity_device_id'
 
 /** Core 生产域名（已上线：id.湖北工业大学.com，Vercel Production）。 */
 export const IDENTITY_CORE_BASE_URL_DEFAULT = 'https://id.xn--vhq74jc2fzpchter27a.com'
@@ -436,6 +444,54 @@ export const submitApprove = async (input: {
     status: String(result?.status || ''),
     approved_at: result?.approved_at ?? null,
     already_approved: !!result?.already_approved
+  }
+}
+
+/**
+ * 拉取本机授权历史（「授权记录」页数据源）。
+ *
+ * 认证：设备签名（MINI-HBUT-DEVICE-API-V1）。私钥在 Rust keyring，canonical 绑定
+ * GET /api/v1/app/devices/me/auth-history，故 Tauri 环境必须走 Rust command
+ * `identity_fetch_auth_history`；Web/Capacitor 无签名能力，明确提示不支持。
+ */
+export const fetchAuthHistory = async (): Promise<IdentityAuthHistoryItem[]> => {
+  const deviceId = typeof localStorage !== 'undefined'
+    ? (localStorage.getItem(IDENTITY_DEVICE_ID_KEY) || '').trim()
+    : ''
+  if (!deviceId) {
+    throw createServiceError('device_not_bound', '本机尚未注册为身份签名设备，请先在设置中完成设备注册')
+  }
+  if (!isTauriRuntime()) {
+    throw createServiceError('device_not_bound', '授权记录仅支持在桌面端查看')
+  }
+  try {
+    const output = await identityFetchAuthHistory<{ status: number; body: string }>({
+      base_url: getIdentityCoreBaseUrl(),
+      device_id: deviceId
+    })
+    if (output.status !== 200) {
+      let data: unknown = null
+      if (output.body) {
+        try {
+          data = JSON.parse(output.body)
+        } catch {
+          data = null
+        }
+      }
+      throwMappedError(output.status, data, 'fetchAuthHistory')
+    }
+    const parsed = JSON.parse(output.body || '{}') as IdentityAuthHistoryResponse
+    return Array.isArray(parsed?.items) ? parsed.items : []
+  } catch (err) {
+    if (err instanceof IdentityServiceError) throw err
+    reportIdentityDiag('auth_history_error', {
+      error: String((err as Error)?.message || 'fetchAuthHistory failed').slice(0, 200)
+    })
+    throw createServiceError(
+      'network_unavailable',
+      '无法加载授权记录，请稍后重试',
+      String((err as Error)?.message || 'fetchAuthHistory failed')
+    )
   }
 }
 

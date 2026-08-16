@@ -69,6 +69,7 @@ const loadBroadbandView: Loader = () => import('../components/BroadbandView.vue'
 const loadSportsVenueView: Loader = () => import('../components/SportsVenueView.vue')
 const loadTowerGoView: Loader = () => import('../components/TowerGoView.vue')
 const loadSmartOrientationView: Loader = () => import('../components/SmartOrientationView.vue')
+const loadIdentityAuthHistoryView: Loader = () => import('../features/identity/views/IdentityAuthHistoryView.vue')
 
 /** view key → 异步组件（AppViewHost 模板 v-if 分支使用） */
 export const VIEW_COMPONENTS: Record<string, Component> = {
@@ -115,7 +116,8 @@ export const VIEW_COMPONENTS: Record<string, Component> = {
   broadband: createAsyncPage(loadBroadbandView),
   sports_venue: createAsyncPage(loadSportsVenueView),
   towergo: createAsyncPage(loadTowerGoView),
-  smart_orientation: createAsyncPage(loadSmartOrientationView)
+  smart_orientation: createAsyncPage(loadSmartOrientationView),
+  identity_auth_history: createAsyncPage(loadIdentityAuthHistoryView)
 }
 
 /** view key → loader（prefetch 使用） */
@@ -163,5 +165,6 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   broadband: loadBroadbandView,
   sports_venue: loadSportsVenueView,
   towergo: loadTowerGoView,
-  smart_orientation: loadSmartOrientationView
+  smart_orientation: loadSmartOrientationView,
+  identity_auth_history: loadIdentityAuthHistoryView
 }

@@ -152,7 +152,8 @@ const {
   broadband: BroadbandView,
   sports_venue: SportsVenueView,
   towergo: TowerGoView,
-  smart_orientation: SmartOrientationView
+  smart_orientation: SmartOrientationView,
+  identity_auth_history: IdentityAuthHistoryView
 } = VIEW_COMPONENTS
 </script>
 
@@ -321,6 +322,12 @@ const {
       <CampusNetworkView
         v-else-if="currentView === 'campus_network' && isLoggedIn"
         :student-id="studentId"
+        @back="handleBackToMe"
+      />
+
+      <!-- 授权记录（id.湖北工业大学.com 本机授权历史） -->
+      <IdentityAuthHistoryView
+        v-else-if="currentView === 'identity_auth_history'"
         @back="handleBackToMe"
       />
 

@@ -15,6 +15,7 @@ export const ME_SUB_VIEWS = [
   'school_website',
   'quick_links',
   'campus_network',
+  'identity_auth_history',
   'more',
   'more_module_host',
   'more_chaoxing_checkin'
@@ -43,6 +44,7 @@ export const HIERARCHICAL_PARENT_VIEW_MAP: Readonly<Record<string, string>> = Ob
   school_website: 'me',
   quick_links: 'me',
   campus_network: 'me',
+  identity_auth_history: 'me',
   more: 'me',
   more_module_host: 'more',
   more_chaoxing_checkin: 'more',

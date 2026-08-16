@@ -2628,3 +2628,67 @@ html.dark .campus-guide-status {
 html.dark .campus-guide-status.is-error {
   color: #fecaca !important;
 }
+
+/* ── 授权记录页（IdentityAuthHistoryView）── */
+html.dark .auth-history-view {
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .history-stats-card,
+html.dark .history-item-card,
+html.dark .history-tip-card {
+  background-color: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .history-app-name,
+html.dark .tip-title,
+html.dark .stat-value--time {
+  color: #e2e8f0 !important;
+}
+
+html.dark .history-app-host,
+html.dark .history-time-relative,
+html.dark .history-time-full,
+html.dark .stat-label,
+html.dark .tip-desc {
+  color: #94a3b8 !important;
+}
+
+html.dark .history-app-icon {
+  background: color-mix(in oklab, #3b82f6 22%, #0f172a 78%) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .history-scope-tag {
+  background: #0f172a !important;
+  color: #93c5fd !important;
+}
+
+html.dark .history-scope-tag--sensitive {
+  background: color-mix(in oklab, #ef4444 18%, #0f172a 82%) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .history-status-badge {
+  background: color-mix(in oklab, #22c55e 18%, #0f172a 82%) !important;
+  color: #86efac !important;
+}
+
+html.dark .history-test-badge {
+  background: color-mix(in oklab, #f59e0b 18%, #0f172a 82%) !important;
+  color: #fcd34d !important;
+}
+
+html.dark .history-item-time {
+  border-top-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+html.dark .history-footnote {
+  color: #64748b !important;
+}
+
+html.dark .history-refresh-btn:active {
+  background: #0f172a !important;
+}

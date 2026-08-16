@@ -84,6 +84,20 @@ export interface IdentityApproveResult {
   already_approved: boolean
 }
 
+/** 授权历史条目（GET /api/v1/app/devices/me/auth-history 的 item，sanitized 展示字段） */
+export interface IdentityAuthHistoryItem {
+  request_id: string
+  approved_at: string
+  status: string
+  client: IdentityClientInfo
+  scopes: IdentityScopeInfo[]
+}
+
+/** 授权历史响应 */
+export interface IdentityAuthHistoryResponse {
+  items: IdentityAuthHistoryItem[]
+}
+
 /** 用户可读错误码（#623「错误页面/状态」清单收敛；UI 不显示 stack/DB/crypto detail） */
 export type IdentityUserSafeErrorCode =
   | 'request_expired' // 应用请求已过期

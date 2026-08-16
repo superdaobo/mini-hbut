@@ -115,6 +115,38 @@ impl IdentityApiClient {
             Err(parse_api_error(status.as_u16(), &text))
         }
     }
+
+    /// 拉取本机授权历史（设备签名认证；「授权记录」页数据源）。
+    /// 返回 Core 响应体（JSON 文本），由调用方原样透传给前端。
+    pub async fn fetch_auth_history(
+        &self,
+        device_id: &str,
+        issued_at: i64,
+        nonce: &str,
+        signature: &str,
+    ) -> Result<String, IdentityError> {
+        if device_id.is_empty() || device_id.contains('/') {
+            return Err(IdentityError::InvalidInput("device_id 非法".to_string()));
+        }
+        let auth = format!("{DEVICE_AUTH_SCHEME} {device_id} {issued_at} {nonce} {signature}");
+        let resp = self
+            .http
+            .get(self.url("/api/v1/app/devices/me/auth-history"))
+            .header(reqwest::header::AUTHORIZATION, auth)
+            .send()
+            .await
+            .map_err(|e| IdentityError::Network(e.to_string()))?;
+        let status = resp.status();
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| IdentityError::Network(e.to_string()))?;
+        if status.is_success() {
+            Ok(text)
+        } else {
+            Err(parse_api_error(status.as_u16(), &text))
+        }
+    }
 }
 
 /// 解析 Core 错误响应（error.message 或 error 字符串），已脱敏，不回显敏感材料。
