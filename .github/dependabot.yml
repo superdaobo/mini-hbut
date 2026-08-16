@@ -21,8 +21,7 @@ updates:
     ignore:
       - dependency-name: "@capacitor/*"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "@transistorsoft/*"
-        update-types: ["version-update:semver-major"]
+      # #616：@transistorsoft/capacitor-background-fetch 已退役，忽略规则随依赖移除
       - dependency-name: "vue-router"
         update-types: ["version-update:semver-major"]
       - dependency-name: "vue"

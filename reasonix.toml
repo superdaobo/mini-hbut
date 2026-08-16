@@ -12,11 +12,7 @@ subagent_effort = "max"
 max_subagent_depth = 1
 max_subagent_concurrency = 6
 max_parallel_writers = 3
-soft_compact_ratio = 0.5
-tool_result_snip_ratio = 0.6
 compact_ratio = 0.8
-compact_force_ratio = 0.9
-cold_resume_prune = true
 
 [[providers]]
 name = "opencode-zen-anthropic"
