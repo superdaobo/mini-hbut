@@ -11,8 +11,8 @@ describe('PR fast gate', () => {
   it('runs change-scope detection before conditional frontend/rust jobs', () => {
     expect(workflow).toContain('changes:')
     expect(workflow).toContain('dorny/paths-filter@v3')
-    expect(workflow).toContain("'src/**'")
-    expect(workflow).toContain("'src-tauri/**'")
+    expect(workflow).toContain("'apps/client/src/**'")
+    expect(workflow).toContain("'apps/client/src-tauri/**'")
     expect(workflow).toContain("frontend: ${{ github.event_name == 'pull_request' && steps.filter.outputs.frontend || 'true' }}")
     expect(workflow).toContain("rust: ${{ github.event_name == 'pull_request' && steps.filter.outputs.rust || 'true' }}")
   })
@@ -29,7 +29,7 @@ describe('PR fast gate', () => {
   it('provides a Windows-only cargo check without packaging an installer', () => {
     expect(workflow).toContain('test-rust-windows:')
     expect(workflow).toContain('runs-on: windows-latest')
-    expect(workflow).toContain('cargo check --manifest-path src-tauri/Cargo.toml --lib')
+    expect(workflow).toContain('cargo check --manifest-path apps/client/src-tauri/Cargo.toml --lib')
     expect(workflow).not.toContain('--bundles nsis')
   })
 

@@ -83,7 +83,7 @@ describe('release readiness gates', () => {
     expect(runner).toContain("shell: false")
     expect(runner).toContain('timeout: timeoutMs')
     expect(runner).toContain("if (skip && process.env.CI)")
-    expect(all).toContain("args: ['test', '--manifest-path', 'src-tauri/Cargo.toml', '--lib']")
+    expect(all).toContain("args: ['test', '--manifest-path', 'apps/client/src-tauri/Cargo.toml', '--lib']")
     expect(all).toContain('guard_sensitive_uploads.mjs')
     expect(release).toContain("['run', 'check:all']")
     expect(release).toContain("['check', '--release'")

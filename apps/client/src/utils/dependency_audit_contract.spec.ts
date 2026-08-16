@@ -14,7 +14,7 @@ describe('dependency audit governance', () => {
     expect(workflow).toContain('~/.cargo/bin/cargo-audit')
     expect(workflow).toContain('cargo install cargo-audit --locked --version 0.22.2')
     expect(workflow).toContain('node scripts/verify_rustsec_acceptances.mjs')
-    expect(workflow).toContain('cargo audit --file src-tauri/Cargo.lock')
+    expect(workflow).toContain('cargo audit --file apps/client/src-tauri/Cargo.lock')
     expect(workflow).not.toContain('rustsec/audit-check')
     expect(workflow).not.toContain('checks: write')
     expect(workflow).not.toContain('token:')
