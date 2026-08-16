@@ -1,0 +1,69 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mini-HBUT",
+  "version": "1.4.6",
+  "identifier": "com.hbut.mini",
+  "build": {
+    "beforeDevCommand": "node ../scripts/ensure_dist.mjs && npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build && node ../scripts/check_dist_boundary.mjs",
+    "frontendDist": "../dist",
+    "features": ["mobile-full", "bridge"]
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Mini-HBUT - 湖北工业大学教务助手",
+        "width": 420,
+        "height": 720,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "minWidth": 380,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' customprotocol: asset:; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob: https: http://127.0.0.1:4399; font-src 'self' data: https:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:4399 https: wss:; media-src 'self' blob: data: http://127.0.0.1:4399 https:; frame-src 'self' http://127.0.0.1:4399 https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/ios/AppIcon-512@2x.png",
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "windows": {
+      "nsis": {
+        "compression": "lzma",
+        "languages": [
+          "SimpChinese"
+        ],
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["minihbut"]
+      },
+      "mobile": [
+        {
+          "scheme": ["minihbut"],
+          "appLink": false
+        }
+      ]
+    }
+  }
+}

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { resolveNpmCliPath } from './npm_cli_path.mjs'
+import { resolveNpmCliPath } from '../apps/client/scripts/npm_cli_path.mjs'
 
 const BASE_URL = String(process.env.MODULE_BASE_URL || 'https://hbut.6661111.xyz/modules').trim().replace(/\/+$/, '')
 const SOURCE_ROOT = path.resolve(process.env.MODULE_SOURCE_ROOT || 'website/modules-src')
