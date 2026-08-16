@@ -23,4 +23,17 @@ describe('schedule offline banner contract (#372)', () => {
     expect(view).toContain('!silentCachePaint && !loggedIn')
     expect(view).toContain('当前显示为缓存课表，教务暂不可用。')
   })
+
+  it('clears remote schedule data when switching semester (#633)', () => {
+    // 切换学期时若不清空 remoteScheduleData，旧学期数据会在新学期无数据（接口失败）
+    // 时被当成"本学期缓存"展示：误报「缓存课表/连接恢复」横幅 + 渲染错误课表。
+    // 契约：切换分支（requestedSemester !== previousSemester）内必须同时清空两端数据源。
+    const data = read('src/features/schedule/composables/useScheduleData.ts')
+    const switchBlockStart = data.indexOf('requestedSemester !== previousSemester')
+    expect(switchBlockStart).toBeGreaterThanOrEqual(0)
+    const switchBlock = data.slice(switchBlockStart, switchBlockStart + 400)
+    expect(switchBlock).toContain('customScheduleData.value = []')
+    expect(switchBlock).toContain('remoteScheduleData.value = []')
+    expect(switchBlock).toContain('mergeScheduleSources')
+  })
 })
