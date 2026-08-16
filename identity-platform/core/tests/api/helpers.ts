@@ -5,7 +5,7 @@
  * - 创建带 handoff 的 AuthRequest（复用 #619 领域服务 + fixture）；
  * - 构建 enroll / approve 请求体（canonical 与签名与客户端一致）。
  */
-import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
+import { generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto'
 import Koa from 'koa'
 import Router from '@koa/router'
 import type { SqlExecutor } from '../../src/db/types.js'
@@ -64,7 +64,7 @@ export async function createHandoffRequest(
   const scopes = opts.scopes ?? ['openid', 'profile']
   const fixture = await createClientFixture(sql, { scopes })
   const request = await createAuthRequest(sql, {
-    interactionUid: `iu_${Math.random().toString(36).slice(2, 16)}${Date.now().toString(36)}`,
+    interactionUid: `iu_${randomUUID().replaceAll('-', '')}`,
     clientId: fixture.clientId,
     requestedScopes: scopes,
     handoffHmacKey: TEST_HANDOFF_HMAC_KEY,
