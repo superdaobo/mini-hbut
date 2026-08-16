@@ -101,7 +101,7 @@ const tauriConfig = [
         source: 'apps/client/src-tauri/tauri.conf.json',
         items: [
             '产品名是 Mini-HBUT，版本 1.4.6，identifier 是 com.hbut.mini。',
-            'dev 阶段执行 node ../scripts/ensure_dist.mjs && npm run dev（相对 src-tauri 的 scripts/，即 apps/client/scripts/ensure_dist.mjs），devUrl 为 http://localhost:5173；build 阶段执行 npm run build && node ../scripts/check_dist_boundary.mjs（apps/client/scripts/check_dist_boundary.mjs），frontendDist 指向 ../dist（apps/client/dist）。',
+            'dev 阶段执行 node scripts/ensure_dist.mjs && npm run dev（即 apps/client/scripts/ensure_dist.mjs），devUrl 为 http://localhost:5173；build 阶段执行 npm run build && node scripts/check_dist_boundary.mjs（即 apps/client/scripts/check_dist_boundary.mjs），frontendDist 指向 ../dist（apps/client/dist）。',
             '主窗口标题是 Mini-HBUT - 湖北工业大学教务助手，默认 420 x 720，最小 380 x 600，可缩放并居中。',
             'bundle.active 为 true，targets 为 all；Windows NSIS 使用 lzma 压缩和 SimpChinese，WebView2 使用 downloadBootstrapper 且 silent。',
             'security.csp 已配置完整策略（script-src、connect-src、frame-src 等均已收紧）。安全专题仍需持续评估自定义 JS、模块窗口和远程内容边界。',

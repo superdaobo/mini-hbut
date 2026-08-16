@@ -38,8 +38,8 @@ const platformReleaseCards = [
         title: 'Tauri 打包链',
         source: 'apps/client/src-tauri/tauri.conf.json / apps/client/src-tauri/Cargo.toml',
         items: [
-            'apps/client/src-tauri/tauri.conf.json 的 beforeDevCommand 是 node ../scripts/ensure_dist.mjs && npm run dev（相对 src-tauri 的 scripts/，即 apps/client/scripts/ensure_dist.mjs），devUrl 是 http://localhost:5173，frontendDist 指向 ../dist（即 apps/client/dist）。',
-            'beforeBuildCommand 是 npm run build && node ../scripts/check_dist_boundary.mjs（即 apps/client/scripts/check_dist_boundary.mjs）。Tauri build 会先构建前端，再检查 dist 边界，然后才把 dist 纳入安装包。',
+            'apps/client/src-tauri/tauri.conf.json 的 beforeDevCommand 是 node scripts/ensure_dist.mjs && npm run dev（即 apps/client/scripts/ensure_dist.mjs），devUrl 是 http://localhost:5173，frontendDist 指向 ../dist（即 apps/client/dist）。',
+            'beforeBuildCommand 是 npm run build && node scripts/check_dist_boundary.mjs（即 apps/client/scripts/check_dist_boundary.mjs）。Tauri build 会先构建前端，再检查 dist 边界，然后才把 dist 纳入安装包。',
             '产品名是 Mini-HBUT，identifier 是 com.hbut.mini；Windows NSIS 使用 lzma 压缩、SimpChinese，并通过 downloadBootstrapper 静默安装 WebView2。',
             'apps/client/src-tauri/Cargo.toml 的 release profile 使用 opt-level = "z"、lto = "fat"、codegen-units = 1、panic = "abort"、strip = "symbols"，目标是减小安装包和二进制体积。',
         ],

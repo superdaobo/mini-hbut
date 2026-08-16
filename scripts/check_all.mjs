@@ -27,8 +27,8 @@ const steps = [
   () => runNode('Post-merge workflow contract', 'apps/client/scripts/test_post_merge_workflow_contract.mjs'),
   () => runNode('WebView mount smoke contract', 'apps/client/scripts/ci/test_assert_webview_app_mounted.mjs'),
   () => runNpm('Frontend production build', ['run', 'build'], { cwd: clientDir }),
-  () => runNode('Strict CSP production bundle', 'apps/client/scripts/check_strict_csp_bundle.mjs'),
-  () => runNode('Strict CSP bundle guard contract', 'apps/client/scripts/test_strict_csp_bundle.mjs'),
+  () => runNode('Strict CSP production bundle', 'apps/client/scripts/check_strict_csp_bundle.mjs', { cwd: clientDir }),
+  () => runNode('Strict CSP bundle guard contract', 'apps/client/scripts/test_strict_csp_bundle.mjs', { cwd: clientDir }),
   () => runNpm('Frontend test suite', ['run', 'test:ci'], { cwd: clientDir }),
   () => runNpm('Vue typecheck', ['run', 'typecheck'], { cwd: clientDir }),
   () => runNode('Frontend safety guard', 'apps/client/scripts/check-frontend-safety.mjs'),
@@ -50,7 +50,7 @@ const steps = [
     command: process.execPath,
     args: ['--test', path.join(repoRoot, 'scripts/guard_sensitive_uploads.test.mjs')]
   }),
-  () => runNode('Dist boundary guard', 'apps/client/scripts/check_dist_boundary.mjs')
+  () => runNode('Dist boundary guard', 'apps/client/scripts/check_dist_boundary.mjs', { cwd: clientDir })
 ]
 
 if (rustChecksEnabled()) {

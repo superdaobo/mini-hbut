@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url'
 import { evaluateGodFileGuard } from './lib/god_file_guard.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
+// 客户端包根（迁移后 #641：src/ 与 src-tauri/src 的扫描范围）
 const repoRoot = path.resolve(scriptDir, '..')
+// 仓库根（#646：god-file 债务登记文件仍在仓库根 docs/architecture/god-file-removal/）
+const repoTop = path.resolve(repoRoot, '..', '..')
 const strict = process.argv.includes('--strict')
-const debtPath = path.join(repoRoot, 'docs', 'architecture', 'god-file-removal', 'god_file_debt.json')
+const debtPath = path.join(repoTop, 'docs', 'architecture', 'god-file-removal', 'god_file_debt.json')
 
 try {
   const result = evaluateGodFileGuard({ repoRoot, debtPath, strict })
