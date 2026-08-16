@@ -52,7 +52,7 @@ export default function About() {
 
 为解决该问题，项目后期进行了两项关键改进：一是将爬虫方式从 Playwright 替换为直接发起网络请求（requests），以提升性能；二是将整个项目移植到 Tauri，借助 AI 辅助将原 Python 代码转化为 Rust，并构建为安卓与 PC 双端本地应用。新版本改为在用户本地发起请求，数据也全部存储在本地，既避免了隐私泄露风险，也彻底解决了学校封禁服务器 IP 的问题。目前服务器仅保留验证码 OCR 识别功能。
 
-项目代码已开源至 GitHub，计划Mini湖工恢复正常后本项目将暂停维护，目前仍存在不少 Bug，欢迎大家使用并提供反馈。`;
+项目已上架 App Store，官网与文档站持续更新，并公开了基于 OIDC 的身份平台——第三方网站与原生应用可通过标准的 Authorization Code + PKCE 流程接入，用户授权确认始终在 Mini-HBUT App 内完成。项目仍在持续维护中，欢迎大家使用并提供反馈。`;
 
   useEffect(() => {
     const ctx = gsap.context(() => {

@@ -39,6 +39,7 @@
 - 📈 **排名查询**：班级/专业/年级排名
 - 🎯 **学业进度**：培养方案完成进度、学分统计
 - 📆 **校历**：学期周次与校历信息
+- ✨ **智慧迎新**：只读展示迎新信息，无需登录即可浏览
 
 ### 🏕️ 校园生活与资源
 
@@ -48,6 +49,9 @@
 - 🗺️ **校园地图**：远程拉取 + 本地缓存
 - 📁 **资料分享**：WebDAV 浏览、预览、下载、分享
 - 🧾 **导出中心**：多模块导出 JSON / 图片 / 课表 ICS
+- 🤖 **AI 校园助手**：多模型接入（DeepSeek / Qwen / Gemini / GLM），流式回复与公式渲染
+- 🎮 **扩展模块与小游戏**：模块中心、超星签到、在线学习与多款内置小游戏
+- ☁️ **云同步**：端到端加密（Cloudflare Workers + KV），设置与学业数据跨设备恢复
 
 ### 🔔 通知与后台任务
 
@@ -81,7 +85,7 @@
 | macOS | Tauri | ✅ |
 | Linux | Tauri | ✅ |
 | Android | Tauri Mobile | ✅ |
-| iOS | Tauri Mobile | ✅（签名安装） |
+| iOS | Tauri Mobile | ✅（App Store 上架） |
 
 ## 📥 下载安装
 
@@ -89,11 +93,9 @@
 
 访问 [Releases 页面](https://github.com/superdaobo/mini-hbut/releases) 下载最新版本。
 
-### 方式二：jsDelivr CDN（国内加速）
+### 方式二：官网下载（国内 EdgeOne CDN 加速）
 
-```text
-https://cdn.jsdelivr.net/gh/superdaobo/mini-hbut@latest/releases/
-```
+访问 [https://hbut.6661111.xyz/releases](https://hbut.6661111.xyz/releases) 下载最新版本。官网通过 `stable-latest.json` manifest 自动指向最新安装包，支持 EdgeOne CDN → GitHub 代理 → 直连多线路回退。
 
 ## 🧱 项目结构
 
@@ -107,6 +109,10 @@ tauri-app/
 ├── src-tauri/                # Rust Core（Tauri）
 ├── android/                  # Capacitor Android 工程
 ├── ios/                      # Capacitor iOS 工程
+├── website/                  # 官网（Next.js 15，文档与下载站）
+├── identity-platform/        # OIDC 身份平台（Core + Auth 接力页 + Developer Portal）
+├── packages/                 # Capacitor 插件（今日课程 Widget 等）
+├── docs/                     # 项目文档与 Issue 档案
 ├── capacitor.config.ts       # Capacitor 配置
 └── release.py                # 发布脚本
 ```
@@ -165,70 +171,29 @@ npm run cap:open:ios
 ## 🚀 发布脚本（支持 major / minor / patch）
 
 ```bash
-# 默认 patch：1.2.3 -> 1.2.4
-python release.py
-
-# minor：1.2.3 -> 1.3.0
-python release.py minor
-python release.py --minor
-
-# major：1.2.3 -> 2.0.0
-python release.py major
-python release.py --major
-
-# 指定版本
-python release.py --version 2.5.0
-
-# 跳过确认
-python release.py --minor -y
+python release.py          # 默认 patch：1.2.3 -> 1.2.4
+python release.py minor    # minor：1.2.3 -> 1.3.0
+python release.py major    # major：1.2.3 -> 2.0.0
 ```
 
-> 说明：发布脚本默认推送 `origin/main` 并重建对应 tag，不处理归档分支。
+> 发布脚本默认推送 `origin/main` 并重建对应 tag，不处理归档分支。详细用法与发布说明见 [`release.md`](./release.md)。
 
 ## 📲 今日课程桌面小组件（Widget）
 
-在 Android / iOS 桌面添加「今日课程」小组件，无需打开 App 即可查看当天课表。
+在 Android / iOS 桌面添加「今日课程」小组件，无需打开 App 即可查看当天课表。采用原生 Widget + 自研 Capacitor 插件 `@mini-hbut/capacitor-plugin-mini-hbut-widget`：Android 用 `AppWidgetProvider` + `RemoteViews` + WorkManager 周期刷新，iOS 用 WidgetKit + `TimelineProvider`，数据经 SharedPreferences / App Group UserDefaults 共享快照。
 
-### 技术路线
+安装：`npm install` → `npm run build` → `npx cap sync`。App Group（iOS）与 Receiver 注册（Android）等配置详见 [`packages/capacitor-plugin-mini-hbut-widget/README.md`](packages/capacitor-plugin-mini-hbut-widget/README.md)。
 
-采用 **路线 B**：保留 Capacitor 移动端架构，新增原生 Widget + 自研 Capacitor 插件 `@mini-hbut/capacitor-plugin-mini-hbut-widget`。
+## 🔐 Identity / OIDC 开发者平台
 
-- Android：`AppWidgetProvider` + `RemoteViews` + WorkManager 周期刷新
-- iOS：WidgetKit Widget Extension + `TimelineProvider`
-- 数据桥接：Capacitor 插件通过 SharedPreferences (Android) / App Group UserDefaults (iOS) 共享快照
+Mini-HBUT Identity 是基于 OIDC 的开发者身份平台：第三方网站 / 服务端 / 原生客户端可通过标准 Authorization Code + PKCE 接入，用户在 Mini-HBUT App 内确认授权（App Approval），授权码由平台直接返回第三方回调，学校密码与会话不会经手第三方。
 
-> 不使用 `s00d/tauri-plugin-widgets`（该插件仅适用于 Tauri Mobile 运行时）。
+- **Canonical issuer**：`https://id.xn--vhq74jc2fzpchter27a.com`（Discovery：`/.well-known/openid-configuration`）
+- **Developer Portal**：[https://developer.xn--vhq74jc2fzpchter27a.com](https://developer.xn--vhq74jc2fzpchter27a.com)（应用创建、审核、Redirect URI 与凭据管理）
+- **接入文档**：[https://hbut.6661111.xyz/docs/identity-oidc](https://hbut.6661111.xyz/docs/identity-oidc)（唯一正式开发者文档入口）
+- **源码**：`identity-platform/`（OIDC Core + Auth 接力页 + Developer Portal）
 
-### 安装步骤
-
-1. 确保根目录 `npm install` 完成（workspace 自动解析插件包）
-2. 构建前端：`npm run build`
-3. 同步原生工程：`npx cap sync`
-
-### App Group 配置（iOS 必须）
-
-> ⚠️ 未配置 App Group 将导致 Widget 无法读取数据，构建脚本会 fail-fast 报错。
-
-1. Xcode → 主 App Target → Signing & Capabilities → App Groups → 添加 `group.com.hbut.mini`
-2. Xcode → Widget Extension Target → 同样添加 `group.com.hbut.mini`
-3. 确认 `ios/App/App/App.entitlements` 和 `ios/App/MiniHbutTodayWidget/MiniHbutTodayWidget.entitlements` 都包含该 group
-
-### Android Receiver 注册
-
-确认 `android/app/src/main/AndroidManifest.xml` 中包含：
-- `<receiver android:name="com.hbut.mini.widget.TodayCoursesProvider" ...>`
-- `<service android:name="com.hbut.mini.widget.TodayCoursesRemoteViewsService" ...>`
-
-### FAQ
-
-| 问题 | 回答 |
-|------|------|
-| 为什么不用 `s00d/tauri-plugin-widgets`？ | 移动端使用 Capacitor 而非 Tauri Mobile，该插件不兼容 |
-| Widget 不显示数据？ | 检查 App Group 配置（iOS）或 receiver 注册（Android），确认已登录并打开过课表 |
-| 支持哪些尺寸？ | Android: 4×2（默认）、2×2、4×1；iOS: medium（默认）、small、large |
-| 数据多久刷新一次？ | 主动刷新（打开 App / 下拉刷新）即时同步；被动刷新 Android 15min / iOS 系统决定 |
-
-详细插件文档见 [`packages/capacitor-plugin-mini-hbut-widget/README.md`](packages/capacitor-plugin-mini-hbut-widget/README.md)。
+> ⚠️ Mini-HBUT 是第三方学生开发工具，**不是**湖北工业大学官方统一身份认证服务；学校身份验证来源为 `mini_hbut_app`（App 内本地学校登录状态），请勿用于要求官方强实名的场景。
 
 ---
 
