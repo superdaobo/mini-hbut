@@ -552,6 +552,23 @@
   }
 }
 
+/* 移动端下载区 backdrop-filter 降级：滚动时逐帧重绘 blur 成本高，改纯半透明背景（#637） */
+@media (max-width: 768px) {
+  #download .backdrop-blur-sm,
+  #download .backdrop-blur,
+  #download .glass {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* 触屏设备 hover 粘滞：禁用下载卡片的 hover 缩放，避免滚动时持续位移（#637） */
+@media (hover: none) {
+  #download .group:hover {
+    transform: none !important;
+  }
+}
+
 /* Cyber Button */
 .cyber-btn {
   position: relative;
