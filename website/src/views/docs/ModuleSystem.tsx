@@ -38,7 +38,7 @@ const previewModes = [
 ];
 
 const nativeBundleFlow = [
-    'src-tauri/src/modules/module_bundle.rs 使用 MODULE_CACHE_ROOT=more_modules，把模块按 channel/module_id/version 缓存在 AppCache 下。',
+    'apps/client/src-tauri/src/modules/module_bundle.rs 使用 MODULE_CACHE_ROOT=more_modules，把模块按 channel/module_id/version 缓存在 AppCache 下。',
     'ModuleBundlePrepareRequest 接收 channel、module_id、version、package_url、package_urls、package_sha256、entry_path 和 min_compatible_version。',
     'prepare_module_bundle 会优先检查本地 metadata 与 package_sha256，命中时直接返回 ModuleBundlePrepareResult。',
     '未命中缓存时下载 bundle.zip，校验 sha256，解压 site 内容，写入 bundle.zip 和 metadata。',
@@ -65,14 +65,14 @@ const maintenanceChecks = [
 ];
 
 const evidence = [
-    '入口合并：src/utils/module_center.js 的 DEFAULT_MODULE_CENTER、normalizeModuleCenterEntry、buildModuleCenterCards。',
-    '远程目录与缓存：src/utils/more_modules.js 的 MODULE_CDN_BASE、hbu_more_module_state_v1、hbu_more_module_catalog_cache_v1、hbu_more_module_manifest_cache_v1、hbu_more_module_remote_source_rotation_v1。',
-    '用户入口：src/components/MoreView.vue 的 catalog 拉取、manifest 检查、isManifestVersionCompatible、prepareAndOpenModule 和导航 payload。',
-    '宿主入口：src/components/MoreModuleHostView.vue 与 src/App.vue 的 more_module_host、moduleHostSession、preview_url 修复逻辑。',
-    '桌面本地包：src-tauri/src/modules/module_bundle.rs 的 ModuleBundlePrepareRequest、ModuleBundlePrepareResult、prepare_module_bundle、open_module_bundle_window、resolve_module_bundle_file。',
-    'HTTP 桥：src-tauri/src/http_server.rs 的 /module_bundle/prepare、/module_bundle/open、/module_bundle/content、/debug/reset_more_modules。',
+    '入口合并：apps/client/src/utils/module_center.js 的 DEFAULT_MODULE_CENTER、normalizeModuleCenterEntry、buildModuleCenterCards。',
+    '远程目录与缓存：apps/client/src/utils/more_modules.js 的 MODULE_CDN_BASE、hbu_more_module_state_v1、hbu_more_module_catalog_cache_v1、hbu_more_module_manifest_cache_v1、hbu_more_module_remote_source_rotation_v1。',
+    '用户入口：apps/client/src/components/MoreView.vue 的 catalog 拉取、manifest 检查、isManifestVersionCompatible、prepareAndOpenModule 和导航 payload。',
+    '宿主入口：apps/client/src/components/MoreModuleHostView.vue 与 apps/client/src/App.vue 的 more_module_host、moduleHostSession、preview_url 修复逻辑。',
+    '桌面本地包：apps/client/src-tauri/src/modules/module_bundle.rs 的 ModuleBundlePrepareRequest、ModuleBundlePrepareResult、prepare_module_bundle、open_module_bundle_window、resolve_module_bundle_file。',
+    'HTTP 桥：apps/client/src-tauri/src/http_server.rs 的 /module_bundle/prepare、/module_bundle/open、/module_bundle/content、/debug/reset_more_modules。',
     '构建脚本：scripts/build_website_modules.mjs 与 website/modules-src/*/module.json。',
-    '专项验证：scripts/test_more_module_bridge.mjs 与 src/utils/website_game_modules_contract.spec.ts。',
+    '专项验证：apps/client/scripts/test_more_module_bridge.mjs 与 apps/client/src/utils/website_game_modules_contract.spec.ts。',
 ];
 
 const ModuleSystem = () => (
@@ -92,7 +92,7 @@ const ModuleSystem = () => (
             <article className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
                 <h2 className="text-2xl font-bold text-white">模块中心</h2>
                 <p className="mt-3 text-sm leading-7 text-gray-300">
-                    `src/utils/module_center.js` 提供 DEFAULT_MODULE_CENTER、normalizeModuleCenterEntry 和
+                    `apps/client/src/utils/module_center.js` 提供 DEFAULT_MODULE_CENTER、normalizeModuleCenterEntry 和
                     buildModuleCenterCards。内置模块优先保证入口稳定，远程 catalog 再补充 manifest_url、描述、排序和兼容信息。
                 </p>
                 <ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-7 text-gray-300">
@@ -104,7 +104,7 @@ const ModuleSystem = () => (
             <article className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
                 <h2 className="text-2xl font-bold text-white">远程目录</h2>
                 <p className="mt-3 text-sm leading-7 text-gray-300">
-                    `src/utils/more_modules.js` 使用 MODULE_CDN_BASE 指向模块 CDN。运行时缓存包含
+                    `apps/client/src/utils/more_modules.js` 使用 MODULE_CDN_BASE 指向模块 CDN。运行时缓存包含
                     hbu_more_module_state_v1、hbu_more_module_catalog_cache_v1、hbu_more_module_manifest_cache_v1
                     和 hbu_more_module_remote_source_rotation_v1。
                 </p>
@@ -208,7 +208,7 @@ const ModuleSystem = () => (
             <h2 className="text-2xl font-bold text-white">验证入口</h2>
             <div className="grid gap-4 md:grid-cols-2">
                 <article className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-                    <h3 className="text-xl font-bold text-cyan">scripts/test_more_module_bridge.mjs</h3>
+                    <h3 className="text-xl font-bold text-cyan">apps/client/scripts/test_more_module_bridge.mjs</h3>
                     <p className="mt-3 text-sm leading-7 text-gray-300">
                         该脚本读取远程 catalog.json、manifest.json，调用 /module_bundle/prepare，确认返回的 preview_url
                         命中 /module_bundle/content，并抽取 HTML 与资源文本确认不是占位页。

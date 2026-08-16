@@ -2,31 +2,31 @@ import Link from 'next/link';
 
 const rootBuildCards = [
     {
-        title: '根项目脚本入口',
-        source: 'package.json',
+        title: '客户端脚本入口（apps/client）',
+        source: 'apps/client/package.json',
         items: [
-            'package.json 是 Mini-HBUT 主应用的脚本入口。dev 启动 Vite，build 与 build:web 都执行 vite build，test 执行 vitest run，build:hot-bundle 执行 scripts/build_hot_bundle.mjs。',
-            'prebuild 和 prebuild:web 都会先执行 scripts/prepare_dist.mjs。也就是说运行 npm run build 或 npm run build:web 前，根目录 dist 会被清理或移动到 .dist-trash-*。',
-            'tauri 只是转交给 @tauri-apps/cli；tauri:dev:debug-bridge 走 scripts/run_tauri_debug_dev.mjs，用于带调试桥的本地 Tauri 开发。',
+            'apps/client/package.json 是 Mini-HBUT 客户端应用的脚本入口。dev 启动 Vite，build 与 build:web 都执行 vite build，test 执行 vitest run，build:hot-bundle 执行 apps/client/scripts/build_hot_bundle.mjs。',
+            'prebuild 和 prebuild:web 都会先执行 apps/client/scripts/prepare_dist.mjs。也就是说在 apps/client 下运行 npm run build 或 npm run build:web 前，apps/client/dist 会被清理或移动到 .dist-trash-*。',
+            'tauri 只是转交给 @tauri-apps/cli；tauri:dev:debug-bridge 走 apps/client/scripts/run_tauri_debug_dev.mjs，用于带调试桥的本地 Tauri 开发。',
             'cap:sync、cap:run:android、cap:open:android、cap:open:ios 是移动端链路入口，其中 cap:sync 和 cap:run:android 会先 npm run build:web，再执行 npx cap sync 或 npx cap run android。',
         ],
     },
     {
         title: '主应用 Vite 构建',
-        source: 'vite.config.ts',
+        source: 'apps/client/vite.config.ts',
         items: [
-            'vite.config.ts 从根 package.json 注入 VITE_APP_VERSION，并通过 MINI_HBUT_BUILD_PROFILE 注入 VITE_BUILD_PROFILE。默认 profile 是 standard。',
+            'apps/client/vite.config.ts 从 apps/client/package.json 注入 VITE_APP_VERSION，并通过 MINI_HBUT_BUILD_PROFILE 注入 VITE_BUILD_PROFILE。默认 profile 是 standard。',
             'MINI_HBUT_BUILD_PROFILE=release 时 esbuild.drop 会移除 console 和 debugger，并开启 reportCompressedSize；MINI_HBUT_BUILD_PROFILE=dev-fast 时关闭 JS/CSS 压缩并放宽 chunk 警告。',
             'manualChunks 把 vue-core、markdown、capture、debug-tools、online-learning、more-modules、runtime-bridge 拆成独立 chunk，避免平台桥、Markdown、截图和更多模块逻辑全部压进同一主包。',
-            '开发服务器固定 1420 且 strictPort: true；/bridge 代理到 127.0.0.1:4399，字体代理到远端 SmileySans 文件。',
+            '开发服务器默认端口 5173（TAURI_DEV_VITE_PORT 可覆盖，避开 Windows Hyper-V 保留端口段）且 strictPort: true；/bridge 代理到 127.0.0.1:4399，字体代理到远端 SmileySans 文件。',
         ],
     },
     {
         title: 'dist 清理与边界',
-        source: 'scripts/prepare_dist.mjs / scripts/check_dist_boundary.mjs',
+        source: 'apps/client/scripts/prepare_dist.mjs / apps/client/scripts/check_dist_boundary.mjs',
         items: [
-            'scripts/prepare_dist.mjs 是写入型脚本：它会删除 dist；Windows 文件锁阻塞时会把 dist 重命名为 .dist-trash-*，并尝试延迟删除或截断残留文件。',
-            'scripts/check_dist_boundary.mjs 是只读检查脚本：它读取 dist 顶层文件和递归文件路径，不修改产物。',
+            'apps/client/scripts/prepare_dist.mjs 是写入型脚本：它会删除 apps/client/dist；Windows 文件锁阻塞时会把 dist 重命名为 .dist-trash-*，并尝试延迟删除或截断残留文件。',
+            'apps/client/scripts/check_dist_boundary.mjs 是只读检查脚本：它读取 dist 顶层文件和递归文件路径，不修改产物。',
             'check_dist_boundary 的 allowedEntries / allowedTopLevelEntries 只允许 assets、favicon.svg、fonts、index.html、pdf-preview-lab.html、remote_config.json、remote_config.sample.json、splash 进入桌面包。',
             'forbiddenSegments 明确禁止 dist 中出现 modules、website、app-resources 路径片段，避免网站模块、站点源码或应用资源误进入桌面安装包。',
         ],
@@ -36,22 +36,22 @@ const rootBuildCards = [
 const platformReleaseCards = [
     {
         title: 'Tauri 打包链',
-        source: 'src-tauri/tauri.conf.json / src-tauri/Cargo.toml',
+        source: 'apps/client/src-tauri/tauri.conf.json / apps/client/src-tauri/Cargo.toml',
         items: [
-            'src-tauri/tauri.conf.json 的 beforeDevCommand 是 npm run dev，devUrl 是 http://localhost:1420，frontendDist 指向 ../dist。',
-            'beforeBuildCommand 是 npm run build && node scripts/check_dist_boundary.mjs。Tauri build 会先构建前端，再检查 dist 边界，然后才把 dist 纳入安装包。',
+            'apps/client/src-tauri/tauri.conf.json 的 beforeDevCommand 是 node ../scripts/ensure_dist.mjs && npm run dev（相对 src-tauri 的 scripts/，即 apps/client/scripts/ensure_dist.mjs），devUrl 是 http://localhost:5173，frontendDist 指向 ../dist（即 apps/client/dist）。',
+            'beforeBuildCommand 是 npm run build && node ../scripts/check_dist_boundary.mjs（即 apps/client/scripts/check_dist_boundary.mjs）。Tauri build 会先构建前端，再检查 dist 边界，然后才把 dist 纳入安装包。',
             '产品名是 Mini-HBUT，identifier 是 com.hbut.mini；Windows NSIS 使用 lzma 压缩、SimpChinese，并通过 downloadBootstrapper 静默安装 WebView2。',
-            'src-tauri/Cargo.toml 的 release profile 使用 opt-level = "z"、lto = "fat"、codegen-units = 1、panic = "abort"、strip = "symbols"，目标是减小安装包和二进制体积。',
+            'apps/client/src-tauri/Cargo.toml 的 release profile 使用 opt-level = "z"、lto = "fat"、codegen-units = 1、panic = "abort"、strip = "symbols"，目标是减小安装包和二进制体积。',
         ],
     },
     {
         title: 'Capacitor 同步链',
-        source: 'capacitor.config.ts / package.json',
+        source: 'apps/client/capacitor.config.ts / apps/client/package.json',
         items: [
-            'Capacitor 配置位于 capacitor.config.ts，appId 为 com.hbut.mini，appName 为 Mini-HBUT，webDir 为 dist，androidScheme 和 iosScheme 都是 https。',
-            'cap:sync 会先执行 build:web，再执行 npx cap sync。移动端 native 工程读取的是同一份 dist，不维护独立前端页面。',
+            'Capacitor 配置位于 apps/client/capacitor.config.ts，appId 为 com.hbut.mini，appName 为 Mini-HBUT，webDir 为 dist，androidScheme 和 iosScheme 都是 https。',
+            'cap:sync 会先执行 build:web，再执行 npx cap sync。移动端 native 工程读取的是同一份 apps/client/dist，不维护独立前端页面。',
             'cap:run:android 会先构建 Web 产物再运行 Android；cap:open:android 和 cap:open:ios 只是打开原生工程，不会自动重建 dist。',
-            '移动端发布前必须确认 dist 是最新、Capacitor sync 已执行、平台图标或 native 插件改动已经同步；仅打开 Android Studio 或 Xcode 不代表 Web 产物已刷新。',
+            '移动端发布前必须确认 apps/client/dist 是最新、Capacitor sync 已执行、平台图标或 native 插件改动已经同步；仅打开 Android Studio 或 Xcode 不代表 Web 产物已刷新。',
         ],
     },
 ];
@@ -89,9 +89,9 @@ const releaseManifestItems = [
 ];
 
 const hotBundleItems = [
-    'build:hot-bundle 调用 scripts/build_hot_bundle.mjs，要求根目录 dist 已经存在；如果没有先 npm run build，会直接失败。',
-    '脚本输出到 dist-hot，生成 mini-hbut-web-${version}.zip 和 hot-manifest.json。',
-    'Windows 通过临时 pack_hot_bundle.ps1 调用 Compress-Archive；非 Windows 通过 zip -qr 打包 dist。',
+    'build:hot-bundle 调用 apps/client/scripts/build_hot_bundle.mjs，要求 apps/client/dist 已经存在；如果没有先 npm run build，会直接失败。',
+    '脚本输出到 apps/client/dist-hot，生成 mini-hbut-web-${version}.zip 和 hot-manifest.json。',
+    'Windows 通过临时 pack_hot_bundle.ps1 调用 Compress-Archive；非 Windows 通过 zip -qr 打包 apps/client/dist。',
     'hot-manifest.json 写入 version、bundle_url、sha256、signature: sha256:${sha256}、min_bootstrap_version、max_bootstrap_version、min_native_version、max_native_version 和 notes。',
     '当前 signature 是 sha256 前缀形式，不是非对称签名。发布热更新前必须同时确认传输渠道、hash 校验和客户端版本范围。',
 ];
@@ -115,47 +115,47 @@ const checks = [
         ],
     },
     {
-        title: '主项目检查',
+        title: '主项目检查（apps/client）',
         items: [
-            'npm test 执行 Vitest；test:pbt 只运行名称包含 Property 的属性测试。',
+            'apps/client 下 npm test 执行 Vitest；test:pbt 只运行名称包含 Property 的属性测试。',
             'test:debug-bridge-contract、test:hot-update-framework、test:more-module-bridge、test:resource-share-network 是面向调试桥、热更新、更多模块桥和资源共享网络的专项检查。',
-            'scripts/report_bundle_sizes.mjs 读取 dist 和 src-tauri/target/release/bundle，输出 Web 产物和安装包体积；它是只读检查脚本。',
+            'apps/client/scripts/report_bundle_sizes.mjs 读取 apps/client/dist 和 apps/client/src-tauri/target/release/bundle，输出 Web 产物和安装包体积；它是只读检查脚本。',
         ],
     },
     {
         title: '安全与设计守卫',
         items: [
             'scripts/guard_sensitive_uploads.mjs 支持 pre-commit、pre-push、scan-file，用于阻止 libsql URL、JWT/Turso token、HuggingFace token、Resend key、Bearer token 和敏感环境变量进入提交或推送。',
-            'scripts/check-frontend-safety.mjs 会扫描前端裸调 chaoxing.com、console.log 敏感字段和超星签到 Rust sleep(10 硬编码延迟。',
-            'scripts/check-design-tokens.mjs 扫描 MoreChaoxingCheckinView.vue 和 src/components/chaoxing_checkin 的 style 区，禁止未允许的硬编码 hex 颜色。',
+            'apps/client/scripts/check-frontend-safety.mjs 会扫描前端裸调 chaoxing.com、console.log 敏感字段和超星签到 Rust sleep(10 硬编码延迟。',
+            'apps/client/scripts/check-design-tokens.mjs 扫描 MoreChaoxingCheckinView.vue 和 apps/client/src/components/chaoxing_checkin 的 style 区，禁止未允许的硬编码 hex 颜色。',
         ],
     },
 ];
 
 const writeScripts = [
-    ['scripts/prepare_dist.mjs', '删除或移动根 dist，必要时截断残留文件。'],
-    ['scripts/build_hot_bundle.mjs', '读取 dist，写 dist-hot、热更新 zip、hot-manifest.json 和 Windows 临时 pack_hot_bundle.ps1。'],
+    ['apps/client/scripts/prepare_dist.mjs', '删除或移动 apps/client/dist，必要时截断残留文件。'],
+    ['apps/client/scripts/build_hot_bundle.mjs', '读取 apps/client/dist，写 apps/client/dist-hot、热更新 zip、hot-manifest.json 和 Windows 临时 pack_hot_bundle.ps1。'],
     ['scripts/build_release_manifests.mjs', '写 website/public/releases 下的 stable/dev/latest/active/channels/history manifest，并可能清理旧 release 目录。'],
     ['scripts/build_website_modules.mjs', '安装模块依赖、构建 website/modules-src 子项目，写 website/public/modules 下的 catalog.json、manifest.json、site 和 bundle.zip。'],
-    ['npm run build / build:web', '经 prebuild/prebuild:web 先清理 dist，再由 Vite 写新 dist。'],
-    ['cap:sync / cap:run:android', '先写 dist，再同步或运行 Capacitor 原生工程。'],
+    ['npm run build / build:web（apps/client 下）', '经 prebuild/prebuild:web 先清理 dist，再由 Vite 写新 dist。'],
+    ['cap:sync / cap:run:android（apps/client 下）', '先写 dist，再同步或运行 Capacitor 原生工程。'],
 ];
 
 const readOnlyChecks = [
-    ['scripts/check_dist_boundary.mjs', '读取 dist 顶层白名单和 forbiddenSegments，发现违规直接失败。'],
-    ['scripts/report_bundle_sizes.mjs', '读取 dist 与 bundle 目录，输出体积报告和基线差异。'],
-    ['scripts/check-frontend-safety.mjs', '扫描源码安全规则，不写文件。'],
-    ['scripts/check-design-tokens.mjs', '扫描签到模块样式硬编码颜色，不写文件。'],
+    ['apps/client/scripts/check_dist_boundary.mjs', '读取 dist 顶层白名单和 forbiddenSegments，发现违规直接失败。'],
+    ['apps/client/scripts/report_bundle_sizes.mjs', '读取 dist 与 bundle 目录，输出体积报告和基线差异。'],
+    ['apps/client/scripts/check-frontend-safety.mjs', '扫描源码安全规则，不写文件。'],
+    ['apps/client/scripts/check-design-tokens.mjs', '扫描签到模块样式硬编码颜色，不写文件。'],
     ['website/scripts/test-release-links.mjs', '读取本地 stable manifest 或远端 release API，并用 HEAD/Range GET 检查下载链接。'],
     ['website/scripts/test-docs-*.mjs', '读取文档源码并检查关键词、路由和导航契约。'],
 ];
 
 const preReleaseChecklist = [
     '确认工作区没有混入无关文件，尤其不要把 website/public/modules、website/public/releases 的历史产物和源码改动混在同一个发布提交里。',
-    '先运行 npm run build，确认 dist 可构建；Tauri 发布再依赖 beforeBuildCommand 自动运行 scripts/check_dist_boundary.mjs。',
-    '桌面包发布前运行 scripts/report_bundle_sizes.mjs，记录 dist 与平台安装包体积，观察是否有异常膨胀。',
-    '移动端发布前运行 cap:sync，确认 capacitor.config.ts 的 webDir=dist 与当前构建产物一致，再进入 Android Studio 或 Xcode。',
-    '热更新发布前先生成 dist，再运行 build:hot-bundle，校验 dist-hot/hot-manifest.json 的 sha256、signature、版本范围和 zip 文件名。',
+    '先在 apps/client 运行 npm run build，确认 dist 可构建；Tauri 发布再依赖 beforeBuildCommand 自动运行 apps/client/scripts/check_dist_boundary.mjs。',
+    '桌面包发布前运行 apps/client/scripts/report_bundle_sizes.mjs，记录 dist 与平台安装包体积，观察是否有异常膨胀。',
+    '移动端发布前在 apps/client 运行 cap:sync，确认 apps/client/capacitor.config.ts 的 webDir=dist 与当前构建产物一致，再进入 Android Studio 或 Xcode。',
+    '热更新发布前先在 apps/client 生成 dist，再运行 build:hot-bundle，校验 apps/client/dist-hot/hot-manifest.json 的 sha256、signature、版本范围和 zip 文件名。',
     'website 发布前运行 website 的 test:docs-ia、test:docs-developer-content、test:docs-user-content 和 build，发布下载页前补跑 test:release-links。',
     'release manifest 发布前明确 RELEASE_CHANNEL、STABLE_TAG、DEV_VERSION、SOURCE_REF、SOURCE_SHA，避免 latest/active 指向错误版本或误删旧目录。',
     '模块发布前明确 MODULE_BASE_URL、MODULE_VERSION、MODULE_SOURCE_CHANNEL，确认 disabled 模块不会被发布，并抽样检查 catalog.json、bundle.zip 和 package_sha256。',
@@ -163,28 +163,28 @@ const preReleaseChecklist = [
 ];
 
 const operationalRisks = [
-    'npm run build 表面上是 Vite 构建，实际会先触发 prebuild 清理 dist；Tauri beforeBuildCommand 又会再次运行 npm run build，所以桌面发布链的耗时和副作用都比单个 vite build 更大。',
+    '在 apps/client 下 npm run build 表面上是 Vite 构建，实际会先触发 prebuild 清理 dist；Tauri beforeBuildCommand 又会再次运行 npm run build，所以桌面发布链的耗时和副作用都比单个 vite build 更大。',
     'bundle.targets = "all" 不代表任意宿主系统都能产出所有平台安装包；真实产物仍取决于当前 OS、Tauri toolchain、签名证书、Android/iOS 原生工程和 CI runner 能力。',
     'Windows WebView 使用 downloadBootstrapper 且 silent: true，安装时依赖外部 WebView2 下载链路。离线环境、校园网限制或代理异常都可能导致安装失败。',
-    'src-tauri/tauri.conf.json 中 security.csp 为 null。发布链本身不会补上 CSP，需要安全专题继续约束远程资源、模块 iframe、自定义 JS、Markdown 和调试桥。',
+    'apps/client/src-tauri/tauri.conf.json 中 security.csp 已配置完整策略。发布链本身不会自动重写 CSP，需要安全专题继续约束远程资源、模块 iframe、自定义 JS、Markdown 和调试桥。',
     'release manifest 发布后要抽样核对 stable-latest.json、latest.json、active.json、版本目录 manifest.json 与真实安装包文件是否一致；manifest 声明了资产但目录缺文件时，test:release-links 或用户下载会暴露 404。',
     '模块发布后要核对 main、dev、latest 的 catalog.json、source_channel、published_channel、manifest_url、open_url 和 package_sha256。dev 产物误进入 main/latest 是发布治理风险。',
     'scripts/build_website_modules.mjs 没有长期版本清理策略。旧版本 bundle.zip、site 目录和 manifest 会持续留在 website/public/modules，可能增加仓库体积、部署时间和 CDN 成本。',
-    'scripts/build_hot_bundle.mjs 当前 signature 是 sha256:${sha256} 字段，不是非对称签名。热更新发布必须依赖客户端校验、HTTPS/CDN 边界和版本范围共同降低篡改风险。',
+    'apps/client/scripts/build_hot_bundle.mjs 当前 signature 是 sha256:${sha256} 字段，不是非对称签名。热更新发布必须依赖客户端校验、HTTPS/CDN 边界和版本范围共同降低篡改风险。',
     'release profile 的 panic = "abort"、strip = "symbols"、debug = 0 有利于体积，但会削弱线上崩溃诊断信息。发布事故排查需要额外保留构建日志和版本元数据。',
 ];
 
 const sourceEvidence = [
-    '根构建证据：package.json 的 prebuild、prebuild:web、build、build:web、build:hot-bundle、test、tauri、tauri:dev:debug-bridge、cap:sync、cap:run:android、cap:open:android、cap:open:ios。',
-    'Vite 证据：vite.config.ts 的 MINI_HBUT_BUILD_PROFILE、VITE_APP_VERSION、VITE_BUILD_PROFILE、manualChunks、server.port=1420、/bridge proxy。',
-    'Tauri 证据：src-tauri/tauri.conf.json 的 beforeDevCommand、devUrl、beforeBuildCommand、frontendDist、NSIS、webviewInstallMode；src-tauri/Cargo.toml 的 release profile。',
-    'Capacitor 证据：capacitor.config.ts 的 appId、appName、webDir、androidScheme、iosScheme。',
-    'dist 边界证据：scripts/prepare_dist.mjs 的 dist 清理、.dist-trash-* fallback、truncate fallback；scripts/check_dist_boundary.mjs 的 allowedEntries / allowedTopLevelEntries 和 forbiddenSegments。',
-    '热更新证据：scripts/build_hot_bundle.mjs 的 dist-hot、hot-manifest.json、sha256、signature、min_bootstrap_version、max_bootstrap_version、min_native_version、max_native_version。',
+    '客户端构建证据：apps/client/package.json 的 prebuild、prebuild:web、build、build:web、build:hot-bundle、test、tauri、tauri:dev:debug-bridge、cap:sync、cap:run:android、cap:open:android、cap:open:ios。',
+    'Vite 证据：apps/client/vite.config.ts 的 MINI_HBUT_BUILD_PROFILE、VITE_APP_VERSION、VITE_BUILD_PROFILE、manualChunks、server.port=5173、/bridge proxy。',
+    'Tauri 证据：apps/client/src-tauri/tauri.conf.json 的 beforeDevCommand、devUrl、beforeBuildCommand、frontendDist、NSIS、webviewInstallMode；apps/client/src-tauri/Cargo.toml 的 release profile。',
+    'Capacitor 证据：apps/client/capacitor.config.ts 的 appId、appName、webDir、androidScheme、iosScheme。',
+    'dist 边界证据：apps/client/scripts/prepare_dist.mjs 的 dist 清理、.dist-trash-* fallback、truncate fallback；apps/client/scripts/check_dist_boundary.mjs 的 allowedEntries / allowedTopLevelEntries 和 forbiddenSegments。',
+    '热更新证据：apps/client/scripts/build_hot_bundle.mjs 的 dist-hot、hot-manifest.json、sha256、signature、min_bootstrap_version、max_bootstrap_version、min_native_version、max_native_version。',
     'release 证据：scripts/build_release_manifests.mjs 的 stable-latest.json、dev-latest.json、latest.json、active.json、channels.json、history.json、latest/active stable-only 规则。',
     '模块发布证据：scripts/build_website_modules.mjs 的 website/public/modules、main/dev/latest channel、catalog.json、manifest.json、bundle.zip、package_sha256。',
     'website 证据：website/package.json 的 test:docs-ia、test:docs-developer-content、test:docs-user-content、test:release-links、build；website/vite.config.ts 的 docsBuildRelease 静态入口。',
-    '安全检查证据：scripts/guard_sensitive_uploads.mjs、scripts/check-frontend-safety.mjs、scripts/check-design-tokens.mjs、website/scripts/test-release-links.mjs、website/scripts/update-release-links.mjs。',
+    '安全检查证据：scripts/guard_sensitive_uploads.mjs、apps/client/scripts/check-frontend-safety.mjs、apps/client/scripts/check-design-tokens.mjs、website/scripts/test-release-links.mjs、website/scripts/update-release-links.mjs。',
 ];
 
 const BuildRelease = () => (
@@ -195,13 +195,13 @@ const BuildRelease = () => (
                 构建发布
             </h1>
             <p className="text-lg leading-8 text-gray-300">
-                本页说明 Mini-HBUT 的根项目、Tauri、Capacitor、website、release manifest、热更新包、模块发布、发布链接、
-                安全守卫和运维检查脚本。重点区分写入型脚本与只读检查脚本，避免发布时误删 dist、误写 website/public 或误把 dev 产物暴露给 stable 用户。
+                本页说明 Mini-HBUT 的客户端项目（apps/client）、Tauri、Capacitor、website、release manifest、热更新包、模块发布、发布链接、
+                安全守卫和运维检查脚本。重点区分写入型脚本与只读检查脚本，避免发布时误删 apps/client 下 dist、误写 website/public 或误把 dev 产物暴露给 stable 用户。
             </p>
         </header>
 
         <section className="space-y-5">
-            <h2 className="text-2xl font-bold text-white">根项目构建链</h2>
+            <h2 className="text-2xl font-bold text-white">客户端项目构建链（apps/client）</h2>
             <div className="grid gap-4 lg:grid-cols-3">
                 {rootBuildCards.map((card) => (
                     <article key={card.title} className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
@@ -263,7 +263,7 @@ const BuildRelease = () => (
             </article>
             <article className="rounded-xl border border-cyan/20 bg-cyan/[0.06] p-6">
                 <h2 className="text-2xl font-bold text-white">热更新包</h2>
-                <div className="mt-1 text-xs leading-6 text-cyan">scripts/build_hot_bundle.mjs</div>
+                <div className="mt-1 text-xs leading-6 text-cyan">apps/client/scripts/build_hot_bundle.mjs</div>
                 <ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-7 text-gray-200">
                     {hotBundleItems.map((item) => (
                         <li key={item}>{item}</li>

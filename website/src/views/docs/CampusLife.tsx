@@ -4,7 +4,7 @@ const lifeModules = [
     {
         title: '校园码',
         entry: '首页 -> 一码通 -> 校园码。',
-        source: 'src/components/CampusCodeView.vue、src-tauri/src/modules/one_code.rs、src-tauri/src/modules/electricity.rs',
+        source: 'apps/client/src/components/CampusCodeView.vue、apps/client/src-tauri/src/modules/one_code.rs、apps/client/src-tauri/src/modules/electricity.rs',
         usage: [
             '校园码页面用于生成一卡通二维码，顶部会显示在线模式或高能模式。在线模式依赖一卡通接口，高能模式会在配置允许时走本地离线签发逻辑。',
             '二维码区域会展示校园卡余额、二维码状态和手动刷新按钮。支付成功、二维码已使用、非法码、余额不足等状态会转换成用户可读提示。',
@@ -19,7 +19,7 @@ const lifeModules = [
     {
         title: '电费查询',
         entry: '首页 -> 一码通 -> 电费查询；也可从首页默认快捷入口进入。',
-        source: 'src/components/ElectricityView.vue、src-tauri/src/modules/electricity.rs、src/utils/static_resource_cache.js',
+        source: 'apps/client/src/components/ElectricityView.vue、apps/client/src-tauri/src/modules/electricity.rs、apps/client/src/utils/static_resource_cache.js',
         usage: [
             '第一次使用需要选择宿舍楼层和房间。页面会合并“照明N层”和“空调N层”两类楼层，双计费宿舍会同时展示照明用电和空调用电。',
             '查询结果展示电费余额、剩余电量、更新时间和余额不足/运行正常状态；低于阈值时页面会突出余额不足。',
@@ -34,7 +34,7 @@ const lifeModules = [
     {
         title: '交易记录',
         entry: '首页 -> 一码通 -> 交易记录。',
-        source: 'src/components/TransactionHistory.vue、src-tauri/src/modules/transaction.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/TransactionHistory.vue、apps/client/src-tauri/src/modules/transaction.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '交易记录用于查看一卡通流水，通常同步近一年记录，按月份拉取消费、充值、图书/打印等记录。',
             '页面会按记录名称映射图标和颜色，方便区分食堂、超市、图书、打印等场景。',
@@ -49,7 +49,7 @@ const lifeModules = [
     {
         title: '图书查询',
         entry: '首页 -> 资源 -> 图书查询。',
-        source: 'src/components/LibraryView.vue、src-tauri/src/lib.rs、src/utils/axios_adapter.ts',
+        source: 'apps/client/src/components/LibraryView.vue、apps/client/src-tauri/src/lib.rs、apps/client/src/utils/axios_adapter.ts',
         usage: [
             '图书查询用于馆藏检索。输入关键词、题名或 ISBN 后点击搜索图书，结果列表展示书名、作者、出版社、馆藏状态等摘要。',
             '筛选区可清空筛选；点击条目会打开图书详情，查看馆藏位置、索书号、可借状态等字段。',
@@ -64,7 +64,7 @@ const lifeModules = [
     {
         title: '校园地图',
         entry: '首页 -> 资源 -> 校园地图。',
-        source: 'src/components/CampusMapView.vue、src-tauri/src/lib.rs、src/utils/static_resource_cache.js',
+        source: 'apps/client/src/components/CampusMapView.vue、apps/client/src-tauri/src/lib.rs、apps/client/src/utils/static_resource_cache.js',
         usage: [
             '校园地图提供 A/B 两套静态地图图片。打开后支持缩放、拖拽和手势查看，适合移动端放大定位楼栋。',
             '地图图片会自动缓存到本地；缓存失败时回退远程 URL，不阻断展示。',
@@ -79,7 +79,7 @@ const lifeModules = [
     {
         title: '资料分享',
         entry: '首页 -> 资源 -> 资料分享。',
-        source: 'src/components/ResourceShareView.vue、src-tauri/src/lib.rs、src/utils/remote_config.ts',
+        source: 'apps/client/src/components/ResourceShareView.vue、apps/client/src-tauri/src/lib.rs、apps/client/src/utils/remote_config.ts',
         usage: [
             '资料分享读取远程配置中的 WebDAV 资料源，支持目录浏览、返回上级、文件预览和直链下载。',
             '图片预览、PDF 预览、媒体播放、文本读取和 Office 在线预览会按文件类型选择不同预览通道。',
@@ -94,7 +94,7 @@ const lifeModules = [
     {
         title: '校园助手',
         entry: '首页 -> 资源 -> 校园助手；当前首页元数据可能标注暂不可用。',
-        source: 'src/components/AiChatView.vue、src-tauri/src/modules/ai.rs、src/utils/remote_config.ts',
+        source: 'apps/client/src/components/AiChatView.vue、apps/client/src-tauri/src/modules/ai.rs、apps/client/src/utils/remote_config.ts',
         usage: [
             '校园助手连接本地 AI 服务桥接地址，支持会话列表、新建会话、历史消息、流式输出和普通兜底回复。',
             '文件上传限制为 docx、pdf、txt、md，单文件最大 20 MB；上传后会把文件信息附加到会话。',
@@ -116,11 +116,11 @@ const quickTips = [
 ];
 
 const sourceEvidence = [
-    '首页入口：src/components/Dashboard.vue 中 “一码通” 包含 campus_code、electricity、transactions，“资源” 包含 library、campus_map、resource_share、ai。',
-    '一卡通后端：src-tauri/src/modules/electricity.rs 处理电费、校园码和一卡通相关请求；src-tauri/src/modules/one_code.rs 提供校园码命令边界。',
-    '资源类入口：src/components/LibraryView.vue、CampusMapView.vue、ResourceShareView.vue 分别负责馆藏检索、地图查看和 WebDAV 资料浏览。',
-    'AI 边界：src/components/AiChatView.vue 使用本地桥接和 Tauri invoke 兜底，src-tauri/src/modules/ai.rs 提供后端 AI 命令。',
-    '缓存与离线：src/components/ElectricityView.vue、TransactionHistory.vue 和 ExportCenterView.vue 会读取 offline、sync_time 或本地缓存状态。',
+    '首页入口：apps/client/src/components/Dashboard.vue 中 “一码通” 包含 campus_code、electricity、transactions，“资源” 包含 library、campus_map、resource_share、ai。',
+    '一卡通后端：apps/client/src-tauri/src/modules/electricity.rs 处理电费、校园码和一卡通相关请求；apps/client/src-tauri/src/modules/one_code.rs 提供校园码命令边界。',
+    '资源类入口：apps/client/src/components/LibraryView.vue、CampusMapView.vue、ResourceShareView.vue 分别负责馆藏检索、地图查看和 WebDAV 资料浏览。',
+    'AI 边界：apps/client/src/components/AiChatView.vue 使用本地桥接和 Tauri invoke 兜底，apps/client/src-tauri/src/modules/ai.rs 提供后端 AI 命令。',
+    '缓存与离线：apps/client/src/components/ElectricityView.vue、TransactionHistory.vue 和 ExportCenterView.vue 会读取 offline、sync_time 或本地缓存状态。',
 ];
 
 const CampusLife = () => (

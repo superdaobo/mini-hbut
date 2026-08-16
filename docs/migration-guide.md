@@ -1,6 +1,8 @@
 # 组件迁移指南
 
 > 本文档定义了将 Mini-HBUT 项目中的 View 组件从遗留 CSS 样式迁移到 Tailwind CSS + shadcn-vue 的标准流程。
+>
+> 客户端位于 `apps/client/`：本文所有路径（`src/`、`components.json` 等）与命令（`npm run build` / `npm run test`）均以 `apps/client/` 为工作目录。
 
 ## 目录
 

@@ -7,7 +7,7 @@
 | **测量日期** | 2026-05-16 |
 | **项目版本** | v1.3.6 |
 | **构建工具** | Vite 5.4.21 |
-| **构建命令** | `npm run build` (production mode) |
+| **构建命令** | `npm run build`（在 `apps/client/` 下执行，production mode） |
 | **Tailwind CSS** | v3.4.19 |
 | **测量阶段** | Tailwind + shadcn-vue 集成后，组件迁移进行中 |
 
@@ -115,6 +115,6 @@
 
 ## 后续操作
 
-- 每次 PR 合并前运行 `npm run build` 并检查 CSS 总大小
+- 每次 PR 合并前在 `apps/client/` 运行 `npm run build` 并检查 CSS 总大小
 - 如超过 150% 阈值，需排查是否有未 purge 的 Tailwind 类或重复样式
 - 组件迁移完成后逐步移除 legacy CSS 文件，最终 bundle 应小于基线

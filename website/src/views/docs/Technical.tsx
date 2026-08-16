@@ -384,7 +384,7 @@ const Technical = () => {
 
                 <div className="p-6 rounded-xl bg-gray-900/60 border border-gray-800 space-y-4">
                     <p className="text-gray-300 text-sm">
-                        所有 Tauri Commands 定义在 <code className="text-sm text-cyan">src-tauri/src/lib.rs</code> 中，
+                        所有 Tauri Commands 定义在 <code className="text-sm text-cyan">apps/client/src-tauri/src/lib.rs</code> 中，
                         前端通过 <code className="text-sm text-cyan">@tauri-apps/api</code> 的 <code className="text-sm text-cyan">invoke()</code> 方法直接调用。
                     </p>
 
@@ -634,49 +634,50 @@ const Technical = () => {
 
                 <div className="p-6 rounded-xl bg-gray-900/60 border border-gray-800">
                     <pre className="bg-black/60 rounded-lg p-4 text-xs text-gray-300 overflow-x-auto font-mono">
-                        <code>{`tauri-app/
-├── src/                          # Vue 前端源码
-│   ├── App.vue                   # 主应用组件（路由 + 导航）
-│   ├── main.ts                   # 应用入口
-│   ├── components/               # 30+ 业务组件
-│   │   ├── Dashboard.vue         #   首页仪表盘
-│   │   ├── GradeView.vue         #   成绩查询
-│   │   ├── ScheduleView.vue      #   课表管理
-│   │   ├── LoginV3.vue           #   登录页面
-│   │   ├── SettingsView.vue      #   设置中心
-│   │   └── ...
-│   ├── utils/                    # 工具函数库
-│   │   ├── api.js                #   API 封装 + 缓存
-│   │   ├── app_settings.ts       #   应用设置管理
-│   │   ├── remote_config.js      #   远程配置
-│   │   ├── cloud_sync.js         #   云同步
-│   │   ├── background_fetch.js   #   后台任务
-│   │   ├── font_settings.ts      #   字体系统
-│   │   ├── updater.js            #   版本更新
-│   │   └── ...
-│   ├── platform/                 # 平台桥接层
-│   │   ├── types.ts              #   能力接口定义
-│   │   ├── native.ts             #   原生能力封装
-│   │   ├── runtime.ts            #   运行时检测
-│   │   └── adapters/             #   平台适配器
-│   ├── config/                   # UI 配置
-│   └── styles/                   # 样式文件
-│
-├── src-tauri/                    # Rust 后端
-│   ├── src/
-│   │   ├── lib.rs                #   命令入口 + 启动逻辑
-│   │   ├── http_client/          #   网络请求模块
-│   │   ├── http_server.rs        #   HTTP Bridge 服务
-│   │   └── db.rs                 #   SQLite 数据库
-│   ├── tauri.conf.json           #   Tauri 配置
-│   └── Cargo.toml                #   Rust 依赖
-│
-├── android/                      # Capacitor Android 工程
-├── ios/                          # Capacitor iOS 工程
-├── cloudflare/worker/            # 云同步 Worker
-├── public/                       # 静态资源
-│   └── dormitory_data.json       #   宿舍楼层数据
-└── remote_config.json            # 远程配置示例`}</code>
+                        <code>{`Mini-HBUT/（仓库根）
+├── apps/client/                  # 客户端（Vue 前端 + Tauri/Capacitor）
+│   ├── src/                      #   Vue 前端源码
+│   │   ├── App.vue               #   主应用组件（路由 + 导航）
+│   │   ├── main.ts               #   应用入口
+│   │   ├── components/           #   30+ 业务组件
+│   │   │   ├── Dashboard.vue     #     首页仪表盘
+│   │   │   ├── GradeView.vue     #     成绩查询
+│   │   │   ├── ScheduleView.vue  #     课表管理
+│   │   │   ├── LoginV3.vue       #     登录页面
+│   │   │   ├── SettingsView.vue  #     设置中心
+│   │   │   └── ...
+│   │   ├── utils/                #   工具函数库
+│   │   │   ├── api.js            #     API 封装 + 缓存
+│   │   │   ├── app_settings.ts   #     应用设置管理
+│   │   │   ├── remote_config.js  #     远程配置
+│   │   │   ├── cloud_sync.js     #     云同步
+│   │   │   ├── background_fetch.js #   后台任务
+│   │   │   ├── font_settings.ts  #     字体系统
+│   │   │   ├── updater.js        #     版本更新
+│   │   │   └── ...
+│   │   ├── platform/             #   平台桥接层
+│   │   │   ├── types.ts          #     能力接口定义
+│   │   │   ├── native.ts         #     原生能力封装
+│   │   │   ├── runtime.ts        #     运行时检测
+│   │   │   └── adapters/         #     平台适配器
+│   │   ├── config/               #   UI 配置
+│   │   └── styles/               #   样式文件
+│   │
+│   ├── src-tauri/                #   Rust 后端
+│   │   ├── src/
+│   │   │   ├── lib.rs            #     命令入口 + 启动逻辑
+│   │   │   ├── http_client/      #     网络请求模块
+│   │   │   ├── http_server.rs    #     HTTP Bridge 服务
+│   │   │   └── db.rs             #     SQLite 数据库
+│   │   ├── tauri.conf.json       #   Tauri 配置
+│   │   └── Cargo.toml            #   Rust 依赖
+│   │
+│   ├── android/                  #   Capacitor Android 工程
+│   ├── ios/                      #   Capacitor iOS 工程
+│   ├── public/                   #   静态资源
+│   │   └── dormitory_data.json   #     宿舍楼层数据
+│   └── remote_config.json        #   远程配置示例
+└── cloudflare/worker/            #   云同步 Worker`}</code>
                     </pre>
                 </div>
             </section>

@@ -4,7 +4,7 @@ const academicModules = [
     {
         title: '成绩查询',
         entry: '首页 -> 教务服务 -> 成绩查询；也可从首页默认快捷入口进入。',
-        source: 'src/components/GradeView.vue、src/components/GradeDistributionView.vue、src-tauri/src/modules/grades.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/GradeView.vue、apps/client/src/components/GradeDistributionView.vue、apps/client/src-tauri/src/modules/grades.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '进入页面后会展示课程成绩卡片，并按学期聚合成绩。页面会统计课程数、总学分、未通过课程等摘要。',
             '筛选栏支持全部学期/单学期切换、课程搜索、通过/未通过筛选、补考筛选和排序；重置按钮可恢复默认视图。',
@@ -21,7 +21,7 @@ const academicModules = [
     {
         title: '个人课表',
         entry: '底部主 Tab -> 课表；也可从首页默认快捷入口进入。',
-        source: 'src/components/ScheduleView.vue、src/utils/schedule_prefetch.js、src/utils/semester.js、src-tauri/src/modules/schedule.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/ScheduleView.vue、apps/client/src/utils/schedule_prefetch.js、apps/client/src/utils/semester.js、apps/client/src-tauri/src/modules/schedule.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '课表页以学期和周次为核心。顶部显示当前学期，周选择器用于切换教学周，课程网格按周一到周日和节次展示。',
             '课程卡片支持多种样式；点击课程可查看课程名称、教师、教室、周次、节次等课程详情。课程冲突会显示冲突提示，点开后列出重叠课程。',
@@ -39,7 +39,7 @@ const academicModules = [
     {
         title: '全校课表',
         entry: '首页 -> 教务服务 -> 全校课表。',
-        source: 'src/components/GlobalScheduleView.vue、src-tauri/src/http_client/qxzkb.rs',
+        source: 'apps/client/src/components/GlobalScheduleView.vue、apps/client/src-tauri/src/http_client/qxzkb.rs',
         usage: [
             '用于按课程名称、课程性质、课程类别、教师、班级等条件查询全校课程，适合查同名课程、行政班课表或空闲时间对照。',
             '查询结果可在课程列表中查看，也可以按班级聚合后进入班级课表视图，按周次切换并显示课程网格。',
@@ -53,7 +53,7 @@ const academicModules = [
     {
         title: '选课中心',
         entry: '首页 -> 教务服务 -> 选课中心。',
-        source: 'src/components/CourseSelectionView.vue、src-tauri/src/modules/course_selection.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/CourseSelectionView.vue、apps/client/src-tauri/src/modules/course_selection.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '入口分为“选课”和“信息查询”。选课模式会加载选课总览、选课批次、筛选项和课程列表；信息查询模式用于查询已选课程。',
             '筛选项覆盖课程性质、课程归属、教学模式、上课校区、课程类别、课程类型等；点击“查询课程”后展示课程卡片。',
@@ -71,7 +71,7 @@ const academicModules = [
     {
         title: '空教室',
         entry: '首页 -> 教务服务 -> 空教室；也可从首页默认快捷入口进入。',
-        source: 'src/components/ClassroomView.vue、src-tauri/src/modules/classroom.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/ClassroomView.vue、apps/client/src-tauri/src/modules/classroom.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '页面会先加载教学楼列表，再根据周次、星期、节次、楼栋查询空教室。节次支持多选，也能按当前时间推荐剩余节次。',
             '查询结果展示教室名称、类型/校区、容量、楼栋等信息；结果过多时使用“加载更多”逐步展开。',
@@ -86,7 +86,7 @@ const academicModules = [
     {
         title: '考试安排',
         entry: '首页 -> 教务服务 -> 考试安排。',
-        source: 'src/components/ExamView.vue、src-tauri/src/modules/exam.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/ExamView.vue、apps/client/src-tauri/src/modules/exam.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '页面先加载学期列表，再按所选学期查询考试安排。考试卡片展示课程名称、考试性质、考试日期、考试时间、地点和座位号。',
             '未结束考试按日期升序排列，已结束考试按日期倒序排列并弱化显示；未来考试会显示倒计时，例如今天、明天或剩余天数。',
@@ -101,7 +101,7 @@ const academicModules = [
     {
         title: '绩点排名',
         entry: '首页 -> 教务服务 -> 绩点排名；也可从首页默认快捷入口进入。',
-        source: 'src/components/RankingView.vue、src-tauri/src/modules/ranking.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/RankingView.vue、apps/client/src-tauri/src/modules/ranking.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '用于查看指定学期或全部学期的 GPA、算术平均分、总学分，以及班级/专业/学院维度的排名。',
             '页面分为个人摘要、绩点排名和平均分排名。GPA 卡片展示平均学分绩点，平均分卡片展示 avg_score。',
@@ -116,7 +116,7 @@ const academicModules = [
     {
         title: '校历',
         entry: '首页 -> 教务服务 -> 校历。',
-        source: 'src/components/CalendarView.vue、src-tauri/src/modules/calendar.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/CalendarView.vue、apps/client/src-tauri/src/modules/calendar.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '校历页按学期展示教学周表格，顶部展示当前周、学期开始日期、总周数等 meta 信息。',
             '表格按周列出每一周的日期、每日备注和周备注，当前周会高亮。',
@@ -131,7 +131,7 @@ const academicModules = [
     {
         title: '学业完成情况',
         entry: '首页 -> 教务服务 -> 学业情况。',
-        source: 'src/components/AcademicProgressView.vue、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/AcademicProgressView.vue、apps/client/src-tauri/src/lib.rs',
         usage: [
             '完成度类型支持课程性质完成度、培养方案完成度、教学计划完成度和毕业学分完成度。',
             '页面展示摘要、分类树和课程列表。课程详情会展示课程名称、课程编号、学分、获得学分、课程性质、课程类别、完成状态等字段。',
@@ -145,7 +145,7 @@ const academicModules = [
     {
         title: '培养方案',
         entry: '首页 -> 教务服务 -> 培养方案。',
-        source: 'src/components/TrainingPlanView.vue、src-tauri/src/modules/training_plan.rs、src-tauri/src/lib.rs',
+        source: 'apps/client/src/components/TrainingPlanView.vue、apps/client/src-tauri/src/modules/training_plan.rs、apps/client/src-tauri/src/lib.rs',
         usage: [
             '页面先加载培养方案筛选项，再按年级、开课学期、开课院系、教研室、课程性质、课程归属、课程编号、课程名称等条件查询课程。',
             '筛选项中的院系会联动教研室；即使没有选择院系也允许查询课程。',
@@ -188,13 +188,13 @@ const workflowTips = [
 ];
 
 const sourceEvidence = [
-    '入口与模块分组：src/components/Dashboard.vue 中教务服务分组包含 grades、exams、ranking、academic、qxzkb、course_selection、training、classroom、calendar，底部 Tab 直接进入 schedule。',
-    '视图注册：src/App.vue 注册 GradeView、ScheduleView、GlobalScheduleView、CourseSelectionView、ClassroomView、ExamView、RankingView、CalendarView、AcademicProgressView、TrainingPlanView。',
-    '缓存与离线：src-tauri/src/lib.rs 的 sync_grades、sync_schedule、fetch_exams、fetch_ranking、fetch_classrooms、fetch_training_plan_courses、fetch_calendar_data、fetch_academic_progress 等 command 会保存缓存并在失败时读取缓存。',
-    '缓存表边界：src-tauri/src/db.rs 和 src-tauri/src/lib.rs 使用 grades_cache、schedule_cache、qxzkb_public_cache、classroom_cache、training_plan_cache 等表名区分私有数据和公共教务数据。',
-    '课表增强：src/components/ScheduleView.vue 负责自定义课程、导入 JSON、导出 JSON、云同步和日历导出；src/utils/schedule_prefetch.js 负责学期预热、缓存快照和学期锁定。',
-    '成绩分布：src/utils/grade_distribution.js 直接调用 hbu_ocr_endpoint 派生出的远程 /api/grade-distribution 服务，不经过 Tauri command；页面入口在 src/components/GradeDistributionView.vue。',
-    '教务后端：src-tauri/src/http_client/academic.rs 与 src-tauri/src/modules/grades.rs、schedule.rs、exam.rs、ranking.rs、classroom.rs、training_plan.rs、course_selection.rs、calendar.rs 负责解析教务系统响应。',
+    '入口与模块分组：apps/client/src/components/Dashboard.vue 中教务服务分组包含 grades、exams、ranking、academic、qxzkb、course_selection、training、classroom、calendar，底部 Tab 直接进入 schedule。',
+    '视图注册：apps/client/src/App.vue 注册 GradeView、ScheduleView、GlobalScheduleView、CourseSelectionView、ClassroomView、ExamView、RankingView、CalendarView、AcademicProgressView、TrainingPlanView。',
+    '缓存与离线：apps/client/src-tauri/src/lib.rs 的 sync_grades、sync_schedule、fetch_exams、fetch_ranking、fetch_classrooms、fetch_training_plan_courses、fetch_calendar_data、fetch_academic_progress 等 command 会保存缓存并在失败时读取缓存。',
+    '缓存表边界：apps/client/src-tauri/src/db.rs 和 apps/client/src-tauri/src/lib.rs 使用 grades_cache、schedule_cache、qxzkb_public_cache、classroom_cache、training_plan_cache 等表名区分私有数据和公共教务数据。',
+    '课表增强：apps/client/src/components/ScheduleView.vue 负责自定义课程、导入 JSON、导出 JSON、云同步和日历导出；apps/client/src/utils/schedule_prefetch.js 负责学期预热、缓存快照和学期锁定。',
+    '成绩分布：apps/client/src/utils/grade_distribution.js 直接调用 hbu_ocr_endpoint 派生出的远程 /api/grade-distribution 服务，不经过 Tauri command；页面入口在 apps/client/src/components/GradeDistributionView.vue。',
+    '教务后端：apps/client/src-tauri/src/http_client/academic.rs 与 apps/client/src-tauri/src/modules/grades.rs、schedule.rs、exam.rs、ranking.rs、classroom.rs、training_plan.rs、course_selection.rs、calendar.rs 负责解析教务系统响应。',
 ];
 
 const AcademicServices = () => (

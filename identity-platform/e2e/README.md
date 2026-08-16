@@ -64,7 +64,7 @@ node demo-client/index.mjs ... --tamper-state 1   # 必须退出码 1（openid-c
 
 - L3（Web Browser E2E）：`tests/auth-site.spec.ts` / `developer.spec.ts` / `admin.spec.ts`；
 - L5（Cross-device）：`tests/qr-cross-device.spec.ts`；
-- L4（Tauri/Desktop）：主仓库 `scripts/identity_deep_link_smoke.mjs`（Windows 深链 smoke）；
-- L5（mobile scheme contract）：主仓库 `scripts/check_mobile_scheme_contract.mjs`；
+- L4（Tauri/Desktop）：主仓库 `apps/client/scripts/identity_deep_link_smoke.mjs`（Windows 深链 smoke）；
+- L5（mobile scheme contract）：主仓库 `apps/client/scripts/check_mobile_scheme_contract.mjs`；
 - L6/L7：runbook 的 Preview/Production 12 步 + 本目录 demo-client；
 - 单元/集成层（L1/L2）：`core/tests/*`（205+ 用例）与 `web/tests/*`（283+ 用例）。

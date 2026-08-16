@@ -84,7 +84,7 @@ Header：`token`（非 Authorization）。
 
 ## 6. Fixtures
 
-脱敏样例：`src-tauri/tests/fixtures/smart-orientation/`
+脱敏样例：`apps/client/src-tauri/tests/fixtures/smart-orientation/`
 
 - `student_myInfo.json` / `myTeacher.json` / `bed_myInfo.json` / `config_myInfo.json` / `forecast_myInfo.json`
 

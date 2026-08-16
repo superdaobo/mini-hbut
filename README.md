@@ -1,7 +1,7 @@
 # Mini-HBUT 桌面/移动端应用
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" height="128" alt="Mini-HBUT Logo">
+  <img src="apps/client/src-tauri/icons/icon.png" width="128" height="128" alt="Mini-HBUT Logo">
 </p>
 
 <p align="center">
@@ -101,31 +101,43 @@
 
 ```text
 tauri-app/
-├── src/                      # Vue 前端
-│   ├── components/           # 业务页面与设置页
-│   ├── navigation/           # 主导航常量（从 App.vue 抽离）
-│   ├── utils/                # 通知/缓存/CDN/字体/配置
-│   └── platform/             # web/tauri/capacitor 桥接
-├── src-tauri/                # Rust Core（Tauri）
-├── android/                  # Capacitor Android 工程
-├── ios/                      # Capacitor iOS 工程
+├── apps/client/              # 客户端应用（Vue 前端 + Tauri/Capacitor 双栈，自含构建配置）
+│   ├── src/                  #   Vue 前端
+│   │   ├── components/       #   业务页面与设置页
+│   │   ├── navigation/       #   主导航常量（从 App.vue 抽离）
+│   │   ├── utils/            #   通知/缓存/CDN/字体/配置
+│   │   └── platform/         #   web/tauri/capacitor 桥接
+│   ├── src-tauri/            #   Rust Core（Tauri）
+│   ├── android/              #   Capacitor Android 工程
+│   ├── ios/                  #   Capacitor iOS 工程
+│   ├── packages/             #   Capacitor 插件（今日课程 Widget 等）
+│   ├── public/               #   静态资源
+│   ├── scripts/              #   客户端构建/发布脚本（含 ci/ 子目录）
+│   ├── index.html            #   HTML 入口
+│   ├── capacitor.config.ts   #   Capacitor 配置
+│   ├── package.json          #   客户端依赖与脚本
+│   └── remote_config.json    #   远程配置
 ├── website/                  # 官网（Next.js 15，文档与下载站）
 ├── identity-platform/        # OIDC 身份平台（Core + Auth 接力页 + Developer Portal）
-├── packages/                 # Capacitor 插件（今日课程 Widget 等）
+├── cloudflare/               # Cloudflare Workers（云同步等）
 ├── docs/                     # 项目文档与 Issue 档案
-├── capacitor.config.ts       # Capacitor 配置
-└── release.py                # 发布脚本
+├── scripts/                  # 仓库级治理与发布脚本（check_all、build_website_modules 等）
+├── tools/                    # 辅助工具脚本
+├── release.py                # 发布脚本
+└── edgeone.json              # EdgeOne 站点配置
 ```
+
+> 客户端（Vue/Tauri/Capacitor）全部源码与构建配置位于 `apps/client/`；仓库根目录只保留仓库级治理（`scripts/`、`docs/`、`.github/` 等）与独立项目（`website/`、`identity-platform/`、`cloudflare/` 等）。客户端相关命令请先 `cd apps/client` 再执行。
 
 ### 双栈发布边界（Tauri + Capacitor）
 
 | 平台 | 运行时 | 本地构建 | CI 工作流 |
 |------|--------|----------|-----------|
-| Windows / macOS / Linux | Tauri 2 | `npm run tauri build` | `dev-build.yml` / `release.yml` |
-| Android / iOS | Tauri 2 Mobile | `npm run tauri android build` / `tauri ios` | `dev-build.yml` / `release.yml` |
+| Windows / macOS / Linux | Tauri 2 | `cd apps/client && npm run tauri build` | `dev-build.yml` / `release.yml` |
+| Android / iOS | Tauri 2 Mobile | `cd apps/client && npm run tauri android build` / `tauri ios` | `dev-build.yml` / `release.yml` |
 
-- 桌面与移动共享 `src/` 前端与 `src-tauri/` Rust 逻辑（移动端通过 Capacitor 插件桥接）。
-- **勿提交** `android/app/build/`、`ios/Pods/` 等原生构建产物（已写入 `.gitignore`）。
+- 桌面与移动共享 `apps/client/src/` 前端与 `apps/client/src-tauri/` Rust 逻辑（移动端通过 Capacitor 插件桥接）。
+- **勿提交** `apps/client/android/app/build/`、`apps/client/ios/Pods/` 等原生构建产物（已写入 `.gitignore`）。
 - 安全与贡献流程见 [SECURITY.md](./SECURITY.md)、[CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 💻 本地开发
@@ -140,10 +152,11 @@ tauri-app/
 ### 安装依赖
 
 ```bash
-npm install
+cd apps/client
+npm ci
 ```
 
-### 常用命令
+### 常用命令（均在 `apps/client/` 目录下执行）
 
 ```bash
 # 前端开发/构建
@@ -182,7 +195,7 @@ python release.py major    # major：1.2.3 -> 2.0.0
 
 在 Android / iOS 桌面添加「今日课程」小组件，无需打开 App 即可查看当天课表。采用原生 Widget + 自研 Capacitor 插件 `@mini-hbut/capacitor-plugin-mini-hbut-widget`：Android 用 `AppWidgetProvider` + `RemoteViews` + WorkManager 周期刷新，iOS 用 WidgetKit + `TimelineProvider`，数据经 SharedPreferences / App Group UserDefaults 共享快照。
 
-安装：`npm install` → `npm run build` → `npx cap sync`。App Group（iOS）与 Receiver 注册（Android）等配置详见 [`packages/capacitor-plugin-mini-hbut-widget/README.md`](packages/capacitor-plugin-mini-hbut-widget/README.md)。
+安装：在 `apps/client/` 下执行 `npm ci` → `npm run build` → `npx cap sync`。App Group（iOS）与 Receiver 注册（Android）等配置详见 [`apps/client/packages/capacitor-plugin-mini-hbut-widget/README.md`](apps/client/packages/capacitor-plugin-mini-hbut-widget/README.md)。
 
 ## 🔐 Identity / OIDC 开发者平台
 

@@ -61,5 +61,5 @@
 
 ## Mini-HBUT 实现
 
-- 后端：`src-tauri/src/modules/sports_venue.rs`
-- 前端：`src/components/SportsVenueView.vue`（应用内列表/选时段/下单/支付，不外链）
+- 后端：`apps/client/src-tauri/src/modules/sports_venue.rs`
+- 前端：`apps/client/src/components/SportsVenueView.vue`（应用内列表/选时段/下单/支付，不外链）

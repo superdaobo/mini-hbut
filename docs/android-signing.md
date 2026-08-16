@@ -26,15 +26,16 @@ python build_android_apk.py --release
 ```
 
 此脚本会自动完成 Web 构建 → Capacitor 同步 → Gradle assembleRelease，但不会自动签名。
-构建产物在 `android/app/build/outputs/apk/release/` 下。
+构建产物在 `apps/client/android/app/build/outputs/apk/release/` 下。
 
 ### 方式二：使用 Tauri Android 构建
 
 ```bash
+cd apps/client
 npm run tauri android build -- --target aarch64 --apk true
 ```
 
-产物在 `src-tauri/gen/android/app/build/outputs/apk/` 下。
+产物在 `apps/client/src-tauri/gen/android/app/build/outputs/apk/` 下。
 
 ### 手动签名步骤
 

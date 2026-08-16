@@ -29,7 +29,9 @@ from pathlib import Path
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-ANDROID_DIR = PROJECT_DIR / "android"
+# 客户端（Vue 前端 + Capacitor 原生工程）位于 apps/client/
+CLIENT_DIR = PROJECT_DIR / "apps" / "client"
+ANDROID_DIR = CLIENT_DIR / "android"
 
 
 class BuildError(RuntimeError):
@@ -72,8 +74,8 @@ def gradle_wrapper() -> Path:
 
 def ensure_project_layout() -> None:
     required_paths = [
-        PROJECT_DIR / "package.json",
-        PROJECT_DIR / "capacitor.config.ts",
+        CLIENT_DIR / "package.json",
+        CLIENT_DIR / "capacitor.config.ts",
         ANDROID_DIR / "app",
     ]
     missing = [path for path in required_paths if not path.exists()]
@@ -146,12 +148,12 @@ def build_android_apk(args: argparse.Namespace) -> Path | None:
     assemble_task = "assembleRelease" if args.release else "assembleDebug"
 
     if not args.skip_web_build:
-        run_step("构建 Web 产物", [npm, "run", "build"], cwd=PROJECT_DIR, dry_run=args.dry_run)
+        run_step("构建 Web 产物", [npm, "run", "build"], cwd=CLIENT_DIR, dry_run=args.dry_run)
     else:
         print("\n[SKIP] 已跳过 Web 构建（--skip-web-build）")
 
     if not args.skip_sync:
-        run_step("同步 Capacitor Android 工程", [npx, "cap", "sync", "android"], cwd=PROJECT_DIR, dry_run=args.dry_run)
+        run_step("同步 Capacitor Android 工程", [npx, "cap", "sync", "android"], cwd=CLIENT_DIR, dry_run=args.dry_run)
     else:
         print("\n[SKIP] 已跳过 Capacitor 同步（--skip-sync）")
 

@@ -4,7 +4,7 @@ const moduleFlow = [
     {
         title: '1. 进入模块中心',
         details: [
-            '用户从“我的 / 更多”进入更多模块页面。MoreView 会先用 src/utils/module_center.js 生成内置模块卡片，让模块中心即使远程 catalog 暂时不可用也能展示基本入口。',
+            '用户从“我的 / 更多”进入更多模块页面。MoreView 会先用 apps/client/src/utils/module_center.js 生成内置模块卡片，让模块中心即使远程 catalog 暂时不可用也能展示基本入口。',
             '页面会继续读取远程配置和远程 catalog，默认 CDN 基地址是 https://hbut.6661111.xyz/modules，正式渠道为 main，同时代码也支持 dev 和 latest 渠道。',
         ],
     },
@@ -27,11 +27,11 @@ const moduleFlow = [
 const runtimeNotes = [
     {
         title: 'Tauri 桌面端',
-        desc: 'src-tauri/src/modules/module_bundle.rs 会把 bundle.zip 解压到应用缓存目录 more_modules 下，写入 .module-cache-meta.json，并通过 127.0.0.1 模块桥接地址暴露入口。open_module_bundle_window 也保留了独立窗口能力，但当前更多页主路径是内嵌模块宿主。',
+        desc: 'apps/client/src-tauri/src/modules/module_bundle.rs 会把 bundle.zip 解压到应用缓存目录 more_modules 下，写入 .module-cache-meta.json，并通过 127.0.0.1 模块桥接地址暴露入口。open_module_bundle_window 也保留了独立窗口能力，但当前更多页主路径是内嵌模块宿主。',
     },
     {
         title: 'Capacitor 移动端',
-        desc: 'src/utils/more_modules.js 会把模块缓存到 Capacitor Filesystem 的 modules 目录。Android/iOS 无法使用桌面本地桥时，会尝试安卓本地包、远端页面或本地缓存兜底。',
+        desc: 'apps/client/src/utils/more_modules.js 会把模块缓存到 Capacitor Filesystem 的 modules 目录。Android/iOS 无法使用桌面本地桥时，会尝试安卓本地包、远端页面或本地缓存兜底。',
     },
     {
         title: 'Web 或受限环境',
@@ -55,7 +55,7 @@ const checkinModules = [
     {
         title: '会话与安全边界',
         details: [
-            'SessionStatusBanner 会提示学习通未连接时先到在线学习模块登录学习通账号。后端 src-tauri/src/modules/chaoxing_checkin 会检查会话过期、域名白名单和请求参数。',
+            'SessionStatusBanner 会提示学习通未连接时先到在线学习模块登录学习通账号。后端 apps/client/src-tauri/src/modules/chaoxing_checkin 会检查会话过期、域名白名单和请求参数。',
             '签到请求只面向学习通相关域名与 hbut.jw.chaoxing.com 桥接域；二维码解析也只接受受控的超星签到 URL。网络异常、会话失效、图片 MIME 或大小不合法都会返回失败提示。',
         ],
     },
@@ -75,14 +75,14 @@ const publishedGames = [
         id: 'hecheng_hugongda',
         status: '已在模块中心内置，也出现在当前 catalog。',
         desc: '拖拽/触控投放学校球体，相同学校碰撞后合成，最终目标是合成“湖北工业大学”。模块会读取宿主注入的学号、姓名、班级和 rank_api，结算后可上传排行榜。',
-        source: 'website/modules-src/hecheng_hugongda/project/src/App.vue',
+        source: 'website/modules-src/hecheng_hugongda/project/apps/client/src/App.vue',
     },
     {
         name: '跳出湖工大',
         id: 'jump_out_hbut',
         status: '已在模块中心内置，也出现在当前 catalog。',
         desc: 'Three.js 风格的校园跳一跳。用户蓄力后跳到校园建筑平台，连续落点和平台命中会影响得分，支持排行榜面板。',
-        source: 'website/modules-src/jump_out_hbut/project/src/App.vue',
+        source: 'website/modules-src/jump_out_hbut/project/apps/client/src/App.vue',
     },
     {
         name: '2048 湖工大版',
@@ -147,15 +147,15 @@ const userBoundaries = [
 ];
 
 const sourceEvidence = [
-    '模块中心默认卡片与合并逻辑：src/utils/module_center.js 定义 DEFAULT_MODULE_CENTER，并在 buildModuleCenterCards 中合并内置模块、远程配置和 catalog。',
-    '更多模块页面：src/components/MoreView.vue 负责 fetchModuleCatalog、fetchModuleManifest、prepareModuleBundle、检查线上版本、下载状态、本地缓存状态和跳转 more_module_host。',
-    '模块宿主：src/components/MoreModuleHostView.vue 使用 iframe 加载 preview_url，处理 mini-hbut:module-size、加载超时、iOS 白屏、外部打开和本地缓存失效提示。',
-    '模块缓存与平台分流：src/utils/more_modules.js 负责 Tauri 桥接、Capacitor Filesystem 缓存、远端 open_url 候选、manifest 缓存、catalog 缓存和 localStorage 状态。',
-    'Tauri 模块包后端：src-tauri/src/modules/module_bundle.rs 提供 prepare_module_bundle、resolve_module_bundle_file 和 open_module_bundle_window，写入 bundle.zip 与缓存元信息。',
-    '学习通签到页面：src/components/MoreChaoxingCheckinView.vue 组合签到活动、签到记录、位置签到、拍照签到、手势签到和二维码签到弹窗。',
-    '在线学习入口源码：src/components/MoreShuakeView.vue、src/components/OnlineLearningChaoxingView.vue、src/components/OnlineLearningYuketangView.vue 当前存在，但普通 App 渲染链路需要以后续接入为准。',
-    '签到后端：src-tauri/src/modules/chaoxing_checkin 包含签到列表、普通签到、位置签到、拍照签到、二维码签到、手势签到、签到记录、二维码解析和清理学习通数据。',
-    '在线学习后端：src-tauri/src/modules/online_learning.rs 覆盖学习通、长江雨课堂、同步记录、平台缓存、课程列表、章节、进度、自动学习相关心跳接口。',
+    '模块中心默认卡片与合并逻辑：apps/client/src/utils/module_center.js 定义 DEFAULT_MODULE_CENTER，并在 buildModuleCenterCards 中合并内置模块、远程配置和 catalog。',
+    '更多模块页面：apps/client/src/components/MoreView.vue 负责 fetchModuleCatalog、fetchModuleManifest、prepareModuleBundle、检查线上版本、下载状态、本地缓存状态和跳转 more_module_host。',
+    '模块宿主：apps/client/src/components/MoreModuleHostView.vue 使用 iframe 加载 preview_url，处理 mini-hbut:module-size、加载超时、iOS 白屏、外部打开和本地缓存失效提示。',
+    '模块缓存与平台分流：apps/client/src/utils/more_modules.js 负责 Tauri 桥接、Capacitor Filesystem 缓存、远端 open_url 候选、manifest 缓存、catalog 缓存和 localStorage 状态。',
+    'Tauri 模块包后端：apps/client/src-tauri/src/modules/module_bundle.rs 提供 prepare_module_bundle、resolve_module_bundle_file 和 open_module_bundle_window，写入 bundle.zip 与缓存元信息。',
+    '学习通签到页面：apps/client/src/components/MoreChaoxingCheckinView.vue 组合签到活动、签到记录、位置签到、拍照签到、手势签到和二维码签到弹窗。',
+    '在线学习入口源码：apps/client/src/components/MoreShuakeView.vue、apps/client/src/components/OnlineLearningChaoxingView.vue、apps/client/src/components/OnlineLearningYuketangView.vue 当前存在，但普通 App 渲染链路需要以后续接入为准。',
+    '签到后端：apps/client/src-tauri/src/modules/chaoxing_checkin 包含签到列表、普通签到、位置签到、拍照签到、二维码签到、手势签到、签到记录、二维码解析和清理学习通数据。',
+    '在线学习后端：apps/client/src-tauri/src/modules/online_learning.rs 覆盖学习通、长江雨课堂、同步记录、平台缓存、课程列表、章节、进度、自动学习相关心跳接口。',
     '发布目录：website/public/modules/main/catalog.json、website/public/modules/dev/catalog.json、website/public/modules/latest/catalog.json 是当前可见模块清单依据。',
     '构建脚本：scripts/build_website_modules.mjs 从 website/modules-src 构建 site、bundle.zip、manifest.json 和三渠道 catalog，并跳过 disabled 模块。',
 ];

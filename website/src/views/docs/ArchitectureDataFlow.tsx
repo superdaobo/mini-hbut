@@ -3,29 +3,29 @@ import Link from 'next/link';
 const requestEntries = [
     {
         title: '兼容 axios 的主业务入口',
-        source: 'src/utils/axios_adapter.ts',
+        source: 'apps/client/src/utils/axios_adapter.ts',
         items: [
-            'src/utils/axios_adapter.ts 把历史 axios.get / axios.post 调用适配成 Tauri command 或本地 bridge 请求。Tauri 运行时优先 invokeNative，非 Tauri 运行时使用 /bridge 或 http://127.0.0.1:4399 兜底。',
+            'apps/client/src/utils/axios_adapter.ts 把历史 axios.get / axios.post 调用适配成 Tauri command 或本地 bridge 请求。Tauri 运行时优先 invokeNative，非 Tauri 运行时使用 /bridge 或 http://127.0.0.1:4399 兜底。',
             'adapter.get 覆盖 /v3/login_params、/v2/semesters、/v2/qxzkb/options、/v2/classroom/buildings 等查询入口；adapter.post 覆盖 /v2/start_login、验证码刷新和大量教务/一卡通写入式请求。',
             'mockResponse 和 mockError 让旧组件继续拿到近似 axios 的 response 结构，但这不是全局异常体系，调用方仍要检查 success、error、need_login 等业务字段。',
         ],
     },
     {
         title: '浏览器直连和辅助服务入口',
-        source: 'src/utils/api.ts',
+        source: 'apps/client/src/utils/api.ts',
         items: [
-            'src/utils/api.ts 是辅助 HTTP 服务入口，包含 serverOcrRecognize、syncDataToServer、fetchDataFromServer。',
+            'apps/client/src/utils/api.ts 是辅助 HTTP 服务入口，包含 serverOcrRecognize、syncDataToServer、fetchDataFromServer。',
             'serverOcrRecognize 直接向 SERVER_API_BASE 的 /ocr/recognize 发送验证码图片；syncDataToServer 和 fetchDataFromServer 是旧式数据备份接口，不等同于当前主线 cloud_sync。',
             '该文件仍保留 http://1.94.167.18:5080/api 这类直连地址，文档和安全审计必须把它标为独立辅助链路，而不是 Tauri 主数据层。',
         ],
     },
     {
         title: '远程配置和静态资源链路',
-        source: 'src/utils/remote_config.ts / src/utils/static_resource_cache.js',
+        source: 'apps/client/src/utils/remote_config.ts / apps/client/src/utils/static_resource_cache.js',
         items: [
-            'src/utils/remote_config.ts 维护 CONFIG_URLS、DEFAULT_CONFIG、hbu_remote_config_snapshot，并通过 fetchByInvoke、fetchByCapacitor、fetchByWeb 多源拉取远程配置。',
+            'apps/client/src/utils/remote_config.ts 维护 CONFIG_URLS、DEFAULT_CONFIG、hbu_remote_config_snapshot，并通过 fetchByInvoke、fetchByCapacitor、fetchByWeb 多源拉取远程配置。',
             'normalizeRemoteConfig 会归一 OCR、WebDAV、forum、cloud_sync、module_center、ai_models、config_admin_ids 等配置字段，并持久化 OCR 端点到独立 localStorage key。',
-            'src/utils/static_resource_cache.js 使用 static_resource:dormitory_data 缓存宿舍数据，优先 invokeNative(fetch_remote_json)，失败后走浏览器 fetch、多源 URL 和缓存兜底。',
+            'apps/client/src/utils/static_resource_cache.js 使用 static_resource:dormitory_data 缓存宿舍数据，优先 invokeNative(fetch_remote_json)，失败后走浏览器 fetch、多源 URL 和缓存兜底。',
         ],
     },
 ];
@@ -33,7 +33,7 @@ const requestEntries = [
 const cacheLayers = [
     {
         title: '前端通用缓存',
-        source: 'src/utils/api.ts',
+        source: 'apps/client/src/utils/api.ts',
         items: [
             'fetchWithCache 是前端通用缓存入口，先查 memoryCache，再查 localStorage 中的 cache:* 键，命中后返回 fromCache 和 timestamp。',
             'getCachedData、setCachedData、getBestCachedEntry、withOfflineMeta 构成缓存读写和陈旧缓存回退。setCachedData 会限制 MAX_LOCAL_CACHE_ENTRIES 和 MAX_LOCAL_CACHE_VALUE_BYTES。',
@@ -42,7 +42,7 @@ const cacheLayers = [
     },
     {
         title: '教务维护模式',
-        source: 'src/utils/api.ts',
+        source: 'apps/client/src/utils/api.ts',
         items: [
             'hbu_jwxt_maintenance、hbu_jwxt_maintenance_time、hbu_jwxt_maintenance_hint 记录本地维护模式。',
             'looksLikeMaintenanceIssue 根据网络错误、DNS、timed out、维护、暂不可用、连接失败等文本做启发式判断；setMaintenanceFlag 写 localStorage 并广播 hbu-jwxt-maintenance 事件。',
@@ -51,9 +51,9 @@ const cacheLayers = [
     },
     {
         title: 'SQLite 缓存和会话',
-        source: 'src-tauri/src/db.rs',
+        source: 'apps/client/src-tauri/src/db.rs',
         items: [
-            'src-tauri/src/db.rs 的 init_db 创建 grades_cache、schedule_cache、exams_cache、studentinfo_cache、calendar_cache、ranking_cache、academic_progress_cache、training_plan_cache、classroom_cache、electricity_cache、transaction_cache、ai_session_cache 等表。',
+            'apps/client/src-tauri/src/db.rs 的 init_db 创建 grades_cache、schedule_cache、exams_cache、studentinfo_cache、calendar_cache、ranking_cache、academic_progress_cache、training_plan_cache、classroom_cache、electricity_cache、transaction_cache、ai_session_cache 等表。',
             'save_cache 和 get_cache 以 JSON 字符串保存数据，并记录 sync_time；多数 Tauri command 采用网络成功写缓存、失败读缓存并附加 offline/sync_time 的模式。',
             'user_sessions 保存 student_id、cookies、encrypted_password、one_code_token、electricity_refresh_token、electricity_token_expires_at、last_login 等字段，是敏感会话表。',
         ],
@@ -63,38 +63,38 @@ const cacheLayers = [
 const remoteFlows = [
     {
         title: '远程配置快照',
-        source: 'src/utils/remote_config.ts',
+        source: 'apps/client/src/utils/remote_config.ts',
         desc: 'loadRemoteConfig 会优先复用短期内存缓存，拉取失败时读取 hbu_remote_config_snapshot，再失败才回到 DEFAULT_CONFIG。配置会影响 OCR、论坛、资料分享、模块中心、云同步、AI 和管理员入口。',
     },
     {
         title: '云同步',
-        source: 'src/utils/cloud_sync.ts',
-        desc: 'src/utils/cloud_sync.ts 从 app settings、远程配置和本地 override 合成运行参数。requestCloudSync 会通过 /ping 获取 challenge，并在后续请求中加入 x-cloud-sync-challenge；上传和下载都有 cooldown，失败会记录 hbu_cloud_sync_status:* 并继续向上抛错。',
+        source: 'apps/client/src/utils/cloud_sync.ts',
+        desc: 'apps/client/src/utils/cloud_sync.ts 从 app settings、远程配置和本地 override 合成运行参数。requestCloudSync 会通过 /ping 获取 challenge，并在后续请求中加入 x-cloud-sync-challenge；上传和下载都有 cooldown，失败会记录 hbu_cloud_sync_status:* 并继续向上抛错。',
     },
     {
         title: '同步负载和应用',
-        source: 'src/utils/cloud_sync.ts',
+        source: 'apps/client/src/utils/cloud_sync.ts',
         desc: 'buildSyncPayload 从 localStorage 缓存、设置、自定义课程和学业数据构造上传包；runCloudSyncDownload 会调用 applySettingsFromCloud、replaceCustomCourses、applyAcademicFromCloud，把云端设置和课程数据写回本地。',
     },
     {
         title: '登录后自动同步',
-        source: 'src/utils/cloud_sync.ts',
+        source: 'apps/client/src/utils/cloud_sync.ts',
         desc: 'runAutoCloudSyncAfterLogin 以下载优先，然后用 primeAcademicCaches 补齐学业缓存并尝试上传。它不是实时双向同步，而是受触发时机、远程配置、账号格式、网络和 cooldown 共同限制的同步流程。',
     },
 ];
 
 const notificationFlows = [
-    'src/utils/notify_center.ts 的 runNotificationCheck 会并发执行课表、成绩、考试、电费检查，再调用 sendQueuedNotifications 发送本地通知。',
-    '通知中心通过 syncBackgroundFetchContext 把学号、API base、通知开关、提前分钟数和周期写给 src/utils/background_fetch.ts，移动端后台任务再回调同一套检查逻辑。',
+    'apps/client/src/utils/notify_center.ts 的 runNotificationCheck 会并发执行课表、成绩、考试、电费检查，再调用 sendQueuedNotifications 发送本地通知。',
+    '通知中心通过 syncBackgroundFetchContext 把学号、API base、通知开关、提前分钟数和周期写给 apps/client/src/utils/background_fetch.ts，移动端后台任务再回调同一套检查逻辑。',
     'hbu_notify_snapshot:* 保存上次通知快照；后台检查关闭或失败时，getStoredSnapshot 可作为 fallbackSnapshot 返回给页面。',
-    'src/utils/widget_bridge.ts 从课表缓存和自定义课程构建 Widget 数据，writeElectricityToWidget 和 writeExamToWidget 由通知检查结果驱动。',
-    'src/utils/widget_snapshot.ts 的 buildTodayCourseSnapshot 是纯函数，不访问 localStorage、网络或原生桥，因此 Widget 不是直接联网刷新，而是消费缓存和快照。',
+    'apps/client/src/utils/widget_bridge.ts 从课表缓存和自定义课程构建 Widget 数据，writeElectricityToWidget 和 writeExamToWidget 由通知检查结果驱动。',
+    'apps/client/src/utils/widget_snapshot.ts 的 buildTodayCourseSnapshot 是纯函数，不访问 localStorage、网络或原生桥，因此 Widget 不是直接联网刷新，而是消费缓存和快照。',
 ];
 
 const nativeFlows = [
     {
         title: 'HbutClient 和 Cookie Jar',
-        source: 'src-tauri/src/http_client/mod.rs',
+        source: 'apps/client/src-tauri/src/http_client/mod.rs',
         items: [
             'HbutClient 持有 reqwest::Client、独立 ocr_client、Cookie Jar、登录状态、用户信息、电费 token、OCR 运行态、登录冷却和重登冷却字段。',
             '主 HTTP client 使用 cookie_store(true) 和 cookie_provider(Arc<Jar>)，让 CAS、教务、图书馆、一码通、超星链路共享 Cookie Jar；OCR 使用独立 ocr_client，避免污染主会话。',
@@ -103,7 +103,7 @@ const nativeFlows = [
     },
     {
         title: '登录、会话和冷却',
-        source: 'src-tauri/src/http_client/session.rs / auth.rs',
+        source: 'apps/client/src-tauri/src/http_client/session.rs / auth.rs',
         items: [
             'encrypt_password_aes 复现 CAS 前端 AES-CBC 加密；login_cooldown_remaining 限制普通登录 60 秒，relogin_cooldown_remaining 限制自动重登 180 秒。',
             'restore_session、refresh_session、get_cookie_snapshot、restore_cookie_snapshot、save_cookie_snapshot_to_file、load_cookie_snapshot_from_file 负责 Cookie 快照导入导出和本地恢复。',
@@ -112,7 +112,7 @@ const nativeFlows = [
     },
     {
         title: '电费、一卡通和 AI token',
-        source: 'src-tauri/src/http_client/electricity.rs / ai.rs',
+        source: 'apps/client/src-tauri/src/http_client/electricity.rs / ai.rs',
         items: [
             'ensure_electricity_token 优先复用内存 token，然后尝试 refresh token，必要时重新 SSO 获取；校园码、交易记录、电费查询复用同一类 one_code_token。',
             'persist_electricity_tokens 会把 one_code_token、refresh_token、token_expires_at 写入 user_sessions，供下次启动恢复。',
@@ -131,17 +131,17 @@ const errorBoundaries = [
 ];
 
 const sourceEvidence = [
-    '前端请求入口：src/utils/axios_adapter.ts 的 adapter.get、adapter.post、mockResponse、mockError、bridgePost、bridgeGet。',
-    '前端缓存证据：src/utils/api.ts 的 fetchWithCache、getCachedData、setCachedData、withOfflineMeta、isQuotaExceededError、looksLikeMaintenanceIssue、setMaintenanceFlag、hbu_jwxt_maintenance。',
-    '辅助服务证据：src/utils/api.ts 的 serverOcrRecognize、syncDataToServer、fetchDataFromServer。',
-    '远程配置证据：src/utils/remote_config.ts 的 hbu_remote_config_snapshot、normalizeRemoteConfig、fetchByInvoke、fetchByCapacitor、fetchByWeb、applyOcrRuntimeConfig、cloud_sync。',
-    '云同步证据：src/utils/cloud_sync.ts 的 getCloudSyncRuntimeConfig、requestCloudSync、x-cloud-sync-challenge、buildSyncPayload、runCloudSyncUpload、runCloudSyncDownload、runAutoCloudSyncAfterLogin、cooldown。',
-    '静态资源证据：src/utils/static_resource_cache.js 的 fetchDormitoryDataset、static_resource:dormitory_data、fetchJsonNoStore、withOfflineMeta。',
-    '论坛和通知证据：src/utils/forum_api.js 的 hbu_forum_token、parseJsonResponse、request；src/utils/notify_center.ts 的 runNotificationCheck、sendQueuedNotifications、syncBackgroundFetchContext。',
-    'Widget 证据：src/utils/background_fetch.ts、src/utils/widget_bridge.ts、src/utils/widget_snapshot.ts。',
-    'Rust HTTP 证据：src-tauri/src/http_client/mod.rs 的 HbutClient、Cookie Jar、encrypt_password_aes、academic_base_url、login_cooldown_remaining。',
-    'Rust 会话证据：src-tauri/src/http_client/session.rs 的 restore_session、refresh_session、get_cookie_snapshot、restore_cookie_snapshot、clear_session。',
-    'SQLite 证据：src-tauri/src/db.rs 的 init_db、save_cache、get_cache、user_sessions、grades_cache、schedule_cache、electricity_cache、ai_session_cache。',
+    '前端请求入口：apps/client/src/utils/axios_adapter.ts 的 adapter.get、adapter.post、mockResponse、mockError、bridgePost、bridgeGet。',
+    '前端缓存证据：apps/client/src/utils/api.ts 的 fetchWithCache、getCachedData、setCachedData、withOfflineMeta、isQuotaExceededError、looksLikeMaintenanceIssue、setMaintenanceFlag、hbu_jwxt_maintenance。',
+    '辅助服务证据：apps/client/src/utils/api.ts 的 serverOcrRecognize、syncDataToServer、fetchDataFromServer。',
+    '远程配置证据：apps/client/src/utils/remote_config.ts 的 hbu_remote_config_snapshot、normalizeRemoteConfig、fetchByInvoke、fetchByCapacitor、fetchByWeb、applyOcrRuntimeConfig、cloud_sync。',
+    '云同步证据：apps/client/src/utils/cloud_sync.ts 的 getCloudSyncRuntimeConfig、requestCloudSync、x-cloud-sync-challenge、buildSyncPayload、runCloudSyncUpload、runCloudSyncDownload、runAutoCloudSyncAfterLogin、cooldown。',
+    '静态资源证据：apps/client/src/utils/static_resource_cache.js 的 fetchDormitoryDataset、static_resource:dormitory_data、fetchJsonNoStore、withOfflineMeta。',
+    '论坛和通知证据：apps/client/src/utils/forum_api.js 的 hbu_forum_token、parseJsonResponse、request；apps/client/src/utils/notify_center.ts 的 runNotificationCheck、sendQueuedNotifications、syncBackgroundFetchContext。',
+    'Widget 证据：apps/client/src/utils/background_fetch.ts、apps/client/src/utils/widget_bridge.ts、apps/client/src/utils/widget_snapshot.ts。',
+    'Rust HTTP 证据：apps/client/src-tauri/src/http_client/mod.rs 的 HbutClient、Cookie Jar、encrypt_password_aes、academic_base_url、login_cooldown_remaining。',
+    'Rust 会话证据：apps/client/src-tauri/src/http_client/session.rs 的 restore_session、refresh_session、get_cookie_snapshot、restore_cookie_snapshot、clear_session。',
+    'SQLite 证据：apps/client/src-tauri/src/db.rs 的 init_db、save_cache、get_cache、user_sessions、grades_cache、schedule_cache、electricity_cache、ai_session_cache。',
 ];
 
 const ArchitectureDataFlow = () => (
