@@ -22,8 +22,8 @@ Layer 4  Release / Packaging（后置）
 PR Checks
 │
 ├─ changes          范围检测（dorny/paths-filter）
-│   ├─ frontend: src/**、package*.json、vite.config.*
-│   └─ rust:    src-tauri/**
+│   ├─ frontend: apps/client/src/**、apps/client/package*.json、apps/client/vite.config.*
+│   └─ rust:    apps/client/src-tauri/**
 │
 ├─ test-frontend    frontend 变更时运行（build + Vitest + vue-tsc + 安全/架构守卫）
 ├─ test-rust        rust 变更时运行（cargo test/fmt/clippy）
@@ -31,6 +31,11 @@ PR Checks
 │
 └─ pr-gate          稳定名称的汇总门禁（只接受 success / skipped）
 ```
+
+> 客户端已于 #641 迁入 `apps/client/`（唯一包根：src/、src-tauri/、android/、ios/、
+> vite/vitest/tsconfig/tailwind 配置、package.json + lockfile）。所有客户端路径均以
+> `apps/client/` 为前缀；根级 `scripts/`（check_all / check_release / guard_sensitive_uploads /
+> build_website_modules 等）与 `website/`、`identity-platform/` 不变。
 
 关键规则：
 
@@ -67,10 +72,10 @@ Dry Run 的 packaging 触发路径（**不要扩大**）：
 
 ```text
 .github/workflows/windows-release-dry-run.yml
-package.json / package-lock.json
-vite.config.*
-src-tauri/Cargo.toml / Cargo.lock / tauri.conf.json / build.rs / icons/**
-scripts/ci/windows_release_smoke.ps1 / scripts/verify_release_config.mjs
+apps/client/package.json / package-lock.json
+apps/client/vite.config.*
+apps/client/src-tauri/Cargo.toml / Cargo.lock / tauri.conf.json / build.rs / icons/**
+apps/client/scripts/ci/windows_release_smoke.ps1 / scripts/verify_release_config.mjs
 .github/workflows/release.yml
 ```
 

@@ -27,9 +27,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: |
-            package-lock.json
+            apps/client/package-lock.json
             website/package-lock.json
-      - name: Install root dependencies
+      - name: Install client dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
       - name: Install website dependencies
         run: npm ci --prefix website --prefer-offline --no-audit --no-fund
@@ -50,6 +51,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: ./apps/client/src-tauri -> target
       - name: Unified release readiness gate
+        working-directory: apps/client
         run: npm run check:release

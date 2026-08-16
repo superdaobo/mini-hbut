@@ -5,4 +5,5 @@ runs:
   steps:
     - name: Setup Android NDK
       shell: bash
-      run: bash scripts/ci/setup_android_ndk.sh
+      # 脚本已随客户端迁至 apps/client/scripts/ci/；脚本内部只用 $ANDROID_SDK_ROOT，与 cwd 无关
+      run: bash apps/client/scripts/ci/setup_android_ndk.sh

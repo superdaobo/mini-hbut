@@ -171,8 +171,8 @@ jobs:
       - name: Prune non-runtime files (Android)
         run: |
           set -euo pipefail
-          rm -rf src-tauri/exports .tauri-tmp dist-release captures tools/.session_cookies.json || true
-          find src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
+          rm -rf apps/client/src-tauri/exports apps/client/.tauri-tmp dist-release captures tools/.session_cookies.json || true
+          find apps/client/src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
           find . -type f \( -name "*.log" -o -name "*.cache" \) -delete || true
 
       - name: Setup Java
@@ -203,30 +203,36 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Initialize Android project
+        working-directory: apps/client
         run: npm run tauri android init
 
       - name: Pin Android NDK version in Gradle
+        working-directory: apps/client
         run: python scripts/ci/patch_android_ndk.py
 
       - name: Generate, sync, and verify Android launcher icons
+        working-directory: apps/client
         run: |
           set -euo pipefail
-          PYTHON_BIN=python source scripts/ci/setup_python_venv.sh
+          PYTHON_BIN=python source ../../scripts/ci/setup_python_venv.sh
           pip install --quiet Pillow
           python scripts/fix_android_adaptive_icons.py
           node scripts/sync_tauri_platform_icons.mjs android
           npx vitest run src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Patch Android widget support
+        working-directory: apps/client
         run: python scripts/patch_android_widget.py
 
       - name: Patch Android notification permissions
+        working-directory: apps/client
         run: |
           set -euo pipefail
           MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
@@ -258,6 +264,7 @@ jobs:
           grep -n "POST_NOTIFICATIONS\\|WAKE_LOCK\\|FOREGROUND_SERVICE\\|REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"
 
       - name: Optimize Android package size
+        working-directory: apps/client
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -328,11 +335,13 @@ jobs:
           PY
 
       - name: Build frontend for Android
+        working-directory: apps/client
         run: npm run build
         env:
           VITE_EXCLUDE_HIDDEN_VIEWS: "1"
 
       - name: Prune unused assets for mobile
+        working-directory: apps/client
         run: |
           set -euo pipefail
           # 移动端 APK 不需要 favicon，移除可节省 ~437KB
@@ -340,6 +349,7 @@ jobs:
           echo "Removed dist/favicon.svg"
 
       - name: Build Android APK (arm64 only, mobile-slim)
+        working-directory: apps/client
         run: npx tauri android build --target aarch64 --config '{"build":{"features":["mobile-slim"]}}'
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
@@ -347,9 +357,11 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.NDK_HOME }}
 
       - name: Mobile boundary guard (hidden views excluded, kept capabilities intact)
+        working-directory: apps/client
         run: node scripts/check_mobile_boundary.mjs --expect-excluded ForumView,MoreShuake,OnlineLearning --expect-kept ChaoxingHubView --check-rust-registry
 
       - name: Report Android raw build size
+        working-directory: apps/client
         env:
           BUNDLE_ROOT: src-tauri/gen/android/app/build/outputs/apk
         run: node scripts/report_bundle_sizes.mjs
@@ -362,17 +374,18 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
           OUTPUT_APK: Mini-HBUT_${{ steps.version.outputs.VERSION }}_arm64.apk
+          APK_SEARCH_ROOT: apps/client/src-tauri/gen/android/app/build/outputs/apk
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           REQUIRE_KEYSTORE: "true"
-        run: bash scripts/ci/sign_android_apk.sh
+        run: bash apps/client/scripts/ci/sign_android_apk.sh
 
       - name: Report Android package size
         env:
           BUNDLE_ROOT: .
-        run: node scripts/report_bundle_sizes.mjs
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Upload signed APK
         uses: softprops/action-gh-release@v1
@@ -391,12 +404,12 @@ jobs:
       - name: Prune non-runtime files (Windows)
         shell: pwsh
         run: |
-          if (Test-Path "src-tauri/exports") { Remove-Item "src-tauri/exports" -Recurse -Force }
-          if (Test-Path ".tauri-tmp") { Remove-Item ".tauri-tmp" -Recurse -Force }
+          if (Test-Path "apps/client/src-tauri/exports") { Remove-Item "apps/client/src-tauri/exports" -Recurse -Force }
+          if (Test-Path "apps/client/.tauri-tmp") { Remove-Item "apps/client/.tauri-tmp" -Recurse -Force }
           if (Test-Path "dist-release") { Remove-Item "dist-release" -Recurse -Force }
           if (Test-Path "captures") { Remove-Item "captures" -Recurse -Force }
           if (Test-Path "tools/.session_cookies.json") { Remove-Item "tools/.session_cookies.json" -Force }
-          Get-ChildItem "src-tauri" -Recurse -File -Include *.ics,*.bak,*.tmp | Remove-Item -Force
+          Get-ChildItem "apps/client/src-tauri" -Recurse -File -Include *.ics,*.bak,*.tmp | Remove-Item -Force
           Get-ChildItem "." -Recurse -File -Include *.log,*.cache | Remove-Item -Force
 
       - name: Get version from tag
@@ -419,26 +432,31 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Regenerate and verify official desktop icons
         shell: pwsh
+        working-directory: apps/client
         run: |
           python -m pip install Pillow
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build Windows App
+        working-directory: apps/client
         run: npm run tauri build -- --bundles nsis,msi
 
       - name: Report dist and raw Windows bundle size
+        working-directory: apps/client
         run: node scripts/report_bundle_sizes.mjs
 
       - name: Rename Windows artifacts to tag version
         shell: pwsh
+        working-directory: apps/client
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
@@ -455,6 +473,7 @@ jobs:
           Get-ChildItem dist-release | Format-Table Name,Length -AutoSize
 
       - name: Report packaged Windows size
+        working-directory: apps/client
         env:
           BUNDLE_ROOT: dist-release
         run: node scripts/report_bundle_sizes.mjs
@@ -463,7 +482,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          files: dist-release/*
+          files: apps/client/dist-release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -488,35 +507,38 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Regenerate and verify official desktop icons
+        working-directory: apps/client
         run: |
           set -euo pipefail
-          source scripts/ci/setup_python_venv.sh
+          source ../../scripts/ci/setup_python_venv.sh
           pip install --quiet Pillow
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build macOS App (Universal, app only)
+        working-directory: apps/client
         run: npm run tauri build -- --target universal-apple-darwin --bundles app
 
       - name: Report macOS raw build size
         env:
-          BUNDLE_ROOT: src-tauri/target/universal-apple-darwin/release/bundle
-        run: node scripts/report_bundle_sizes.mjs
+          BUNDLE_ROOT: apps/client/src-tauri/target/universal-apple-darwin/release/bundle
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Package macOS DMG manually
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF#refs/tags/v}"
-          APP_PATH="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -type d -name "*.app" | head -n 1 || true)"
+          APP_PATH="$(find apps/client/src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -type d -name "*.app" | head -n 1 || true)"
           if [ -z "$APP_PATH" ]; then
             echo "No macOS .app found."
-            find src-tauri/target/universal-apple-darwin/release/bundle -maxdepth 4 -type d -print || true
+            find apps/client/src-tauri/target/universal-apple-darwin/release/bundle -maxdepth 4 -type d -print || true
             exit 1
           fi
 
@@ -537,7 +559,7 @@ jobs:
       - name: Report macOS package size
         env:
           BUNDLE_ROOT: .
-        run: node scripts/report_bundle_sizes.mjs
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Upload macOS artifacts
         uses: softprops/action-gh-release@v1
@@ -560,8 +582,8 @@ jobs:
       - name: Prune non-runtime files (iOS)
         run: |
           set -euo pipefail
-          rm -rf src-tauri/exports .tauri-tmp dist-release captures tools/.session_cookies.json || true
-          find src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
+          rm -rf apps/client/src-tauri/exports apps/client/.tauri-tmp dist-release captures tools/.session_cookies.json || true
+          find apps/client/src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
           find . -type f \( -name "*.log" -o -name "*.cache" \) -delete || true
 
       - name: Get version from tag
@@ -577,7 +599,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -586,9 +608,11 @@ jobs:
           cache: npm
 
       - name: Install Frontend Dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Tauri CLI
+        working-directory: apps/client
         run: npm exec -- tauri --version
 
       - name: Build iOS app bundle
@@ -598,6 +622,9 @@ jobs:
           CARGO_BUILD_FEATURES: "mobile-slim,bridge"
         run: |
           set -euo pipefail
+          # 客户端已迁移至 apps/client：后续命令统一在 apps/client 下执行，
+          # 根级资源（venv 脚本 / tauri-cli-options-server）用 ../../ 引用。
+          cd apps/client
           # Force production web assets for iOS CI builds.
           # If devUrl is present, runtime may try to open localhost:1420.
           node --input-type=module - <<'NODE'
@@ -607,7 +634,7 @@ jobs:
           conf.build = conf.build || {};
           delete conf.build.devUrl;
           delete conf.build.beforeDevCommand;
-          conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
+          conf.build.beforeBuildCommand = 'npm run build && node ../scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
           fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
           console.log('Patched tauri.conf.json for iOS CI:', {
@@ -616,7 +643,7 @@ jobs:
           });
           NODE
 
-          PYTHON_BIN=python source scripts/ci/setup_python_venv.sh
+          PYTHON_BIN=python source ../../scripts/ci/setup_python_venv.sh
           pip install --quiet Pillow
           python scripts/fix_ios_app_icons.py
           npx vitest run src/utils/ios_launcher_icon_contract.spec.ts
@@ -638,7 +665,7 @@ jobs:
           npm install ws --no-save --no-audit --no-fund
           node -e "require('ws'); console.log('ws ok')"
 
-          cp tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
+          cp ../../tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
 
           IDENTIFIER="$(node -p "require('./src-tauri/tauri.conf.json').identifier")"
           PORT="$(python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()")"
@@ -699,6 +726,7 @@ jobs:
             DEVELOPMENT_TEAM=""
 
       - name: Package IPA for SideStore
+        working-directory: apps/client
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
@@ -734,6 +762,7 @@ jobs:
           ls -lh "$IPA_NAME"
 
       - name: Report iOS package size
+        working-directory: apps/client
         env:
           BUNDLE_ROOT: .
         run: node scripts/report_bundle_sizes.mjs
@@ -742,7 +771,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          files: Mini-HBUT_${{ steps.version.outputs.VERSION }}_iOS.ipa
+          files: apps/client/Mini-HBUT_${{ steps.version.outputs.VERSION }}_iOS.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -782,26 +811,29 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Regenerate and verify official desktop icons
+        working-directory: apps/client
         run: |
           set -euo pipefail
-          source scripts/ci/setup_python_venv.sh
+          source ../../scripts/ci/setup_python_venv.sh
           pip install --quiet Pillow
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build Linux App
+        working-directory: apps/client
         run: npm run tauri build -- --bundles appimage
 
       - name: Report Linux raw build size
         env:
-          BUNDLE_ROOT: src-tauri/target/release/bundle
-        run: node scripts/report_bundle_sizes.mjs
+          BUNDLE_ROOT: apps/client/src-tauri/target/release/bundle
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Rename Linux artifacts to tag version
         env:
@@ -809,7 +841,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist-release
-          APPIMAGE="$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -n 1 || true)"
+          APPIMAGE="$(find apps/client/src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -n 1 || true)"
           if [ -z "$APPIMAGE" ]; then
             echo "No Linux artifacts found"
             exit 1
@@ -820,7 +852,7 @@ jobs:
       - name: Report Linux package size
         env:
           BUNDLE_ROOT: dist-release
-        run: node scripts/report_bundle_sizes.mjs
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Upload Linux artifacts
         uses: softprops/action-gh-release@v1
@@ -975,7 +1007,7 @@ jobs:
             echo "Skip size compare (baseline-assets empty)"
             exit 0
           fi
-          BUNDLE_ROOT="website/public/releases/${CURRENT_TAG}" BASELINE_DIR="baseline-assets" node scripts/report_bundle_sizes.mjs
+          BUNDLE_ROOT="website/public/releases/${CURRENT_TAG}" BASELINE_DIR="baseline-assets" node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Download dev-latest release assets
         env:
@@ -1033,7 +1065,9 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache-dependency-path: |
+            apps/client/package-lock.json
+            website/package-lock.json
 
       - name: Build website modules
         env:
@@ -1044,12 +1078,14 @@ jobs:
           set -euo pipefail
           node scripts/build_website_modules.mjs
 
-      - name: Install root deps for Hero app demo
+      - name: Install client deps for Hero app demo
+        working-directory: apps/client
         run: |
           set -euo pipefail
           npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build website Hero app demo (offline Vue)
+        working-directory: apps/client
         run: |
           set -euo pipefail
           npm run build:website-demo

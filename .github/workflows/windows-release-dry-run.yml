@@ -7,30 +7,30 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/windows-release-dry-run.yml"
-      - "package.json"
-      - "package-lock.json"
-      - "vite.config.*"
-      - "src-tauri/Cargo.toml"
-      - "src-tauri/Cargo.lock"
-      - "src-tauri/tauri.conf.json"
-      - "src-tauri/build.rs"
-      - "src-tauri/icons/**"
-      - "scripts/ci/windows_release_smoke.ps1"
+      - "apps/client/package.json"
+      - "apps/client/package-lock.json"
+      - "apps/client/vite.config.*"
+      - "apps/client/src-tauri/Cargo.toml"
+      - "apps/client/src-tauri/Cargo.lock"
+      - "apps/client/src-tauri/tauri.conf.json"
+      - "apps/client/src-tauri/build.rs"
+      - "apps/client/src-tauri/icons/**"
+      - "apps/client/scripts/ci/windows_release_smoke.ps1"
       - "scripts/verify_release_config.mjs"
       - ".github/workflows/release.yml"
   push:
     branches: [main]
     paths:
       - ".github/workflows/windows-release-dry-run.yml"
-      - "package.json"
-      - "package-lock.json"
-      - "vite.config.*"
-      - "src-tauri/Cargo.toml"
-      - "src-tauri/Cargo.lock"
-      - "src-tauri/tauri.conf.json"
-      - "src-tauri/build.rs"
-      - "src-tauri/icons/**"
-      - "scripts/ci/windows_release_smoke.ps1"
+      - "apps/client/package.json"
+      - "apps/client/package-lock.json"
+      - "apps/client/vite.config.*"
+      - "apps/client/src-tauri/Cargo.toml"
+      - "apps/client/src-tauri/Cargo.lock"
+      - "apps/client/src-tauri/tauri.conf.json"
+      - "apps/client/src-tauri/build.rs"
+      - "apps/client/src-tauri/icons/**"
+      - "apps/client/scripts/ci/windows_release_smoke.ps1"
       - "scripts/verify_release_config.mjs"
       - ".github/workflows/release.yml"
   workflow_dispatch:
@@ -59,12 +59,12 @@ jobs:
       - name: Prune non-runtime files
         shell: pwsh
         run: |
-          if (Test-Path "src-tauri/exports") { Remove-Item "src-tauri/exports" -Recurse -Force }
-          if (Test-Path ".tauri-tmp") { Remove-Item ".tauri-tmp" -Recurse -Force }
+          if (Test-Path "apps/client/src-tauri/exports") { Remove-Item "apps/client/src-tauri/exports" -Recurse -Force }
+          if (Test-Path "apps/client/.tauri-tmp") { Remove-Item "apps/client/.tauri-tmp" -Recurse -Force }
           if (Test-Path "dist-dry-run") { Remove-Item "dist-dry-run" -Recurse -Force }
           if (Test-Path "captures") { Remove-Item "captures" -Recurse -Force }
           if (Test-Path "tools/.session_cookies.json") { Remove-Item "tools/.session_cookies.json" -Force }
-          Get-ChildItem "src-tauri" -Recurse -File -Include *.ics,*.bak,*.tmp | Remove-Item -Force
+          Get-ChildItem "apps/client/src-tauri" -Recurse -File -Include *.ics,*.bak,*.tmp | Remove-Item -Force
           Get-ChildItem "." -Recurse -File -Include *.log,*.cache | Remove-Item -Force
 
       - uses: actions/setup-node@v4
@@ -76,45 +76,51 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: ./apps/client/src-tauri -> target
           shared-key: mini-hbut-release-dry-run-windows
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Verify frozen release configuration
+        working-directory: apps/client
         run: npm run check:release-config
 
       - name: Regenerate and verify official icons
         shell: pwsh
+        working-directory: apps/client
         run: |
           python -m pip install Pillow
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts src/utils/windows_release_dry_run_contract.spec.ts
 
       - name: Build release-profile NSIS installer
+        working-directory: apps/client
         run: npm run tauri build -- --bundles nsis
 
       - name: Launch release executable and capture smoke evidence
         shell: pwsh
+        working-directory: apps/client
         run: ./scripts/ci/windows_release_smoke.ps1
 
       - name: Report packaged size
         shell: pwsh
+        working-directory: apps/client
         run: |
           $env:BUNDLE_ROOT = "dist-dry-run"
           node scripts/report_bundle_sizes.mjs
 
       - name: Verify version sources were not mutated
         shell: pwsh
-        run: git diff --exit-code -- package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+        run: git diff --exit-code -- apps/client/package.json apps/client/package-lock.json apps/client/src-tauri/Cargo.toml apps/client/src-tauri/Cargo.lock apps/client/src-tauri/tauri.conf.json
 
       - name: Upload dry-run artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows-release-dry-run-${{ github.run_id }}
-          path: dist-dry-run/*
+          path: apps/client/dist-dry-run/*
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

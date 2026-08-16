@@ -47,12 +47,12 @@ jobs:
         with:
           filters: |
             frontend:
-              - 'src/**'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'vite.config.*'
+              - 'apps/client/src/**'
+              - 'apps/client/package.json'
+              - 'apps/client/package-lock.json'
+              - 'apps/client/vite.config.*'
             rust:
-              - 'src-tauri/**'
+              - 'apps/client/src-tauri/**'
 
   test-frontend:
     needs: changes
@@ -67,17 +67,20 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Pillow for icon regeneration
         run: python -m pip install Pillow
 
       - name: Regenerate and verify official icons
+        working-directory: apps/client
         run: |
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Production build smoke
+        working-directory: apps/client
         run: |
           npm run build
           node scripts/check_strict_csp_bundle.mjs
@@ -89,12 +92,15 @@ jobs:
         run: node scripts/build_website_modules.mjs --modules clumsy_bird_hbut
 
       - name: Capacitor sync smoke
+        working-directory: apps/client
         run: npx cap sync
 
       - name: Run Vitest
+        working-directory: apps/client
         run: npm run test:ci
 
       - name: Frontend safety and architecture guards
+        working-directory: apps/client
         run: |
           node scripts/check-frontend-safety.mjs
           node scripts/check-design-tokens.mjs
@@ -107,12 +113,15 @@ jobs:
         run: node scripts/guard_sensitive_uploads.mjs pre-commit
 
       - name: Check dist boundary script
+        working-directory: apps/client
         run: node scripts/check_dist_boundary.mjs
 
       - name: Vue typecheck (full tsconfig)
+        working-directory: apps/client
         run: npx vue-tsc --noEmit -p tsconfig.json
 
       - name: Tauri npm/rust version alignment
+        working-directory: apps/client
         run: npm exec -- tauri info
 
   test-rust:
@@ -128,6 +137,7 @@ jobs:
           cache: npm
 
       - name: Install frontend deps and build dist
+        working-directory: apps/client
         run: |
           npm ci --prefer-offline --no-audit --no-fund
           npm run build
@@ -150,16 +160,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
 
       - name: Cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo test --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
       - name: Cargo fmt check
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+        run: cargo fmt --manifest-path apps/client/src-tauri/Cargo.toml --all -- --check
 
       - name: Cargo clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo clippy --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
   # Windows-only 编译保护：只做 cargo check，不构建 NSIS、不启动 EXE、不上传产物
   # 替代旧的 Windows Release Dry Run 对普通源码 PR 的全量打包（#598 Layer 4）
@@ -177,20 +187,22 @@ jobs:
           cache: npm
 
       - name: Install frontend deps
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build frontend dist (tauri build.rs prerequisite)
+        working-directory: apps/client
         run: npm run build
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: ./apps/client/src-tauri -> target
           shared-key: mini-hbut-pr-rust-check-windows
 
       - name: Cargo check (Windows-only compile protection)
-        run: cargo check --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo check --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
   # 稳定名称的 PR Gate：#598 要求 required check 名称稳定，不出现永久 Pending
   # 只接受 success / skipped，任何 failure / cancelled / timed_out 都阻断合并

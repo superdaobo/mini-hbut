@@ -48,6 +48,14 @@ jobs:
         with:
           languages: javascript-typescript
 
+      - name: Install frontend dependencies (apps/client)
+        working-directory: apps/client
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build frontend dist (apps/client)
+        working-directory: apps/client
+        run: npm run build
+
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4.37.6
 
@@ -73,6 +81,7 @@ jobs:
           cache: npm
 
       - name: Build frontend dist (Rust autobuild prerequisite)
+        working-directory: apps/client
         run: |
           npm ci --prefer-offline --no-audit --no-fund
           npm run build
@@ -95,8 +104,10 @@ jobs:
         with:
           languages: rust
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v4.37.6
+      # 根目录已无 Cargo.toml：CodeQL autobuild 无法在根发现构建系统，
+      # 改为显式构建 apps/client/src-tauri（init 注入的 CODEQL_* 环境变量会捕获构建追踪）。
+      - name: Build Rust project (apps/client)
+        run: cargo build --manifest-path apps/client/src-tauri/Cargo.toml
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4.37.6

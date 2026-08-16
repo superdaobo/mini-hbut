@@ -1,12 +1,14 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.cwd()
+// 以脚本自身位置解析仓库根，保证从仓库根或 apps/client 调用结果一致（#642）
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo'
 const result = spawnSync(cargo, [
   'metadata',
   '--manifest-path',
-  path.join('src-tauri', 'Cargo.toml'),
+  path.join(root, 'apps/client/src-tauri', 'Cargo.toml'),
   '--format-version',
   '1',
   '--all-features',

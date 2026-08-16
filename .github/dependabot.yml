@@ -8,7 +8,7 @@ registries:
 updates:
   # 主应用 npm：仅自动提 patch/minor，禁止大版本与 Capacitor 跨代升级
   - package-ecosystem: npm
-    directory: /
+    directory: /apps/client
     registries:
       - npmjs
     schedule:
@@ -55,7 +55,7 @@ updates:
 
   # Rust：忽略 0.x major 与显式 major，减少 cbc/sha2/tower-http 类破坏性 PR
   - package-ecosystem: cargo
-    directory: /src-tauri
+    directory: /apps/client/src-tauri
     schedule:
       interval: weekly
       day: monday
