@@ -152,18 +152,96 @@ impl DeviceKeyStore {
             .get_secret()
             .map_err(IdentityError::KeyringUnavailable)?;
         let Some(encoded) = encoded else {
+            // 仅显式测试环境允许文件后备；正常 debug/release 均不会自动读取磁盘私钥。
+            #[cfg(debug_assertions)]
+            if let Some(path) = debug_key_file_path() {
+                match std::fs::read(&path) {
+                    Ok(bytes) if bytes.len() == 32 => {
+                        let seed: [u8; 32] = bytes
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_| IdentityError::KeyringWriteMismatch)?;
+                        return Ok(Some(DeviceKey::from_seed(seed)));
+                    }
+                    Ok(_) => return Err(IdentityError::KeyringWriteMismatch),
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(err) => {
+                        return Err(IdentityError::Internal(format!(
+                            "读取显式测试设备密钥文件失败：{err}"
+                        )))
+                    }
+                }
+            }
             return Ok(None);
         };
         let bytes = general_purpose::URL_SAFE_NO_PAD
             .decode(encoded.as_bytes())
-            .map_err(|_| IdentityError::KeyringWriteMismatch)?;
-        let seed: [u8; 32] = bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| IdentityError::KeyringWriteMismatch)?;
+            .map_err(|e| {
+                eprintln!(
+                    "[identity] keyring load decode 失败: len={} err={e}",
+                    encoded.len()
+                );
+                IdentityError::KeyringWriteMismatch
+            })?;
+        let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+            eprintln!(
+                "[identity] keyring load seed 长度不符: bytes_len={}",
+                bytes.len()
+            );
+            IdentityError::KeyringWriteMismatch
+        })?;
         Ok(Some(DeviceKey::from_seed(seed)))
     }
+}
 
+/// 显式测试密钥文件路径。
+/// 仅 debug/test 且调用者主动设置 `HBUT_IDENTITY_KEY_FILE` 时启用；
+/// 不再自动回退 `%APPDATA%`，正常开发与发布构建始终保持 Keyring fail closed。
+#[cfg(debug_assertions)]
+fn debug_key_file_path() -> Option<std::path::PathBuf> {
+    std::env::var("HBUT_IDENTITY_KEY_FILE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
+/// 文件存储的 Keyring 实现（仅显式测试注入，不用于正常 debug/release）。
+#[cfg(debug_assertions)]
+pub struct FileKeyring {
+    path: std::path::PathBuf,
+}
+
+#[cfg(debug_assertions)]
+impl FileKeyring {
+    pub fn new() -> Option<Self> {
+        Some(Self {
+            path: debug_key_file_path()?,
+        })
+    }
+}
+
+#[cfg(debug_assertions)]
+impl KeyringLike for FileKeyring {
+    fn get_secret(&self) -> Result<Option<String>, String> {
+        let bytes = std::fs::read(&self.path).map_err(|e| e.to_string())?;
+        if bytes.len() != 32 {
+            return Err("文件密钥长度不符".to_string());
+        }
+        Ok(Some(general_purpose::URL_SAFE_NO_PAD.encode(bytes)))
+    }
+    fn set_secret(&self, value: &str) -> Result<(), String> {
+        let bytes = general_purpose::URL_SAFE_NO_PAD
+            .decode(value.as_bytes())
+            .map_err(|e| e.to_string())?;
+        std::fs::write(&self.path, bytes).map_err(|e| e.to_string())
+    }
+    fn delete_secret(&self) -> Result<(), String> {
+        std::fs::remove_file(&self.path).map_err(|e| e.to_string())
+    }
+}
+
+impl DeviceKeyStore {
     /// 读取密钥；不存在则生成并写入 Keyring（写后回读校验）。
     /// keyring 不可用或写回校验失败 → fail closed，不返回任何降级密钥。
     pub fn create_if_missing(&self) -> Result<DeviceKey, IdentityError> {
@@ -175,19 +253,62 @@ impl DeviceKeyStore {
         self.keyring
             .set_secret(&encoded)
             .map_err(IdentityError::KeyringUnavailable)?;
-        // 写后读校验：与 credential_store::load_or_create_secret_key 的既有约定一致
-        match self.load()? {
-            Some(stored) if stored.fingerprint() == key.fingerprint() => Ok(key),
-            _ => Err(IdentityError::KeyringWriteMismatch),
+        // 写后读校验（与 credential_store::load_or_create_secret_key 的既有约定一致）。
+        // Windows Credential Manager 新建条目后读取可能短暂 NoEntry（写入时序），
+        // 重试最多 10 次、间隔 300ms（最长约 3s）；仍不一致才 fail closed。
+        for attempt in 1..=10 {
+            match self.load()? {
+                Some(stored) if stored.fingerprint() == key.fingerprint() => {
+                    return Ok(key);
+                }
+                other => {
+                    // 只记录公开指纹/存在性，不读取或打印任何私钥编码材料。
+                    eprintln!(
+                        "[identity] keyring 写后读校验第 {attempt} 次未匹配: present={} new_fp={} stored_fp={}",
+                        other.is_some(),
+                        key.fingerprint(),
+                        other.as_ref().map(|k| k.fingerprint()).unwrap_or_default()
+                    );
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
         }
+        // 正常 debug/release 始终 fail closed。只有显式设置测试文件路径时，
+        // 才允许测试链路验证 Windows Keyring 写后不可见场景。
+        #[cfg(debug_assertions)]
+        if let Some(path) = debug_key_file_path() {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    IdentityError::Internal(format!("创建显式测试密钥目录失败：{e}"))
+                })?;
+            }
+            std::fs::write(&path, key.seed_bytes())
+                .map_err(|e| IdentityError::Internal(format!("写入显式测试设备密钥失败：{e}")))?;
+            return Ok(key);
+        }
+        Err(IdentityError::KeyringWriteMismatch)
     }
 
     /// 删除本地设备密钥（仅在用户确认或服务端 revoke 成功后调用）。
-    /// keyring 删除失败 → 错误上抛（保留本地 key 作为恢复途径，不静默部分删除）。
+    /// 正常构建只有 Keyring；debug 显式测试文件存在时，即使 Keyring 删除报错也必须尝试清理测试文件。
     pub fn delete(&self) -> Result<(), IdentityError> {
-        self.keyring
+        let keyring_result = self
+            .keyring
             .delete_secret()
-            .map_err(IdentityError::KeyringUnavailable)
+            .map_err(IdentityError::KeyringUnavailable);
+        #[cfg(debug_assertions)]
+        if let Some(path) = debug_key_file_path() {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(IdentityError::Internal(format!(
+                        "删除显式测试设备密钥文件失败：{err}"
+                    )))
+                }
+            }
+        }
+        keyring_result
     }
 
     /// 当前密钥指纹（无密钥返回 None）。
@@ -244,12 +365,23 @@ mod tests {
 
     #[test]
     fn delete_removes_key() {
+        // 显式测试文件后备：隔离到临时路径，验证 delete 会同步清理测试材料。
+        let temp_file =
+            std::env::temp_dir().join(format!("hbut-identity-test-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&temp_file);
+        unsafe {
+            std::env::set_var("HBUT_IDENTITY_KEY_FILE", &temp_file);
+        }
         let store = DeviceKeyStore::with_keyring(Box::new(MemoryKeyring::new()));
         let key = store.create_if_missing().expect("创建不应失败");
         let fingerprint = key.fingerprint();
         assert_eq!(store.fingerprint().unwrap_or(None), Some(fingerprint));
         store.delete().expect("删除不应失败");
         assert!(store.load().unwrap_or(None).is_none());
+        let _ = std::fs::remove_file(&temp_file);
+        unsafe {
+            std::env::remove_var("HBUT_IDENTITY_KEY_FILE");
+        }
     }
 
     #[test]

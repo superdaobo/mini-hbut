@@ -1,0 +1,5 @@
+# Mini-HBUT Identity Platform workspace
+# core 与 web 是两个独立的 Vercel Project，共享同一份依赖锁定
+packages:
+  - core
+  - web

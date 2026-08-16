@@ -7,6 +7,7 @@
 //   4. test account 不能 Production enroll/approve（isTestAccountBlocked 守卫）
 //   5. 没有 student.identity 时不读取学校身份（refreshSessionVerified 只在
 //      hasSensitiveScope 分支内调用）
+//   6. Production/Preview 不从 localStorage 决定 Identity Core/BFF origin；DEV 仅允许 loopback。
 //
 // 以「源码契约 + 单元行为」双层断言：不挂载 DOM、不引入 jsdom。
 
@@ -100,5 +101,19 @@ describe('#623 Contract：信任边界与密钥边界', () => {
     expect(readyArea).not.toContain('refreshSessionVerified')
     // 失败不给权限：本地缓存学号 ≠ 验证成功
     expect(source).toContain('本地有缓存学号 ≠ 验证成功')
+  })
+
+  it('Identity Core/BFF origin：Production 固定 canonical，DEV 覆盖只允许 loopback', () => {
+    const service = serviceSource()
+    expect(service).toContain('if (!import.meta.env.DEV')
+    expect(service).toContain("url.hostname === 'localhost'")
+    expect(service).toContain("url.hostname === '127.0.0.1'")
+    expect(service).toContain("url.hostname === '[::1]'")
+    expect(service).toContain("url.protocol !== 'http:'")
+    expect(service).toContain('url.username')
+    expect(service).toContain('url.password')
+    expect(service).toContain("url.pathname !== '/'")
+    expect(service).toContain('url.search')
+    expect(service).toContain('url.hash')
   })
 })

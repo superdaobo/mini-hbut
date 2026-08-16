@@ -22,12 +22,37 @@ import type {
   IdentityUserSafeErrorCode
 } from './types'
 import { IdentityServiceError } from './types'
+import { invokeNative, isTauriRuntime } from '../../platform/native'
 
-/** Core 生产域名（已上线：id.湖北工业大学.com，Vercel Production；本地/Preview 可用 localStorage 覆盖） */
+/** Core 生产域名（已上线：id.湖北工业大学.com，Vercel Production）。 */
 export const IDENTITY_CORE_BASE_URL_DEFAULT = 'https://id.xn--vhq74jc2fzpchter27a.com'
 
-/** 本地覆盖键（dev/preview 用；仅 URL 非敏感） */
+/**
+ * 身份链路诊断上报（测试/调试用）：把前端 fetch 的关键节点推到本地 HTTP Bridge
+ * （/debug/logs/push 无需令牌，仅 debug 构建存在），便于通过 bridge 日志定位
+ * "网络不可用/无法连接身份服务"类问题。失败静默（不影响主流程）。
+ */
+export const reportIdentityDiag = (event: string, details?: Record<string, unknown>): void => {
+  try {
+    void fetch('http://127.0.0.1:4399/debug/logs/push', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: 'identity-diag', level: 'info', message: event, details }),
+      signal: AbortSignal.timeout(1500)
+    }).catch(() => undefined)
+  } catch {
+    /* 诊断上报失败不影响主流程 */
+  }
+}
+
+/** 本地开发覆盖键：仅 DEV 构建 + localhost/127.0.0.1/[::1] 生效，Production 永不信任 localStorage origin。 */
 export const IDENTITY_CORE_BASE_URL_KEY = 'hbu_identity_core_base_url'
+
+/** Web BFF 生产域名（auth.湖北工业大学.com）：详情/状态/resume 走 BFF（Core 的 requests 受 service-token 保护，#626） */
+export const IDENTITY_BFF_BASE_URL_DEFAULT = 'https://auth.xn--vhq74jc2fzpchter27a.com'
+
+/** BFF 本地开发覆盖键（规则同 Core）。 */
+export const IDENTITY_BFF_BASE_URL_KEY = 'hbu_identity_bff_base_url'
 
 /** 请求超时（ms）：授权相关请求不允许无限等待 */
 export const IDENTITY_REQUEST_TIMEOUT_MS = 8000
@@ -42,26 +67,41 @@ export const isTestAccountBlocked = (): boolean => {
       typeof localStorage !== 'undefined' &&
       localStorage.getItem('hbu_test_account_session') === '1'
     )
-  } catch {
-    return false
+  } catch {    return false
   }
 }
 
-/** 解析 Core base URL：仅接受 http(s) 绝对地址；非法回退默认占位 */
-export const getIdentityCoreBaseUrl = (): string => {
+const resolveLocalIdentityOverride = (storageKey: string, fallback: string): string => {
+  // Production / Preview 前端永不从 localStorage 决定凭据发送 origin。
+  // 仅 Vite DEV 本地联调允许 loopback HTTP；外部 Preview 必须通过受审查的应用构建配置/正式域名完成。
+  if (!import.meta.env.DEV || typeof localStorage === 'undefined') return fallback
   try {
-    const override = localStorage.getItem(IDENTITY_CORE_BASE_URL_KEY)
-    if (override) {
-      const url = new URL(override.trim())
-      if (url.protocol === 'https:' || url.protocol === 'http:') {
-        return url.toString().replace(/\/+$/, '')
-      }
+    const override = localStorage.getItem(storageKey)?.trim()
+    if (!override) return fallback
+    const url = new URL(override)
+    const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+    if (
+      url.protocol !== 'http:'
+      || !loopback
+      || url.username
+      || url.password
+      || url.pathname !== '/'
+      || url.search
+      || url.hash
+    ) {
+      return fallback
     }
+    return url.origin
   } catch {
-    // 本地配置非法：回退默认
+    return fallback
   }
-  return IDENTITY_CORE_BASE_URL_DEFAULT
 }
+
+export const getIdentityBffBaseUrl = (): string =>
+  resolveLocalIdentityOverride(IDENTITY_BFF_BASE_URL_KEY, IDENTITY_BFF_BASE_URL_DEFAULT)
+
+export const getIdentityCoreBaseUrl = (): string =>
+  resolveLocalIdentityOverride(IDENTITY_CORE_BASE_URL_KEY, IDENTITY_CORE_BASE_URL_DEFAULT)
 
 const safeHeaders = (headers: Record<string, string>): Record<string, string> => headers
 
@@ -71,8 +111,45 @@ const safeHeaders = (headers: Record<string, string>): Record<string, string> =>
  */
 const requestJson = async (
   url: string,
-  options: { method: string; headers: Record<string, string>; body?: unknown; timeoutMs: number }
+  options: { method: string; headers: Record<string, string>; body?: unknown; timeoutMs: number },
+  origin?: 'core' | 'bff'
 ): Promise<{ status: number; data: unknown }> => {
+  // Tauri 环境：身份请求走 Rust 网络栈（identity_core_fetch）。
+  // 原因：WebView fetch 在部分 Windows 环境被系统网络策略阻断（仅 localhost 可达），
+  // 而 Rust reqwest 与 App 其他业务同栈（#623 架构修正，测试链路验证）。
+  if (isTauriRuntime()) {
+    try {
+      const parsed = new URL(url)
+      const output = await invokeNative<{ status: number; body: string }>('identity_core_fetch', {
+        input: {
+          method: options.method,
+          origin: origin ?? 'core',
+          path: parsed.pathname + parsed.search,
+          headers: safeHeaders(options.headers),
+          body: options.body
+        }
+      })
+      let data: unknown = null
+      if (output.body) {
+        try {
+          data = JSON.parse(output.body)
+        } catch {
+          data = null
+        }
+      }
+      return { status: output.status, data }
+    } catch (err) {
+      reportIdentityDiag('network_error', {
+        url: String(url).slice(0, 120),
+        error: String((err as Error)?.message || 'identity_core_fetch failed').slice(0, 200)
+      })
+      throw createServiceError(
+        'network_unavailable',
+        '网络不可用，无法连接身份服务，请稍后重试',
+        String((err as Error)?.message || 'identity_core_fetch failed')
+      )
+    }
+  }
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), options.timeoutMs)
   try {
@@ -94,6 +171,11 @@ const requestJson = async (
     return { status: response.status, data }
   } catch (err) {
     // 网络不可用 / 超时：统一用户可读文案，不泄露内部错误
+    reportIdentityDiag('network_error', {
+      url: String(url).slice(0, 120),
+      error: String((err as Error)?.message || 'fetch failed').slice(0, 200),
+      cause: String(((err as { cause?: unknown })?.cause) || '').slice(0, 200)
+    })
     throw createServiceError(
       'network_unavailable',
       '网络不可用，无法连接身份服务，请稍后重试',
@@ -230,26 +312,36 @@ export const fetchRequestDetail = async (input: {
   handoff: string
 }): Promise<IdentityRequestDetail> => {
   const { baseUrl, requestId, handoff } = input
-  const { status, data } = await requestJson(`${baseUrl}/api/v1/requests/${requestId}`, {
-    method: 'GET',
-    headers: buildHandoffHeaders(handoff),
-    timeoutMs: IDENTITY_REQUEST_TIMEOUT_MS
-  })
-  if (status !== 200) {
-    throwMappedError(status, data, 'fetchRequestDetail')
-  }
-  const detail = data as IdentityRequestDetail
-  if (!detail || typeof detail !== 'object' || !detail.request_id || !detail.client) {
-    throw createServiceError('unknown', '身份服务返回了无效数据', 'fetchRequestDetail malformed payload')
-  }
-  return {
+  reportIdentityDiag('detail_start', { baseUrl, requestId })
+  try {
+    // 详情走 BFF（Core 的 /api/v1/requests 受 service-token 保护，#626；BFF 负责转发）
+    const { status, data } = await requestJson(
+      `${baseUrl}/api/auth/requests/${requestId}`,
+      {
+        method: 'GET',
+        headers: buildHandoffHeaders(handoff),
+        timeoutMs: IDENTITY_REQUEST_TIMEOUT_MS
+      },
+      'bff'
+    )
+    reportIdentityDiag('detail_status', { status })
+    if (status !== 200) {
+      throwMappedError(status, data, 'fetchRequestDetail')
+    }
+    const detail = data as IdentityRequestDetail
+    if (!detail || typeof detail !== 'object' || !detail.request_id || !detail.client) {
+      throw createServiceError('unknown', '身份服务返回了无效数据', 'fetchRequestDetail malformed payload')
+    }
+    reportIdentityDiag('detail_ok', { requestId: detail.request_id, client: detail.client?.name })
+    return {
     request_id: String(detail.request_id),
     expires_at: String(detail.expires_at || ''),
     client: {
       name: String(detail.client?.name || ''),
       homepage_host: String(detail.client?.homepage_host || ''),
       developer_display_name: String(detail.client?.developer_display_name || ''),
-      review_status: String(detail.client?.review_status || '')
+      review_status: String(detail.client?.review_status || ''),
+      is_test: detail.client?.is_test === true
     },
     scopes: Array.isArray(detail.scopes)
       ? detail.scopes
@@ -263,6 +355,13 @@ export const fetchRequestDetail = async (input: {
     // 宽容解析：未来 Core 下发签名材料（issue #623 示例 JSON 含 challenge）
     challenge: typeof detail.challenge === 'string' ? detail.challenge : undefined,
     client_id: typeof detail.client_id === 'string' ? detail.client_id : undefined
+  }
+  } catch (err) {
+    reportIdentityDiag('detail_failed', {
+      requestId,
+      error: String((err as Error)?.message || '').slice(0, 200)
+    })
+    throw err
   }
 }
 

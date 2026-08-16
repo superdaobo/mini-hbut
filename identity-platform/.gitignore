@@ -1,0 +1,20 @@
+# 依赖与构建产物
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+.coverage/
+
+# 本地环境文件（任何真实 secret 只允许出现在这里，且被本文件忽略）
+.env
+.env.local
+.env.*.local
+
+# Vercel 本地 metadata（vercel link 生成的 .vercel/ 不进任何 Git）
+.vercel/
+**/.vercel/
+
+# 本地数据库/日志
+*.log
+.DS_Store
+Thumbs.db

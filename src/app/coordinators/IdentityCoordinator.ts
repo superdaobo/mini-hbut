@@ -34,7 +34,7 @@ import {
   createServiceError,
   fetchEnrollmentChallenge,
   fetchRequestDetail,
-  getIdentityCoreBaseUrl,
+  getIdentityCoreBaseUrl, getIdentityBffBaseUrl,
   submitApprove,
   submitTerminalAction
 } from '../../features/identity/identityService'
@@ -211,7 +211,7 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
       setIdentityApprovalPhase('loading_request', { requestId: active.requestId })
       setIdentityIntentPhase(active.requestId, 'loading')
       const detail = await fetchRequestDetail({
-        baseUrl: getIdentityCoreBaseUrl(),
+        baseUrl: getIdentityBffBaseUrl(),
         requestId: active.requestId,
         handoff: active.handoff
       })
@@ -272,9 +272,10 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
         handoff
       })
       const enroll = await invokeNative<IdentityEnrollResult>('identity_enroll_device', {
-        base_url: getIdentityCoreBaseUrl(),
+        baseUrl: getIdentityCoreBaseUrl(),
         challenge,
-        device_name: getIdentityDeviceDisplayName()
+        deviceName: getIdentityDeviceDisplayName(),
+        handoff
       })
       setIdentityDeviceMeta({ deviceId: enroll.device_id, userId: enroll.user_id })
       return enroll.device_id
@@ -320,11 +321,13 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
       if (!isCurrentActive(requestId)) return
       // Rust 侧签名：私钥不进 JS，只返回 device_id/issued_at/nonce/signature
       const signed = await invokeNative<IdentitySignedApproval>('identity_sign_auth_request', {
-        request_id: requestId,
-        challenge: detail.challenge,
-        client_id: detail.client_id,
-        scopes: detail.scopes.map((scope) => scope.id),
-        device_id: deviceId
+        input: {
+          request_id: requestId,
+          challenge: detail.challenge,
+          client_id: detail.client_id,
+          scopes: detail.scopes.map((scope) => scope.id),
+          device_id: deviceId
+        }
       })
       if (!isCurrentActive(requestId)) return
       await submitApprove({

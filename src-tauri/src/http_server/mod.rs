@@ -148,7 +148,9 @@ async fn request_bridge_shutdown() {
 
 /// 启动本地 Bridge 服务（冷启动 / ensure 共用）。
 pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
+    println!("[HTTP] spawn_http_server 被调用");
     if !is_http_bridge_enabled() {
+        println!("[HTTP] bridge 未启用（非 debug 构建）");
         return;
     }
     let life = bridge_lifecycle();
@@ -163,6 +165,7 @@ pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         + 1;
     tauri::async_runtime::spawn(async move {
+        println!("[HTTP] run_http_server task 开始 (gen={})", gen);
         if let Err(e) = run_http_server(state, gen).await {
             eprintln!("[HTTP] 服务错误 (gen={}): {}", gen, e);
             bridge_lifecycle()

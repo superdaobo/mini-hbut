@@ -1,0 +1,19 @@
+{
+  "name": "@mini-hbut/identity-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mini-HBUT Identity Platform E2E（#628 L3 Web Browser / L5 Cross-device QR）",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "demo-client": "node demo-client/index.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1"
+  },
+  "dependencies": {
+    "openid-client": "^6.8.5"
+  }
+}

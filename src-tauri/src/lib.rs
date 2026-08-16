@@ -611,6 +611,7 @@ pub fn run() {
             modules::weather::fetch_weather,
             // #622：设备身份 commands（统一 identity_ 前缀；追加，不删 #610/#621 的注册）
             identity::commands::identity_device_status,
+            identity::commands::identity_core_fetch,
             identity::commands::identity_get_public_key,
             identity::commands::identity_enroll_device,
             identity::commands::identity_sign_auth_request,

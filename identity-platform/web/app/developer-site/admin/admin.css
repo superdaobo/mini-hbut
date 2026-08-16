@@ -1,0 +1,322 @@
+/* ==========================================================================
+   Admin 审核后台样式（issue #625）
+   独立命名空间 .admin-*，不覆盖 developer.css；文字/图标双通道，不只靠颜色。
+   设计语言与 auth.* / developer.* 一致（#1668e2 主色 / 大圆角卡片 / CSS 变量主题）。
+   ========================================================================== */
+
+.admin-shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+}
+
+.admin-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 10px 0 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.admin-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+  padding: 7px 14px;
+  border-radius: 10px;
+}
+
+.admin-nav a:hover,
+.admin-nav a[aria-current='page'] {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.admin-nav .admin-nav-spacer {
+  flex: 1;
+}
+
+.admin-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 16px;
+  color: var(--text);
+}
+
+.admin-section {
+  margin: 0 0 28px;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.admin-section h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.admin-muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.admin-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.admin-card .admin-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.admin-card .admin-card-label {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.admin-card.admin-card-warn .admin-card-value {
+  color: var(--warning-text);
+}
+
+/* 表格 */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.admin-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: none;
+}
+
+/* 状态徽章（文字 + 颜色双通道） */
+.admin-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.admin-badge.badge-pending_review { background: var(--warning-bg); color: var(--warning-text); border-color: #fde68a; }
+.admin-badge.badge-active { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
+.admin-badge.badge-suspended { background: var(--warning-bg); color: var(--warning-text); border-color: #fde68a; }
+.admin-badge.badge-revoked { background: var(--danger-bg); color: var(--danger-text); border-color: #fecaca; }
+.admin-badge.badge-rejected { background: var(--danger-bg); color: var(--danger-text); border-color: #fecaca; }
+.admin-badge.badge-approved { background: var(--info-bg); color: var(--info-text); border-color: var(--info-border); }
+.admin-badge.badge-draft { background: #f3f4f6; color: var(--muted); }
+.admin-badge.badge-superseded { background: #f3f4f6; color: var(--muted); }
+.admin-badge.badge-default { background: #f3f4f6; color: var(--muted); }
+
+/* 风险标记 */
+.admin-risk {
+  display: inline-block;
+  margin: 2px 6px 2px 0;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border: 1px solid #fecaca;
+}
+
+.admin-risk.risk-info {
+  background: var(--info-bg);
+  color: var(--info-text);
+  border-color: var(--info-border);
+}
+
+/* 表单 */
+.admin-form-row {
+  margin-bottom: 12px;
+}
+
+.admin-form-row label {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.admin-input,
+.admin-textarea,
+.admin-select {
+  width: 100%;
+  max-width: 480px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  background: var(--card);
+  color: var(--text);
+}
+
+.admin-input:focus,
+.admin-textarea:focus,
+.admin-select:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.admin-textarea {
+  min-height: 72px;
+  font-family: inherit;
+}
+
+.admin-btn {
+  display: inline-block;
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.admin-btn:hover { background: var(--bg); }
+.admin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.admin-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.admin-btn-primary:hover { background: var(--primary-hover); }
+
+.admin-btn-danger { background: var(--danger-text); border-color: var(--danger-text); color: #fff; }
+.admin-btn-danger:hover { background: #b91c1c; }
+
+.admin-btn-warn { background: var(--warning-text); border-color: var(--warning-text); color: #fff; }
+.admin-btn-warn:hover { background: #b45309; }
+
+.admin-error {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--danger-bg);
+  border: 1px solid #fecaca;
+  color: var(--danger-text);
+  font-size: 14px;
+}
+
+.admin-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+/* 审核警告条（非官方身份提示） */
+.admin-warning-banner {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--warning-bg);
+  border: 1px solid #fde68a;
+  color: var(--warning-text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.admin-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* 主页链接安全打开：新窗口 + noopener；绝不 iframe 第三方站点 */
+.admin-external-link {
+  color: var(--primary);
+  word-break: break-all;
+}
+
+.admin-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.admin-dl {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 6px 12px;
+  font-size: 14px;
+  margin: 0;
+}
+
+.admin-dl dt { color: var(--muted); }
+.admin-dl dd { margin: 0; word-break: break-all; }
+
+.admin-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.admin-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.admin-scope-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-scope-item:last-child { border-bottom: none; }
+
+/* 深色主题 */
+@media (prefers-color-scheme: dark) {
+  .admin-badge.badge-draft,
+  .admin-badge.badge-superseded,
+  .admin-badge.badge-default {
+    background: #232833;
+    color: #9aa3af;
+  }
+}
