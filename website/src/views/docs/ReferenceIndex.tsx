@@ -10,7 +10,6 @@ const docsLinks = [
 const entryIndex = [
     ['apps/client/src/main.ts', 'Vue 应用入口，初始化主题、设置、字体、后台任务、通知检查、调试日志和调试桥。'],
     ['apps/client/src/App.vue', '主视图调度入口，维护 currentView、历史栈、返回行为、模块宿主会话和受保护页面访问。'],
-    ['website/src/App.tsx', '文档站和下载站路由入口，注册所有 /docs 子路由和静态页面。'],
     ['website/src/layouts/DocsLayout.tsx', '文档导航、分组、侧栏和移动端菜单结构。'],
 ];
 

@@ -1,13 +1,4 @@
 {
-  "files": [],
-  "references": [
-    {
-      "path": "./tsconfig.app.json"
-    },
-    {
-      "path": "./tsconfig.node.json"
-    }
-  ],
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
@@ -48,10 +39,6 @@
   ],
   "exclude": [
     "node_modules",
-    "modules-src",
-    "src/_legacy_vite_pages",
-    "src/App.tsx",
-    "src/main.tsx",
-    "vite.config.ts"
+    "modules-src"
   ]
 }

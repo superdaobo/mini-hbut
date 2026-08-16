@@ -1520,24 +1520,6 @@ impl HbutClient {
             })
     }
 
-    #[allow(dead_code)]
-    /// 使用缓存凭据执行重登（内部使用）
-    async fn relogin_with_cached_credentials(
-        &mut self,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let username = match &self.last_username {
-            Some(v) => v.clone(),
-            None => return Ok(false),
-        };
-        let password = match &self.last_password {
-            Some(v) => v.clone(),
-            None => return Ok(false),
-        };
-
-        let _ = self.login(&username, &password, "", "", "").await?;
-        Ok(true)
-    }
-
     /// 仅针对 code.hbut.edu.cn 的重登流程
     async fn relogin_for_code_service(
         &mut self,

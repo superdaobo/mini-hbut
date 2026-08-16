@@ -62,13 +62,6 @@ mod qxzkb;
 mod session;
 mod utils;
 
-// 学期 URLs
-#[allow(dead_code)]
-pub(super) const CURRENT_SEMESTER_URLS: &[&str] = &[
-    "/admin/api/jcsj/xnxq/getCurrentXnxq",
-    "/admin/xsd/xsdcjcx/getCurrentXnxq",
-];
-
 // AES-CBC 加密类型
 pub(super) type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 

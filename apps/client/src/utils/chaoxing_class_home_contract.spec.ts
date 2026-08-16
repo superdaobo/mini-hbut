@@ -122,7 +122,6 @@ describe('chaoxing_class home integration contract', () => {
     expect(configEditor).toContain('invite_code')
     expect(configEditor).toContain('18853572')
     expect(classRs).toContain('fetch_datalist_student_or_teacher')
-    expect(classRs).toContain('DEFAULT_INVITE_CODE')
     const ssoRs = read('src-tauri/src/modules/chaoxing_sso.rs')
     expect(ssoRs).toContain('60 * 60')
     expect(ssoRs).toContain('cookie_reuse')

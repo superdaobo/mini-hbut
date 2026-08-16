@@ -587,17 +587,6 @@ fn parse_weeks(weeks_str: &str) -> Vec<i32> {
     weeks
 }
 
-#[allow(dead_code)]
-fn parse_periods(jcs: &str) -> (i32, i32) {
-    let parts: Vec<&str> = jcs.split('-').collect();
-    if parts.len() == 2 {
-        if let (Ok(start), Ok(end)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
-            return (start, end - start + 1);
-        }
-    }
-    (1, 2)
-}
-
 pub fn parse_exams(json: &Value) -> Result<Vec<Exam>, Box<dyn std::error::Error + Send + Sync>> {
     let mut exams = Vec::new();
 

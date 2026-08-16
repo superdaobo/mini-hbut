@@ -2,9 +2,6 @@
 
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::io::Cursor;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::path::BaseDirectory;
 use tauri::Manager;
@@ -633,82 +630,6 @@ pub(crate) struct PrepareModuleBundleRequest {
     pub entry_path: String,
     #[serde(alias = "moduleName", default)]
     pub module_name: String,
-}
-
-#[allow(dead_code)]
-fn sanitize_module_token(raw: &str, label: &str) -> Result<String, String> {
-    let value = raw.trim();
-    if value.is_empty() {
-        return Err(format!("{} 不能为空", label));
-    }
-    if value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
-        return Ok(value.to_string());
-    }
-    Err(format!("{} 含非法字符", label))
-}
-
-#[allow(dead_code)]
-fn sanitize_zip_entry_path(raw: &str) -> Option<PathBuf> {
-    let path = Path::new(raw);
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::Normal(seg) => normalized.push(seg),
-            std::path::Component::CurDir => {}
-            _ => return None,
-        }
-    }
-    if normalized.as_os_str().is_empty() {
-        None
-    } else {
-        Some(normalized)
-    }
-}
-
-#[allow(dead_code)]
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>()
-}
-
-#[allow(dead_code)]
-fn extract_zip_bytes_to_dir(bytes: Vec<u8>, target_dir: PathBuf) -> Result<(), String> {
-    let cursor = Cursor::new(bytes);
-    let mut archive =
-        zip::ZipArchive::new(cursor).map_err(|e| format!("解析模块 ZIP 失败: {}", e))?;
-
-    for index in 0..archive.len() {
-        let mut entry = archive
-            .by_index(index)
-            .map_err(|e| format!("读取 ZIP 条目失败: {}", e))?;
-        let entry_name = entry.name().to_string();
-        let Some(relative) = sanitize_zip_entry_path(&entry_name) else {
-            continue;
-        };
-        let output_path = target_dir.join(relative);
-
-        if entry.is_dir() || entry_name.ends_with('/') {
-            std::fs::create_dir_all(&output_path).map_err(|e| format!("创建目录失败: {}", e))?;
-            continue;
-        }
-
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
-        }
-
-        let mut output =
-            std::fs::File::create(&output_path).map_err(|e| format!("写入模块文件失败: {}", e))?;
-        std::io::copy(&mut entry, &mut output).map_err(|e| format!("解压模块文件失败: {}", e))?;
-    }
-    Ok(())
 }
 
 #[tauri::command]

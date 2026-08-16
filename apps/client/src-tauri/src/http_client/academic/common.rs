@@ -36,36 +36,6 @@ impl HbutClient {
         None
     }
 
-    #[allow(dead_code)]
-    pub(super) fn extract_semester_from_json(json: &serde_json::Value) -> Option<String> {
-        // 尝试多种ʽ
-        if let Some(s) = json.get("xnxqh").and_then(|v| v.as_str()) {
-            if !s.is_empty() {
-                return Some(s.to_string());
-            }
-        }
-        if let Some(s) = json.get("xnxq").and_then(|v| v.as_str()) {
-            if !s.is_empty() {
-                return Some(s.to_string());
-            }
-        }
-        if let Some(s) = json.get("dataXnxq").and_then(|v| v.as_str()) {
-            if !s.is_empty() {
-                return Some(s.to_string());
-            }
-        }
-        if let Some(s) = json.get("xqhjc").and_then(|v| v.as_str()) {
-            if !s.is_empty() {
-                return Some(s.to_string());
-            }
-        }
-        // 嵌套 data 字段
-        if let Some(data) = json.get("data") {
-            return Self::extract_semester_from_json(data);
-        }
-        None
-    }
-
     pub(super) fn to_json_string(value: Option<&serde_json::Value>) -> Option<String> {
         match value {
             Some(serde_json::Value::String(v)) => {

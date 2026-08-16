@@ -61,20 +61,10 @@ const websiteBuildCards = [
         title: 'website 构建入口',
         source: 'website/package.json',
         items: [
-            'website/package.json 管理文档站和发布页。dev 启动 Vite，build 执行 tsc -b && vite build，preview 用于本地预览构建产物。',
+            'website/package.json 管理文档站和发布页。dev 启动 Next.js 开发服务器（next dev -p 3000），build 执行 next build 静态导出到 website/dist，start 用 next start 预览构建产物。',
             'test:docs-ia 检查文档信息架构、路由和导航契约；test:docs-developer-content 检查开发者文档内容覆盖；test:docs-user-content 检查用户文档内容覆盖。',
             'test:release-links 执行 website/scripts/test-release-links.mjs，用本地 stable-latest.json 或 GitHub latest release API 校验下载链接。',
             'lint 存在但不是本 goal 每轮的默认阻塞命令；发布前可作为额外质量门禁运行。',
-        ],
-    },
-    {
-        title: 'website 多入口',
-        source: 'website/vite.config.ts',
-        items: [
-            'website/vite.config.ts 使用 React 插件和 inspectAttr 插件，base 为 /。',
-            'build.rollupOptions.input 显式列出首页、releases 页面和所有 docs 静态入口，包括 docsBuildRelease 对应 docs/build-release/index.html。',
-            '新增文档页面时不仅要加 React route 和侧栏，还要确认 docsEntries 中有对应静态 HTML 入口，否则静态部署路径可能 404。',
-            'website dev server 使用 0.0.0.0:3000 且 open: true；goal 模式中不要为了预览抢占 Windows 焦点，优先用构建和契约测试验证。',
         ],
     },
 ];
@@ -111,7 +101,6 @@ const checks = [
         items: [
             'website/package.json 的 test:docs-ia、test:docs-developer-content、test:docs-user-content 分别检查路由导航、开发者文档覆盖和用户文档覆盖。',
             'website/scripts/test-release-links.mjs 优先读取 website/public/releases/stable-latest.json，再 fallback 到 GitHub latest release API；它要求 Windows exe、mac dmg、Android apk、iOS ipa、Linux AppImage 链接可达。',
-            'website/scripts/update-release-links.mjs 已被标记为废弃路径，只提示下载链接由运行时 GitHub latest release API 解析，不应作为发布更新动作依赖。',
         ],
     },
     {
@@ -183,8 +172,8 @@ const sourceEvidence = [
     '热更新证据：apps/client/scripts/build_hot_bundle.mjs 的 dist-hot、hot-manifest.json、sha256、signature、min_bootstrap_version、max_bootstrap_version、min_native_version、max_native_version。',
     'release 证据：scripts/build_release_manifests.mjs 的 stable-latest.json、dev-latest.json、latest.json、active.json、channels.json、history.json、latest/active stable-only 规则。',
     '模块发布证据：scripts/build_website_modules.mjs 的 website/public/modules、main/dev/latest channel、catalog.json、manifest.json、bundle.zip、package_sha256。',
-    'website 证据：website/package.json 的 test:docs-ia、test:docs-developer-content、test:docs-user-content、test:release-links、build；website/vite.config.ts 的 docsBuildRelease 静态入口。',
-    '安全检查证据：scripts/guard_sensitive_uploads.mjs、apps/client/scripts/check-frontend-safety.mjs、apps/client/scripts/check-design-tokens.mjs、website/scripts/test-release-links.mjs、website/scripts/update-release-links.mjs。',
+    'website 证据：website/package.json 的 test:docs-ia、test:docs-developer-content、test:docs-user-content、test:release-links、build；website/next.config.ts 的 output: export 静态导出与 basePath。',
+    '安全检查证据：scripts/guard_sensitive_uploads.mjs、apps/client/scripts/check-frontend-safety.mjs、apps/client/scripts/check-design-tokens.mjs、website/scripts/test-release-links.mjs。',
 ];
 
 const BuildRelease = () => (

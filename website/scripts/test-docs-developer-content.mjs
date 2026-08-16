@@ -512,7 +512,6 @@ expectIncludes(referenceIndex, 'ReferenceIndex', [
   '入口与导航',
   'src/main.ts',
   'src/App.vue',
-  'website/src/App.tsx',
   'website/src/layouts/DocsLayout.tsx',
   '用户文档索引',
   'QuickStart.tsx',
@@ -583,7 +582,6 @@ if (
 expectRepoPathsExist('ReferenceIndex', [
   'apps/client/src/main.ts',
   'apps/client/src/App.vue',
-  'website/src/App.tsx',
   'website/src/layouts/DocsLayout.tsx',
   'website/src/views/docs/QuickStart.tsx',
   'website/src/views/docs/UserGuide.tsx',

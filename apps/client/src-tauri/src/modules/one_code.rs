@@ -473,13 +473,6 @@ async fn try_swae_bind_room_with_response(
     }
 }
 
-/// 宿舍 room value 是否像 SWAE roomverify：`101-1--174-1101`
-#[allow(dead_code)]
-fn looks_like_roomverify(s: &str) -> bool {
-    let s = s.trim();
-    s.contains("--") || (s.matches('-').count() >= 2 && s.chars().any(|c| c.is_ascii_digit()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

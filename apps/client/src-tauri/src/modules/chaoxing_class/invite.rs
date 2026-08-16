@@ -15,26 +15,6 @@ use super::parse::{
 };
 use super::session::probe_class_accessible;
 
-/// 内置默认邀请码（与前端 remote_config DEFAULT 一致；课程元数据一律在线解析）
-#[allow(dead_code)]
-const DEFAULT_INVITE_CODE: &str = "18853572";
-
-/// 可选：仅作邀请码列表兜底（无课程名/ID 硬编码；新班必须走在线 preview）
-#[allow(dead_code)]
-struct FixedInviteMeta {
-    code: &'static str,
-}
-
-#[allow(dead_code)]
-const FIXED_INVITES: &[FixedInviteMeta] = &[FixedInviteMeta {
-    code: DEFAULT_INVITE_CODE,
-}];
-
-#[allow(dead_code)]
-fn fixed_meta(code: &str) -> Option<&'static FixedInviteMeta> {
-    FIXED_INVITES.iter().find(|m| m.code == code.trim())
-}
-
 fn is_invite_session_error_message(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
     m.contains("非 json")
@@ -98,26 +78,6 @@ pub struct InvitePreview {
     pub addclz_enc: String,
     pub addclz_timestamp: String,
     pub middle_url: String,
-}
-
-#[allow(dead_code)]
-fn preview_from_fixed(code: &str) -> Option<InvitePreview> {
-    // 不再内置课程 ID/名称（班课会换）；仅确认邀请码在内置表时返回空壳，迫使走在线解析
-    let meta = fixed_meta(code)?;
-    Some(InvitePreview {
-        invite_code: meta.code.to_string(),
-        course_id: String::new(),
-        clazz_id: String::new(),
-        course_name: String::new(),
-        teacher_name: String::new(),
-        cover_url: String::new(),
-        addclz_enc: String::new(),
-        addclz_timestamp: String::new(),
-        middle_url: format!(
-            "https://mooc1.chaoxing.com/addcourse/pcqrcodemiddleview?inviteCode={}",
-            meta.code
-        ),
-    })
 }
 
 /// 解析邀请码 → 课程/班级预览（不入班）
@@ -714,20 +674,4 @@ async fn submit_participate(
         "preview": preview,
         "raw": payload,
     }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_invite_catalog_has_18853572() {
-        assert!(fixed_meta("18853572").is_some());
-        assert!(fixed_meta("73202625").is_none());
-        let p = preview_from_fixed("18853572").unwrap();
-        assert_eq!(p.invite_code, "18853572");
-        // 不再内置课程 ID/名称，必须在线解析
-        assert!(p.course_id.is_empty());
-        assert!(p.clazz_id.is_empty());
-    }
 }
