@@ -231,6 +231,10 @@ jobs:
         working-directory: apps/client
         run: python scripts/patch_android_widget.py
 
+      - name: Patch Android background support
+        working-directory: apps/client
+        run: python scripts/patch_android_background.py
+
       - name: Patch Android notification permissions
         working-directory: apps/client
         run: |
