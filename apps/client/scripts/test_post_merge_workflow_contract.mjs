@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import path from 'node:path'
 
-const devBuild = fs.readFileSync('.github/workflows/dev-build.yml', 'utf8')
-const syncMain = fs.readFileSync('.github/workflows/sync-main-to-dev.yml', 'utf8')
+// 契约对象在仓库根(.github/),脚本可能在 apps/client 下执行,故以脚本位置向上解析
+const repoRoot = path.resolve(import.meta.dirname, '../../..')
+const readRepo = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
+
+const devBuild = readRepo('.github/workflows/dev-build.yml')
+const syncMain = readRepo('.github/workflows/sync-main-to-dev.yml')
 
 assert.match(devBuild, /workflow_dispatch:\s*(?:\r?\n)/)
 assert.doesNotMatch(devBuild, /smoke_only/)
