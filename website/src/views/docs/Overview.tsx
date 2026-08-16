@@ -49,6 +49,11 @@ const Overview = () => {
             path: '/docs/developer',
         },
         {
+            title: 'OIDC 接入指南',
+            desc: '第三方开发者统一接入：Discovery、PKCE、App Approval 授权流、Scope 与安全检查。',
+            path: '/docs/identity-oidc',
+        },
+        {
             title: '架构与数据流',
             desc: 'Vue 入口、视图分发、状态恢复、API/缓存/降级和数据库关系。',
             path: '/docs/architecture',
@@ -156,17 +161,33 @@ const Overview = () => {
             <section className="space-y-4">
                 <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                     <Sparkles className="text-cyan" size={22} />
-                    最新能力（v1.3.6）
+                    最新能力（v1.4.6）
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
                         {
-                            title: '后台静默检查',
-                            desc: '课表静默刷新 + 新成绩检测 + 考试提醒 + 电费监控，启动即执行一次全量检查。'
+                            title: '智慧迎新',
+                            desc: '首页新增「智慧迎新」入口，只读展示迎新信息，无需登录也可浏览。'
+                        },
+                        {
+                            title: '界面动效焕新',
+                            desc: '统一 iOS 风格动效体系：视图切换、弹窗出入场全链路升级，并尊重系统「减弱动态效果」设置。'
+                        },
+                        {
+                            title: '成绩数据可靠性',
+                            desc: '双通道共用同一成绩服务，数据库原子写入与自动备份，失败时保留离线快照。'
+                        },
+                        {
+                            title: '安全加固',
+                            desc: '启用内容安全策略（CSP）、CodeQL 60 条告警全部收口，敏感数据存储与日志处理全面加固。'
                         },
                         {
                             title: 'AI 学习助手',
                             desc: '接入多家大模型（DeepSeek / Qwen / Gemini / GLM），支持流式回复与 LaTeX 公式渲染。'
+                        },
+                        {
+                            title: '后台静默检查',
+                            desc: '课表静默刷新 + 新成绩检测 + 考试提醒 + 电费监控，启动即执行一次全量检查。'
                         },
                         {
                             title: '移动端后台任务',
@@ -199,7 +220,7 @@ const Overview = () => {
                     版本信息
                 </h2>
                 <div className="p-6 rounded-xl bg-gray-900/50 border border-gray-800 space-y-2 text-gray-300 text-sm">
-                    <div>当前版本：<span className="text-cyan font-semibold">v1.3.6</span></div>
+                    <div>当前版本：<span className="text-cyan font-semibold">v1.4.6</span></div>
                     <div>技术栈：Vue 3 + Tauri 2.x（桌面端）+ Capacitor 6.x（移动端）</div>
                     <div>支持平台：Windows / macOS / Linux / Android / iOS</div>
                     <div>开源协议：GPL v3</div>
