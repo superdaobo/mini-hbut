@@ -562,7 +562,9 @@ export default function DownloadSection() {
   };
 
   useEffect(() => {
-    loadLinks();
+    // 下一帧再加载，避免 effect 同步路径直接 setState（react-hooks/set-state-in-effect）
+    const timer = window.setTimeout(loadLinks, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -579,7 +581,8 @@ export default function DownloadSection() {
             scrollTrigger: {
               trigger: titleRef.current,
               start: 'top 80%',
-              toggleActions: 'play none none reverse',
+              // 一次性播放，避免滚动回退时动画反复反向造成抖动（#637）
+              toggleActions: 'play none none none',
             },
           }
         );
@@ -600,7 +603,7 @@ export default function DownloadSection() {
             scrollTrigger: {
               trigger: card,
               start: 'top 85%',
-              toggleActions: 'play none none reverse',
+              toggleActions: 'play none none none',
             },
           }
         );
@@ -677,19 +680,19 @@ export default function DownloadSection() {
               : '实时请求 GitHub Release API，多线路 CDN 加速，自动回退备用节点。'}
           </p>
 
-          {version && (
-            <div className="mt-3 flex items-center justify-center gap-4 flex-wrap">
+          {/* 版本徽章区固定高度占位，加载完成后出现徽章不改变布局（#637） */}
+          <div className="mt-3 flex min-h-[30px] items-center justify-center gap-4 flex-wrap">
+            {version && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan/10 border border-cyan/30 text-cyan text-xs font-mono">
                 当前版本：{version}
               </span>
-              {channel && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/15 text-gray-300 text-xs font-mono">
-                  当前渠道：{channel}
-                </span>
-              )}
-
-            </div>
-          )}
+            )}
+            {channel && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/15 text-gray-300 text-xs font-mono">
+                当前渠道：{channel}
+              </span>
+            )}
+          </div>
 
           <div className="mt-4 flex justify-center">
             <button
@@ -718,7 +721,7 @@ export default function DownloadSection() {
                 ref={(el) => {
                   cardsRef.current[i] = el;
                 }}
-                className={`group relative p-6 rounded-xl border-2 ${colors.border} ${colors.bg} backdrop-blur-sm transition-all duration-300 ${canDownload ? `cursor-pointer hover:scale-105 hover:${colors.glow}` : 'opacity-70 cursor-not-allowed'}`}
+                className={`group relative p-6 rounded-xl border-2 ${colors.border} ${colors.bg} backdrop-blur-sm transition-transform duration-300 ${canDownload ? `cursor-pointer hover:scale-105 hover:${colors.glow}` : 'opacity-70 cursor-not-allowed'}`}
                 onClick={() => {
                   if (!canDownload) return;
                   if (platform.primaryExternal) {
@@ -755,18 +758,24 @@ export default function DownloadSection() {
                 <div className="mt-4 pt-4 border-t border-gray-700/50 space-y-2">
                   <button
                     type="button"
-                    className={`w-full py-2 rounded-lg flex items-center justify-center gap-2 ${colors.bg} ${colors.text} border ${colors.border} hover:bg-opacity-20 transition-all duration-300 text-sm font-mono ${!canDownload ? 'opacity-60' : ''}`}
+                    className={`w-full py-2 rounded-lg flex items-center justify-center gap-2 ${colors.bg} ${colors.text} border ${colors.border} hover:bg-opacity-20 transition-colors duration-300 text-sm font-mono ${!canDownload ? 'opacity-60' : ''}`}
                   >
                     <Download className="w-4 h-4" />
                     {canDownload
                       ? platform.primaryLabel || '立即下载'
                       : '链接未就绪'}
                   </button>
-                  {platform.name === 'iOS' && platform.secondaryUrl ? (
+                  {platform.name === 'iOS' ? (
                     <button
                       type="button"
-                      className="w-full py-1.5 rounded-lg text-[11px] font-mono text-gray-400 border border-dashed border-gray-600 hover:text-white hover:border-white/40"
+                      disabled={!platform.secondaryUrl}
+                      className={`w-full py-1.5 rounded-lg text-[11px] font-mono border border-dashed transition-colors ${
+                        platform.secondaryUrl
+                          ? 'border-gray-600 text-gray-400 hover:text-white hover:border-white/40'
+                          : 'border-gray-800 text-gray-600 cursor-default'
+                      }`}
                       onClick={(e) => {
+                        if (!platform.secondaryUrl) return;
                         e.stopPropagation();
                         setSelectedPlatform({
                           ...platform,
@@ -777,7 +786,7 @@ export default function DownloadSection() {
                         });
                       }}
                     >
-                      {platform.secondaryLabel || 'IPA 侧载（进阶）'}
+                      {platform.secondaryUrl ? platform.secondaryLabel || 'IPA 侧载（进阶）' : 'IPA 侧载（获取中）'}
                     </button>
                   ) : null}
                   {platform.name === 'iOS' ? (
