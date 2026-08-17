@@ -157,6 +157,7 @@ jobs:
               await github.rest.repos.deleteReleaseAsset({
                 owner,
                 repo,
+                release_id: releaseId,
                 asset_id: asset.id
               });
             }
@@ -260,13 +261,13 @@ jobs:
               if marker not in text:
                   text = text.replace(
                       "<application",
-                      f'    <uses-permission android:name="{perm}" />\\n\\n    <application',
+                      f'    <uses-permission android:name="{perm}" />\n\n    <application',
                       1,
                   )
           p.write_text(text, encoding="utf-8")
           print("Patched AndroidManifest permissions.")
           PY
-          grep -n "POST_NOTIFICATIONS\\|WAKE_LOCK\\|FOREGROUND_SERVICE\\|REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"
+          grep -n "POST_NOTIFICATIONS\|WAKE_LOCK\|FOREGROUND_SERVICE\|REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"
 
       - name: Optimize Android package size
         working-directory: apps/client
@@ -642,7 +643,7 @@ jobs:
           conf.build = conf.build || {};
           delete conf.build.devUrl;
           delete conf.build.beforeDevCommand;
-          conf.build.beforeBuildCommand = 'npm run build && node ../scripts/check_dist_boundary.mjs';
+          conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
           fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
           console.log('Patched tauri.conf.json for iOS CI:', {
