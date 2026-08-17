@@ -31,15 +31,16 @@ const DevRules = () => {
           目录结构速览
         </h2>
         <pre className="bg-black/60 rounded-xl p-5 text-xs text-gray-300 overflow-x-auto border border-gray-800">
-{`tauri-app/
-  src/                # Vue UI
-  src/utils/axios_adapter.ts
-  src-tauri/
-    src/http_client/  # 业务网络层
-    src/modules/      # 业务模块
-    src/http_server.rs
-    src/lib.rs
-    src/main.rs`}
+{`Mini-HBUT/（仓库根）
+  apps/client/          # 客户端（Vue 前端 + Tauri/Capacitor）
+    src/                # Vue UI
+    src/utils/axios_adapter.ts
+    src-tauri/
+      src/http_client/  # 业务网络层
+      src/modules/      # 业务模块
+      src/http_server.rs
+      src/lib.rs
+      src/main.rs`}
         </pre>
       </section>
 
@@ -49,8 +50,8 @@ const DevRules = () => {
           新增功能流程
         </h2>
         <ol className="list-decimal list-inside text-gray-400 space-y-2">
-          <li>在 <code>src-tauri/src/modules</code> 新增业务逻辑。</li>
-          <li>在 <code>src-tauri/src/lib.rs</code> 注册 Tauri Command。</li>
+          <li>在 <code>apps/client/src-tauri/src/modules</code> 新增业务逻辑。</li>
+          <li>在 <code>apps/client/src-tauri/src/lib.rs</code> 注册 Tauri Command。</li>
           <li>前端通过 <code>axios_adapter</code> 新增 /v2 映射。</li>
           <li>补充缓存、降级和错误处理路径。</li>
         </ol>

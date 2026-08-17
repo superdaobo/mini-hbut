@@ -46,6 +46,10 @@ git init -q
 git config user.name "github-actions[bot]"
 git config user.email "github-actions[bot]@users.noreply.github.com"
 git add -A
+# #644: 提交前扫描实际将提交的文件（临时仓库 staged 内容），
+# 防止密钥 / 生成物 / CNB 配置进入发布分支；guard 扫描失败时非零退出（不静默放行）。
+GUARD_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/guard_sensitive_uploads.mjs"
+node "$GUARD_SCRIPT" pre-commit
 git commit -q -m "$DEPLOY_MESSAGE"
 git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$DEPLOY_BRANCH"
 echo "Deployed $DEPLOY_BRANCH (slim site + release JSON) from $DEPLOY_SOURCE_DIR: $DEPLOY_MESSAGE"

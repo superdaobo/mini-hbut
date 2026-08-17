@@ -1,11 +1,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.cwd()
+// 以脚本自身位置解析仓库根，保证从仓库根或 apps/client 调用结果一致（#642）
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const clientRoot = path.join(repoRoot, 'apps/client')
+const root = clientRoot
 const fail = (message) => {
   throw new Error(`[dependency-alignment] ${message}`)
 }
-const readJson = (relativePath) => JSON.parse(fs.readFileSync(path.join(root, relativePath), 'utf8'))
+// 支持绝对路径（website/modules 锁文件位于仓库根下，不在 clientRoot 内）
+const readJson = (target) =>
+  JSON.parse(fs.readFileSync(path.isAbsolute(target) ? target : path.join(root, target), 'utf8'))
 const parseVersion = (value) => {
   const match = String(value || '').match(/(\d+)\.(\d+)\.(\d+)/)
   if (!match) fail(`invalid semantic version: ${value}`)
@@ -76,13 +82,14 @@ assertLocked(rootLock, '@tauri-apps/cli', '2.11.4', 'root')
 for (const version of packageVersions(rootLock, 'vite')) assertAtLeast(version, '6.4.3', 'root vite')
 for (const version of packageVersions(rootLock, 'rollup')) assertAtLeast(version, '4.59.0', 'root rollup')
 
-assertNpmLockSafe('website/package-lock.json', { website: true })
-const moduleLocks = fs.readdirSync(path.join(root, 'website/modules-src'), { withFileTypes: true })
+assertNpmLockSafe(path.join(repoRoot, 'website/package-lock.json'), { website: true })
+const moduleLocks = fs.readdirSync(path.join(repoRoot, 'website/modules-src'), { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
-  .map((entry) => `website/modules-src/${entry.name}/project/package-lock.json`)
-  .filter((relativePath) => fs.existsSync(path.join(root, relativePath)))
-for (const relativePath of moduleLocks) assertNpmLockSafe(relativePath)
+  .map((entry) => path.join(repoRoot, `website/modules-src/${entry.name}/project/package-lock.json`))
+  .filter((absolutePath) => fs.existsSync(absolutePath))
+for (const absolutePath of moduleLocks) assertNpmLockSafe(absolutePath)
 
+// 客户端 Rust 锁文件（apps/client/src-tauri/Cargo.lock）
 const cargoLock = fs.readFileSync(path.join(root, 'src-tauri/Cargo.lock'), 'utf8')
 if (!/name = "rqrr"\s+version = "0\.10\.1"/s.test(cargoLock)) fail('Cargo.lock must use rqrr 0.10.1')
 if (!/name = "lru"\s+version = "0\.16\.[3-9]"/s.test(cargoLock)) fail('Cargo.lock must use patched lru >=0.16.3')

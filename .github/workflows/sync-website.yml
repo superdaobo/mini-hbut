@@ -181,7 +181,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache-dependency-path: |
+            apps/client/package-lock.json
+            website/package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -202,12 +204,14 @@ jobs:
           set -euo pipefail
           node scripts/build_website_modules.mjs
 
-      - name: Install root deps for Hero app demo
+      - name: Install client deps for Hero app demo
+        working-directory: apps/client
         run: |
           set -euo pipefail
           npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build website Hero app demo (offline Vue)
+        working-directory: apps/client
         run: |
           set -euo pipefail
           npm run build:website-demo

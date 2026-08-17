@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-抓取官网 AI 模型列表，并写入 tauri-app/remote_config.json 的 ai_models 字段。
+抓取官网 AI 模型列表，并写入 apps/client/remote_config.json 的 ai_models 字段。
 
 用法示例：
   python tools/scrape_ai_models.py --capture ..\captured_requests.json
@@ -8,7 +8,7 @@
 
 可选参数：
   --cookie "key=value; ..."  (如需带 Cookie)
-  --output "..\tauri-app\remote_config.json"
+  --output "..\apps\client\remote_config.json"
 """
 
 import argparse
@@ -168,7 +168,7 @@ def main() -> None:
     parser.add_argument("--capture", default="..\\captured_requests.json")
     parser.add_argument("--entry-url", default="")
     parser.add_argument("--cookie", default="")
-    parser.add_argument("--output", default="..\\tauri-app\\remote_config.json")
+    parser.add_argument("--output", default="..\\apps\\client\\remote_config.json")
     args = parser.parse_args()
 
     entry_url = args.entry_url or load_entry_url_from_capture(args.capture)

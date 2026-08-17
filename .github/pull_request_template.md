@@ -9,7 +9,7 @@
 ## 测试
 
 - [ ] `npm test`
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml`
+- [ ] `cd apps/client && cargo test --manifest-path src-tauri/Cargo.toml`
 - [ ] 已在目标平台手动验证（如适用）
 
 ## 质量门禁

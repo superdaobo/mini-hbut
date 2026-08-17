@@ -1,8 +1,8 @@
 /**
  * #622 跨语言 golden fixture 测试（Node 侧）。
  *
- * 与 Rust 侧测试（src-tauri/src/identity/canonical.rs 的 golden_* 用例）共享同一
- * fixture 文件（src-tauri/src/identity/fixtures/approval_canonical_v1.golden.json），
+ * 与 Rust 侧测试（apps/client/src-tauri/src/identity/canonical.rs 的 golden_* 用例）共享同一
+ * fixture 文件（apps/client/src-tauri/src/identity/fixtures/approval_canonical_v1.golden.json），
  * 双向验证 canonical 规范逐字节一致：
  * - Node 重建 canonical == fixture 文本；
  * - Node 用 fixture seed 签出的签名 == fixture 签名（Ed25519 确定性）；
@@ -63,7 +63,7 @@ interface GoldenFixture {
 function loadFixture(): GoldenFixture {
   const fixturePath = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '../../../../src-tauri/src/identity/fixtures/approval_canonical_v1.golden.json',
+    '../../../../apps/client/src-tauri/src/identity/fixtures/approval_canonical_v1.golden.json',
   )
   return JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as GoldenFixture
 }

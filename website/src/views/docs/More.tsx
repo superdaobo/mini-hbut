@@ -34,9 +34,10 @@ const More = () => {
                     <pre className="bg-black/60 rounded-lg p-4 text-xs text-gray-300 overflow-x-auto">
                         <code>{`# 1. 克隆仓库
 git clone https://github.com/RollRoll520/Mini-HBUT.git
-cd Mini-HBUT/tauri-app
+cd Mini-HBUT
 
-# 2. 安装前端依赖
+# 2. 安装客户端依赖（客户端位于 apps/client/）
+cd apps/client
 npm install
 
 # 3. 启动开发模式（前端 + Tauri 桌面端）
@@ -57,30 +58,31 @@ npm run tauri ios build`}</code>
 
                     <h3 className="text-lg font-bold text-white mt-4">目录结构速览</h3>
                     <pre className="bg-black/60 rounded-lg p-4 text-xs text-gray-300 overflow-x-auto font-mono">
-                        <code>{`tauri-app/
-├── src/                          # Vue 前端
-│   ├── components/               #   业务组件（30+）
-│   ├── utils/                    #   工具函数
-│   │   └── axios_adapter.js      #   HTTP 适配层
-│   ├── platform/                 #   平台桥接
-│   └── config/                   #   UI 配置
-├── src-tauri/
-│   └── src/
-│       ├── lib.rs                #   Tauri Commands 入口
-│       ├── http_client/          #   网络请求模块
-│       ├── http_server.rs        #   HTTP Bridge
-│       └── db.rs                 #   SQLite
-├── android/                      #   Capacitor Android
-├── ios/                          #   Capacitor iOS
+                        <code>{`Mini-HBUT/（仓库根）
+├── apps/client/                  # 客户端（Vue 前端 + Tauri/Capacitor）
+│   ├── src/                      #   Vue 前端
+│   │   ├── components/           #     业务组件（30+）
+│   │   ├── utils/                #     工具函数
+│   │   │   └── axios_adapter.js  #     HTTP 适配层
+│   │   ├── platform/             #     平台桥接
+│   │   └── config/               #     UI 配置
+│   ├── src-tauri/
+│   │   └── src/
+│   │       ├── lib.rs            #     Tauri Commands 入口
+│   │       ├── http_client/      #     网络请求模块
+│   │       ├── http_server.rs    #     HTTP Bridge
+│   │       └── db.rs             #     SQLite
+│   ├── android/                  #   Capacitor Android
+│   └── ios/                      #   Capacitor iOS
 └── cloudflare/worker/            #   云同步 Worker`}</code>
                     </pre>
 
                     <h3 className="text-lg font-bold text-white mt-4">新增功能流程</h3>
                     <ol className="list-decimal list-inside text-gray-300 space-y-2">
-                        <li>在 <code className="text-sm text-cyan">src-tauri/src/</code>（如 modules、http_client）新增 Rust 业务逻辑。</li>
-                        <li>在 <code className="text-sm text-cyan">src-tauri/src/lib.rs</code> 中注册 Tauri Command。</li>
+                        <li>在 <code className="text-sm text-cyan">apps/client/src-tauri/src/</code>（如 modules、http_client）新增 Rust 业务逻辑。</li>
+                        <li>在 <code className="text-sm text-cyan">apps/client/src-tauri/src/lib.rs</code> 中注册 Tauri Command。</li>
                         <li>前端通过 <code className="text-sm text-cyan">axios_adapter.js</code> 新增 /v2 API 映射。</li>
-                        <li>在 <code className="text-sm text-cyan">src/components/</code> 中添加或修改 Vue 组件。</li>
+                        <li>在 <code className="text-sm text-cyan">apps/client/src/components/</code> 中添加或修改 Vue 组件。</li>
                         <li>补充缓存策略、降级逻辑和错误处理路径。</li>
                     </ol>
 
@@ -287,7 +289,7 @@ refactor(api): 重构缓存管理模块`}</code>
                             { label: 'GitHub 仓库', url: 'https://github.com/RollRoll520/Mini-HBUT', desc: '源代码、Issue 跟踪、Release 下载' },
                             { label: 'QQ 交流群', url: '#', desc: '加入社区，与其他用户交流（群号见 README）' },
                             { label: '官方网站', url: '/', desc: '你正在浏览的这个网站' },
-                            { label: 'Cloudflare Worker 模板', url: 'https://github.com/RollRoll520/Mini-HBUT/tree/main/tauri-app/cloudflare/worker', desc: '云同步服务端代码' },
+                            { label: 'Cloudflare Worker 模板', url: 'https://github.com/RollRoll520/Mini-HBUT/tree/main/cloudflare/worker', desc: '云同步服务端代码' },
                         ].map(link => (
                             <a
                                 key={link.label}

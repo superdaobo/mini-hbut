@@ -1,8 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.cwd()
-const readText = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8')
+// 以脚本自身位置解析仓库根；客户端文件统一加 apps/client 前缀（#642）。
+// 从 apps/client 的 npm run check:release-config 或仓库根直调均得到一致结果。
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const clientRoot = path.join(repoRoot, 'apps/client')
+const readText = (relativePath) => fs.readFileSync(path.join(clientRoot, relativePath), 'utf8')
 const readJson = (relativePath) => JSON.parse(readText(relativePath))
 const fail = (message) => { throw new Error(`[release-config] ${message}`) }
 

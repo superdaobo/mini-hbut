@@ -21,6 +21,7 @@ runs:
       with:
         node-version-file: .nvmrc
         cache: npm
+        cache-dependency-path: apps/client/package-lock.json
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -32,5 +33,5 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: |
-          ./src-tauri -> target
+          ./apps/client/src-tauri -> target
         save-if: ${{ inputs.save_rust_cache == 'true' }}

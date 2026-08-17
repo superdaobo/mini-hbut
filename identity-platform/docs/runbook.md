@@ -199,8 +199,8 @@ vercel rollback --cwd web <deployment-url>
 | L1 | Unit | `core/tests/*`（205 用例）+ `web/tests/*`（283 用例） | ✅ |
 | L2 | DB + Provider | `core/tests/db|adapter|oidc`（pg-mem / TEST_DATABASE_URL 双后端） | ✅ |
 | L3 | Web Browser E2E | `e2e/tests/auth-site|developer|admin.spec.ts`（Playwright，mock 模式） | ✅ |
-| L4 | Tauri / Desktop | 主仓库 `scripts/identity_deep_link_smoke.mjs` + `src-tauri/src/identity` golden fixture 测试 | ✅（静态部分；真机深链人工） |
-| L5 | Cross-device / Mobile Contract | `e2e/tests/qr-cross-device.spec.ts`（PC + Phone 双 context）；主仓库 `scripts/check_mobile_scheme_contract.mjs` | ✅（QR）；gen 检查需 android 构建后 |
+| L4 | Tauri / Desktop | 主仓库 `apps/client/scripts/identity_deep_link_smoke.mjs` + `apps/client/src-tauri/src/identity` golden fixture 测试 | ✅（静态部分；真机深链人工） |
+| L5 | Cross-device / Mobile Contract | `e2e/tests/qr-cross-device.spec.ts`（PC + Phone 双 context）；主仓库 `apps/client/scripts/check_mobile_scheme_contract.mjs` | ✅（QR）；gen 检查需 android 构建后 |
 | L6 | Preview Deployment E2E | 本 runbook 第 12-13 节流程 + `e2e/demo-client`（openid-client 消费者） | 需 Vercel 凭据（用户执行） |
 | L7 | Production Smoke | 第 14-15 节 12 步上线 + smoke 清单 + demo-client | 需用户确认（人工执行） |
 | L8 | Manual Real-device | 主仓库 `docs/release-readiness/identity-real-device-checklist.md` | 真机人工 |
@@ -212,8 +212,8 @@ check → preview → e2e → prod confirmation → smoke
 ```
 
 1. **check**：`pnpm check`（typecheck + 205/283 单测 + build）+ 主仓库 gate
-   （`scripts/check_mobile_scheme_contract.mjs --skip-gen` 静态部分、
-   `scripts/identity_deep_link_smoke.mjs --check`）；
+   （`apps/client/scripts/check_mobile_scheme_contract.mjs --skip-gen` 静态部分、
+   `apps/client/scripts/identity_deep_link_smoke.mjs --check`）；
 2. **preview**：第 5 节 `pnpm deploy:preview`（Preview 独立 DB/issuer/signing key）；
 3. **e2e**：`cd e2e && pnpm test`（L3/L5 全量）；Preview 域名下跑
    `E2E_MOCK=0 E2E_BASE_URL=https://<preview-auth-domain> pnpm exec playwright test` 冒烟；

@@ -21,7 +21,7 @@ from typing import Iterable, Tuple
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET_DIRS = [ROOT / "src", ROOT / "src-tauri" / "src"]
+TARGET_DIRS = [ROOT / "apps" / "client" / "src", ROOT / "apps" / "client" / "src-tauri" / "src"]
 TARGET_EXTS = {".rs", ".ts", ".js", ".vue", ".tsx", ".md", ".json"}
 
 # These characters/tokens are strong signals of UTF8->GBK mojibake in this repo.

@@ -4,7 +4,7 @@ const communityModules = [
     {
         title: '论坛',
         entry: '底部主 Tab -> 论坛。',
-        source: 'src/components/ForumView.vue、src/utils/forum_api.js、src/utils/forum_cache.js',
+        source: 'apps/client/src/components/ForumView.vue、apps/client/src/utils/forum_api.js、apps/client/src/utils/forum_cache.js',
         usage: [
             '论坛按版块组织内容，默认覆盖校园生活、学习互助、失物招领、软件反馈等场景。用户可以浏览帖子、热帖、搜索帖子、进入详情页。',
             '登录后可以发帖、回复、评分、收藏、举报，并维护社区资料。社区资料包含昵称、头像 URL、头像上传和个人简介。',
@@ -20,7 +20,7 @@ const communityModules = [
     {
         title: '通知中心',
         entry: '底部主 Tab -> 通知。',
-        source: 'src/components/NotificationView.vue、src/utils/notify_center.ts、src/platform/notification_actions.ts、src-tauri/src/modules/notification.rs',
+        source: 'apps/client/src/components/NotificationView.vue、apps/client/src/utils/notify_center.ts、apps/client/src/platform/notification_actions.ts、apps/client/src-tauri/src/modules/notification.rs',
         usage: [
             '通知中心管理系统通知权限、成绩更新、考试安排、寝室电费、上课提醒和后台自动检查。',
             '通知类型设置可以控制成绩出分提醒、考前提醒、电费提醒和课程提醒；课程提醒支持设置课前提前分钟数。',
@@ -38,11 +38,11 @@ const communityModules = [
 const platformNotes = [
     {
         title: '通知点击目标',
-        desc: 'src/platform/notification_actions.ts 会把通知点击目标限制在允许的视图中，默认回到 notifications，电费通知可跳到 electricity。',
+        desc: 'apps/client/src/platform/notification_actions.ts 会把通知点击目标限制在允许的视图中，默认回到 notifications，电费通知可跳到 electricity。',
     },
     {
         title: '后台检查边界',
-        desc: 'src/utils/notify_center.ts 会检查课表、成绩、考试、电费和上课提醒，并写入 hbu_notify_snapshot:{studentId}，但系统可能回收后台任务。',
+        desc: 'apps/client/src/utils/notify_center.ts 会检查课表、成绩、考试、电费和上课提醒，并写入 hbu_notify_snapshot:{studentId}，但系统可能回收后台任务。',
     },
     {
         title: '论坛权限边界',
@@ -51,11 +51,11 @@ const platformNotes = [
 ];
 
 const sourceEvidence = [
-    '入口注册：src/App.vue 的 MAIN_TABS 包含 forum 和 notifications，底部 Tab 直接进入论坛与通知中心。',
-    '论坛客户端：src/utils/forum_api.js 封装帖子、回复、评分、收藏、举报、用户资料和管理员接口。',
-    '论坛缓存：src/utils/forum_cache.js 使用 hbu_forum_cache 做请求失败时的旧数据兜底。',
-    '通知调度：src/utils/notify_center.ts 保存 hbu_notify_* 设置，执行成绩、考试、电费、课程提醒检查，并同步 Widget 数据。',
-    '原生通知：src-tauri/src/modules/notification.rs 和 src/platform/notification_actions.ts 共同处理系统通知与点击后的视图跳转。',
+    '入口注册：apps/client/src/App.vue 的 MAIN_TABS 包含 forum 和 notifications，底部 Tab 直接进入论坛与通知中心。',
+    '论坛客户端：apps/client/src/utils/forum_api.js 封装帖子、回复、评分、收藏、举报、用户资料和管理员接口。',
+    '论坛缓存：apps/client/src/utils/forum_cache.js 使用 hbu_forum_cache 做请求失败时的旧数据兜底。',
+    '通知调度：apps/client/src/utils/notify_center.ts 保存 hbu_notify_* 设置，执行成绩、考试、电费、课程提醒检查，并同步 Widget 数据。',
+    '原生通知：apps/client/src-tauri/src/modules/notification.rs 和 apps/client/src/platform/notification_actions.ts 共同处理系统通知与点击后的视图跳转。',
 ];
 
 const CommunityNotifications = () => (

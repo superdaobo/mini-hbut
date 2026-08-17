@@ -1,7 +1,7 @@
 /**
  * #622 跨语言 canonical 签名规范（Node 侧实现）。
  *
- * 必须与 Rust `src-tauri/src/identity/canonical.rs` 逐字节一致，由 golden fixture
+ * 必须与 Rust `apps/client/src-tauri/src/identity/canonical.rs` 逐字节一致，由 golden fixture
  * （tests/api/app-canonical.test.ts 与 Rust 测试共享同一 JSON）双向验证：
  * - UTF-8 编码；
  * - `\n` LF 换行；字段固定顺序；**最后一行后有一个 LF**（canonical 文本以 `\n` 结尾）；

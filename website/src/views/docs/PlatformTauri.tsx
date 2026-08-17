@@ -3,7 +3,7 @@ import Link from 'next/link';
 const runtimeSections = [
     {
         title: '运行时识别',
-        source: 'src/platform/runtime.ts',
+        source: 'apps/client/src/platform/runtime.ts',
         items: [
             'detectRuntime 的顺序是先判断 Capacitor，再判断 Tauri，最后回退 Web。这个顺序很重要，因为移动端 WebView、loopback dev server 和 Tauri Android 都可能暴露相似的 host 或协议。',
             'hasNativeCapacitor 会读取 window.Capacitor 或 @capacitor/core，并兼容 isNativePlatform、getPlatform、platform 字段；looksLikePackagedCapacitorHost 会把移动端 loopback host 与 Capacitor bridge 组合判断。',
@@ -13,17 +13,17 @@ const runtimeSections = [
     },
     {
         title: '统一桥接入口',
-        source: 'src/platform/types.ts / src/platform/index.ts',
+        source: 'apps/client/src/platform/types.ts / apps/client/src/platform/index.ts',
         items: [
-            'src/platform/types.ts 定义 RuntimePlatform、NotifyPayload、KeepAliveState 和 PlatformBridge。PlatformBridge 是业务层可以依赖的平台能力面。',
+            'apps/client/src/platform/types.ts 定义 RuntimePlatform、NotifyPayload、KeepAliveState 和 PlatformBridge。PlatformBridge 是业务层可以依赖的平台能力面。',
             'PlatformBridge 目前覆盖 openHttp、openUri、getNotificationPermission、requestNotificationPermission、ensureNotificationChannel、sendLocalNotification、addNotificationActionListener、keepScreenOn、shareLinkOrFile、setAggressiveKeepAlive、getAggressiveKeepAliveState、openBatteryOptimizationSettings。',
-            'src/platform/index.ts 的 pickBridge 会在每次调用 platformBridge 时动态选择 tauriBridge、capacitorBridge 或 webBridge，避免页面组件直接散落 @tauri-apps、@capacitor、navigator 和 window 判断。',
+            'apps/client/src/platform/index.ts 的 pickBridge 会在每次调用 platformBridge 时动态选择 tauriBridge、capacitorBridge 或 webBridge，避免页面组件直接散落 @tauri-apps、@capacitor、navigator 和 window 判断。',
             '新增跨平台能力时，优先把稳定能力放进 PlatformBridge；只在确实是 Tauri 专属命令时才暴露为 invokeNative。',
         ],
     },
     {
         title: '原生命令门面',
-        source: 'src/platform/native.ts',
+        source: 'apps/client/src/platform/native.ts',
         items: [
             'invokeNative 是当前统一 Tauri command 调用入口。非 Tauri 运行时会写入 debug log 并抛出“当前运行时不支持 invoke”，避免 Web 或 Capacitor 误触 Rust command。',
             'getCurrentNativeWindow 只在 Tauri 返回当前窗口对象；exitNativeApp 在 Tauri 调 exit_app，在 Capacitor 调 App.exitApp，在 Web 尝试 window.close。',
@@ -36,7 +36,7 @@ const runtimeSections = [
 const adapterSections = [
     {
         title: 'Tauri adapter',
-        source: 'src/platform/adapters/tauri.ts',
+        source: 'apps/client/src/platform/adapters/tauri.ts',
         items: [
             'tauriBridge.openUri 优先使用 @tauri-apps/plugin-shell.open，失败后尝试 encodeURI，再走 Rust open_external_url fallback；openHttp 直接复用 openUri。',
             '通知权限先调用 get_notification_permission_native 和 request_notification_permission_native，失败后回退 @tauri-apps/plugin-notification 的 isPermissionGranted 与 requestPermission。',
@@ -48,7 +48,7 @@ const adapterSections = [
     },
     {
         title: 'Capacitor adapter',
-        source: 'src/platform/adapters/capacitor.ts',
+        source: 'apps/client/src/platform/adapters/capacitor.ts',
         items: [
             'capacitorBridge 从 window.Capacitor.Plugins 获取插件，也会通过 registerPlugin 注册 HBUTNative。HBUTNative 是 Android 前台服务、电池优化设置等能力的自定义插件入口。',
             'openHttp 优先 @capacitor/app-launcher 的 AppLauncher.openUrl，失败后 window.open；openUri 先 AppLauncher，再尝试 Browser.open，最后 window.open。',
@@ -60,7 +60,7 @@ const adapterSections = [
     },
     {
         title: 'Web fallback',
-        source: 'src/platform/adapters/web.ts',
+        source: 'apps/client/src/platform/adapters/web.ts',
         items: [
             'webBridge.openHttp 与 openUri 优先 window.open，失败后写 location.href。',
             '通知权限使用浏览器 Notification.permission 与 Notification.requestPermission；sendLocalNotification 只创建浏览器 Notification，只有 title 和 body。',
@@ -74,7 +74,7 @@ const adapterSections = [
 const notificationAndWidget = [
     {
         title: '通知动作边界',
-        source: 'src/platform/notification_actions.ts',
+        source: 'apps/client/src/platform/notification_actions.ts',
         items: [
             'ALLOWED_NOTIFICATION_TARGETS 只允许 notifications、schedule、grades、exams、electricity、classroom、home。',
             'normalizeNotificationTargetView 会去掉 hash、斜杠、查询串和片段；非法值统一回退 notifications。',
@@ -84,7 +84,7 @@ const notificationAndWidget = [
     },
     {
         title: 'Widget 桥接',
-        source: 'src/platform/capacitor/widget.ts',
+        source: 'apps/client/src/platform/capacitor/widget.ts',
         items: [
             'getWidgetBridge 的优先级是 Tauri Android、Capacitor、no-op。桌面 Tauri 和 Web dev 会得到 no-op 代理，调用成功不代表系统 Widget 已更新。',
             'Tauri Android 通过 invokeNative 写入 SharedPreferences 风格命令：write_widget_snapshot、write_electricity_snapshot、write_exam_snapshot、write_widget_theme_color、clear_widget_snapshot。',
@@ -98,20 +98,20 @@ const notificationAndWidget = [
 const tauriConfig = [
     {
         title: 'Tauri 配置',
-        source: 'src-tauri/tauri.conf.json',
+        source: 'apps/client/src-tauri/tauri.conf.json',
         items: [
             '产品名是 Mini-HBUT，版本 1.4.6，identifier 是 com.hbut.mini。',
-            'dev 阶段执行 npm run dev，devUrl 为 http://localhost:1420；build 阶段执行 npm run build && node scripts/check_dist_boundary.mjs，frontendDist 指向 ../dist。',
+            'dev 阶段执行 node scripts/ensure_dist.mjs && npm run dev（即 apps/client/scripts/ensure_dist.mjs），devUrl 为 http://localhost:5173；build 阶段执行 npm run build && node scripts/check_dist_boundary.mjs（即 apps/client/scripts/check_dist_boundary.mjs），frontendDist 指向 ../dist（apps/client/dist）。',
             '主窗口标题是 Mini-HBUT - 湖北工业大学教务助手，默认 420 x 720，最小 380 x 600，可缩放并居中。',
             'bundle.active 为 true，targets 为 all；Windows NSIS 使用 lzma 压缩和 SimpChinese，WebView2 使用 downloadBootstrapper 且 silent。',
-            'security.csp 当前是 null，这意味着 Tauri 配置层没有收紧 CSP。安全专题需要继续评估自定义 JS、模块窗口和远程内容边界。',
+            'security.csp 已配置完整策略（script-src、connect-src、frame-src 等均已收紧）。安全专题仍需持续评估自定义 JS、模块窗口和远程内容边界。',
         ],
     },
     {
         title: 'Capability 与权限',
-        source: 'src-tauri/capabilities/main.json',
+        source: 'apps/client/src-tauri/capabilities/main.json',
         items: [
-            '当前 capability 文件是 src-tauri/capabilities/main.json，不是 default.json；identifier 为 main-capability，绑定 windows: ["main"]。',
+            '当前 capability 文件是 apps/client/src-tauri/capabilities/main.json，不是 default.json；identifier 为 main-capability，绑定 windows: ["main"]。',
             '已授权 core:default、notification:default、notification:allow-request-permission、notification:allow-is-permission-granted、notification:allow-notify、notification:allow-create-channel、notification:allow-list-channels、shell:default、window-state:default。',
             '插件初始化和 capability 授权不是同一层。Cargo 和 builder 中接入 tauri_plugin_fs、tauri_plugin_autostart、tauri_plugin_keep_screen_on，不等于前端窗口已经拥有所有对应细粒度权限。',
             '新增前端直接调用插件 API 前，必须同时检查 package 依赖、Rust builder 初始化和 capability 权限。',
@@ -119,9 +119,9 @@ const tauriConfig = [
     },
     {
         title: 'Rust command 与插件',
-        source: 'src-tauri/src/lib.rs / src-tauri/Cargo.toml',
+        source: 'apps/client/src-tauri/src/lib.rs / apps/client/src-tauri/Cargo.toml',
         items: [
-            'src-tauri/src/lib.rs 使用 #[cfg_attr(mobile, tauri::mobile_entry_point)] pub fn run() 作为移动入口；仓库里没有 src-tauri/src/mobile.rs。',
+            'apps/client/src-tauri/src/lib.rs 使用 #[cfg_attr(mobile, tauri::mobile_entry_point)] pub fn run() 作为移动入口；仓库里没有 apps/client/src-tauri/src/mobile.rs。',
             'builder 初始化 tauri_plugin_notification、tauri_plugin_shell、tauri_plugin_fs，非移动端接入 tauri_plugin_autostart 和 tauri_plugin_window_state，移动端接入 tauri_plugin_keep_screen_on。',
             'generate_handler! 注册登录、OCR、会话、远程配置、调试桥、导出、系统外部打开、模块包、通知、教务、选课、在线学习、图书馆、电费、流水、校园码、AI、一卡通、Widget、超星签到和天气命令。',
             '平台专题重点 command 包括 open_external_url、prepare_module_bundle、open_module_bundle_window、resource_share_list_dir_native、send_local_notification_native、get_notification_permission_native、request_notification_permission_native、write_widget_snapshot、write_electricity_snapshot、write_exam_snapshot、debug_widget_paths。',
@@ -131,10 +131,10 @@ const tauriConfig = [
 ];
 
 const capacitorConfig = [
-    'capacitor.config.ts 定义 appId 为 com.hbut.mini，appName 为 Mini-HBUT，webDir 为 dist，androidScheme 和 iosScheme 都是 https。',
-    'package.json 中 Capacitor 相关依赖包括 @capacitor/android、@capacitor/ios、@capacitor/core、@capacitor/app、@capacitor/app-launcher、@capacitor/browser、@capacitor/filesystem、@capacitor/local-notifications、@capacitor/preferences、@capacitor/share、@transistorsoft/capacitor-background-fetch。',
-    'package.json 中 Tauri 前端 API 依赖包括 @tauri-apps/api、@tauri-apps/plugin-autostart、@tauri-apps/plugin-fs、@tauri-apps/plugin-notification、@tauri-apps/plugin-shell、tauri-plugin-keep-screen-on-api。',
-    '根脚本 cap:sync、cap:run:android、cap:open:android、cap:open:ios 都以 npm run build:web 或 npx cap 为入口；移动端前端逻辑复用 dist，而不是单独维护一套页面。',
+    'apps/client/capacitor.config.ts 定义 appId 为 com.hbut.mini，appName 为 Mini-HBUT，webDir 为 dist，androidScheme 和 iosScheme 都是 https。',
+    'apps/client/package.json 中 Capacitor 相关依赖包括 @capacitor/android、@capacitor/ios、@capacitor/core、@capacitor/app、@capacitor/app-launcher、@capacitor/browser、@capacitor/filesystem、@capacitor/local-notifications、@capacitor/preferences、@capacitor/share、@transistorsoft/capacitor-background-fetch。',
+    'apps/client/package.json 中 Tauri 前端 API 依赖包括 @tauri-apps/api、@tauri-apps/plugin-autostart、@tauri-apps/plugin-fs、@tauri-apps/plugin-notification、@tauri-apps/plugin-shell、tauri-plugin-keep-screen-on-api。',
+    'apps/client 的 cap:sync、cap:run:android、cap:open:android、cap:open:ios 脚本都以 npm run build:web 或 npx cap 为入口；移动端前端逻辑复用 apps/client/dist，而不是单独维护一套页面。',
 ];
 
 const capabilityMatrix = [
@@ -149,8 +149,8 @@ const capabilityMatrix = [
 ];
 
 const riskBoundaries = [
-    '权限边界：src-tauri/capabilities/main.json 只授权 main 窗口的 core、notification、shell、window-state 能力；插件接入不等于所有前端 API 都可直接调用。',
-    'CSP 边界：src-tauri/tauri.conf.json 中 csp 为 null，后续安全文档必须继续审计自定义 JS、模块 iframe、远程资源和调试桥。',
+    '权限边界：apps/client/src-tauri/capabilities/main.json 只授权 main 窗口的 core、notification、shell、window-state 能力；插件接入不等于所有前端 API 都可直接调用。',
+    'CSP 边界：apps/client/src-tauri/tauri.conf.json 中 csp 已配置完整策略，后续安全文档仍需持续审计自定义 JS、模块 iframe、远程资源和调试桥。',
     '通知边界：Windows 原生通知失败会返回 false；Web 通知能力弱；Rust 后台通知循环当前没有启动，不能写成桌面后台常驻通知服务。',
     '文件边界：模块包、资料分享、字体下载和 Widget 都涉及本地写入，必须保留路径净化、hash 校验、缓存目录约束和大小限制。',
     '平台边界：Tauri Android Widget 无法主动 requestRefresh；Capacitor Android 强保活依赖 HBUTNative；iOS 前台服务不可用；Web 没有系统级后台保活。',
@@ -158,13 +158,13 @@ const riskBoundaries = [
 ];
 
 const sourceEvidence = [
-    '平台接口证据：src/platform/types.ts 的 RuntimePlatform、NotifyPayload、KeepAliveState、PlatformBridge。',
-    '运行时证据：src/platform/runtime.ts 的 detectRuntime、hasNativeCapacitor、looksLikePackagedCapacitorHost、isTauriRuntime、isCapacitorRuntime。',
-    '桥接门面证据：src/platform/index.ts 的 pickBridge、getRuntime、platformBridge；src/platform/native.ts 的 invokeNative、getCurrentNativeWindow、exitNativeApp、getNativeAppVersion、toNativeFileSrc、readNativeBinaryFile。',
-    'adapter 证据：src/platform/adapters/tauri.ts 的 tauriBridge、tryOpenWithRustFallback、tryOpenDesktopPowerSettings；src/platform/adapters/capacitor.ts 的 capacitorBridge、getRegisteredPlugin、getHBUTNativePlugin、getLocalNotifications、openByAppLauncher；src/platform/adapters/web.ts 的 webBridge。',
-    '通知和 Widget 证据：src/platform/notification_actions.ts 的 ALLOWED_NOTIFICATION_TARGETS、normalizeNotificationTargetView、resolveNotificationActionTarget；src/platform/capacitor/widget.ts 的 getWidgetBridge、WidgetBridgeError、writeSnapshot、writeSnapshotWithRetry、writeElectricitySnapshot、writeExamSnapshot、writeWidgetThemeColor、requestRefresh。',
-    'Tauri 配置证据：src-tauri/tauri.conf.json、src-tauri/capabilities/main.json、src-tauri/Cargo.toml、src-tauri/src/lib.rs、src-tauri/src/modules/notification.rs、src-tauri/src/modules/module_bundle.rs。',
-    'Capacitor 配置证据：capacitor.config.ts、package.json 中的 @capacitor/*、@tauri-apps/*、tauri-plugin-keep-screen-on-api 和 cap:* 脚本。',
+    '平台接口证据：apps/client/src/platform/types.ts 的 RuntimePlatform、NotifyPayload、KeepAliveState、PlatformBridge。',
+    '运行时证据：apps/client/src/platform/runtime.ts 的 detectRuntime、hasNativeCapacitor、looksLikePackagedCapacitorHost、isTauriRuntime、isCapacitorRuntime。',
+    '桥接门面证据：apps/client/src/platform/index.ts 的 pickBridge、getRuntime、platformBridge；apps/client/src/platform/native.ts 的 invokeNative、getCurrentNativeWindow、exitNativeApp、getNativeAppVersion、toNativeFileSrc、readNativeBinaryFile。',
+    'adapter 证据：apps/client/src/platform/adapters/tauri.ts 的 tauriBridge、tryOpenWithRustFallback、tryOpenDesktopPowerSettings；apps/client/src/platform/adapters/capacitor.ts 的 capacitorBridge、getRegisteredPlugin、getHBUTNativePlugin、getLocalNotifications、openByAppLauncher；apps/client/src/platform/adapters/web.ts 的 webBridge。',
+    '通知和 Widget 证据：apps/client/src/platform/notification_actions.ts 的 ALLOWED_NOTIFICATION_TARGETS、normalizeNotificationTargetView、resolveNotificationActionTarget；apps/client/src/platform/capacitor/widget.ts 的 getWidgetBridge、WidgetBridgeError、writeSnapshot、writeSnapshotWithRetry、writeElectricitySnapshot、writeExamSnapshot、writeWidgetThemeColor、requestRefresh。',
+    'Tauri 配置证据：apps/client/src-tauri/tauri.conf.json、apps/client/src-tauri/capabilities/main.json、apps/client/src-tauri/Cargo.toml、apps/client/src-tauri/src/lib.rs、apps/client/src-tauri/src/modules/notification.rs、apps/client/src-tauri/src/modules/module_bundle.rs。',
+    'Capacitor 配置证据：apps/client/capacitor.config.ts、apps/client/package.json 中的 @capacitor/*、@tauri-apps/*、tauri-plugin-keep-screen-on-api 和 cap:* 脚本。',
 ];
 
 const PlatformTauri = () => (
@@ -301,7 +301,7 @@ const PlatformTauri = () => (
             <h2 className="text-2xl font-bold text-white">继续阅读</h2>
             <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <Link href="/docs/developer" className="rounded-lg border border-white/10 p-4 text-sm leading-7 text-gray-300 transition-colors hover:border-cyan/50">
-                    回到开发者架构总览，查看 App.vue、src/main.ts、组件组织和平台边界如何配合。
+                    回到开发者架构总览，查看 App.vue、apps/client/src/main.ts、组件组织和平台边界如何配合。
                 </Link>
                 <Link href="/docs/architecture" className="rounded-lg border border-white/10 p-4 text-sm leading-7 text-gray-300 transition-colors hover:border-cyan/50">
                     继续阅读架构与数据流，理解 API、缓存、SQLite、通知中心和 Widget 快照的数据来源。

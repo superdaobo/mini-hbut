@@ -25,6 +25,8 @@ from typing import Any
 
 REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
 PROJECT_DIR = Path(__file__).resolve().parent
+# 客户端（Vue 前端 + Tauri/Capacitor）自 2026-08 起位于 apps/client/
+CLIENT_DIR = PROJECT_DIR / "apps" / "client"
 
 EXCLUDE_GLOBS = [
     "debug_*.txt",
@@ -35,7 +37,7 @@ EXCLUDE_GLOBS = [
 ]
 EXCLUDE_DIRS = [
     "tools",
-    "src-tauri/exports",
+    "apps/client/src-tauri/exports",
     "website/public/modules",
 ]
 
@@ -95,8 +97,8 @@ def run_build_check(skip_build: bool, dry_run: bool, target_branch: str) -> None
     if skip_build:
         print("[INFO] 已跳过构建检查（--skip-build）")
         return
-    print("[STEP] 构建检查（npm run build）")
-    ok, out, err = run_command(["npm", "run", "build"], dry_run=dry_run, check=False)
+    print("[STEP] 构建检查（apps/client 下 npm run build）")
+    ok, out, err = run_command(["npm", "run", "build"], cwd=CLIENT_DIR, dry_run=dry_run, check=False)
     if not ok:
         preview = "\n".join((out or "").splitlines()[-20:] + (err or "").splitlines()[-20:])
         raise RuntimeError(f"构建失败（npm run build）\n{preview}".strip())

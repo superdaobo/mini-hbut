@@ -8,9 +8,8 @@ const docsLinks = [
 ];
 
 const entryIndex = [
-    ['src/main.ts', 'Vue 应用入口，初始化主题、设置、字体、后台任务、通知检查、调试日志和调试桥。'],
-    ['src/App.vue', '主视图调度入口，维护 currentView、历史栈、返回行为、模块宿主会话和受保护页面访问。'],
-    ['website/src/App.tsx', '文档站和下载站路由入口，注册所有 /docs 子路由和静态页面。'],
+    ['apps/client/src/main.ts', 'Vue 应用入口，初始化主题、设置、字体、后台任务、通知检查、调试日志和调试桥。'],
+    ['apps/client/src/App.vue', '主视图调度入口，维护 currentView、历史栈、返回行为、模块宿主会话和受保护页面访问。'],
     ['website/src/layouts/DocsLayout.tsx', '文档导航、分组、侧栏和移动端菜单结构。'],
 ];
 
@@ -70,28 +69,28 @@ const componentIndex = [
 ];
 
 const utilityIndex = [
-    ['src/utils/api.ts', '教务 API、fetchWithCache、withOfflineMeta、sync_time、维护标记和 localStorage 缓存。'],
-    ['src/utils/cloud_sync.ts', '云同步上传/下载、hbu_cloud_sync_status、cooldown、x-cloud-sync-challenge。'],
-    ['src/utils/module_center.js', 'DEFAULT_MODULE_CENTER、buildModuleCenterCards 和模块中心入口归一化。'],
-    ['src/utils/more_modules.js', '远程 catalog、manifest、本地 bundle、Capacitor 文件缓存和 preview source 选择。'],
-    ['src/utils/notify_center.ts', 'runNotificationCheck、hbu_notify_snapshot、通知去重和 fallback snapshot。'],
+    ['apps/client/src/utils/api.ts', '教务 API、fetchWithCache、withOfflineMeta、sync_time、维护标记和 localStorage 缓存。'],
+    ['apps/client/src/utils/cloud_sync.ts', '云同步上传/下载、hbu_cloud_sync_status、cooldown、x-cloud-sync-challenge。'],
+    ['apps/client/src/utils/module_center.js', 'DEFAULT_MODULE_CENTER、buildModuleCenterCards 和模块中心入口归一化。'],
+    ['apps/client/src/utils/more_modules.js', '远程 catalog、manifest、本地 bundle、Capacitor 文件缓存和 preview source 选择。'],
+    ['apps/client/src/utils/notify_center.ts', 'runNotificationCheck、hbu_notify_snapshot、通知去重和 fallback snapshot。'],
 ];
 
 const platformBackendIndex = [
-    ['src/platform/runtime.ts', '运行时识别：Tauri、Capacitor、Capacitor Web 和 Web fallback。'],
-    ['src/platform/types.ts', 'PlatformBridge、RuntimePlatform、WidgetBridge 等跨端抽象类型。'],
-    ['src-tauri/src/lib.rs', 'Tauri command 注册、窗口、Widget、通知、调试桥、模块窗口和业务 command。'],
-    ['src-tauri/src/http_client/mod.rs', 'HbutClient、Cookie Jar、CAS/教务域名、OCR endpoint、会话和重登公共逻辑。'],
-    ['src-tauri/src/db.rs', 'SQLite 表、缓存、用户会话、Cookie 快照、在线学习和论坛相关存储。'],
-    ['src-tauri/src/modules/module_bundle.rs', '模块包下载、sha256、缓存目录、bundle.zip、preview_url 和路径防护。'],
+    ['apps/client/src/platform/runtime.ts', '运行时识别：Tauri、Capacitor、Capacitor Web 和 Web fallback。'],
+    ['apps/client/src/platform/types.ts', 'PlatformBridge、RuntimePlatform、WidgetBridge 等跨端抽象类型。'],
+    ['apps/client/src-tauri/src/lib.rs', 'Tauri command 注册、窗口、Widget、通知、调试桥、模块窗口和业务 command。'],
+    ['apps/client/src-tauri/src/http_client/mod.rs', 'HbutClient、Cookie Jar、CAS/教务域名、OCR endpoint、会话和重登公共逻辑。'],
+    ['apps/client/src-tauri/src/db.rs', 'SQLite 表、缓存、用户会话、Cookie 快照、在线学习和论坛相关存储。'],
+    ['apps/client/src-tauri/src/modules/module_bundle.rs', '模块包下载、sha256、缓存目录、bundle.zip、preview_url 和路径防护。'],
 ];
 
 const scriptIndex = [
     ['scripts/build_website_modules.mjs', '构建 website/modules-src，写入 website/public/modules、catalog.json、manifest.json 和 bundle.zip。'],
-    ['scripts/build_hot_bundle.mjs', '构建 dist-hot、hot-manifest.json、sha256 和热更新 zip。'],
-    ['scripts/check_dist_boundary.mjs', '检查桌面 dist 边界，阻止 website/modules/app-resources 等目录进入桌面包。'],
+    ['apps/client/scripts/build_hot_bundle.mjs', '构建 dist-hot、hot-manifest.json、sha256 和热更新 zip。'],
+    ['apps/client/scripts/check_dist_boundary.mjs', '检查桌面 dist 边界，阻止 website/modules/app-resources 等目录进入桌面包。'],
     ['scripts/guard_sensitive_uploads.mjs', '扫描 libsql、JWT、token、敏感环境变量和误上传风险。'],
-    ['scripts/test_more_module_bridge.mjs', '联调 catalog、manifest、/module_bundle/prepare、preview_url 和模块真实资源。'],
+    ['apps/client/scripts/test_more_module_bridge.mjs', '联调 catalog、manifest、/module_bundle/prepare、preview_url 和模块真实资源。'],
     ['website/scripts/test-docs-ia.mjs', '验证文档路由、侧栏、静态入口和参考页接入。'],
     ['website/scripts/test-docs-user-content.mjs', '验证用户文档内容契约和骨架占位清理。'],
     ['website/scripts/test-docs-developer-content.mjs', '验证开发者文档内容契约、ReferenceIndex 路径存在性检查和骨架占位清理。'],

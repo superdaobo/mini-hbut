@@ -31,12 +31,12 @@
 ## 本地验收
 
 ```bash
-# 前端确认 UI
+# 前端确认 UI（在 apps/client/ 下执行）
 npx vitest run src/utils/teaching_eval_contract.spec.ts
 # Rust 满分作答纯函数
-cd src-tauri && cargo test teaching_eval -- --nocapture
+cd apps/client/src-tauri && cargo test teaching_eval -- --nocapture
 ```
 
 ## 后续
 
-有登录态后用 MCP 浏览器在评教开放周抓 list/form/submit，替换 `src-tauri/src/modules/teaching_eval.rs` 内 TODO 并更新本文件脱敏样例。
+有登录态后用 MCP 浏览器在评教开放周抓 list/form/submit，替换 `apps/client/src-tauri/src/modules/teaching_eval.rs` 内 TODO 并更新本文件脱敏样例。

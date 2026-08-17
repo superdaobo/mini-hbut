@@ -4,7 +4,7 @@
 Mini-HBUT 发布脚本（主分支模式）
 
 目标：
-1. 更新版本号（package.json / tauri.conf.json / Cargo.toml）
+1. 更新版本号（apps/client 的 package.json / tauri.conf.json / Cargo.toml）
 2. 提交代码、重建 tag、推送到 origin/main
 3. 不操作 old / old_dev 等归档分支
 
@@ -41,6 +41,8 @@ from pathlib import Path
 
 REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
 PROJECT_DIR = Path(__file__).resolve().parent
+# 客户端（Vue 前端 + Tauri/Capacitor）自 2026-08 起位于 apps/client/
+CLIENT_DIR = PROJECT_DIR / "apps" / "client"
 
 EXCLUDE_GLOBS = [
     "debug_*.txt",
@@ -52,7 +54,7 @@ EXCLUDE_GLOBS = [
 EXCLUDE_DIRS = [
     ".reasonix",
     "tools",
-    "src-tauri/exports",
+    "apps/client/src-tauri/exports",
 ]
 
 TRANSIENT_PATTERNS = [
@@ -144,7 +146,7 @@ def run_widget_prechecks() -> None:
     print("\n[STEP] Widget 构建前检查")
 
     # ── iOS: App.entitlements 存在且包含 group.com.hbut.mini ──
-    entitlements_path = PROJECT_DIR / "ios" / "App" / "App" / "App.entitlements"
+    entitlements_path = CLIENT_DIR / "ios" / "App" / "App" / "App.entitlements"
     if entitlements_path.exists():
         content = read_text(entitlements_path)
         if "group.com.hbut.mini" not in content:
@@ -158,7 +160,7 @@ def run_widget_prechecks() -> None:
         print("  [WARN] iOS App.entitlements 不存在，跳过检查（非 iOS 构建环境）")
 
     # ── Android: AndroidManifest.xml 注册了 TodayCoursesProvider ──
-    manifest_path = PROJECT_DIR / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
+    manifest_path = CLIENT_DIR / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
     receiver_fqn = "com.hbut.mini.widget.TodayCoursesProvider"
     if manifest_path.exists():
         content = read_text(manifest_path)
@@ -176,8 +178,8 @@ def run_widget_prechecks() -> None:
 
 
 def run_build_check() -> None:
-    print("\n[STEP] 构建检查（npm run build）")
-    ok, out, err = run_command(["npm", "run", "build"], check=False)
+    print("\n[STEP] 构建检查（apps/client 下 npm run build）")
+    ok, out, err = run_command(["npm", "run", "build"], cwd=CLIENT_DIR, check=False)
     if not ok:
         preview = "\n".join((out or "").splitlines()[-20:] + (err or "").splitlines()[-20:])
         raise RuntimeError(f"构建失败（npm run build）\n{preview}".strip())
@@ -225,7 +227,7 @@ def bump_version(current: str, bump: str) -> str:
 
 
 def get_current_version() -> str:
-    package_json = PROJECT_DIR / "package.json"
+    package_json = CLIENT_DIR / "package.json"
     data = read_json(package_json)
     return str(data.get("version", "1.0.0"))
 
@@ -244,38 +246,38 @@ def replace_version_once(
 def update_version_files(new_version: str) -> None:
     print(f"\n[STEP] 更新版本号到 {new_version}")
 
-    package_json = PROJECT_DIR / "package.json"
+    package_json = CLIENT_DIR / "package.json"
     package_data = read_json(package_json)
     package_data["version"] = new_version
     write_json(package_json, package_data)
-    print("  [OK] package.json")
+    print("  [OK] apps/client/package.json")
 
-    package_lock = PROJECT_DIR / "package-lock.json"
+    package_lock = CLIENT_DIR / "package-lock.json"
     package_lock_data = read_json(package_lock)
     package_lock_data["version"] = new_version
     root_package = package_lock_data.setdefault("packages", {}).setdefault("", {})
     root_package["version"] = new_version
     write_json(package_lock, package_lock_data)
-    print("  [OK] package-lock.json")
+    print("  [OK] apps/client/package-lock.json")
 
-    tauri_conf = PROJECT_DIR / "src-tauri" / "tauri.conf.json"
+    tauri_conf = CLIENT_DIR / "src-tauri" / "tauri.conf.json"
     tauri_data = read_json(tauri_conf)
     tauri_data["version"] = new_version
     write_json(tauri_conf, tauri_data)
-    print("  [OK] src-tauri/tauri.conf.json")
+    print("  [OK] apps/client/src-tauri/tauri.conf.json")
 
     replace_version_once(
-        PROJECT_DIR / "src-tauri" / "Cargo.toml",
+        CLIENT_DIR / "src-tauri" / "Cargo.toml",
         r'^version\s*=\s*"[^"]+"',
         f'version = "{new_version}"',
-        label="src-tauri/Cargo.toml",
+        label="apps/client/src-tauri/Cargo.toml",
         flags=re.MULTILINE,
     )
     replace_version_once(
-        PROJECT_DIR / "src-tauri" / "Cargo.lock",
+        CLIENT_DIR / "src-tauri" / "Cargo.lock",
         r'(\[\[package\]\]\r?\nname = "hbut-helper"\r?\nversion = ")[^"]+("\r?\n)',
         rf'\g<1>{new_version}\g<2>',
-        label="src-tauri/Cargo.lock",
+        label="apps/client/src-tauri/Cargo.lock",
     )
     replace_version_once(
         PROJECT_DIR / "scripts" / "verify_release_config.mjs",

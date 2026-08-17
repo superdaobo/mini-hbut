@@ -74,7 +74,7 @@ jobs:
             cp -a .tar-tmp/. source/
           fi
 
-          test -f source/package.json
+          test -f source/apps/client/package.json
           tar -czf source.tar.gz -C source .
 
       - name: Upload source artifact
@@ -136,7 +136,7 @@ jobs:
           def fetch_main_version(repo: str, token: str) -> str:
               if not repo:
                   return ''
-              url = f'https://raw.githubusercontent.com/{repo}/main/package.json'
+              url = f'https://raw.githubusercontent.com/{repo}/main/apps/client/package.json'
               request = urllib.request.Request(
                   url,
                   headers={
@@ -150,7 +150,7 @@ jobs:
               except Exception:
                   return ''
 
-          with open('package.json', 'r', encoding='utf-8') as f:
+          with open('apps/client/package.json', 'r', encoding='utf-8') as f:
               current_version = str(json.load(f).get('version', '0.0.0')).strip()
 
           main_version = fetch_main_version(
@@ -193,17 +193,21 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build fast-check web bundle
+        working-directory: apps/client
         run: |
           npm run build
           node scripts/check_dist_boundary.mjs
           node scripts/report_bundle_sizes.mjs
 
       - name: Verify Capacitor sync
+        working-directory: apps/client
         run: npx cap sync
 
   build-android:
@@ -247,6 +251,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -257,36 +262,47 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Stamp beta app version into package sources
+        working-directory: apps/client
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
 
       - name: Initialize Android project
+        working-directory: apps/client
         run: npm run tauri android init
 
       - name: Pin Android NDK version in Gradle
+        working-directory: apps/client
         run: python scripts/ci/patch_android_ndk.py
 
       - name: Generate, sync, and verify Android launcher icons
+        working-directory: apps/client
         run: |
           set -euo pipefail
-          PYTHON_BIN=python source scripts/ci/setup_python_venv.sh
+          PYTHON_BIN=python source ../../scripts/ci/setup_python_venv.sh
           pip install --quiet Pillow
           python scripts/fix_android_adaptive_icons.py
           node scripts/sync_tauri_platform_icons.mjs android
           npx vitest run src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Patch Android widget support
+        working-directory: apps/client
         run: python scripts/patch_android_widget.py
 
+      - name: Patch Android background support
+        working-directory: apps/client
+        run: python scripts/patch_android_background.py
+
       - name: Patch Android notification permissions
+        working-directory: apps/client
         run: |
           set -euo pipefail
           MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
@@ -309,18 +325,20 @@ jobs:
               if marker not in text:
                   text = text.replace(
                       "<application",
-                      f'    <uses-permission android:name="{perm}" />\\n\\n    <application',
+                      f'    <uses-permission android:name="{perm}" />\n\n    <application',
                       1,
                   )
           p.write_text(text, encoding="utf-8")
           print("Patched AndroidManifest permissions.")
           PY
-          grep -n "POST_NOTIFICATIONS\\|WAKE_LOCK\\|FOREGROUND_SERVICE\\|REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"
+          grep -n "POST_NOTIFICATIONS\|WAKE_LOCK\|FOREGROUND_SERVICE\|REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"
 
       - name: Build frontend for Android
+        working-directory: apps/client
         run: npm run build
 
       - name: Prune unused assets for mobile
+        working-directory: apps/client
         run: |
           set -euo pipefail
           # 移动端 APK 不需要 favicon，移除可节省 ~437KB
@@ -328,6 +346,7 @@ jobs:
           echo "Removed dist/favicon.svg"
 
       - name: Build Android APK (arm64, mobile-slim)
+        working-directory: apps/client
         run: npx tauri android build --target aarch64 --config '{"build":{"features":["mobile-slim"]}}'
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
@@ -335,9 +354,11 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.NDK_HOME }}
 
       - name: Mobile boundary guard (hidden views excluded, kept capabilities intact)
+        working-directory: apps/client
         run: node scripts/check_mobile_boundary.mjs --expect-excluded ForumView,MoreShuake,OnlineLearning --expect-kept ChaoxingHubView --check-rust-registry
 
       - name: Report Android raw build size
+        working-directory: apps/client
         env:
           BUNDLE_ROOT: src-tauri/gen/android/app/build/outputs/apk
         run: node scripts/report_bundle_sizes.mjs
@@ -346,17 +367,18 @@ jobs:
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
           OUTPUT_APK: Mini-HBUT_${{ needs.meta.outputs.beta_version }}_arm64.apk
+          APK_SEARCH_ROOT: apps/client/src-tauri/gen/android/app/build/outputs/apk
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           REQUIRE_KEYSTORE: "true"
-        run: bash scripts/ci/sign_android_apk.sh
+        run: bash apps/client/scripts/ci/sign_android_apk.sh
 
       - name: Report Android package size
         env:
           BUNDLE_ROOT: .
-        run: node scripts/report_bundle_sizes.mjs
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
@@ -384,6 +406,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -392,23 +415,26 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
           # 共享 key，避免 runner/分支细粒度 miss 导致冷编 20min+
           shared-key: mini-hbut-dev-windows
           # dev 推送与手动 workflow_dispatch 均写入缓存
           save-if: ${{ github.ref == 'refs/heads/dev' || github.event_name == 'workflow_dispatch' }}
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Stamp beta app version into package sources
         shell: bash
+        working-directory: apps/client
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
 
       - name: Regenerate and verify official desktop icons
         shell: powershell
+        working-directory: apps/client
         run: |
           python -m pip install Pillow
           python scripts/regenerate_official_icons.py
@@ -416,6 +442,7 @@ jobs:
 
       - name: Build Windows app
         shell: bash
+        working-directory: apps/client
         run: |
           set -euo pipefail
           # Dev：只打 NSIS（约 6–10min 量级）。
@@ -424,10 +451,12 @@ jobs:
           npm run tauri build -- --bundles nsis
 
       - name: Report dist and raw Windows bundle size
+        working-directory: apps/client
         run: node scripts/report_bundle_sizes.mjs
 
       - name: Rename Windows bundles
         shell: powershell
+        working-directory: apps/client
         env:
           ARTIFACT_TAG: ${{ needs.meta.outputs.artifact_tag }}
         run: |
@@ -448,6 +477,7 @@ jobs:
           Get-ChildItem dist-dev
 
       - name: Report packaged Windows size
+        working-directory: apps/client
         env:
           BUNDLE_ROOT: dist-dev
         run: node scripts/report_bundle_sizes.mjs
@@ -456,7 +486,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ needs.meta.outputs.artifact_tag }}
-          path: dist-dev/*
+          path: apps/client/dist-dev/*
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -477,6 +507,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -487,32 +518,36 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Stamp beta app version into package sources
+        working-directory: apps/client
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
 
       - name: Regenerate and verify official desktop icons
+        working-directory: apps/client
         run: |
           set -euo pipefail
-          source scripts/ci/setup_python_venv.sh
+          source ../../scripts/ci/setup_python_venv.sh
           pip install --quiet Pillow
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build macOS app (universal, app only)
+        working-directory: apps/client
         run: npm run tauri build -- --target universal-apple-darwin --bundles app
 
       - name: Report macOS raw build size
         env:
-          BUNDLE_ROOT: src-tauri/target/universal-apple-darwin/release/bundle
-        run: node scripts/report_bundle_sizes.mjs
+          BUNDLE_ROOT: apps/client/src-tauri/target/universal-apple-darwin/release/bundle
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Package macOS bundle
         env:
@@ -520,10 +555,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist-dev
-          APP_PATH="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -type d -name '*.app' | head -n 1 || true)"
+          APP_PATH="$(find apps/client/src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -type d -name '*.app' | head -n 1 || true)"
           if [ -z "$APP_PATH" ]; then
             echo "macOS .app not found"
-            find src-tauri/target/universal-apple-darwin/release/bundle -maxdepth 4 -type d -print || true
+            find apps/client/src-tauri/target/universal-apple-darwin/release/bundle -maxdepth 4 -type d -print || true
             exit 1
           fi
 
@@ -535,7 +570,7 @@ jobs:
       - name: Report macOS package size
         env:
           BUNDLE_ROOT: dist-dev
-        run: node scripts/report_bundle_sizes.mjs
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -588,7 +623,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Setup Node.js
@@ -596,16 +631,20 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Stamp beta app version into package sources
+        working-directory: apps/client
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
 
       - name: Install Tauri CLI
+        working-directory: apps/client
         run: npm exec -- tauri --version
 
       - name: Build iOS app bundle
@@ -613,6 +652,9 @@ jobs:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: |
           set -euo pipefail
+          # 客户端已迁移至 apps/client：后续命令统一在 apps/client 下执行，
+          # 根级资源（venv 脚本 / tauri-cli-options-server）用 ../../ 引用。
+          cd apps/client
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           const p = 'src-tauri/tauri.conf.json';
@@ -638,7 +680,7 @@ jobs:
           });
           NODE
 
-          PYTHON_BIN=python source scripts/ci/setup_python_venv.sh
+          PYTHON_BIN=python source ../../scripts/ci/setup_python_venv.sh
           pip install --quiet Pillow
           python scripts/fix_ios_app_icons.py
           npx vitest run src/utils/ios_launcher_icon_contract.spec.ts
@@ -659,7 +701,7 @@ jobs:
           npm install ws --no-save --no-audit --no-fund
           node -e "require('ws'); console.log('ws ok')"
 
-          cp tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
+          cp ../../tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
 
           IDENTIFIER="$(node -p "require('./src-tauri/tauri.conf.json').identifier")"
           PORT="$(python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()")"
@@ -721,6 +763,7 @@ jobs:
             DEVELOPMENT_TEAM=""
 
       - name: Package IPA
+        working-directory: apps/client
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: |
@@ -766,6 +809,7 @@ jobs:
           ls -lh "$IPA_NAME"
 
       - name: Report iOS package size
+        working-directory: apps/client
         env:
           BUNDLE_ROOT: .
         run: node scripts/report_bundle_sizes.mjs
@@ -774,7 +818,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-${{ needs.meta.outputs.beta_version }}
-          path: Mini-HBUT_${{ needs.meta.outputs.beta_version }}_iOS.ipa
+          path: apps/client/Mini-HBUT_${{ needs.meta.outputs.beta_version }}_iOS.ipa
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -808,6 +852,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -816,32 +861,36 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Stamp beta app version into package sources
+        working-directory: apps/client
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
 
       - name: Regenerate and verify official desktop icons
+        working-directory: apps/client
         run: |
           set -euo pipefail
-          source scripts/ci/setup_python_venv.sh
+          source ../../scripts/ci/setup_python_venv.sh
           pip install --quiet Pillow
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build Linux app
+        working-directory: apps/client
         run: npm run tauri build -- --bundles appimage
 
       - name: Report Linux raw build size
         env:
-          BUNDLE_ROOT: src-tauri/target/release/bundle
-        run: node scripts/report_bundle_sizes.mjs
+          BUNDLE_ROOT: apps/client/src-tauri/target/release/bundle
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Rename Linux bundles
         env:
@@ -849,7 +898,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist-dev
-          APPIMAGE="$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -n 1 || true)"
+          APPIMAGE="$(find apps/client/src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -n 1 || true)"
           if [ -z "$APPIMAGE" ]; then
             echo "No Linux bundle found"
             exit 1
@@ -861,7 +910,7 @@ jobs:
       - name: Report Linux package size
         env:
           BUNDLE_ROOT: dist-dev
-        run: node scripts/report_bundle_sizes.mjs
+        run: node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -997,7 +1046,7 @@ jobs:
           BASELINE_DIR="stable-assets"
           mkdir -p "$BASELINE_DIR"
           gh release download "$STABLE_TAG" --dir "$BASELINE_DIR" --pattern "Mini-HBUT_*" --clobber
-          BUNDLE_ROOT="dev-assets" BASELINE_DIR="$BASELINE_DIR" node scripts/report_bundle_sizes.mjs
+          BUNDLE_ROOT="dev-assets" BASELINE_DIR="$BASELINE_DIR" node apps/client/scripts/report_bundle_sizes.mjs
 
       - name: Copy dev assets for CDN
         run: |
@@ -1027,7 +1076,9 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache-dependency-path: |
+            apps/client/package-lock.json
+            website/package-lock.json
 
       - name: Build website modules (dev channel)
         env:
@@ -1038,12 +1089,14 @@ jobs:
           set -euo pipefail
           node scripts/build_website_modules.mjs
 
-      - name: Install root deps for Hero app demo
+      - name: Install client deps for Hero app demo
+        working-directory: apps/client
         run: |
           set -euo pipefail
           npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build website Hero app demo (offline Vue)
+        working-directory: apps/client
         run: |
           set -euo pipefail
           npm run build:website-demo

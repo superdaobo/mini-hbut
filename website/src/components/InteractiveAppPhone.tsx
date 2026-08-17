@@ -118,7 +118,7 @@ export default function InteractiveAppPhone() {
               {failed && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#f0f4f8] px-4 text-center text-[11px] text-slate-500">
                   <p>演示包未就绪</p>
-                  <p className="text-[10px] text-slate-400">请运行 npm run build:website-demo</p>
+                  <p className="text-[10px] text-slate-400">请在 apps/client 下运行 npm run build:website-demo</p>
                 </div>
               )}
               <div

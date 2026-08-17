@@ -65,8 +65,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf src-tauri/exports .tauri-tmp dist-release captures tools/.session_cookies.json || true
-          find src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
+          rm -rf apps/client/src-tauri/exports apps/client/.tauri-tmp dist-release captures tools/.session_cookies.json || true
+          find apps/client/src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
           find . -type f \( -name "*.log" -o -name "*.cache" \) -delete || true
 
       - name: Resolve TestFlight version
@@ -78,7 +78,7 @@ jobs:
           BUILD_NUMBER="${{ inputs.build_number }}"
 
           if [ -z "$VERSION_NAME" ]; then
-            VERSION_NAME="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+            VERSION_NAME="$(node -p "JSON.parse(require('fs').readFileSync('apps/client/package.json','utf8')).version")"
           fi
           if [ -z "$BUILD_NUMBER" ]; then
             BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
@@ -142,18 +142,21 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
 
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install frontend dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Tauri CLI
+        working-directory: apps/client
         run: npm exec -- tauri --version
 
       - name: Import signing certificate and provisioning profile
@@ -211,6 +214,9 @@ jobs:
           KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain_path }}
         run: |
           set -euo pipefail
+          # 客户端已迁移至 apps/client：后续命令统一在 apps/client 下执行，
+          # 根级资源（venv 脚本 / tauri-cli-options-server）用 ../../ 引用。
+          cd apps/client
           # Force production web assets for iOS CI builds.
           # If devUrl is present, runtime may try to open localhost:1420.
           node --input-type=module - <<'NODE'
@@ -266,7 +272,7 @@ jobs:
           npm install ws --no-save --no-audit --no-fund
           node -e "require('ws'); console.log('ws ok')"
 
-          cp tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
+          cp ../../tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
 
           IDENTIFIER="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8')).identifier")"
           PORT="$(python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()")"
@@ -338,6 +344,7 @@ jobs:
       - name: Export signed IPA
         id: export
         shell: bash
+        working-directory: apps/client
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           IOS_PROVISION_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
@@ -436,6 +443,7 @@ jobs:
 
       - name: Report iOS package size
         if: always()
+        working-directory: apps/client
         env:
           BUNDLE_ROOT: .
         run: node scripts/report_bundle_sizes.mjs

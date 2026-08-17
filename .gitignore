@@ -6,9 +6,9 @@ dist/
 .dist-trash-*/
 
 # Rust
-src-tauri/target/
-/Cargo.lock
-!src-tauri/Cargo.lock
+apps/client/src-tauri/target/
+/apps/client/Cargo.lock
+!apps/client/src-tauri/Cargo.lock
 
 # IDE
 .idea/
@@ -44,13 +44,13 @@ _debug*_cookies*.txt
 opencode.json
 
 # Generated Android project
-src-tauri/gen/
-android/app/build/
-android/.gradle/
-android/build/
-ios/App/build/
-ios/Pods/
-ios/DerivedData/
+apps/client/src-tauri/gen/
+apps/client/android/app/build/
+apps/client/android/.gradle/
+apps/client/android/build/
+apps/client/ios/App/build/
+apps/client/ios/Pods/
+apps/client/ios/DerivedData/
 
 # Python cache
 __pycache__/
@@ -141,3 +141,33 @@ mcps/
 terminals/
 agent-tools/
 .pytest_cache/
+
+# ---- #644: 提交保护 / CNB 隔离 / 生成物治理 ----
+# 本地 agent/CNB 配置与工作区产物（路径级隔离，内容不入库；禁止查看/复制其内容）
+/.cnb/
+/.cnb.yml
+/.config/
+/.reasonix/
+/.zcode/
+# 本地 agent 调试产物（截图 / release-manifest 检查 JSON，均无引用）
+/.codex-artifacts/
+# 本地热更新测试动态生成的临时目录（test_hot_update_framework.mjs 运行时自建）
+/.tmp-hot-update-test/
+# 本地校园码调试输出（scripts 下无引用）
+/scripts/_tmp_campus_code_result.json
+# 本地调试/临时 HTML 与 JSON 生成物（根目录）
+/authorize-error.html
+/hash-data.json
+/pelican-bike.html
+# App Store 文案草稿（用户本地文件；如需版本化请显式 git add -f）
+/docs/app-store/APP_STORE_COPY_v1.4.6.md
+# 客户端发布中间产物（对照 release.yml 清理步骤 rm -rf 清单：
+# apps/client/src-tauri/exports apps/client/.tauri-tmp dist-release captures tools/.session_cookies.json）
+apps/client/dist-release/
+apps/client/captures/
+apps/client/.tauri-tmp/
+apps/client/src-tauri/exports/
+# 会话 Cookie 采集产物（release.yml 清理清单内，属敏感类）
+tools/.session_cookies.json
+# iOS Capacitor 遗留 Web 资源目录（apps/client/ios/.gitignore 已忽略，此处显式兜底防误提交）
+apps/client/ios/App/App/public/

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolveWindowsMsvcEnvironment } from './tauri_cli_bootstrap.mjs'
+import { resolveWindowsMsvcEnvironment } from '../apps/client/scripts/tauri_cli_bootstrap.mjs'
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const npmCli = process.env.npm_execpath

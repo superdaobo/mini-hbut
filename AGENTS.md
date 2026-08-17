@@ -10,6 +10,11 @@
 
 ## ⚠️ Hard Requirement（不可违反）
 
+### 🤖 Skill 调用（不可违反）
+
+* 用户提出创建 / 拆解 GitHub issue（如“创建 issue”、“建个需求”、“拆 issue”、“创建子 issue”、“写个 feature issue”等）时，**必须调用 `issue-creator` skill** 并完整执行其流程（双层信息架构、sub-issue 拆解、自动关联）
+* 禁止绕过 skill 手动简化创建 issue；即使任务看似简单，也不得跳过
+
 ### 🧩 Shell 执行
 
 1. **必须在 `functions.shell` 中直接调用二进制**（command 数组直调）

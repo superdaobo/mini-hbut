@@ -1,17 +1,19 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.cwd()
+// 以脚本自身位置解析仓库根，保证从仓库根或 apps/client 调用结果一致（#642）
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const npmCli = process.env.npm_execpath
 if (!npmCli) throw new Error('npm_execpath is required; run through npm run audit:dependencies')
 
 const projects = [
-  { name: 'root', directory: root },
-  { name: 'website', directory: path.join(root, 'website') }
+  { name: 'client', directory: path.join(repoRoot, 'apps/client') },
+  { name: 'website', directory: path.join(repoRoot, 'website') }
 ]
-for (const entry of fs.readdirSync(path.join(root, 'website/modules-src'), { withFileTypes: true })) {
-  const directory = path.join(root, 'website/modules-src', entry.name, 'project')
+for (const entry of fs.readdirSync(path.join(repoRoot, 'website/modules-src'), { withFileTypes: true })) {
+  const directory = path.join(repoRoot, 'website/modules-src', entry.name, 'project')
   if (entry.isDirectory() && fs.existsSync(path.join(directory, 'package-lock.json'))) {
     projects.push({ name: `module:${entry.name}`, directory })
   }

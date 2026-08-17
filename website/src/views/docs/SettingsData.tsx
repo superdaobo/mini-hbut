@@ -4,7 +4,7 @@ const settingsModules = [
     {
         title: '我的',
         entry: '底部主 Tab -> 我的。',
-        source: 'src/components/MeView.vue、src/App.vue',
+        source: 'apps/client/src/components/MeView.vue、apps/client/src/App.vue',
         usage: [
             '我的页展示头像、姓名、学号、登录状态和常用功能入口，包括个人信息、官方帖子、设置中心、导出中心、配置工具、检查更新、意见反馈、开源协议、赞助、更多、免责声明与隐私政策。',
             '退出登录通过事件交给 App 统一处理，会清理当前会话并让需要登录的模块回到未登录状态。',
@@ -19,7 +19,7 @@ const settingsModules = [
     {
         title: '设置中心',
         entry: '我的 -> 设置中心。',
-        source: 'src/components/SettingsView.vue、src/utils/app_settings.ts、src/utils/ui_settings.ts、src/utils/font_settings.ts',
+        source: 'apps/client/src/components/SettingsView.vue、apps/client/src/utils/app_settings.ts、apps/client/src/utils/ui_settings.ts、apps/client/src/utils/font_settings.ts',
         usage: [
             '设置中心分为外观、后端、调试三类。外观页管理主题、卡片密度、导航样式、字体、字体 CDN 和字体预缓存。',
             '后端页管理远程配置、本地后端设置、OCR 地址、上传地址、云同步地址、云同步 secret 引用、请求超时和模块重试参数。',
@@ -35,7 +35,7 @@ const settingsModules = [
     {
         title: '云同步',
         entry: '我的 -> 设置中心 -> 后端与云同步区域。',
-        source: 'src/components/SettingsView.vue、src/utils/cloud_sync.ts、src/utils/remote_config.ts',
+        source: 'apps/client/src/components/SettingsView.vue、apps/client/src/utils/cloud_sync.ts、apps/client/src/utils/remote_config.ts',
         usage: [
             '云同步用于上传和下载本地设置、教务数据摘要、自定义课程等数据，页面会展示最近上传成功/失败、最近下载成功/失败和更新时间。',
             '云同步运行参数来自远程配置或本地后端设置，包括 endpoint、secret_ref、上传冷却和下载冷却。',
@@ -50,7 +50,7 @@ const settingsModules = [
     {
         title: '导出中心',
         entry: '我的 -> 导出中心。',
-        source: 'src/components/ExportCenterView.vue',
+        source: 'apps/client/src/components/ExportCenterView.vue',
         usage: [
             '导出中心支持选择模块和学期列表，先预览导出数据，再导出 JSON 或长图片。',
             '可导出模块包括成绩、绩点排名、课表、考试安排、校历、学籍信息、学业完成情况、培养方案、电费、交易记录、空教室缓存和校园地图缓存。',
@@ -66,7 +66,7 @@ const settingsModules = [
     {
         title: '意见反馈',
         entry: '我的 -> 意见反馈。',
-        source: 'src/components/FeedbackView.vue',
+        source: 'apps/client/src/components/FeedbackView.vue',
         usage: [
             '意见反馈会打开腾讯文档反馈表，也支持复制反馈链接。',
             '页面会读取最近错误日志，用户可以复制最近错误后贴到反馈表，帮助定位问题。',
@@ -81,7 +81,7 @@ const settingsModules = [
     {
         title: '官方帖子与配置工具',
         entry: '我的 -> 官方帖子；我的 -> 配置工具（管理员可见）。',
-        source: 'src/components/OfficialView.vue、src/components/ConfigEditor.vue、src/utils/remote_config.ts',
+        source: 'apps/client/src/components/OfficialView.vue、apps/client/src/components/ConfigEditor.vue、apps/client/src/utils/remote_config.ts',
         usage: [
             '官方帖子以内嵌腾讯文档展示，也支持复制链接或外部浏览器打开。',
             '配置工具用于管理员查看和编辑远程配置 JSON 的本地草稿，覆盖公告、强制更新、OCR、上传、资料分享、云同步等字段。',
@@ -96,11 +96,11 @@ const settingsModules = [
 ];
 
 const sourceEvidence = [
-    '我的页入口：src/components/MeView.vue 暴露个人信息、设置中心、导出中心、配置工具、官方帖子、意见反馈、隐私政策和退出登录。',
-    '设置持久化：src/utils/app_settings.ts 保存 hbu_app_settings_v1，src/utils/ui_settings.ts 保存 hbu_ui_settings_v2，src/utils/font_settings.ts 管理字体缓存。',
-    '云同步：src/utils/cloud_sync.ts 上传/下载 settings、academic、custom courses 等指定快照，src/utils/remote_config.ts 提供 endpoint 和 secret_ref 配置。',
-    '导出中心：src/components/ExportCenterView.vue 直接组织导出模块、学期列表、交易记录月份、缓存导出、JSON 和长图片导出。',
-    '反馈和官方入口：src/components/FeedbackView.vue 与 OfficialView.vue 都是外部腾讯文档入口，失败时提供复制链接兜底。',
+    '我的页入口：apps/client/src/components/MeView.vue 暴露个人信息、设置中心、导出中心、配置工具、官方帖子、意见反馈、隐私政策和退出登录。',
+    '设置持久化：apps/client/src/utils/app_settings.ts 保存 hbu_app_settings_v1，apps/client/src/utils/ui_settings.ts 保存 hbu_ui_settings_v2，apps/client/src/utils/font_settings.ts 管理字体缓存。',
+    '云同步：apps/client/src/utils/cloud_sync.ts 上传/下载 settings、academic、custom courses 等指定快照，apps/client/src/utils/remote_config.ts 提供 endpoint 和 secret_ref 配置。',
+    '导出中心：apps/client/src/components/ExportCenterView.vue 直接组织导出模块、学期列表、交易记录月份、缓存导出、JSON 和长图片导出。',
+    '反馈和官方入口：apps/client/src/components/FeedbackView.vue 与 OfficialView.vue 都是外部腾讯文档入口，失败时提供复制链接兜底。',
 ];
 
 const SettingsData = () => (

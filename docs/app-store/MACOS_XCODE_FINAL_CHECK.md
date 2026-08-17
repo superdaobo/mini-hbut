@@ -7,6 +7,7 @@ This Windows implementer host **cannot** run Xcode Archive. Complete on a Mac:
 3. Run or trigger `.github/workflows/ios-testflight.yml` (sets `VITE_APP_STORE_BUILD=1`).
 4. Local optional:
    ```bash
+   cd apps/client   # 客户端构建配置位于 apps/client/
    export VITE_APP_STORE_BUILD=1
    export MINI_HBUT_BUILD_PROFILE=release
    npm run build

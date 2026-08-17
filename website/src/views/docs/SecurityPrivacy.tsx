@@ -24,7 +24,7 @@ const overviewCards = [
 const accountSessionLifecycle = [
     {
         stage: '登录输入与统一身份认证',
-        evidence: 'src-tauri/src/http_client/auth.rs / src-tauri/src/http_client/mod.rs',
+        evidence: 'apps/client/src-tauri/src/http_client/auth.rs / apps/client/src-tauri/src/http_client/mod.rs',
         items: [
             '统一身份认证链路会读取用户名、密码、验证码和 CAS 页面参数。encrypt_password_aes 只用于复现 CAS 前端 AES-CBC 表单加密，不是本地密码存储保护。',
             'HbutClient 在内存中保留 last_username 和 last_password，用于重登、图书馆、电费、学习平台补票等流程。clear_session 会把 last_password、电费 token 和登录态置空。',
@@ -33,7 +33,7 @@ const accountSessionLifecycle = [
     },
     {
         stage: 'Cookie Jar 与会话恢复',
-        evidence: 'src-tauri/src/http_client/session.rs',
+        evidence: 'apps/client/src-tauri/src/http_client/session.rs',
         items: [
             'Rust 侧主 HTTP client 使用 Cookie Jar 维护 code.hbut.edu.cn、auth.hbut.edu.cn、jwxt.hbut.edu.cn、hbut.jw.chaoxing.com 等域名会话。',
             'get_cookies 返回带 Code、Auth、Jwxt、ChaoxingJwxt 作用域的组合 Cookie 字符串；get_cookie_snapshot 返回 code、auth、jwxt、chaoxing_jwxt 结构化 JSON。',
@@ -43,7 +43,7 @@ const accountSessionLifecycle = [
     },
     {
         stage: '退出登录与清理',
-        evidence: 'src-tauri/src/http_client/session.rs / src/App.vue',
+        evidence: 'apps/client/src-tauri/src/http_client/session.rs / apps/client/src/App.vue',
         items: [
             'clear_session 清理的是 HbutClient 内存态、Cookie Jar、last_password、electricity_token、electricity_refresh_token 和用户信息。',
             '前端退出登录会移除或重置 hbu_username、登录状态和部分页面态，但不自动清空所有 SQLite 表、localStorage 缓存、IndexedDB、Cache API、Cookie 快照文件和模块缓存。',
@@ -58,7 +58,7 @@ const localStorageItems = [
     'hbu_remote_config_snapshot 保存远程配置快照，会影响 OCR、论坛、资料分享、云同步、模块中心、AI、config_admin_ids 等运行时端点和管理员入口。',
     'hbu_cloud_sync_device_id 是云同步设备标识；hbu_cloud_sync_status:*、hbu_cloud_sync_last_success:*、hbu_cloud_sync_last_upload_success:*、hbu_cloud_sync_last_download_success:* 保存同步状态。',
     'hbu_forum_token:${studentId}、hbu_forum_profile:${studentId} 保存论坛登录 token 和社区资料；这些数据不属于教务 Cookie，但同样是账号相关敏感信息。',
-    'hbu_ui_settings_v2 包含 customCss 和 customJs；src/utils/ui_settings.ts 会把 customCss 写入 styleEl.textContent，并把 customJs 写入 scriptEl.textContent 后插入页面执行。',
+    'hbu_ui_settings_v2 包含 customCss 和 customJs；apps/client/src/utils/ui_settings.ts 会把 customCss 写入 styleEl.textContent，并把 customJs 写入 scriptEl.textContent 后插入页面执行。',
 ];
 
 const sqliteTables = [
@@ -81,26 +81,26 @@ const sqliteTables = [
 ];
 
 const cloudRemoteItems = [
-    'src/utils/cloud_sync.ts 会用 student_id、device_id、reason、payload、secret_ref 发起云同步请求，并通过 /ping 获取 challenge 后在后续请求加入 x-cloud-sync-challenge。',
+    'apps/client/src/utils/cloud_sync.ts 会用 student_id、device_id、reason、payload、secret_ref 发起云同步请求，并通过 /ping 获取 challenge 后在后续请求加入 x-cloud-sync-challenge。',
     '云同步 payload 可包含 hbu_app_settings_v1、hbu_ui_settings_v2、hbu_font_settings_v1、登录入口模式、登录方法、hbu_remember、自定义课程、成绩、排名、个人信息、课表和课表元信息。',
     '当前审计未发现云同步上传密码、Cookie、user_sessions.encrypted_password 或论坛 token 的路径，但会上传足以识别学生和学业状态的数据。',
-    'src/utils/remote_config.ts 会从 GitCode raw、代理 URL 或 /remote_config.json 加载配置；失败后可回退 hbu_remote_config_snapshot 和 DEFAULT_CONFIG。',
+    'apps/client/src/utils/remote_config.ts 会从 GitCode raw、代理 URL 或 /remote_config.json 加载配置；失败后可回退 hbu_remote_config_snapshot 和 DEFAULT_CONFIG。',
     '远程配置可控制 OCR 端点、forum endpoint、cloud sync endpoint、module center CDN、资源分享 WebDAV、AI models、config_admin_ids。它是运行时信任边界，不只是 UI 配置。',
     'OCR 会把验证码图片或 base64 数据发给配置端点；默认配置中存在 HTTPS 远程 OCR 和 HTTP fallback，HTTP 明文链路不能按强隐私传输描述。',
 ];
 
 const platformPermissionItems = [
-    'src-tauri/capabilities/main.json 绑定 windows: ["main"]，授权 core:default、notification:default、notification:allow-request-permission、notification:allow-is-permission-granted、notification:allow-notify、notification:allow-create-channel、notification:allow-list-channels、shell:default、window-state:default。',
-    'src-tauri/src/lib.rs 初始化 tauri_plugin_notification、tauri_plugin_shell、tauri_plugin_fs、tauri_plugin_autostart、tauri_plugin_window_state、keep-screen-on 等插件。插件初始化不等于前端页面拥有任意 fs 权限。',
+    'apps/client/src-tauri/capabilities/main.json 绑定 windows: ["main"]，授权 core:default、notification:default、notification:allow-request-permission、notification:allow-is-permission-granted、notification:allow-notify、notification:allow-create-channel、notification:allow-list-channels、shell:default、window-state:default。',
+    'apps/client/src-tauri/src/lib.rs 初始化 tauri_plugin_notification、tauri_plugin_shell、tauri_plugin_fs、tauri_plugin_autostart、tauri_plugin_window_state、keep-screen-on 等插件。插件初始化不等于前端页面拥有任意 fs 权限。',
     'shell:default 允许外链打开能力，风险边界依赖 URL 校验、调用点约束和用户可感知跳转。open_external_url 当前只允许 http、https、mailto、tel、weixin、wechat、小程序等有限协议。',
-    'src-tauri/tauri.conf.json 中 security.csp 为 null，等价于 csp: null。当前不能依赖 Tauri 配置层 CSP 阻止远程脚本、iframe、模块内容或 customJs。',
+    'apps/client/src-tauri/tauri.conf.json 中 security.csp 已配置完整策略（script-src、connect-src、frame-src 等均已收紧）。Tauri 配置层 CSP 是纵深防御的一层，仍需配合应用层约束远程脚本、iframe、模块内容或 customJs。',
     '通知权限仅代表可请求和发送本地通知，不代表后台常驻服务稳定可用。Android 前台服务、iOS 后台任务、Web Notification 和桌面通知各自有系统限制。',
 ];
 
 const remoteContentRisks = [
     {
         title: '模块包',
-        source: 'src-tauri/src/modules/module_bundle.rs / src/utils/more_modules.js',
+        source: 'apps/client/src-tauri/src/modules/module_bundle.rs / apps/client/src/utils/more_modules.js',
         items: [
             '模块包来自远程 manifest，package_url 指向 bundle.zip，package_sha256 用于内容完整性校验。没有 package_sha256 时只能记录实际 sha256，不能证明来源可信。',
             'Rust 解包使用 enclosed_name() 并检查 output_path.starts_with(temp_root)，用于限制 zip 路径穿越；entry_path 也会拒绝根路径和 .. 片段。',
@@ -109,9 +109,9 @@ const remoteContentRisks = [
     },
     {
         title: '热更新',
-        source: 'src/utils/hot_update.js / src/utils/hot_update_core.js',
+        source: 'apps/client/src/utils/hot_update.js / apps/client/src/utils/hot_update_core.js',
         items: [
-            '热更新框架默认关闭，src/utils/hot_update.js 会先检查 debug runtime config，只有 enableHotUpdateFramework 开启时才继续。',
+            '热更新框架默认关闭，apps/client/src/utils/hot_update.js 会先检查 debug runtime config，只有 enableHotUpdateFramework 开启时才继续。',
             'manifest 必须包含 version、bundle_url、sha256、signature、min_bootstrap_version、max_bootstrap_version、min_native_version、max_native_version。',
             '下载后先计算 sha256，再调用 verifyHotBundleSignature。当前 verifyHotBundleSignature 接受 digest 相等或 signature 以 sha256: 开头的方案，不是非对称签名体系。',
             '因此 signature 只能描述为完整性字段或弱签名占位，不能写成公钥验签、代码签名或发布者身份认证。',
@@ -119,9 +119,9 @@ const remoteContentRisks = [
     },
     {
         title: '调试桥',
-        source: 'src-tauri/src/debug_bridge.rs / src-tauri/src/http_server.rs / src/utils/debug_bridge_client.js',
+        source: 'apps/client/src-tauri/src/debug_bridge.rs / apps/client/src-tauri/src/http_server.rs / apps/client/src/utils/debug_bridge_client.js',
         items: [
-            '调试桥默认关闭，enableBridgeTools 默认 false；src/main.ts 只有在 get_debug_runtime_config 返回 enableBridgeTools 时才加载 debug_bridge 客户端。',
+            '调试桥默认关闭，enableBridgeTools 默认 false；apps/client/src/main.ts 只有在 get_debug_runtime_config 返回 enableBridgeTools 时才加载 debug_bridge 客户端。',
             '本地 HTTP bridge 的 debug_bridge 接口可截图、导航、打开模块、读取状态、重置更多模块缓存。它是开发/测试能力，不应暴露到公网或局域网。',
             'debug_bridge_client.js 会同时发送 Authorization: Bearer 和 x-local-token。调试 token、截图和 DOM 状态均可能包含隐私信息。',
         ],
@@ -131,7 +131,7 @@ const remoteContentRisks = [
 const guardRails = [
     'scripts/guard_sensitive_uploads.mjs 可在 pre-commit、pre-push、scan-file 模式下扫描 Turso/libsql URL、JWT、HuggingFace token、Resend key、Bearer token 和敏感环境变量。',
     'scripts/check-frontend-safety.mjs 会扫描前端裸调 chaoxing.com、console.log 中的 password/cookie/token/Authorization 等敏感字段，以及超星签到 Rust sleep(10 硬编码延迟。',
-    'scripts/check-design-tokens.mjs 扫描 MoreChaoxingCheckinView.vue 和 src/components/chaoxing_checkin 的样式硬编码颜色。它是 UI 质量守卫，不替代安全扫描。',
+    'scripts/check-design-tokens.mjs 扫描 MoreChaoxingCheckinView.vue 和 apps/client/src/components/chaoxing_checkin 的样式硬编码颜色。它是 UI 质量守卫，不替代安全扫描。',
     '这些脚本是提交链路和源码启发式守卫，不是运行时 DLP、密钥托管、数据库加密、CSP 或远程内容沙箱。',
 ];
 
@@ -145,7 +145,7 @@ const userChecklist = [
 
 const developerChecklist = [
     '新增持久化字段前，先判断它是否属于密码、Cookie、token、个人信息、成绩、位置、图片、日志或设备标识，并更新本页的敏感信息生命周期。',
-    '新增 Tauri 插件或前端直接调用插件 API 前，同时检查 src-tauri/capabilities/main.json、Rust builder 初始化、PlatformBridge 和具体调用点。',
+    '新增 Tauri 插件或前端直接调用插件 API 前，同时检查 apps/client/src-tauri/capabilities/main.json、Rust builder 初始化、PlatformBridge 和具体调用点。',
     '新增远程配置字段时，必须说明默认值、快照 key、可信来源、失败回退、是否能改变 endpoint、是否会启用远程内容或管理员入口。',
     '新增模块包、热更新、iframe 或外链能力时，必须要求 HTTPS、sha256、package_sha256、版本范围、路径净化、可回滚状态和禁用开关。',
     '新增日志时禁止输出明文 password、Cookie、Authorization、token、one_code_token、electricity_refresh_token、cookie_blob、验证码 base64 和云同步 challenge。',
@@ -153,21 +153,21 @@ const developerChecklist = [
 
 const lifecycleRows = [
     ['输入', '学号、密码、验证码、Cookie、二维码、签到图片、论坛内容、设置项。', 'LoginV3.vue、auth.rs、chaoxing_checkin、forum_api.js。'],
-    ['内存', 'last_password、Cookie Jar、electricity_token、electricity_refresh_token、OCR runtime config、用户信息。', 'src-tauri/src/http_client/mod.rs、session.rs。'],
-    ['本地持久化', 'user_sessions、encrypted_password、one_code_token、online_learning_platform_state.cookie_blob、chaoxing_checkin_log、cache:*、hbu_username。', 'src-tauri/src/db.rs、localStorage。'],
+    ['内存', 'last_password、Cookie Jar、electricity_token、electricity_refresh_token、OCR runtime config、用户信息。', 'apps/client/src-tauri/src/http_client/mod.rs、session.rs。'],
+    ['本地持久化', 'user_sessions、encrypted_password、one_code_token、online_learning_platform_state.cookie_blob、chaoxing_checkin_log、cache:*、hbu_username。', 'apps/client/src-tauri/src/db.rs、localStorage。'],
     ['网络传输', 'CAS 表单、验证码 OCR、教务接口、超星接口、云同步 payload、论坛 Bearer token、资料分享 WebDAV、模块 manifest。', 'auth.rs、cloud_sync.js、remote_config.js、forum_api.js、module_bundle.rs。'],
     ['清理与回滚', 'clear_session、退出登录、云同步状态、模块缓存、热更新 staged 状态、调试桥状态。', 'session.rs、App.vue、more_modules.js、hot_update.js、debug_bridge.rs。'],
 ];
 
 const sourceEvidence = [
-    '账号与登录证据：src-tauri/src/http_client/auth.rs 的登录参数、encrypt_password_aes 调用、last_password 缓存；src-tauri/src/http_client/mod.rs 的 HbutClient、Cookie Jar、electricity_token、electricity_refresh_token、danger_accept_invalid_certs(true)。',
-    '会话证据：src-tauri/src/http_client/session.rs 的 get_cookies、get_cookie_snapshot、restore_session、restore_cookie_snapshot、clear_session、save_cookie_snapshot_to_file、load_cookie_snapshot_from_file。',
-    '数据库证据：src-tauri/src/db.rs 的 user_sessions、encrypted_password、one_code_token、electricity_refresh_token、online_learning_platform_state、cookie_blob、chaoxing_checkin_log、grades_cache、schedule_cache。',
-    '前端存储证据：src/App.vue 和 LoginV3.vue 的 hbu_username、hbu_remember；src/utils/api.ts 的 cache:*；src/utils/forum_api.js 的 hbu_forum_token；src/utils/ui_settings.ts 的 customCss、customJs、scriptEl.textContent。',
-    '云同步和远程配置证据：src/utils/cloud_sync.ts 的 hbu_cloud_sync_device_id、hbu_cloud_sync_status、x-cloud-sync-challenge、buildSyncPayload；src/utils/remote_config.ts 的 hbu_remote_config_snapshot、config_admin_ids。',
-    '权限证据：src-tauri/capabilities/main.json 的 notification:allow-request-permission、shell:default、window-state:default；src-tauri/tauri.conf.json 的 security.csp 和 csp: null。',
-    '远程内容证据：src-tauri/src/modules/module_bundle.rs 的 package_sha256、sha256_hex、enclosed_name、output_path.starts_with；src/utils/more_modules.js 的 package_sha256 缓存和本地包状态。',
-    '调试与热更新证据：src-tauri/src/debug_bridge.rs 的 enable_bridge_tools；src/utils/debug_bridge_client.js 的 Authorization 和 x-local-token；src/utils/hot_update_core.js 的 verifyHotBundleSignature、sha256、signature。',
+    '账号与登录证据：apps/client/src-tauri/src/http_client/auth.rs 的登录参数、encrypt_password_aes 调用、last_password 缓存；apps/client/src-tauri/src/http_client/mod.rs 的 HbutClient、Cookie Jar、electricity_token、electricity_refresh_token、danger_accept_invalid_certs(true)。',
+    '会话证据：apps/client/src-tauri/src/http_client/session.rs 的 get_cookies、get_cookie_snapshot、restore_session、restore_cookie_snapshot、clear_session、save_cookie_snapshot_to_file、load_cookie_snapshot_from_file。',
+    '数据库证据：apps/client/src-tauri/src/db.rs 的 user_sessions、encrypted_password、one_code_token、electricity_refresh_token、online_learning_platform_state、cookie_blob、chaoxing_checkin_log、grades_cache、schedule_cache。',
+    '前端存储证据：apps/client/src/App.vue 和 LoginV3.vue 的 hbu_username、hbu_remember；apps/client/src/utils/api.ts 的 cache:*；apps/client/src/utils/forum_api.js 的 hbu_forum_token；apps/client/src/utils/ui_settings.ts 的 customCss、customJs、scriptEl.textContent。',
+    '云同步和远程配置证据：apps/client/src/utils/cloud_sync.ts 的 hbu_cloud_sync_device_id、hbu_cloud_sync_status、x-cloud-sync-challenge、buildSyncPayload；apps/client/src/utils/remote_config.ts 的 hbu_remote_config_snapshot、config_admin_ids。',
+    '权限证据：apps/client/src-tauri/capabilities/main.json 的 notification:allow-request-permission、shell:default、window-state:default；apps/client/src-tauri/tauri.conf.json 的 security.csp 策略。',
+    '远程内容证据：apps/client/src-tauri/src/modules/module_bundle.rs 的 package_sha256、sha256_hex、enclosed_name、output_path.starts_with；apps/client/src/utils/more_modules.js 的 package_sha256 缓存和本地包状态。',
+    '调试与热更新证据：apps/client/src-tauri/src/debug_bridge.rs 的 enable_bridge_tools；apps/client/src/utils/debug_bridge_client.js 的 Authorization 和 x-local-token；apps/client/src/utils/hot_update_core.js 的 verifyHotBundleSignature、sha256、signature。',
     '守卫脚本证据：scripts/guard_sensitive_uploads.mjs、scripts/check-frontend-safety.mjs、scripts/check-design-tokens.mjs。',
 ];
 

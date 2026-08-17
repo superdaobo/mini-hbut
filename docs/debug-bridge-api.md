@@ -10,7 +10,7 @@
 | Android | 启 | **默认不启** | 不静默依赖 4399 |
 | 桌面 | 启 | 默认不启 | `HBUT_HTTP_BRIDGE_ENABLED=1` 强制 |
 
-详见 [`src-tauri/docs/http_server.md`](../src-tauri/docs/http_server.md)。
+详见 [`apps/client/src-tauri/docs/http_server.md`](../apps/client/src-tauri/docs/http_server.md)。
 
 ## 长后台恢复（#452）
 

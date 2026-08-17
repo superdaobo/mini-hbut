@@ -47,12 +47,37 @@ jobs:
         with:
           filters: |
             frontend:
-              - 'src/**'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'vite.config.*'
+              - 'apps/client/src/**'
+              - 'apps/client/package.json'
+              - 'apps/client/package-lock.json'
+              - 'apps/client/vite.config.*'
             rust:
-              - 'src-tauri/**'
+              - 'apps/client/src-tauri/**'
+
+  # 敏感内容提交守卫（#644）：独立无条件 job，作为强制门禁。
+  # CI checkout 后没有 staged 文件，旧 pre-commit 模式会空放行；改用 commit range 扫描
+  # 真实将推送（push: before..after）或合并（PR: base..head）的内容；
+  # 首次 push（before 全零 / root commit）时扫描含根提交的全部新提交；
+  # range 无效或 git 读取失败时 guard 非零退出（不静默放行）。
+  # 注意：workflow 级 paths-ignore 仍可能跳过纯文档变更的 push（既有设计，不在此扩大范围）。
+  secret-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Sensitive upload guard (commit range, mandatory gate)
+        env:
+          GUARD_RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.event.after) }}
+        run: node scripts/guard_sensitive_uploads.mjs scan-range "$GUARD_RANGE"
+
+      - name: SecretGuard unit tests
+        run: node --test scripts/guard_sensitive_uploads.test.mjs
 
   test-frontend:
     needs: changes
@@ -65,19 +90,23 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install dependencies
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Pillow for icon regeneration
         run: python -m pip install Pillow
 
       - name: Regenerate and verify official icons
+        working-directory: apps/client
         run: |
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Production build smoke
+        working-directory: apps/client
         run: |
           npm run build
           node scripts/check_strict_csp_bundle.mjs
@@ -89,12 +118,15 @@ jobs:
         run: node scripts/build_website_modules.mjs --modules clumsy_bird_hbut
 
       - name: Capacitor sync smoke
+        working-directory: apps/client
         run: npx cap sync
 
       - name: Run Vitest
+        working-directory: apps/client
         run: npm run test:ci
 
       - name: Frontend safety and architecture guards
+        working-directory: apps/client
         run: |
           node scripts/check-frontend-safety.mjs
           node scripts/check-design-tokens.mjs
@@ -103,16 +135,16 @@ jobs:
           node scripts/test_capacitor_tar_compat.mjs
           node scripts/test_post_merge_workflow_contract.mjs
 
-      - name: Sensitive upload guard (tracked files)
-        run: node scripts/guard_sensitive_uploads.mjs pre-commit
-
       - name: Check dist boundary script
+        working-directory: apps/client
         run: node scripts/check_dist_boundary.mjs
 
       - name: Vue typecheck (full tsconfig)
+        working-directory: apps/client
         run: npx vue-tsc --noEmit -p tsconfig.json
 
       - name: Tauri npm/rust version alignment
+        working-directory: apps/client
         run: npm exec -- tauri info
 
   test-rust:
@@ -126,8 +158,10 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install frontend deps and build dist
+        working-directory: apps/client
         run: |
           npm ci --prefer-offline --no-audit --no-fund
           npm run build
@@ -150,16 +184,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/client/src-tauri -> target
 
       - name: Cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo test --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
       - name: Cargo fmt check
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+        run: cargo fmt --manifest-path apps/client/src-tauri/Cargo.toml --all -- --check
 
       - name: Cargo clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo clippy --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
   # Windows-only 编译保护：只做 cargo check，不构建 NSIS、不启动 EXE、不上传产物
   # 替代旧的 Windows Release Dry Run 对普通源码 PR 的全量打包（#598 Layer 4）
@@ -175,22 +209,25 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: apps/client/package-lock.json
 
       - name: Install frontend deps
+        working-directory: apps/client
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build frontend dist (tauri build.rs prerequisite)
+        working-directory: apps/client
         run: npm run build
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: ./apps/client/src-tauri -> target
           shared-key: mini-hbut-pr-rust-check-windows
 
       - name: Cargo check (Windows-only compile protection)
-        run: cargo check --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo check --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
   # 稳定名称的 PR Gate：#598 要求 required check 名称稳定，不出现永久 Pending
   # 只接受 success / skipped，任何 failure / cancelled / timed_out 都阻断合并
@@ -198,7 +235,7 @@ jobs:
   # 与 branch protection 的 required context 大小写不匹配导致永久 BLOCKED）
   pr-gate:
     name: PR Gate
-    needs: [changes, test-frontend, test-rust, test-rust-windows]
+    needs: [changes, test-frontend, test-rust, test-rust-windows, secret-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -208,8 +245,9 @@ jobs:
           FRONTEND: ${{ needs.test-frontend.result }}
           RUST: ${{ needs.test-rust.result }}
           RUST_WINDOWS: ${{ needs.test-rust-windows.result }}
+          SECRET_GUARD: ${{ needs.secret-guard.result }}
         run: |
-          for gate in "$CHANGES" "$FRONTEND" "$RUST" "$RUST_WINDOWS"; do
+          for gate in "$CHANGES" "$FRONTEND" "$RUST" "$RUST_WINDOWS" "$SECRET_GUARD"; do
             case "$gate" in
               success|skipped) ;;
               *)

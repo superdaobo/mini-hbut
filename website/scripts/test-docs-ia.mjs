@@ -47,56 +47,66 @@ const expect = (condition, message) => {
   if (!condition) failures.push(message);
 };
 
-const app = read('src/App.tsx');
-const layout = read('src/layouts/DocsLayout.tsx');
-const vite = read('vite.config.ts');
+// Next.js app router 静态入口：路由 → src/app/<route>/page.tsx
+const nextPageFor = (route) => `src/app${route}/page.tsx`;
+
+const docsLayout = read('src/layouts/DocsLayout.tsx');
+const docsRootLayout = read('src/app/docs/layout.tsx');
 const overview = read('src/views/docs/Overview.tsx');
 const search = read('src/views/Search.tsx');
 
 for (const [pagePath, route, label] of requiredPages) {
-  expect(existsSync(path.join(root, pagePath)), `缺少页面文件: ${pagePath}`);
-  expect(app.includes(`path="${route.replace('/docs/', '')}"`) || app.includes(`path="${route.slice('/docs/'.length)}"`), `App.tsx 未注册路由: ${route}`);
-  expect(layout.includes(label), `DocsLayout.tsx 未包含导航标签: ${label}`);
-  expect(vite.includes(`'${route.slice(1)}/index.html'`), `vite.config.ts 未包含静态入口: ${route}`);
+  expect(existsSync(path.join(root, pagePath)), `缺少页面组件: ${pagePath}`);
+  expect(existsSync(path.join(root, nextPageFor(route))), `Next.js 缺少静态入口: ${nextPageFor(route)}`);
+  expect(docsLayout.includes(label), `DocsLayout.tsx 未包含导航标签: ${label}`);
 }
 
 for (const [pagePath, route, label] of legacyPages) {
   expect(existsSync(path.join(root, pagePath)), `缺少历史页面文件: ${pagePath}`);
-  expect(app.includes(`path="${route.slice('/docs/'.length)}"`), `App.tsx 未注册历史文档路由: ${route}`);
-  expect(layout.includes(route), `DocsLayout.tsx 未提供历史文档入口或相关链接: ${route}`);
-  expect(layout.includes(label), `DocsLayout.tsx 未包含历史文档标签: ${label}`);
-  expect(vite.includes(`'${route.slice(1)}/index.html'`), `vite.config.ts 未包含历史文档静态入口: ${route}`);
+  expect(existsSync(path.join(root, nextPageFor(route))), `Next.js 缺少历史文档静态入口: ${nextPageFor(route)}`);
+  expect(docsLayout.includes(route), `DocsLayout.tsx 未提供历史文档入口或相关链接: ${route}`);
+  expect(docsLayout.includes(label), `DocsLayout.tsx 未包含历史文档标签: ${label}`);
 }
 
 for (const [route, componentName] of referenceRoutes) {
-  expect(app.includes(componentName), `App.tsx 未导入或使用参考页面组件: ${componentName}`);
-  expect(app.includes(`path="${route.slice('/docs/'.length)}"`), `App.tsx 未注册参考路由: ${route}`);
-  expect(layout.includes(route), `DocsLayout.tsx 未包含参考路由链接: ${route}`);
-  expect(vite.includes(`'${route.slice(1)}/index.html'`), `vite.config.ts 未包含参考静态入口: ${route}`);
+  expect(existsSync(path.join(root, nextPageFor(route))), `Next.js 缺少参考静态入口: ${nextPageFor(route)}`);
+  expect(read(nextPageFor(route)).includes(componentName), `Next.js 页面未导入参考组件: ${componentName}`);
+  expect(docsLayout.includes(route), `DocsLayout.tsx 未包含参考路由链接: ${route}`);
+}
+
+// Next.js 根入口契约：docs layout 挂载 DocsLayout；首页/发布页/搜索页/隐私页静态入口存在
+expect(docsRootLayout.includes('@/layouts/DocsLayout'), 'src/app/docs/layout.tsx 未挂载 DocsLayout');
+for (const entry of [
+  'src/app/page.tsx',
+  'src/app/releases/page.tsx',
+  'src/app/search/page.tsx',
+  'src/app/privacy/page.tsx',
+]) {
+  expect(existsSync(path.join(root, entry)), `Next.js 缺少应用入口: ${entry}`);
 }
 
 for (const section of navSections) {
-  expect(layout.includes(section), `DocsLayout.tsx 未包含分组标题: ${section}`);
+  expect(docsLayout.includes(section), `DocsLayout.tsx 未包含分组标题: ${section}`);
 }
 
-expect(!layout.includes('const links = ['), 'DocsLayout.tsx 仍使用旧扁平 links 导航');
-expect(layout.includes('docsNavSections'), 'DocsLayout.tsx 未使用 docsNavSections 分组导航');
-expect(layout.includes('currentPage'), 'DocsLayout.tsx 未提供当前页面上下文');
-expect(layout.includes('currentSection'), 'DocsLayout.tsx 未提供当前分组上下文');
-expect(layout.includes('documentationShell'), 'DocsLayout.tsx 未提供文档 shell 容器标识');
-expect(layout.includes('href="#doc-content"'), 'DocsLayout.tsx 未提供跳到正文的可访问链接');
-expect(layout.includes('id="doc-content"'), 'DocsLayout.tsx 未给正文区域提供稳定锚点');
-expect(layout.includes("aria-current={isActive(link.path) ? 'page' : undefined}"), 'DocsLayout.tsx 未给当前导航项提供条件 aria-current');
-expect(layout.includes('阅读进度'), 'DocsLayout.tsx 未提供长文阅读进度提示');
-expect(layout.includes('返回顶部'), 'DocsLayout.tsx 未提供返回顶部操作');
-expect(layout.includes('max-w-4xl'), 'DocsLayout.tsx 未限制长文阅读宽度');
-expect(layout.includes('inset-0 bg-black/70'), 'DocsLayout.tsx 未提供移动端导航遮罩');
-expect(layout.includes("aria-modal={isSidebarOpen ? 'true' : undefined}"), 'DocsLayout.tsx 未给移动端导航提供条件模态语义');
-expect(layout.includes('sticky top-24'), 'DocsLayout.tsx 未提供桌面端当前页辅助栏');
-expect(layout.includes('recommendedReadingByPath'), 'DocsLayout.tsx 未提供按当前路由变化的推荐阅读映射');
-expect(layout.includes('defaultRecommendedDocs'), 'DocsLayout.tsx 未提供默认推荐阅读路径');
-expect(layout.includes('相关文档'), 'DocsLayout.tsx 未提供全局相关文档页脚');
-expect(layout.includes('推荐阅读路径'), 'DocsLayout.tsx 未提供推荐阅读路径说明');
+expect(!docsLayout.includes('const links = ['), 'DocsLayout.tsx 仍使用旧扁平 links 导航');
+expect(docsLayout.includes('docsNavSections'), 'DocsLayout.tsx 未使用 docsNavSections 分组导航');
+expect(docsLayout.includes('currentPage'), 'DocsLayout.tsx 未提供当前页面上下文');
+expect(docsLayout.includes('currentSection'), 'DocsLayout.tsx 未提供当前分组上下文');
+expect(docsLayout.includes('documentationShell'), 'DocsLayout.tsx 未提供文档 shell 容器标识');
+expect(docsLayout.includes('href="#doc-content"'), 'DocsLayout.tsx 未提供跳到正文的可访问链接');
+expect(docsLayout.includes('id="doc-content"'), 'DocsLayout.tsx 未给正文区域提供稳定锚点');
+expect(docsLayout.includes("aria-current={isActive(link.path) ? 'page' : undefined}"), 'DocsLayout.tsx 未给当前导航项提供条件 aria-current');
+expect(docsLayout.includes('阅读进度'), 'DocsLayout.tsx 未提供长文阅读进度提示');
+expect(docsLayout.includes('返回顶部'), 'DocsLayout.tsx 未提供返回顶部操作');
+expect(docsLayout.includes('max-w-4xl'), 'DocsLayout.tsx 未限制长文阅读宽度');
+expect(docsLayout.includes('inset-0 bg-black/70'), 'DocsLayout.tsx 未提供移动端导航遮罩');
+expect(docsLayout.includes("aria-modal={isSidebarOpen ? 'true' : undefined}"), 'DocsLayout.tsx 未给移动端导航提供条件模态语义');
+expect(docsLayout.includes('sticky top-24'), 'DocsLayout.tsx 未提供桌面端当前页辅助栏');
+expect(docsLayout.includes('recommendedReadingByPath'), 'DocsLayout.tsx 未提供按当前路由变化的推荐阅读映射');
+expect(docsLayout.includes('defaultRecommendedDocs'), 'DocsLayout.tsx 未提供默认推荐阅读路径');
+expect(docsLayout.includes('相关文档'), 'DocsLayout.tsx 未提供全局相关文档页脚');
+expect(docsLayout.includes('推荐阅读路径'), 'DocsLayout.tsx 未提供推荐阅读路径说明');
 
 const currentDocsRoutes = [
   '/docs/quick-start',
@@ -123,7 +133,7 @@ const allDocsRoutes = [
 ];
 
 for (const route of allDocsRoutes) {
-  expect(layout.includes(route), `DocsLayout.tsx 交叉链接未覆盖文档路由: ${route}`);
+  expect(docsLayout.includes(route), `DocsLayout.tsx 交叉链接未覆盖文档路由: ${route}`);
 }
 
 for (const route of currentDocsRoutes) {
