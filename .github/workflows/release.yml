@@ -157,7 +157,6 @@ jobs:
               await github.rest.repos.deleteReleaseAsset({
                 owner,
                 repo,
-                release_id: releaseId,
                 asset_id: asset.id
               });
             }
