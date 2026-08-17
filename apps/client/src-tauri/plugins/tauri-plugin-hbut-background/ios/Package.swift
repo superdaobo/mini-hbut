@@ -5,13 +5,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "HbutBackgroundPlugin",
+    // 必须与 Rust crate package.name 一致：tauri_plugin::Builder::ios_path 最终通过
+    // swift-rs 以该名字构建并让 rustc 链接同名 static library。
+    name: "tauri-plugin-hbut-background",
     platforms: [
         .iOS(.v13),
         .macOS(.v13) // 本包主要面向 iOS；macOS 平台用于在 Mac 上运行 swift test 验证
     ],
     products: [
-        .library(name: "HbutBackgroundPlugin", targets: ["HbutBackgroundPlugin"])
+        .library(
+            name: "tauri-plugin-hbut-background",
+            type: .static,
+            targets: ["HbutBackgroundPlugin"]
+        )
     ],
     targets: [
         .target(name: "HbutBackgroundPlugin"),
