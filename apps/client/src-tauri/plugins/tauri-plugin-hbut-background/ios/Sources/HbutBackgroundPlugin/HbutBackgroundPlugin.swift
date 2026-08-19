@@ -382,7 +382,10 @@ public enum HbutBackgroundPlugin {
             let businessCleared = (try? BusinessBaselineStore(dir: storeDir))?.clearScope(target) ?? false
             // 安全材料同步清理（Keychain 按 scope 隔离）。
             let secureCleared = SecureStore().delete(scope: target)
-            return try encode(["schema": 1, "cleared": cleared || businessCleared || secureCleared, "removedEvents": removed])
+            return try encode(ClearContextResult(
+                cleared: cleared || businessCleared || secureCleared,
+                removedEvents: removed
+            ))
         } catch {
             return (try? encode(RunSummary.failed("Swift clearContext 失败: \(error.localizedDescription)")))
                 ?? #"{"ok":false,"synthetic":false,"eventsProduced":0,"message":"Swift clearContext 失败"}"#
