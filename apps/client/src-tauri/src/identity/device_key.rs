@@ -174,22 +174,30 @@ impl DeviceKeyStore {
             }
             return Ok(None);
         };
-        let bytes = general_purpose::URL_SAFE_NO_PAD
-            .decode(encoded.as_bytes())
-            .map_err(|e| {
+        let decoded = general_purpose::URL_SAFE_NO_PAD.decode(encoded.as_bytes());
+        let seed: [u8; 32] = match decoded {
+            Ok(raw) => match raw.as_slice().try_into() {
+                Ok(seed) => seed,
+                Err(_) => {
+                    eprintln!(
+                        "[identity] keyring load seed 长度不符: bytes_len={}",
+                        raw.len()
+                    );
+                    // 损坏条目自愈：不可解码的旧数据无法恢复为私钥，删除并视为“无密钥”，
+                    // 由 create_if_missing 重新生成（不降级其它安全语义，仅恢复同一逻辑 key）。
+                    let _ = self.keyring.delete_secret();
+                    return Ok(None);
+                }
+            },
+            Err(e) => {
                 eprintln!(
                     "[identity] keyring load decode 失败: len={} err={e}",
                     encoded.len()
                 );
-                IdentityError::KeyringWriteMismatch
-            })?;
-        let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
-            eprintln!(
-                "[identity] keyring load seed 长度不符: bytes_len={}",
-                bytes.len()
-            );
-            IdentityError::KeyringWriteMismatch
-        })?;
+                let _ = self.keyring.delete_secret();
+                return Ok(None);
+            }
+        };
         Ok(Some(DeviceKey::from_seed(seed)))
     }
 }
@@ -361,6 +369,55 @@ mod tests {
             store.delete(),
             Err(IdentityError::KeyringUnavailable(_))
         ));
+    }
+
+    /// 模拟 Credential Manager 中已存在「损坏/不可解码」设备条目（#656）：
+    /// 初始内置一条坏凭据；删除后重新写入新值；decode/长度非法时触发自愈。
+    struct SelfHealKeyring {
+        inner: std::sync::Mutex<Option<String>>,
+        corrupted_shown: std::sync::atomic::AtomicBool,
+    }
+
+    impl Default for SelfHealKeyring {
+        fn default() -> Self {
+            Self {
+                inner: std::sync::Mutex::new(Some("!! corrupted-credential !!".to_string())),
+                corrupted_shown: std::sync::atomic::AtomicBool::new(false),
+            }
+        }
+    }
+
+    impl KeyringLike for SelfHealKeyring {
+        fn get_secret(&self) -> Result<Option<String>, String> {
+            let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
+            let first = !self
+                .corrupted_shown
+                .swap(true, std::sync::atomic::Ordering::SeqCst);
+            if first && guard.is_some() {
+                return Ok(Some("!! corrupted-credential !!".to_string()));
+            }
+            Ok(guard.clone())
+        }
+        fn set_secret(&self, value: &str) -> Result<(), String> {
+            *self.inner.lock().map_err(|e| e.to_string())? = Some(value.to_string());
+            Ok(())
+        }
+        fn delete_secret(&self) -> Result<(), String> {
+            *self.inner.lock().map_err(|e| e.to_string())? = None;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn corrupt_existing_entry_is_self_healed() {
+        // 损坏条目（不可解码）被删除并重建，而不是永久 fail closed（#656）
+        let keyring = SelfHealKeyring::default();
+        let store = DeviceKeyStore::with_keyring(Box::new(keyring));
+        // 首读损坏 → load 应删除损坏条目并按“无密钥”返回
+        assert!(store.load().expect("should self-heal").is_none());
+        // create_if_missing 重新生成并写后读校验通过
+        let key = store.create_if_missing().expect("创建应成功");
+        assert_eq!(store.fingerprint().unwrap_or(None), Some(key.fingerprint()));
     }
 
     #[test]
