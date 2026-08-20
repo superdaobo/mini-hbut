@@ -73,6 +73,16 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(result.events[1].source, .rust)
     }
 
+    func testClearContextResultEncodesMixedFieldTypes() throws {
+        let result = ClearContextResult(cleared: true, removedEvents: 2)
+        let data = try JSONEncoder().encode(result)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        XCTAssertEqual(object?["schema"] as? Int, bgSchemaVersion)
+        XCTAssertEqual(object?["cleared"] as? Bool, true)
+        XCTAssertEqual(object?["removedEvents"] as? Int, 2)
+    }
+
     func testRunSummaryFixtureIsBridgeContract() throws {
         // Kotlin runNow 返回结构，Rust JNI 端解析；Swift 端同构（三端桥契约）。
         let summary: RunSummary = try decode("run-summary.json", as: RunSummary.self)

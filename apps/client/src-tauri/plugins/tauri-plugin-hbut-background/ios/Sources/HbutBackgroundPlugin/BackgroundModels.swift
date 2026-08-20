@@ -148,6 +148,23 @@ public struct ConsumeEventsResult: Codable, Equatable {
     }
 }
 
+/// clearContext 返回结构（与 Rust `ClearContextResult` / JS 契约同构）。
+public struct ClearContextResult: Codable, Equatable {
+    public var schema: Int
+    public var cleared: Bool
+    public var removedEvents: Int
+
+    public init(
+        schema: Int = bgSchemaVersion,
+        cleared: Bool,
+        removedEvents: Int
+    ) {
+        self.schema = schema
+        self.cleared = cleared
+        self.removedEvents = removedEvents
+    }
+}
+
 /// runNow 单次执行摘要（不得含敏感字段）。
 public struct RunSummary: Codable, Equatable {
     public var ok: Bool

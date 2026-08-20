@@ -217,7 +217,7 @@ fn extract_error(json: &str) -> Option<String> {
 /// Android 分支：JNI 调用 Kotlin（仅 android target 编译；Windows 不参与构建/clippy）。
 #[cfg(target_os = "android")]
 mod android {
-    use jni::objects::{JObject, JValue};
+    use jni::objects::{JObject, JString, JValue, JValueOwned};
     use jni::sys::{jboolean, jobject};
     use jni::JavaVM;
 
@@ -251,28 +251,31 @@ mod android {
         let context_ptr = ndk_context::android_context().context() as jobject;
         let context = unsafe { JObject::from_raw(context_ptr) };
 
-        let mut jargs: Vec<JValue> = vec![JValue::Object(&context)];
+        // jni 0.21 区分“返回值 owned”与“调用参数 borrowed”。先持有全部
+        // JObject/JString，再统一 borrow 成 JValue，避免把循环内临时对象引用塞进参数数组。
+        let mut owned_args: Vec<JValueOwned> = vec![JValueOwned::Object(context)];
         for arg in args {
             match arg {
                 KotlinArg::Str(s) => {
                     let java_str = env
                         .new_string(s)
                         .map_err(|e| format!("构造 {method} 参数失败: {e}"))?;
-                    let obj: JObject = java_str.into();
-                    jargs.push(JValue::Object(&obj));
+                    owned_args.push(JValueOwned::Object(java_str.into()));
                 }
-                KotlinArg::Bool(b) => jargs.push(JValue::Bool(*b as jboolean)),
-                KotlinArg::Null => jargs.push(JValue::Object(&JObject::null())),
+                KotlinArg::Bool(b) => owned_args.push(JValueOwned::Bool(*b as jboolean)),
+                KotlinArg::Null => owned_args.push(JValueOwned::Object(JObject::null())),
             }
         }
+        let jargs: Vec<JValue<'_, '_>> = owned_args.iter().map(JValueOwned::borrow).collect();
         let result = env
             .call_static_method(class, method, signature, &jargs)
             .map_err(|e| format!("Kotlin {method} 调用失败: {e}"))?;
-        let JValue::Object(obj) = result else {
-            return Err(format!("Kotlin {method} 返回类型异常"));
-        };
+        let obj = result
+            .l()
+            .map_err(|_| format!("Kotlin {method} 返回类型异常"))?;
+        let java_string = JString::from(obj);
         let string = env
-            .get_string(&obj.into())
+            .get_string(&java_string)
             .map_err(|e| format!("读取 Kotlin {method} 返回字符串失败: {e}"))?;
         Ok(string.to_str().unwrap_or_default().to_string())
     }

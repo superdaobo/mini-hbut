@@ -114,6 +114,27 @@ fn legacy_no_schema_is_rejected() {
 }
 
 #[test]
+fn ios_swift_package_is_linked_into_rust_build() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let build_rs = fs::read_to_string(root.join("build.rs")).expect("读取 build.rs 失败");
+    assert!(
+        build_rs.contains(".ios_path(\"ios\")"),
+        "iOS Swift 包必须由 tauri_plugin::Builder 注册，否则 hbut_bg_* FFI 会在 Rust 链接阶段缺失"
+    );
+
+    let package = fs::read_to_string(root.join("ios").join("Package.swift"))
+        .expect("读取 ios/Package.swift 失败");
+    assert!(
+        package.contains("name: \"tauri-plugin-hbut-background\""),
+        "Swift package/product 名必须与 Cargo package.name 一致"
+    );
+    assert!(
+        package.contains("type: .static"),
+        "iOS 原生桥必须生成 static library 供 Rust cdylib 链接"
+    );
+}
+
+#[test]
 fn all_fixture_keys_are_camel_case() {
     // 防契约漂移：所有 fixture 的 JSON 字段名（key）不得出现 snake_case；
     // 值（如 kind="synthetic_run"）允许 snake_case，不参与检查。

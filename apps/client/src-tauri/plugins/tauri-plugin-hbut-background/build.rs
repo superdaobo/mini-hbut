@@ -12,7 +12,12 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
-    let result = tauri_plugin::Builder::new(COMMANDS).try_build();
+    // iOS 的 Swift 实现必须在 Rust cdylib 链接阶段作为静态库参与链接，
+    // 否则 mobile.rs 中的 hbut_bg_* FFI 会在 aarch64-apple-ios 上成为未定义符号。
+    // Android 继续由现有 patch_android_background.py/sourceSets 接入，避免重复编译 Kotlin 类。
+    let result = tauri_plugin::Builder::new(COMMANDS)
+        .ios_path("ios")
+        .try_build();
     if let Err(e) = result {
         if std::env::var("TARGET")
             .ok()

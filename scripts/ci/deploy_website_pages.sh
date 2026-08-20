@@ -15,6 +15,8 @@ GITHUB_REPOSITORY="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 GITHUB_TOKEN="${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
 DEPLOY_SOURCE_DIR="${DEPLOY_SOURCE_DIR:-website/dist}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-website-pages}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GUARD_SCRIPT="$SCRIPT_DIR/../guard_sensitive_uploads.mjs"
 
 if [ ! -d "$DEPLOY_SOURCE_DIR" ]; then
   echo "ERROR: $DEPLOY_SOURCE_DIR not found"
@@ -44,7 +46,6 @@ git config user.email "github-actions[bot]@users.noreply.github.com"
 git add -A
 # #644: 提交前扫描实际将提交的文件（临时仓库 staged 内容），
 # 防止密钥 / 生成物 / CNB 配置进入发布分支；guard 扫描失败时非零退出（不静默放行）。
-GUARD_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/guard_sensitive_uploads.mjs"
 node "$GUARD_SCRIPT" pre-commit
 git commit -q -m "$DEPLOY_MESSAGE"
 git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$DEPLOY_BRANCH"
