@@ -33,6 +33,11 @@ const nativeMock = vi.hoisted(() => ({
 }))
 vi.mock('../platform/native', () => nativeMock)
 
+/** 相对当前 5 天前（在 7 天 ledger TTL 内）：避免固定时间戳随日期推移被过期清理（日期腐蚀）。 */
+const daysAgo = (days: number): string =>
+  new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+const RECENT_ISO = daysAgo(5)
+
 const installStorage = () => {
   const storage = new Map<string, string>()
   const api = {
@@ -66,12 +71,12 @@ const makeEvent = (
     source: 'android',
     kind,
     scope,
-    occurredAt: '2026-08-13T08:00:00Z',
+    occurredAt: RECENT_ISO,
     payload: {
       type,
       source: 'android-workmanager',
       targetView: 'grades',
-      detectedAt: '2026-08-13T08:00:00Z',
+      detectedAt: RECENT_ISO,
       presented,
       signature,
       meta: { notificationShown: presented }
@@ -197,7 +202,7 @@ describe('场景 B：前台先发现（ledger 已记录）→ 后台事件不重
   it('ledger 已有 grades:S2（前台弹过）→ 消费同签名事件时幂等刷新，不产生第二条通知记录', async () => {
     // 前台先弹：先写 ledger
     const { recordLedgerEntry } = await import('./notification_event_ledger')
-    recordLedgerEntry('s1', 'grades:S2', 'grades', '2026-08-12T10:00:00.000Z')
+    recordLedgerEntry('s1', 'grades:S2', 'grades', RECENT_ISO)
 
     const inbox = new FakeInbox()
     inbox.events = [makeEvent('evt-b1', { signature: 'S2' })]
@@ -216,7 +221,7 @@ describe('场景 B：前台先发现（ledger 已记录）→ 后台事件不重
 describe('场景 C：真正的新变化（S2 → S3）仍可再次通知', () => {
   it('去重粒度为 signature 而非当天：S3 与 S2 各自独立记录，互不抑制', async () => {
     const { recordLedgerEntry } = await import('./notification_event_ledger')
-    recordLedgerEntry('s1', 'grades:S2', 'grades', '2026-08-13T08:00:00.000Z')
+    recordLedgerEntry('s1', 'grades:S2', 'grades', RECENT_ISO)
 
     const inbox = new FakeInbox()
     inbox.events = [makeEvent('evt-c1', { signature: 'S3' })]

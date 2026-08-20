@@ -5,6 +5,7 @@ import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '..
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from '../utils/debug_logger'
 import { setCachedData } from '../utils/api.js'
+import { friendlyLoginError } from '../utils/login_errors.js'
 import {
   TEST_ACCOUNT,
   TEST_ACCOUNT_LOGIN_METHOD,
@@ -123,10 +124,12 @@ const isPortalMode = computed(() => activeMode.value === 'portal')
 const isChaoxingMode = computed(() => activeMode.value === 'chaoxing')
 const currentModeMeta = computed(() => LOGIN_MODES.find((item) => item.key === activeMode.value) || LOGIN_MODES[0])
 const canSubmitPasswordLogin = computed(() => {
-  return Boolean(username.value && password.value && agreePolicy.value && !loading.value)
+  // 仅提交中禁用；账号/密码/协议未满足时保持可点击，由 handlePasswordLogin
+  // 给出明确中文提示（否则按钮灰置时用户看不到任何原因说明）。
+  return !loading.value
 })
 const canSubmitChaoxingPasswordLogin = computed(() => {
-  return Boolean(chaoxingAccount.value && chaoxingPassword.value && agreePolicy.value && !loading.value)
+  return !loading.value
 })
 
 const isLikelyStudentId = (value) => /^\d{10}$/.test(String(value || '').trim())
@@ -535,7 +538,7 @@ const handlePasswordLogin = async () => {
     const result = res.data
 
     if (!result?.success) {
-      statusMsg.value = `❌ ${result?.error || '登录失败'}`
+      statusMsg.value = `❌ ${friendlyLoginError(result?.error || '')}`
       return
     }
 
@@ -558,7 +561,7 @@ const handlePasswordLogin = async () => {
     await emitSuccessWithGrades(sid || username.value)
   } catch (e) {
     const errMsg = e.response?.data?.error || e.message || '未知错误'
-    statusMsg.value = `⚠️ 登录失败: ${errMsg}`
+    statusMsg.value = `⚠️ ${friendlyLoginError(errMsg)}`
   } finally {
     loading.value = false
     await refreshOcrMode(String(getStoredOcrConfig().endpoint || '').trim())
@@ -754,7 +757,7 @@ const handleChaoxingPasswordLogin = async () => {
     })
     await handleChaoxingLoginSuccess(payload, 'chaoxing_password')
   } catch (e) {
-    statusMsg.value = `⚠️ 学习通登录失败: ${e.message || e}`
+    statusMsg.value = `⚠️ 学习通登录失败：${friendlyLoginError(e.message || e)}`
     pushDebug(`学习通密码登录失败: ${e.message || e}`)
   } finally {
     loading.value = false

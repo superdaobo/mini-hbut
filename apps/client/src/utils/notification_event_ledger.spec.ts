@@ -45,7 +45,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const ISO_2026 = '2026-08-13T08:00:00.000Z'
+const daysAgo = (days: number): string =>
+  new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+
+// 相对当前时间 5 天前（在 7 天 TTL 内）：固定过去时间戳会随时间推移被
+// writeLedgerState 的过期清理剔除，导致"写入后可查询"断言全部失效（日期腐蚀）。
+const ISO_2026 = daysAgo(5)
+const ISO_2026_LATER = daysAgo(4)
 
 describe('Ledger 存取与去重', () => {
   it('record 后可查询，同 eventKey 幂等不重复入账', () => {
@@ -54,11 +60,11 @@ describe('Ledger 存取与去重', () => {
     expect(added).toBe(true)
     expect(hasLedgerEntry('s1', 'grades:S2')).toBe(true)
     // 幂等：再次记录只刷新时间，不新增条目
-    const again = recordLedgerEntry('s1', 'grades:S2', 'grades', '2026-08-14T08:00:00.000Z')
+    const again = recordLedgerEntry('s1', 'grades:S2', 'grades', ISO_2026_LATER)
     expect(again).toBe(false)
     const state = readLedgerState('s1')
     expect(state.entries).toHaveLength(1)
-    expect(state.entries[0].notifiedAt).toBe('2026-08-14T08:00:00.000Z')
+    expect(state.entries[0].notifiedAt).toBe(ISO_2026_LATER)
     expect(state.scope).toBe('s1')
     expect(state.schema).toBe(LEDGER_SCHEMA_VERSION)
   })
