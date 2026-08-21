@@ -361,56 +361,60 @@ onMounted(async () => {
         <button @click="handleNext" :disabled="pagination.page >= pagination.totalPages">下一页</button>
       </div>
 
-      <div v-if="showDetail" class="modal-overlay" @click="closeDetail">
-        <div class="modal-content" @click.stop>
-          <div class="modal-header">
-            <h3>{{ selectedCourse?.kcmc || '课程详情' }}</h3>
-            <button class="close-btn" @click="closeDetail">×</button>
-          </div>
-          <div class="modal-body">
-            <div class="detail-item">
-              <span class="label">课程编号</span>
-              <span class="value">{{ selectedCourse?.kcbh || '-' }}</span>
+      <!-- Teleport 到 body：.content 的 fill-mode 入场动画会残留 transform，
+           劫持 position:fixed 包含块，导致弹窗居中于整页内容而非视口 -->
+      <Teleport to="body">
+        <div v-if="showDetail" class="modal-overlay" @click="closeDetail">
+          <div class="modal-content" @click.stop>
+            <div class="modal-header">
+              <h3>{{ selectedCourse?.kcmc || '课程详情' }}</h3>
+              <button class="close-btn" @click="closeDetail">×</button>
             </div>
-            <div class="detail-item">
-              <span class="label">课程性质</span>
-              <span class="value">{{ resolveCourseNature(selectedCourse?.kcxz) }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">选/必修</span>
-              <span class="value">{{ selectedCourse?.sfbx || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">课程归属</span>
-              <span class="value">{{ selectedCourse?.kcgs || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">开设学年</span>
-              <span class="value">{{ selectedCourse?.gradename || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">开设学期</span>
-              <span class="value">{{ selectedCourse?.kkxq || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">学分</span>
-              <span class="value">{{ selectedCourse?.xf || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">开课院系</span>
-              <span class="value">{{ selectedCourse?.kkyxmc || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">开课教研室</span>
-              <span class="value">{{ selectedCourse?.kkjysmc || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">考试形式</span>
-              <span class="value">{{ selectedCourse?.ksxs || '-' }}</span>
+            <div class="modal-body">
+              <div class="detail-item">
+                <span class="label">课程编号</span>
+                <span class="value">{{ selectedCourse?.kcbh || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">课程性质</span>
+                <span class="value">{{ resolveCourseNature(selectedCourse?.kcxz) }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">选/必修</span>
+                <span class="value">{{ selectedCourse?.sfbx || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">课程归属</span>
+                <span class="value">{{ selectedCourse?.kcgs || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">开设学年</span>
+                <span class="value">{{ selectedCourse?.gradename || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">开设学期</span>
+                <span class="value">{{ selectedCourse?.kkxq || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">学分</span>
+                <span class="value">{{ selectedCourse?.xf || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">开课院系</span>
+                <span class="value">{{ selectedCourse?.kkyxmc || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">开课教研室</span>
+                <span class="value">{{ selectedCourse?.kkjysmc || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">考试形式</span>
+                <span class="value">{{ selectedCourse?.ksxs || '-' }}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </Teleport>
     </section>
   </div>
 </template>
