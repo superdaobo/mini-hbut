@@ -4,7 +4,7 @@ import {
   requestJson,
 } from './grade_distribution.js'
 
-const jsonResponse = (body, { ok = true } = {}) => ({
+const jsonResponse = (body: any, { ok = true }: { ok?: boolean } = {}) => ({
   ok,
   headers: new Headers({ 'content-type': 'application/json' }),
   json: async () => body,
@@ -64,10 +64,10 @@ describe('requestJson（给分查询请求层）', () => {
 
 describe('fetchGradeDistribution', () => {
   it('组装请求体并返回分页结构', async () => {
-    let captured = null
+    let captured: any = null
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url, opts) => {
+      vi.fn(async (_url, opts) => {
         captured = JSON.parse(opts.body)
         return jsonResponse({ success: true, total: 36, page: 1, page_size: 50, items: [{ id: 1 }] })
       })
