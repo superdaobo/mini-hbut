@@ -101,9 +101,11 @@
         </div>
 
         <div class="text-xs text-orange-700 mt-2 leading-relaxed">
-          {{ jwxtMaintenanceHint || (sessionStatusVisual === 'blink'
-            ? '正在后台恢复登录会话，请稍候…'
-            : '当前可能无法同步最新教务数据，可查看下方详情或重试。') }}
+          {{ jwxtMaintenanceHint || (onlineSessionState === 'cached_offline' && jwxtRecoveryPhase === 'idle'
+            ? '已恢复本地身份，教务在线会话未恢复，正在后台尝试恢复；成绩与课表缓存可正常查看，无需重新登录。'
+            : (sessionStatusVisual === 'blink'
+              ? '正在后台恢复登录会话，请稍候…'
+              : '当前可能无法同步最新教务数据，可查看下方详情或重试。')) }}
         </div>
 
         <div

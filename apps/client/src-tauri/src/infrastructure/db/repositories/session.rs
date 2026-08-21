@@ -32,6 +32,41 @@ pub struct LatestUserSessionData {
     pub token_expires_at: String,
 }
 
+/// user_sessions 业务列统一 NULL 契约（#659 根因 1）。
+///
+/// cookies / encrypted_password / one_code_token / electricity_refresh_token /
+/// electricity_token_expires_at 一律按 `Option<String>` 读取：库中 NULL
+/// （v1.4.4 空壳行等历史形态）→ 空串，业务层对外类型不变（仍为 String），
+/// 绝不抛出 rusqlite `InvalidColumnType`。
+#[derive(Debug, Clone, Default)]
+struct UserSessionRow {
+    cookies: String,
+    encrypted_password: String,
+    one_code_token: String,
+    electricity_refresh_token: String,
+    electricity_token_expires_at: String,
+}
+
+fn text_or_empty(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<String> {
+    Ok(row.get::<_, Option<String>>(index)?.unwrap_or_default())
+}
+
+/// 收敛所有 user_sessions reader 的列映射（单点实现，禁止零散补丁）。
+/// `offset` 为业务列在 SELECT 中的起始索引：`get_user_session` 为 0，
+/// `get_latest_user_session` 在 student_id 之后为 1。
+fn map_user_session_row(
+    row: &rusqlite::Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<UserSessionRow> {
+    Ok(UserSessionRow {
+        cookies: text_or_empty(row, offset)?,
+        encrypted_password: text_or_empty(row, offset + 1)?,
+        one_code_token: text_or_empty(row, offset + 2)?,
+        electricity_refresh_token: text_or_empty(row, offset + 3)?,
+        electricity_token_expires_at: text_or_empty(row, offset + 4)?,
+    })
+}
+
 // 保存用户会话；密码只写系统密钥环，失败时不再以 Base64 或明文落库。
 // 空 password/token 表示“本次没有新值”，UPSERT 会保留既有非空字段；这是记住密码与
 // 离线恢复的有意语义。真正删除凭据必须走 delete_remembered_credential/隐私清理流程。
@@ -116,24 +151,23 @@ pub fn get_user_session<P: AsRef<Path>>(
     let mut rows = stmt.query(params![student_id])?;
 
     if let Some(row) = rows.next()? {
-        let cookies: String = row.get(0)?;
-        let encrypted: String = row.get(1)?;
-        let token: String = row.get(2).unwrap_or_default();
-        let refresh_token: String = row.get(3).unwrap_or_default();
-        let token_expires_at: String = row.get(4).unwrap_or_default();
-
-        let password = resolve_session_password(student_id, &encrypted);
+        let row = map_user_session_row(row, 0)?;
+        let password = resolve_session_password(student_id, &row.encrypted_password);
 
         Ok(Some(UserSessionData {
-            cookies: reveal_session_secret(student_id, &cookies, "cookies"),
+            cookies: reveal_session_secret(student_id, &row.cookies, "cookies"),
             password,
-            one_code_token: reveal_session_secret(student_id, &token, "one_code_token"),
+            one_code_token: reveal_session_secret(
+                student_id,
+                &row.one_code_token,
+                "one_code_token",
+            ),
             refresh_token: reveal_session_secret(
                 student_id,
-                &refresh_token,
+                &row.electricity_refresh_token,
                 "electricity_refresh_token",
             ),
-            token_expires_at,
+            token_expires_at: row.electricity_token_expires_at,
         }))
     } else {
         Ok(None)
@@ -153,25 +187,24 @@ pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<LatestU
 
     if let Some(row) = rows.next()? {
         let student_id: String = row.get(0)?;
-        let cookies: String = row.get(1)?;
-        let encrypted: String = row.get(2)?;
-        let token: String = row.get(3).unwrap_or_default();
-        let refresh_token: String = row.get(4).unwrap_or_default();
-        let token_expires_at: String = row.get(5).unwrap_or_default();
-
-        let password = resolve_session_password(&student_id, &encrypted);
+        let row = map_user_session_row(row, 1)?;
+        let password = resolve_session_password(&student_id, &row.encrypted_password);
 
         Ok(Some(LatestUserSessionData {
-            cookies: reveal_session_secret(&student_id, &cookies, "cookies"),
+            cookies: reveal_session_secret(&student_id, &row.cookies, "cookies"),
             password,
-            one_code_token: reveal_session_secret(&student_id, &token, "one_code_token"),
+            one_code_token: reveal_session_secret(
+                &student_id,
+                &row.one_code_token,
+                "one_code_token",
+            ),
             refresh_token: reveal_session_secret(
                 &student_id,
-                &refresh_token,
+                &row.electricity_refresh_token,
                 "electricity_refresh_token",
             ),
             student_id,
-            token_expires_at,
+            token_expires_at: row.electricity_token_expires_at,
         }))
     } else {
         Ok(None)
@@ -194,9 +227,11 @@ pub fn save_electricity_tokens<P: AsRef<Path>>(
         protect_session_secret(student_id, refresh_token, "electricity_refresh_token");
     // UPSERT 原子更新（#550）：单条语句同时处理"行不存在则插入"与"行存在则更新"，
     // 避免 INSERT OR IGNORE + UPDATE 两步间的并发竞态；空值保留库中已有非空字段。
+    // 新行 INSERT 分支补齐契约非空列默认（cookies/encrypted_password = ''），
+    // 保证历史/新行任何 reader 均可读（#659）。ON CONFLICT 更新不触碰这些列的已有值。
     conn.execute(
-        "INSERT INTO user_sessions (student_id, one_code_token, electricity_refresh_token, electricity_token_expires_at, electricity_token_updated_at, last_login)
-         VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at, electricity_token_updated_at, last_login)
+         VALUES (?1, '', '', ?2, ?3, ?4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT(student_id) DO UPDATE SET
              one_code_token = CASE WHEN excluded.one_code_token <> '' THEN excluded.one_code_token ELSE user_sessions.one_code_token END,
              electricity_refresh_token = CASE WHEN excluded.electricity_refresh_token <> '' THEN excluded.electricity_refresh_token ELSE user_sessions.electricity_refresh_token END,
@@ -227,9 +262,11 @@ pub fn update_user_session_cookies_only<P: AsRef<Path>>(
     ensure_user_session_columns(&conn)?;
     let protected_cookies = protect_session_secret(sid, cookies, "cookies");
     // 单条 UPSERT 原子完成：加密失败产生空值时保留既有 cookie，不回退明文。
+    // 新行 INSERT 分支补齐契约非空列默认（encrypted_password/one_code_token 等 = ''），
+    // 保证任何 reader 可读（#659）。ON CONFLICT 更新只动 cookies/last_login。
     conn.execute(
-        "INSERT INTO user_sessions (student_id, cookies, last_login)
-         VALUES (?1, ?2, CURRENT_TIMESTAMP)
+        "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at, last_login)
+         VALUES (?1, ?2, '', '', '', '', CURRENT_TIMESTAMP)
          ON CONFLICT(student_id) DO UPDATE SET
            cookies = CASE WHEN excluded.cookies <> '' THEN excluded.cookies ELSE user_sessions.cookies END,
            last_login = CURRENT_TIMESTAMP",
@@ -491,6 +528,93 @@ mod tests {
         assert_eq!(session.one_code_token, "tok-abc");
         assert_eq!(session.refresh_token, "ref-xyz");
         assert!(session.cookies.contains("Code:"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// v1.4.4 历史空壳形态（INSERT 只写 student_id + last_login，其余业务列 NULL）：
+    /// init_db 幂等重跑触发 normalize 自愈后，任何 reader 可读、不抛
+    /// InvalidColumnType；无凭据语义正确（password/cookies 空串 → 上层需手动登录）。
+    #[test]
+    fn v144_null_shell_row_readable_after_init_db() {
+        let path = temp_db_path("v144_shell");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        let sid = "hist-v144-0001";
+        {
+            let conn = open_connection(&path).unwrap();
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, last_login) VALUES (?1, CURRENT_TIMESTAMP)",
+                params![sid],
+            )
+            .unwrap();
+        }
+
+        // 迁移（init_db 启动路径）不报错，且自愈 NULL
+        init_db(&path).expect("re-init heal");
+
+        let session = get_user_session(&path, sid).expect("get").expect("session");
+        assert_eq!(session.cookies, "");
+        assert_eq!(session.password, "");
+        assert_eq!(session.one_code_token, "");
+        assert_eq!(session.refresh_token, "");
+        assert_eq!(session.token_expires_at, "");
+
+        let latest = get_latest_user_session(&path)
+            .expect("get latest")
+            .expect("latest");
+        assert_eq!(latest.student_id, sid);
+        assert_eq!(latest.cookies, "");
+        assert_eq!(latest.password, "");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// cookies-only UPSERT 在空库写新行：补齐契约列默认，各 reader 可读（#659 必测 3）。
+    #[test]
+    fn cookies_only_upsert_creates_readable_new_row() {
+        let path = temp_db_path("cookies_new");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        let sid = "fresh-cookies-0001";
+        update_user_session_cookies_only(&path, sid, "Code: a=1 | Auth: b=2").expect("upsert");
+
+        let session = get_user_session(&path, sid).expect("get").expect("session");
+        assert!(session.cookies.contains("Code: a=1"));
+        assert_eq!(session.password, "");
+        assert_eq!(session.one_code_token, "");
+
+        let latest = get_latest_user_session(&path)
+            .expect("latest")
+            .expect("row");
+        assert_eq!(latest.student_id, sid);
+        assert!(latest.cookies.contains("Code: a=1"));
+        assert_eq!(latest.password, "");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// electricity-only UPSERT 在空库写新行：补齐契约列默认，各 reader 可读（#659 必测 5）。
+    #[test]
+    fn electricity_tokens_upsert_creates_readable_new_row() {
+        let path = temp_db_path("electricity_new");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        let sid = "fresh-elec-0001";
+        let access = test_value("access");
+        let refresh = test_value("refresh");
+        save_electricity_tokens(&path, sid, &access, &refresh, "2099-01-01T00:00:00Z")
+            .expect("upsert");
+
+        let session = get_user_session(&path, sid).expect("get").expect("session");
+        assert_eq!(session.one_code_token, access);
+        assert_eq!(session.refresh_token, refresh);
+        assert_eq!(session.cookies, "");
+        assert_eq!(session.password, "");
+
+        let latest = get_latest_user_session(&path)
+            .expect("latest")
+            .expect("row");
+        assert_eq!(latest.student_id, sid);
+        assert_eq!(latest.one_code_token, access);
+        assert_eq!(latest.cookies, "");
         let _ = std::fs::remove_file(&path);
     }
 }

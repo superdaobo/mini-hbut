@@ -160,13 +160,25 @@ pub(crate) fn reveal_session_secret(student_id: &str, stored: &str, field: &str)
 }
 
 /// 显式/幂等迁移：旧 Base64 密码列 → 密钥环。此函数不会在启动时自动调用。
+///
+/// 每行归类统计（#659 根因 4）：NULL/坏行进入自愈分支并计入 report，
+/// 不再被 `rows.flatten()` 静默吞掉。
 #[derive(Debug, Clone, Default)]
 pub struct CredMigrateReport {
+    /// 扫描的 user_sessions 行数
     pub scanned: usize,
-    pub migrated_to_keyring: usize,
-    pub kept_base64: usize,
-    pub keyring_ok: usize,
+    /// encrypted_password IS NULL 的历史空壳行：置 '' 自愈（行不删除，各 reader 可读）
+    pub null_shell_repaired: usize,
+    /// KEYRING_MARKER（或空串）且密钥环可恢复
+    pub keyring_marker_valid: usize,
+    /// base64 密码迁移进密钥环成功（落 KEYRING_MARKER）
+    pub base64_migrated: usize,
+    /// 密钥环不可用：保留 base64，并写入 remembered 兜底
+    pub keyring_unavailable: usize,
+    /// KEYRING 空壳且密钥环不可恢复，需用户手动登录
     pub empty_shells: usize,
+    /// 行数据不可读/学号非法（保留原行不覆盖）
+    pub malformed_error: usize,
 }
 
 /// 扫描 `user_sessions`，修复 1.4.3 密钥环空壳与未完成的 base64 迁移。
@@ -181,22 +193,50 @@ pub fn migrate_session_passwords_v2<P: AsRef<Path>>(path: P) -> Result<CredMigra
     let mut stmt = conn.prepare(
         "SELECT student_id, encrypted_password FROM user_sessions ORDER BY last_login DESC",
     )?;
+    // 契约化读取：student_id 主键按 Option 容错；encrypted_password 保留 Option
+    // 以区分「NULL 空壳自愈」与「字面空串」，NULL 行不再让 query_map 报错。
     let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((
+            row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+            row.get::<_, Option<String>>(1)?,
+        ))
     })?;
 
-    for row in rows.flatten() {
-        let (sid, enc) = row;
+    for row in rows {
+        let (sid, enc_opt) = match row {
+            Ok(pair) => pair,
+            Err(error) => {
+                // 不再 flatten 吞错：坏行保留原样、计入 malformed_error 并输出（#659）
+                report.malformed_error += 1;
+                eprintln!("[db] cred_migrate_v2 行读取失败（保留原行不覆盖）: {error}");
+                continue;
+            }
+        };
         report.scanned += 1;
         let sid = sid.trim().to_string();
         if sid.is_empty() {
+            report.malformed_error += 1;
+            eprintln!("[db] cred_migrate_v2: 空学号行，跳过");
             continue;
         }
+
+        // NULL 空壳自愈：写入 '' 使所有 reader 可读（#659），不删除行。
+        let enc = match enc_opt {
+            Some(value) => value,
+            None => {
+                conn.execute(
+                    "UPDATE user_sessions SET encrypted_password = '' WHERE student_id = ?1",
+                    params![sid],
+                )?;
+                report.null_shell_repaired += 1;
+                String::new()
+            }
+        };
 
         if enc == KEYRING_MARKER || enc.is_empty() {
             let from_ring = load_password_from_keyring_or_remembered(&sid);
             if !from_ring.is_empty() {
-                report.keyring_ok += 1;
+                report.keyring_marker_valid += 1;
                 let _ = crate::credential_store::save_remembered_credential(
                     &format!("hbut:{sid}"),
                     &from_ring,
@@ -217,7 +257,7 @@ pub fn migrate_session_passwords_v2<P: AsRef<Path>>(path: P) -> Result<CredMigra
                     "UPDATE user_sessions SET encrypted_password = ?1 WHERE student_id = ?2",
                     params![KEYRING_MARKER, sid],
                 )?;
-                report.migrated_to_keyring += 1;
+                report.base64_migrated += 1;
             } else {
                 // 密钥环不可用：显式保留 base64，并写入 remembered（若 keyring 部分可用）
                 let encoded = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
@@ -231,7 +271,7 @@ pub fn migrate_session_passwords_v2<P: AsRef<Path>>(path: P) -> Result<CredMigra
                     &format!("hbut:{sid}"),
                     &password,
                 );
-                report.kept_base64 += 1;
+                report.keyring_unavailable += 1;
             }
             continue;
         }
@@ -247,12 +287,14 @@ pub fn migrate_session_passwords_v2<P: AsRef<Path>>(path: P) -> Result<CredMigra
     )?;
 
     eprintln!(
-        "[db] cred_migrate_v2 done scanned={} keyring_ok={} migrated={} kept_b64={} empty_shells={}",
+        "[db] cred_migrate_v2 done scanned={} null_shell_repaired={} keyring_marker_valid={} base64_migrated={} keyring_unavailable={} empty_shells={} malformed_error={}",
         report.scanned,
-        report.keyring_ok,
-        report.migrated_to_keyring,
-        report.kept_base64,
-        report.empty_shells
+        report.null_shell_repaired,
+        report.keyring_marker_valid,
+        report.base64_migrated,
+        report.keyring_unavailable,
+        report.empty_shells,
+        report.malformed_error
     );
     Ok(report)
 }
@@ -483,10 +525,55 @@ mod tests {
 
         let report = migrate_session_passwords_v2(&path).expect("migrate");
         assert!(report.scanned >= 1);
-        assert!(report.migrated_to_keyring + report.kept_base64 >= 1);
+        assert!(report.base64_migrated + report.keyring_unavailable >= 1);
 
         let session = get_user_session(&path, sid).unwrap().expect("session");
         assert_eq!(session.password, password);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// encrypted_password IS NULL 的历史行：凭据迁移必须自愈而非被 flatten 吞掉，
+    /// 行不消失、任何 reader 可读（#659 必测 4 对应）。
+    #[test]
+    fn migrate_v2_repairs_null_password_shell_rows() {
+        let path = temp_db_path("migrate_null");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        let sid = "null-shell-0001";
+        {
+            let conn = open_connection(&path).unwrap();
+            // 等价 v1.4.4 空壳：只写 student_id + cookies，encrypted_password IS NULL
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, cookies) VALUES (?1, 'c=1')",
+                params![sid],
+            )
+            .unwrap();
+        }
+
+        let report = migrate_session_passwords_v2(&path).expect("migrate");
+        assert!(report.scanned >= 1);
+        assert!(
+            report.null_shell_repaired >= 1,
+            "null_shell_repaired={}",
+            report.null_shell_repaired
+        );
+        assert_eq!(report.malformed_error, 0);
+
+        // 行未消失；NULL 已自愈为 ''，reader 正常可读
+        let conn = open_connection(&path).unwrap();
+        let enc: String = conn
+            .query_row(
+                "SELECT encrypted_password FROM user_sessions WHERE student_id = ?1",
+                params![sid],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(enc, "");
+        drop(conn);
+
+        let session = get_user_session(&path, sid).unwrap().expect("session");
+        assert_eq!(session.password, "");
+        assert_eq!(session.cookies, "c=1");
         let _ = std::fs::remove_file(&path);
     }
 

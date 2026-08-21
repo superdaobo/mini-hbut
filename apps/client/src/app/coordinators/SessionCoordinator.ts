@@ -35,6 +35,7 @@ import { setCachedData } from '../../utils/api.js'
 import { startNotificationMonitor } from '../../utils/notify_center.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
+import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
 
 export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinator => {
   const { state } = runtime
@@ -114,6 +115,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
     seedTestAccountCaches(setCachedData, sid)
+    state.onlineSessionState.value = 'online'
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
     return true
@@ -133,6 +135,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     }
 
     state.studentId.value = cachedSid
+    // #659：仅恢复了本地缓存身份，在线会话尚未建立（与 isLoggedIn 解耦）
+    state.onlineSessionState.value = 'cached_offline'
     // 异步通知 Rust 侧，不阻塞首屏
     if (hasTauri) {
       invoke('set_offline_user_context', {
@@ -260,10 +264,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       const chaoxingCreds = await getStoredChaoxingPassword()
       if (!chaoxingCreds) return false
       try {
-        const payload = await invoke('chaoxing_password_login', {
-          account: chaoxingCreds.account,
-          password: chaoxingCreds.password
-        })
+        // #659：自动重登与手动登录互斥单飞 —— 已有登录在飞时复用同一请求
+        const payload = await runExclusiveLogin(() =>
+          invoke('chaoxing_password_login', {
+            account: chaoxingCreds.account,
+            password: chaoxingCreds.password
+          })
+        )
         const sid = await resolveAutoLoginStudentId(payload as Record<string, unknown>)
         if (sid) {
           state.studentId.value = sid
@@ -290,9 +297,11 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     // 直接调用后端 auto_relogin_from_stored 走完整 CAS 登录，立即恢复而非等轮询。
     if (creds.backendRestorable) {
       try {
-        const userInfo = await invoke('auto_relogin_from_stored', {
-          studentId: creds.username
-        })
+        const userInfo = await runExclusiveLogin(() =>
+          invoke('auto_relogin_from_stored', {
+            studentId: creds.username
+          })
+        )
         await persistSessionCookies()
         const sid = String(
           userInfo?.student_id || userInfo?.studentId || creds.username || ''
@@ -309,21 +318,25 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       }
     }
 
-    const doLogin = async () => {
-      const userInfo = await invoke('login', {
-        username: creds.username,
-        password: creds.password,
-        captcha: '',
-        lt: '',
-        execution: ''
+    const doLogin = () =>
+      // #659：invoke('login') 走全局单飞门 —— 与手动登录互斥复用，
+      // 绝不在已有登录请求在飞时再次触发
+      runExclusiveLogin(async () => {
+        const userInfo = await invoke('login', {
+          username: creds.username,
+          password: creds.password,
+          captcha: '',
+          lt: '',
+          execution: ''
+        })
+        await persistSessionCookies()
+        const sid = String(userInfo?.student_id || creds.username || '').trim()
+        if (sid) {
+          state.studentId.value = sid
+          saveRememberedUsername(sid)
+        }
+        return userInfo
       })
-      await persistSessionCookies()
-      const sid = String(userInfo?.student_id || creds.username || '').trim()
-      if (sid) {
-        state.studentId.value = sid
-        saveRememberedUsername(sid)
-      }
-    }
 
     try {
       await doLogin()
@@ -510,8 +523,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   const attemptOnlineRecovery = async (options: { silent?: boolean } = {}) => {
     if (isTestAccountSession()) return restoreTestAccountSession()
     if (!hasTauri || isManualLogout()) return false
+    // #659：手动/自动登录已在飞时，恢复链让路（下轮轮询再试），
+    // 避免「后台恢复」与「正在进行的登录」并发双请求
+    if (isLoginInFlight()) return false
     if (state.mutable.jwxtRecoveryInFlight) return false
     state.mutable.jwxtRecoveryInFlight = true
+    // 在线会话状态：进入恢复即明确「正在后台恢复」（轮询 silent 也如实记录）
+    state.onlineSessionState.value = 'recovering'
     if (!options.silent) {
       state.jwxtRecoveryPhase.value = 'recovering'
     }
@@ -617,6 +635,15 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     if (!state.studentId.value && !options.force) return
     const detail = String(options.detail || state.jwxtSessionLastError.value || '').trim()
     const phase = normalizeRecoveryPhase(options.phase, detail ? 'failed' : 'maintenance')
+    // #659：维护/恢复相位与在线会话状态联动
+    if (phase === 'recovering') {
+      state.onlineSessionState.value = 'recovering'
+    } else if (phase === 'need_login') {
+      state.onlineSessionState.value = 'needs_login'
+    } else if (phase === 'failed') {
+      // 在线会话明确未恢复：只要本地身份仍在，就如实标记「缓存离线」
+      state.onlineSessionState.value = state.studentId.value ? 'cached_offline' : 'unknown'
+    }
     state.jwxtMaintenanceMode.value = true
     state.jwxtLastCheckTime.value = formatCheckTime()
     state.jwxtMaintenanceHint.value = hint || '教务系统正在维护或暂时不可用，当前为缓存数据。'
@@ -639,6 +666,14 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   }
 
   const clearJwxtMaintenance = () => {
+    // #659：维护解除时校正在线会话状态 ——
+    // 本地身份存在且已脱离 unknown（曾恢复过缓存/曾在线）→ 视为在线会话建立；
+    // 身份已清空（登出）→ 回到 unknown
+    if (state.studentId.value && state.onlineSessionState.value !== 'unknown') {
+      state.onlineSessionState.value = 'online'
+    } else if (!state.studentId.value) {
+      state.onlineSessionState.value = 'unknown'
+    }
     state.jwxtMaintenanceMode.value = false
     state.jwxtMaintenanceHint.value = ''
     state.jwxtLastCheckTime.value = ''
@@ -658,6 +693,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
 
   const notifySessionOnline = (source = 'recovery') => {
     if (!state.studentId.value) return
+    // #659：会话在线信号是「在线会话已建立」的权威状态源
+    state.onlineSessionState.value = 'online'
     clearJwxtMaintenance()
     window.dispatchEvent(new CustomEvent('hbu-session-online', {
       detail: {
