@@ -8,6 +8,7 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { AppStores } from '../contracts/runtime'
+import type { OnlineSessionState } from '../../stores/auth'
 import {
   HOME_LAYOUT_DEBUG_FORCE_KEY,
   HOME_LAYOUT_DEBUG_HIDDEN_KEY,
@@ -66,6 +67,8 @@ export interface AppState {
   studentId: Ref<string>
   userUuid: Ref<string>
   isLoggedIn: Ref<boolean>
+  // GitHub #659：缓存身份 ≠ 在线会话。unknown/cached_offline/recovering/online/needs_login
+  onlineSessionState: Ref<OnlineSessionState>
   gradeData: Ref<unknown[]>
   gradesOffline: Ref<boolean>
   gradesSyncTime: Ref<string>
@@ -295,6 +298,7 @@ export const createAppState = (stores: AppStores, options: CreateAppStateOptions
     studentId: authRefs.studentId,
     userUuid: authRefs.userUuid,
     isLoggedIn: authRefs.isLoggedIn,
+    onlineSessionState: authRefs.onlineSessionState,
     gradeData: gradeRefs.grades,
     gradesOffline: gradeRefs.offline,
     gradesSyncTime: gradeRefs.syncTime,

@@ -29,10 +29,18 @@ import {
   NON_OFFICIAL_DISCLAIMER_ZH
 } from '../config/app_store_policy'
 import { saveRememberedUsername } from '../utils/remembered_username.js'
+import { runExclusiveLogin } from '../app/coordinators/sessionGate'
+import { useAuthStore } from '../stores'
 
 const props = defineProps({
   loginMode: { type: String, default: 'portal' }
 })
+
+const authStore = useAuthStore()
+/** 手动登录成功：在线会话已建立（与后台恢复路径的 notifySessionOnline 对齐） */
+const markLoginOnline = () => {
+  authStore.onlineSessionState = 'online'
+}
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
 
@@ -498,6 +506,7 @@ const handleTestAccountLogin = async () => {
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
     seedTestAccountCaches(setCachedData, TEST_ACCOUNT.studentId)
+    markLoginOnline()
     statusMsg.value = '登录成功，已加载演示数据'
     emit('success', getTestAccountGrades())
   } finally {
@@ -557,6 +566,7 @@ const handlePasswordLogin = async () => {
     }
     applyLoginMethodStorage('portal_password')
     localStorage.removeItem(LOGOUT_REASON_KEY)
+    markLoginOnline()
     statusMsg.value = '✅ 登录成功，正在同步数据...'
     await emitSuccessWithGrades(sid || username.value)
   } catch (e) {
@@ -685,10 +695,12 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
   clearQrTimer()
 
   try {
-    const userInfo = await invoke('portal_qr_confirm_login', {
-      uuid: qrUuid.value,
-      service: 'https://e.hbut.edu.cn/login#/'
-    })
+    const userInfo = await runExclusiveLogin(() =>
+      invoke('portal_qr_confirm_login', {
+        uuid: qrUuid.value,
+        service: 'https://e.hbut.edu.cn/login#/'
+      })
+    )
     const sid = String(userInfo?.student_id || '').trim()
     if (!sid) {
       throw new Error('扫码成功但未获取到学号')
@@ -699,6 +711,7 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
     applyLoginMethodStorage('portal_qr_temp')
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
+    markLoginOnline()
 
     qrState.value = 'success'
     qrStateMessage.value = '✅ 扫码登录成功，正在同步数据...'
@@ -729,6 +742,7 @@ const handleChaoxingLoginSuccess = async (payload, modeKey) => {
   applyLoginMethodStorage(modeKey)
   localStorage.removeItem('hbu_manual_logout')
   localStorage.removeItem(LOGOUT_REASON_KEY)
+  markLoginOnline()
   statusMsg.value = '✅ 学习通登录成功，正在进入首页...'
   pushDebugList(payload?.debug)
   emit('success', [])
@@ -751,10 +765,12 @@ const handleChaoxingPasswordLogin = async () => {
   loading.value = true
   statusMsg.value = '🔒 正在登录学习通...'
   try {
-    const payload = await invoke('chaoxing_password_login', {
-      account: chaoxingAccount.value,
-      password: chaoxingPassword.value
-    })
+    const payload = await runExclusiveLogin(() =>
+      invoke('chaoxing_password_login', {
+        account: chaoxingAccount.value,
+        password: chaoxingPassword.value
+      })
+    )
     await handleChaoxingLoginSuccess(payload, 'chaoxing_password')
   } catch (e) {
     statusMsg.value = `⚠️ 学习通登录失败：${friendlyLoginError(e.message || e)}`
@@ -899,11 +915,13 @@ const confirmChaoxingQrLogin = async () => {
   clearCxQrTimer()
 
   try {
-    const payload = await invoke('chaoxing_qr_confirm_login', {
-      uuid: cxQrUuid.value,
-      enc: cxQrEnc.value,
-      account_hint: chaoxingAccount.value || undefined
-    })
+    const payload = await runExclusiveLogin(() =>
+      invoke('chaoxing_qr_confirm_login', {
+        uuid: cxQrUuid.value,
+        enc: cxQrEnc.value,
+        account_hint: chaoxingAccount.value || undefined
+      })
+    )
     cxQrState.value = 'success'
     cxQrStateMessage.value = '✅ 学习通扫码登录成功，正在进入首页...'
     await handleChaoxingLoginSuccess(payload, 'chaoxing_qr_temp')

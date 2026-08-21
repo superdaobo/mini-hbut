@@ -23,6 +23,7 @@ import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeS
 import { isTestAccountSession } from '../utils/test_account.js'
 import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
 import { decideHomeNavigate } from '../utils/moduleAccess'
+import { useAuthStore } from '../stores'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -49,6 +50,10 @@ const emit = defineEmits([
 
 const maintenanceTitle = computed(() => {
   const phase = String(props.jwxtRecoveryPhase || '')
+  // #659：本地身份已恢复但教务在线会话未恢复（尚未进入恢复轮询）
+  if (onlineSessionState.value === 'cached_offline' && phase === 'idle') {
+    return '本地身份已恢复，教务在线会话未恢复'
+  }
   if (phase === 'recovering') return '正在后台恢复登录'
   if (phase === 'need_login') return '需要重新登录'
   if (phase === 'failed') return '会话恢复未成功'
@@ -57,6 +62,7 @@ const maintenanceTitle = computed(() => {
 
 const maintenancePhaseLabel = computed(() => {
   const phase = String(props.jwxtRecoveryPhase || '')
+  if (onlineSessionState.value === 'cached_offline' && phase === 'idle') return '展示缓存数据'
   if (phase === 'recovering') return '后台自动登录中'
   if (phase === 'need_login') return '请手动登录'
   if (phase === 'failed') return '将定时重试'
@@ -90,8 +96,21 @@ const maintenanceNotices = computed(() => {
  */
 const sessionDetailOpen = ref(false)
 
+/**
+ * 在线会话状态（GitHub #659）：缓存身份 ≠ 在线会话。
+ * 直接读 auth store（App.vue 未透传该 prop，避免改壳层）。
+ */
+const authStore = useAuthStore()
+const onlineSessionState = computed(() => authStore.onlineSessionState || '')
+
 const sessionStatusVisual = computed(() => {
   if (!props.isLoggedIn) return 'red'
+  // #659：优先以「在线会话状态」为准 —— 缓存身份 ≠ 在线会话
+  const online = String(onlineSessionState.value || '')
+  if (online === 'online') return 'green'
+  if (online === 'recovering') return 'blink'
+  if (online === 'cached_offline' || online === 'needs_login') return 'red'
+  // 兼容旧行为（unknown 时回退到维护相位判断）
   const phase = String(props.jwxtRecoveryPhase || 'idle')
   if (phase === 'recovering') return 'blink'
   if (phase === 'failed' || phase === 'need_login' || phase === 'maintenance') {
