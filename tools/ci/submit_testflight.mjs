@@ -174,6 +174,23 @@ export function createBetaBuildLocalizationBody({ buildId, locale, whatsNew }) {
   }
 }
 
+/** 查询某 App 的出口合规（App Encryption Declarations）列表。 */
+export function createAppEncryptionDeclarationLookupPath({ appId, limit = 200 }) {
+  const qs = new URLSearchParams({
+    'filter[app]': appId,
+    'fields[appEncryptionDeclarations]': 'appEncryptionDeclarationState,usesEncryption',
+    limit: String(limit),
+  })
+  return `/appEncryptionDeclarations?${qs}`
+}
+
+/** 把 build 关联到出口合规声明的 linkage 请求体。 */
+export function createBuildEncryptionDeclarationLinkageBody(declarationId) {
+  return {
+    data: { type: 'appEncryptionDeclarations', id: declarationId },
+  }
+}
+
 function recentCommits(max = 8) {
   try {
     const out = execFileSync('git', ['log', '--no-merges', '--pretty=format:%h %s', '-n', String(max)], {
@@ -304,6 +321,45 @@ async function findBetaGroup(token, { appId, groupName }) {
   return internal
 }
 
+/**
+ * 自动出口合规（"允许出口"）：把构建关联到 App 已批准的 App Encryption Declaration。
+ * mode: 'auto'（默认，查已批准声明）/ 'off'（跳过）/ 其它值视为显式声明 id。
+ * 无可用声明时仅告警，不中断测试组投递。
+ */
+async function assignExportCompliance(token, { appId, buildId, mode }) {
+  const normalized = String(mode || 'auto').trim().toLowerCase()
+  if (normalized === 'off') {
+    console.log('⏭️ 已跳过出口合规（export_compliance=off）')
+    return
+  }
+  let declarationId = ''
+  if (normalized !== 'auto') {
+    declarationId = normalized // 视为显式声明 id
+  } else {
+    const data = await apiRequest(token, createAppEncryptionDeclarationLookupPath({ appId }))
+    const list = data.data || []
+    const approved = list.find(
+      (item) => item.attributes?.appEncryptionDeclarationState === 'APPROVED',
+    )
+    declarationId = (approved || list[0])?.id || ''
+  }
+  if (!declarationId) {
+    console.warn(
+      '⚠️ 未找到可用的 App Encryption Declaration，跳过出口合规关联（首次需在 App Store Connect 创建并等待审核；不影响测试组投递）',
+    )
+    return
+  }
+  await apiRequest(
+    token,
+    `/builds/${encodeURIComponent(buildId)}/relationships/appEncryptionDeclaration`,
+    {
+      method: 'PATCH',
+      body: createBuildEncryptionDeclarationLinkageBody(declarationId),
+    },
+  )
+  console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}）`)
+}
+
 async function main() {
   const {
     APPSTORE_KEY_ID,
@@ -315,6 +371,7 @@ async function main() {
     TESTFLIGHT_WHATS_NEW = '',
     TESTFLIGHT_BETA_GROUP = '',
     TESTFLIGHT_LOCALE = DEFAULT_TESTFLIGHT_LOCALE,
+    TESTFLIGHT_EXPORT_COMPLIANCE = 'auto',
   } = process.env
 
   for (const [name, value] of Object.entries({
@@ -361,6 +418,17 @@ async function main() {
     whatsNew,
   })
   console.log('✅ 测试说明已填写')
+
+  // 2.5) 出口合规（"允许出口"）关联；失败不中断测试组投递
+  try {
+    await assignExportCompliance(token, {
+      appId: APPLE_APP_ID,
+      buildId,
+      mode: TESTFLIGHT_EXPORT_COMPLIANCE,
+    })
+  } catch (err) {
+    console.warn(`⚠️ 出口合规关联失败（不影响测试组投递）：${err.message}`)
+  }
 
   // 3) 加入测试组（内部组 = 自动提交；外部组需要 Beta App Review）
   const group = await findBetaGroup(token, { appId: APPLE_APP_ID, groupName: TESTFLIGHT_BETA_GROUP })

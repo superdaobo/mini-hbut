@@ -19,6 +19,11 @@ on:
         description: "TestFlight 测试组名称。留空自动选择第一个内部测试组（= 自动提交内部测试）。"
         required: false
         type: string
+      export_compliance:
+        description: "出口合规：auto（自动关联已批准 AppEncryptionDeclaration）/ off（跳过）/ 指定声明 id。"
+        required: false
+        type: string
+        default: "auto"
 
 permissions:
   contents: read
@@ -430,6 +435,7 @@ jobs:
           BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
           TESTFLIGHT_WHATS_NEW: ${{ inputs.whats_new }}
           TESTFLIGHT_BETA_GROUP: ${{ inputs.beta_group }}
+          TESTFLIGHT_EXPORT_COMPLIANCE: ${{ inputs.export_compliance }}
         run: |
           set -euo pipefail
           # 复用上方 "Install App Store Connect API key" 步骤写入的 .p8 私钥
