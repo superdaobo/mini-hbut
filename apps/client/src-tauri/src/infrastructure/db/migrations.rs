@@ -65,6 +65,82 @@ pub(crate) fn ensure_user_session_columns(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// `normalize_user_sessions_nulls` 的扫描/修复计数（#659 根因 2）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UserSessionNullReport {
+    /// 存在至少一个契约列 IS NULL 的行数
+    pub scanned: usize,
+    /// 实际执行的 (行, 列) NULL→'' 修复次数
+    pub repaired: usize,
+}
+
+/// user_sessions 历史空壳 NULL 自愈（#659 根因 2）。
+///
+/// 幂等：仅把契约非空业务列中的 NULL 置为 ''，绝不覆盖非空值，
+/// 不删除 Session/缓存行；`user_sessions` 表不存在时静默返回零计数。
+/// 契约列 = 生产读取路径按 String 读取的列（session.rs 统一 row-mapper）：
+/// cookies / encrypted_password / one_code_token / electricity_refresh_token /
+/// electricity_token_expires_at。
+/// 失败以 Result 传播（调用方如 init_db 可见），计数随 report 返回并 eprintln 记录。
+pub fn normalize_user_sessions_nulls(conn: &Connection) -> Result<UserSessionNullReport> {
+    const CONTRACT_COLUMNS: [&str; 5] = [
+        "cookies",
+        "encrypted_password",
+        "one_code_token",
+        "electricity_refresh_token",
+        "electricity_token_expires_at",
+    ];
+
+    let empty = UserSessionNullReport::default();
+    // 表不存在（新库尚未经过 init_db）时静默跳过，避免 "no such table"
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_sessions'",
+            [],
+            |_| Ok(true),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !table_exists {
+        return Ok(empty);
+    }
+    // 缺列的旧库先补列，保证后续 UPDATE 引用的列一定存在
+    ensure_user_session_columns(conn)?;
+
+    let where_clause = CONTRACT_COLUMNS
+        .iter()
+        .map(|column| format!("{column} IS NULL"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let scanned: i64 = conn.query_row(
+        &format!("SELECT COUNT(*) FROM user_sessions WHERE {where_clause}"),
+        [],
+        |row| row.get(0),
+    )?;
+
+    let tx = conn.unchecked_transaction()?;
+    let mut repaired = 0usize;
+    for column in CONTRACT_COLUMNS {
+        // 列名来自编译期常量数组，无注入面
+        let affected = tx.execute(
+            &format!("UPDATE user_sessions SET {column} = '' WHERE {column} IS NULL"),
+            [],
+        )?;
+        repaired += affected;
+    }
+    tx.commit()?;
+
+    let report = UserSessionNullReport {
+        scanned: scanned as usize,
+        repaired,
+    };
+    eprintln!(
+        "[db] normalize_user_sessions_nulls: scanned={} repaired={}",
+        report.scanned, report.repaired
+    );
+    Ok(report)
+}
+
 /// 自定义课程可选颜色列（#470）：旧库幂等 ALTER，新建表 DDL 已含 color。
 pub(crate) fn ensure_custom_schedule_color_column(conn: &Connection) -> Result<()> {
     ensure_column(
@@ -421,6 +497,10 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         6,
         "custom_schedule_courses.color optional user color",
     )?;
+
+    // 历史空壳 NULL 自愈（#659 根因 2）：幂等，仅契约列 NULL→''，不覆盖非空值；
+    // 失败直接传播（启动阶段 lib.rs 可见），计数经 eprintln/report 可观测。
+    normalize_user_sessions_nulls(&conn)?;
     drop(conn);
 
     // 安全迁移必须由用户明确触发。启动阶段只建表，不扫描或重写真实用户凭据。
@@ -566,6 +646,80 @@ mod tests {
             .expect("count");
         // init_db 记录版本 1,2,3,5,6；version 4 由 migrate_session_passwords_v2 单独记录
         assert_eq!(count, 5);
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// normalize_user_sessions_nulls（#659 必测）：历史空壳 NULL 自愈、幂等、
+    /// 绝不覆盖非空值、不删除行。
+    #[test]
+    fn normalize_user_sessions_nulls_repairs_and_is_idempotent() {
+        let path = temp_db_path("normalize");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        {
+            let conn = open_connection(&path).expect("open");
+            // 等价 v1.4.4 空壳：只写 student_id + last_login，其余契约列 NULL
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, last_login)
+                 VALUES ('hist-001', CURRENT_TIMESTAMP)",
+                [],
+            )
+            .expect("seed shell");
+            // 部分 NULL 行（one_code_token / refresh / expires 为 NULL）
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token)
+                 VALUES ('hist-002', 'c=1', '', NULL)",
+                [],
+            )
+            .expect("seed partial");
+            // 全非空行：不得被触碰、不得计入扫描
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at)
+                 VALUES ('hist-003', 'c=full', 'b64', 'tok', 'ref', '2099-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("seed full");
+        }
+        let conn = open_connection(&path).expect("open");
+        let first = normalize_user_sessions_nulls(&conn).expect("normalize");
+        // hist-001: 5 个契约列 NULL；hist-002: 3 个 → scanned=2, repaired=8
+        assert_eq!(first.scanned, 2, "scanned={}", first.scanned);
+        assert_eq!(first.repaired, 8, "repaired={}", first.repaired);
+
+        // 全部契约列已非空
+        let bad: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM user_sessions WHERE cookies IS NULL
+                 OR encrypted_password IS NULL OR one_code_token IS NULL
+                 OR electricity_refresh_token IS NULL OR electricity_token_expires_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("bad count");
+        assert_eq!(bad, 0);
+        // 非空值未被覆盖，行未删除
+        let full: (String, String) = conn
+            .query_row(
+                "SELECT cookies, encrypted_password FROM user_sessions WHERE student_id='hist-003'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("full row");
+        assert_eq!(full, ("c=full".to_string(), "b64".to_string()));
+        let (shell_cookies, shell_enc): (String, String) = conn
+            .query_row(
+                "SELECT cookies, encrypted_password FROM user_sessions WHERE student_id='hist-001'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("shell row");
+        assert_eq!((shell_cookies, shell_enc), (String::new(), String::new()));
+
+        // 幂等：第二次零扫描零修复
+        let second = normalize_user_sessions_nulls(&conn).expect("normalize 2");
+        assert_eq!(second.scanned, 0);
+        assert_eq!(second.repaired, 0);
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }
