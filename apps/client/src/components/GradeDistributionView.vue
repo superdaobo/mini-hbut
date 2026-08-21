@@ -44,6 +44,13 @@ const loadData = async () => {
   }
 }
 
+// 失败后重新发起当前搜索（超时/网络错误时使用）
+const retrySearch = () => {
+  if (hasQuery.value) {
+    loadData()
+  }
+}
+
 // 是否已输入搜索关键词
 const hasQuery = computed(() => searchQuery.value.trim().length > 0)
 
@@ -188,12 +195,15 @@ watch(page, () => {
         </div>
 
         <!-- 错误 -->
-        <div v-if="error" class="gd-error">{{ error }}</div>
+        <div v-if="error" class="gd-error">
+          {{ error }}
+          <button type="button" class="gd-retry" @click="retrySearch">重试</button>
+        </div>
 
         <!-- 加载中 -->
         <div v-if="loading" class="gd-loading">
           <div class="gd-spinner" />
-          <span>加载中...</span>
+          <span>查询中，请稍候…（数据较多时可能较慢）</span>
         </div>
 
         <!-- 未搜索提示 -->
@@ -468,6 +478,23 @@ watch(page, () => {
   background: #fef2f2;
   color: #dc2626;
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.gd-retry {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid #dc2626;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #dc2626;
+  font-size: 13px;
+  cursor: pointer;
+}
+.gd-retry:active {
+  background: #fee2e2;
 }
 .gd-loading {
   display: flex;
