@@ -80,6 +80,74 @@ pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] =
 /// Release 构建仅允许 HTTPS OCR，避免验证码图片经明文 HTTP 外传。
 pub(super) const DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] = &[SECONDARY_OCR_ENDPOINT];
 
+/// 登录风控：完整 CAS 尝试（收到认证服务器真实响应）的冷却时长（60s）。
+pub(super) const LOGIN_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
+/// 传输层失败（未收到认证服务器响应，如网络/DNS/TLS/超时）后的短 backoff，
+/// 仅用于避免连点刷屏，远小于 60s 登录冷却，绝不把用户锁死（#659 根因 5）。
+pub(super) const TRANSPORT_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 客户端错误分类（风控与错误判定用，不改变对外字符串文案）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpClientErrorKind {
+    /// 传输层失败：未收到认证服务器真实响应（DNS/TCP/TLS/超时等）。
+    Transport,
+    /// 认证失败：收到认证服务器返回的业务失败响应（账号/密码/验证码/锁定等）。
+    AuthFailed,
+    /// 其它/业务错误（参数缺失、登录页异常、未知）。
+    Other,
+}
+
+/// 带分类的客户端错误。`Display` 只输出原始消息，保持对外字符串/结构兼容；
+/// 同时可经 `Box<dyn Error + Send + Sync>` 向下转型（downcast）获取 `kind`。
+#[derive(Debug, Clone)]
+pub struct HttpClientError {
+    kind: HttpClientErrorKind,
+    message: String,
+}
+
+impl HttpClientError {
+    pub fn new(kind: HttpClientErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    /// 构造认证失败类错误（收到认证服务器业务失败响应）。
+    pub fn auth_failed(message: impl Into<String>) -> Self {
+        Self::new(HttpClientErrorKind::AuthFailed, message)
+    }
+
+    /// 构造其它/业务类错误。
+    pub fn other(message: impl Into<String>) -> Self {
+        Self::new(HttpClientErrorKind::Other, message)
+    }
+
+    pub fn kind(&self) -> HttpClientErrorKind {
+        self.kind
+    }
+}
+
+impl std::fmt::Display for HttpClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HttpClientError {}
+
+/// 判定错误是否为「传输层失败」（未收到认证服务器真实响应）。
+/// 识别 `HttpClientError::Transport` 与原生 `reqwest::Error`（connect/timeout/request/body）。
+pub(super) fn is_transport_error(err: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
+    if let Some(e) = err.downcast_ref::<HttpClientError>() {
+        return e.kind() == HttpClientErrorKind::Transport;
+    }
+    if let Some(re) = err.downcast_ref::<reqwest::Error>() {
+        return re.is_timeout() || re.is_connect() || re.is_request() || re.is_body();
+    }
+    false
+}
+
 /// Release 构建过滤掉非 HTTPS 的 OCR 端点。
 pub(super) fn filter_release_ocr_endpoints(endpoints: Vec<String>) -> Vec<String> {
     if cfg!(debug_assertions) {
@@ -246,6 +314,34 @@ pub struct HbutClient {
     pub(super) ocr_active_source: Option<String>,
     pub(super) ocr_last_error: Option<String>,
     pub(super) last_login_attempt: Option<std::time::Instant>,
+    /// 最近一次「未收到认证服务器响应」的登录失败时间（传输层/登录页获取/参数解析失败），
+    /// 用于 5s 短 backoff（#659：传输层失败不再锁 60s）。
+    pub(super) last_login_short_backoff_at: Option<std::time::Instant>,
+    /// 测试专用：注入「获取登录页」结果（None = 走真实链路）。
+    #[cfg(test)]
+    pub(super) test_login_page: Option<
+        std::sync::Arc<
+            dyn Fn() -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>>
+                + Send
+                + Sync,
+        >,
+    >,
+    /// 测试专用：注入「CAS 登录 POST」结果（None = 走真实链路）。
+    #[cfg(test)]
+    pub(super) test_cas_post: Option<
+        std::sync::Arc<
+            dyn Fn() -> Result<(String, u16, String), Box<dyn std::error::Error + Send + Sync>>
+                + Send
+                + Sync,
+        >,
+    >,
+    /// 测试专用：注入「登录成功后建教务会话并拉取用户信息」结果（None = 走真实链路）。
+    #[cfg(test)]
+    pub(super) test_finalize: Option<
+        std::sync::Arc<
+            dyn Fn() -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> + Send + Sync,
+        >,
+    >,
     pub(super) last_login_time: Option<std::time::Instant>,
     pub(super) last_relogin_attempt: Option<std::time::Instant>,
     pub(super) last_relogin_failed_at: Option<std::time::Instant>,
@@ -382,6 +478,13 @@ impl HbutClient {
             ocr_active_source: None,
             ocr_last_error: None,
             last_login_attempt: None,
+            last_login_short_backoff_at: None,
+            #[cfg(test)]
+            test_login_page: None,
+            #[cfg(test)]
+            test_cas_post: None,
+            #[cfg(test)]
+            test_finalize: None,
             last_login_time: None,
             last_relogin_attempt: None,
             last_relogin_failed_at: None,
@@ -549,14 +652,27 @@ impl HbutClient {
     }
 
     /// 登录频率控制：至少间隔 60 秒，降低 CAS 风控风险。
+    /// 仅在收到认证服务器真实响应（成功/认证失败/5xx 等业务响应）后才会记录，
+    /// 传输层失败不触发（见 `login_transport_backoff_remaining`，#659 根因 5）。
     pub(super) fn login_cooldown_remaining(&self) -> Option<std::time::Duration> {
-        const COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
         let last = self.last_login_attempt?;
         let elapsed = last.elapsed();
-        if elapsed >= COOLDOWN {
+        if elapsed >= LOGIN_COOLDOWN {
             None
         } else {
-            Some(COOLDOWN - elapsed)
+            Some(LOGIN_COOLDOWN - elapsed)
+        }
+    }
+
+    /// 传输层失败（未收到认证服务器响应）后的短 backoff 剩余时间。
+    /// 独立于 60s 登录冷却，时长为 `TRANSPORT_BACKOFF`（5s），仅防连点刷屏，不锁死用户。
+    pub(super) fn login_transport_backoff_remaining(&self) -> Option<std::time::Duration> {
+        let last = self.last_login_short_backoff_at?;
+        let elapsed = last.elapsed();
+        if elapsed >= TRANSPORT_BACKOFF {
+            None
+        } else {
+            Some(TRANSPORT_BACKOFF - elapsed)
         }
     }
 

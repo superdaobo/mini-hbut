@@ -1017,8 +1017,13 @@ impl HbutClient {
         _lt: &str,        // 忽略前端传入的值
         _execution: &str, // 忽略前端传入的值
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        // 60s 冷却门：只有「收到认证服务器真实响应」的记录才会触发（#659 根因 5）
         if let Some(remaining) = self.login_cooldown_remaining() {
             return Err(format!("登录频率过高，请{}秒后再试", remaining.as_secs()).into());
+        }
+        // 传输层/登录页失败后的短 backoff 门（独立、远小于 60s；避免网络异常时连点刷屏）
+        if let Some(remaining) = self.login_transport_backoff_remaining() {
+            return Err(format!("网络异常，请{}秒后再试", remaining.as_secs()).into());
         }
 
         let encoded_service = urlencoding::encode(TARGET_SERVICE);
@@ -1036,8 +1041,14 @@ impl HbutClient {
 
         let max_retries = 2;
         for attempt in 0..max_retries {
-            let mut page_info = self.get_login_page().await?;
-            page_info = self.resolve_login_page_with_fallbacks(page_info).await?;
+            let mut page_info = match self.login_fetch_login_page().await {
+                Ok(page) => page,
+                Err(err) => {
+                    // 登录页获取/解析失败：未收到认证服务器响应，不占 60s 冷却，仅记短 backoff
+                    self.last_login_short_backoff_at = Some(std::time::Instant::now());
+                    return Err(err);
+                }
+            };
             // get_login_page 使用 TARGET_SERVICE，如果已经登录会跳转到 JWXT
             if page_info.is_already_logged_in {
                 crate::hbut_debug!("[调试] 已登录（检测到），跳过登录 POST");
@@ -1055,7 +1066,11 @@ impl HbutClient {
             let captcha_required = page_info.captcha_required;
 
             if current_salt.is_empty() || current_execution.trim().is_empty() {
-                return Err("无法获取登录参数（加密盐值或 execution）".into());
+                // 参数解析失败：未收到认证服务器响应，不占 60s 冷却，仅记短 backoff 防连点
+                self.last_login_short_backoff_at = Some(std::time::Instant::now());
+                return Err(
+                    HttpClientError::other("无法获取登录参数（加密盐值或 execution）").into(),
+                );
             }
 
             println!(
@@ -1147,20 +1162,26 @@ impl HbutClient {
 
             // 5. 提交登录请求
             crate::hbut_debug!("[调试] 发送登录 POST 请求...");
-            // 只有真正发起 CAS 登录提交时才计入频率限制，避免参数解析异常触发误限频。
+            // 关键修复（#659 根因 5）：只有「收到认证服务器真实响应」后才计入 60s 冷却。
+            // `.send()` 传输层失败（网络/DNS/TLS/超时）不锁 60s，仅记 5s 短 backoff，
+            // 避免用户因网络抖动被锁死 60 秒无法重新登录。
+            let (response_url, status, html) =
+                match self.submit_cas_login(&login_url, &form_data).await {
+                    Ok(resp) => resp,
+                    Err(err) => {
+                        if is_transport_error(err.as_ref()) {
+                            crate::hbut_debug!(
+                                "[调试] 登录 POST 传输层失败，仅记 5s backoff，不计 60s 冷却"
+                            );
+                            self.last_login_short_backoff_at = Some(std::time::Instant::now());
+                        }
+                        return Err(err);
+                    }
+                };
+            // 已收到认证服务器真实响应：记一次完整 CAS 尝试（成功/认证失败/5xx 均受 60s 风控保护）
             self.last_login_attempt = Some(std::time::Instant::now());
-            let response = self
-                .client
-                .post(&login_url)
-                .header("Referer", &login_url)
-                .form(&form_data)
-                .send()
-                .await?;
 
             crate::hbut_debug!("[调试] 登录请求已发送，处理响应...");
-            let response_url = response.url().to_string();
-            let status = response.status();
-            let html = response.text().await?;
 
             println!(
                 "[调试] 登录响应状态: {}, 最终地址: {}",
@@ -1172,7 +1193,7 @@ impl HbutClient {
                 crate::hbut_debug!("[调试] 响应 HTML 片段: {}", html);
             }
 
-            if status.as_u16() >= 400 {
+            if status >= 400 {
                 super::utils::write_debug_artifact("debug_login_error_response_tauri.html", &html);
                 crate::hbut_debug!(
                     "[调试] 登录响应状态 >=400, wrote debug_login_error_response_tauri.html (len={})",
@@ -1185,7 +1206,7 @@ impl HbutClient {
                 return Err("服务器 IP 被学校冻结，请稍后再试或联系管理员".into());
             }
 
-            if status.as_u16() >= 500 {
+            if status >= 500 {
                 super::utils::write_debug_artifact("debug_login_response_tauri.html", &html);
                 crate::hbut_debug!(
                     "[调试] 登录响应状态 >=500, wrote debug_login_response_tauri.html (len={})",
@@ -1210,11 +1231,11 @@ impl HbutClient {
                     );
                     continue;
                 }
-                return Err(login_err.into());
+                return Err(HttpClientError::auth_failed(login_err).into());
             }
 
             // 明确的失败判定（避免继续走 SSO 导致“会话已过期”）
-            if status.as_u16() == 401 {
+            if status == 401 {
                 super::utils::write_debug_artifact("debug_login_401_response_tauri.html", &html);
                 crate::hbut_debug!(
                     "[调试] 登录响应状态 401, wrote debug_login_401_response_tauri.html (len={})",
@@ -1228,7 +1249,8 @@ impl HbutClient {
                     );
                     continue;
                 }
-                return Err("登录失败，请检查账号或密码".into());
+                // 401 属于认证服务器真实响应：认证失败，受 60s 冷却保护
+                return Err(HttpClientError::auth_failed("登录失败，请检查账号或密码").into());
             }
 
             let is_on_auth_page = response_url.contains("authserver/login")
@@ -1245,13 +1267,15 @@ impl HbutClient {
                     );
                     continue;
                 }
-                return Err("登录失败，请检查账号或密码".into());
+                // 仍停留在认证页：属于认证服务器真实响应，受 60s 冷却保护
+                return Err(HttpClientError::auth_failed("登录失败，请检查账号或密码").into());
             }
 
             // 检查是否登录成功（URL 发生变化通常表示成功）
             // v3: 排除教务系统自带登录页 /admin/login
             let is_on_jwxt_login = looks_like_academic_login_url(&response_url);
-            if status.is_success()
+            if status >= 200
+                && status < 300
                 && !is_on_jwxt_login
                 && (response_url.contains("ticket=")
                     || response_url.contains("jwxt")
@@ -1269,10 +1293,10 @@ impl HbutClient {
                 );
                 continue;
             } else {
-                return Err("登录失败，请稍后重试".into());
+                return Err(HttpClientError::other("登录失败，请稍后重试").into());
             }
 
-            let user_info = self.finalize_jwxt_user_session().await?;
+            let user_info = self.login_finalize_session().await?;
             // 成功登录
             self.last_login_time = Some(std::time::Instant::now());
             self.is_logged_in = true;
@@ -1285,7 +1309,56 @@ impl HbutClient {
             return Ok(user_info);
         }
 
-        Err("登录失败，请稍后重试".into())
+        Err(HttpClientError::other("登录失败，请稍后重试").into())
+    }
+
+    /// 获取登录页（含 fallback 探测）；测试构建可注入 mock 登录页。
+    async fn login_fetch_login_page(
+        &mut self,
+    ) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
+        #[cfg(test)]
+        if let Some(inject) = &self.test_login_page {
+            return inject();
+        }
+        let mut page_info = self.get_login_page().await?;
+        page_info = self.resolve_login_page_with_fallbacks(page_info).await?;
+        Ok(page_info)
+    }
+
+    /// 提交 CAS 登录 POST，返回 (最终 URL, HTTP 状态码, 响应 HTML)。
+    /// 传输层失败（`.send()` / `text()` 的 reqwest 错误）原样透传，由调用方按分类处理；
+    /// 测试构建可注入 mock 结果（见 `test_cas_post`）。
+    async fn submit_cas_login(
+        &self,
+        login_url: &str,
+        form_data: &HashMap<String, String>,
+    ) -> Result<(String, u16, String), Box<dyn std::error::Error + Send + Sync>> {
+        #[cfg(test)]
+        if let Some(inject) = &self.test_cas_post {
+            return inject();
+        }
+        let response = self
+            .client
+            .post(login_url)
+            .header("Referer", login_url)
+            .form(form_data)
+            .send()
+            .await?;
+        let response_url = response.url().to_string();
+        let status = response.status().as_u16();
+        let html = response.text().await?;
+        Ok((response_url, status, html))
+    }
+
+    /// 登录成功后建立教务会话并拉取用户信息；测试构建可注入 mock。
+    async fn login_finalize_session(
+        &mut self,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        #[cfg(test)]
+        if let Some(inject) = &self.test_finalize {
+            return inject();
+        }
+        self.finalize_jwxt_user_session().await
     }
 }
 
@@ -1315,5 +1388,217 @@ mod login_error_tests {
         let (msg, retryable) = detect_login_error_from_html(html).expect("should classify");
         assert_eq!(msg, "账号已被锁定");
         assert!(!retryable);
+    }
+}
+
+/// #659 根因 5 / 实现要求 E / 必测 6：
+/// 传输层失败（未收到认证服务器响应）不得触发 60s 登录硬锁；
+/// 只有「收到真实 CAS 响应」（成功/认证失败/5xx）才计入 60s 冷却。
+#[cfg(test)]
+mod login_cooldown_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// 构造隔离数据目录的测试客户端，避免快照文件污染真实 %LOCALAPPDATA%。
+    fn test_client() -> HbutClient {
+        let dir = tempfile::tempdir().expect("创建临时数据目录");
+        std::env::set_var("HBUT_APP_DATA_DIR", dir.path());
+        HbutClient::new()
+    }
+
+    fn mock_login_page() -> LoginPageInfo {
+        LoginPageInfo {
+            lt: "lt-mock".to_string(),
+            execution: "exec-mock".to_string(),
+            captcha_required: false,
+            salt: "0123456789abcdef".to_string(),
+            is_already_logged_in: false,
+        }
+    }
+
+    fn mock_user() -> UserInfo {
+        UserInfo {
+            student_id: "2024000000".to_string(),
+            student_name: "测试".to_string(),
+            college: None,
+            major: None,
+            class_name: None,
+            grade: None,
+        }
+    }
+
+    /// 已收到真实 CAS 响应后（距上次 500ms）：重复登录必须被 60s 冷却门拦截，
+    /// 文案为「登录频率过高，请59秒后再试」且在发起任何网络请求之前返回。
+    #[tokio::test]
+    async fn cooldown_gate_blocks_repeat_submit_with_59_seconds_message() {
+        let mut client = test_client();
+        client.last_login_attempt =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(500));
+        let err = client
+            .login("2024000000", "pwd_123", "", "", "")
+            .await
+            .expect_err("冷却门应拦截");
+        let msg = err.to_string();
+        assert!(msg.contains("登录频率过高，请59秒后再试"), "msg={msg}");
+        assert!(!msg.contains("网络异常"), "msg={msg}");
+    }
+
+    /// 传输层失败（距上次 500ms）：只被 5s 短 backoff 门拦截，文案为「网络异常」，
+    /// 远小于 60s，绝不以「请59秒后再试」锁死用户。
+    #[tokio::test]
+    async fn transport_backoff_gate_blocks_with_4_seconds_message() {
+        let mut client = test_client();
+        client.last_login_short_backoff_at =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(500));
+        let err = client
+            .login("2024000000", "pwd_123", "", "", "")
+            .await
+            .expect_err("short backoff 门应拦截");
+        let msg = err.to_string();
+        assert!(msg.contains("网络异常，请4秒后再试"), "msg={msg}");
+        assert!(!msg.contains("登录频率过高"), "msg={msg}");
+    }
+
+    /// 真实 reqwest 网络错误（连接拒绝）必须被识别为传输层错误；
+    /// 业务字符串 / 认证失败包装不是传输层错误。
+    #[tokio::test]
+    async fn real_reqwest_connect_error_is_classified_as_transport() {
+        let err = reqwest::Client::new()
+            .get("http://127.0.0.1:1/")
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .expect_err("连接未监听端口应产生传输层错误");
+        assert!(
+            is_transport_error(&err),
+            "真实 reqwest 连接错误应识别为 Transport"
+        );
+
+        let biz: Box<dyn std::error::Error + Send + Sync> = "用户名或密码错误".to_string().into();
+        assert!(
+            !is_transport_error(biz.as_ref()),
+            "业务字符串错误不是 Transport"
+        );
+
+        assert!(is_transport_error(&HttpClientError::new(
+            HttpClientErrorKind::Transport,
+            "t"
+        )));
+        assert!(!is_transport_error(&HttpClientError::new(
+            HttpClientErrorKind::AuthFailed,
+            "a"
+        )));
+    }
+
+    /// 必测：传输层失败 → 登录返回传输类错误，且**不会**锁 60s；
+    /// 只触发独立短 backoff，立即重试被 5s 门拦截而非 60s 硬锁。
+    #[tokio::test]
+    async fn transport_failure_uses_short_backoff_and_keeps_user_unlocked() {
+        let mut client = test_client();
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        let post_calls = Arc::new(AtomicUsize::new(0));
+        let calls = post_calls.clone();
+        let mock_err =
+            HttpClientError::new(HttpClientErrorKind::Transport, "mock: connection refused");
+        client.test_cas_post = Some(Arc::new(move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(Box::new(mock_err.clone()) as Box<dyn std::error::Error + Send + Sync>)
+        }));
+
+        let result = client.login("2024000000", "pwd_123", "", "", "").await;
+        let err = result.expect_err("传输层失败应返回 Err");
+        assert!(is_transport_error(err.as_ref()), "登录返回的应为传输类错误");
+
+        // 传输层失败：不占 60s 冷却（用户不能被锁死）
+        assert!(
+            client.login_cooldown_remaining().is_none(),
+            "传输层失败不得触发 60s 冷却"
+        );
+        // 独立短 backoff 生效，且远小于 60s
+        let backoff = client
+            .login_transport_backoff_remaining()
+            .expect("应记录短 backoff");
+        assert!(backoff.as_secs() <= 5, "backoff={backoff:?} 应远小于 60s");
+
+        // 立即重试：被 5s backoff 门拦截（不发起 POST），文案是「网络异常」而非 60s 硬锁文案
+        let err2 = client
+            .login("2024000000", "pwd_123", "", "", "")
+            .await
+            .expect_err("backoff 门应拦截第二次登录");
+        let msg2 = err2.to_string();
+        assert!(msg2.contains("网络异常"), "msg={msg2}");
+        assert!(!msg2.contains("登录频率过高"), "msg={msg2}");
+        assert_eq!(
+            post_calls.load(Ordering::SeqCst),
+            1,
+            "backoff 期间不得再次发起 CAS POST"
+        );
+    }
+
+    /// 必测：收到真实 CAS 认证失败响应 → 重复登录仍受 60s 冷却保护（风控不可绕过）。
+    #[tokio::test]
+    async fn auth_failure_response_locks_60s_cooldown() {
+        let mut client = test_client();
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        let err_html = r#"<span id="showErrorTip">用户名或密码错误</span>"#.to_string();
+        client.test_cas_post = Some(Arc::new(move || {
+            Ok((
+                "https://auth.hbut.edu.cn/authserver/login?service=x".to_string(),
+                200u16,
+                err_html.clone(),
+            ))
+        }));
+
+        let result = client.login("2024000000", "pwd_123", "", "", "").await;
+        let err = result.expect_err("认证失败应返回 Err");
+        assert!(err.to_string().contains("密码错误"), "msg={err}");
+        assert!(!is_transport_error(err.as_ref()), "认证失败不是传输层错误");
+
+        // 收到真实 CAS 响应 → 60s 冷却生效，且无短 backoff
+        let remaining = client
+            .login_cooldown_remaining()
+            .expect("认证失败应触发 60s 冷却");
+        assert!(remaining.as_secs() >= 55, "remaining={remaining:?}");
+        assert!(client.login_transport_backoff_remaining().is_none());
+
+        // 立即重复登录：被 60s 硬冷却门拦截（风控不能被移除或降级）
+        let err2 = client
+            .login("2024000000", "pwd_123", "", "", "")
+            .await
+            .expect_err("60s 冷却门应拦截");
+        let msg2 = err2.to_string();
+        assert!(msg2.contains("登录频率过高"), "msg={msg2}");
+        assert!(!msg2.contains("网络异常"), "msg={msg2}");
+    }
+
+    /// 成功路径不破坏：登录成功返回用户信息，且成功同样算一次完整 CAS 尝试（受 60s 保护）。
+    #[tokio::test]
+    async fn success_path_still_works_and_counts_as_cas_attempt() {
+        let mut client = test_client();
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        let final_url = format!("{}/admin/?loginType=1", JWXT_BASE_URL);
+        client.test_cas_post = Some(Arc::new(move || {
+            Ok((final_url.clone(), 200u16, String::new()))
+        }));
+        let user_for_finalize = mock_user();
+        client.test_finalize = Some(Arc::new(move || Ok(user_for_finalize.clone())));
+
+        let info = client
+            .login("2024000000", "pwd_123", "", "", "")
+            .await
+            .expect("成功路径不应失败");
+        assert_eq!(info.student_id, "2024000000");
+        assert!(client.is_logged_in);
+
+        // 成功也算一次完整 CAS 尝试 → 受 60s 冷却保护
+        let remaining = client
+            .login_cooldown_remaining()
+            .expect("成功后应有 60s 冷却");
+        assert!(remaining.as_secs() >= 55, "remaining={remaining:?}");
+        assert!(client.login_transport_backoff_remaining().is_none());
     }
 }
