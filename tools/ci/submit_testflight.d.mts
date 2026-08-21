@@ -30,3 +30,14 @@ export function createBetaBuildLocalizationBody(options: {
   locale: string
   whatsNew: string
 }): unknown
+
+export function createAppEncryptionDeclarationLookupPath(options: {
+  appId: string
+  limit?: number
+}): string
+
+export function createBuildEncryptionDeclarationLinkageBody(
+  declarationId: string,
+): {
+  data: { type: string; id: string }
+}

@@ -19,6 +19,11 @@ on:
         description: Optional beta group name; blank selects the first internal group
         required: false
         type: string
+      export_compliance:
+        description: "Export compliance: auto (link approved AppEncryptionDeclaration) / off / explicit declaration id"
+        required: false
+        type: string
+        default: "auto"
       locale:
         description: TestFlight localization locale
         required: false
@@ -85,6 +90,7 @@ jobs:
           TESTFLIGHT_WHATS_NEW: ${{ inputs.whats_new }}
           TESTFLIGHT_BETA_GROUP: ${{ inputs.beta_group }}
           TESTFLIGHT_LOCALE: ${{ inputs.locale }}
+          TESTFLIGHT_EXPORT_COMPLIANCE: ${{ inputs.export_compliance }}
         run: node tools/ci/submit_testflight.mjs
 
       - name: Cleanup App Store Connect API key
