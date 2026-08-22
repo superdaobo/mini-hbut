@@ -195,6 +195,52 @@ jobs:
       - name: Cargo clippy
         run: cargo clippy --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
+      - name: Assert keyring native backend enabled (#670)
+        shell: bash
+        working-directory: apps/client/src-tauri
+        run: |
+          cargo tree -i keyring -f "{p} [{f}]" | grep -q "sync-secret-service" || { echo "::error::keyring 缺少 sync-secret-service 后端，mock 将进入发布物"; exit 1; }
+
+  # macOS Rust 测试门禁（#670）：keyring apple-native 后端只有 macOS 能真实验证，
+  # 防止「只 check 不测试」的盲区再次吞掉静默回退类回归
+  test-rust-macos:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/client/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: apps/client
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build frontend dist (tauri build.rs prerequisite)
+        working-directory: apps/client
+        run: npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./apps/client/src-tauri -> target
+          shared-key: mini-hbut-pr-rust-check-macos
+
+      - name: Cargo test (macOS, #670 keyring guard)
+        run: cargo test --manifest-path apps/client/src-tauri/Cargo.toml --lib
+
+      - name: Assert keyring native backend enabled (#670)
+        shell: bash
+        working-directory: apps/client/src-tauri
+        run: |
+          cargo tree -i keyring -f "{p} [{f}]" | grep -q "apple-native" || { echo "::error::keyring 缺少 apple-native 后端，mock 将进入发布物"; exit 1; }
+
   # Windows-only 编译保护：只做 cargo check，不构建 NSIS、不启动 EXE、不上传产物
   # 替代旧的 Windows Release Dry Run 对普通源码 PR 的全量打包（#598 Layer 4）
   test-rust-windows:
@@ -229,13 +275,23 @@ jobs:
       - name: Cargo check (Windows-only compile protection)
         run: cargo check --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
+      # #670：Windows 此前只 check 不测试，keyring 静默回退 mock 的回归无法被发现
+      - name: Cargo test (Windows, #670 keyring guard)
+        run: cargo test --manifest-path apps/client/src-tauri/Cargo.toml --lib
+
+      - name: Assert keyring native backend enabled (#670)
+        shell: bash
+        working-directory: apps/client/src-tauri
+        run: |
+          cargo tree -i keyring -f "{p} [{f}]" | grep -q "windows-native" || { echo "::error::keyring 缺少 windows-native 后端，mock 将进入发布物"; exit 1; }
+
   # 稳定名称的 PR Gate：#598 要求 required check 名称稳定，不出现永久 Pending
   # 只接受 success / skipped，任何 failure / cancelled / timed_out 都阻断合并
   # name 必须保持 "PR Gate"（job 无 name 时 check 名会变成小写 job id，
   # 与 branch protection 的 required context 大小写不匹配导致永久 BLOCKED）
   pr-gate:
     name: PR Gate
-    needs: [changes, test-frontend, test-rust, test-rust-windows, secret-guard]
+    needs: [changes, test-frontend, test-rust, test-rust-windows, test-rust-macos, secret-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -245,9 +301,10 @@ jobs:
           FRONTEND: ${{ needs.test-frontend.result }}
           RUST: ${{ needs.test-rust.result }}
           RUST_WINDOWS: ${{ needs.test-rust-windows.result }}
+          RUST_MACOS: ${{ needs.test-rust-macos.result }}
           SECRET_GUARD: ${{ needs.secret-guard.result }}
         run: |
-          for gate in "$CHANGES" "$FRONTEND" "$RUST" "$RUST_WINDOWS" "$SECRET_GUARD"; do
+          for gate in "$CHANGES" "$FRONTEND" "$RUST" "$RUST_WINDOWS" "$RUST_MACOS" "$SECRET_GUARD"; do
             case "$gate" in
               success|skipped) ;;
               *)

@@ -146,31 +146,67 @@ mod tests {
         assert!(k.get_secret().unwrap_or(None).is_none());
     }
 
+    /// set 失败是否允许按环境跳过：仅 Linux CI（runner 无 Secret Service 守护进程）允许；
+    /// Windows/macOS 的系统凭据存储始终可用，set 失败必须硬失败（#670）。
+    #[cfg(target_os = "linux")]
+    fn set_error_may_skip_env() -> bool {
+        true
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn set_error_may_skip_env() -> bool {
+        false
+    }
+
     #[test]
     fn real_keyring_roundtrip_when_available() {
-        // 真实 keyring 在部分 CI/桌面环境不可用：失败时跳过而不是失败（与 credential_store 测试约定一致）。
-        let keyring =
-            RealKeyring::with_account("mini-hbut-identity-test", "device-ed25519-v1-test");
+        // #670 回归护栏：keyring 必须走真实平台后端并真正落盘。
+        // 历史 bug：keyring 缺平台 feature 时静默回退零持久化 mock 存储，
+        // 本测试旧版在 set/get 失败时静默 return，防线全空，bug 存活近两个月。
+        // 现改为硬断言：实例 A 写入成功后，独立实例 B 必须读到同值，否则 panic。
+        const SERVICE: &str = "mini-hbut-identity-ci-probe";
+        const ACCOUNT: &str = "roundtrip-probe";
+
+        // 探测值带时间戳，避免历史残留条目干扰断言
         let value = format!(
-            "test-{}",
+            "probe-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         );
-        if keyring.set_secret(&value).is_err() {
+
+        // 实例 A：写入探测值
+        let writer = RealKeyring::with_account(SERVICE, ACCOUNT);
+        if let Err(err) = writer.set_secret(&value) {
+            if !set_error_may_skip_env() {
+                panic!(
+                    "keyring set_password 失败：{err}（当前平台的系统凭据存储应始终可用，不允许跳过）"
+                );
+            }
+            // 仅 Linux CI：无 Secret Service 守护进程，允许按环境跳过
             return;
         }
-        let loaded = match keyring.get_secret() {
+
+        // 实例 B：全新句柄读取（等价于进程重启后的持久化读取路径，mock 存储在此必然失守）
+        let reader = RealKeyring::with_account(SERVICE, ACCOUNT);
+        let loaded = match reader.get_secret() {
             Ok(v) => v,
-            Err(_) => return,
+            Err(err) => {
+                panic!("keyring 写入后跨实例不可读：疑似 mock 后端或存储异常（读取报错：{err}）")
+            }
         };
         if loaded.as_deref() != Some(value.as_str()) {
-            return;
+            panic!(
+                "keyring 写入后跨实例不可读：疑似 mock 后端或存储异常（读到 {loaded:?}，期望 {value:?}）"
+            );
         }
-        let _ = keyring.delete_secret();
-        if let Ok(v) = keyring.get_secret() {
-            assert!(v.is_none());
-        }
+
+        // 清理探测条目并确认删除生效，避免污染用户真实凭据库
+        writer.delete_secret().expect("清理 keyring 探测条目失败");
+        assert!(
+            reader.get_secret().ok().flatten().is_none(),
+            "keyring 探测条目删除后仍可读"
+        );
     }
 }
