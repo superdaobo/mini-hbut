@@ -91,6 +91,9 @@ pub(crate) async fn identity_device_status() -> Result<DeviceStatusPayload, Stri
 /// 获取本机设备公钥（无私钥材料；首次调用自动创建密钥并写入 keyring）。
 #[tauri::command]
 pub(crate) async fn identity_get_public_key() -> Result<PublicKeyPayload, String> {
+    // #672：Android 无 OS keyring 后端（keyring crate 不支持），显式降级而非误导性报错
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份注册，敬请期待后续版本".to_string());
     let store = real_store();
     let key = store.create_if_missing().map_err(|e| e.to_string())?;
     Ok(PublicKeyPayload {
@@ -113,6 +116,9 @@ pub(crate) async fn identity_enroll_device(
     device_name: String,
     handoff: String,
 ) -> Result<EnrollPayload, String> {
+    // #672：Android 无 OS keyring 后端（keyring crate 不支持），显式降级而非误导性报错
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份注册，敬请期待后续版本".to_string());
     let base_url = resolve_identity_core_base_url(&base_url).map_err(|e| e.to_string())?;
     let device_name = device_name.trim().to_string();
     if device_name.is_empty() || device_name.chars().count() > 64 {
@@ -193,6 +199,9 @@ pub(crate) async fn identity_enroll_device(
 pub(crate) async fn identity_sign_auth_request(
     input: SignAuthRequestInput,
 ) -> Result<SignedApproval, String> {
+    // #672：Android 无 OS keyring 后端（keyring crate 不支持），显式降级而非误导性报错
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份注册，敬请期待后续版本".to_string());
     let store = real_store();
     let key = store
         .load()
@@ -221,6 +230,9 @@ pub(crate) async fn identity_revoke_current_device_local(
     base_url: Option<String>,
     device_id: Option<String>,
 ) -> Result<(), String> {
+    // #672：Android 无 OS keyring 后端（keyring crate 不支持），显式降级而非误导性报错
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份注册，敬请期待后续版本".to_string());
     let store = real_store();
     let base_url = base_url
         .map(|b| b.trim().to_string())
