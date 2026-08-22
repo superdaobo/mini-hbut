@@ -92,6 +92,30 @@ const GRADE_TEACHER_CACHE_TABLE: &str = "grade_teacher_cache";
 pub fn run() {
     let builder = tauri::Builder::default();
 
+    // #671 线上可观测性：文件日志（LogDir）+ stdout（dev 可见）。release 版 stderr 被
+    // windows_subsystem 丢弃，关键链路（identity / credential_store）必须有落盘日志。
+    // 级别策略：debug 全量 Debug；release 默认 Warn，identity/credential_store 模块放宽 Info。
+    // 单文件 1MB，保留最近 3 份（KeepSome）。
+    let builder = builder.plugin(
+        tauri_plugin_log::Builder::new()
+            .level(if cfg!(debug_assertions) {
+                log::LevelFilter::Debug
+            } else {
+                log::LevelFilter::Warn
+            })
+            .level_for("hbut_helper::identity", log::LevelFilter::Info)
+            .level_for("hbut_helper::credential_store", log::LevelFilter::Info)
+            .max_file_size(1_000_000)
+            .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                    file_name: Some("mini-hbut".into()),
+                }),
+            ])
+            .build(),
+    );
+
     // #621：Single Instance 必须最早注册（Windows/Linux 深链第二实例启动时，
     // 由它把 argv 交给已运行实例；deep-link 插件随后统一转发到前端 onOpenUrl 事件）。
     // 回调只负责聚焦已运行窗口，不解析/不打印完整 deep-link（argv 含 handoff secret）。

@@ -40,6 +40,9 @@ tauri-plugin-deep-link = "2"
 # 自研移动后台插件骨架（#611）：Android WorkManager / iOS BGTask 统一原生承载层。
 tauri-plugin-hbut-background = { path = "plugins/tauri-plugin-hbut-background" }
 serde = { version = "1.0", features = ["derive"] }
+# #671 线上可观测性：接入 tauri-plugin-log 提供 stdout + 日志目录双目标文件日志（release 版 stderr 被 windows_subsystem 丢弃）。
+tauri-plugin-log = "2"
+log = "0.4"
 serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart", "rustls-tls", "stream"] }
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "fs", "net", "sync", "time"] }
