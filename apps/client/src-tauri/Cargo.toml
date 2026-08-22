@@ -70,6 +70,9 @@ rqrr = "0.10.1"
 image = "0.25"
 dashmap = "6"
 url = "2"
+# keyring 基础行不带任何平台 feature：保证无原生后端的平台（如 Android）也能编译通过；
+# 各平台真正的持久化后端在下方 [target.*] 段按 target 启用
+# （#669：keyring v3 缺平台 feature 时会静默回退「零持久化」mock 存储，写入假成功）。
 keyring = "3"
 smcrypto = "0.3.1"
 # #622：设备 Ed25519 密钥与 approve 签名（V1 固定 Ed25519；私钥只进 OS keyring，fail closed）。
@@ -84,6 +87,17 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "0.15"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage", "Win32_Storage_Xps", "Win32_UI_WindowsAndMessaging"] }
+# #669：必须显式启用 windows-native（Credential Manager），否则 keyring v3 静默回退零持久化 mock 存储。
+keyring = { version = "3", features = ["windows-native"] }
+
+# #669：Apple 平台启用系统 Keychain 原生后端（macOS Keychain / iOS Keychain）。
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+# #669：Linux 使用 Secret Service D-Bus 后端（GNOME Keyring/KWallet）；
+# 不用 linux-native：keyutils 会话密钥环重启即失效，不满足持久化要求。
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
