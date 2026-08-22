@@ -156,21 +156,48 @@ mod tests {
         format!("{label}-{nanos}")
     }
 
+    /// set 失败是否允许按环境跳过：仅 Linux CI（runner 无 Secret Service 守护进程）允许；
+    /// Windows/macOS 的系统凭据管理器始终可用，set 失败必须硬失败（#670）。
+    #[cfg(target_os = "linux")]
+    fn set_error_may_skip_env() -> bool {
+        true
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn set_error_may_skip_env() -> bool {
+        false
+    }
+
     #[test]
     fn roundtrip_password_when_keyring_available() {
-        let sid = format!("test-{}", uuid_placeholder());
-        let password = test_password("test-pass");
-        if save_password(&sid, &password).is_err() {
+        // #670 回归护栏：真后端写入后必须可读，任何静默丢失一律 panic。
+        // 历史 bug：keyring 缺平台 feature 时静默回退零持久化 mock 存储，
+        // 旧版本测试在读写不一致时静默 return，防线全空，bug 存活近两个月。
+        let sid = format!("ci-probe-roundtrip-{}", uuid_placeholder());
+        let password = test_password("probe-pass");
+        if let Err(err) = save_password(&sid, &password) {
+            if !set_error_may_skip_env() {
+                panic!(
+                    "keyring save_password 失败：{err}（当前平台的系统凭据存储应始终可用，不允许跳过）"
+                );
+            }
+            // 仅 Linux CI：无 Secret Service 守护进程，允许按环境跳过
             return;
         }
+        // load_password 每次内部新建 Entry 句柄，等价于跨实例/跨进程持久化读取路径；
+        // 零持久化的 mock 存储在此必然读不到刚写入的值。
         let loaded = load_password(&sid);
         if loaded.as_deref() != Some(password.as_str()) {
-            // 部分 CI/桌面环境密钥环读写不一致，跳过而非失败
-            return;
+            panic!(
+                "keyring 写入后跨实例不可读：疑似 mock 后端或存储异常（读到 {loaded:?}，期望 {password:?}）"
+            );
         }
+        // 清理本次探测写入的凭据并确认删除生效
         delete_password(&sid);
-        delete_secret_key(&sid);
-        assert!(load_password(&sid).is_none());
+        assert!(
+            load_password(&sid).is_none(),
+            "keyring 探测凭据删除后仍可读"
+        );
     }
 
     #[test]
