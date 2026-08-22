@@ -15,6 +15,11 @@ pub enum IdentityError {
     #[error("系统安全存储写入校验失败，已拒绝使用（fail closed）")]
     KeyringWriteMismatch,
 
+    /// 构建期配置错误：keyring 未启用平台原生后端（静默回退零持久化 mock 存储），
+    /// 属开发/打包事故而非用户环境问题，指向升级修复版本。
+    #[error("系统安全存储组件缺失（应用构建配置错误），请更新到修复版本；若持续出现请反馈版本号")]
+    KeyringBackendMissing(String),
+
     /// 本地没有已登录的学校会话，不能创建/使用设备身份。
     #[error("本地未登录学校账号，无法使用设备身份功能")]
     NoLocalLogin,

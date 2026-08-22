@@ -249,6 +249,53 @@ impl KeyringLike for FileKeyring {
     }
 }
 
+/// 双实例探测当前 keyring 默认存储是否为「零持久化 mock」（#668/#669）：
+/// 实例 A set 成功而独立新建的实例 B 读不到即为 mock 特征。结果进程内缓存。
+///
+/// 判定依据：keyring v3 在未启用平台原生 feature 时，每个 `Entry` 各持一份独立内存
+/// 存储、互不可见且不落盘——A 写入后全新 B 实例读取必然 NoEntry；而真实后端
+/// （Credential Manager/Keychain/Secret Service）按 service+account 全局寻址，B 必能读到。
+fn backend_is_mock() -> bool {
+    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        // 探测专用逻辑 key，与设备密钥完全隔离；探测值仅为时间戳，不含任何敏感材料。
+        const PROBE_SERVICE: &str = "mini-hbut-identity-probe";
+        const PROBE_ACCOUNT: &str = "backend-probe";
+        // target 与 RealKeyring 的 `{account}.{service}` 拼接格式保持一致。
+        let target = format!("{PROBE_ACCOUNT}.{PROBE_SERVICE}");
+        let probe_value = format!(
+            "probe-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        // 任何一步失败都按「非 mock」保守处理：宁可报 KeyringWriteMismatch，也不误判构建事故。
+        let entry_a = match keyring::Entry::new_with_target(&target, PROBE_SERVICE, PROBE_ACCOUNT) {
+            Ok(entry) => entry,
+            Err(_) => return false,
+        };
+        if entry_a.set_password(&probe_value).is_err() {
+            return false;
+        }
+        // 全新实例 B 独立寻址读取：NoEntry ⇒ A 写入未持久化 ⇒ 零持久化 mock；
+        // 只要 B 读得到任何内容（无论是否本次写入值），都证明存储跨实例可见，绝非 mock。
+        let is_mock = match keyring::Entry::new_with_target(&target, PROBE_SERVICE, PROBE_ACCOUNT) {
+            Ok(entry_b) => match entry_b.get_password() {
+                Err(keyring::Error::NoEntry) => true,
+                Ok(_) => false,
+                Err(_) => false,
+            },
+            Err(_) => false,
+        };
+        // 清理探测条目（忽略错误：探测键不含敏感材料，残留无安全影响）。
+        if let Ok(entry) = keyring::Entry::new_with_target(&target, PROBE_SERVICE, PROBE_ACCOUNT) {
+            let _ = entry.delete_credential();
+        }
+        is_mock
+    })
+}
+
 impl DeviceKeyStore {
     /// 读取密钥；不存在则生成并写入 Keyring（写后回读校验）。
     /// keyring 不可用或写回校验失败 → fail closed，不返回任何降级密钥。
@@ -294,7 +341,43 @@ impl DeviceKeyStore {
                 .map_err(|e| IdentityError::Internal(format!("写入显式测试设备密钥失败：{e}")))?;
             return Ok(key);
         }
-        Err(IdentityError::KeyringWriteMismatch)
+        // 至多一轮恢复（#669）：Windows Credential Manager 偶发「写入后短时不可见」
+        // 可能持续超过首轮重试窗口；先删除可能半写入的条目，再整体重写一次，
+        // 用缩短版回读循环确认，避免一次瞬时故障即永久 fail closed。
+        let _ = self.keyring.delete_secret();
+        if self.keyring.set_secret(&encoded).is_ok() {
+            for attempt in 1..=3 {
+                match self.load() {
+                    Ok(Some(stored)) if stored.fingerprint() == key.fingerprint() => {
+                        return Ok(key);
+                    }
+                    Ok(other) => {
+                        // 只记录公开指纹/存在性，不读取或打印任何私钥编码材料。
+                        eprintln!(
+                            "[identity] keyring 重写恢复第 {attempt} 次未匹配: present={} new_fp={} stored_fp={}",
+                            other.is_some(),
+                            key.fingerprint(),
+                            other.as_ref().map(|k| k.fingerprint()).unwrap_or_default()
+                        );
+                    }
+                    Err(err) => {
+                        // 恢复期间读取失败：记录后跳出，交由下方失败分支统一判定错误变体。
+                        eprintln!("[identity] keyring 重写恢复第 {attempt} 次读取失败: {err}");
+                        break;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+        }
+        // 最终错误细分：若探测确认默认存储是「零持久化 mock」（#668/#669 构建期事故），
+        // 报构建配置错误引导升级修复版；否则维持原有「写入校验失败」语义。
+        if backend_is_mock() {
+            Err(IdentityError::KeyringBackendMissing(
+                "keyring 默认存储为零持久化 mock（未启用平台原生后端），写入无法持久化".to_string(),
+            ))
+        } else {
+            Err(IdentityError::KeyringWriteMismatch)
+        }
     }
 
     /// 删除本地设备密钥（仅在用户确认或服务端 revoke 成功后调用）。
