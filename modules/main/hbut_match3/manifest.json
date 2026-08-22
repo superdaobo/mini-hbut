@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "module_id": "hbut_match3",
+  "module_name": "湖工消消乐",
+  "version": "1.4.6-beta.415",
+  "package_url": "https://hbut.6661111.xyz/modules/main/hbut_match3/1.4.6-beta.415/bundle.zip",
+  "package_sha256": "c4e722c0c1c8e6df8304881347b170580007a132144b139d891be6d7dec824ce",
+  "package_size": 10434,
+  "entry_path": "index.html",
+  "published_at": "2026-08-22T05:36:40.112Z",
+  "release_notes": "湖工消消乐：7x7 交换三消、重力连锁与排行榜",
+  "open_url": "https://hbut.6661111.xyz/modules/main/hbut_match3/1.4.6-beta.415/site/index.html",
+  "published_channel": "main",
+  "source_channel": "dev"
+}

@@ -1,0 +1,1626 @@
+
+.schedule-topbar[data-v-fc69a524] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px 6px;
+  min-height: var(--topbar-height);
+  background: #f9f9ff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 4px 20px -2px rgba(59, 130, 246, 0.05);
+  box-sizing: border-box;
+}
+.topbar-center[data-v-fc69a524] {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+.topbar-title[data-v-fc69a524] {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  line-height: 1.2;
+}
+.topbar-semester[data-v-fc69a524] {
+  font-size: 11px;
+  color: #9ca3af;
+  margin: 2px 0 0;
+}
+.schedule-topbar .menu-btn[data-v-fc69a524] {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+}
+.schedule-topbar .menu-btn[data-v-fc69a524]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.week-selector[data-v-fc69a524] {
+  position: relative;
+  background: transparent !important;
+  padding: 0;
+  min-height: 32px;
+  border-radius: 9999px;
+  border: none !important;
+  box-shadow: none !important;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+.week-selector[data-v-fc69a524] .ios26-select-trigger {
+  min-height: 32px !important;
+  height: 32px !important;
+  line-height: 32px;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 0 11px !important;
+  border-radius: 9999px !important;
+  background: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid #f0f0f0 !important;
+}
+.week-selector[data-v-fc69a524] .ios26-select-value {
+  white-space: nowrap;
+}
+.week-selector[data-v-fc69a524] .ios26-select-trigger:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.topbar-right[data-v-fc69a524] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+@media (max-width: 768px) {
+.schedule-topbar[data-v-fc69a524] {
+    padding: 8px 12px 6px;
+}
+.week-selector[data-v-fc69a524] {
+    padding: 6px 12px;
+}
+.week-selector[data-v-fc69a524] .ios26-select-trigger {
+    min-height: 30px !important;
+    height: 30px !important;
+    line-height: 30px !important;
+    font-size: 12px;
+    font-weight: 800;
+    border-radius: 9999px !important;
+}
+}
+
+.drawer-overlay[data-v-a96d780c] {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+}
+.drawer-panel[data-v-a96d780c] {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 18px);
+  left: 0;
+  width: min(85vw, 360px);
+  height: calc(100dvh - env(safe-area-inset-top, 0px) - 18px);
+  background: #ffffff;
+  border-right: none;
+  border-top-right-radius: 24px;
+  border-bottom-right-radius: 24px;
+  padding: 24px 20px calc(28px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+.drawer-panel[data-v-a96d780c]::-webkit-scrollbar {
+  display: none;
+}
+
+/* 小屏：抽屉改为贴底布局，适配单手操作与底部安全区 */
+@media (max-width: 768px) {
+.drawer-panel[data-v-a96d780c] {
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    bottom: 0;
+    height: auto;
+    max-height: none;
+    padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px) + 12px);
+}
+}
+.drawer-title[data-v-a96d780c] {
+  font-size: 20px;
+  color: #1f2937;
+  padding: 0 0 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.drawer-title-icon[data-v-a96d780c] {
+  font-size: 22px;
+  color: var(--ui-primary, #2563eb);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
+  border-radius: 12px;
+}
+.drawer-section[data-v-a96d780c] {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px dashed #e5e7eb;
+}
+.drawer-section[data-v-a96d780c]:last-child {
+  border-bottom: none;
+}
+.drawer-subtitle[data-v-a96d780c] {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.drawer-subtitle[data-v-a96d780c]::before {
+  content: attr(data-step);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ui-primary, #2563eb);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.drawer-semester-row[data-v-a96d780c] {
+  display: grid;
+  gap: 8px;
+}
+.drawer-select[data-v-a96d780c] {
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--ui-primary, #2563eb) 4%, #ffffff 96%);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 4%, #ffffff 96%);
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 0 14px;
+}
+.drawer-select[data-v-a96d780c]:focus {
+  outline: 2px solid color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
+  outline-offset: 1px;
+}
+.drawer-error[data-v-a96d780c] {
+  font-size: 12px;
+  color: #dc2626;
+}
+.drawer-style-switch[data-v-a96d780c] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  gap: 0;
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid #f0f0f0;
+  background: #f9fafb;
+}
+.drawer-style-chip[data-v-a96d780c] {
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  border-radius: 12px;
+  min-height: 36px;
+  padding: 0 8px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+.drawer-style-chip strong[data-v-a96d780c] {
+  font-size: 13px;
+  font-weight: 600;
+}
+.drawer-style-chip.active[data-v-a96d780c] {
+  color: #ffffff;
+  background: var(--ui-primary, #2563eb);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
+  font-weight: 600;
+}
+.drawer-action[data-v-a96d780c] {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: none;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s ease;
+}
+.drawer-action[data-v-a96d780c]:active {
+  transform: scale(0.98);
+}
+.drawer-actions[data-v-a96d780c] {
+  display: grid;
+  gap: 10px;
+}
+.drawer-course-group[data-v-a96d780c] {
+  display: grid;
+  gap: 10px;
+}
+.drawer-course-actions[data-v-a96d780c] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.drawer-course-actions button[data-v-a96d780c],
+.drawer-course-actions .drawer-action[data-v-a96d780c] {
+  padding: 20px 12px;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.drawer-course-actions button[data-v-a96d780c]:first-child,
+.drawer-course-actions .drawer-action[data-v-a96d780c]:first-child {
+  background: linear-gradient(135deg, #f97316, #ec4899);
+  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.2);
+}
+.drawer-course-actions button[data-v-a96d780c]:last-child,
+.drawer-course-actions .drawer-action[data-v-a96d780c]:last-child {
+  background: linear-gradient(135deg, #6366f1, #3b82f6);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.2);
+}
+.drawer-sync-group[data-v-a96d780c] {
+  display: grid;
+  gap: 10px;
+}
+.drawer-sync-actions[data-v-a96d780c] {
+  display: grid;
+  gap: 10px;
+}
+.drawer-sync-actions button[data-v-a96d780c],
+.drawer-sync-actions .drawer-action[data-v-a96d780c] {
+  padding: 14px 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s ease;
+}
+.drawer-sync-actions button[data-v-a96d780c]:active,
+.drawer-sync-actions .drawer-action[data-v-a96d780c]:active {
+  transform: scale(0.98);
+}
+.drawer-sync-actions--json[data-v-a96d780c] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.drawer-action.ghost[data-v-a96d780c] {
+  background: #111827;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
+}
+.drawer-action.add-course[data-v-a96d780c] {
+  background: linear-gradient(135deg, #f97316, #ec4899);
+  box-shadow: 0 10px 18px rgba(236, 72, 153, 0.26);
+}
+.drawer-action.manage-course[data-v-a96d780c] {
+  background: linear-gradient(135deg, #8b5cf6, #2563eb);
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.22);
+}
+.drawer-action.sync-upload[data-v-a96d780c] {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.24);
+}
+.drawer-action.sync-download[data-v-a96d780c] {
+  background: linear-gradient(135deg, #10b981, #0f766e);
+  box-shadow: 0 10px 18px rgba(15, 118, 110, 0.24);
+}
+.drawer-action.sync-json-export[data-v-a96d780c] {
+  background: linear-gradient(135deg, #6366f1, #2563eb);
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.24);
+}
+.drawer-action.sync-json-import[data-v-a96d780c] {
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  box-shadow: 0 10px 18px rgba(234, 88, 12, 0.24);
+}
+.drawer-action[data-v-a96d780c]:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.drawer-sync-status[data-v-a96d780c] {
+  display: grid;
+  gap: 4px;
+}
+.drawer-sync-cooldown[data-v-a96d780c],
+.drawer-sync-running[data-v-a96d780c] {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+.drawer-sync-running[data-v-a96d780c] {
+  color: #0f766e;
+  font-weight: 600;
+}
+.drawer-sync-export-path[data-v-a96d780c] {
+  font-size: 12px;
+  color: #2563eb;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.drawer-tip[data-v-a96d780c] {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+.export-result[data-v-a96d780c] {
+  padding: 10px;
+  background: #f9fafb;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+.export-label[data-v-a96d780c] {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+.export-row[data-v-a96d780c] {
+  display: flex;
+  gap: 8px;
+}
+.export-input[data-v-a96d780c] {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  font-size: 12px;
+  color: #111827;
+  background: white;
+}
+.export-copy[data-v-a96d780c] {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: none;
+  background: #111827;
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+}
+.export-copied[data-v-a96d780c] {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #059669;
+  font-weight: 600;
+}
+.export-error[data-v-a96d780c] {
+  font-size: 12px;
+  color: #dc2626;
+  background: #fff1f2;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #fecdd3;
+}
+.drawer-fade-enter-active[data-v-a96d780c],
+.drawer-fade-leave-active[data-v-a96d780c] {
+  transition: opacity 0.2s ease;
+}
+.drawer-fade-enter-from[data-v-a96d780c],
+.drawer-fade-leave-to[data-v-a96d780c] {
+  opacity: 0;
+}
+.drawer-slide-enter-active[data-v-a96d780c],
+.drawer-slide-leave-active[data-v-a96d780c] {
+  transition: transform 0.25s ease;
+}
+.drawer-slide-enter-from[data-v-a96d780c],
+.drawer-slide-leave-to[data-v-a96d780c] {
+  transform: translateX(-100%);
+}
+
+.offline-banner[data-v-0e56ab5b] {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #b91c1c;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.vacation-banner[data-v-0e56ab5b] {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.error-banner[data-v-0e56ab5b] {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  background: rgba(234, 88, 12, 0.12);
+  border: 1px solid rgba(234, 88, 12, 0.3);
+  color: #9a3412;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.jump-current-btn[data-v-0e56ab5b] {
+  /* 恢复拆分前样式：页面右侧垂直居中、蓝色半透明背景（拆分时被误改为底部黑底） */
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: none;
+  background: rgba(59, 130, 246, 0.85);
+  color: white;
+  font-weight: 600;
+  font-size: 12px;
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.3);
+  cursor: pointer;
+  z-index: 12;
+}
+
+/* 日期头 */
+.date-header[data-v-fd7b2cbb] {
+  height: var(--date-header-height);
+  display: flex;
+  border-bottom: 1px solid #f0f0f0;
+  background: #ffffff;
+  flex-shrink: 0;
+}
+.month-col[data-v-fd7b2cbb] {
+  width: var(--time-axis-width);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #111827;
+  font-size: 14px;
+}
+.month-label[data-v-fd7b2cbb] {
+  font-size: 10px;
+  font-weight: normal;
+  color: #9ca3af;
+}
+.days-row[data-v-fd7b2cbb] {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  align-items: center;
+}
+.day-col[data-v-fd7b2cbb] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 1px;
+}
+.day-col.is-today[data-v-fd7b2cbb] {
+  background: #dbeafe;
+  border-radius: 8px;
+  color: #2563eb;
+}
+.day-col.is-today .day-num[data-v-fd7b2cbb] {
+  color: #2563eb;
+  font-weight: 800;
+}
+.day-num[data-v-fd7b2cbb] {
+  font-size: 14px;
+  color: #111827;
+  font-weight: 600;
+}
+.day-label[data-v-fd7b2cbb] {
+  font-size: 10px;
+  color: #9ca3af;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+}
+
+/* 课表主体 */
+.timetable-container[data-v-fd7b2cbb] {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.grid-body[data-v-fd7b2cbb] {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: var(--schedule-bottom-gap);
+  box-sizing: border-box;
+  position: relative;
+  background: #ffffff;
+  /* 隐藏滚动条 */
+  scrollbar-width: none;
+}
+.grid-body[data-v-fd7b2cbb]::-webkit-scrollbar {
+  display: none;
+}
+.time-axis[data-v-fd7b2cbb] {
+  width: var(--time-axis-width);
+  background: #f9fafb;
+  border-right: 1px solid #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
+  height: 100%;
+  padding-bottom: var(--schedule-bottom-gap);
+  overflow: hidden;
+  position: relative;
+  align-self: stretch;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.time-slot[data-v-fd7b2cbb] {
+  height: var(--slot-height);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: #64748b;
+  box-sizing: border-box;
+}
+.time-start[data-v-fd7b2cbb],
+.time-end[data-v-fd7b2cbb] {
+  font-size: 9px;
+  line-height: 1;
+}
+.time-start[data-v-fd7b2cbb] {
+  color: #94a3b8;
+}
+.time-end[data-v-fd7b2cbb] {
+  color: #cbd5e1;
+}
+.period-num[data-v-fd7b2cbb] {
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+}
+.courses-grid[data-v-fd7b2cbb] {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  position: relative;
+  height: 100%;
+  box-sizing: border-box;
+}
+.grid-lines[data-v-fd7b2cbb] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+.line-row[data-v-fd7b2cbb] {
+  height: var(--slot-height);
+  border-bottom: 1px dashed #e5e7eb;
+  box-sizing: border-box;
+}
+.day-column[data-v-fd7b2cbb] {
+  flex: 1;
+  display: grid;
+  grid-template-rows: repeat(11, var(--slot-height));
+  grid-template-columns: 1fr; /* 强制单列 */
+  padding: 0 1px;
+  position: relative;
+  min-height: calc(var(--slot-height) * 11);
+}
+.day-column.is-today-column[data-v-fd7b2cbb]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(219, 234, 254, 0.2);
+  border-left: 1px solid rgba(37, 99, 235, 0.08);
+  border-right: 1px solid rgba(37, 99, 235, 0.08);
+}
+.course-card[data-v-fd7b2cbb] {
+  margin: 1px;
+  padding: 4px;
+  background: var(--course-bg, #ffffff) !important;
+  color: var(--course-text, #0f172a) !important;
+  border-color: var(--course-border, #e5e7eb) !important;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+  border: var(--course-border-width, 1px) solid var(--course-border, #e5e7eb) !important;
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+  z-index: 1;
+}
+.courses-grid .day-column > .course-card[data-v-fd7b2cbb] {
+  border: var(--course-border-width, 1px) solid var(--course-border, #e5e7eb) !important;
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+  background: var(--course-bg, #ffffff) !important;
+  color: var(--course-text, #0f172a) !important;
+}
+.courses-grid .day-column > .course-card.course-card--modern[data-v-fd7b2cbb] {
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+}
+.courses-grid .day-column > .course-card.course-card--traditional[data-v-fd7b2cbb] {
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid var(--course-border, #e5e7eb) !important;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 2px;
+}
+.courses-grid .day-column > .course-card.course-card--traditional .course-name[data-v-fd7b2cbb] {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 2px;
+}
+.courses-grid .day-column > .course-card.course-card--traditional .course-room[data-v-fd7b2cbb],
+.courses-grid .day-column > .course-card.course-card--traditional .course-teacher[data-v-fd7b2cbb] {
+  font-size: 10px;
+  opacity: 0.8;
+  line-height: 1.3;
+}
+.courses-grid .day-column > .course-card.course-card--class[data-v-fd7b2cbb] {
+  border-left: 3px solid var(--course-border, #e5e7eb) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+  padding: 4px 6px;
+  gap: 2px;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+}
+.course-card.conflict .course-name[data-v-fd7b2cbb] {
+  font-weight: 700;
+}
+.course-card.conflict .course-room[data-v-fd7b2cbb] {
+  font-size: 10px;
+}
+.course-card[data-v-fd7b2cbb]:active {
+  transform: scale(0.98);
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+/* Widget 深链接高亮动画 */
+.course-card.widget-highlight[data-v-fd7b2cbb] {
+  animation: widget-highlight-pulse-fd7b2cbb 1.5s ease-in-out 2;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 8px 20px rgba(59, 130, 246, 0.25) !important;
+  z-index: 10 !important;
+}
+@keyframes widget-highlight-pulse-fd7b2cbb {
+0%, 100% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 8px 20px rgba(59, 130, 246, 0.25);
+}
+50% {
+    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.3), 0 12px 28px rgba(59, 130, 246, 0.35);
+}
+}
+.course-name[data-v-fd7b2cbb] {
+  font-weight: 700;
+  font-size: 11px;
+  margin-bottom: 2px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.course-room[data-v-fd7b2cbb] {
+  font-size: 10px;
+  opacity: 0.85;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.course-teacher[data-v-fd7b2cbb] {
+  font-size: 10px;
+  opacity: 0.75;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* 周切换过渡 */
+.week-slide-left-enter-active[data-v-fd7b2cbb],
+.week-slide-left-leave-active[data-v-fd7b2cbb],
+.week-slide-right-enter-active[data-v-fd7b2cbb],
+.week-slide-right-leave-active[data-v-fd7b2cbb] {
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+.week-slide-left-enter-from[data-v-fd7b2cbb] {
+  transform: translateX(24px);
+  opacity: 0;
+}
+.week-slide-left-leave-to[data-v-fd7b2cbb] {
+  transform: translateX(-24px);
+  opacity: 0;
+}
+.week-slide-right-enter-from[data-v-fd7b2cbb] {
+  transform: translateX(-24px);
+  opacity: 0;
+}
+.week-slide-right-leave-to[data-v-fd7b2cbb] {
+  transform: translateX(24px);
+  opacity: 0;
+}
+@media (max-width: 768px) {
+.month-col[data-v-fd7b2cbb],
+  .time-axis[data-v-fd7b2cbb] {
+    width: var(--time-axis-width);
+}
+.time-slot[data-v-fd7b2cbb] {
+    font-size: 9px;
+}
+.period-num[data-v-fd7b2cbb] {
+    font-size: 12px;
+}
+.day-column[data-v-fd7b2cbb] {
+    grid-template-rows: repeat(11, var(--slot-height));
+}
+.line-row[data-v-fd7b2cbb] {
+    height: var(--slot-height);
+}
+.course-card[data-v-fd7b2cbb] {
+    padding: 3px 2px;
+    margin: 1px 0;
+    font-size: 10px;
+}
+.course-name[data-v-fd7b2cbb] {
+    font-size: 10px;
+}
+.course-room[data-v-fd7b2cbb] {
+    font-size: 9px;
+}
+.course-teacher[data-v-fd7b2cbb] {
+    font-size: 9px;
+}
+}
+/**
+ * 课表领域 - 弹窗共享样式（modal/fade 过渡）。
+ * 原内联于 ScheduleView.vue，多个弹窗组件（添加/管理/详情/确认）共同引用。
+ * 注意：scoped 引入后，各组件会为其附加自身的 scope 属性。
+ */
+.modal-overlay[data-v-0d66fb78] {
+  position: fixed;
+  top:0; left:0; right:0; bottom:0;
+  background: rgba(0,0,0,0.4);
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px);
+  box-sizing: border-box;
+}
+.modal-content[data-v-0d66fb78] {
+  background: white;
+  width: 80%;
+  max-width: 320px;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+.modal-header[data-v-0d66fb78] {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.modal-header h3[data-v-0d66fb78] {
+  font-size: 18px;
+  color: #111827;
+  margin: 0;
+  line-height: 1.4;
+}
+.close-btn[data-v-0d66fb78] {
+  background: #f3f4f6;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #6b7280;
+  font-size: 16px;
+  cursor: pointer;
+}
+.fade-enter-active[data-v-0d66fb78], .fade-leave-active[data-v-0d66fb78] {
+  transition: opacity 0.2s;
+}
+.fade-enter-from[data-v-0d66fb78], .fade-leave-to[data-v-0d66fb78] {
+  opacity: 0;
+}
+
+.modal-body[data-v-0d66fb78] {
+  display: grid;
+  gap: 8px;
+}
+.info-row[data-v-0d66fb78] {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 0;
+}
+.info-row .label[data-v-0d66fb78] {
+  color: #9ca3af;
+  font-size: 13px;
+}
+.info-row .value[data-v-0d66fb78] {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: right;
+  max-width: 70%;
+}
+.custom-course-actions[data-v-0d66fb78] {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.custom-delete-btn[data-v-0d66fb78] {
+  min-height: 34px;
+  border-radius: 10px;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.custom-delete-btn.week[data-v-0d66fb78] {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.custom-delete-btn.edit[data-v-0d66fb78] {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.custom-delete-btn.all[data-v-0d66fb78] {
+  background: #dc2626;
+  color: #ffffff;
+}
+.detail-copy-actions[data-v-0d66fb78] {
+  margin-top: 12px;
+}
+.detail-copy-btn[data-v-0d66fb78] {
+  width: 100%;
+  min-height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.detail-action-error[data-v-0d66fb78] {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.conflict-hint[data-v-0d66fb78] {
+  font-size: 12px;
+  color: #475569;
+  margin-bottom: 10px;
+}
+.conflict-item[data-v-0d66fb78] {
+  border: 1px solid #fecaca;
+  background: #fff7f7;
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+.conflict-item.clickable[data-v-0d66fb78] {
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.conflict-item.clickable[data-v-0d66fb78]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(239, 68, 68, 0.12);
+}
+.conflict-item[data-v-0d66fb78]:last-child {
+  margin-bottom: 0;
+}
+.conflict-item-title[data-v-0d66fb78] {
+  font-size: 13px;
+  font-weight: 700;
+  color: #7f1d1d;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.conflict-tag[data-v-0d66fb78] {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  background: #111827;
+  color: #ffffff;
+}
+.conflict-item-row[data-v-0d66fb78] {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #374151;
+}
+/**
+ * 课表领域 - 弹窗共享样式（modal/fade 过渡）。
+ * 原内联于 ScheduleView.vue，多个弹窗组件（添加/管理/详情/确认）共同引用。
+ * 注意：scoped 引入后，各组件会为其附加自身的 scope 属性。
+ */
+.modal-overlay[data-v-6e1577de] {
+  position: fixed;
+  top:0; left:0; right:0; bottom:0;
+  background: rgba(0,0,0,0.4);
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px);
+  box-sizing: border-box;
+}
+.modal-content[data-v-6e1577de] {
+  background: white;
+  width: 80%;
+  max-width: 320px;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+.modal-header[data-v-6e1577de] {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.modal-header h3[data-v-6e1577de] {
+  font-size: 18px;
+  color: #111827;
+  margin: 0;
+  line-height: 1.4;
+}
+.close-btn[data-v-6e1577de] {
+  background: #f3f4f6;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #6b7280;
+  font-size: 16px;
+  cursor: pointer;
+}
+.fade-enter-active[data-v-6e1577de], .fade-leave-active[data-v-6e1577de] {
+  transition: opacity 0.2s;
+}
+.fade-enter-from[data-v-6e1577de], .fade-leave-to[data-v-6e1577de] {
+  opacity: 0;
+}
+
+.add-course-modal[data-v-6e1577de] {
+  width: min(92vw, 400px);
+  max-width: 420px;
+  max-height: min(74dvh, 600px);
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+.add-course-body[data-v-6e1577de] {
+  display: grid;
+  gap: 10px;
+  overflow-y: auto;
+  max-height: calc(min(74dvh, 600px) - 148px);
+  padding-right: 2px;
+}
+.add-course-semester[data-v-6e1577de] {
+  font-size: 12px;
+  color: #475569;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(226, 232, 240, 0.55);
+}
+.add-row[data-v-6e1577de] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.add-field[data-v-6e1577de] {
+  display: grid;
+  gap: 6px;
+}
+.add-field > span[data-v-6e1577de] {
+  font-size: 12px;
+  color: #475569;
+  font-weight: 600;
+}
+.add-field input[data-v-6e1577de],
+.add-field select[data-v-6e1577de] {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+.add-field input[data-v-6e1577de]:focus,
+.add-field select[data-v-6e1577de]:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.3);
+  outline-offset: 0;
+}
+.week-picker-trigger[data-v-6e1577de] {
+  width: 100%;
+  min-height: 38px;
+  border-radius: 10px;
+  border: 1px dashed #94a3b8;
+  background: rgba(248, 250, 252, 0.95);
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.add-actions[data-v-6e1577de] {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.add-course-error[data-v-6e1577de] {
+  margin-top: -2px;
+}
+.drawer-error[data-v-6e1577de] {
+  font-size: 12px;
+  color: #dc2626;
+}
+@media (max-width: 768px) {
+.add-row[data-v-6e1577de] {
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+.add-actions[data-v-6e1577de] {
+    grid-template-columns: 1fr;
+}
+}
+/**
+ * 课表领域 - 弹窗共享样式（modal/fade 过渡）。
+ * 原内联于 ScheduleView.vue，多个弹窗组件（添加/管理/详情/确认）共同引用。
+ * 注意：scoped 引入后，各组件会为其附加自身的 scope 属性。
+ */
+.modal-overlay[data-v-d5b3f456] {
+  position: fixed;
+  top:0; left:0; right:0; bottom:0;
+  background: rgba(0,0,0,0.4);
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px);
+  box-sizing: border-box;
+}
+.modal-content[data-v-d5b3f456] {
+  background: white;
+  width: 80%;
+  max-width: 320px;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+.modal-header[data-v-d5b3f456] {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.modal-header h3[data-v-d5b3f456] {
+  font-size: 18px;
+  color: #111827;
+  margin: 0;
+  line-height: 1.4;
+}
+.close-btn[data-v-d5b3f456] {
+  background: #f3f4f6;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #6b7280;
+  font-size: 16px;
+  cursor: pointer;
+}
+.fade-enter-active[data-v-d5b3f456], .fade-leave-active[data-v-d5b3f456] {
+  transition: opacity 0.2s;
+}
+.fade-enter-from[data-v-d5b3f456], .fade-leave-to[data-v-d5b3f456] {
+  opacity: 0;
+}
+
+.manage-course-modal[data-v-d5b3f456] {
+  width: min(92vw, 560px);
+  max-width: 560px;
+}
+.manage-course-body[data-v-d5b3f456] {
+  max-height: min(72vh, 560px);
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+}
+.manage-course-empty[data-v-d5b3f456],
+.manage-course-error[data-v-d5b3f456] {
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 13px;
+}
+.manage-course-empty[data-v-d5b3f456] {
+  background: #f0f9ff;
+  color: #475569;
+}
+.manage-course-error[data-v-d5b3f456] {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #b91c1c;
+}
+.manage-course-groups[data-v-d5b3f456] {
+  display: grid;
+  gap: 12px;
+}
+.manage-course-group[data-v-d5b3f456] {
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  overflow: hidden;
+}
+.manage-course-group-header[data-v-d5b3f456] {
+  width: 100%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.manage-course-group-title[data-v-d5b3f456] {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+.manage-course-group-title strong[data-v-d5b3f456] {
+  font-size: 14px;
+  color: #0f172a;
+}
+.manage-course-group-title span[data-v-d5b3f456],
+.manage-course-group-arrow[data-v-d5b3f456] {
+  font-size: 12px;
+  color: #64748b;
+}
+.manage-course-list[data-v-d5b3f456] {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+.manage-course-card[data-v-d5b3f456] {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+.manage-course-card-main[data-v-d5b3f456] {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.manage-course-card-name[data-v-d5b3f456] {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.manage-course-card-meta[data-v-d5b3f456] {
+  font-size: 12px;
+  color: #475569;
+}
+.manage-course-card-actions[data-v-d5b3f456] {
+  display: grid;
+  gap: 8px;
+}
+.manage-course-btn[data-v-d5b3f456] {
+  min-width: 76px;
+  min-height: 34px;
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.manage-course-btn.edit[data-v-d5b3f456] {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.manage-course-btn.delete[data-v-d5b3f456] {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.week-picker-mask[data-v-adce8b4a] {
+  position: fixed;
+  inset: 0;
+  z-index: 520;
+  background: rgba(15, 23, 42, 0.48);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.week-picker-sheet[data-v-adce8b4a] {
+  width: min(100vw, 520px);
+  max-height: min(78dvh, 620px);
+  background: #ffffff;
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  box-shadow: 0 -20px 44px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.week-picker-header[data-v-adce8b4a] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.week-picker-title[data-v-adce8b4a] {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.week-picker-ops[data-v-adce8b4a] {
+  display: flex;
+  gap: 8px;
+}
+.week-picker-ops button[data-v-adce8b4a] {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.week-picker-grid[data-v-adce8b4a] {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.week-cell[data-v-adce8b4a] {
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #334155;
+  min-height: 42px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.week-cell.active[data-v-adce8b4a] {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+.week-picker-confirm[data-v-adce8b4a] {
+  width: 100%;
+  min-height: 42px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sheet-up-enter-active[data-v-adce8b4a],
+.sheet-up-leave-active[data-v-adce8b4a] {
+  transition: opacity 0.2s ease;
+}
+.sheet-up-enter-active .week-picker-sheet[data-v-adce8b4a],
+.sheet-up-leave-active .week-picker-sheet[data-v-adce8b4a] {
+  transition: transform 0.24s ease;
+}
+.sheet-up-enter-from[data-v-adce8b4a],
+.sheet-up-leave-to[data-v-adce8b4a] {
+  opacity: 0;
+}
+.sheet-up-enter-from .week-picker-sheet[data-v-adce8b4a],
+.sheet-up-leave-to .week-picker-sheet[data-v-adce8b4a] {
+  transform: translateY(100%);
+}
+@media (max-width: 768px) {
+.week-picker-grid[data-v-adce8b4a] {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+}
+}
+/**
+ * 课表领域 - 弹窗共享样式（modal/fade 过渡）。
+ * 原内联于 ScheduleView.vue，多个弹窗组件（添加/管理/详情/确认）共同引用。
+ * 注意：scoped 引入后，各组件会为其附加自身的 scope 属性。
+ */
+.modal-overlay[data-v-16c82ab5] {
+  position: fixed;
+  top:0; left:0; right:0; bottom:0;
+  background: rgba(0,0,0,0.4);
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px);
+  box-sizing: border-box;
+}
+.modal-content[data-v-16c82ab5] {
+  background: white;
+  width: 80%;
+  max-width: 320px;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+.modal-header[data-v-16c82ab5] {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.modal-header h3[data-v-16c82ab5] {
+  font-size: 18px;
+  color: #111827;
+  margin: 0;
+  line-height: 1.4;
+}
+.close-btn[data-v-16c82ab5] {
+  background: #f3f4f6;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #6b7280;
+  font-size: 16px;
+  cursor: pointer;
+}
+.fade-enter-active[data-v-16c82ab5], .fade-leave-active[data-v-16c82ab5] {
+  transition: opacity 0.2s;
+}
+.fade-enter-from[data-v-16c82ab5], .fade-leave-to[data-v-16c82ab5] {
+  opacity: 0;
+}
+
+.confirm-overlay[data-v-16c82ab5] {
+  z-index: 360;
+}
+.confirm-modal[data-v-16c82ab5] {
+  width: min(90vw, 360px);
+  max-width: 360px;
+  border-radius: 16px;
+  padding: 16px;
+}
+.confirm-title[data-v-16c82ab5] {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.confirm-lines[data-v-16c82ab5] {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.confirm-lines p[data-v-16c82ab5] {
+  margin: 0;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.4;
+}
+.confirm-actions[data-v-16c82ab5] {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.confirm-btn[data-v-16c82ab5] {
+  min-height: 36px;
+  border-radius: 10px;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+}
+.confirm-btn.cancel[data-v-16c82ab5] {
+  background: #e2e8f0;
+  color: #334155;
+}
+.confirm-btn.danger[data-v-16c82ab5] {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+}
+
+.schedule-view[data-v-fbbb885e] {
+  /* 以下 CSS 变量与拆分前 ScheduleView.vue（PR #585 之前）保持一致：
+     --slot-height 按视口高度动态计算，使课表随页面高度拉伸；拆分时曾被简化为固定 55px 导致高度压缩 */
+  --time-axis-width: 40px;
+  --topbar-height: 44px;
+  --date-header-height: 50px;
+  --schedule-bottom-gap: calc(108px + env(safe-area-inset-bottom));
+  --schedule-safe-top: 0px;
+  --slot-height: clamp(
+    46px,
+    calc(
+      (
+          var(--app-vh, 1vh) * 100
+          - var(--topbar-height)
+          - var(--date-header-height)
+          - var(--schedule-bottom-gap)
+        ) / 11
+    ),
+    70px
+  );
+  width: 100%;
+  height: calc(var(--app-vh, 1vh) * 100);
+  min-height: calc(var(--app-vh, 1vh) * 100);
+  display: flex;
+  flex-direction: column;
+  background: #f9f9ff;
+  font-family: var(--ui-font-family);
+  overflow: hidden;
+  box-sizing: border-box;
+  padding-top: 0;
+  position: relative;
+}
+
+/* 语义化占位（原 semester-badge 无对应 DOM，保留选择器兼容外部样式覆盖） */
+.semester-badge-wrap[data-v-fbbb885e] {
+  position: relative;
+}
+.semester-badge-btn[data-v-fbbb885e] {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.semester-badge-btn[data-v-fbbb885e]:hover {
+  background: #f1f5f9;
+}
+.semester-badge-dot[data-v-fbbb885e] {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+.semester-badge-popover[data-v-fbbb885e] {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 200px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  padding: 14px;
+  z-index: 60;
+}
+.semester-badge-popover-title[data-v-fbbb885e] {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.semester-badge-popover-value[data-v-fbbb885e] {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+.semester-badge-popover-desc[data-v-fbbb885e] {
+  font-size: 12px;
+  color: #6b7280;
+}
+@media (max-width: 768px) {
+.schedule-view[data-v-fbbb885e] {
+    --time-axis-width: 32px;
+    --topbar-height: 42px;
+    --date-header-height: 44px;
+}
+}
