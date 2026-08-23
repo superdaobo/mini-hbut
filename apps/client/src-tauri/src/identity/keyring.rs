@@ -37,11 +37,26 @@ impl RealKeyring {
     }
 
     fn entry(&self) -> Result<keyring::Entry, String> {
-        // 显式 target（与 Windows 默认拼接 {user}.{service} 一致），
-        // 避免默认路径在部分 Windows 版本上 CredWrite 后不可见的问题。
-        let target = format!("{}.{}", self.account, self.service);
-        keyring::Entry::new_with_target(&target, &self.service, &self.account)
-            .map_err(|e| e.to_string())
+        open_platform_entry(&self.service, &self.account)
+    }
+}
+
+/// 按平台打开 keyring Entry（#668/#669）。
+///
+/// - Windows：显式 target（`{account}.{service}`），规避部分系统版本上
+///   CredWrite 后同 service/account 默认寻址不可见的问题；
+/// - 其余平台（macOS/iOS Keychain、Linux Secret Service）：标准 service/account。
+///   Apple Security 框架不接受任意自定义 target（报「Attribute target is invalid:
+///   … is not User, System, Common, or Dynamic」），必须走默认寻址。
+pub(crate) fn open_platform_entry(service: &str, account: &str) -> Result<keyring::Entry, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let target = format!("{}.{}", account, service);
+        keyring::Entry::new_with_target(&target, service, account).map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        keyring::Entry::new(service, account).map_err(|e| e.to_string())
     }
 }
 
