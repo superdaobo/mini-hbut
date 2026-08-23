@@ -42,6 +42,9 @@ pub fn delete_password(student_id: &str) {
 
 /// 返回账户级敏感字段主密钥。密钥只保存在系统密钥环，SQLite 不保存副本。
 pub fn load_or_create_secret_key(student_id: &str) -> Result<[u8; 32], String> {
+    // #672：Android 无 OS keyring 后端（keyring crate 不支持），显式降级而非误导性报错
+    #[cfg(target_os = "android")]
+    return Err("云同步加密主密钥在该平台暂不支持".to_string());
     use base64::{engine::general_purpose, Engine as _};
     use rand::RngCore;
 
