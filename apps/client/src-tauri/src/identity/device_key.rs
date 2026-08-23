@@ -261,8 +261,6 @@ fn backend_is_mock() -> bool {
         // 探测专用逻辑 key，与设备密钥完全隔离；探测值仅为时间戳，不含任何敏感材料。
         const PROBE_SERVICE: &str = "mini-hbut-identity-probe";
         const PROBE_ACCOUNT: &str = "backend-probe";
-        // target 与 RealKeyring 的 `{account}.{service}` 拼接格式保持一致。
-        let target = format!("{PROBE_ACCOUNT}.{PROBE_SERVICE}");
         let probe_value = format!(
             "probe-{}",
             std::time::SystemTime::now()
@@ -270,8 +268,9 @@ fn backend_is_mock() -> bool {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         );
+        // 统一走平台分支的 Entry 打开方式（Windows 显式 target；Apple 后端不接受自定义 target）。
         // 任何一步失败都按「非 mock」保守处理：宁可报 KeyringWriteMismatch，也不误判构建事故。
-        let entry_a = match keyring::Entry::new_with_target(&target, PROBE_SERVICE, PROBE_ACCOUNT) {
+        let entry_a = match super::keyring::open_platform_entry(PROBE_SERVICE, PROBE_ACCOUNT) {
             Ok(entry) => entry,
             Err(_) => return false,
         };
@@ -280,7 +279,7 @@ fn backend_is_mock() -> bool {
         }
         // 全新实例 B 独立寻址读取：NoEntry ⇒ A 写入未持久化 ⇒ 零持久化 mock；
         // 只要 B 读得到任何内容（无论是否本次写入值），都证明存储跨实例可见，绝非 mock。
-        let is_mock = match keyring::Entry::new_with_target(&target, PROBE_SERVICE, PROBE_ACCOUNT) {
+        let is_mock = match super::keyring::open_platform_entry(PROBE_SERVICE, PROBE_ACCOUNT) {
             Ok(entry_b) => match entry_b.get_password() {
                 Err(keyring::Error::NoEntry) => true,
                 Ok(_) => false,
@@ -289,7 +288,7 @@ fn backend_is_mock() -> bool {
             Err(_) => false,
         };
         // 清理探测条目（忽略错误：探测键不含敏感材料，残留无安全影响）。
-        if let Ok(entry) = keyring::Entry::new_with_target(&target, PROBE_SERVICE, PROBE_ACCOUNT) {
+        if let Ok(entry) = super::keyring::open_platform_entry(PROBE_SERVICE, PROBE_ACCOUNT) {
             let _ = entry.delete_credential();
         }
         is_mock
