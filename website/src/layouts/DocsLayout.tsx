@@ -18,6 +18,7 @@ import {
     GraduationCap,
     HelpCircle,
     History,
+    KeyRound,
     MoveUp,
     Layers,
     LifeBuoy,
@@ -56,6 +57,7 @@ const docsNavSections = [
         title: '开发者文档',
         links: [
             { path: '/docs/developer', label: '开发者总览', icon: <Code2 size={18} /> },
+            { path: '/docs/api', label: 'API 文档', icon: <KeyRound size={18} /> },
             { path: '/docs/identity-oidc', label: 'OIDC 接入指南', icon: <ShieldCheck size={18} /> },
             { path: '/docs/architecture', label: '架构与数据流', icon: <Layers size={18} /> },
             { path: '/docs/platform-tauri', label: '平台与 Tauri', icon: <Cpu size={18} /> },
