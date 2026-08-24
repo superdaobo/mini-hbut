@@ -36,8 +36,26 @@ export function createAppEncryptionDeclarationLookupPath(options: {
   limit?: number
 }): string
 
+export function createAppEncryptionDeclarationBody(options: {
+  appId: string
+}): unknown
+
+export function createBetaGroupsLookupPath(options: {
+  appId: string
+  limit?: number
+}): string
+
+export function selectBetaGroups(groups: unknown[], groupNameInput: string | undefined): unknown[]
+
 export function createBuildEncryptionDeclarationLinkageBody(
   declarationId: string,
 ): {
   data: { type: string; id: string }
 }
+
+export function apiRequest(
+  token: string,
+  pathname: string,
+  options?: { method?: string; body?: unknown },
+  retries?: number,
+): Promise<any>
