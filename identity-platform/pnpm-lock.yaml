@@ -64,7 +64,7 @@ importers:
         specifier: 16.3.0
         version: 16.3.0(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       openid-client:
-        specifier: ^6.8.5
+        specifier: 6.8.5
         version: 6.8.5
       qrcode:
         specifier: 1.5.4

@@ -5,7 +5,7 @@
  * - invalid signature；
  * - expired challenge；
  * - duplicate public key；
- * - duplicate student identity → LINK_REQUIRED（不合并）；
+ * - 多设备自绑定（#679）：同学号新设备挂既有身份 / 同密钥幂等返回 / revoked 同钥重激活；
  * - test/demo account 拒绝 Production enrollment；
  * - Handoff 缺失/非法拒绝（防匿名创建 challenge）。
  * 另覆盖：challenge 端点需有效 handoff；enroll 原子性（失败无部分写入）。
@@ -196,7 +196,7 @@ describe('#622 enroll API', () => {
     expect((res.body.error as { code: string }).code).toBe('DEVICE_FINGERPRINT_EXISTS')
   })
 
-  it('6. duplicate student identity：同学号二次注册 → 409 LINK_REQUIRED（绝不自动接管）', async () => {
+  it('6. 多设备自绑定：同学号第二台设备挂到既有身份（#679）', async () => {
     const first = await enrollViaApi({
       handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
       studentId: '2023010107',
@@ -207,13 +207,80 @@ describe('#622 enroll API', () => {
       key: newTestDeviceKey(),
       studentId: '2023010107',
     })
-    expect(res.status).toBe(409)
-    expect((res.body.error as { code: string }).code).toBe('LINK_REQUIRED')
-    // 学号仍只绑定一个 user，第二把公钥没有挂上去
+    expect(res.status).toBe(201)
+    // 新设备挂到同一个 user_id，不再要求「已绑定设备批准」
+    expect(res.body.user_id).toBe(first.body.user_id)
     const identity = await findIdentityByProviderSubject(db.sql, 'hbut', '2023010107')
     expect(identity?.user_id).toBe(String(first.body.user_id))
     const devices = await listDevicesByUser(db.sql, String(first.body.user_id))
+    expect(devices.length).toBe(2)
+    expect(devices.every((d) => d.status === 'active')).toBe(true)
+  })
+
+  it('6b. 同密钥重复 enroll：幂等返回既有 device_id，不新增设备行（#677 补绑定重放安全）', async () => {
+    const key = newTestDeviceKey()
+    const first = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      key,
+      studentId: '2023010108',
+    })
+    expect(first.status).toBe(201)
+    const res = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      key,
+      studentId: '2023010108',
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.device_id).toBe(first.body.device_id)
+    const devices = await listDevicesByUser(db.sql, String(first.body.user_id))
     expect(devices.length).toBe(1)
+  })
+
+  it('6c. revoked 设备同密钥重新 enroll → 重新激活可用（#679）', async () => {
+    const key = newTestDeviceKey()
+    const first = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      key,
+      studentId: '2023010109',
+    })
+    expect(first.status).toBe(201)
+    // 模拟服务端吊销（如用户在别的设备上撤销了本机）
+    await db.sql.query(
+      "UPDATE devices SET status = 'revoked', revoked_at = NOW(), revoked_reason = 'test' WHERE id = $1",
+      [String(first.body.device_id)],
+    )
+    const res = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      key,
+      studentId: '2023010109',
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.device_id).toBe(first.body.device_id)
+    const device = await findActiveDeviceById(db.sql, String(first.body.device_id))
+    expect(device?.status).toBe('active')
+  })
+
+  it('6d. 指纹属于其他学号 → 仍拒绝 DEVICE_FINGERPRINT_EXISTS（跨账号防线不变）', async () => {
+    const keyA = newTestDeviceKey()
+    const firstA = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      key: keyA,
+      studentId: '2023010110',
+    })
+    expect(firstA.status).toBe(201)
+    const firstB = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      studentId: '2023010111',
+    })
+    expect(firstB.status).toBe(201)
+    // 学号 111 尝试用属于学号 110 的公钥注册
+    const res = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      key: keyA,
+      studentId: '2023010111',
+    })
+    expect(res.status).toBe(409)
+    expect((res.body.error as { code: string }).code).toBe('DEVICE_FINGERPRINT_EXISTS')
   })
 
   it('7. test/demo account：production 环境拒绝，development 允许', async () => {
