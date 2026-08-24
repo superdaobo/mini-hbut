@@ -40,19 +40,7 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
   const hasTauri = isTauriRuntime()
   const isCapacitor = isCapacitorRuntime()
 
-  const forceScrollTop = () => {
-    try {
-      window.scrollTo(0, 0)
-      document.documentElement.scrollTop = 0
-      document.body.scrollTop = 0
-      if (state.appShellRef.value) {
-        state.appShellRef.value.scrollTop = 0
-      }
-    } catch {
-      // ignore
-    }
-  }
-
+  // #681：回顶实现唯一收敛在 navigation.forceScrollTop，此处不得再保留重复副本
   const updateViewportUnit = () => {
     if (typeof window === 'undefined') return
     // 优先 clientHeight，避免地址栏/键盘/可视窗口瞬时波动导致“二次缩放”
@@ -107,11 +95,11 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     updateViewportUnit()
     nextTick(() => {
       if (scrollToTop) {
-        forceScrollTop()
+        runtime.navigation.forceScrollTop()
       }
       requestAnimationFrame(() => {
         if (scrollToTop) {
-          forceScrollTop()
+          runtime.navigation.forceScrollTop()
         }
         updateViewportUnit()
       })

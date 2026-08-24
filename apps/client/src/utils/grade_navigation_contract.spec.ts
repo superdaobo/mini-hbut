@@ -36,7 +36,7 @@ describe('grade navigation contract', () => {
     const source = readSource('src/app/coordinators/NavigationCoordinator.ts')
     const block = extractBlock(
       source,
-      'const syncFromHash = async ({ scrollToTop = false } = {}) => {',
+      'const syncFromHash = async () => {',
       'const normalizeNavigateTarget = (target: unknown) => {'
     )
 
