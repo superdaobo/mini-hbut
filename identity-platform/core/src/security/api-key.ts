@@ -18,7 +18,7 @@
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import type { SqlExecutor } from '../db/types.js'
-import { sha256Base64url } from './hash.js'
+import { hmacSha256Base64url } from './hash.js'
 import { findApiKeyByPrefix, type ApiKeyRow } from '../db/repos/api-keys.repo.js'
 import { ApiKeyExpiredError, ApiKeyInvalidError, ApiKeyRevokedError } from '../domain/errors.js'
 
@@ -42,20 +42,41 @@ export interface GeneratedApiKey {
   full: string
   /** 入库前缀 "mhbat_<8hex>"（14 字符，UNIQUE） */
   prefix: string
-  /** sha256Base64url(整串)，入库值 */
+  /** HMAC-SHA256(整串, 服务端 pepper)，入库值 */
   hash: string
+}
+
+/**
+ * 存储哈希的 pepper：复用 KEK 环境变量派生，避免静态常量。
+ * - production 缺失/非法 → fail closed（与 client-secret 同策略）；
+ * - 非生产回退开发常量并告警（便于本地/测试跑通）。
+ */
+function getPepper(): string {
+  const raw = process.env.IDENTITY_CLIENT_SECRET_KEK
+  if (raw && Buffer.from(raw, 'utf8').length >= 32) return raw
+  if (process.env.IDENTITY_ENVIRONMENT === 'production') {
+    throw new Error(
+      '[security] IDENTITY_CLIENT_SECRET_KEK 缺失或不足 32 字节，API Key 无法安全存储（fail closed）',
+    )
+  }
+  // eslint-disable-next-line no-console
+  console.error('[security] 开发/测试环境使用固定 API Key pepper——严禁用于生产')
+  return 'mini-hbut-dev-api-key-pepper'
 }
 
 /**
  * 生成一把新 Key（CSPRNG；禁止 Math.random 参与任何密钥材料）。
  * prefix 取自独立随机源，与主体互不派生；UNIQUE 冲突由调用方重试。
+ *
+ * 存储哈希用 HMAC-SHA256(pepper)：对高熵随机 Key 而言防碰撞足够，
+ * 引入服务端 pepper 同时满足 CodeQL 对「快速哈希存密码类凭据」的红线（#688）。
  */
 export function generateApiKey(): GeneratedApiKey {
   const hexPrefix = randomBytes(HEX_PREFIX_LENGTH / 2).toString('hex')
   const prefix = `${API_KEY_PREFIX}${hexPrefix}`
   const body = randomBytes(SECRET_BYTES).toString('base64url')
   const full = `${prefix}_${body}`
-  return { full, prefix, hash: sha256Base64url(full) }
+  return { full, prefix, hash: hmacSha256Base64url(getPepper(), full) }
 }
 
 /**
@@ -72,8 +93,8 @@ export async function verifyApiKey(sql: SqlExecutor, token: string): Promise<Api
   if (!row) {
     throw new ApiKeyInvalidError()
   }
-  // 2) constant-time 比对 sha256Base64url(整串)；长度相同（43 字符）才进比对
-  const computed = Buffer.from(sha256Base64url(token), 'utf8')
+  // 2) constant-time 比对 HMAC-SHA256(整串, pepper)；长度相同（43 字符）才进比对
+  const computed = Buffer.from(hmacSha256Base64url(getPepper(), token), 'utf8')
   const stored = Buffer.from(row.secret_hash, 'utf8')
   if (computed.length !== stored.length || !timingSafeEqual(computed, stored)) {
     throw new ApiKeyInvalidError()
