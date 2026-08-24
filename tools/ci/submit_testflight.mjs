@@ -6,10 +6,13 @@
  *  2. 填写「测试说明（What to Test）」：
  *     - 优先使用 workflow 输入 TESTFLIGHT_WHATS_NEW（支持字面 \n 换行）
  *     - 留空则自动生成：最近 git 提交 + src/utils/test_account.js 中的演示测试账号
- *  3. 把构建加入 beta 测试组：
- *     - 指定 TESTFLIGHT_BETA_GROUP 按名字匹配；留空选第一个内部测试组
- *     - 内部组 = 自动提交，内部测试员立即可安装
- *     - 外部组 = 额外提交 Beta App Review（betaAppReviewSubmissions）
+ *  3. 出口合规（Export Compliance）：auto 模式关联已批准的 App Encryption
+ *     Declaration；该 App 尚无声明时按「不包含加密算法」自动创建并关联
+ *  4. 把构建加入 beta 测试组：
+ *     - TESTFLIGHT_BETA_GROUP 支持逗号分隔多个组名精确匹配；留空自动选第一个
+ *       外部组（无外部组回落第一个内部组）
+ *     - 内部组 = 自动生效，内部测试员立即可安装
+ *     - 任一外部组 = 额外提交 Beta App Review（betaAppReviewSubmissions）
  *
  * 认证：App Store Connect API Key（APPSTORE_KEY_ID / APPSTORE_ISSUER_ID /
  * APPSTORE_PRIVATE_KEY_PATH），与 altool 上传用的是同一把钥匙，无需新增密钥。
@@ -99,7 +102,7 @@ export function buildWhatsNew({ manual, versionName, buildNumber, commits = [], 
 /* 内部工具                                                             */
 /* ------------------------------------------------------------------ */
 
-async function apiRequest(token, pathname, { method = 'GET', body } = {}, retries = 2) {
+export async function apiRequest(token, pathname, { method = 'GET', body } = {}, retries = 2) {
   let lastError
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -184,6 +187,20 @@ export function createAppEncryptionDeclarationLookupPath({ appId, limit = 200 })
   return `/appEncryptionDeclarations?${qs}`
 }
 
+/**
+ * 创建「不包含加密算法」的出口合规声明请求体。
+ * 对应 TestFlight 网页上的 Export Compliance = No（标准免税声明），无需人工回答问卷。
+ */
+export function createAppEncryptionDeclarationBody({ appId }) {
+  return {
+    data: {
+      type: 'appEncryptionDeclarations',
+      attributes: { usesEncryption: false },
+      relationships: { app: { data: { type: 'apps', id: appId } } },
+    },
+  }
+}
+
 /** 把 build 关联到出口合规声明的 linkage 请求体。 */
 export function createBuildEncryptionDeclarationLinkageBody(declarationId) {
   return {
@@ -205,7 +222,8 @@ function recentCommits(max = 8) {
 
 function loadTestAccount() {
   try {
-    return parseTestAccount(readFileSync('src/utils/test_account.js', 'utf8'))
+    // workflow 以仓库根为 cwd 调用本脚本，客户端已迁移至 apps/client/
+    return parseTestAccount(readFileSync('apps/client/src/utils/test_account.js', 'utf8'))
   } catch {
     return null // 仓库结构变化时降级，测试说明不含账号段
   }
@@ -296,35 +314,59 @@ async function upsertBetaBuildLocalization(token, { buildId, locale, whatsNew })
   return created?.data?.id
 }
 
-async function findBetaGroup(token, { appId, groupName }) {
+/** 查询某 App 全部 beta 测试组（含内/外部与全构建访问标记）。 */
+export function createBetaGroupsLookupPath({ appId, limit = 200 }) {
   const qs = new URLSearchParams({
     'filter[app]': appId,
     'fields[betaGroups]': 'name,isInternalGroup,hasAccessToAllBuilds',
-    limit: '200',
+    limit: String(limit),
   })
-  const data = await apiRequest(token, `/betaGroups?${qs}`)
-  const groups = data.data || []
-  if (groupName) {
-    const group = groups.find((g) => g.attributes?.name === groupName)
-    if (!group) {
-      const names = groups.map((g) => g.attributes?.name).join('、') || '（无可用测试组）'
-      throw new Error(`找不到测试组「${groupName}」。App Store Connect 中该 App 的可用测试组：${names}`)
-    }
-    console.log(`✅ 使用指定测试组「${groupName}」${group.attributes?.isInternalGroup ? '（内部组）' : '（外部组）'}`)
-    return group
+  return `/betaGroups?${qs}`
+}
+
+/**
+ * 解析测试组选择输入：按名字精确匹配（可逗号分隔多个）；留空 = 自动模式。
+ * 自动模式优先选第一个「外部」测试组（面向公众测试者，配合自动提交 Beta App
+ * Review 实现全自动外发），没有外部组时回落第一个内部组。
+ */
+export function selectBetaGroups(groups, groupNameInput) {
+  const names = String(groupNameInput || '')
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean)
+  if (names.length > 0) {
+    const picked = names.map((name) => {
+      const group = groups.find((g) => g.attributes?.name === name)
+      if (!group) {
+        const available = groups.map((g) => g.attributes?.name).join('、') || '（无可用测试组）'
+        throw new Error(`找不到测试组「${name}」。App Store Connect 中该 App 的可用测试组：${available}`)
+      }
+      return group
+    })
+    console.log(
+      `✅ 使用指定测试组：${picked.map((g) => `「${g.attributes?.name}」${g.attributes?.isInternalGroup ? '（内部）' : '（外部）'}`).join('、')}`,
+    )
+    return picked
+  }
+
+  const external = groups.find((g) => g.attributes?.isInternalGroup === false)
+  if (external) {
+    console.log(`✅ 自动选择第一个外部测试组「${external.attributes?.name}」（将自动提交 Beta App Review）`)
+    return [external]
   }
   const internal = groups.find((g) => g.attributes?.isInternalGroup === true)
   if (!internal) {
-    throw new Error('未指定测试组名，且该 App 没有内部测试组。请先在 App Store Connect 创建内部测试组，或填写 beta_group 输入')
+    throw new Error('未指定测试组名，且该 App 没有任何测试组。请先在 App Store Connect 创建测试组，或填写 beta_group 输入')
   }
-  console.log(`✅ 自动选择第一个内部测试组「${internal.attributes?.name}」`)
-  return internal
+  console.log(`✅ 无外部测试组，自动选择第一个内部测试组「${internal.attributes?.name}」`)
+  return [internal]
 }
 
 /**
  * 自动出口合规（"允许出口"）：把构建关联到 App 已批准的 App Encryption Declaration。
- * mode: 'auto'（默认，查已批准声明）/ 'off'（跳过）/ 其它值视为显式声明 id。
- * 无可用声明时仅告警，不中断测试组投递。
+ * mode: 'auto'（默认）/ 'off'（跳过）/ 其它值视为显式声明 id。
+ * auto 模式下若该 App 尚无任何声明，自动按「不包含加密算法」创建新声明并关联，
+ * 全程无需打开 App Store Connect 网页。
  */
 async function assignExportCompliance(token, { appId, buildId, mode }) {
   const normalized = String(mode || 'auto').trim().toLowerCase()
@@ -342,11 +384,19 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
       (item) => item.attributes?.appEncryptionDeclarationState === 'APPROVED',
     )
     declarationId = (approved || list[0])?.id || ''
+    if (!declarationId) {
+      // 首次上传：App 还没有加密合规声明。按「不包含加密算法」（usesEncryption=false）
+      // 自动创建并关联，等价于在网页上回答 Export Compliance = No。
+      console.log('🆕 该 App 尚无出口合规声明，自动创建「不包含加密算法」声明…')
+      const created = await apiRequest(token, '/appEncryptionDeclarations', {
+        method: 'POST',
+        body: createAppEncryptionDeclarationBody({ appId }),
+      })
+      declarationId = created?.data?.id || ''
+    }
   }
   if (!declarationId) {
-    console.warn(
-      '⚠️ 未找到可用的 App Encryption Declaration，跳过出口合规关联（首次需在 App Store Connect 创建并等待审核；不影响测试组投递）',
-    )
+    console.warn('⚠️ 出口合规声明创建/查找失败，跳过关联（不影响测试组投递）')
     return
   }
   await apiRequest(
@@ -357,7 +407,7 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
       body: createBuildEncryptionDeclarationLinkageBody(declarationId),
     },
   )
-  console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}）`)
+  console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}，usesEncryption=false）`)
 }
 
 async function main() {
@@ -430,19 +480,24 @@ async function main() {
     console.warn(`⚠️ 出口合规关联失败（不影响测试组投递）：${err.message}`)
   }
 
-  // 3) 加入测试组（内部组 = 自动提交；外部组需要 Beta App Review）
-  const group = await findBetaGroup(token, { appId: APPLE_APP_ID, groupName: TESTFLIGHT_BETA_GROUP })
-  if (group.attributes?.hasAccessToAllBuilds === true) {
-    console.log(`✅ 测试组「${group.attributes?.name}」已配置自动访问所有构建，无需重复关联`)
-  } else {
-    await apiRequest(token, `/builds/${buildId}/relationships/betaGroups`, {
-      method: 'POST',
-      body: { data: [{ type: 'betaGroups', id: group.id }] },
-    })
-    console.log(`✅ 构建已加入测试组「${group.attributes?.name}」`)
+  // 3) 加入测试组（内部组 = 自动生效；外部组额外提交 Beta App Review）
+  const groupsData = await apiRequest(token, createBetaGroupsLookupPath({ appId: APPLE_APP_ID }))
+  const pickedGroups = selectBetaGroups(groupsData.data || [], TESTFLIGHT_BETA_GROUP)
+  let needsBetaReview = false
+  for (const group of pickedGroups) {
+    if (group.attributes?.hasAccessToAllBuilds === true) {
+      console.log(`✅ 测试组「${group.attributes?.name}」已配置自动访问所有构建，无需重复关联`)
+    } else {
+      await apiRequest(token, `/builds/${buildId}/relationships/betaGroups`, {
+        method: 'POST',
+        body: { data: [{ type: 'betaGroups', id: group.id }] },
+      })
+      console.log(`✅ 构建已加入测试组「${group.attributes?.name}」`)
+    }
+    if (group.attributes?.isInternalGroup === false) needsBetaReview = true
   }
 
-  if (group.attributes?.isInternalGroup === false) {
+  if (needsBetaReview) {
     try {
       await apiRequest(token, '/betaAppReviewSubmissions', {
         method: 'POST',
