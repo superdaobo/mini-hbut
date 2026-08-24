@@ -82,6 +82,15 @@ export function IdentityQr({ payload, hidden, expired, fallbackUrl }: IdentityQr
             className="qr-canvas"
             role="img"
             aria-label="跨设备登录二维码：使用 Mini-HBUT App 扫描以完成登录"
+            // #690 内联兜底：canvas 内在尺寸 240px，若外部 CSS（.qr-canvas）未生效会撑破
+            // 128px 容器被裁切。内联样式保证任何加载状态下都完整缩放适配容器。
+            style={{
+              display: 'block',
+              width: '100%',
+              height: '100%',
+              maxWidth: '100%',
+              maxHeight: '100%',
+            }}
           />
           {expired ? (
             <div className="qr-expired-overlay" aria-live="polite">
