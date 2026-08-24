@@ -52,6 +52,7 @@ import {
   setIdentitySuppressedForLogin
 } from '../../features/identity/identityStore'
 import { hasSensitiveScope } from '../../features/identity/identityScopes'
+import { resolveDeviceBinding } from '../../features/identity/deviceBinding'
 import {
   getIdentityDeviceDisplayName,
   invokeNative
@@ -251,45 +252,29 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
   }
 
   // ── 设备绑定（#622：用当前请求 handoff 获取 enrollment challenge） ────────
-  const ensureDeviceBound = async (handoff: string): Promise<string> => {
-    let status: IdentityLocalDeviceStatus | null = null
-    try {
-      status = await invokeNative<IdentityLocalDeviceStatus>('identity_device_status')
-    } catch {
-      status = null
-    }
-    if (status === null || status.available === false) {
-      throw new IdentityServiceError(
-        'secure_storage_unavailable',
-        '本机安全存储不可用，无法完成授权',
-        status?.error || 'identity_device_status unavailable'
-      )
-    }
-    if (!status.has_key) {
-      // 未绑定：当前请求 handoff 绑定创建 challenge（防匿名无限创建）
-      const { challenge } = await fetchEnrollmentChallenge({
-        baseUrl: getIdentityCoreBaseUrl(),
-        handoff
-      })
-      const enroll = await invokeNative<IdentityEnrollResult>('identity_enroll_device', {
-        baseUrl: getIdentityCoreBaseUrl(),
-        challenge,
-        deviceName: getIdentityDeviceDisplayName(),
-        handoff
-      })
-      setIdentityDeviceMeta({ deviceId: enroll.device_id, userId: enroll.user_id })
-      return enroll.device_id
-    }
-    const storedDeviceId = identityUiState.deviceId
-    if (!storedDeviceId) {
-      throw new IdentityServiceError(
-        'device_not_bound',
-        '当前设备尚未完成绑定，请先完成绑定后再授权',
-        'device key exists but device_id missing locally'
-      )
-    }
-    return storedDeviceId
-  }
+  // #677：三分支解析逻辑抽至 features/identity/deviceBinding.ts（可单测）；
+  // 「有密钥但缺本地绑定元数据」现在静默补绑定，不再硬报「尚未完成绑定」死路。
+  const ensureDeviceBound = async (handoff: string): Promise<string> =>
+    resolveDeviceBinding(
+      {
+        getDeviceStatus: () => invokeNative<IdentityLocalDeviceStatus>('identity_device_status'),
+        enroll: async (h) => {
+          const { challenge } = await fetchEnrollmentChallenge({
+            baseUrl: getIdentityCoreBaseUrl(),
+            handoff: h
+          })
+          return invokeNative<IdentityEnrollResult>('identity_enroll_device', {
+            baseUrl: getIdentityCoreBaseUrl(),
+            challenge,
+            deviceName: getIdentityDeviceDisplayName(),
+            handoff: h
+          })
+        },
+        getStoredDeviceId: () => identityUiState.deviceId,
+        saveDeviceMeta: (meta) => setIdentityDeviceMeta(meta)
+      },
+      handoff
+    )
 
   // ── 允许（approve） ───────────────────────────────────────────────────────
   const approveActive = async (): Promise<void> => {
