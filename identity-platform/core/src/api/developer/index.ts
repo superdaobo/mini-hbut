@@ -40,6 +40,8 @@ import {
   type OAuthApplicationRow,
 } from '../../db/repos/clients.repo.js'
 import { insertAuditEvent } from '../../db/repos/audit.repo.js'
+import { decryptClientSecret } from '../../security/client-secret.js'
+import { sha256Base64url } from '../../security/hash.js'
 
 export const DEVELOPER_SUBJECT_HEADER = 'x-developer-subject'
 
@@ -161,6 +163,8 @@ async function toSummary(
  */
 export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps): void {
   const { sql } = deps
+  /** secret 解密 KEK（详情接口计算 last4/fingerprint 用；未配置则元数据退化为 null） */
+  const secretKek = deps.clientSecretKek ?? deps.env?.IDENTITY_CLIENT_SECRET_KEK
 
   // GET/POST /api/v1/developer/me —— 当前开发者资料（幂等建档）
   router.get(`${API_PREFIX}/developer/me`, async (ctx) => {
@@ -334,7 +338,7 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
         throw new DeveloperApiError(404, 'not_found')
       }
       ctx.status = 200
-      ctx.body = { app: await toDetail(sql, app) }
+      ctx.body = { app: await toDetail(sql, app, secretKek) }
     } catch (err) {
       respondError(ctx, err)
     }
@@ -365,7 +369,7 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       await updateApplication(sql, app.client_id, patch)
       const updated = await findOwnedApp(sql, dev.id, ctx.params.id as string)
       ctx.status = 200
-      ctx.body = { app: updated ? await toDetail(sql, updated) : null }
+      ctx.body = { app: updated ? await toDetail(sql, updated, secretKek) : null }
     } catch (err) {
       respondError(ctx, err)
     }
@@ -425,7 +429,7 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       )
       const updated = await findOwnedApp(sql, dev.id, ctx.params.id as string)
       ctx.status = 200
-      ctx.body = { app: updated ? await toDetail(sql, updated) : null }
+      ctx.body = { app: updated ? await toDetail(sql, updated, secretKek) : null }
     } catch (err) {
       respondError(ctx, err)
     }
@@ -452,7 +456,7 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       ])
       const updated = await findOwnedApp(sql, dev.id, ctx.params.id as string)
       ctx.status = 200
-      ctx.body = { app: updated ? await toDetail(sql, updated) : null }
+      ctx.body = { app: updated ? await toDetail(sql, updated, secretKek) : null }
     } catch (err) {
       respondError(ctx, err)
     }
@@ -493,7 +497,7 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       }
       const updated = await findOwnedApp(sql, dev.id, ctx.params.id as string)
       ctx.status = 200
-      ctx.body = { app: updated ? await toDetail(sql, updated) : null }
+      ctx.body = { app: updated ? await toDetail(sql, updated, secretKek) : null }
     } catch (err) {
       respondError(ctx, err)
     }
@@ -550,7 +554,7 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       )
       const updated = await findOwnedApp(sql, dev.id, ctx.params.id as string)
       ctx.status = 200
-      ctx.body = { app: updated ? await toDetail(sql, updated) : null }
+      ctx.body = { app: updated ? await toDetail(sql, updated, secretKek) : null }
     } catch (err) {
       respondError(ctx, err)
     }
@@ -574,7 +578,7 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       const updated = await findOwnedApp(sql, dev.id, ctx.params.id as string)
       ctx.status = 200
       ctx.body = {
-        app: updated ? await toDetail(sql, updated) : null,
+        app: updated ? await toDetail(sql, updated, secretKek) : null,
         client_secret: clientSecret,
       }
     } catch (err) {
@@ -597,7 +601,7 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       await setClientStatus(sql, app.client_id, 'revoked')
       const updated = await findOwnedApp(sql, dev.id, ctx.params.id as string)
       ctx.status = 200
-      ctx.body = { app: updated ? await toDetail(sql, updated) : null }
+      ctx.body = { app: updated ? await toDetail(sql, updated, secretKek) : null }
     } catch (err) {
       respondError(ctx, err)
     }
@@ -653,12 +657,26 @@ async function findOwnedApp(
 async function toDetail(
   sql: SqlExecutor,
   app: OAuthApplicationRow,
+  clientSecretKek?: string,
 ): Promise<Record<string, unknown>> {
   const uris = await listRedirectUris(sql, app.id)
   const scopes = await sql.query<{ scope: string; status: string; review_note: string | null }>(
     `SELECT scope, status, review_note FROM oauth_application_scopes WHERE application_id = $1 ORDER BY scope`,
     [app.id],
   )
+  // #687：secret 真实元数据——解出密文后取末 4 位明文与完整指纹。
+  // 明文本身绝不出 Core；解密失败（KEK 不符/密文损坏）时 fail-safe 退化为 null，不影响其余字段
+  let last4: string | null = null
+  let fingerprint: string | null = null
+  if (app.client_secret_encrypted && clientSecretKek) {
+    try {
+      const plaintext = decryptClientSecret(clientSecretKek, app.client_secret_encrypted)
+      last4 = plaintext.slice(-4)
+      fingerprint = sha256Base64url(plaintext)
+    } catch {
+      // 保持 null：宁缺毋假
+    }
+  }
   return {
     id: app.id,
     client_id: app.client_id,
@@ -668,7 +686,7 @@ async function toDetail(
     description: app.description ?? null,
     homepage_url: app.homepage_url ?? null,
     privacy_policy_url: app.privacy_policy_url ?? null,
-    contact: (app as unknown as { contact?: string | null }).contact ?? null,
+    contact: app.contact ?? null,
     created_at: app.created_at.toISOString(),
     updated_at: app.updated_at.toISOString(),
     submitted_at: app.submitted_at ? app.submitted_at.toISOString() : null,
@@ -696,9 +714,10 @@ async function toDetail(
     },
     secret: {
       created_at: app.client_secret_encrypted ? app.created_at.toISOString() : null,
+      // 库中无「上次轮换时间」列（rotate 仅覆盖密文本身，无独立时间戳），无法真实提供 → 保持 null，不谎造
       last_rotated_at: null,
-      fingerprint: null,
-      last4: null,
+      fingerprint,
+      last4,
     },
     audit: [],
   }

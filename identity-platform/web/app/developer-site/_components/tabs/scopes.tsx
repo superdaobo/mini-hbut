@@ -4,10 +4,10 @@
  */
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ScopeId } from '@/lib/developer/scopes'
 import { SCOPE_META, SCOPE_WHITELIST } from '@/lib/developer/scopes'
-import { ClientApiError, putScopes } from '../api'
+import { ClientApiError, fetchScopes, putScopes } from '../api'
 import { ScopeStatusBadge } from '../status-badge'
 import { editLockedHint, type TabProps } from './types'
 
@@ -20,6 +20,24 @@ export function ScopesTab({ app, me, setApp, reload }: TabProps) {
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // #687：初始化时经 BFF GET /scopes 拉一次权威列表（含审核状态与理由），
+  // 覆盖本地初始态；失败时静默回退到详情自带的 scopes，不打断页面
+  useEffect(() => {
+    let alive = true
+    fetchScopes(app.id)
+      .then((scopes) => {
+        if (!alive) return
+        setJustifications(Object.fromEntries(scopes.map((s) => [s.scope, s.justification ?? ''])))
+        setSelected(Object.fromEntries(scopes.map((s) => [s.scope, true])))
+      })
+      .catch(() => {
+        // 静默回退：沿用详情接口的 scopes 数据
+      })
+    return () => {
+      alive = false
+    }
+  }, [app.id])
 
   const reReview = app.status === 'pending_review' || app.status === 'approved' || app.status === 'active' || app.status === 'suspended'
 
@@ -48,8 +66,10 @@ export function ScopesTab({ app, me, setApp, reload }: TabProps) {
 
   return (
     <div className="dev-card">
-      <h2>Scopes</h2>
+      <h2>权限（Scopes）</h2>
       <p className="dev-inline-hint">
+        勾选你的应用需要拿到的用户数据；申请越多审核越严，按实际需要选择即可。
+        <br />
         敏感 scope（student.identity / offline_access）需要使用理由、隐私政策与管理员人工批准。
         {editLockedHint(app)}
       </p>

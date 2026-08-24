@@ -31,6 +31,27 @@ function appStatusZh(status: string): string {
   return STATUS_ZH[status] ?? status
 }
 
+/**
+ * #687 显性编辑入口：按应用状态给出按钮形态。
+ *  - draft/rejected：可点 → 切到概览 Tab 并自动展开编辑表单；
+ *  - 其余状态禁用 + tooltip 说明原因（disabled button 不触发 hover 事件，外包 span 承载 title）。
+ */
+function editEntryFor(status: string): { enabled: boolean; tooltip: string } {
+  switch (status) {
+    case 'draft':
+    case 'rejected':
+      return { enabled: true, tooltip: '修改应用的基本信息、回调地址与权限' }
+    case 'pending_review':
+      return { enabled: false, tooltip: '审核中，请耐心等待审核结果' }
+    case 'approved':
+    case 'active':
+      return { enabled: false, tooltip: '已上架应用暂不支持在线修改；重大变更可创建新应用或联系管理员' }
+    default:
+      // suspended / revoked 及未知状态
+      return { enabled: false, tooltip: '当前状态不可修改' }
+  }
+}
+
 const TABS = [
   { id: 'overview', label: '概览' },
   { id: 'redirect-uris', label: '回调地址' },
@@ -48,6 +69,8 @@ export function AppDetail({ appId }: { appId: string }) {
   const [me, setMe] = useState<MeResult | null>(null)
   const [tab, setTab] = useState<TabId>('overview')
   const [error, setError] = useState<string | null>(null)
+  /** 概览 Tab 编辑表单自动展开信号（头部「修改应用」按钮触发；递增计数保证可重复触发） */
+  const [editSignal, setEditSignal] = useState(0)
   /** 一次性 secret（rotate 响应），仅内存持有，刷新即失 */
   const [oneTimeSecret, setOneTimeSecret] = useState<string | null>(null)
 
@@ -115,6 +138,25 @@ export function AppDetail({ appId }: { appId: string }) {
         </span>
         <code className="dev-mono">{app.client_id}</code>
         <span className="dev-inline-hint">{app.client_type === 'web_confidential' ? 'Web 应用（服务端）' : '原生 / 移动端应用'}</span>
+        {(() => {
+          const entry = editEntryFor(app.status)
+          const button = (
+            <button
+              type="button"
+              className="dev-btn dev-btn-primary"
+              disabled={!entry.enabled}
+              onClick={() => {
+                // 切到概览 Tab 并自动展开编辑表单（editSignal 递增，重复点击也能再次展开）
+                setTab('overview')
+                setEditSignal((s) => s + 1)
+              }}
+            >
+              修改应用
+            </button>
+          )
+          // disabled 按钮在部分浏览器不响应 hover/title：外包 span 承载 tooltip
+          return <span title={entry.tooltip}>{button}</span>
+        })()}
       </div>
 
       <div className="dev-tabs" role="tablist" aria-label="应用详情">
@@ -131,7 +173,7 @@ export function AppDetail({ appId }: { appId: string }) {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewTab {...tabProps} />}
+      {tab === 'overview' && <OverviewTab {...tabProps} editSignal={editSignal} />}
       {tab === 'redirect-uris' && <RedirectUrisTab {...tabProps} />}
       {tab === 'scopes' && <ScopesTab {...tabProps} />}
       {tab === 'credentials' && <CredentialsTab {...tabProps} />}

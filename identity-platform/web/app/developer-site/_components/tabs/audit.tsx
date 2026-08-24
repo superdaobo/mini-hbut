@@ -24,14 +24,16 @@ export function AuditTab({ app }: TabProps) {
   if (app.audit.length === 0) {
     return (
       <div className="dev-card">
-        <h2>审计 / 活动</h2>
+        <h2>动态</h2>
+        <p className="dev-inline-hint">应用的操作流水：创建、修改、轮换密钥等都会记录在这里。</p>
         <div className="dev-empty">暂无记录</div>
       </div>
     )
   }
   return (
     <div className="dev-card">
-      <h2>审计 / 活动</h2>
+      <h2>动态</h2>
+      <p className="dev-inline-hint">应用的操作流水：创建、修改、轮换密钥等都会记录在这里。</p>
       <p className="dev-inline-hint">记录不含任何 secret 明文（审计日志只记动作，不记值）。</p>
       <table className="dev-audit-table">
         <thead>

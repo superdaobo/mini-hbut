@@ -162,6 +162,21 @@ export async function putScopes(id: string, scopes: ScopePutInput[], csrf: strin
   return data.app
 }
 
+/** 单条 scope（GET /scopes 返回项；justification 对应 core 的 review_note） */
+export interface ScopeEntry {
+  scope: string
+  status: 'requested' | 'approved' | 'rejected'
+  justification: string | null
+}
+
+/** #687：拉取应用的 scope 列表（含审核状态与理由）；权限 Tab 初始化时加载展示 */
+export async function fetchScopes(appId: string): Promise<ScopeEntry[]> {
+  const data = await request<{ scopes: ScopeEntry[] }>(
+    `/api/v1/developer/apps/${encodeURIComponent(appId)}/scopes`,
+  )
+  return data.scopes
+}
+
 export async function submitApp(id: string, csrf: string): Promise<DeveloperAppDetailDTO> {
   const data = await request<{ app: DeveloperAppDetailDTO }>(
     `/api/v1/developer/apps/${encodeURIComponent(id)}/submit`,

@@ -35,6 +35,9 @@ export function CredentialsTab({ app, me, setApp, oneTimeSecret, setOneTimeSecre
   return (
     <div className="dev-card">
       <h2>凭据</h2>
+      <p className="dev-inline-hint">
+        应用接入本平台的「钥匙」：Client ID 是公开的账号，Client Secret 是保密的密码，只在创建或轮换时显示一次。
+      </p>
       {error && <div className="dev-error">{error}</div>}
 
       <dl className="dev-kv">
