@@ -53,6 +53,7 @@ export function DangerZoneTab({ app, me, setApp, reload }: TabProps) {
     <div className="dev-danger-zone">
       <h3>⚠️ Danger Zone</h3>
       <p>以下操作不可逆，请谨慎执行。撤销（Revoke）为终态；删除仅限草稿应用。</p>
+      <p className="dev-inline-hint">撤销 = 让应用立刻停止服务但保留记录；删除 = 连草稿带配置彻底清掉。动手前请确认真的不再需要它。</p>
       {error && <div className="dev-error">{error}</div>}
 
       <h4>撤销应用（Revoke）</h4>

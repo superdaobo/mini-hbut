@@ -35,6 +35,7 @@ export default async function DeveloperSiteLayout({ children }: { children: Reac
         </div>
         <nav className="dev-nav" aria-label="主导航">
           <a href="/apps">我的应用</a>
+          {session ? <a href="/keys">API 密钥</a> : null}
           <a href={OFFICIAL_IDENTITY_DOCS_URL}>接入文档</a>
           {session ? <a href="/admin">审核后台</a> : null}
         </nav>

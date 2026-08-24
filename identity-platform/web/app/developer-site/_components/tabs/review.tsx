@@ -34,6 +34,7 @@ export function ReviewTab({ app, me, setApp, reload }: TabProps) {
   return (
     <div className="dev-card">
       <h2>审核</h2>
+      <p className="dev-inline-hint">查看审核进度与管理员的反馈；被拒绝时按「需要修改的项目」改完后可重新提交。</p>
       {error && <div className="dev-error">{error}</div>}
 
       <dl className="dev-kv">

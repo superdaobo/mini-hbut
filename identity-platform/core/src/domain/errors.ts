@@ -108,3 +108,24 @@ export class AuditSensitiveFieldError extends DomainError {
     super('AUDIT_SENSITIVE_FIELD', `audit metadata 含敏感字段：${field}`, 400)
   }
 }
+
+/** API Key 无效（格式非法 / prefix 无对应行 / hash 不匹配；不泄露具体原因） */
+export class ApiKeyInvalidError extends DomainError {
+  constructor() {
+    super('API_KEY_INVALID', 'API Key 无效', 401)
+  }
+}
+
+/** API Key 已吊销（已证明持有 secret 后才可见的状态） */
+export class ApiKeyRevokedError extends DomainError {
+  constructor() {
+    super('API_KEY_REVOKED', 'API Key 已被吊销', 403)
+  }
+}
+
+/** API Key 已过期（已证明持有 secret 后才可见的状态） */
+export class ApiKeyExpiredError extends DomainError {
+  constructor() {
+    super('API_KEY_EXPIRED', 'API Key 已过期', 403)
+  }
+}

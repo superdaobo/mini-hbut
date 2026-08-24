@@ -71,6 +71,9 @@ export const DEFAULT_RATE_LIMIT_GROUPS: readonly RateLimitGroup[] = [
   { name: 'deviceRevoke', prefixes: ['/api/v1/app/devices/'], methods: ['POST'], rule: { limit: 30, windowSeconds: 60, failPolicy: 'closed' } },
   { name: 'developerRead', prefixes: ['/api/v1/developer/'], methods: ['GET'], rule: { limit: 300, windowSeconds: 60, failPolicy: 'open' } },
   { name: 'developerWrite', prefixes: ['/api/v1/developer/'], methods: ['POST', 'PATCH', 'DELETE'], rule: { limit: 60, windowSeconds: 60, failPolicy: 'closed' } },
+  // #688 账户级 API Key（Bearer 直连）：读多写少，读 fail open / 写 fail closed
+  { name: 'apiKeyRead', prefixes: ['/api/v1/account/'], methods: ['GET'], rule: { limit: 300, windowSeconds: 60, failPolicy: 'open' } },
+  { name: 'apiKeyWrite', prefixes: ['/api/v1/account/'], methods: ['POST', 'PATCH', 'PUT', 'DELETE'], rule: { limit: 60, windowSeconds: 60, failPolicy: 'closed' } },
   { name: 'admin', prefixes: ['/api/v1/admin/'], rule: { limit: 120, windowSeconds: 60, failPolicy: 'closed' } },
   { name: 'userinfo', prefixes: ['/oauth/userinfo'], methods: ['GET', 'POST'], rule: { limit: 600, windowSeconds: 60, failPolicy: 'open' } },
 ]

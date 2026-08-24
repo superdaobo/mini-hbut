@@ -73,8 +73,10 @@ export function RedirectUrisTab({ app, me, setApp, reload }: TabProps) {
 
   return (
     <div className="dev-card">
-      <h2>Redirect URIs</h2>
+      <h2>回调地址</h2>
       <p className="dev-inline-hint">
+        登录成功后跳回你网站的地址；必须与这里注册的完全一致（一个字符都不能差）。
+        <br />
         服务端精确匹配注册值：禁止通配符 / fragment / userinfo / 前缀后缀扩展。
         {editLockedHint(app)}
       </p>
