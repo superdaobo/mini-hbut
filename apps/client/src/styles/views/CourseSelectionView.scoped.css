@@ -114,6 +114,24 @@
   gap: 10px;
 }
 
+/* 测试阶段提示横幅：样式对齐 identity-test-banner（黄色虚线警示条） */
+.course-selection-test-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed #eab308;
+  border-radius: 10px;
+  background: rgba(234, 179, 8, 0.08);
+  color: #854d0e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.course-selection-test-banner strong {
+  color: #a16207;
+}
+
 .entry-tile {
   width: 100%;
   text-align: left;
