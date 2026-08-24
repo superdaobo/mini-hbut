@@ -7,14 +7,23 @@ import { test } from 'node:test'
 
 import {
   buildWhatsNew,
+  createAppEncryptionDeclarationBody,
   createAppEncryptionDeclarationLookupPath,
   createBetaBuildLocalizationBody,
+  createBetaGroupsLookupPath,
   createBuildEncryptionDeclarationLinkageBody,
   createJwt,
   createPrereleaseBuildsPath,
   createPrereleaseLookupPath,
   parseTestAccount,
+  selectBetaGroups,
 } from './submit_testflight.mjs'
+
+/** 构造 betaGroups 资源对象（与 ASC 响应结构对齐的最小形态）。 */
+const group = (id, name, { internal = false, allBuilds = false } = {}) => ({
+  id,
+  attributes: { name, isInternalGroup: internal, hasAccessToAllBuilds: allBuilds },
+})
 
 test('createPrereleaseLookupPath 过滤 App/版本/平台', () => {
   const path = createPrereleaseLookupPath({ appId: '6787857278', versionName: '1.4.7' })
@@ -37,6 +46,47 @@ test('createAppEncryptionDeclarationLookupPath 含 app 过滤与所需字段', (
   assert.match(path, /usesEncryption/)
   const limited = createAppEncryptionDeclarationLookupPath({ appId: 'a1', limit: 50 })
   assert.match(limited, /limit=50/)
+})
+
+test('createAppEncryptionDeclarationBody 声明「不包含加密算法」', () => {
+  assert.deepEqual(createAppEncryptionDeclarationBody({ appId: 'app-1' }), {
+    data: {
+      type: 'appEncryptionDeclarations',
+      attributes: { usesEncryption: false },
+      relationships: { app: { data: { type: 'apps', id: 'app-1' } } },
+    },
+  })
+})
+
+test('createBetaGroupsLookupPath 过滤 App 并携带内外部标记字段', () => {
+  const url = new URL(
+    `https://example.test${createBetaGroupsLookupPath({ appId: 'app-1' })}`,
+  )
+  assert.equal(url.pathname, '/betaGroups')
+  assert.equal(url.searchParams.get('filter[app]'), 'app-1')
+  assert.equal(
+    url.searchParams.get('fields[betaGroups]'),
+    'name,isInternalGroup,hasAccessToAllBuilds',
+  )
+})
+
+test('selectBetaGroups 指定名字精确匹配，支持逗号分隔多个', () => {
+  const groups = [group('g1', '内部组', { internal: true }), group('g2', '外部组'), group('g3', '公测')]
+  const picked = selectBetaGroups(groups, '外部组, 公测')
+  assert.deepEqual(picked.map((g) => g.id), ['g2', 'g3'])
+  assert.throws(() => selectBetaGroups(groups, '不存在的组'), /找不到测试组/)
+})
+
+test('selectBetaGroups 留空时外部组优先，无外部组回落内部组', () => {
+  const withExternal = [group('i1', '内部组', { internal: true }), group('e1', '外部组')]
+  assert.deepEqual(selectBetaGroups(withExternal, '').map((g) => g.id), ['e1'])
+  // 外部组排在后面也要被选中
+  assert.deepEqual(selectBetaGroups(withExternal.slice().reverse(), '').map((g) => g.id), ['e1'])
+
+  const internalOnly = [group('i1', '内部组', { internal: true })]
+  assert.deepEqual(selectBetaGroups(internalOnly, '').map((g) => g.id), ['i1'])
+
+  assert.throws(() => selectBetaGroups([], ''), /没有任何测试组/)
 })
 
 test('createBuildEncryptionDeclarationLinkageBody 结构正确', () => {

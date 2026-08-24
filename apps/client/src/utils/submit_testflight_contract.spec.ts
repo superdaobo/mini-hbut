@@ -56,6 +56,24 @@ describe("TestFlight 自动化提交契约", () => {
     expect(workflow).toContain("AuthKey_${APPSTORE_KEY_ID}.p8");
   });
 
+  it("版本号留空时从 App Store Connect 自动递增，而非回读 package.json/run number", () => {
+    const workflow = readWorkflow();
+
+    // Resolve 步骤必须走 ASC 查询脚本（修复 90062：1.4.6 已批准且列车关闭）
+    expect(workflow).toContain("node tools/ci/resolve_testflight_version.mjs");
+    expect(workflow).not.toContain("Empty uses package.json version.");
+    expect(workflow).not.toContain("Empty uses GitHub run number.");
+
+    const script = readFileSync(
+      resolve(process.cwd(), "../../tools/ci/resolve_testflight_version.mjs"),
+      "utf8",
+    );
+    // 以 ASC 现状为唯一递增基准
+    expect(script).toContain("/preReleaseVersions?");
+    expect(script).toContain("/builds?");
+    expect(script).toContain("sort: '-version'");
+  });
+
   it("脚本使用官方 App Store Connect REST API 完成填写与提交", () => {
     const script = readScript();
 
