@@ -23,6 +23,8 @@ export interface OAuthApplicationRow extends QueryResultRow {
   description: string | null
   homepage_url: string | null
   privacy_policy_url: string | null
+  /** 开发者联系方式（#687：0004 迁移新增，可空） */
+  contact: string | null
   client_type: ClientType
   status: ApplicationStatus
   token_endpoint_auth_method: TokenEndpointAuthMethod
@@ -71,6 +73,7 @@ const UPDATABLE_COLUMNS = {
   description: 'description',
   homepage_url: 'homepage_url',
   privacy_policy_url: 'privacy_policy_url',
+  contact: 'contact',
   status: 'status',
   token_endpoint_auth_method: 'token_endpoint_auth_method',
   client_secret_encrypted: 'client_secret_encrypted',
