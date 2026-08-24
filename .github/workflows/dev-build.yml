@@ -107,6 +107,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Dev 测试版编号策略（#683）：核心版本取 max(main/dev package.json 版本) 后
+          # patch 位 +1，即「最新正式版的下一个版本」（正式版 1.4.6 存续期 → 测试版 1.4.7-beta.N）。
+          # 正式版照旧走 bump 提交 + tag 流程，bump 合入 main 后此处自动顺延到新的 patch+1。
           VERSION="$(python - <<'PY'
           import json
           import os
@@ -133,6 +136,14 @@ jobs:
                   return -1
               return 0
 
+          def bump_patch(version: str) -> str:
+              parts = parse_core(version)
+              while len(parts) < 3:
+                  parts.append(0)
+              parts = parts[:3]
+              parts[2] += 1
+              return '.'.join(str(part) for part in parts)
+
           def fetch_main_version(repo: str, token: str) -> str:
               if not repo:
                   return ''
@@ -158,7 +169,7 @@ jobs:
               os.environ.get('GH_TOKEN', '').strip()
           )
           base_version = main_version if compare(main_version, current_version) >= 0 else current_version
-          print(base_version or current_version or '0.0.0')
+          print(bump_patch(base_version or current_version or '0.0.0'))
           PY
           )"
           # WiX/MSI：pre-release 数字段必须 ≤ 65535。GITHUB_RUN_ID 远超该上限会让

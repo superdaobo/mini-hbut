@@ -42,6 +42,32 @@ node scripts/guard_sensitive_uploads.mjs pre-commit
 3. 关联 Issue：`Closes #123`
 4. 确保 CI（`.github/workflows/ci.yml`）通过
 
+## 版本号与发布策略
+
+### 正式版（Release）
+
+1. 在 `main` 上做一次 bump 提交，同步以下版本号（任一不一致会挂 `check:release-config` 门禁）：
+   - `apps/client/package.json` 与 `package-lock.json`
+   - `apps/client/src-tauri/tauri.conf.json`
+   - `apps/client/src-tauri/Cargo.toml`
+   - `scripts/verify_release_config.mjs` 的 `const expected = '...'`
+2. 发布说明写进仓库根目录的 `RELEASE_vX.Y.Z.md`，随 bump 提交合入（缺失则 Release 自动生成 Changed Files 列表）
+3. 在该提交上打 tag `vX.Y.Z` 并推送 → 触发 `Release Build`（要求 tag 位于 `main`）
+4. 产物命名、GitHub Release 与 CDN `latest.json` 均以 tag 为准自动生成
+
+### 测试版（Dev Build）
+
+- 版本号全自动，无需人为改任何文件：核心版本 = max(`main` / dev 分支 `package.json` 版本) 的 **patch+1**，
+  再拼 `-beta.<run_number>`。例：正式版 v1.4.6 存续期间，测试版为 `1.4.7-beta.N`
+- 正式版 bump 合入 `main` 后会自动同步并触发一次 Dev Build，测试版随即顺延为新的 patch+1
+- 触发入口：push 到 `dev` 分支 / 手动 workflow_dispatch / push 到 `main` 自动同步触发
+- 经 GitHub `dev-latest` 滚动 prerelease + CDN `releases/dev-latest.json` 分发，仅应用内打开「开发版」频道的用户可见
+
+### iOS TestFlight
+
+- 编号独立于上述两者：手动运行 `ios-testflight.yml` 输入 marketing version 与 build number
+  （build 号按 App Store Connect 序列递增），与 dev-beta 编号互不影响
+
 ## 代码约定
 
 ### Rust（`apps/client/src-tauri/`）
