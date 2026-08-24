@@ -74,6 +74,8 @@ export function respondAccountError(
   }
   ctx.status = 500
   ctx.set('Cache-Control', 'no-store')
+  // #688 可观测性：未知错误必须留下服务端痕迹（不回显给客户端）
+  console.error('[account] internal error:', err)
   ctx.body = { error: 'internal' }
 }
 

@@ -19,7 +19,7 @@ import {
 } from '../helpers/keys.js'
 import { registerAccountRoutes } from '../../src/api/account/index.js'
 import { insertApiKey } from '../../src/db/repos/api-keys.repo.js'
-import { sha256Base64url } from '../../src/security/hash.js'
+import { hmacSha256Base64url } from '../../src/security/hash.js'
 import { DEFAULT_RATE_LIMIT_GROUPS } from '../../src/security/rate-limit.js'
 import { derivePairwiseSubject } from '../../src/domain/subjects.js'
 
@@ -149,7 +149,7 @@ describe('#688 账户级 API Key（签发/Bearer 认证/account 端点）', () =
         'SELECT secret_hash FROM api_keys WHERE prefix = $1',
         [full.slice(0, 14)],
       )
-      expect(row.rows[0]?.secret_hash).toBe(sha256Base64url(full))
+      expect(row.rows[0]?.secret_hash).toBe(hmacSha256Base64url(TEST_KEK, full))
       expect(row.rows[0]?.secret_hash).not.toContain(full)
 
       // 管理面 GET：无明文/无 hash
@@ -164,7 +164,7 @@ describe('#688 账户级 API Key（签发/Bearer 认证/account 端点）', () =
       const serialized = JSON.stringify(listBody)
       expect(serialized).not.toContain('secret_hash')
       expect(serialized).not.toContain(full)
-      expect(serialized).not.toContain(sha256Base64url(full))
+      expect(serialized).not.toContain(hmacSha256Base64url(TEST_KEK, full))
     })
   })
 
@@ -339,7 +339,7 @@ describe('#688 账户级 API Key（签发/Bearer 认证/account 端点）', () =
         userId: fx.userId,
         name: '过期 Key',
         prefix: 'mhbat_deadbeef',
-        secretHash: sha256Base64url(expiredFull),
+        secretHash: hmacSha256Base64url(TEST_KEK, expiredFull),
       })
       await db.sql.query("UPDATE api_keys SET expires_at = NOW() - INTERVAL '1 day' WHERE id = 'ak_expired_fixture'")
       const expiredRes = await bearerRequest(baseUrl, 'GET', '/api/v1/account/me', expiredFull)
