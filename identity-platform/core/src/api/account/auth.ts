@@ -34,7 +34,7 @@ export function extractBearerToken(headerValue: string | undefined): string | nu
 }
 
 /** 构造 Bearer 认证中间件（挂在 /api/v1/account 前缀上） */
-export function requireAccountKey(sql: SqlExecutor): Middleware {
+export function requireAccountKey(sql: SqlExecutor, pepper: string): Middleware {
   return async (ctx, next) => {
     // 中间件先于路由 handler 执行，认证失败必须在此处自答
     // （否则异常冒泡到框架默认 handler，响应退化为纯文本状态行）
@@ -46,7 +46,7 @@ export function requireAccountKey(sql: SqlExecutor): Middleware {
       }
       // verifyApiKey：格式 → prefix 定位行 → constant-time hash → 状态校验，
       // 失败细分 API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED
-      row = await verifyApiKey(sql, token)
+      row = await verifyApiKey(sql, pepper, token)
     } catch (err) {
       respondAccountError(ctx, err)
       return

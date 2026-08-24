@@ -21,6 +21,7 @@ import type Router from '@koa/router'
 import type { SqlExecutor } from '../../db/types.js'
 import { API_PREFIX } from '../requests.js'
 import { requireAccountKey } from './auth.js'
+import { resolveApiKeyPepper } from '../../security/api-key.js'
 import { requireAccountAuth, respondAccountError } from './common.js'
 import { registerAccountAppsRoutes } from './apps.js'
 import { registerAccountDevicesRoutes } from './devices.js'
@@ -34,7 +35,7 @@ export interface AccountApiDeps extends DeveloperKeysApiDeps {
 /** 注册 #688 Account API 全部路由（由 api/index.ts 调用） */
 export function registerAccountRoutes(router: Router, deps: AccountApiDeps): void {
   // Bearer 认证中间件只作用于 /api/v1/account 前缀（管理面 keys 组不受影响）
-  router.use(`${API_PREFIX}/account`, requireAccountKey(deps.sql))
+  router.use(`${API_PREFIX}/account`, requireAccountKey(deps.sql, resolveApiKeyPepper(deps.env)))
 
   // GET /api/v1/account/me —— 当前 Key 与账户信息（凭据元数据来自 ctx.state）
   router.get(`${API_PREFIX}/account/me`, async (ctx) => {
