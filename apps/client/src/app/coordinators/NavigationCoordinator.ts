@@ -354,7 +354,6 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     if (!isProtectedView(normalized) || hasDailyAccessGrant()) return true
     if (redirectToFallback) {
       const fallback = resolveAccessFallbackView(fallbackView)
-      state.mutable.pendingScrollToTopOnViewChange = false
       applyViewState(fallback)
       replaceHistorySnapshot(fallback)
     }
@@ -385,7 +384,6 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       normalized === 'home' &&
       scrollToTop !== true &&
       (restoreScroll || returningHome)
-    state.mutable.pendingScrollToTopOnViewChange = !shouldRestoreHomeScroll
     applyViewState(normalized)
     if (push) {
       pushHistorySnapshot(normalized)
@@ -455,11 +453,10 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     return { sid: snapshot.sid, view: normalizeViewName(snapshot.view) }
   }
 
-  const syncFromHash = async ({ scrollToTop = false } = {}) => {
+  const syncFromHash = async () => {
     const route = parseHashRoute()
     if (!route) {
       if (state.currentView.value !== 'home') {
-        state.mutable.pendingScrollToTopOnViewChange = scrollToTop
         applyViewState('home')
       }
       return
@@ -474,7 +471,6 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     })) {
       return
     }
-    state.mutable.pendingScrollToTopOnViewChange = scrollToTop
     applyViewState(safeView)
     if (safeView === 'grades' && state.gradeData.value.length === 0) {
       void runtime.grade.loadGradesForCurrentView()
@@ -559,7 +555,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     }
     const prev = state.currentView.value
     state.navDirection.value = 'back'
-    await syncFromHash({ scrollToTop: false })
+    await syncFromHash()
     if (state.currentView.value === 'home' && prev !== 'home') {
       runtime.lifecycle.recoverViewportAfterTransition({ scrollToTop: false, blurActive: true })
       restoreHomeScrollPosition()
@@ -691,7 +687,6 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     })) {
       return
     }
-    state.mutable.pendingScrollToTopOnViewChange = false
     applyViewState(targetView)
     replaceHistorySnapshot(targetView)
     let didSoftRemount = false

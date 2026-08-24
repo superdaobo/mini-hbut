@@ -27,7 +27,6 @@ export interface AppMutable {
   isClosingByUser: boolean
   viewportResizeRaf: number
   desktopResizePerfTimer: null | number
-  pendingScrollToTopOnViewChange: boolean
   lastResumeHandledAt: number
   resumePendingSnapshot: null | Record<string, unknown>
   iosReloadFallbackAt: number
@@ -206,7 +205,6 @@ export const createAppState = (stores: AppStores, options: CreateAppStateOptions
     isClosingByUser: false,
     viewportResizeRaf: 0,
     desktopResizePerfTimer: null,
-    pendingScrollToTopOnViewChange: false,
     lastResumeHandledAt: 0,
     resumePendingSnapshot: null,
     iosReloadFallbackAt: 0,
