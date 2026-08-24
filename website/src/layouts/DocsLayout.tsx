@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import {
     Bell,
+    Bot,
     Book,
     BookOpen,
     Boxes,
@@ -26,6 +27,7 @@ import {
     Menu,
     Rocket,
     Settings,
+    Share2,
     ShieldCheck,
     TerminalSquare,
     Wrench,
@@ -59,6 +61,8 @@ const docsNavSections = [
             { path: '/docs/developer', label: '开发者总览', icon: <Code2 size={18} /> },
             { path: '/docs/api', label: 'API 文档', icon: <KeyRound size={18} /> },
             { path: '/docs/identity-oidc', label: 'OIDC 接入指南', icon: <ShieldCheck size={18} /> },
+            { path: '/docs/local-agent', label: '本地 Agent 接入指南', icon: <Bot size={18} /> },
+            { path: '/docs/data-sharing', label: '数据共享说明', icon: <Share2 size={18} /> },
             { path: '/docs/architecture', label: '架构与数据流', icon: <Layers size={18} /> },
             { path: '/docs/platform-tauri', label: '平台与 Tauri', icon: <Cpu size={18} /> },
             { path: '/docs/module-system', label: '模块系统', icon: <Building2 size={18} /> },
@@ -161,6 +165,18 @@ const recommendedReadingByPath: Record<string, Array<{ path: string; label: stri
         { path: '/docs/platform-tauri', label: '平台与 Tauri', desc: '查看 App Approval 所依赖的 Tauri Deep Link、原生命令和平台桥接。' },
         { path: '/docs/architecture', label: '架构与数据流', desc: '理解 Identity 与现有客户端/后端模块的整体数据流。' },
         { path: '/docs/reference/dev-rules', label: '开发规范', desc: '进入仓库工程约束、质量门禁和安全提交规范。' },
+    ],
+    '/docs/local-agent': [
+        { path: '/docs/data-sharing', label: '数据共享说明', desc: '对比云端快照共享与本机直连两种数据通道的边界。' },
+        { path: '/docs/identity-oidc', label: 'OIDC 接入指南', desc: '需要正式身份认证时的标准接入方式。' },
+        { path: '/docs/security-privacy', label: '安全与隐私', desc: '理解令牌、凭据与本地数据的安全边界。' },
+        { path: '/docs/reference', label: '参考资料', desc: '定位 API 与源码索引。' },
+    ],
+    '/docs/data-sharing': [
+        { path: '/docs/identity-oidc', label: 'OIDC 接入指南', desc: '了解第三方应用注册、Scope 审核与授权流程。' },
+        { path: '/docs/local-agent', label: '本地 Agent 接入指南', desc: '对比同一台电脑上直连 App 的只读数据通道。' },
+        { path: '/docs/security-privacy', label: '安全与隐私', desc: '理解敏感数据与凭据的安全边界。' },
+        { path: '/docs/troubleshooting', label: '故障排查', desc: '处理授权弹窗与读取失败类问题。' },
     ],
     '/docs/architecture': [
         { path: '/docs/developer', label: '开发者总览', desc: '回到整体源码阅读路径。' },
