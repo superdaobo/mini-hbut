@@ -22,6 +22,10 @@
 
     <div class="content">
       <template v-if="centerMode === ENTRY_MODE_MENU">
+        <!-- 测试阶段提示：选课为高 stakes 操作，入口处必须声明以教务系统/学习通为准 -->
+        <div class="course-selection-test-banner" role="note">
+          🧪 <strong>功能提示</strong>：本功能目前处于测试阶段，可能无法正常使用。如需保证选课完整可靠，请前往教务系统或学习通自行选课。一切选课结果与标准，均以教务系统和学习通为准。
+        </div>
         <div class="entry-grid">
           <button type="button" class="entry-tile glass-card" @click="enterSelectionMode">
             <div class="entry-badge entry-badge-selection">选课</div>

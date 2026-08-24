@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Marketing version. Empty uses package.json version."
+        description: "Marketing version. Empty auto-bumps above the highest version already on App Store Connect."
         required: false
         type: string
       build_number:
-        description: "TestFlight build number. Empty uses GitHub run number."
+        description: "TestFlight build number. Empty auto-increments above the highest CFBundleVersion already on App Store Connect."
         required: false
         type: string
       whats_new:
@@ -16,7 +16,7 @@ on:
         required: false
         type: string
       beta_group:
-        description: "TestFlight 测试组名称。留空自动选择第一个内部测试组（= 自动提交内部测试）。"
+        description: "TestFlight 测试组名称，可逗号分隔多个。留空自动选第一个外部组（并自动提交 Beta App Review），无外部组时回落第一个内部组。"
         required: false
         type: string
       export_compliance:
@@ -74,35 +74,6 @@ jobs:
           find apps/client/src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
           find . -type f \( -name "*.log" -o -name "*.cache" \) -delete || true
 
-      - name: Resolve TestFlight version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION_NAME="${{ inputs.version_name }}"
-          BUILD_NUMBER="${{ inputs.build_number }}"
-
-          if [ -z "$VERSION_NAME" ]; then
-            VERSION_NAME="$(node -p "JSON.parse(require('fs').readFileSync('apps/client/package.json','utf8')).version")"
-          fi
-          if [ -z "$BUILD_NUMBER" ]; then
-            BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
-          fi
-
-          if ! [[ "$VERSION_NAME" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
-            echo "::error::version_name must look like 1, 1.2, or 1.2.3; got '$VERSION_NAME'"
-            exit 1
-          fi
-          if ! [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-            echo "::error::build_number must be numeric; got '$BUILD_NUMBER'"
-            exit 1
-          fi
-
-          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "VERSION_NAME=$VERSION_NAME"
-          echo "BUILD_NUMBER=$BUILD_NUMBER"
-
       - name: Verify signing and upload secrets
         shell: bash
         env:
@@ -137,6 +108,37 @@ jobs:
             fi
           done
           exit "$missing"
+
+      - name: Install App Store Connect API key
+        id: asc_key
+        shell: bash
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          PRIVATE_KEYS_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$PRIVATE_KEYS_DIR"
+          printf '%s' "$APPSTORE_PRIVATE_KEY" > "$PRIVATE_KEYS_DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+          chmod 600 "$PRIVATE_KEYS_DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+          echo "path=$PRIVATE_KEYS_DIR/AuthKey_${APPSTORE_KEY_ID}.p8" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve TestFlight version
+        id: version
+        shell: bash
+        env:
+          APPLE_APP_ID: ${{ env.VITE_APPLE_APP_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_PRIVATE_KEY_PATH: ${{ steps.asc_key.outputs.path }}
+          INPUT_VERSION_NAME: ${{ inputs.version_name }}
+          INPUT_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+          # 手动输入优先；留空项实时查询 App Store Connect 自动递增。
+          # 修复 90062：package.json 版本可能不高于 ASC 已批准版本（1.4.6 列车已关闭），
+          # run number 也不保证大于 ASC 历史 build 号，二者都不能代表 ASC 现状。
+          node tools/ci/resolve_testflight_version.mjs
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -196,18 +198,6 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
           echo "keychain_path=$KEYCHAIN_PATH" >> "$GITHUB_OUTPUT"
-
-      - name: Install App Store Connect API key
-        shell: bash
-        env:
-          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
-          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          PRIVATE_KEYS_DIR="$HOME/.appstoreconnect/private_keys"
-          mkdir -p "$PRIVATE_KEYS_DIR"
-          printf '%s' "$APPSTORE_PRIVATE_KEY" > "$PRIVATE_KEYS_DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
-          chmod 600 "$PRIVATE_KEYS_DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
 
       - name: Build signed iOS archive
         shell: bash
