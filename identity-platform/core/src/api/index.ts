@@ -17,6 +17,7 @@ import { registerRequestsRoutes, API_PREFIX, type RequestsApiDeps } from './requ
 import { registerAppRoutes } from './app/index.js'
 import { registerAdminRoutes } from './admin/index.js'
 import { registerDeveloperRoutes } from './developer/index.js'
+import { registerAccountRoutes } from './account/index.js'
 
 export { API_PREFIX, HANDOFF_HEADER } from './requests.js'
 export type { RequestsApiDeps } from './requests.js'
@@ -56,6 +57,15 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     sql: deps.sql,
     pairwiseKey: process.env.IDENTITY_PAIRWISE_SUBJECT_KEY,
     clientSecretKek: process.env.IDENTITY_CLIENT_SECRET_KEK,
+    developerClientId: process.env.DEVELOPER_OIDC_CLIENT_ID ?? 'developer-portal',
+    env: process.env,
+  })
+
+  // #688 account 端点：账户级 API Key——Bearer 直连 /api/v1/account/**，
+  // 以及管理面 /api/v1/developer/keys（service-token + x-developer-subject 链路）。
+  registerAccountRoutes(router, {
+    sql: deps.sql,
+    pairwiseKey: process.env.IDENTITY_PAIRWISE_SUBJECT_KEY,
     developerClientId: process.env.DEVELOPER_OIDC_CLIENT_ID ?? 'developer-portal',
     env: process.env,
   })
