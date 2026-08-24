@@ -74,8 +74,10 @@ export function respondAccountError(
   }
   ctx.status = 500
   ctx.set('Cache-Control', 'no-store')
-  // #688 可观测性：未知错误必须留下服务端痕迹（不回显给客户端）
-  console.error('[account] internal error:', err)
+  // #688 可观测性：未知错误只记录类型名（错误对象可能携带环境变量污染源，
+  // 明文打印会被 CodeQL 判为敏感信息泄露）；细节交给应用级错误处理器留痕。
+  const errName = err instanceof Error ? err.name : 'unknown'
+  console.error('[account] internal error:', errName)
   ctx.body = { error: 'internal' }
 }
 
