@@ -20,7 +20,13 @@ import type Router from '@koa/router'
 import type { SqlExecutor } from '../../db/types.js'
 import { findIdentityByProviderSubject } from '../../db/repos/users.repo.js'
 import { insertUser, insertLinkedIdentity } from '../../db/repos/users.repo.js'
-import { listDevicesByUser, type DeviceRow } from '../../db/repos/devices.repo.js'
+import {
+  consumeEnrollmentChallenge,
+  findDeviceByFingerprint,
+  listDevicesByUser,
+  reactivateRevokedDevice,
+  type DeviceRow
+} from '../../db/repos/devices.repo.js'
 import {
   createEnrollmentChallenge,
   registerDevice,
@@ -30,10 +36,12 @@ import {
 } from '../../domain/devices.js'
 import { assertValidHbutSubject } from '../../domain/users.js'
 import {
+  ChallengeInvalidError,
   DeviceFingerprintExistsError,
   DomainError,
   DeviceNotActiveError,
 } from '../../domain/errors.js'
+import { sha256Base64url } from '../../security/hash.js'
 import { newUuidV7 } from '../../domain/ids.js'
 import { buildEnrollCanonical, jwkFingerprint, type EnrollCanonicalInput } from './canonical.js'
 import { verifyEd25519 } from './verify.js'
@@ -229,26 +237,63 @@ export function registerDeviceRoutes(router: Router, deps: DevicesApiDeps): void
         throw new InvalidSignatureError()
       }
 
-      // 原子事务：用户 + 身份 + 设备 + 激活 all-or-nothing（任何一步失败不产生部分写入）
+      // 原子事务：用户/身份/设备 all-or-nothing（任何一步失败不产生部分写入）。
+      // #679 多设备自绑定：同一学号的新设备凭有效 handoff+challenge+签名断言
+      // 直接挂到既有身份，不再要求「已绑定设备批准」；同密钥重试幂等返回既有绑定。
       const result = await deps.sql.withTransaction(async (tx) => {
         const identity = await findIdentityByProviderSubject(tx, 'hbut', input.studentId)
-        if (identity) {
-          // 相同学号已有绑定账户：第二设备必须走已有设备批准流程，绝不自动接管
-          throw new LinkRequiredError()
+        const existingDevice = await findDeviceByFingerprint(tx, fingerprint)
+
+        // 学号尚无身份 → 首台设备注册（原路径）
+        if (!identity) {
+          const userId = newUuidV7()
+          await insertUser(tx, { id: userId })
+          await insertLinkedIdentity(tx, {
+            id: newUuidV7(),
+            user_id: userId,
+            provider: 'hbut',
+            subject: input.studentId,
+            student_name_snapshot: input.studentName || null,
+            verification_method: 'mini_hbut_app',
+            verification_level: 'low',
+            verified_at: new Date(),
+          })
+          // 一次性消费 challenge + 指纹冲突检查 + 插入 pending 设备
+          const registered = await registerDevice(tx, {
+            userId,
+            publicKeyJwk: input.publicJwk,
+            platform: input.platform,
+            appVersion: input.appVersion || undefined,
+            deviceName: input.deviceName,
+            challenge: input.challenge,
+            challengePurpose: 'device_enrollment',
+          })
+          await activateDevice(tx, registered.deviceId)
+          return { userId, deviceId: registered.deviceId }
         }
-        const userId = newUuidV7()
-        await insertUser(tx, { id: userId })
-        await insertLinkedIdentity(tx, {
-          id: newUuidV7(),
-          user_id: userId,
-          provider: 'hbut',
-          subject: input.studentId,
-          student_name_snapshot: input.studentName || null,
-          verification_method: 'mini_hbut_app',
-          verification_level: 'low',
-          verified_at: new Date(),
-        })
-        // 一次性消费 challenge + 指纹冲突检查 + 插入 pending 设备
+
+        const userId = identity.user_id
+        if (existingDevice) {
+          if (existingDevice.user_id !== userId) {
+            // 指纹属于其他学号：跨账号冲突仍拒绝（指纹全局唯一不变式不变）
+            throw new DeviceFingerprintExistsError()
+          }
+          if (existingDevice.status === 'active') {
+            // 同密钥重试 / #677 补绑定重放：幂等返回既有绑定（不消费 challenge，重试安全）
+            return { userId, deviceId: existingDevice.id }
+          }
+          // revoked → 同密钥重新注册即重新激活（密码登录 + 签名断言即表达意图）
+          const consumedRevive = await consumeEnrollmentChallenge(
+            tx,
+            sha256Base64url(input.challenge),
+          )
+          if (!consumedRevive) throw new ChallengeInvalidError()
+          const reactivated = await reactivateRevokedDevice(tx, existingDevice.id)
+          if (!reactivated) throw new DeviceFingerprintExistsError()
+          return { userId, deviceId: existingDevice.id }
+        }
+
+        // 学号有身份 + 全新设备 → 挂到既有身份（多设备自绑定核心场景）
         const registered = await registerDevice(tx, {
           userId,
           publicKeyJwk: input.publicJwk,

@@ -114,6 +114,21 @@ export async function setDeviceStatus(
   return false
 }
 
+/**
+ * #679 多设备自绑定：revoked 设备同密钥重新注册时重激活。
+ * 仅允许 revoked → active（pending/active 场景不经过本函数）；
+ * 重新激活会清空吊销痕迹（等同重新上架）。
+ */
+export async function reactivateRevokedDevice(sql: SqlExecutor, id: string): Promise<boolean> {
+  const result = await sql.query(
+    `UPDATE devices
+       SET status = 'active', activated_at = $2, revoked_at = NULL, revoked_reason = NULL, updated_at = NOW()
+     WHERE id = $1 AND status = 'revoked'`,
+    [id, new Date()],
+  )
+  return (result.rowCount ?? 0) === 1
+}
+
 /** 仅在经过签名验证的请求后更新 last_seen_at */
 export async function touchDeviceLastSeen(sql: SqlExecutor, id: string): Promise<void> {
   await sql.query('UPDATE devices SET last_seen_at = NOW() WHERE id = $1', [id])
