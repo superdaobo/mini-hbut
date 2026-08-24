@@ -120,6 +120,41 @@ describe('update channel (stable / dev)', () => {
     ).toBe(true)
   })
 
+  it('numbers dev betas as latest-stable patch+1 and still offers safe upgrades (#683)', () => {
+    const beta147 = {
+      tag_name: 'dev-latest',
+      version: '1.4.7-beta.1',
+      prerelease: true,
+      channel: 'dev'
+    }
+    const stable147 = { tag_name: 'v1.4.7', version: '1.4.7', prerelease: false, channel: 'main' }
+
+    // 正式版 1.4.6 存续期，测试版编号为 1.4.7-beta.N（patch+1）：正式用户开 dev 可直升
+    expect(shouldOfferRelease(beta147, '1.4.6', 'dev')).toBe(true)
+    // stable 频道不受影响：1.4.6 → 1.4.7 正常提示
+    expect(shouldOfferRelease(stable147, '1.4.6', 'stable')).toBe(true)
+    // 同核心保守规则保留：1.4.7-beta.N 不被 1.4.7 正式拉回（决策点②）
+    expect(shouldOfferRelease(stable147, '1.4.7-beta.10', 'stable')).toBe(false)
+    // 防「降级」：更高 core 的装机不被低 core 的正式/beta 提示
+    expect(shouldOfferRelease(stable147, '1.4.8-beta.1', 'stable')).toBe(false)
+    expect(
+      shouldOfferRelease({ ...beta147, version: '1.4.7-beta.9' }, '1.4.8-beta.1', 'dev')
+    ).toBe(false)
+    // 同核心 beta 号递增提示、回退不提示
+    expect(
+      shouldOfferRelease({ ...beta147, version: '1.4.7-beta.11' }, '1.4.7-beta.10', 'dev')
+    ).toBe(true)
+    expect(shouldOfferRelease(beta147, '1.4.7-beta.2', 'dev')).toBe(false)
+    // 存量旧编号 1.4.6-beta.* 可自然迁移到新编号 1.4.7-beta.*
+    expect(shouldOfferRelease(beta147, '1.4.6-beta.358', 'dev')).toBe(true)
+  })
+
+  it('dev-build workflow derives beta base version as patch+1 (#683)', () => {
+    const workflow = readSource('../../.github/workflows/dev-build.yml')
+    expect(workflow).toContain('def bump_patch')
+    expect(workflow).toContain('print(bump_patch(base_version or current_version')
+  })
+
   it('builds download proxies for dev-latest tag', () => {
     const name = 'Mini-HBUT_1.4.3-beta.1_arm64.apk'
     const urls = buildUpdateDownloadUrls('dev-latest', name)
