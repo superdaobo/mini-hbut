@@ -2692,3 +2692,14 @@ html.dark .history-footnote {
 html.dark .history-refresh-btn:active {
   background: #0f172a !important;
 }
+
+/* ─── 选课中心：入口菜单测试阶段提示横幅 ─── */
+html.dark body .course-selection-view .course-selection-test-banner {
+  background: rgba(120, 53, 15, 0.34) !important;
+  border-color: rgba(251, 191, 36, 0.36) !important;
+  color: #fde68a !important;
+}
+
+html.dark body .course-selection-view .course-selection-test-banner strong {
+  color: #fbbf24 !important;
+}
