@@ -187,7 +187,7 @@ export const useAppRuntime = () => {
     let cachedIdentity = false
     try {
       cachedIdentity = await runtime.session.restoreCachedIdentityFromLocal()
-      await runtime.navigation.syncFromHash({ scrollToTop: false })
+      await runtime.navigation.syncFromHash()
     } catch (error) {
       console.warn('[Boot] local bootstrap failed:', error)
     }

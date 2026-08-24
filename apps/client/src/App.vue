@@ -13,6 +13,12 @@ import { useAppRuntime } from './app/useAppRuntime'
 // IdentityCoordinator 内完成（防止 App.vue 退化为上帝文件）。
 const { state, handlers, runtime, isIOSLike, isTestAccountSession } = useAppRuntime()
 
+// #681：装配全应用唯一滚动容器的 DOM 引用（切页回顶 / 首页滚动恢复均依赖）。
+// 必须经函数式 ref 写入 state.appShellRef，直接 :ref="ref 对象" 会被模板自动解包导致类型与语义双输。
+const bindAppShellRef = (el: unknown) => {
+  state.appShellRef.value = (el as HTMLElement | null) ?? null
+}
+
 const {
   currentView,
   activeTab,
@@ -167,7 +173,9 @@ const {
     @dismiss="handleSplashDismissed"
   />
 
+  <!-- #681：全应用唯一滚动容器，切页回顶依赖此 ref；缺失会导致滚动位置跨 Tab 串扰 -->
   <main
+    :ref="bindAppShellRef"
     class="app-shell"
     :class="{
       'no-scroll': currentView === 'ai',

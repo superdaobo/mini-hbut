@@ -65,7 +65,7 @@ export interface NavigationCoordinator {
   closeDailyAccessDialog(): void
   handleDailyAccessInput(event: unknown): void
   submitDailyAccessKey(): void
-  syncFromHash(options?: { scrollToTop?: boolean }): Promise<void>
+  syncFromHash(): Promise<void>
   restoreViewFromSnapshot(
     snapshot: Record<string, unknown> | null,
     options?: { softRemount?: boolean; allowHardReload?: boolean; idleMs?: number; source?: string }
