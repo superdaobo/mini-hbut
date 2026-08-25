@@ -16,12 +16,14 @@
  *   POST /api/v1/app/devices/:id/revoke               Device 签名（自撤销，V1 仅本机）
  *   GET  /api/v1/app/devices/me/auth-history          Device 签名（本机授权记录）
  *   POST /api/v1/app/auth-requests/:id/approve        Handoff + Ed25519 签名
+ *   POST /api/v1/app/data-snapshots                   Device + Handoff（#700 快照上传）
  */
 import type Router from '@koa/router'
 import type { SqlExecutor } from '../../db/types.js'
 import { registerDeviceRoutes, type DevicesApiDeps } from './devices.js'
 import { registerAuthRequestRoutes, type ApproveApiDeps } from './auth-requests.js'
 import { registerAuthHistoryRoutes } from './auth-history.js'
+import { registerDataSnapshotRoutes, type SnapshotApiDeps } from './data-snapshots.js'
 import type { AppAuthDeps, ClockSkewConfig } from './auth.js'
 
 /** registerAppRoutes 依赖（与 #620 ApiDeps 结构兼容；provider 预留） */
@@ -63,4 +65,12 @@ export function registerAppRoutes(router: Router, deps: AppRoutesDeps): void {
   registerDeviceRoutes(router, deviceDeps)
   registerAuthRequestRoutes(router, approveDeps)
   registerAuthHistoryRoutes(router, approveDeps)
+
+  // #700 数据快照上传：Device 签名 + Handoff 双因子（复用同一时钟偏差配置）
+  const snapshotDeps: SnapshotApiDeps = {
+    sql: deps.sql,
+    handoffHmacKey: deps.handoffHmacKey,
+    ...clockSkew,
+  }
+  registerDataSnapshotRoutes(router, snapshotDeps)
 }
