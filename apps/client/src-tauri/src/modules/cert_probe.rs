@@ -196,11 +196,17 @@ mod tests {
     }
 
     fn wrapped(msg: &str) -> WrappedError {
-        WrappedError { msg: msg.to_string(), source: None }
+        WrappedError {
+            msg: msg.to_string(),
+            source: None,
+        }
     }
 
     fn wrapping(msg: &str, inner: LeafError) -> WrappedError {
-        WrappedError { msg: msg.to_string(), source: Some(Box::new(inner)) }
+        WrappedError {
+            msg: msg.to_string(),
+            source: Some(Box::new(inner)),
+        }
     }
 
     #[test]
@@ -241,8 +247,14 @@ mod tests {
             msg: "CERTIFICATE verify failed".to_string(),
             source: None,
         });
-        let mid = WrappedError { msg: "tls handshake eof".to_string(), source: Some(inner) };
-        let err = WrappedError { msg: "error sending request".to_string(), source: Some(Box::new(mid)) };
+        let mid = WrappedError {
+            msg: "tls handshake eof".to_string(),
+            source: Some(inner),
+        };
+        let err = WrappedError {
+            msg: "error sending request".to_string(),
+            source: Some(Box::new(mid)),
+        };
         assert_eq!(classify_error(&err), CertProbeStatus::CertError);
     }
 
