@@ -1,5 +1,5 @@
 /**
- * #615 跨端 ExamSignatureV1 复刻 + per-feature 开关（纯逻辑，无 axios 依赖链）。
+ * #615 跨端 ExamSignatureV1 复刻（纯逻辑，无 axios 依赖链）。
  *
  * contract-fixtures/exams-signature-v1.json 为单一事实源（Android/iOS/前端三端一致）：
  *   normalize: 字符串 trim；nil/空串等价；courseName trim 后为空则整条记录不参与签名；
@@ -12,24 +12,9 @@
  */
 import { buildLedgerEventKey } from './notification_event_ledger'
 
-// ---- per-feature 后台检测开关（设置页三个独立开关；与 #609 BackgroundCheckConfig 对应） ----
-
-export const BG_FEATURE_KEY_GRADES = 'hbu_bg_feature_grades'
-export const BG_FEATURE_KEY_EXAMS = 'hbu_bg_feature_exams'
-export const BG_FEATURE_KEY_SCHOOL = 'hbu_bg_feature_school'
-
-/** 读取 per-feature 开关（默认开启；'false' 视为关闭）。 */
-export const readBgFeatureEnabled = (key: string, fallback = true): boolean => {
-  try {
-    const raw = localStorage.getItem(key)
-    if (raw === null) return fallback
-    return raw === 'true'
-  } catch {
-    return fallback
-  }
-}
-
 // ---- 跨端 ExamSignatureV1 复刻 ----
+// （#706：原 per-feature 后台检测开关 BG_FEATURE_KEY_*/readBgFeatureEnabled 已移除，
+//   检测控制统一收敛至通知类型开关。）
 
 const toSafeText = (value: unknown): string => String(value ?? '').trim()
 

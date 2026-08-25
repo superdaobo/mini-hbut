@@ -83,15 +83,17 @@ describe('migrateLegacyBackgroundState（#616 旧 Capacitor 后台状态迁移�
     expect(memory.storage.getItem('hbu_bg_enabled')).toBeNull()
   })
 
-  it('不删除 #615 新 per-feature config 键（hbu_bg_feature_*）', async () => {
+  it('#706：已移除的 per-feature 开关键（hbu_bg_feature_*）纳入清理', async () => {
     memory.storage.setItem('hbu_bg_feature_grades', 'false')
     memory.storage.setItem('hbu_bg_feature_exams', 'true')
+    memory.storage.setItem('hbu_bg_feature_school', 'false')
 
     const { migrateLegacyBackgroundState } = await loadModule()
     await migrateLegacyBackgroundState()
 
-    expect(memory.storage.getItem('hbu_bg_feature_grades')).toBe('false')
-    expect(memory.storage.getItem('hbu_bg_feature_exams')).toBe('true')
+    expect(memory.storage.getItem('hbu_bg_feature_grades')).toBeNull()
+    expect(memory.storage.getItem('hbu_bg_feature_exams')).toBeNull()
+    expect(memory.storage.getItem('hbu_bg_feature_school')).toBeNull()
   })
 
   it('迁移完成后写入标记，后续调用直接跳过', async () => {
