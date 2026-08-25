@@ -23,6 +23,13 @@ import {
   overlayVisible
 } from '../identityStore'
 import { trapTabFocus, focusCard } from '../identityAccessibility'
+import { NON_OFFICIAL_NOTICE } from '../identityScopes'
+import {
+  defaultLearningConsent,
+  learningConsentNotice,
+  resolveLearningConsent,
+  splitLearningDataScopes
+} from '../learningDataConsent'
 import IdentityClientCard from './IdentityClientCard.vue'
 import IdentityScopeList from './IdentityScopeList.vue'
 import IdentityResultState from './IdentityResultState.vue'
@@ -100,6 +107,59 @@ const remainingText = computed(() => {
 })
 
 const expiryUrgent = computed(() => remainingSeconds.value > 0 && remainingSeconds.value <= 30)
+
+// ── #699 学习数据 scope 逐项勾选 ───────────────────────────────────────────
+// 勾选状态仅存本组件内存（默认全选，不持久化）；
+// 当前 Core 只接受全集批准（approve body 白名单 + 服务端快照 scope_hash + resume 全量
+// Grant），存在任何取消项时禁止提交批准，避免取消项随全集进入授权范围。
+/** 学习数据项（冻结文案）与其余 scope（维持现有展示方式） */
+const learningScopes = computed(() => splitLearningDataScopes(ui.requestDetail?.scopes ?? []).learning)
+const otherScopes = computed(() => splitLearningDataScopes(ui.requestDetail?.scopes ?? []).others)
+
+/** 已勾选的学习数据 scope id 集合（请求切换时重置为全选） */
+const selectedLearningScopes = ref<ReadonlySet<string>>(new Set())
+
+watch(
+  () => ui.requestDetail?.request_id,
+  () => {
+    selectedLearningScopes.value = defaultLearningConsent(learningScopes.value)
+  },
+  { immediate: true }
+)
+
+const toggleLearningScope = (id: string, checked: boolean): void => {
+  const next = new Set(selectedLearningScopes.value)
+  if (checked) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  selectedLearningScopes.value = next
+}
+
+/** checkbox change 事件桥接（类型收窄留在 script，模板不做断言） */
+const handleLearningCheckChange = (id: string, event: Event): void => {
+  const target = event.target as HTMLInputElement | null
+  if (!target) return
+  toggleLearningScope(id, target.checked)
+}
+
+/** 勾选守卫：全部勾选才可批准；存在取消项时阻断并如实说明 */
+const learningConsent = computed(() => resolveLearningConsent(learningScopes.value, selectedLearningScopes.value))
+const learningNotice = computed(() =>
+  learningScopes.value.length ? learningConsentNotice(learningConsent.value) : ''
+)
+
+const allowDisabled = computed(
+  () => busy.value || (learningScopes.value.length > 0 && !learningConsent.value.canApprove)
+)
+
+const handleAllow = (): void => {
+  // 双重守卫：即使按钮态被绕过，存在取消项也绝不提交批准（不允许静默扩大授权）
+  if (allowDisabled.value) return
+  if (!learningConsent.value.canApprove) return
+  props.identity.approveActive()
+}
 
 // ── 键盘可达性 ──────────────────────────────────────────────────────────────
 const handleKeydown = (event: KeyboardEvent): void => {
@@ -220,7 +280,46 @@ onBeforeUnmount(() => {
               不会获取、保存或使用你的任何真实数据。
             </div>
             <IdentityClientCard :client="ui.requestDetail.client" />
-            <IdentityScopeList :scopes="ui.requestDetail.scopes" />
+            <!-- 其余 scope：维持现有风险分组展示 -->
+            <IdentityScopeList v-if="otherScopes.length" :scopes="otherScopes" />
+
+            <!-- #699 学习数据权限：逐项勾选（默认全选；取消任意一项即不可整体批准） -->
+            <fieldset v-if="learningScopes.length" class="identity-learning-group">
+              <legend class="identity-learning-title">学习数据</legend>
+              <label
+                v-for="item in learningScopes"
+                :key="item.id"
+                class="identity-learning-item"
+              >
+                <input
+                  type="checkbox"
+                  class="identity-learning-check"
+                  :checked="selectedLearningScopes.has(item.id)"
+                  @change="handleLearningCheckChange(item.id, $event)"
+                />
+                <span class="identity-learning-text">
+                  <strong>{{ item.label }}</strong>
+                  <span class="identity-learning-sid">{{ item.id }}</span>
+                </span>
+              </label>
+            </fieldset>
+
+            <!-- 取消项阻断说明（aria-live 让读屏用户感知状态变化） -->
+            <p
+              v-if="learningNotice"
+              class="identity-learning-notice"
+              role="status"
+              aria-live="polite"
+            >
+              <span class="material-symbols-outlined identity-learning-notice-icon" aria-hidden="true">block</span>
+              {{ learningNotice }}
+            </p>
+
+            <!-- 其余 scope 为空时仍保留非官方声明（安全信息不因拆分展示而丢失） -->
+            <p v-if="!otherScopes.length && learningScopes.length" class="identity-nonofficial-fallback" role="note">
+              <span class="material-symbols-outlined identity-nonofficial-icon" aria-hidden="true">verified_user</span>
+              {{ NON_OFFICIAL_NOTICE }}
+            </p>
 
             <section class="identity-current" aria-label="当前 Mini-HBUT 身份">
               <h4>当前 Mini-HBUT 身份</h4>
@@ -249,8 +348,8 @@ onBeforeUnmount(() => {
               <button
                 class="btn-primary btn-ripple identity-allow-btn"
                 type="button"
-                :disabled="busy"
-                @click="identity.approveActive()"
+                :disabled="allowDisabled"
+                @click="handleAllow"
               >
                 允许
               </button>
