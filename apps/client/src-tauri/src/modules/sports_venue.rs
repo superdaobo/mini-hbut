@@ -343,7 +343,7 @@ async fn fetch_venue_sso_token(
     let no_redir = reqwest::Client::builder()
         .cookie_provider(std::sync::Arc::clone(&client.cookie_jar))
         .redirect(reqwest::redirect::Policy::none())
-        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_certs(crate::http_client::HbutClient::insecure_tls_allowed())
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(|e| e.to_string())?;
