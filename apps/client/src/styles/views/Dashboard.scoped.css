@@ -1,7 +1,64 @@
 .dashboard-root {
   padding-bottom: 80px;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* 宽度由本文件接管（#714）：手机维持原 520 上限，≥600/≥768 阶梯放宽 */
+  max-width: 520px;
 }
+
+@media (min-width: 600px) {
+  .dashboard-root {
+    max-width: 640px;
+  }
+}
+
+/* 单列纵向节奏（对齐原 space-y-6=24px）：改由本文件统一管理，宽屏切换为 grid gap */
+.dashboard-main > * + * {
+  margin-top: 24px;
+}
+.home-col-right > * + * {
+  margin-top: 24px;
+}
+
+@media (min-width: 768px) {
+  .dashboard-root {
+    max-width: 1080px;
+  }
+
+  /* 双栏：左=今日安排（5），右=快捷入口+所有功能（7）；头部区块跨全宽。
+     整页仍由 .app-shell 独家滚动，两栏容器禁止任何纵向 overflow。 */
+  .dashboard-main {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    align-items: start;
+    column-gap: 24px;
+    row-gap: 24px;
+  }
+  .dashboard-main > * + * {
+    margin-top: 0;
+  }
+  .home-area-greet,
+  .home-area-user,
+  .home-area-maint {
+    grid-column: 1 / -1;
+  }
+
+  /* 功能宫格宽屏扩列到 6 列（与 Dashboard.vue featureGridCols 宽屏值一致） */
+  .home-feature-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  /* 快捷入口编辑面板：底部动作面板 → 居中卡（IOSSelect 同款范式） */
+  .quick-entry-editor-overlay {
+    align-items: center;
+    padding: 24px;
+  }
+  .quick-entry-editor-panel {
+    max-width: 480px;
+    border-radius: 24px;
+    max-height: min(80vh, 640px);
+  }
+}
+
 
 /* 与 NotificationView / MeView 的 .logo-img 一致：圆形裁切整图 */
 .home-logo-img {

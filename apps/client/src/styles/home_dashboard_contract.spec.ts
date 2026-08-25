@@ -107,6 +107,21 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain('FEATURE_GRID_COLS')
   })
 
+  it('keeps the wide-screen two-column skeleton driven by pure CSS without extra scroll containers', () => {
+    const source = dashboardVue()
+
+    expect(source).toContain('home-col-left')
+    expect(source).toContain('home-col-right')
+    expect(source).toContain('../composables/useViewportBreakpoint')
+    expect(source).toContain('featureGridCols')
+    // 双栏容器自身不得产生第二个纵向滚动容器（整页仍由 .app-shell 独家滚动）
+    const colBlocks = source.match(/\.home-col-[a-z][^{]*\{[^}]*\}/g) || []
+    expect(colBlocks.length).toBeGreaterThan(0)
+    for (const block of colBlocks) {
+      expect(block).not.toContain('overflow')
+    }
+  })
+
   it('restores the home scroll position when returning from a module', () => {
     const source = appVue()
 

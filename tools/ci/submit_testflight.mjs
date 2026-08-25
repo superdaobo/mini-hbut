@@ -188,14 +188,23 @@ export function createAppEncryptionDeclarationLookupPath({ appId, limit = 200 })
 }
 
 /**
- * 创建「不包含加密算法」的出口合规声明请求体。
- * 对应 TestFlight 网页上的 Export Compliance = No（标准免税声明），无需人工回答问卷。
+ * 创建「不包含任何加密算法」的出口合规声明请求体。
+ * 对应 TestFlight 网页上的 Export Compliance = No（标准免税声明）。
+ * 注意 Apple 真实 schema：CREATE 操作不接受 usesEncryption（只读派生字段，
+ * 由 contains* 两项推导），且 appDescription / availableOnFrenchStore 为必填
+ * （实测 409：ENTITY_ERROR.ATTRIBUTE.NOT_ALLOWED / REQUIRED，2026-08-25 run 32792223891）。
  */
 export function createAppEncryptionDeclarationBody({ appId }) {
   return {
     data: {
       type: 'appEncryptionDeclarations',
-      attributes: { usesEncryption: false },
+      attributes: {
+        appDescription:
+          'This app does not implement any encryption algorithms and does not use cryptography beyond the standard iOS system libraries.',
+        availableOnFrenchStore: true,
+        containsProprietaryCryptography: false,
+        containsThirdPartyCryptography: false,
+      },
       relationships: { app: { data: { type: 'apps', id: appId } } },
     },
   }
@@ -393,6 +402,12 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
         body: createAppEncryptionDeclarationBody({ appId }),
       })
       declarationId = created?.data?.id || ''
+      const state = created?.data?.attributes?.appEncryptionDeclarationState
+      console.log(
+        `🆕 已自动创建「不包含加密算法」出口合规声明（id=${declarationId}，state=${state || 'UNKNOWN'}）`,
+      )
+      // 新建声明的可分配状态在 Apple 侧有秒级同步延迟，稍等再关联
+      await sleep(5_000)
     }
   }
   if (!declarationId) {
@@ -408,6 +423,26 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
     },
   )
   console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}，usesEncryption=false）`)
+}
+
+/**
+ * 把构建加入测试组。Apple 侧「可分配外部组」状态依赖出口合规声明生效，
+ * 存在秒级同步延迟：422 not externally assignable 时延迟重试一次。
+ */
+async function addBuildToBetaGroup(token, { buildId, group }) {
+  const join = () =>
+    apiRequest(token, `/builds/${encodeURIComponent(buildId)}/relationships/betaGroups`, {
+      method: 'POST',
+      body: { data: [{ type: 'betaGroups', id: group.id }] },
+    })
+  try {
+    await join()
+  } catch (err) {
+    if (!/not in an externally assignable state/i.test(err.message)) throw err
+    console.log('⏳ 构建暂不可分配外部组（出口合规声明可能仍在生效中），15 秒后重试一次…')
+    await sleep(15_000)
+    await join()
+  }
 }
 
 async function main() {
@@ -488,10 +523,7 @@ async function main() {
     if (group.attributes?.hasAccessToAllBuilds === true) {
       console.log(`✅ 测试组「${group.attributes?.name}」已配置自动访问所有构建，无需重复关联`)
     } else {
-      await apiRequest(token, `/builds/${buildId}/relationships/betaGroups`, {
-        method: 'POST',
-        body: { data: [{ type: 'betaGroups', id: group.id }] },
-      })
+      await addBuildToBetaGroup(token, { buildId, group })
       console.log(`✅ 构建已加入测试组「${group.attributes?.name}」`)
     }
     if (group.attributes?.isInternalGroup === false) needsBetaReview = true
