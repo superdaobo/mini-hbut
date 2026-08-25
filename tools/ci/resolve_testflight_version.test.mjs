@@ -10,8 +10,8 @@ import {
   createMaxBuildLookupPath,
   createPrereleaseVersionsPath,
   nextBuildNumber,
-  nextMarketingVersion,
   parseVersionParts,
+  pickLatestVersion,
 } from './resolve_testflight_version.mjs'
 
 test('parseVersionParts 解析 1~3 段数字版本，拒绝非法输入', () => {
@@ -32,30 +32,36 @@ test('compareVersionParts 逐段比较，缺失段视为 0', () => {
   assert.equal(compareVersionParts([2], [1, 9, 9]), 1)
 })
 
-test('nextMarketingVersion 取最高版本尾段 +1', () => {
-  assert.equal(
-    nextMarketingVersion(['1.4.6', '1.4.7', '1.3.0'], '9.9.9'),
-    '1.4.8',
-  )
+test('pickLatestVersion 跟随 ASC 最高版本，不自动开新版本', () => {
+  assert.equal(pickLatestVersion(['1.4.6', '1.4.7', '1.3.0'], '9.9.9'), '1.4.7')
   // 字符串排序会错判（"10" < "9"），必须数值比较
-  assert.equal(nextMarketingVersion(['1.4.10', '1.4.9'], '0.0.1'), '1.4.11')
-  // 保持原段数
-  assert.equal(nextMarketingVersion(['1.5'], '0.0.1'), '1.6')
+  assert.equal(pickLatestVersion(['1.4.10', '1.4.9'], '0.0.1'), '1.4.10')
   // 非法候选被过滤
-  assert.equal(nextMarketingVersion(['1.4.7', 'bad', ''], '1.0.0'), '1.4.8')
+  assert.equal(pickLatestVersion(['1.4.7', 'bad', ''], '1.0.0'), '1.4.7')
 })
 
-test('nextMarketingVersion 无候选时回退 fallback 并 +1', () => {
-  assert.equal(nextMarketingVersion([], '1.4.6'), '1.4.7')
-  assert.equal(nextMarketingVersion(['bad'], '1.4.6'), '1.4.7')
-  assert.throws(() => nextMarketingVersion([], ''))
+test('pickLatestVersion 无候选时原样回退 fallback', () => {
+  assert.equal(pickLatestVersion([], '1.4.6'), '1.4.6')
+  assert.equal(pickLatestVersion(['bad'], '1.5'), '1.5')
+  assert.throws(() => pickLatestVersion([], ''))
 })
 
-test('nextBuildNumber 取最大 build 号 +1', () => {
-  assert.equal(nextBuildNumber([25, 27, 12]), 28)
-  assert.equal(nextBuildNumber(['27', 9]), 28)
-  assert.equal(nextBuildNumber([]), 1)
-  assert.equal(nextBuildNumber([null, undefined, 'x']), 1)
+test('nextBuildNumber 正常序列最大值 +1，忽略异常遗留长串', () => {
+  // 真实场景（2026-08-25）：ASC 存在时间戳格式遗留 build 202607071007，
+  // 不能让 max+1 被劫持成 202607071008
+  const result = nextBuildNumber([22, 24, 25, 26, 27, 28, 202607071007])
+  assert.equal(result.value, 29)
+  assert.deepEqual(result.ignored, [202607071007])
+
+  // 无异常值时就是简单累加
+  assert.deepEqual(nextBuildNumber([27, 28]), { value: 29, ignored: [] })
+
+  // 字符串数字同样处理
+  assert.equal(nextBuildNumber(['28']).value, 29)
+
+  // 全部是异常值/空列表 → 从 fallback(0)+1 开始
+  assert.equal(nextBuildNumber([202607071007]).value, 1)
+  assert.deepEqual(nextBuildNumber([]), { value: 1, ignored: [] })
 })
 
 test('createPrereleaseVersionsPath 过滤 App/平台并只取 version 字段', () => {

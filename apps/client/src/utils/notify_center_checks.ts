@@ -28,6 +28,7 @@ import {
   buildGradesSignature,
   buildTomorrowExamSignature,
   classReminderStateKeyFor,
+  chaoxingInboxStateKeyFor,
   examSigKeyFor,
   getCurrentMinutePrecise,
   getDormSelection,
@@ -81,11 +82,11 @@ const isSchoolInboxItemRead = (item: unknown): boolean => {
   return !!(raw?.is_read ?? raw?.isRead)
 }
 
-export const readSchoolInboxState = (studentId: string): { initialized: boolean; ids: string[] } => {
-  const state = readJSON<{ initialized?: boolean; ids?: unknown[] }>(
-    schoolInboxStateKeyFor(studentId),
-    null
-  )
+const readInboxStateByKey = (
+  keyFor: (studentId: string) => string,
+  studentId: string
+): { initialized: boolean; ids: string[] } => {
+  const state = readJSON<{ initialized?: boolean; ids?: unknown[] }>(keyFor(studentId), null)
   const ids = Array.isArray(state?.ids)
     ? state.ids.map((item) => toSafeText(item)).filter(Boolean)
     : []
@@ -94,6 +95,13 @@ export const readSchoolInboxState = (studentId: string): { initialized: boolean;
     ids
   }
 }
+
+export const readSchoolInboxState = (studentId: string): { initialized: boolean; ids: string[] } =>
+  readInboxStateByKey(schoolInboxStateKeyFor, studentId)
+
+// #715：学习通通知独立去重快照（与学校消息互不串扰）
+const readChaoxingInboxState = (studentId: string): { initialized: boolean; ids: string[] } =>
+  readInboxStateByKey(chaoxingInboxStateKeyFor, studentId)
 
 // #616：旧 Capacitor Headless 专用的 hbu_bg_* 后台预写函数已随 Headless 退役
 // 整体删除；前台去重快照（schoolInboxStateKeyFor）继续生效。
@@ -1002,6 +1010,117 @@ const checkSchoolInbox = async (
       total: 0,
       triggered: 0,
       error: message || '学校消息检查失败'
+    }
+  }
+}
+
+// #715：「学习通通知」独立渠道——固定 chaoxing 源（复用 school_inbox_fetch 的
+// loginMode 门控，与 ChaoxingInboxView 同一取数路径），与「学校消息」（教务）
+// 并行检测；已读基线快照与 ledger domain 独立（chaoxing-inbox），互不串扰。
+export const checkChaoxingInbox = async (
+  studentId: string,
+  settings: NotifySettingsFull,
+  queue: NoticeItem[]
+): Promise<SchoolInboxResult> => {
+  const sid = toSafeText(studentId)
+  if (!sid) {
+    return { success: false, enabled: false, total: 0, triggered: 0, reason: 'missing-student-id' }
+  }
+  if (!settings.enableChaoxingInbox) {
+    return { success: true, enabled: false, total: 0, triggered: 0 }
+  }
+  if (!isTauriRuntime()) {
+    return {
+      success: false,
+      enabled: true,
+      total: 0,
+      triggered: 0,
+      error: '学习通通知抓取需在客户端内运行'
+    }
+  }
+
+  try {
+    const response = (await invokeNative('school_inbox_fetch', {
+      loginMode: 'chaoxing'
+    })) as {
+      items?: unknown[]
+      source?: unknown
+      fetchedAt?: unknown
+    } | null
+    const items = Array.isArray(response?.items) ? response.items : []
+    const stateKey = chaoxingInboxStateKeyFor(sid)
+    const state = readChaoxingInboxState(sid)
+    const isFirstSync = !state.initialized
+    const knownSet = new Set(state.ids)
+    const allIds = items
+      .map((item) => {
+        const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+        return toSafeText(raw?.id)
+      })
+      .filter(Boolean)
+    // 仅通知未读的新消息；首次同步只建立基线，不推历史
+    const toNotify =
+      isFirstSync
+        ? []
+        : items.filter((item) => {
+            const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+            const id = toSafeText(raw?.id)
+            if (!id || knownSet.has(id)) return false
+            return !isSchoolInboxItemRead(item)
+          })
+
+    // ledger 去重：后台未来接入 chaoxing 事件时共享同一 domain，不与学校消息串扰
+    const notYetNotified = []
+    for (const item of toNotify) {
+      const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+      const id = toSafeText(raw?.id)
+      const eventKey = id ? buildLedgerEventKey('chaoxing-inbox', id) : ''
+      if (eventKey && hasLedgerEntry(sid, eventKey)) continue
+      notYetNotified.push({ item, eventKey })
+    }
+
+    for (const { item, eventKey } of notYetNotified) {
+      const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+      queue.push({
+        title: toSafeText(raw?.title) || '学习通通知',
+        body: toSafeText(raw?.summary) || '你有新的学习通消息',
+        targetView: 'notifications',
+        eventKey: eventKey || undefined,
+        domain: 'chaoxing-inbox'
+      })
+    }
+
+    writeJSON(stateKey, {
+      initialized: true,
+      ids: allIds.slice(0, 500),
+      updated_at: nowIso()
+    })
+    await snapshotChaoxingNoticeCookie('chaoxing')
+
+    pushDebugLog(
+      'Notify',
+      `学习通通知检查完成 total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
+      'info'
+    )
+
+    return {
+      success: true,
+      enabled: true,
+      total: items.length,
+      triggered: notYetNotified.length,
+      source: toSafeText(response?.source) || 'chaoxing',
+      checkedAt: toSafeText(response?.fetchedAt),
+      baseline: isFirstSync
+    }
+  } catch (error) {
+    const message = toSafeText((error as Error | undefined)?.message || error)
+    pushDebugLog('Notify', `学习通通知检查失败: ${message}`, 'warn')
+    return {
+      success: false,
+      enabled: true,
+      total: 0,
+      triggered: 0,
+      error: message || '学习通通知检查失败'
     }
   }
 }

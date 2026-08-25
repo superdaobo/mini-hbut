@@ -213,6 +213,28 @@
   height: auto !important;
 }
 
+/* 宽屏兜底（#714）：未自带限宽的二级页默认限宽居中，避免宽窗口下拉满全屏。
+   豁免 .dashboard-root：首页自带双栏上限（见 Dashboard.scoped.css）；
+   schedule/ai/module-host 全屏态由下方 max-width:none!important 规则接管。 */
+@media (min-width: 600px) {
+  .view-transition-root > *:not(.dashboard-root) {
+    max-width: 640px;
+    margin-inline: auto;
+  }
+}
+
+@media (min-width: 768px) {
+  .view-transition-root > *:not(.dashboard-root) {
+    max-width: 720px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .view-transition-root > *:not(.dashboard-root) {
+    max-width: 896px;
+  }
+}
+
 .app-shell.module-host-full {
   padding-bottom: 0;
   overflow: hidden;

@@ -1,4 +1,4 @@
-  <div class="dashboard-root antialiased max-w-[520px] mx-auto relative min-h-screen bg-[#f0f4f8]">
+  <div class="dashboard-root antialiased mx-auto relative min-h-screen bg-[#f0f4f8]">
     <!-- Header -->
     <header class="flex items-center justify-between px-4 pt-4 pb-4">
       <div class="flex items-center space-x-2">
@@ -28,9 +28,9 @@
       </div>
     </header>
 
-    <main class="px-4 space-y-6 pb-6">
+    <main class="dashboard-main px-4 pb-6">
       <!-- Greeting & Weather -->
-      <div class="flex justify-between items-end">
+      <div class="home-area-greet flex justify-between items-end">
         <div>
           <h1 class="text-3xl font-bold text-gray-900">
             {{ greetingText }}
@@ -49,7 +49,7 @@
       </div>
 
       <!-- User Profile Card + 会话状态点（红/闪/绿，点开才看维护详情） -->
-      <div class="bg-white rounded-2xl p-4 flex items-center justify-between gap-3 card-shadow">
+      <div class="home-area-user bg-white rounded-2xl p-4 flex items-center justify-between gap-3 card-shadow">
         <div class="flex items-center space-x-4 min-w-0 flex-1 cursor-pointer" @click="handleProfileClick">
           <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-blue-500 shrink-0">
             <i class="fas fa-user-graduate text-2xl"></i>
@@ -84,7 +84,7 @@
       <!-- 仅用户点击状态点后展开：维护/错误/通知（不在启动时自动弹出） -->
       <div
         v-if="sessionDetailOpen && sessionStatusVisual !== 'green'"
-        class="bg-orange-50 border border-orange-200 rounded-2xl p-4 card-shadow"
+        class="home-area-maint bg-orange-50 border border-orange-200 rounded-2xl p-4 card-shadow"
         role="status"
         aria-live="polite"
       >
@@ -154,6 +154,8 @@
         </div>
       </div>
 
+      <!-- 左栏：今日安排（≥768 双栏时独占左列，单列时与原顺序一致） -->
+      <div class="home-col-left">
       <!-- Today's Schedule -->
       <div class="bg-white rounded-2xl p-5 card-shadow relative">
         <div class="flex justify-between items-center mb-5">
@@ -280,7 +282,10 @@
           </div>
         </div>
       </div>
+      </div>
 
+      <!-- 右栏：快捷入口 + 所有功能（≥768 双栏时独占右列，单列时与原顺序一致） -->
+      <div class="home-col-right">
       <!-- Quick Entry -->
       <div class="bg-white rounded-2xl p-5 card-shadow">
         <div class="flex justify-between items-center mb-4">
@@ -341,6 +346,7 @@
             <span class="text-xs text-gray-700 text-center">{{ mod.name }}</span>
           </div>
         </div>
+      </div>
       </div>
     </main>
 
