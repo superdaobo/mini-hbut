@@ -196,6 +196,22 @@ export function createAppEncryptionDeclarationGetPath(declarationId) {
 }
 
 /**
+ * 把 build 标记为「仅使用非豁免加密之外的系统加密」（usesNonExemptEncryption=false）。
+ * 这是 ASC 网页上回答 Export Compliance = No 的直接等价动作：声明资源本身停在
+ * CREATED 不会被自动审批（实测 2026-08-25 run 32797202004 轮询 3 分钟无变化），
+ * 而 build 打上该标记后才满足「可分配外部组」状态。
+ */
+export function createBuildExemptionPatchBody({ buildId }) {
+  return {
+    data: {
+      type: 'builds',
+      id: buildId,
+      attributes: { usesNonExemptEncryption: false },
+    },
+  }
+}
+
+/**
  * 创建「不包含任何（自研）加密算法」的出口合规声明请求体。
  * 对应 TestFlight 网页上 Export Compliance 问卷回答 No（标准免税声明）。
  * Apple 数据模型（实测 2026-08-25 run 32794289891 两次 409 校准）：
@@ -426,21 +442,21 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
     return
   }
 
-  // Apple 对标准豁免声明自动审批：新建声明初始为 CREATED，需等它进入
-  // APPROVED 后 build 才满足「可分配外部组」状态（实测 2026-08-25 run 32796747072）
-  for (let attempt = 1; attempt <= 18; attempt++) {
+  // Apple 对新建声明不做自动审批（实测 run 32797202004 轮询 3 分钟恒为 CREATED），
+  // 短暂重查几次即可；真正让 build 可分配外部组的是下方对 build 的豁免标记。
+  for (let attempt = 1; attempt <= 6; attempt++) {
     const detail = await apiRequest(token, createAppEncryptionDeclarationGetPath(declarationId))
     const state = detail?.data?.attributes?.appEncryptionDeclarationState
     if (state === 'APPROVED') {
       console.log(`✅ 出口合规声明已生效（APPROVED，第 ${attempt} 次查询）`)
       break
     }
-    if (attempt === 18) {
-      console.warn(`⚠️ 声明状态仍为 ${state || 'UNKNOWN'}（等待超时），仍将尝试关联`)
-      break
+    if (attempt < 6) {
+      console.log(`⏳ 出口合规声明状态 ${state || 'UNKNOWN'}，10 秒后重查（${attempt}/6）…`)
+      await sleep(10_000)
+    } else {
+      console.warn(`⚠️ 声明状态仍为 ${state || 'UNKNOWN'}，改用 build 豁免标记兜底`)
     }
-    console.log(`⏳ 出口合规声明状态 ${state || 'UNKNOWN'}，10 秒后重查（${attempt}/18）…`)
-    await sleep(10_000)
   }
 
   await apiRequest(
@@ -452,6 +468,18 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
     },
   )
   console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}）`)
+
+  // 网页问卷「不使用加密」的等价动作：直接给 build 打非豁免加密=false 标记
+  try {
+    await apiRequest(token, `/builds/${encodeURIComponent(buildId)}`, {
+      method: 'PATCH',
+      body: createBuildExemptionPatchBody({ buildId }),
+    })
+    console.log('✅ 已标记构建仅使用系统加密（usesNonExemptEncryption=false）')
+  } catch (err) {
+    // 个别账号/状态下 Apple 可能拒绝直改，降级告警：外部组投递会再给出明确报错
+    console.warn(`⚠️ 构建豁免标记失败：${err.message}`)
+  }
 }
 
 /**
