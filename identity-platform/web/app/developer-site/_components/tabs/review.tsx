@@ -3,6 +3,7 @@
  * 需修改项目 / 重新提交按钮。被拒绝时必须展示可行动的 review note（不只红色失败）。
  */
 'use client'
+import { TurnstileField } from '../turnstile-field'
 
 import { useState } from 'react'
 import { ClientApiError, submitApp } from '../api'
@@ -108,6 +109,8 @@ export function ReviewTab({ app, me, setApp, reload }: TabProps) {
           ) : (
             '确认信息无误后提交审核：'
           )}
+          {/* #708 人机验证（提交审核属敏感写动作） */}
+          <TurnstileField />
           <button type="button" className="dev-btn dev-btn-primary" disabled={busy} onClick={() => void handleSubmit()}>
             {busy ? '提交中…' : app.status === 'rejected' ? '重新提交审核' : '提交审核'}
           </button>
