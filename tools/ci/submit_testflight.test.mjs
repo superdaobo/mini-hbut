@@ -48,14 +48,16 @@ test('createAppEncryptionDeclarationLookupPath 含 app 过滤与所需字段', (
   assert.match(limited, /limit=50/)
 })
 
-test('createAppEncryptionDeclarationBody 声明「不包含加密算法」', () => {
-  assert.deepEqual(createAppEncryptionDeclarationBody({ appId: 'app-1' }), {
-    data: {
-      type: 'appEncryptionDeclarations',
-      attributes: { usesEncryption: false },
-      relationships: { app: { data: { type: 'apps', id: 'app-1' } } },
-    },
-  })
+test('createAppEncryptionDeclarationBody 声明「不包含加密算法」（Apple 真实 schema）', () => {
+  const body = createAppEncryptionDeclarationBody({ appId: 'app-1' })
+  assert.equal(body.data.type, 'appEncryptionDeclarations')
+  // usesEncryption 是只读派生字段，CREATE 时携带会被 409 拒绝
+  assert.equal('usesEncryption' in body.data.attributes, false)
+  assert.equal(body.data.attributes.containsProprietaryCryptography, false)
+  assert.equal(body.data.attributes.containsThirdPartyCryptography, false)
+  assert.ok(body.data.attributes.appDescription.length > 0)
+  assert.equal(body.data.attributes.availableOnFrenchStore, true)
+  assert.deepEqual(body.data.relationships.app.data, { type: 'apps', id: 'app-1' })
 })
 
 test('createBetaGroupsLookupPath 过滤 App 并携带内外部标记字段', () => {
