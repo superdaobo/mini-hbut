@@ -13,6 +13,7 @@ import {
   createBetaBuildLocalizationBody,
   createBetaGroupsLookupPath,
   createBuildEncryptionDeclarationLinkageBody,
+  createBuildExemptionPatchBody,
   createJwt,
   createPrereleaseBuildsPath,
   createPrereleaseLookupPath,
@@ -71,6 +72,16 @@ test('createAppEncryptionDeclarationGetPath 只取审批状态字段', () => {
     url.searchParams.get('fields[appEncryptionDeclarations]'),
     'appEncryptionDeclarationState',
   )
+})
+
+test('createBuildExemptionPatchBody 给 build 打「仅系统加密」豁免标记', () => {
+  assert.deepEqual(createBuildExemptionPatchBody({ buildId: 'b-7' }), {
+    data: {
+      type: 'builds',
+      id: 'b-7',
+      attributes: { usesNonExemptEncryption: false },
+    },
+  })
 })
 
 test('createBetaGroupsLookupPath 过滤 App 并携带内外部标记字段', () => {
