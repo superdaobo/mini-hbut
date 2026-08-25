@@ -42,6 +42,8 @@ const enableGradeNotices = ref(true)
 const enablePowerNotices = ref(true)
 const enableClassReminders = ref(true)
 const enableSchoolInboxNotices = ref(true)
+// #715：学习通通知独立渠道开关
+const enableChaoxingInboxNotices = ref(true)
 const bgNativeState = ref(null)
 const classLeadMinutes = ref(30)
 const checkInterval = ref(30)
@@ -119,6 +121,8 @@ const saveSettings = () => {
   localStorage.setItem('hbu_notify_power', enablePowerNotices.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_class', enableClassReminders.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_school_inbox', enableSchoolInboxNotices.value ? 'true' : 'false')
+  // #715：学习通通知独立渠道开关落盘
+  localStorage.setItem('hbu_notify_chaoxing_inbox', enableChaoxingInboxNotices.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_class_lead_min', String(classLeadMinutes.value))
   localStorage.setItem('hbu_notify_interval', String(checkInterval.value))
   // #706：同步 #609 BackgroundCheckConfig 契约到后台插件。check* 直接映射上方
@@ -158,6 +162,7 @@ const updateSettingsFromStorage = () => {
   enablePowerNotices.value = !!settings.enablePowerNotice
   enableClassReminders.value = !!settings.enableClassReminder
   enableSchoolInboxNotices.value = settings.enableSchoolInbox !== false
+  enableChaoxingInboxNotices.value = settings.enableChaoxingInbox !== false
   classLeadMinutes.value = [5, 10, 15, 20, 30, 45, 60].includes(Number(settings.classLeadMinutes))
     ? Number(settings.classLeadMinutes)
     : 30
@@ -214,6 +219,8 @@ const formatNotifyExamTime = (timeStr) => {
 
 const classSummary = computed(() => snapshot.value?.classReminder || {})
 const schoolInboxSummary = computed(() => snapshot.value?.schoolInbox || {})
+// #715：学习通通知独立渠道摘要
+const chaoxingInboxSummary = computed(() => snapshot.value?.chaoxingInbox || {})
 const powerSummary = computed(() => snapshot.value?.electricity || {})
 
 const powerQuantityText = computed(() => {
@@ -324,7 +331,8 @@ const orderedInfoCards = computed(() => {
     electricity: { key: 'electricity' },
     grades: { key: 'grades' },
     exams: { key: 'exams' },
-    school_inbox: { key: 'school_inbox' }
+    school_inbox: { key: 'school_inbox' },
+    chaoxing_inbox: { key: 'chaoxing_inbox' }
   }
   return notificationCardsOrder.value
     .map((key) => cardMap[key])
@@ -349,7 +357,8 @@ const getNotificationCollisionPalette = (activeKey, targetKey = '') => {
     electricity: ['#22c55e', '#86efac', '#bef264'],
     grades: ['#f59e0b', '#fcd34d', '#fdba74'],
     exams: ['#ef4444', '#fda4af', '#fbbf24'],
-    school_inbox: ['#6366f1', '#a5b4fc', '#c4b5fd']
+    school_inbox: ['#6366f1', '#a5b4fc', '#c4b5fd'],
+    chaoxing_inbox: ['#14b8a6', '#5eead4', '#99f6e4']
   }
   return resolveCollisionPalette(paletteMap[activeKey], paletteMap[targetKey], '#8fd6ff')
 }
@@ -988,6 +997,23 @@ watch(
                 <p class="notify-type-desc">教务/学习通消息中心新通知</p>
               </div>
             </div>
+
+            <!-- #715 学习通通知（独立渠道，固定学习通收件箱源） -->
+            <div v-if="card.key === 'chaoxing_inbox'" class="notify-type-card">
+              <div class="notify-type-top">
+                <div class="notify-type-icon icon-teal">
+                  <span class="material-symbols-outlined fill">mark_email_unread</span>
+                </div>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" v-model="enableChaoxingInboxNotices" @change="handleOtherSettingChange">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="notify-type-body">
+                <h4 class="notify-type-name">学习通通知</h4>
+                <p class="notify-type-desc">学习通收件箱新消息，与学校消息分开提醒</p>
+              </div>
+            </div>
           </SortableSurface>
           <LayoutCollisionFxLayer :particles="notificationCollisionFx" />
         </div>
@@ -1137,6 +1163,27 @@ watch(
                 · 本次新增 {{ schoolInboxSummary?.triggered || 0 }} 条
               </p>
               <p v-if="schoolInboxSummary?.error" class="notify-msg-text warn">{{ schoolInboxSummary.error }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- #715 学习通通知 Card（独立渠道） -->
+        <div v-if="chaoxingInboxSummary?.enabled" class="notify-message-card">
+          <div class="notify-msg-left">
+            <div class="notify-msg-icon icon-teal">
+              <span class="material-symbols-outlined fill">mark_email_unread</span>
+            </div>
+            <div class="notify-msg-body">
+              <div class="notify-msg-head">
+                <h4 class="notify-msg-title" :class="{ bold: chaoxingInboxSummary?.triggered > 0 }">
+                  {{ chaoxingInboxSummary?.triggered > 0 ? '新学习通通知' : '学习通通知' }}
+                </h4>
+                <span class="notify-msg-time">{{ lastCheckText }}</span>
+              </div>
+              <p class="notify-msg-text">
+                共 {{ chaoxingInboxSummary?.total || 0 }} 条 · 本次新增 {{ chaoxingInboxSummary?.triggered || 0 }} 条
+              </p>
+              <p v-if="chaoxingInboxSummary?.error" class="notify-msg-text warn">{{ chaoxingInboxSummary.error }}</p>
             </div>
           </div>
         </div>

@@ -7,7 +7,9 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      // 与 vite.config 对齐：项目无 axios npm 包，统一走自研适配器（#715）
+      axios: resolve(__dirname, 'src/utils/axios_adapter.js')
     }
   },
   test: {

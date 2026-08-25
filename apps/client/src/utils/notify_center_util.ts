@@ -24,7 +24,8 @@ export const STORAGE_KEYS = {
   classLeadMinutes: 'hbu_notify_class_lead_min',
   interval: 'hbu_notify_interval',
   dormSelection: 'last_dorm_selection',
-  schoolInbox: 'hbu_notify_school_inbox'
+  schoolInbox: 'hbu_notify_school_inbox',
+  chaoxingInbox: 'hbu_notify_chaoxing_inbox'
 }
 
 export const CLASS_PERIOD_TIME_MAP: Record<number, { start: string; end: string }> = {
@@ -138,6 +139,7 @@ export interface NotifySettingsFull extends Record<string, unknown> {
   enablePowerNotice: boolean
   enableClassReminder: boolean
   enableSchoolInbox: boolean
+  enableChaoxingInbox: boolean
   classLeadMinutes: number
   intervalMinutes: number
 }
@@ -155,6 +157,7 @@ export const getNotifySettings = (): NotifySettingsFull => {
     enablePowerNotice: readBool(STORAGE_KEYS.power, true),
     enableClassReminder: readBool(STORAGE_KEYS.class, true),
     enableSchoolInbox: readBool(STORAGE_KEYS.schoolInbox, true),
+    enableChaoxingInbox: readBool(STORAGE_KEYS.chaoxingInbox, true),
     classLeadMinutes,
     intervalMinutes: interval
   }
@@ -308,6 +311,9 @@ export const classReminderStateKeyFor = (studentId: string): string =>
   `hbu_notify_class_state:${studentId}`
 export const schoolInboxStateKeyFor = (studentId: string): string =>
   `hbu_notify_school_inbox_state:${studentId}`
+// #715：学习通通知独立去重快照（与学校消息互不串扰）
+export const chaoxingInboxStateKeyFor = (studentId: string): string =>
+  `hbu_notify_chaoxing_inbox_state:${studentId}`
 
 export const resolveLoginMode = (): string => toSafeText(localStorage.getItem('hbu_login_method'))
 

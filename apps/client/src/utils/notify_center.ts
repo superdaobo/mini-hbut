@@ -29,6 +29,7 @@ import {
   checkElectricity,
   checkClassReminder,
   checkSchoolInbox,
+  checkChaoxingInbox,
   sendQueuedNotifications,
   syncWidgetData
 } from './notify_center_checks.js'
@@ -38,6 +39,7 @@ export interface NotificationSettings extends Record<string, unknown> {
   enableBackground?: boolean
   enableClassReminder?: boolean
   enableSchoolInbox?: boolean
+  enableChaoxingInbox?: boolean
   intervalMinutes?: number
 }
 
@@ -149,6 +151,12 @@ export const runNotificationCheck = async (
         total: 0,
         triggered: 0
       },
+      chaoxingInbox: {
+        success: false,
+        enabled: !!settings.enableChaoxingInbox,
+        total: 0,
+        triggered: 0
+      },
       notifications: { queued: 0, sent: 0, items: [] }
     }
   }
@@ -166,9 +174,11 @@ export const runNotificationCheck = async (
     checkExams(sid, settings, queue),
     checkElectricity(sid, settings, queue, launchCheck)
   ])
-  const [classReminder, schoolInbox] = await Promise.all([
+  const [classReminder, schoolInbox, chaoxingInbox] = await Promise.all([
     checkClassReminder(sid, settings, queue, schedule),
-    checkSchoolInbox(sid, settings, queue)
+    checkSchoolInbox(sid, settings, queue),
+    // #715：学习通通知独立渠道，与学校消息（教务）并行检测
+    checkChaoxingInbox(sid, settings, queue)
   ])
 
   // #610：后台静默课表刷新成功后触发系统预调度 reconcile（幂等，diff 无变化时零系统调用）
@@ -205,6 +215,7 @@ export const runNotificationCheck = async (
     exams,
     classReminder,
     schoolInbox,
+    chaoxingInbox,
     electricity,
     notifications: {
       queued: queue.length,
