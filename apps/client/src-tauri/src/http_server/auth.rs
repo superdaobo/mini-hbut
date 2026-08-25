@@ -190,12 +190,18 @@ pub(crate) enum BridgeRoutePolicy {
     PublicHealth,
     PublicEmbed,
     Protected,
+    /// `/local/*` 只读数据端点族（#698）：传输层仅拦不可信 Origin，
+    /// 真正鉴权由 handler 内 `ensure_local_data_auth` 校验本机 Agent 令牌。
+    LocalData,
     DebugOnly,
 }
 
 pub(crate) fn bridge_route_policy(path: &str) -> BridgeRoutePolicy {
     if path == "/health" {
         BridgeRoutePolicy::PublicHealth
+    } else if path.starts_with("/local/") {
+        // #698：本机只读学业数据端点族，独立于 WebView/Bridge 令牌体系
+        BridgeRoutePolicy::LocalData
     } else if path.starts_with("/exports/")
         || path.starts_with("/module_bundle/content/")
         || path == "/school-website"
@@ -303,6 +309,79 @@ pub(crate) fn bridge_auth_error(
 }
 
 // ────────────────────────────────────────────────────────────
+/// `/local/*` 端点族的机器可读错误码（#698 契约固定形状：`{"error": CODE}`）。
+///
+/// 该端点族面向外部本机 Agent，错误体不使用桥内 ApiResponse 包装，
+/// 保证消费者按稳定错误码解析。
+pub(crate) fn local_data_error(
+    status: StatusCode,
+    code: &str,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (status, Json(serde_json::json!({ "error": code })))
+}
+
+/// 401 + `{"error":"LOCAL_TOKEN_INVALID"}`：缺头 / 格式错 / 不匹配。
+pub(crate) fn local_token_invalid_error() -> (StatusCode, Json<serde_json::Value>) {
+    local_data_error(StatusCode::UNAUTHORIZED, "LOCAL_TOKEN_INVALID")
+}
+
+/// 401 + `{"error":"NOT_LOGGED_IN"}`：未登录学校账号，无本地学业数据可用。
+pub(crate) fn not_logged_in_error() -> (StatusCode, Json<serde_json::Value>) {
+    local_data_error(StatusCode::UNAUTHORIZED, "NOT_LOGGED_IN")
+}
+
+// ────────────────────────────────────────────────────────────
+/// 提取 `Authorization: LocalToken <hex>` 头中的令牌
+/// （scheme 按 HTTP 规范大小写不敏感；Bearer 或缺失返回 None）。
+pub(crate) fn extract_local_agent_token(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get("authorization")?.to_str().ok()?.trim();
+    let (scheme, value) = raw.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("localtoken") {
+        return None;
+    }
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+// ────────────────────────────────────────────────────────────
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LocalTokenDecision {
+    Valid,
+    Invalid,
+}
+
+/// 本机令牌纯校验逻辑（expected 为 None 表示令牌未加载，一律拒绝 fail closed）。
+pub(crate) fn check_local_agent_token(
+    provided: Option<&str>,
+    expected: Option<&str>,
+) -> LocalTokenDecision {
+    match (provided, expected) {
+        (Some(provided), Some(expected)) if tokens_equal(provided, expected) => {
+            LocalTokenDecision::Valid
+        }
+        _ => LocalTokenDecision::Invalid,
+    }
+}
+
+// ────────────────────────────────────────────────────────────
+/// `/local/*` 只读数据端点族的本机令牌门禁（三个端点共用的守卫函数）。
+///
+/// 通过 → Ok；缺头 / 格式错 / 与启动时加载的本机令牌不匹配 →
+/// 401 `{"error":"LOCAL_TOKEN_INVALID"}`。
+pub(crate) fn ensure_local_data_auth(
+    headers: &HeaderMap,
+    state: &HttpState,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let provided = extract_local_agent_token(headers);
+    let expected = state.local_agent_token.as_deref();
+    if check_local_agent_token(provided.as_deref(), expected) == LocalTokenDecision::Valid {
+        Ok(())
+    } else {
+        Err(local_token_invalid_error())
+    }
+}
+
+// ────────────────────────────────────────────────────────────
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BridgeAccessDecision {
     Allow,
@@ -328,6 +407,16 @@ pub(crate) fn decide_bridge_access(
 
     if has_explicit_untrusted_origin(headers) {
         return BridgeAccessDecision::ForbiddenOrigin;
+    }
+
+    // #698：LocalData 传输层仅放行 GET/HEAD（端点严格只读），
+    // 本机令牌校验由 handler 内 ensure_local_data_auth 完成。
+    if policy == BridgeRoutePolicy::LocalData {
+        return if matches!(*method, Method::GET | Method::HEAD) {
+            BridgeAccessDecision::Allow
+        } else {
+            BridgeAccessDecision::Unauthorized
+        };
     }
 
     if policy == BridgeRoutePolicy::PublicEmbed && matches!(*method, Method::GET | Method::HEAD) {

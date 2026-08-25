@@ -16,6 +16,7 @@
 //! - `routes`：按领域拆分的 Router 与 Handler
 
 mod auth;
+mod local_token;
 mod response;
 mod routes;
 mod state;
@@ -158,6 +159,8 @@ pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
         client,
         local_api_key: load_local_api_public_key(),
         bridge_token: generate_bridge_session_token(),
+        // #698：启动时确保本机 Agent 令牌存在（缺失则生成写入，存在则复用）
+        local_agent_token: local_token::ensure_local_agent_token(),
         app,
     };
     let gen = life
@@ -286,7 +289,8 @@ fn build_router() -> Router<HttpState> {
         .merge(routes::online_learning::router())
         .merge(routes::system::router())
         .merge(routes::proxy::router())
-        .merge(routes::ai::router());
+        .merge(routes::ai::router())
+        .merge(routes::local_data::router());
 
     #[cfg(debug_assertions)]
     let app = app
@@ -442,9 +446,62 @@ mod ensure_http_bridge_tests {
             bridge_route_policy("/course_selection/select"),
             BridgeRoutePolicy::Protected
         );
+        // #698：本机只读数据端点族使用独立 LocalData 策略
+        assert_eq!(
+            bridge_route_policy("/local/profile"),
+            BridgeRoutePolicy::LocalData
+        );
+        assert_eq!(
+            bridge_route_policy("/local/grades"),
+            BridgeRoutePolicy::LocalData
+        );
+        assert_eq!(
+            bridge_route_policy("/local/timetable"),
+            BridgeRoutePolicy::LocalData
+        );
         assert_eq!(
             bridge_route_policy("/debug/state"),
             BridgeRoutePolicy::DebugOnly
+        );
+    }
+
+    #[test]
+    fn local_data_routes_allow_get_without_bridge_context_but_reject_other_methods() {
+        // 外部本机 Agent 无 WebView Origin / Bridge 令牌：GET 由 handler 内
+        // 本机令牌门禁兜底；非只读方法在传输层直接拒绝。
+        let empty = HeaderMap::new();
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::LocalData,
+                &Method::GET,
+                &empty,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::Allow
+        );
+
+        for method in [Method::POST, Method::PUT, Method::DELETE] {
+            assert_eq!(
+                decide_bridge_access(BridgeRoutePolicy::LocalData, &method, &empty, false, true,),
+                BridgeAccessDecision::Unauthorized
+            );
+        }
+
+        let mut hostile = HeaderMap::new();
+        hostile.insert(
+            "origin",
+            HeaderValue::from_static("https://attacker.example"),
+        );
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::LocalData,
+                &Method::GET,
+                &hostile,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::ForbiddenOrigin
         );
     }
 
