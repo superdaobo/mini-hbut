@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import {
   buildWhatsNew,
   createAppEncryptionDeclarationBody,
+  createAppEncryptionDeclarationGetPath,
   createAppEncryptionDeclarationLookupPath,
   createBetaBuildLocalizationBody,
   createBetaGroupsLookupPath,
@@ -59,6 +60,17 @@ test('createAppEncryptionDeclarationBody 声明「无自研加密」（Apple 真
   assert.equal(body.data.attributes.availableOnFrenchStore, true)
   assert.ok(body.data.attributes.appDescription.length > 0)
   assert.deepEqual(body.data.relationships.app.data, { type: 'apps', id: 'app-1' })
+})
+
+test('createAppEncryptionDeclarationGetPath 只取审批状态字段', () => {
+  const url = new URL(
+    `https://example.test${createAppEncryptionDeclarationGetPath('decl/9')}`,
+  )
+  assert.equal(url.pathname, '/appEncryptionDeclarations/decl%2F9')
+  assert.equal(
+    url.searchParams.get('fields[appEncryptionDeclarations]'),
+    'appEncryptionDeclarationState',
+  )
 })
 
 test('createBetaGroupsLookupPath 过滤 App 并携带内外部标记字段', () => {

@@ -187,6 +187,14 @@ export function createAppEncryptionDeclarationLookupPath({ appId, limit = 200 })
   return `/appEncryptionDeclarations?${qs}`
 }
 
+/** 查询单个出口合规声明的详情（用于轮询审批状态）。 */
+export function createAppEncryptionDeclarationGetPath(declarationId) {
+  const qs = new URLSearchParams({
+    'fields[appEncryptionDeclarations]': 'appEncryptionDeclarationState',
+  })
+  return `/appEncryptionDeclarations/${encodeURIComponent(declarationId)}?${qs}`
+}
+
 /**
  * 创建「不包含任何（自研）加密算法」的出口合规声明请求体。
  * 对应 TestFlight 网页上 Export Compliance 问卷回答 No（标准免税声明）。
@@ -417,6 +425,24 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
     console.warn('⚠️ 出口合规声明创建/查找失败，跳过关联（不影响测试组投递）')
     return
   }
+
+  // Apple 对标准豁免声明自动审批：新建声明初始为 CREATED，需等它进入
+  // APPROVED 后 build 才满足「可分配外部组」状态（实测 2026-08-25 run 32796747072）
+  for (let attempt = 1; attempt <= 18; attempt++) {
+    const detail = await apiRequest(token, createAppEncryptionDeclarationGetPath(declarationId))
+    const state = detail?.data?.attributes?.appEncryptionDeclarationState
+    if (state === 'APPROVED') {
+      console.log(`✅ 出口合规声明已生效（APPROVED，第 ${attempt} 次查询）`)
+      break
+    }
+    if (attempt === 18) {
+      console.warn(`⚠️ 声明状态仍为 ${state || 'UNKNOWN'}（等待超时），仍将尝试关联`)
+      break
+    }
+    console.log(`⏳ 出口合规声明状态 ${state || 'UNKNOWN'}，10 秒后重查（${attempt}/18）…`)
+    await sleep(10_000)
+  }
+
   await apiRequest(
     token,
     `/builds/${encodeURIComponent(buildId)}/relationships/appEncryptionDeclaration`,
@@ -425,7 +451,7 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
       body: createBuildEncryptionDeclarationLinkageBody(declarationId),
     },
   )
-  console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}，usesEncryption=false）`)
+  console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}）`)
 }
 
 /**
