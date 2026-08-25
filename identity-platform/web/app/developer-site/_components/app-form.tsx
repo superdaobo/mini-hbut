@@ -8,6 +8,7 @@
  * 创建成功 → 先落 Draft；client_secret 一次性展示（仅此一次，刷新即失）。
  */
 'use client'
+import { TurnstileField } from './turnstile-field'
 
 import { useState } from 'react'
 import type { DeveloperClientType, RedirectUriKind } from '@/lib/developer/contract'
@@ -365,6 +366,8 @@ export function AppForm() {
       </div>
       )}
 
+      {/* #708 人机验证（站点钥匙未配置时不渲染） */}
+      <TurnstileField />
       <button type="button" className="dev-btn dev-btn-primary" disabled={busy} onClick={() => void handleSubmit()}>
         {busy ? '提交中…' : '创建应用（草稿）'}
       </button>
