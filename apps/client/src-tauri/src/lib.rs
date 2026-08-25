@@ -463,6 +463,8 @@ pub fn run() {
             modules::school_website_embed::school_website_embed_open,
             modules::school_website_embed::school_website_embed_resize,
             modules::school_website_embed::school_website_embed_close,
+            // #719：冷启动校内证书探测（独立严格校验客户端，结果供「我的」页兼容模式提示）
+            modules::cert_probe::probe_school_cert_status,
             // #452：长后台回前台 ensure/respawn loopback HTTP Bridge
             #[cfg(feature = "bridge")]
             http_server::ensure_http_bridge,

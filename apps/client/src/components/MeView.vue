@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick, watch, computed } from 'vue'
+import { ref, nextTick, watch, computed, onMounted } from 'vue'
 import { openExternal } from '../utils/external_link'
 import LoginV3 from './LoginV3.vue'
 import {
@@ -13,6 +13,7 @@ import {
 } from '../config/app_store_policy'
 import { isTestAccountSession, clearTestAccountSession } from '../utils/test_account.js'
 import { showToast } from '../utils/toast'
+import { useCertProbeBanner } from '../composables/certProbe'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -30,6 +31,13 @@ watch(
     }
   }
 )
+
+// #719：冷启动校内证书探测。挂载即触发一轮探测；composable 内部用模块级
+// Promise 缓存保证 MeView 反复 remount 时整个应用会话只真正 invoke 一次。
+const { certIssues, ensureCertProbe } = useCertProbeBanner()
+onMounted(() => {
+  ensureCertProbe()
+})
 
 const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig', 'openSettings'])
 
@@ -231,6 +239,13 @@ const handleShowLegal = async (tab) => {
         <div class="status-text">
           <span class="status-title">登录状态</span>
           <span class="status-subtitle">静默登录已开启</span>
+          <!-- #719：冷启动校内证书探测结果。仅 cert-error 的域逐个显示；
+               ok / 网络故障不渲染任何内容（v-for 空数组即无节点）。 -->
+          <span
+            v-for="msg in certIssues"
+            :key="msg"
+            class="cert-probe-warning"
+          >{{ msg }}</span>
         </div>
       </div>
       <span class="status-dot"></span>
@@ -662,6 +677,18 @@ const handleShowLegal = async (tab) => {
 .status-subtitle {
   font-size: 13px;
   color: #6b7280;
+}
+
+/* #719 校内证书异常黄色小字提示：
+   亮色用 amber-700（白底可读），暗色经 html.dark 提亮为 amber-400 */
+.cert-probe-warning {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b45309;
+}
+
+:global(html.dark) .cert-probe-warning {
+  color: #fbbf24;
 }
 
 .status-dot {
