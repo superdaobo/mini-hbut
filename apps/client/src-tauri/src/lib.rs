@@ -95,6 +95,8 @@ pub fn run() {
     // #671 线上可观测性：文件日志（LogDir）+ stdout（dev 可见）。release 版 stderr 被
     // windows_subsystem 丢弃，关键链路（identity / credential_store）必须有落盘日志。
     // 级别策略：debug 全量 Debug；release 默认 Warn，identity/credential_store 模块放宽 Info。
+    // 第三方 keyring 每次 Entry::new/get_password 都打 DEBUG（#721），dev 启动期
+    // 信封主密钥批量读取会连发几十条刷屏；降为 Warn 只保留异常告警。
     // 单文件 1MB，保留最近 3 份（KeepSome）。
     let builder = builder.plugin(
         tauri_plugin_log::Builder::new()
@@ -105,6 +107,7 @@ pub fn run() {
             })
             .level_for("hbut_helper::identity", log::LevelFilter::Info)
             .level_for("hbut_helper::credential_store", log::LevelFilter::Info)
+            .level_for("keyring", log::LevelFilter::Warn)
             .max_file_size(1_000_000)
             .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
             .targets([
