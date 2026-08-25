@@ -1,16 +1,25 @@
 /**
  * Scope 管理与敏感 scope 审核字段（纯函数）。
  *
- * V1 白名单（#617/#620 对齐，禁止本 Issue 擅自增加学业 Resource scope）：
- *   openid           必选、基础登录、自动选择不可移除；
- *   profile          基础资料，普通 scope；
- *   student.identity 敏感：必须填写使用理由、隐私政策、联系方式；管理员人工批准；
- *   offline_access   敏感：长期访问（Refresh Token），必须填写用途；管理员批准。
+ * 白名单（#617/#620 初版；#697 扩展学习数据域，敏感项均需理由+人工批准）：
+ *   openid                  必选、基础登录、自动选择不可移除；
+ *   profile                 基础资料，普通 scope；
+ *   student.identity        敏感：学校身份声明；必须使用理由+隐私政策+人工批准；
+ *   offline_access          敏感：长期访问（Refresh Token）；人工批准；
+ *   student.grades.read     敏感：读取全部成绩单快照（授权时由 App 加密上传，≤7 天）；
+ *   student.timetable.read  敏感：读取完整课表快照（同上）。
  */
 
 import type { DeveloperClientType } from './contract'
 
-export const SCOPE_WHITELIST = ['openid', 'profile', 'student.identity', 'offline_access'] as const
+export const SCOPE_WHITELIST = [
+  'openid',
+  'profile',
+  'student.identity',
+  'offline_access',
+  'student.grades.read',
+  'student.timetable.read',
+] as const
 
 export type ScopeId = (typeof SCOPE_WHITELIST)[number]
 
@@ -50,6 +59,26 @@ export const SCOPE_META: Readonly<Record<ScopeId, ScopeMeta>> = {
     description:
       '学校身份声明（学号关联信息）。敏感 scope：保证级别为 verification_method=mini_hbut_app，' +
       '即 Mini-HBUT App 本地验证，不是学校官方 OIDC 背书；必须填写使用理由与隐私政策，管理员人工批准。',
+    risk: 'sensitive',
+    mandatory: false,
+    requiresJustification: true,
+  },
+  'student.grades.read': {
+    id: 'student.grades.read',
+    label: 'student.grades.read（成绩单读取）',
+    description:
+      '读取你的全部成绩单（含各学期成绩与绩点）。数据在你授权时由 Mini-HBUT App 加密上传为快照，' +
+      '有效期最长 7 天，过期需重新授权。敏感：必须填写使用理由与隐私政策，管理员人工批准。',
+    risk: 'sensitive',
+    mandatory: false,
+    requiresJustification: true,
+  },
+  'student.timetable.read': {
+    id: 'student.timetable.read',
+    label: 'student.timetable.read（课表读取）',
+    description:
+      '读取你的完整课表。数据在你授权时由 Mini-HBUT App 加密上传为快照，有效期最长 7 天，' +
+      '过期需重新授权。敏感：必须填写使用理由与隐私政策，管理员人工批准。',
     risk: 'sensitive',
     mandatory: false,
     requiresJustification: true,

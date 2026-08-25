@@ -17,11 +17,17 @@ export interface TabProps {
 
 /** 可编辑状态提示（draft/rejected 之外锁定） */
 export function editLocked(app: DeveloperAppDetailDTO): boolean {
-  return app.status !== 'draft' && app.status !== 'rejected'
+  // #692 后续：元数据编辑覆盖 draft/rejected/approved/active；
+  // 仅审核中（会使内容寻址审核失效）、suspended、revoked 锁定。
+  return (
+    app.status === 'pending_review' || app.status === 'suspended' || app.status === 'revoked'
+  )
 }
 
 export function editLockedHint(app: DeveloperAppDetailDTO): string {
-  return editLocked(app)
-    ? `当前状态（${app.status}）下信息锁定：如需修改，请等待审核结果或先撤销后重建。`
-    : ''
+  if (!editLocked(app)) return ''
+  if (app.status === 'pending_review') {
+    return '当前状态（审核中）下信息锁定：编辑会使本次审核失效。请等待审核结果。'
+  }
+  return `当前状态（${app.status}）下信息锁定：请先恢复可用后再编辑。`
 }

@@ -45,7 +45,10 @@ function editEntryFor(status: string): { enabled: boolean; tooltip: string } {
       return { enabled: false, tooltip: '审核中，请耐心等待审核结果' }
     case 'approved':
     case 'active':
-      return { enabled: false, tooltip: '已上架应用暂不支持在线修改；重大变更可创建新应用或联系管理员' }
+      return {
+        enabled: true,
+        tooltip: '可修改名称、简介、主页与隐私政策链接；回调地址与权限范围变更暂不支持在线操作',
+      }
     default:
       // suspended / revoked 及未知状态
       return { enabled: false, tooltip: '当前状态不可修改' }
