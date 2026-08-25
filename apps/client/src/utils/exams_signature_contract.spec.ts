@@ -5,8 +5,8 @@
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { buildCrossEndExamSignature, readBgFeatureEnabled } from './exams_signature'
+import { describe, expect, it } from 'vitest'
+import { buildCrossEndExamSignature } from './exams_signature'
 import { buildLedgerEventKey } from './notification_event_ledger'
 
 const fixturePath = fileURLToPath(
@@ -74,17 +74,5 @@ describe('#615 跨端 ExamSignatureV1 复刻（contract-fixtures 单一事实源
     expect(buildLedgerEventKey('exams', signature)).toBe(`exams:${signature}`)
   })
 })
-
-describe('#615 per-feature 开关读取', () => {
-  beforeEach(() => {
-    if (typeof localStorage !== 'undefined') localStorage.clear()
-  })
-
-  it('缺失时默认开启；显式 false 关闭', () => {
-    expect(readBgFeatureEnabled('hbu_bg_feature_exams')).toBe(true)
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('hbu_bg_feature_exams', 'false')
-      expect(readBgFeatureEnabled('hbu_bg_feature_exams')).toBe(false)
-    }
-  })
-})
+// #706：per-feature 开关（readBgFeatureEnabled/BG_FEATURE_KEY_*）已随独立开关体系移除，
+// 检测控制统一收敛至通知类型开关；原读取测试一并删除。
