@@ -356,7 +356,9 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       if (!app) {
         throw new DeveloperApiError(404, 'not_found')
       }
-      if (app.status !== 'draft' && app.status !== 'rejected') {
+      // #692 后续（用户裁决）：元数据字段在 approved/active 亦可修改；
+      // pending_review 编辑会使内容寻址审核失效，suspended/revoked 维持锁定。
+      if (app.status === 'pending_review' || app.status === 'suspended' || app.status === 'revoked') {
         throw new DeveloperApiError(409, 'invalid_state')
       }
       const body = ((await readJsonBody(ctx)) ?? {}) as Record<string, unknown>
@@ -368,6 +370,15 @@ export function registerDeveloperRoutes(router: Router, deps: DeveloperApiDeps):
       if ('contact' in body) patch.contact = body.contact as string | null
       await updateApplication(sql, app.client_id, patch)
       const updated = await findOwnedApp(sql, dev.id, ctx.params.id as string)
+      await insertAuditEvent(sql, {
+        eventType: 'developer.app_updated',
+        actorType: 'developer',
+        actorId: dev.id,
+        targetType: 'oauth_application',
+        targetId: String(ctx.params.id),
+        result: 'success',
+        metadata: { client_id: app.client_id },
+      })
       ctx.status = 200
       ctx.body = { app: updated ? await toDetail(sql, updated, secretKek) : null }
     } catch (err) {
