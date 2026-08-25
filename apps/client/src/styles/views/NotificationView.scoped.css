@@ -269,34 +269,11 @@
   outline: none;
 }
 
-/* #615：per-feature 后台检测开关（成绩/考试变化/学校消息） */
+/* #615/#706：后台检测状态展示（分项开关行样式已随独立开关移除） */
 .sync-features-block {
   margin-top: 0.75rem;
   border-top: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
   padding-top: 0.5rem;
-}
-
-.sync-feature-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.5rem 0 0.5rem 2rem;
-}
-
-.sync-feature-label {
-  font-size: 14px;
-  color: var(--md-sys-color-on-surface, #171c1f);
-}
-
-.sync-feature-status {
-  flex: 1;
-  text-align: right;
-  margin-right: 0.5rem;
-  font-size: 12px;
-  color: var(--md-sys-color-outline, #727785);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sync-feature-hint {

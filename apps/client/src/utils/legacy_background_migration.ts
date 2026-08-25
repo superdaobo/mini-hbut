@@ -13,8 +13,10 @@
  * 1. 仅当新 config 键（hbu_notify_*）尚未设置时，才把旧键值搬迁过去；
  *    新键已存在则一律以新键为准（不覆盖用户新选择）。
  * 2. 迁移完成后删除旧键；重复执行（升级后再启动）因键已删除而自然幂等。
- * 3. `hbu_bg_feature_*`（成绩/考试/学校消息 per-feature 开关）是 #615 新 config，
- *    不属于旧 Capacitor 键，**绝不删除**。
+ * 3. `hbu_bg_feature_*`（成绩/考试/学校消息 per-feature 开关）曾是 #615 新 config；
+ *    #706 已移除该独立开关体系（控制收敛至 hbu_notify_* 类型开关），残留键
+ *    纳入本模块清理。注意：迁移标记已置位的旧安装不会重跑清理，但键已无任何
+ *    代码读取，属惰性数据，无功能影响。
  * 4. 旧原生 Preferences（CapacitorStorage / NSUserDefaults）在正式 Tauri 应用中
  *    不可达（WebView 存储空间不同），且旧插件类已从构建中移除，其残留为惰性数据：
  *    没有任何代码读取，也不会注册任何系统调度，无需也无法从 JS 侧清除；
@@ -53,7 +55,11 @@ const LEGACY_DISCARD_KEYS: readonly string[] = [
   'hbu_bg_api_base',
   'hbu_bg_login_method',
   'hbu_bg_dorm_selection',
-  'hbu_bg_chaoxing_notice_cookie'
+  'hbu_bg_chaoxing_notice_cookie',
+  // #706：per-feature 独立开关已移除，残留键为惰性废弃数据，纳入清理。
+  'hbu_bg_feature_grades',
+  'hbu_bg_feature_exams',
+  'hbu_bg_feature_school'
 ]
 
 /** 迁移完成的落盘标记（额外幂等保险，防止键清除失败时反复尝试）。 */

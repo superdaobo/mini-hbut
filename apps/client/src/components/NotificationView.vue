@@ -42,10 +42,6 @@ const enableGradeNotices = ref(true)
 const enablePowerNotices = ref(true)
 const enableClassReminders = ref(true)
 const enableSchoolInboxNotices = ref(true)
-// #615：per-feature 后台检测开关（成绩/考试变化/学校消息，独立 enable/disable）
-const bgFeatureGrades = ref(true)
-const bgFeatureExams = ref(true)
-const bgFeatureSchool = ref(true)
 const bgNativeState = ref(null)
 const classLeadMinutes = ref(30)
 const checkInterval = ref(30)
@@ -125,18 +121,15 @@ const saveSettings = () => {
   localStorage.setItem('hbu_notify_school_inbox', enableSchoolInboxNotices.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_class_lead_min', String(classLeadMinutes.value))
   localStorage.setItem('hbu_notify_interval', String(checkInterval.value))
-  // #615：per-feature 后台检测开关（成绩/考试变化/学校消息独立 enable/disable）
-  localStorage.setItem('hbu_bg_feature_grades', bgFeatureGrades.value ? 'true' : 'false')
-  localStorage.setItem('hbu_bg_feature_exams', bgFeatureExams.value ? 'true' : 'false')
-  localStorage.setItem('hbu_bg_feature_school', bgFeatureSchool.value ? 'true' : 'false')
-  // #615：同步 #609 BackgroundCheckConfig 契约到后台插件（native business 列表
-  // 由适配器映射：grades/exams/school_inbox），并刷新真实状态展示。
+  // #706：同步 #609 BackgroundCheckConfig 契约到后台插件。check* 直接映射上方
+  // 通知类型开关（唯一控制面，原 per-feature 独立开关已移除）；native business
+  // 列表由适配器映射：grades/exams/school_inbox，并刷新真实状态展示。
   void platformBridge
     .setBackgroundCheckConfig({
       enabled: enableBackground.value,
-      checkGradeChanges: bgFeatureGrades.value,
-      checkExamChanges: bgFeatureExams.value,
-      checkSchoolInbox: bgFeatureSchool.value,
+      checkGradeChanges: enableGradeNotices.value,
+      checkExamChanges: enableExamReminders.value,
+      checkSchoolInbox: enableSchoolInboxNotices.value,
       intervalMinutes: checkInterval.value,
       schemaVersion: 1,
       updatedAt: new Date().toISOString()
@@ -171,19 +164,6 @@ const updateSettingsFromStorage = () => {
   checkInterval.value = [15, 30, 60].includes(settings.intervalMinutes)
     ? settings.intervalMinutes
     : 30
-  // #615：per-feature 开关（默认开启；与前台 notify_center_checks 同一 key）
-  const readFeature = (key, fallback = true) => {
-    try {
-      const raw = localStorage.getItem(key)
-      if (raw === null) return fallback
-      return raw === 'true'
-    } catch {
-      return fallback
-    }
-  }
-  bgFeatureGrades.value = readFeature('hbu_bg_feature_grades')
-  bgFeatureExams.value = readFeature('hbu_bg_feature_exams')
-  bgFeatureSchool.value = readFeature('hbu_bg_feature_school')
 }
 
 const findByValue = (list, value) =>
@@ -286,10 +266,11 @@ const bgFeatureStatusText = computed(() => {
 })
 
 // 学校消息：provider 后台不受支持时显示真实 unsupported/foreground-only 状态，
-// 而不是静默假成功（#615 验收：设置页显示真实状态）
+// 而不是静默假成功（#615 验收：设置页显示真实状态）。#706：开关来源收敛为
+// 上方通知类型开关 enableSchoolInboxNotices（原 per-feature 独立开关已移除）。
 const schoolFeatureStatusText = computed(() => {
   const school = schoolInboxSummary.value
-  const enabled = bgFeatureSchool.value
+  const enabled = enableSchoolInboxNotices.value
   if (!enabled) return '已关闭'
   if (school?.error) return `前台检测：${school.error}`
   if (school?.total != null) {
@@ -303,7 +284,7 @@ const schoolFeatureStatusText = computed(() => {
 
 const examsFeatureStatusText = computed(() => {
   const exams = examSummary.value
-  if (!bgFeatureExams.value) return '已关闭'
+  if (!enableExamReminders.value) return '已关闭'
   if (exams?.total != null) return `共 ${exams.total} 门考试（明日 ${exams.tomorrowCount || 0} 门）`
   return '等待检测'
 })
@@ -743,11 +724,6 @@ const handleOtherSettingChange = () => {
   saveSettings()
 }
 
-// #615：per-feature 开关变化 -> 落盘 + 同步 #609 配置到后台插件
-const handleBgFeatureChange = () => {
-  saveSettings()
-}
-
 const handleIntervalChange = () => {
   if (![15, 30, 60].includes(Number(checkInterval.value))) {
     checkInterval.value = 30
@@ -1045,32 +1021,8 @@ watch(
           </select>
         </div>
 
-        <!-- #615：per-feature 独立开关（成绩变化 / 考试安排变化 / 学校消息） -->
+        <!-- #706：后台检测调度状态展示；分项控制已收敛至上方通知类型开关 -->
         <div class="sync-features-block">
-          <div class="sync-feature-row">
-            <span class="sync-feature-label">成绩变化检测</span>
-            <span class="sync-feature-status">{{ bgNativeState ? (bgFeatureGrades ? '开启' : '关闭') : '' }}</span>
-            <label class="toggle-switch" @click.stop>
-              <input type="checkbox" v-model="bgFeatureGrades" @change="handleBgFeatureChange">
-              <span class="toggle-track"></span>
-            </label>
-          </div>
-          <div class="sync-feature-row">
-            <span class="sync-feature-label">考试安排变化检测</span>
-            <span class="sync-feature-status">{{ examsFeatureStatusText }}</span>
-            <label class="toggle-switch" @click.stop>
-              <input type="checkbox" v-model="bgFeatureExams" @change="handleBgFeatureChange">
-              <span class="toggle-track"></span>
-            </label>
-          </div>
-          <div class="sync-feature-row">
-            <span class="sync-feature-label">学校消息检测</span>
-            <span class="sync-feature-status">{{ schoolFeatureStatusText }}</span>
-            <label class="toggle-switch" @click.stop>
-              <input type="checkbox" v-model="bgFeatureSchool" @change="handleBgFeatureChange">
-              <span class="toggle-track"></span>
-            </label>
-          </div>
           <p class="sync-feature-hint">后台检测状态：{{ bgFeatureStatusText }}</p>
         </div>
       </section>
