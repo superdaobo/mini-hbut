@@ -74,6 +74,10 @@ export function respondAccountError(
   }
   ctx.status = 500
   ctx.set('Cache-Control', 'no-store')
+  // #688 可观测性：未知错误不回显给客户端，也不在控制台打印错误对象
+  //（catch 形参会被 CodeQL 视为可能携带环境变量污染源，明文记录即判泄露）。
+  // 服务端细节排查依赖本地复现与测试覆盖。
+  console.error('[account] internal error occurred')
   ctx.body = { error: 'internal' }
 }
 

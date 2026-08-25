@@ -27,9 +27,18 @@ import { ClientInvalidTransitionError, ClientNotFoundError, InvalidScopeError } 
 import { newUuidV7 } from './ids.js'
 import { newPrefixedRandomId, newRandomSecret } from '../security/random.js'
 import { encryptClientSecret } from '../security/client-secret.js'
+import { deleteByClient } from '../db/repos/data-snapshots.repo.js'
 
-/** V1 scope 白名单（#617：openid/profile/student.identity/offline_access） */
-export const SCOPE_WHITELIST = ['openid', 'profile', 'student.identity', 'offline_access'] as const
+/**
+ * V1 scope 白名单。
+ * #617 初始：openid / profile / student.identity / offline_access；
+ * #699 扩展数据域：student.grades.read / student.timetable.read
+ * （沿用敏感审核：开发者用途说明 ≥10 字 + 管理员人工审批，见 0006 迁移 CHECK）。
+ */
+export const SCOPE_WHITELIST = [
+  'openid', 'profile', 'student.identity', 'offline_access',
+  'student.grades.read', 'student.timetable.read',
+] as const
 
 export type { ApplicationStatus as ClientStatus } from '../db/repos/clients.repo.js'
 
@@ -203,6 +212,9 @@ export async function createClient(
 /**
  * Client 状态迁移（条件更新 + 状态机校验）。
  * revoked 为终态；suspended 可恢复为 active。
+ * revoke 时级联删除该 client 的全部授权数据快照（#700）：
+ * 应用失去用户信任后，其代持的数据快照必须同步消失（DB FK ON DELETE CASCADE
+ * 只兜物理删除行，状态机吊销走这里的显式清理，覆盖 account/developer 两个入口）。
  */
 export async function setClientStatus(
   sql: SqlExecutor,
@@ -225,6 +237,10 @@ export async function setClientStatus(
   const ok = await updateApplication(sql, clientId, patch)
   if (!ok) {
     throw new ClientNotFoundError()
+  }
+  // #700：吊销终态 → 该应用全部数据快照立即失效并物理删除
+  if (to === 'revoked') {
+    await deleteByClient(sql, clientId)
   }
   const updated = await findApplicationByClientId(sql, clientId)
   return updated as OAuthApplicationRow

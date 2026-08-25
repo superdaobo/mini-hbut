@@ -27,7 +27,7 @@ import {
   insertApiKey,
   revokeApiKey,
 } from '../../db/repos/api-keys.repo.js'
-import { generateApiKey } from '../../security/api-key.js'
+import { generateApiKey, resolveApiKeyPepper } from '../../security/api-key.js'
 import { ensureDeveloperForUser, respondAccountError } from './common.js'
 
 export interface DeveloperKeysApiDeps {
@@ -60,9 +60,9 @@ async function resolveSubjectUserId(deps: DeveloperKeysApiDeps, subject: string 
 }
 
 /** prefix 预检重试（8 hex = 2^32 空间；UNIQUE 约束兜底竞态） */
-async function generateUniqueApiKey(sql: SqlExecutor) {
+async function generateUniqueApiKey(sql: SqlExecutor, pepper: string) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const generated = generateApiKey()
+    const generated = generateApiKey(pepper)
     const existing = await findApiKeyByPrefix(sql, generated.prefix)
     if (!existing) {
       return generated
@@ -119,7 +119,7 @@ export function registerDeveloperKeysRoutes(router: Router, deps: DeveloperKeysA
         ctx.body = { error: 'invalid_request', message: 'Key 名称不能为空' }
         return
       }
-      const generated = await generateUniqueApiKey(sql)
+      const generated = await generateUniqueApiKey(sql, resolveApiKeyPepper(deps.env))
       const id = `ak_${newUuidV7()}`
       await insertApiKey(sql, {
         id,

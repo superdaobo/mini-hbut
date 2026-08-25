@@ -36,8 +36,11 @@ import {
   toProviderJwks,
 } from './keys.js'
 
-/** V1 scope 白名单（#617 初始 Scope，与 domain/clients.ts SCOPE_WHITELIST 一致） */
-export const OIDC_SCOPES = ['openid', 'profile', 'student.identity', 'offline_access'] as const
+/** V1 scope 白名单（#617 初始 + #699 数据域扩展，与 domain/clients.ts SCOPE_WHITELIST 一致） */
+export const OIDC_SCOPES = [
+  'openid', 'profile', 'student.identity', 'offline_access',
+  'student.grades.read', 'student.timetable.read',
+] as const
 
 /**
  * scope → claims 映射（#620 Claims 章节；collectClaims 会把新 scope 注册进 provider）。
@@ -62,6 +65,9 @@ export const OIDC_CLAIMS = {
     'hbut_verification_method',
     'hbut_verified_at',
   ],
+  // #700 数据域 scope → 快照注入 claim（只在 userinfo 出现，绝不进 ID Token）
+  'student.grades.read': ['hbut_grades'],
+  'student.timetable.read': ['hbut_timetable'],
 }
 
 export interface IdentityProviderDeps {
