@@ -47,13 +47,21 @@ export interface GeneratedApiKey {
 }
 
 /**
- * 存储哈希的 pepper：复用 KEK 环境变量派生，避免静态常量。
- * - production 缺失/非法 → fail closed（与 client-secret 同策略）；
- * - 非生产回退开发常量并告警（便于本地/测试跑通）。
+ * 存储哈希 pepper 的解析来源：
+ *   1) 注入 env 的 IDENTITY_CLIENT_SECRET_KEK（测试/装配优先，如 TEST_KEK）；
+ *   2) 进程 env 同名变量（生产运行时）；
+ *   3) production 缺失/不足 32 字节 → fail closed 抛错；
+ *      非生产回退开发常量并告警（严禁用于生产）。
  */
-function getPepper(): string {
-  const raw = process.env.IDENTITY_CLIENT_SECRET_KEK
-  if (raw && Buffer.from(raw, 'utf8').length >= 32) return raw
+export function resolveApiKeyPepper(env?: Record<string, string | undefined>): string {
+  const injected = env?.IDENTITY_CLIENT_SECRET_KEK
+  if (injected && Buffer.from(injected, 'utf8').length >= 32) {
+    return injected
+  }
+  const fromProcess = process.env.IDENTITY_CLIENT_SECRET_KEK
+  if (fromProcess && Buffer.from(fromProcess, 'utf8').length >= 32) {
+    return fromProcess
+  }
   if (process.env.IDENTITY_ENVIRONMENT === 'production') {
     throw new Error(
       '[security] IDENTITY_CLIENT_SECRET_KEK 缺失或不足 32 字节，API Key 无法安全存储（fail closed）',
@@ -61,7 +69,7 @@ function getPepper(): string {
   }
   // eslint-disable-next-line no-console
   console.error('[security] 开发/测试环境使用固定 API Key pepper——严禁用于生产')
-  return 'mini-hbut-dev-api-key-pepper'
+  return 'mini-hbut-dev-api-key-pepper::fallback::0000'
 }
 
 /**
@@ -71,19 +79,23 @@ function getPepper(): string {
  * 存储哈希用 HMAC-SHA256(pepper)：对高熵随机 Key 而言防碰撞足够，
  * 引入服务端 pepper 同时满足 CodeQL 对「快速哈希存密码类凭据」的红线（#688）。
  */
-export function generateApiKey(): GeneratedApiKey {
+export function generateApiKey(pepper: string): GeneratedApiKey {
   const hexPrefix = randomBytes(HEX_PREFIX_LENGTH / 2).toString('hex')
   const prefix = `${API_KEY_PREFIX}${hexPrefix}`
   const body = randomBytes(SECRET_BYTES).toString('base64url')
   const full = `${prefix}_${body}`
-  return { full, prefix, hash: hmacSha256Base64url(getPepper(), full) }
+  return { full, prefix, hash: hmacSha256Base64url(pepper, full) }
 }
 
 /**
  * 校验 Bearer 凭据并返回对应 api_keys 行（含 user_id，供后续 owner 解析）。
  * 失败按契约细分三种 DomainError；成功后由调用方负责 touch last_used_at。
  */
-export async function verifyApiKey(sql: SqlExecutor, token: string): Promise<ApiKeyRow> {
+export async function verifyApiKey(
+  sql: SqlExecutor,
+  pepper: string,
+  token: string,
+): Promise<ApiKeyRow> {
   // 1) 形态校验：任何格式偏差一律 invalid（不区分缺头/截断/篡改）
   if (token.length !== API_KEY_FULL_LENGTH || !API_KEY_FULL_RE.test(token)) {
     throw new ApiKeyInvalidError()
@@ -94,7 +106,7 @@ export async function verifyApiKey(sql: SqlExecutor, token: string): Promise<Api
     throw new ApiKeyInvalidError()
   }
   // 2) constant-time 比对 HMAC-SHA256(整串, pepper)；长度相同（43 字符）才进比对
-  const computed = Buffer.from(hmacSha256Base64url(getPepper(), token), 'utf8')
+  const computed = Buffer.from(hmacSha256Base64url(pepper, token), 'utf8')
   const stored = Buffer.from(row.secret_hash, 'utf8')
   if (computed.length !== stored.length || !timingSafeEqual(computed, stored)) {
     throw new ApiKeyInvalidError()
