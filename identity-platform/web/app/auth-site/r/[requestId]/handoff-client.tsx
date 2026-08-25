@@ -40,6 +40,7 @@ import { RequestCard } from '../../_components/request-card'
 import { StatusView } from '../../_components/status-view'
 import { OpenAppButton } from '../../_components/open-app-button'
 import { IdentityQr } from '../../_components/identity-qr'
+import { DataScopeList } from '../../_components/data-scope-list'
 
 export default function HandoffClient({ requestId }: { requestId: string }) {
   const [state, dispatch] = useReducer(handoffReducer, INITIAL_HANDOFF_STATE)
@@ -337,6 +338,9 @@ export default function HandoffClient({ requestId }: { requestId: string }) {
           请求将在 <span className="countdown-value">{formatCountdown(countdownMs)}</span> 后过期
         </span>
       </p>
+      {/* #699：学习数据 scope 逐项明示清单（无数据类 scope 时整块不渲染），
+          放在「打开 App」按钮前，让用户唤起 App 前先看清将共享哪些数据 */}
+      <DataScopeList scopes={detail.scopes} />
       <OpenAppButton href={deepLink} />
       <IdentityQr
         payload={qrPayload}
