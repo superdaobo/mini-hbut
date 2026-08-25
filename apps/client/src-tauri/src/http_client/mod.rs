@@ -399,6 +399,8 @@ impl HbutClient {
         if Self::insecure_tls_allowed() {
             builder = builder.danger_accept_invalid_certs(true);
         }
+        // 说明：insecure_tls_allowed() 恒为 true（#717 统一 TLS 放行策略），
+        // 此处保留条件写法是为了让「是否放行」的判断只存在于该函数一处。
         // 默认走系统 DNS。仅当 MINI_HBUT_DNS_PIN=1 时强制钉死校内 IP
         //（部分旧环境 getaddrinfo 失败才需要；误钉 IP 会导致“像断网一样登不上”）。
         if Self::dns_pin_enabled() {
@@ -435,14 +437,20 @@ impl HbutClient {
             .unwrap_or(false)
     }
 
-    /// Release 默认校验 TLS；Debug 或 `MINI_HBUT_INSECURE_TLS=1` 时允许无效证书。
-    fn insecure_tls_allowed() -> bool {
-        if cfg!(debug_assertions) {
-            return true;
-        }
-        std::env::var("MINI_HBUT_INSECURE_TLS")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
+    /// 全应用 TLS 放行策略的唯一判定入口（#717 收口，恒为 true）。
+    ///
+    /// 安全权衡（产品决策）：
+    /// - 放行即同时跳过三类证书校验：有效期校验、自签/未知 CA 校验、主机名匹配校验，
+    ///   理论上会扩大中间人攻击面；
+    /// - 但学校官方域名（jwxt.hbut.edu.cn 教务系统、e.hbut.edu.cn 门户等）历史上多次出现
+    ///   证书过期/链不完整的情况，若严格校验会导致全校用户在证书异常期间完全无法使用
+    ///   成绩查询、电费、一码通等核心业务；
+    /// - 因此产品决策为：校内官方业务域名在**任何时候都必须可访问**，
+    ///   Release 与 Debug 构建行为保持一致，无条件放行，不再读取环境变量或构建开关。
+    /// - 风险缓解：请求目标 URL 均硬编码为校内官方域名，且 OCR 等第三方通道
+    ///   （`build_ocr_client()`、`identity/*` 等）仍保留严格校验，不受本策略影响。
+    pub(crate) fn insecure_tls_allowed() -> bool {
+        true
     }
 
     fn build_ocr_client() -> Client {
@@ -686,5 +694,22 @@ impl HbutClient {
         } else {
             Some(COOLDOWN - elapsed)
         }
+    }
+}
+
+/// #717：统一 TLS 放行策略的单测。
+#[cfg(test)]
+mod tls_policy_tests {
+    use super::*;
+
+    /// 放行判断必须无条件为 true（Release 与 Debug 一致），
+    /// 且不读取任何环境变量、不看构建开关——防止证书过期时校内业务不可用的问题回归
+    /// （放行策略唯一来源：`HbutClient::insecure_tls_allowed()`）。
+    #[test]
+    fn insecure_tls_allowed_is_unconditionally_true() {
+        assert!(
+            HbutClient::insecure_tls_allowed(),
+            "TLS 放行策略必须恒为 true（#717：校内域名任何时候都必须可访问）"
+        );
     }
 }

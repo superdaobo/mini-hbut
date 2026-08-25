@@ -20,7 +20,7 @@
 ## Security Practices (Mini-HBUT)
 
 - **密码存储**：用户密码保存在操作系统密钥环（`keyring`），SQLite 不保存可逆密码。
-- **TLS**：Release 构建默认校验证书；仅 Debug 或显式设置 `MINI_HBUT_INSECURE_TLS=1` 时放宽。
+- **TLS**：校内业务客户端（教务/门户/一码通等）无条件放行证书异常（含过期、自签、主机名不匹配，#717 产品决策：学校官方域名任何时候都必须可访问）；OCR 识别、身份认证（identity）、本地代理等第三方/敏感通道仍保持严格证书校验。放行策略统一收口在 `http_client/mod.rs` 的 `insecure_tls_allowed()`。
 - **本地 HTTP Bridge（:4399）**：固定绑定 `127.0.0.1`，忽略外部 Host 配置；桌面 Release 默认不启动，Tauri iOS Release 因内嵌页面依赖可启用。除健康检查和受控的只读嵌入资源外，请求必须来自可信 Tauri/Capacitor/Loopback Origin，或携带有效 Bridge Bearer 令牌。
 - **Bridge CORS**：仅回显 `tauri://localhost`、`capacitor://localhost` 和 Loopback 开发 Origin；任意公网、局域网和 `null` Origin 均被拒绝。
 - **调试接口**：`/debug/*` 与 `/campus-guide-debug/*` 只在 Debug Router 中注册，Release Router 不包含这些路由；抓包文件和 `rust_backend_session.json` 也只允许 Debug 构建读取。

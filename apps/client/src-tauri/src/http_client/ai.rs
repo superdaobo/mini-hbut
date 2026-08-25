@@ -638,7 +638,7 @@ impl HbutClient {
             .cookie_store(true)
             .cookie_provider(Arc::clone(&self.cookie_jar))
             .redirect(reqwest::redirect::Policy::none())
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(Self::insecure_tls_allowed())
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
