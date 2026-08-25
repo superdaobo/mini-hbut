@@ -188,11 +188,14 @@ export function createAppEncryptionDeclarationLookupPath({ appId, limit = 200 })
 }
 
 /**
- * 创建「不包含任何加密算法」的出口合规声明请求体。
- * 对应 TestFlight 网页上的 Export Compliance = No（标准免税声明）。
- * 注意 Apple 真实 schema：CREATE 操作不接受 usesEncryption（只读派生字段，
- * 由 contains* 两项推导），且 appDescription / availableOnFrenchStore 为必填
- * （实测 409：ENTITY_ERROR.ATTRIBUTE.NOT_ALLOWED / REQUIRED，2026-08-25 run 32792223891）。
+ * 创建「不包含任何（自研）加密算法」的出口合规声明请求体。
+ * 对应 TestFlight 网页上 Export Compliance 问卷回答 No（标准免税声明）。
+ * Apple 数据模型（实测 2026-08-25 run 32794289891 两次 409 校准）：
+ *  - CREATE 不接受 usesEncryption（只读派生字段）；
+ *  - 不允许 containsProprietaryCryptography 与 containsThirdPartyCryptography
+ *    同时为 false（iOS 应用必然使用系统级加密，归入 third-party 一类）；
+ *  - 「无自研加密」的正确表达 = 仅系统加密（third-party=true）+ 法国可分发，
+ *    即美国/欧盟出口豁免（exemption）路径，无需逐次人工回答问卷。
  */
 export function createAppEncryptionDeclarationBody({ appId }) {
   return {
@@ -200,10 +203,10 @@ export function createAppEncryptionDeclarationBody({ appId }) {
       type: 'appEncryptionDeclarations',
       attributes: {
         appDescription:
-          'This app does not implement any encryption algorithms and does not use cryptography beyond the standard iOS system libraries.',
+          'This app does not implement any proprietary encryption algorithms; it only uses the standard iOS system cryptography libraries (e.g. HTTPS/TLS).',
         availableOnFrenchStore: true,
         containsProprietaryCryptography: false,
-        containsThirdPartyCryptography: false,
+        containsThirdPartyCryptography: true,
       },
       relationships: { app: { data: { type: 'apps', id: appId } } },
     },
