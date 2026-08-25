@@ -8,9 +8,10 @@
  * 二者都不代表 ASC 现状，直接回读会撞上述限制（2026-08-24 run 32735810871 即因此失败）。
  *
  * 职责（仅当 workflow_dispatch 对应输入留空时查询 ASC）：
- *  1. version_name 留空 → 查询 ASC 全部 iOS prerelease 版本，取最高版本尾段 +1；
- *     ASC 尚无版本时回退 apps/client/package.json 版本尾段 +1
- *  2. build_number 留空 → 查询 ASC 最大 CFBundleVersion，+1；尚无构建时从 1 开始
+ *  1. version_name 留空 → 跟随 ASC 当前最高 iOS 版本（不开新版本；发新版本显式填写）；
+ *     ASC 尚无版本时回退 apps/client/package.json 版本
+ *  2. build_number 留空 → 查询 ASC 正常序列最大 CFBundleVersion，+1
+ *     （忽略早期遗留的时间戳等异常长串）；尚无构建时从 1 开始
  * 手动输入优先级始终最高：填了就不查询、不改写。
  *
  * 认证：与 altool 上传共用同一把 App Store Connect API Key（JWT 复用
@@ -47,36 +48,38 @@ export function compareVersionParts(a, b) {
 }
 
 /**
- * 计算下一个 marketing 版本：候选里最高版本的尾段 +1（保持原段数）。
- * 候选全非法/为空时回退 fallback（同样尾段 +1）。
+ * 跟随 ASC 当前最高 marketing 版本（不自动开新版本；发新版本请显式填写输入）。
+ * 候选为空时原样回退 fallback（package.json 版本尚未上传过，不撞已批准限制）。
  * @param {string[]} versions ASC 已存在的版本号列表
  * @param {string} fallback 回退基准（如 package.json 版本）
  */
-export function nextMarketingVersion(versions, fallback) {
+export function pickLatestVersion(versions, fallback) {
   const parsed = (versions || []).map(parseVersionParts).filter(Boolean)
-  const fallbackParts = parseVersionParts(fallback)
-  if (!fallbackParts && parsed.length === 0) {
-    throw new Error(`无法推导下一版本号：ASC 无历史版本且回退版本非法（${fallback}）`)
+  if (parsed.length === 0) {
+    const fallbackParts = parseVersionParts(fallback)
+    if (!fallbackParts) {
+      throw new Error(`无法确定版本号：ASC 无历史版本且回退版本非法（${fallback}）`)
+    }
+    return fallbackParts.join('.')
   }
-  let base =
-    parsed.length > 0
-      ? parsed.sort(compareVersionParts)[parsed.length - 1]
-      : fallbackParts
-  const bumped = [...base]
-  bumped[bumped.length - 1] += 1
-  return bumped.join('.')
+  return parsed.sort(compareVersionParts)[parsed.length - 1].join('.')
 }
 
 /**
- * 计算下一个 build 号：已知最大值 +1；列表为空时 fallback +1。
+ * 计算下一个 build 号：正常序列最大值 +1（27→28→29…）。
+ * ASC 里可能存在早期遗留的异常大 build 号（如时间戳格式 202607071007），
+ * 会把 max+1 劫持成长串，故默认忽略 >= ignoreAbove 的值并在结果中报告。
  * @param {Array<number|string>} buildNumbers ASC 已存在的 CFBundleVersion 列表
- * @param {number} fallback 无历史时的起始值（默认 0 → 首个 build 为 1）
+ * @param {{ignoreAbove?: number, fallback?: number}} options
+ * @returns {{value: number, ignored: number[]}} value=下一个 build 号；ignored=被忽略的异常值
  */
-export function nextBuildNumber(buildNumbers, fallback = 0) {
-  const numbers = (buildNumbers || [])
+export function nextBuildNumber(buildNumbers, { ignoreAbove = 100000, fallback = 0 } = {}) {
+  const all = (buildNumbers || [])
     .map((v) => Number(v))
     .filter((n) => Number.isInteger(n) && n >= 0)
-  return Math.max(...numbers, fallback) + 1
+  const normal = all.filter((n) => n < ignoreAbove)
+  const ignored = all.filter((n) => n >= ignoreAbove)
+  return { value: Math.max(...normal, fallback) + 1, ignored }
 }
 
 /** 查询某 App 全部 iOS prerelease 版本（marketing version 维度）。 */
@@ -146,11 +149,11 @@ async function main() {
       const versions = (data.data || [])
         .map((item) => item.attributes?.version)
         .filter(Boolean)
-      versionName = nextMarketingVersion(versions, readClientPackageVersion())
+      versionName = pickLatestVersion(versions, readClientPackageVersion())
       console.log(
         versions.length > 0
-          ? `📈 ASC 现存最高版本之上自动递增（历史 ${versions.length} 个版本）`
-          : '📈 ASC 无历史版本，按 package.json 版本递增',
+          ? `📌 跟随 ASC 当前最高版本（共 ${versions.length} 个历史版本）；发新版本请显式填写 version_name`
+          : '📌 ASC 无历史版本，采用 package.json 版本',
       )
     }
 
@@ -159,8 +162,12 @@ async function main() {
       const buildNumbers = (data.data || [])
         .map((item) => item.attributes?.version)
         .filter((v) => v != null)
-      buildNumber = String(nextBuildNumber(buildNumbers))
-      console.log('🔢 以 ASC 最大 build 号之上自动递增')
+      const { value, ignored } = nextBuildNumber(buildNumbers)
+      if (ignored.length > 0) {
+        console.warn(`⚠️ 已忽略 ${ignored.length} 个异常遗留 build 号（时间戳等长串格式）：${ignored.join('、')}`)
+      }
+      buildNumber = String(value)
+      console.log('🔢 正常序列最大 build 号之上自动 +1')
     }
   }
 
