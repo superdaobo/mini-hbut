@@ -1144,6 +1144,23 @@ watch(
           </div>
         </div>
 
+        <!-- Electricity Card（#732：前移至上课提醒/考试与学校消息之间） -->
+        <div v-if="powerSummary?.quantity != null" class="notify-message-card">
+          <div class="notify-msg-left">
+            <div class="notify-msg-icon icon-teal">
+              <span class="material-symbols-outlined fill">bolt</span>
+            </div>
+            <div class="notify-msg-body">
+              <div class="notify-msg-head">
+                <h4 class="notify-msg-title">电费监控</h4>
+                <span class="notify-msg-time">{{ powerStatusText }}</span>
+              </div>
+              <p class="notify-msg-text">剩余电量：{{ powerQuantityText }}</p>
+              <p v-if="powerSummary?.isDual" class="notify-msg-text">空调电量：{{ acPowerQuantityText }}</p>
+            </div>
+          </div>
+        </div>
+
         <!-- School Inbox Card -->
         <div v-if="schoolInboxSummary?.enabled" class="notify-message-card">
           <div class="notify-msg-left">
@@ -1184,23 +1201,6 @@ watch(
                 共 {{ chaoxingInboxSummary?.total || 0 }} 条 · 本次新增 {{ chaoxingInboxSummary?.triggered || 0 }} 条
               </p>
               <p v-if="chaoxingInboxSummary?.error" class="notify-msg-text warn">{{ chaoxingInboxSummary.error }}</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Electricity Card -->
-        <div v-if="powerSummary?.quantity != null" class="notify-message-card">
-          <div class="notify-msg-left">
-            <div class="notify-msg-icon icon-teal">
-              <span class="material-symbols-outlined fill">bolt</span>
-            </div>
-            <div class="notify-msg-body">
-              <div class="notify-msg-head">
-                <h4 class="notify-msg-title">电费监控</h4>
-                <span class="notify-msg-time">{{ powerStatusText }}</span>
-              </div>
-              <p class="notify-msg-text">剩余电量：{{ powerQuantityText }}</p>
-              <p v-if="powerSummary?.isDual" class="notify-msg-text">空调电量：{{ acPowerQuantityText }}</p>
             </div>
           </div>
         </div>
