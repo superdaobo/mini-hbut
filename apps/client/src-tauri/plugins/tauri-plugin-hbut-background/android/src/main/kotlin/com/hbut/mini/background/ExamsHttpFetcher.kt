@@ -71,6 +71,8 @@ class ExamsHttpFetcher(
                 setRequestProperty("Accept", "application/json, text/javascript, */*; q=0.01")
                 setRequestProperty("Referer", "$baseUrl/admin/xsd/kwglXsdKscx")
                 setRequestProperty("Cookie", cookieHeader)
+                // #718：目标为校内域时放行证书校验异常；外部域不触碰、维持平台默认严格校验
+                HbutTlsPolicy.applyIfHbutHost(this)
             }
             val status = conn.responseCode
             val finalUrl = conn.url.toString()

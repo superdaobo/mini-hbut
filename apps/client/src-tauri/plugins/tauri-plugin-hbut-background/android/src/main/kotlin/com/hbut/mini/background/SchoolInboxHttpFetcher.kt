@@ -82,6 +82,8 @@ class SchoolInboxHttpFetcher(
                 setRequestProperty("Accept", "application/json, text/javascript, */*; q=0.01")
                 setRequestProperty("Referer", "$baseUrl/admin/")
                 setRequestProperty("Cookie", cookieHeader)
+                // #718：jwxt 为校内域，证书校验异常放行
+                HbutTlsPolicy.applyIfHbutHost(this)
             }
             val status = conn.responseCode
             val finalUrl = conn.url.toString()
@@ -113,6 +115,8 @@ class SchoolInboxHttpFetcher(
                 setRequestProperty("Accept", "application/json, text/plain, */*")
                 setRequestProperty("Referer", "https://i.chaoxing.com/")
                 setRequestProperty("Cookie", cookieHeader)
+                // #718：chaoxing 为外部域，判定不命中即不触碰（维持平台默认严格校验）
+                HbutTlsPolicy.applyIfHbutHost(this)
             }
             val status = conn.responseCode
             val finalUrl = conn.url.toString()
