@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Marketing version. Empty auto-bumps above the highest version already on App Store Connect."
+        description: "Marketing version. Empty follows the latest version already on App Store Connect."
         required: false
         type: string
       build_number:
-        description: "TestFlight build number. Empty auto-increments above the highest CFBundleVersion already on App Store Connect."
+        description: "TestFlight build number. Empty = normal-sequence max +1 (legacy oversized builds ignored)."
         required: false
         type: string
       whats_new:
