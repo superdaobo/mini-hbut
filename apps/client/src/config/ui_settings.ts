@@ -33,7 +33,14 @@ export type HomeModuleKey =
   | 'towergo'
   | 'smart_orientation'
   | 'ai'
-export type NotificationCardKey = 'class_reminder' | 'electricity' | 'grades' | 'exams' | 'school_inbox'
+// #715：'chaoxing_inbox' 为学习通通知独立渠道卡片
+export type NotificationCardKey =
+  | 'class_reminder'
+  | 'electricity'
+  | 'grades'
+  | 'exams'
+  | 'school_inbox'
+  | 'chaoxing_inbox'
 
 export interface WorkspaceLayoutHome {
   widgetsOrder: HomeWidgetKey[]
@@ -108,7 +115,8 @@ export const NOTIFICATION_CARD_ORDER_DEFAULT = [
   'electricity',
   'grades',
   'exams',
-  'school_inbox'
+  'school_inbox',
+  'chaoxing_inbox'
 ] as const satisfies readonly NotificationCardKey[]
 
 export const buildDefaultWorkspaceLayout = (): WorkspaceLayout => ({
