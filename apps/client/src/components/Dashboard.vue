@@ -24,6 +24,7 @@ import { isTestAccountSession } from '../utils/test_account.js'
 import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
 import { decideHomeNavigate } from '../utils/moduleAccess'
 import { useAuthStore } from '../stores'
+import { useViewportBreakpoint } from '../composables/useViewportBreakpoint'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -1056,8 +1057,11 @@ watch(
   },
   { immediate: true }
 )
-/** 所有功能宫格列数（与 template grid-cols-4 一致） */
+/** 宽屏感知（≥768px，查询串收口于 composables/useViewportBreakpoint）：驱动宫格扩列与通知交互模式 */
+const isWideViewport = useViewportBreakpoint()
+/** 所有功能宫格列数：窄屏 4 列（与 template grid-cols-4 一致），≥768 扩为 6 列（与 scoped css 同步） */
 const FEATURE_GRID_COLS = 4
+const featureGridCols = computed(() => (isWideViewport.value ? 6 : FEATURE_GRID_COLS))
 
 /**
  * 各分类模块数不同会导致宫格高度骤变：
@@ -1067,7 +1071,7 @@ const FEATURE_GRID_COLS = 4
 const featureGridMaxRows = computed(() => {
   const counts = moduleCategories.value.map((c) => (Array.isArray(c.modules) ? c.modules.length : 0))
   const maxCount = counts.length ? Math.max(...counts) : 1
-  return Math.max(1, Math.ceil(maxCount / FEATURE_GRID_COLS))
+  return Math.max(1, Math.ceil(maxCount / featureGridCols.value))
 })
 
 /** 单行约 74px（图标+间距+文案），行间距 gap-y-6=24px */
@@ -1224,7 +1228,7 @@ const startTickerLoop = () => {
   tickerRafId = window.requestAnimationFrame(tick)
 }
 const stopTickerLoop = () => { if (!tickerRafId) return; window.cancelAnimationFrame(tickerRafId); tickerRafId = 0; tickerLastFrameTs = 0 }
-const updateNoticeSwipeMode = (force = false) => { if (typeof window === 'undefined') return; const width = Math.max(0, Number(window.innerWidth || 0)); const mobile = width <= 720; const modeChanged = isMobileNoticeSwipe.value !== mobile; const widthDelta = Math.abs(width - lastNoticeViewportWidth); isMobileNoticeSwipe.value = mobile; lastNoticeViewportWidth = width; if (force || modeChanged || widthDelta >= 24) void refreshTickerMetrics() }
+const updateNoticeSwipeMode = (force = false) => { if (typeof window === 'undefined') return; const width = Math.max(0, Number(window.innerWidth || 0)); const mobile = !isWideViewport.value; const modeChanged = isMobileNoticeSwipe.value !== mobile; const widthDelta = Math.abs(width - lastNoticeViewportWidth); isMobileNoticeSwipe.value = mobile; lastNoticeViewportWidth = width; if (force || modeChanged || widthDelta >= 24) void refreshTickerMetrics() }
 const handleNoticeResize = () => { if (noticeResizeRaf) return; noticeResizeRaf = window.requestAnimationFrame(() => { noticeResizeRaf = 0; updateNoticeSwipeMode(false) }) }
 const noticeSummary = (notice) => notice?.summary || stripMarkdown(notice?.content || '') || '点击查看详情'
 const hasBrokenImage = (notice) => { const key = notice?.id || notice?.title; return key ? brokenImages.value.has(key) : false }
