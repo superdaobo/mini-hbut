@@ -57,6 +57,7 @@ import {
   getIdentityDeviceDisplayName,
   invokeNative
 } from '../../platform/native'
+import type { DeepLinkDelivery } from '../../platform/deep_link'
 import { IdentityServiceError } from '../../features/identity/types'
 import type {
   IdentityEnrollResult,
@@ -71,6 +72,17 @@ import { showToast } from '../../utils/toast'
 const BOOT_WAIT_INTERVAL_MS = 100
 const BOOT_WAIT_MAX_TICKS = 50
 
+/**
+ * 冷启动死信错误码（#739）：请求在服务器侧已终态死亡、重试无意义。
+ * 冷启动投递时用户未发起任何操作，这类死信静默丢弃；
+ * warm 投递（用户刚主动发起）维持显式错误反馈。网络类可重试错误不在此列。
+ */
+const COLD_START_DEAD_CODES: ReadonlySet<IdentityUserSafeErrorCode> = new Set([
+  'request_expired',
+  'request_not_found',
+  'invalid_handoff'
+])
+
 /** 登录恢复事件（AuthCoordinator.handleLoginSuccess 派发；#623 resume hook） */
 export const IDENTITY_LOGIN_RESUMED_EVENT = 'hbu-identity-login-resumed'
 
@@ -83,6 +95,8 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
   /** 冷启动缓冲：app shell 尚未 bootstrap 时收到的 Intent（仅内存，不持久化） */
   let pendingBuffer: IdentityIntent[] = []
   let bootWaitTimer: ReturnType<typeof setTimeout> | null = null
+  /** 冷启动投递的 request_id（#739：仅内存；终态后清除；死信静默降级的判定依据） */
+  const coldStartRequestIds = new Set<string>()
 
   // ── #623 流程状态（每实例） ──────────────────────────────────────────────
   /** 正在执行加载流程的 requestId（防同一请求重复触发；不同请求可交错推进） */
@@ -230,6 +244,16 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
     } catch (err) {
       if (!isCurrentActive(active.requestId)) return
       const mapped = toUserSafeError(err)
+      // #739 冷启动死信：请求在服务器侧已终态死亡（过期/不存在/handoff 失效），
+      // 用户此刻未发起任何操作 -> 静默丢弃（不写结果页、不弹阻塞 Overlay）。
+      // 先把 UI 置回 idle 再推进队列：若队列有下一个请求，complete 触发的订阅回调
+      // 会立即用它的加载流程接管 UI，不会被这里的 idle 覆盖。
+      if (COLD_START_DEAD_CODES.has(mapped.code) && coldStartRequestIds.has(active.requestId)) {
+        coldStartRequestIds.delete(active.requestId)
+        setIdentityApprovalPhase('idle', { requestId: null })
+        completeIdentityIntent(active.requestId, 'error', mapped.message)
+        return
+      }
       // 先记录 UI 结果；队列推进延后到用户确认结果页（confirmResult）
       finishIdentityRequest(active.requestId, 'error', {
         message: mapped.message,
@@ -398,6 +422,7 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
     const pending = pendingTerminal
     pendingTerminal = null
     if (pending) {
+      coldStartRequestIds.delete(pending.requestId)
       completeIdentityIntent(pending.requestId, pending.status, pending.error)
     }
   }
@@ -440,7 +465,11 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
     pendingBuffer = []
     for (const intent of batch) {
       const result = enqueueIdentityIntent(intent)
-      if (!result.accepted) showToast(result.message, 'warning')
+      if (!result.accepted) {
+        // recently-completed（#739 死链重放）静默忽略，不打扰用户；同时清理残留冷启动标记
+        if (result.reason === 'recently-completed') coldStartRequestIds.delete(intent.requestId)
+        else showToast(result.message, 'warning')
+      }
     }
   }
 
@@ -463,7 +492,7 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
     bootWaitTimer = setTimeout(tick, BOOT_WAIT_INTERVAL_MS)
   }
 
-  const submitIntent = (intent: IdentityIntent): void => {
+  const submitIntent = (intent: IdentityIntent, delivery?: DeepLinkDelivery): void => {
     if (!intent || typeof intent.requestId !== 'string' || intent.requestId === '') return
     if (typeof intent.handoff !== 'string' || intent.handoff === '') return
     // 只保留合同字段：任何 deep link 附加的展示资料（name/scope/student_id）一律丢弃
@@ -472,6 +501,10 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
       handoff: intent.handoff,
       arrivedAt: typeof intent.arrivedAt === 'number' ? intent.arrivedAt : Date.now()
     }
+    if (delivery === 'cold-start') {
+      // #739：记录投递时机（仅内存；该请求终态后清除）
+      coldStartRequestIds.add(normalized.requestId)
+    }
     if (!state.mutable.appBootstrapped) {
       // 冷启动：shell 未就绪前只写入内存缓冲，不操作 UI；bootstrap 后统一入队
       pendingBuffer.push(normalized)
@@ -479,7 +512,11 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
       return
     }
     const result = enqueueIdentityIntent(normalized)
-    if (!result.accepted) showToast(result.message, 'warning')
+    if (!result.accepted) {
+      // recently-completed（#739 死链重放）静默忽略，不打扰用户；同时清理残留冷启动标记
+      if (result.reason === 'recently-completed') coldStartRequestIds.delete(normalized.requestId)
+      else showToast(result.message, 'warning')
+    }
   }
 
   const handleLoginResumed = (): void => {
@@ -525,6 +562,7 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
     clearExpiryTimer()
     pendingBuffer = []
     pendingTerminal = null
+    coldStartRequestIds.clear()
     unsubscribeStore()
     uninstallGlobalListeners()
   }
@@ -533,8 +571,14 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
     // #621 合同（原样保留）
     submitIntent,
     flushPendingIntents,
-    completeIntent: (requestId, status, error) => completeIdentityIntent(requestId, status, error),
-    dismissIntent: (requestId) => dismissIdentityIntent(requestId),
+    completeIntent: (requestId, status, error) => {
+      coldStartRequestIds.delete(requestId)
+      completeIdentityIntent(requestId, status, error)
+    },
+    dismissIntent: (requestId) => {
+      coldStartRequestIds.delete(requestId)
+      dismissIdentityIntent(requestId)
+    },
     setPhase: (requestId, nextPhase: Exclude<IdentityIntentPhase, 'done' | 'error'> | 'error', options) =>
       setIdentityIntentPhase(requestId, nextPhase, options),
     reset: () => {

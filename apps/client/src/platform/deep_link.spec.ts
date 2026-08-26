@@ -374,19 +374,21 @@ describe('installMiniHbutDeepLinkListeners', () => {
     const { installMiniHbutDeepLinkListeners: install } = await import('./deep_link')
     const handler = vi.fn()
     const cleanup = await install(handler)
-    // 冷启动 URL 已派发
+    // 冷启动 URL 已派发，投递时机标记为 cold-start（#739）
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0]).toEqual({
       kind: 'identity',
       requestId: validRequestId,
       handoff: validHandoff
     })
+    expect(handler.mock.calls[0][1]).toBe('cold-start')
     // 热启动 URL 派发（warm start / single-instance 转发）
     expect(deepLinkControl.onOpenUrl).toHaveBeenCalledTimes(1)
     const onOpenUrlHandler = deepLinkControl.onOpenUrl.mock.calls[0][0] as (urls: string[]) => void
     onOpenUrlHandler([`minihbut://electricity`])
     expect(handler).toHaveBeenCalledTimes(2)
     expect(handler.mock.calls[1][0]).toEqual({ kind: 'navigate', view: 'electricity', source: 'widget' })
+    expect(handler.mock.calls[1][1]).toBe('warm')
     // 无效 URL 静默忽略
     onOpenUrlHandler(['https://evil.example/identity'])
     expect(handler).toHaveBeenCalledTimes(2)
@@ -423,6 +425,8 @@ describe('installMiniHbutDeepLinkListeners', () => {
       period: 0,
       source: 'widget'
     })
+    // Capacitor appUrlOpen 属运行中投递（#739）
+    expect(handler.mock.calls[0][1]).toBe('warm')
     appUrlOpenHandler({})
     expect(handler).toHaveBeenCalledTimes(1)
     expect(() => cleanup()).not.toThrow()
