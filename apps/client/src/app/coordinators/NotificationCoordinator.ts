@@ -2,6 +2,7 @@ import type { AppRuntime, NotificationCoordinator } from '../contracts/runtime'
 import { platformBridge } from '../../platform'
 import {
   installMiniHbutDeepLinkListeners,
+  type DeepLinkDelivery,
   type MiniHbutDeepLink
 } from '../../platform/deep_link'
 import { resolveNotificationActionTarget } from '../../platform/notification_actions'
@@ -72,7 +73,7 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
 
   // #621：统一深链分发（widget / identity 共用同一 parser 与监听入口）。
   // 深链解析已迁移到 src/platform/deep_link.ts；widget 保持原行为，identity 进入 IdentityCoordinator。
-  const dispatchMiniHbutDeepLink = (link: MiniHbutDeepLink) => {
+  const dispatchMiniHbutDeepLink = (link: MiniHbutDeepLink, delivery: DeepLinkDelivery) => {
     if (link.kind === 'widget-schedule') {
       runAfterBoot(() =>
         handleWidgetDeeplinkPayload({
@@ -87,12 +88,15 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
       runAfterBoot(() => handleNavigatePayload({ view: link.view, source: link.source }))
       return
     }
-    // identity：交给 IdentityCoordinator（内部处理冷启动缓冲与队列调度）
-    runtime.identity.submitIntent({
-      requestId: link.requestId,
-      handoff: link.handoff,
-      arrivedAt: Date.now()
-    })
+    // identity：交给 IdentityCoordinator（内部处理冷启动缓冲、队列调度与 #739 死信降级）
+    runtime.identity.submitIntent(
+      {
+        requestId: link.requestId,
+        handoff: link.handoff,
+        arrivedAt: Date.now()
+      },
+      delivery
+    )
   }
 
   const installWidgetDeeplinkListeners = () => {

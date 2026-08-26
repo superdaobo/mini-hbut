@@ -52,7 +52,11 @@ export interface IdentityIntentSnapshot {
 
 export type IdentityEnqueueResult =
   | { accepted: true }
-  | { accepted: false; reason: 'duplicate' | 'queue-full'; message: string }
+  | {
+      accepted: false
+      reason: 'duplicate' | 'queue-full' | 'recently-completed'
+      message: string
+    }
 
 /** 内存队列上限：并发待处理授权请求不超过 3 个 */
 export const IDENTITY_QUEUE_MAX = 3
@@ -62,12 +66,20 @@ export const IDENTITY_QUEUE_FULL_MESSAGE = '已有多个待处理授权，请先
 
 const DUPLICATE_MESSAGE = '该授权请求已存在，请先完成当前请求'
 
+/** 会话内已终态请求的重放提示（#739：消费端对该 reason 静默处理，不 toast） */
+const RECENTLY_COMPLETED_MESSAGE = '该授权请求已完成，请从网页重新发起'
+
+/** 会话级已终态 request_id 记录上限（FIFO；防外部死链重放撑爆内存） */
+const RECENT_COMPLETED_MAX = 16
+
 // ─── 模块级内存状态（单一实例，不持久化） ────────────────────────────────────
 
 let phase: IdentityIntentPhase = 'idle'
 let activeIntent: PendingExternalIntent | null = null
 const queue: PendingExternalIntent[] = []
 let lastCompleted: PendingExternalIntent | null = null
+/** 会话级已终态 request_id（#739：同一死链重放不重复入队/弹窗；仅内存） */
+const recentCompletedIds: string[] = []
 
 type StoreListener = () => void
 const listeners = new Set<StoreListener>()
@@ -115,6 +127,7 @@ export const subscribeIdentityIntentStore = (listener: StoreListener): (() => vo
 /**
  * 提交外部授权意图（深链 / 后续二维码扫描的统一入口）。
  * - 同 request_id 去重（活跃 + 队列）；
+ * - 会话内已终态请求的重放拒绝（#739：外部死链反复重放不再入队）；
  * - 队列超限（>3）时拒绝并返回提示；
  * - 无活跃请求时立即成为 active。
  */
@@ -124,6 +137,9 @@ export const enqueueIdentityIntent = (intent: IdentityIntent): IdentityEnqueueRe
     queue.some((item) => item.requestId === intent.requestId)
   if (exists) {
     return { accepted: false, reason: 'duplicate', message: DUPLICATE_MESSAGE }
+  }
+  if (recentCompletedIds.includes(intent.requestId)) {
+    return { accepted: false, reason: 'recently-completed', message: RECENTLY_COMPLETED_MESSAGE }
   }
   if (queue.length >= IDENTITY_QUEUE_MAX) {
     return { accepted: false, reason: 'queue-full', message: IDENTITY_QUEUE_FULL_MESSAGE }
@@ -152,6 +168,7 @@ export const setIdentityIntentPhase = (
 
 /**
  * 完成/拒绝/过期当前请求：标记终态（done/error）后自动推进队列中的下一个。
+ * 终态 request_id 记入会话级重放去重（#739）。
  */
 export const completeIdentityIntent = (
   requestId: string,
@@ -162,6 +179,12 @@ export const completeIdentityIntent = (
   activeIntent.phase = status
   if (status === 'error') activeIntent.error = error || '授权请求处理失败'
   lastCompleted = { ...activeIntent }
+  if (!recentCompletedIds.includes(requestId)) {
+    recentCompletedIds.push(requestId)
+    if (recentCompletedIds.length > RECENT_COMPLETED_MAX) {
+      recentCompletedIds.shift()
+    }
+  }
   activeIntent = queue.shift() ?? null
   phase = activeIntent ? 'received' : 'idle'
   notify()
@@ -189,6 +212,7 @@ export const resetIdentityIntentStore = (): void => {
   queue.length = 0
   activeIntent = null
   lastCompleted = null
+  recentCompletedIds.length = 0
   phase = 'idle'
   notify()
 }

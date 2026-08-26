@@ -31,6 +31,8 @@ import {
   resetIdentityUiState
 } from '../../features/identity/identityStore'
 import type { IdentityRequestDetail } from '../../features/identity/types'
+import { IdentityServiceError } from '../../features/identity/types'
+import { showToast } from '../../utils/toast'
 
 vi.mock('../../utils/toast', () => ({
   showToast: vi.fn()
@@ -570,5 +572,102 @@ describe('#623 安全边界：handoff 仅内存', () => {
     await coordinator.approveActive()
     expect(vi.mocked(submitApprove)).toHaveBeenCalledTimes(1)
     expect(getIdentityIntentSnapshot().active).toBeNull()
+  })
+})
+
+// ─── #739 冷启动死信：服务器侧已终态死亡的请求静默降级 ──────────────────────
+
+describe('#739 冷启动死信静默降级', () => {
+  it('冷启动 + request_expired：不写结果页、Overlay 不展示、无 toast', async () => {
+    vi.mocked(fetchRequestDetail).mockRejectedValueOnce(
+      new IdentityServiceError('request_expired', '应用请求已过期，请从网页重新发起')
+    )
+    const coordinator = createCoordinator(makeRuntime())
+    coordinator.submitIntent(makeIntent('ar_1111111111111111'), 'cold-start')
+    await flushAsync()
+    // 意图已终态推进（不挂队列、不留结果页确认）
+    expect(getIdentityIntentSnapshot().active).toBeNull()
+    expect(getIdentityIntentSnapshot().phase).toBe('idle')
+    // UI 回 idle：无阻塞授权弹窗
+    expect(identityUiState.approvalPhase).toBe('idle')
+    expect(identityUiState.lastResult).toBeNull()
+    expect(overlayVisible.value).toBe(false)
+    expect(vi.mocked(showToast)).not.toHaveBeenCalled()
+  })
+
+  it('冷启动 + invalid_handoff 同样静默（死信码集合覆盖）', async () => {
+    vi.mocked(fetchRequestDetail).mockRejectedValueOnce(
+      new IdentityServiceError('invalid_handoff', '接力凭据无效，请从网页重新发起授权')
+    )
+    const coordinator = createCoordinator(makeRuntime())
+    coordinator.submitIntent(makeIntent('ar_1111111111111111'), 'cold-start')
+    await flushAsync()
+    expect(identityUiState.approvalPhase).toBe('idle')
+    expect(identityUiState.lastResult).toBeNull()
+    expect(overlayVisible.value).toBe(false)
+  })
+
+  it('warm + request_expired：维持显式错误结果页（用户刚主动发起授权）', async () => {
+    vi.mocked(fetchRequestDetail).mockRejectedValueOnce(
+      new IdentityServiceError('request_expired', '应用请求已过期，请从网页重新发起')
+    )
+    const coordinator = createCoordinator(makeRuntime())
+    coordinator.submitIntent(makeIntent('ar_1111111111111111')) // 缺省 warm
+    await flushAsync()
+    expect(identityUiState.approvalPhase).toBe('error')
+    expect(identityUiState.lastResult?.errorCode).toBe('request_expired')
+    expect(overlayVisible.value).toBe(true)
+    coordinator.confirmResult()
+    expect(getIdentityIntentSnapshot().active).toBeNull()
+  })
+
+  it('冷启动 + 网络不可用（可重试）：维持现状显式提示，不静默', async () => {
+    vi.mocked(fetchRequestDetail).mockRejectedValueOnce(
+      new IdentityServiceError('network_unavailable', '网络不可用')
+    )
+    const coordinator = createCoordinator(makeRuntime())
+    coordinator.submitIntent(makeIntent('ar_1111111111111111'), 'cold-start')
+    await flushAsync()
+    expect(identityUiState.approvalPhase).toBe('error')
+    expect(identityUiState.lastResult?.retryable).toBe(true)
+    expect(overlayVisible.value).toBe(true)
+  })
+
+  it('静默丢弃后同一死链会话内重放：不再入队、不再打扰；新请求不受影响', async () => {
+    vi.mocked(fetchRequestDetail).mockRejectedValueOnce(
+      new IdentityServiceError('request_expired', '应用请求已过期，请从网页重新发起')
+    )
+    const coordinator = createCoordinator(makeRuntime())
+    coordinator.submitIntent(makeIntent('ar_1111111111111111'), 'cold-start')
+    await flushAsync()
+    expect(getIdentityIntentSnapshot().active).toBeNull()
+    // 同一死链重放（冷启动 / warm 均可）：入队被拒且无 toast
+    coordinator.submitIntent(makeIntent('ar_1111111111111111'), 'cold-start')
+    coordinator.submitIntent(makeIntent('ar_1111111111111111'))
+    await flushAsync()
+    expect(getIdentityIntentSnapshot().active).toBeNull()
+    expect(vi.mocked(showToast)).not.toHaveBeenCalled()
+    expect(identityUiState.approvalPhase).toBe('idle')
+    // 新请求正常走完整流程
+    detailByRequest.set('ar_2222222222222222', makeDetail({ request_id: 'ar_2222222222222222' }))
+    coordinator.submitIntent(makeIntent('ar_2222222222222222'))
+    await flushAsync()
+    expect(getIdentityIntentSnapshot().active?.requestId).toBe('ar_2222222222222222')
+    expect(identityUiState.approvalPhase).toBe('ready')
+  })
+
+  it('队列推进不受静默丢弃影响：冷启动死信后，队列中的下一个请求正常接管', async () => {
+    vi.mocked(fetchRequestDetail).mockRejectedValueOnce(
+      new IdentityServiceError('request_expired', '应用请求已过期，请从网页重新发起')
+    )
+    detailByRequest.set('ar_2222222222222222', makeDetail({ request_id: 'ar_2222222222222222' }))
+    const coordinator = createCoordinator(makeRuntime())
+    coordinator.submitIntent(makeIntent('ar_1111111111111111'), 'cold-start')
+    coordinator.submitIntent(makeIntent('ar_2222222222222222'))
+    await flushAsync()
+    // 第一个死信被静默丢弃，第二个正常 ready
+    expect(getIdentityIntentSnapshot().active?.requestId).toBe('ar_2222222222222222')
+    expect(identityUiState.approvalPhase).toBe('ready')
+    expect(overlayVisible.value).toBe(true)
   })
 })

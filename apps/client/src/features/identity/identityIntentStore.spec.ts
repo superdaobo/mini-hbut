@@ -224,3 +224,42 @@ describe('identityIntentStore: 订阅与 handoff 内存边界', () => {
     }
   })
 })
+
+// ─── #739 会话级重放去重 ─────────────────────────────────────────────────────
+
+describe('identityIntentStore: #739 会话内已终态请求重放去重', () => {
+  it('终态请求同会话重放入队被拒（recently-completed），其他请求不受影响', () => {
+    enqueueIdentityIntent(makeIntent('ar_1111111111111111'))
+    completeIdentityIntent('ar_1111111111111111', 'done')
+    // 同 request_id 重放：拒绝且原因明确
+    const replay = enqueueIdentityIntent(makeIntent('ar_1111111111111111'))
+    expect(replay.accepted).toBe(false)
+    if (replay.accepted) return
+    expect(replay.reason).toBe('recently-completed')
+    // 不同 request_id 正常入队
+    expect(enqueueIdentityIntent(makeIntent('ar_2222222222222222')).accepted).toBe(true)
+    expect(getIdentityIntentSnapshot().active?.requestId).toBe('ar_2222222222222222')
+  })
+
+  it('error 终态同样记入重放去重（死链重放静默的 store 侧基础）', () => {
+    enqueueIdentityIntent(makeIntent('ar_1111111111111111'))
+    completeIdentityIntent('ar_1111111111111111', 'error', '应用请求已过期')
+    const replay = enqueueIdentityIntent(makeIntent('ar_1111111111111111'))
+    expect(replay.accepted).toBe(false)
+    if (replay.accepted) return
+    expect(replay.reason).toBe('recently-completed')
+  })
+
+  it('dismiss（未终态移除）不记入重放去重：同 id 仍可重新入队', () => {
+    enqueueIdentityIntent(makeIntent('ar_1111111111111111'))
+    dismissIdentityIntent('ar_1111111111111111')
+    expect(enqueueIdentityIntent(makeIntent('ar_1111111111111111')).accepted).toBe(true)
+  })
+
+  it('重置清空重放记录（登出/测试场景）', () => {
+    enqueueIdentityIntent(makeIntent('ar_1111111111111111'))
+    completeIdentityIntent('ar_1111111111111111', 'done')
+    resetIdentityIntentStore()
+    expect(enqueueIdentityIntent(makeIntent('ar_1111111111111111')).accepted).toBe(true)
+  })
+})
