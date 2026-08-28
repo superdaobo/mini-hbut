@@ -294,7 +294,8 @@ export const getCachedScheduleSnapshot = (studentId, semester = '') => {
   return null
 }
 
-const buildNearestSemesterOrder = (semesterList, anchorSemester = '') => {
+// #745：导出供单测（探测优先级契约：新学期先于旧学期）
+export const buildNearestSemesterOrder = (semesterList, anchorSemester = '') => {
   const list = normalizeSemesterList(semesterList)
   if (!list.length) return []
 
@@ -425,8 +426,9 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
   const MAX_EXTRA_NEWER = 2
 
   for (const semester of limitedCandidates) {
-    // anchor 学期自身有课 → 直接采用，不再探测
-    if (picked && picked.semester === anchorSemester) break
+    // #745：开学季 anchor（后端 current / 本地存储）可能仍是旧学期且旧学期课表未下架，
+    // 不能让「anchor 有课」提前收工——继续探测由下方 picked 分支负责：
+    // 只投向更新的学期（最多 MAX_EXTRA_NEWER 次），有课才替换 picked，否则保持现状。
     // 已找到非 anchor 有课学期 → 只继续探测更新的学期（最多 MAX_EXTRA_NEWER 次）
     if (picked) {
       if (!semesterIsNewer(semester, picked.semester)) continue
