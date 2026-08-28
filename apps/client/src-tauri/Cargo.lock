@@ -2560,7 +2560,7 @@ dependencies = [
 
 [[package]]
 name = "hbut-helper"
-version = "1.4.6"
+version = "1.4.7"
 dependencies = [
  "aes",
  "async-stream",

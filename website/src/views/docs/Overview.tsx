@@ -161,7 +161,7 @@ const Overview = () => {
             <section className="space-y-4">
                 <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                     <Sparkles className="text-cyan" size={22} />
-                    最新能力（v1.4.6）
+                    最新能力（v1.4.7）
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
@@ -220,7 +220,7 @@ const Overview = () => {
                     版本信息
                 </h2>
                 <div className="p-6 rounded-xl bg-gray-900/50 border border-gray-800 space-y-2 text-gray-300 text-sm">
-                    <div>当前版本：<span className="text-cyan font-semibold">v1.4.6</span></div>
+                    <div>当前版本：<span className="text-cyan font-semibold">v1.4.7</span></div>
                     <div>技术栈：Vue 3 + Tauri 2.x（桌面端）+ Capacitor 6.x（移动端）</div>
                     <div>支持平台：Windows / macOS / Linux / Android / iOS</div>
                     <div>开源协议：GPL v3</div>
