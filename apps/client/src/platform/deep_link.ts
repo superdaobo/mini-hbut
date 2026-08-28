@@ -33,6 +33,14 @@ export type MiniHbutDeepLink =
   | { kind: 'navigate'; view: 'electricity' | 'exams'; source: string }
   | { kind: 'identity'; requestId: string; handoff: string }
 
+/**
+ * 深链投递时机（#739）：
+ * - cold-start：进程启动参数自带的 URL（getCurrent），用户此刻未必主动发起过任何操作；
+ * - warm：运行中收到（onOpenUrl / single-instance 转发 / Capacitor appUrlOpen），用户刚有可感知动作。
+ * 消费端（IdentityCoordinator）据此决定死信（过期/不存在）是静默丢弃还是显式报错。
+ */
+export type DeepLinkDelivery = 'cold-start' | 'warm'
+
 export type MiniHbutDeepLinkErrorCode =
   | 'invalid-url'
   | 'wrong-scheme'
@@ -120,7 +128,7 @@ const parseIdentityDeepLink = (url: URL): MiniHbutDeepLinkResult => {
   return { ok: true, link: { kind: 'identity', requestId, handoff } }
 }
 
-export type MiniHbutDeepLinkHandler = (link: MiniHbutDeepLink) => void
+export type MiniHbutDeepLinkHandler = (link: MiniHbutDeepLink, delivery: DeepLinkDelivery) => void
 
 /**
  * 安装统一深链监听（唯一安装点）：
@@ -134,12 +142,12 @@ export const installMiniHbutDeepLinkListeners = async (
 ): Promise<() => void> => {
   const cleanups: Array<() => void> = []
 
-  const handleUrls = (urls: string[]): void => {
+  const handleUrls = (urls: string[], delivery: DeepLinkDelivery): void => {
     for (const raw of urls) {
       const result = parseMiniHbutDeepLink(raw)
       if (!result.ok) continue // 无效/恶意链接：静默忽略（通用错误不回显，也不落日志）
       try {
-        handler(result.link)
+        handler(result.link, delivery)
       } catch {
         // 消费者异常不阻断后续 URL 处理
       }
@@ -151,12 +159,12 @@ export const installMiniHbutDeepLinkListeners = async (
       const deepLink = await import('@tauri-apps/plugin-deep-link')
       try {
         const startUrls = await deepLink.getCurrent()
-        if (Array.isArray(startUrls) && startUrls.length > 0) handleUrls(startUrls)
+        if (Array.isArray(startUrls) && startUrls.length > 0) handleUrls(startUrls, 'cold-start')
       } catch {
         // 冷启动深链读取失败：按无启动 URL 处理（不阻断 onOpenUrl 安装）
       }
       try {
-        const unlisten = await deepLink.onOpenUrl(handleUrls)
+        const unlisten = await deepLink.onOpenUrl((urls) => handleUrls(urls, 'warm'))
         cleanups.push(unlisten)
       } catch {
         // 热启动监听不可用：Windows/Linux 由 single-instance 聚焦兜底，静默降级
@@ -169,7 +177,7 @@ export const installMiniHbutDeepLinkListeners = async (
       const app = await import('@capacitor/app')
       const listener = await app.App.addListener('appUrlOpen', (event) => {
         const url = event?.url
-        if (typeof url === 'string' && url) handleUrls([url])
+        if (typeof url === 'string' && url) handleUrls([url], 'warm')
       })
       cleanups.push(() => {
         void listener.remove()

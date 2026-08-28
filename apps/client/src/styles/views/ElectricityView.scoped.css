@@ -147,10 +147,25 @@ html.dark .glass-card-warning {
   gap: 6px;
   height: 168px;
   padding-top: 4px;
+  /* #737：月视图含电表开户以来全部月份，数据多时横向滚动查看（柱子保最小宽不被压扁） */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.ibar::-webkit-scrollbar {
+  height: 6px;
+}
+.ibar::-webkit-scrollbar-thumb {
+  background: var(--md-sys-color-outline-variant, #c4c7c5);
+  border-radius: 3px;
+}
+.ibar::-webkit-scrollbar-track {
+  background: transparent;
 }
 .ibar-col {
-  flex: 1;
-  min-width: 0;
+  /* #737：flex-basis 保底 34px——空间富余时仍均分拉伸（周视图不出现滚动），不足时可滚动 */
+  flex: 1 0 34px;
+  min-width: 34px;
   border: 0;
   background: transparent;
   padding: 0;

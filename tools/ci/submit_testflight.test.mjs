@@ -8,10 +8,12 @@ import { test } from 'node:test'
 import {
   buildWhatsNew,
   createAppEncryptionDeclarationBody,
+  createAppEncryptionDeclarationGetPath,
   createAppEncryptionDeclarationLookupPath,
   createBetaBuildLocalizationBody,
   createBetaGroupsLookupPath,
   createBuildEncryptionDeclarationLinkageBody,
+  createBuildExemptionPatchBody,
   createJwt,
   createPrereleaseBuildsPath,
   createPrereleaseLookupPath,
@@ -48,16 +50,38 @@ test('createAppEncryptionDeclarationLookupPath 含 app 过滤与所需字段', (
   assert.match(limited, /limit=50/)
 })
 
-test('createAppEncryptionDeclarationBody 声明「不包含加密算法」（Apple 真实 schema）', () => {
+test('createAppEncryptionDeclarationBody 声明「无自研加密」（Apple 真实 schema）', () => {
   const body = createAppEncryptionDeclarationBody({ appId: 'app-1' })
   assert.equal(body.data.type, 'appEncryptionDeclarations')
   // usesEncryption 是只读派生字段，CREATE 时携带会被 409 拒绝
   assert.equal('usesEncryption' in body.data.attributes, false)
+  // Apple 不允许双 false（iOS 应用必然使用系统级加密）：仅系统加密 = 免税路径
   assert.equal(body.data.attributes.containsProprietaryCryptography, false)
-  assert.equal(body.data.attributes.containsThirdPartyCryptography, false)
-  assert.ok(body.data.attributes.appDescription.length > 0)
+  assert.equal(body.data.attributes.containsThirdPartyCryptography, true)
   assert.equal(body.data.attributes.availableOnFrenchStore, true)
+  assert.ok(body.data.attributes.appDescription.length > 0)
   assert.deepEqual(body.data.relationships.app.data, { type: 'apps', id: 'app-1' })
+})
+
+test('createAppEncryptionDeclarationGetPath 只取审批状态字段', () => {
+  const url = new URL(
+    `https://example.test${createAppEncryptionDeclarationGetPath('decl/9')}`,
+  )
+  assert.equal(url.pathname, '/appEncryptionDeclarations/decl%2F9')
+  assert.equal(
+    url.searchParams.get('fields[appEncryptionDeclarations]'),
+    'appEncryptionDeclarationState',
+  )
+})
+
+test('createBuildExemptionPatchBody 给 build 打「仅系统加密」豁免标记', () => {
+  assert.deepEqual(createBuildExemptionPatchBody({ buildId: 'b-7' }), {
+    data: {
+      type: 'builds',
+      id: 'b-7',
+      attributes: { usesNonExemptEncryption: false },
+    },
+  })
 })
 
 test('createBetaGroupsLookupPath 过滤 App 并携带内外部标记字段', () => {

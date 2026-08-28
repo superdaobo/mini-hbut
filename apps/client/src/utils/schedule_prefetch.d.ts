@@ -2,6 +2,10 @@
 export const SCHEDULE_POPUP_PENDING_KEY: string
 export const SCHEDULE_SWITCH_PENDING_KEY: string
 
+export function buildNearestSemesterOrder(
+  semesterList: unknown,
+  anchorSemester?: string
+): string[]
 export function updateStoredScheduleMeta(meta: unknown, fallbackSemester?: string): unknown
 export function buildScheduleCacheKey(studentId: unknown, semester?: string): string
 export function readScheduleRenderSnapshot(studentId: unknown, semester?: string): unknown

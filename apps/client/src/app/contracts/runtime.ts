@@ -17,6 +17,7 @@ import type {
   IdentityIntentSnapshot
 } from '../../features/identity/identityIntentStore'
 import type { AppState } from '../state/appState'
+import type { DeepLinkDelivery } from '../../platform/deep_link'
 
 export type AuthStore = ReturnType<typeof useAuthStore>
 export type NavigationStore = ReturnType<typeof useNavigationStore>
@@ -191,8 +192,12 @@ export interface NotificationCoordinator {
 // #621 + #623：Identity 授权请求调度与审批流程契约。
 // IdentityIntent 仅内存（request_id + handoff 不持久化、不打印）。
 export interface IdentityCoordinator {
-  /** 稳定入口：提交外部授权意图（minihbut://identity 深链 / 后续二维码扫描） */
-  submitIntent(intent: IdentityIntent): void
+  /**
+   * 稳定入口：提交外部授权意图（minihbut://identity 深链 / 后续二维码扫描）。
+   * delivery 标记投递时机（#739）：cold-start=进程启动参数带入，warm=运行中收到
+   * （缺省按 warm）；冷启动死信（过期/不存在/handoff 失效）静默丢弃，不弹阻塞结果页。
+   */
+  submitIntent(intent: IdentityIntent, delivery?: DeepLinkDelivery): void
   /** App shell bootstrap 完成后冲刷冷启动缓冲（由 useAppRuntime 调用） */
   flushPendingIntents(): void
   /** 完成/拒绝/过期当前请求：终态（done/error）后自动推进队列中的下一个 */
