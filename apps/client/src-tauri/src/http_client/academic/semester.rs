@@ -161,11 +161,8 @@ impl HbutClient {
 
     /// #741：跨月周拆行合并——同 zc 的多行按「字段非空补全」聚合成完整周，
     /// 保证 monday/sunday 在同一行可被 `parse_calendar_date` 完整解析。
-    pub(super) fn merge_calendar_week_rows(
-        rows: &[serde_json::Value],
-    ) -> Vec<serde_json::Value> {
-        let mut groups: BTreeMap<i32, serde_json::Map<String, serde_json::Value>> =
-            BTreeMap::new();
+    pub(super) fn merge_calendar_week_rows(rows: &[serde_json::Value]) -> Vec<serde_json::Value> {
+        let mut groups: BTreeMap<i32, serde_json::Map<String, serde_json::Value>> = BTreeMap::new();
         for item in rows {
             let Some(week_no) = Self::parse_calendar_week_no(item) else {
                 continue;
@@ -922,9 +919,18 @@ mod calendar_week_tests {
     #[test]
     fn week_no_keeps_zero_week() {
         // #741：第零周（zc=0）必须被解析，不能过滤掉
-        assert_eq!(HbutClient::parse_calendar_week_no(&json!({"zc": "0"})), Some(0));
-        assert_eq!(HbutClient::parse_calendar_week_no(&json!({"zc": "1"})), Some(1));
-        assert_eq!(HbutClient::parse_calendar_week_no(&json!({"other": 1})), None);
+        assert_eq!(
+            HbutClient::parse_calendar_week_no(&json!({"zc": "0"})),
+            Some(0)
+        );
+        assert_eq!(
+            HbutClient::parse_calendar_week_no(&json!({"zc": "1"})),
+            Some(1)
+        );
+        assert_eq!(
+            HbutClient::parse_calendar_week_no(&json!({"other": 1})),
+            None
+        );
     }
 
     #[test]
