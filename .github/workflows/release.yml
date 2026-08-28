@@ -369,6 +369,10 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_ROOT: ${{ env.NDK_HOME }}
+          # 关键：tauri CLI 的 beforeBuildCommand 会重新执行 npm run build，
+          # env 不随步骤继承，必须在此注入，否则 dist 被重建为全功能版、
+          # ForumView 等隐藏视图 chunk 重新进入发布包（boundary guard 失败，#595/#591 回归）。
+          VITE_EXCLUDE_HIDDEN_VIEWS: "1"
 
       - name: Mobile boundary guard (hidden views excluded, kept capabilities intact)
         working-directory: apps/client
