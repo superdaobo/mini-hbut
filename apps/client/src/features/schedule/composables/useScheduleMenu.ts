@@ -1,6 +1,8 @@
 /**
- * 课表领域 - 菜单/课程样式/学期弹窗组合式函数。
- * 原内联于 ScheduleView.vue（showMenu/样式切换/学期徽章弹窗）。
+ * 课表领域 - 菜单/课程样式组合式函数。
+ * 原内联于 ScheduleView.vue（showMenu/样式切换）。
+ * （#742：学期徽章 popover 与学期提示 popup 的 UI 早已移除，其状态机
+ * 会造成 anyOverlayOpen 永久为真从而禁用滑动手势，此处一并清理。）
  */
 import { computed, ref, watch } from 'vue'
 import { flushUiSettings, useUiSettings } from '../../../utils/ui_settings'
@@ -8,20 +10,11 @@ import { pushDebugLog } from '../../../utils/debug_logger'
 import { showToast } from '../../../utils/toast'
 import { courseCardStyleOptions } from '../constants'
 import { normalizeCourseCardStyle } from '../utils/weeks'
-import { markPopupShown } from '../utils/popup'
 
-export interface ScheduleMenuOptions {
-  props: any
-}
-
-export const useScheduleMenu = (options: ScheduleMenuOptions) => {
-  const { props } = options
+export const useScheduleMenu = () => {
   const uiSettings = useUiSettings()
 
   const showMenu = ref(false)
-  const showSemesterPopup = ref(false)
-  const semesterPopupText = ref('')
-  const showSemesterBadgePopover = ref(false)
   const scheduleCourseCardStyle = ref(normalizeCourseCardStyle(uiSettings.scheduleCourseCardStyle))
   const courseCardRefreshNonce = ref(0)
 
@@ -68,57 +61,17 @@ export const useScheduleMenu = (options: ScheduleMenuOptions) => {
     showToast(`已切换为${styleLabelMap[nextStyle] || '现代'}样式`, 'success')
   }
 
-  /** 打开学期弹窗（展示当前学期；已展示过则不弹） */
-  const openSemesterPopup = (targetSemester = '') => {
-    const sem = String(targetSemester || '').trim()
-    if (!sem) return
-    semesterPopupText.value = sem
-    showSemesterPopup.value = true
-    markPopupShown(props.studentId)
-  }
-
-  /** 学期徽章弹层（badge popover）开关 */
-  const onSemesterBadgeClick = () => {
-    showSemesterPopup.value = false
-    showSemesterBadgePopover.value = !showSemesterBadgePopover.value
-  }
-
-  const closeSemesterBadgePopover = (e: any) => {
-    if (showSemesterBadgePopover.value && !e.target.closest('.semester-badge-wrap')) {
-      showSemesterBadgePopover.value = false
-    }
-  }
-
-  /** 弹窗是否已展示过（无有效 key 视为已展示） */
-  const isPopupShown = (): boolean => {
-    const sid = String(props.studentId || '').trim()
-    const sessionToken = String(localStorage.getItem('hbu_login_session_token') || '').trim()
-    if (!sid || !sessionToken) return true
-    return localStorage.getItem(`hbu_schedule_popup_shown:${sid}:${sessionToken}`) === '1'
-  }
-
-  // 抽屉关闭时重置导出复制态由入口监听（依赖导出状态），此处仅暴露状态
-  const anyOverlayOpen = computed(() =>
-    showMenu.value ||
-    showSemesterBadgePopover.value ||
-    showSemesterPopup.value
-  )
+  /** 抽屉关闭时重置导出复制态由入口监听（依赖导出状态），此处仅暴露状态 */
+  const anyOverlayOpen = computed(() => showMenu.value)
 
   return {
     showMenu,
-    showSemesterPopup,
-    semesterPopupText,
-    showSemesterBadgePopover,
     scheduleCourseCardStyle,
     courseCardRefreshNonce,
     styleOptions,
     anyOverlayOpen,
     toggleMenu,
-    setScheduleCourseCardStyle,
-    openSemesterPopup,
-    onSemesterBadgeClick,
-    closeSemesterBadgePopover,
-    isPopupShown
+    setScheduleCourseCardStyle
   }
 }
 

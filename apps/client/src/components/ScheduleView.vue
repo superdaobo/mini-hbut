@@ -31,7 +31,6 @@ import { useScheduleEditor } from '../features/schedule/composables/useScheduleE
 import { useScheduleIO } from '../features/schedule/composables/useScheduleIO'
 import { useScheduleSync } from '../features/schedule/composables/useScheduleSync'
 import { deriveSemesterByDate, readStoredSemester } from '../features/schedule/utils/semester'
-import { consumePendingSemesterPopup } from '../features/schedule/utils/popup'
 
 import ScheduleTopbar from '../features/schedule/components/ScheduleTopbar.vue'
 import ScheduleDrawer from '../features/schedule/components/ScheduleDrawer.vue'
@@ -53,7 +52,7 @@ const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed'])
 
 // ============ 组合式状态（按依赖顺序实例化） ============
 const confirmDialog = useConfirmDialog()
-const menu = useScheduleMenu({ props })
+const menu = useScheduleMenu()
 const semesterApi = useScheduleSemester({
   // 惰性求值：运行时各弹层状态均已就绪
   isAnyOverlayOpen: () => anyOverlayOpen.value,
@@ -66,11 +65,10 @@ const io = useScheduleIO({ props, data, semester: semesterApi, editor, confirmDi
 const sync = useScheduleSync({ props, data, semester: semesterApi, editor, confirmDialog })
 
 // 任一弹层打开时禁用周次滑动/键盘切换（与原始 shouldIgnoreWeekSwipe 一致）
+// #742：学期徽章/提示弹窗 UI 已移除，其状态不再参与门控
 const anyOverlayOpen = computed(() => {
   return (
     menu.showMenu.value ||
-    menu.showSemesterBadgePopover.value ||
-    menu.showSemesterPopup.value ||
     detail.showDetail.value ||
     editor.showAddCourse.value ||
     editor.showManageCourses.value ||
@@ -364,16 +362,8 @@ onMounted(async () => {
       await data.fetchSchedule()
     }
   }
-
-  const pendingSemester = consumePendingSemesterPopup(props.studentId)
-  if (pendingSemester) {
-    menu.openSemesterPopup(pendingSemester)
-    return
-  }
-  if (!menu.isPopupShown()) {
-    menu.openSemesterPopup(semester.value || semesterDraft.value)
-  }
-  document.addEventListener('click', menu.closeSemesterBadgePopover)
+  // #742：学期徽章/提示弹窗 UI 已移除，原 popup 状态机会让 anyOverlayOpen 永久为真
+  // 从而禁用滑动与键盘切换周次；清理后不再弹任何学期提示。
 })
 
 onBeforeUnmount(() => {
@@ -383,7 +373,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('hbu-session-online', data.handleSessionOnline)
   window.removeEventListener('hbu-session-logout', data.handleSessionLogout)
   document.removeEventListener('visibilitychange', sync.handleScheduleVisibilityChange)
-  document.removeEventListener('click', menu.closeSemesterBadgePopover)
   sync.clearCloudSyncCooldownTimer()
   if (widgetHighlightTimer) {
     clearTimeout(widgetHighlightTimer)
