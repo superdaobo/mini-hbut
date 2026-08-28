@@ -144,7 +144,7 @@ impl HbutClient {
                 .cookie_store(true)
                 .cookie_provider(Arc::clone(&self.cookie_jar))
                 .redirect(reqwest::redirect::Policy::none()) // 禁用自动重定向
-                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_certs(Self::insecure_tls_allowed())
                 .resolve(
                     "auth.hbut.edu.cn",
                     std::net::SocketAddr::from(([202, 114, 191, 47], 443)),
@@ -991,7 +991,7 @@ impl HbutClient {
                 .cookie_store(true)
                 .cookie_provider(Arc::clone(&self.cookie_jar))
                 .redirect(reqwest::redirect::Policy::none())
-                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_certs(Self::insecure_tls_allowed())
                 .resolve(
                     "auth.hbut.edu.cn",
                     std::net::SocketAddr::from(([202, 114, 191, 47], 443)),
@@ -1437,7 +1437,7 @@ impl HbutClient {
             .cookie_store(true)
             .cookie_provider(Arc::clone(&self.cookie_jar))
             .redirect(reqwest::redirect::Policy::none())
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(Self::insecure_tls_allowed())
             .resolve(
                 "auth.hbut.edu.cn",
                 std::net::SocketAddr::from(([202, 114, 191, 47], 443)),

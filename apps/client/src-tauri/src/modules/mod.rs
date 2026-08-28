@@ -8,6 +8,8 @@
 pub mod ai;
 pub mod calendar;
 pub mod campus_network;
+// #719：冷启动校内 HTTPS 证书探测（独立严格校验客户端，不复用业务共享客户端）
+pub mod cert_probe;
 pub mod chaoxing_checkin;
 pub mod chaoxing_class;
 pub mod chaoxing_sso;

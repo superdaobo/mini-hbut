@@ -50,17 +50,20 @@ flowchart TD
 #### a. 客户端的配置极客化 (Anti-Crawler Evasion)
 ```rust
 fn build_http_client(jar: Arc<Jar>) -> Client {
-    Client::builder()
-        // ...
-        .danger_accept_invalid_certs(true)
-        // DNS 兜底：强制使用已知可用 IP 进行校园网穿透服务
-        .resolve("auth.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 47], 443)))
+    let mut builder = Client::builder();
+    if Self::insecure_tls_allowed() {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    // DNS 兜底：强制使用已知可用 IP 进行校园网穿透服务
+    builder.resolve("auth.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 47], 443)))
         .resolve("jwxt.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 16], 443)))
         .user_agent("Mozilla/5.0 ...")
         // ...
 }
 ```
 这段代码直接在 HTTP 的构建层面上“挂载了硬编码的 DNS 路由记录 (`resolve`)”。在很多校园网络复杂架构或者外部公共 DNS 回源失败（DNS 污染）的情况下，直接绕开系统的 Hosts 查询直连原服，这反映了极强的生产环境容错考量。开启 `danger_accept_invalid_certs(true)` 强吃校园网由于没有续费或下发内部的 SSL 根证书报出的“无效证书”拦截问题。
+
+> **#717 统一 TLS 放行策略**：是否放行的判断已全仓收口到 `HbutClient::insecure_tls_allowed()` 这一个函数，且结果**恒为 `true`**（Release 与 Debug 一致，不再读取任何环境变量，也不依赖构建模式）。放行意味着同时跳过证书有效期、自签 CA、主机名匹配三类校验；这是产品层面的明确决策——学校官方域名（jwxt/e/code.hbut.edu.cn 等）在证书过期时也必须照常可用。电费 SSO、一码通、AI 会话、场馆跳转等子客户端的 no_redirect 构建器同样引用该函数，不再各自硬编码；OCR 识别、identity 身份认证等第三方/敏感通道仍保持严格校验，不受影响。
 
 #### b. 教务链接“超星化”的双轨感知 (`prefer_chaoxing_jwxt`)
 ```rust

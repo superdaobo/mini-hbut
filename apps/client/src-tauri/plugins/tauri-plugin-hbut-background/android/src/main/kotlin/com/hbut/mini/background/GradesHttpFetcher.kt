@@ -89,6 +89,9 @@ class GradesHttpFetcher(
                 setRequestProperty("Cookie", cookieHeader)
                 setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
                 doOutput = true
+                // #718：目标为校内域（hbut.edu.cn 及子域）时放行证书校验异常，
+                // 外部域（chaoxing 等）不触碰、维持平台默认严格校验
+                HbutTlsPolicy.applyIfHbutHost(this)
             }
             val form = buildQueryParams()
             conn.outputStream.use { out: OutputStream ->

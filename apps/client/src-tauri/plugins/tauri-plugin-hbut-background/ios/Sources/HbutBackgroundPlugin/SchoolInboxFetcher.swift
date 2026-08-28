@@ -13,6 +13,55 @@
 
 import Foundation
 
+/// 校内域 TLS 放行策略（#718，与 Android HbutTlsPolicy 同语义）。
+///
+/// 问题背景：URLSession 默认对服务器证书执行系统级严格校验，教务站证书
+/// 过期/更换时后台学校消息检查静默失败。产品已拍板：校内域无条件放行；
+/// 外部域（chaoxing.com 等）完全不触碰、维持平台默认严格校验。
+public enum HbutTlsPolicy {
+    /// 校内根域。
+    public static let rootDomain = "hbut.edu.cn"
+    /// 子域严格后缀（带前置点；必须与 rootDomain 保持一致）。
+    private static let domainSuffix = ".hbut.edu.cn"
+
+    /// host 是否为 hbut.edu.cn 及其任意层级子域（严格后缀匹配，纯函数可单测）。
+    /// 正例：hbut.edu.cn / jwxt.hbut.edu.cn / a.b.hbut.edu.cn
+    /// 反例：notice.chaoxing.com / hbut.edu.cn.evil.com / fake-hbut.edu.cn
+    public static func isHbutHost(_ host: String?) -> Bool {
+        guard let raw = host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty
+        else { return false }
+        var normalized = raw.lowercased()
+        while normalized.hasSuffix(".") { normalized.removeLast() } // 容忍 FQDN 尾点
+        return normalized == rootDomain || normalized.hasSuffix(domainSuffix)
+    }
+}
+
+/// URLSession 认证挑战代理：仅对校内域放行服务器信任校验异常（#718）。
+///
+/// 生命周期说明：URLSession 会强持有其 delegate。本类不回引 fetcher，
+/// 引用链为 fetcher -> session -> 本类（单向），无循环引用；fetcher deinit
+/// 时显式 invalidateAndCancel 终止任务并释放 session 与本类实例，避免泄漏。
+final class HbutTrustChallengeDelegate: NSObject, URLSessionDataDelegate {
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        // 仅处理「服务器信任」类挑战；其余（客户端证书等）交回系统默认处理
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust, // SecTrust 可选安全解包
+              HbutTlsPolicy.isHbutHost(challenge.protectionSpace.host)
+        else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        // 安全权衡：校内域跳过证书链/主机名校验（接受校园网中间人风险），
+        // 换取证书过期等运维问题不再打断后台提醒核心功能
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+}
+
 /// 学校消息最小条目（不存正文；title 通知渲染用，有长度上限）。
 public struct SchoolMessageItem: Codable, Equatable {
     /// 稳定 ID（provider 前缀）：portal:tzsjx:xxx / chaoxing:notice:xxx。
@@ -81,8 +130,18 @@ public final class URLSessionSchoolInboxFetcher: SchoolInboxFetching {
         config.timeoutIntervalForResource = timeout
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.waitsForConnectivity = false
-        self.session = URLSession(configuration: config)
+        // #718：带认证挑战 delegate 的 session —— 校内域放行证书校验异常（见 HbutTrustChallengeDelegate）
+        self.session = URLSession(
+            configuration: config,
+            delegate: HbutTrustChallengeDelegate(),
+            delegateQueue: nil
+        )
         self.timeout = timeout
+    }
+
+    deinit {
+        // URLSession 强持有 delegate；显式失效以终止任务并释放 session 与 delegate，避免泄漏
+        session.invalidateAndCancel()
     }
 
     public func fetchInbox(
