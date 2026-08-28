@@ -9,6 +9,8 @@ const props = defineProps({
   weekDates: { type: Array, default: () => [] },
   currentMonth: { type: Number, default: 0 },
   selectedWeek: { type: Number, default: 0 },
+  // #742a：周切换过渡方向（由 useScheduleSemester 按滑动/键盘方向设置）
+  weekTransitionName: { type: String, default: 'week-slide-left' },
   scheduleCourseCardStyle: { type: String, default: 'modern' },
   courseCardRefreshNonce: { type: Number, default: 0 },
   getCoursesForDay: { type: Function, default: () => () => [] },
@@ -28,7 +30,7 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 </script>
 
 <template>
-  <Transition :name="selectedWeek ? 'week-slide-left' : 'week-slide-right'" mode="out-in">
+  <Transition :name="weekTransitionName" mode="out-in">
     <div class="timetable-container" :key="`week-${selectedWeek}`">
       <!-- 日期头 -->
       <div class="date-header">

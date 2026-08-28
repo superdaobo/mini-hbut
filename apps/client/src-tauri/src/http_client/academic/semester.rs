@@ -149,14 +149,41 @@ impl HbutClient {
         out
     }
 
-    fn parse_calendar_week_no(item: &serde_json::Value) -> Option<i32> {
+    pub(super) fn parse_calendar_week_no(item: &serde_json::Value) -> Option<i32> {
+        // #741：放行 zc=0（第零周）——此前被过滤导致「最小有效周」错位为第二周
         item.get("zc")
             .and_then(|v| {
                 v.as_i64()
                     .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
             })
             .map(|v| v as i32)
-            .filter(|v| *v > 0)
+    }
+
+    /// #741：跨月周拆行合并——同 zc 的多行按「字段非空补全」聚合成完整周，
+    /// 保证 monday/sunday 在同一行可被 `parse_calendar_date` 完整解析。
+    pub(super) fn merge_calendar_week_rows(
+        rows: &[serde_json::Value],
+    ) -> Vec<serde_json::Value> {
+        let mut groups: BTreeMap<i32, serde_json::Map<String, serde_json::Value>> =
+            BTreeMap::new();
+        for item in rows {
+            let Some(week_no) = Self::parse_calendar_week_no(item) else {
+                continue;
+            };
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
+            let entry = groups.entry(week_no).or_default();
+            for (key, value) in obj {
+                if !entry.contains_key(key) {
+                    entry.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        groups
+            .into_iter()
+            .map(|(_, merged)| serde_json::Value::Object(merged))
+            .collect()
     }
 
     pub(super) fn normalize_calendar_week_numbers(
@@ -207,17 +234,22 @@ impl HbutClient {
             return None;
         }
 
+        // #741：教务校历存在「第零周」（zc=0）与跨月周拆行（周一在月末一行、
+        // 周二~周日在月初另一行）两种结构。先把同一 zc 的多行按「字段非空补全」
+        // 聚合为完整周，避免跨月周因单行缺少 monday/sunday 被整体丢弃。
+        let merged_rows = Self::merge_calendar_week_rows(rows);
+
         let mut raw_week_bounds: Vec<(i32, NaiveDate, NaiveDate)> = Vec::new();
-        for item in rows {
+        for item in &merged_rows {
             let week_no = match Self::parse_calendar_week_no(item) {
                 Some(v) => v,
                 None => continue,
             };
-            let monday = match self.parse_calendar_date(item, "monday") {
+            let monday = match Self::parse_calendar_date(item, "monday") {
                 Some(v) => v,
                 None => continue,
             };
-            let sunday = match self.parse_calendar_date(item, "sunday") {
+            let sunday = match Self::parse_calendar_date(item, "sunday") {
                 Some(v) => v,
                 None => continue,
             };
@@ -233,7 +265,8 @@ impl HbutClient {
             return None;
         }
 
-        // 教务校历有时返回“学年周次”（如下学期从 26 开始），这里统一归一化为“学期周次”。
+        // 教务校历有时返回“学年周次”（如下学期从 26 开始），这里统一归一化为“学期周次”；
+        // #741：存在第零周（zc=0）时保留原生周号语义（0 仍是第零周，1 才是第一周），不做位移。
         let min_week_no = raw_week_bounds
             .iter()
             .map(|(week_no, _, _)| *week_no)
@@ -242,7 +275,11 @@ impl HbutClient {
 
         let mut week_bounds: BTreeMap<i32, (NaiveDate, NaiveDate)> = BTreeMap::new();
         for (week_no, monday, sunday) in raw_week_bounds {
-            let normalized_week = (week_no - min_week_no + 1).max(1);
+            let normalized_week = if min_week_no == 0 {
+                week_no
+            } else {
+                (week_no - min_week_no + 1).max(1)
+            };
             week_bounds
                 .entry(normalized_week)
                 .and_modify(|(existing_monday, existing_sunday)| {
@@ -706,7 +743,7 @@ impl HbutClient {
 
                 if zc_num == 1 {
                     // 第一周的周一日期
-                    if let Some(start) = self.parse_calendar_date(item, "monday") {
+                    if let Some(start) = Self::parse_calendar_date(item, "monday") {
                         semester_start = Some(start);
                         println!("[DEBUG] Found semester start date: {}", start);
                         break;
@@ -740,8 +777,8 @@ impl HbutClient {
                     .unwrap_or(0) as i32;
 
                 if let (Some(start), Some(end)) = (
-                    self.parse_calendar_date(item, "monday"),
-                    self.parse_calendar_date(item, "sunday"),
+                    Self::parse_calendar_date(item, "monday"),
+                    Self::parse_calendar_date(item, "sunday"),
                 ) {
                     if today >= start && today <= end {
                         println!(
@@ -759,7 +796,6 @@ impl HbutClient {
 
     /// 解析校历中的日期（处理跨月情况）
     pub(super) fn parse_calendar_date(
-        &self,
         item: &serde_json::Value,
         day_field: &str,
     ) -> Option<chrono::NaiveDate> {
@@ -875,5 +911,62 @@ impl HbutClient {
 
         candidates.sort_by_key(|(distance, date)| (*distance, (date.year() - year).abs()));
         candidates.first().map(|(_, date)| *date)
+    }
+}
+
+#[cfg(test)]
+mod calendar_week_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn week_no_keeps_zero_week() {
+        // #741：第零周（zc=0）必须被解析，不能过滤掉
+        assert_eq!(HbutClient::parse_calendar_week_no(&json!({"zc": "0"})), Some(0));
+        assert_eq!(HbutClient::parse_calendar_week_no(&json!({"zc": "1"})), Some(1));
+        assert_eq!(HbutClient::parse_calendar_week_no(&json!({"other": 1})), None);
+    }
+
+    #[test]
+    fn cross_month_split_rows_merge_into_one_week() {
+        // 教务校历跨月周拆行：周一在月末一行、其余日期在月初另一行
+        let rows = vec![
+            json!({"zc": "0", "ny": "2026-08", "monday": "24", "sunday": "30"}),
+            json!({"zc": "1", "ny": "2026-08", "monday": "31"}),
+            json!({"zc": "1", "ny": "2026-09", "tuesday": "1", "sunday": "6"}),
+            json!({"zc": "2", "ny": "2026-09", "monday": "7", "sunday": "13"}),
+        ];
+        let merged = HbutClient::merge_calendar_week_rows(&rows);
+        assert_eq!(merged.len(), 3, "第零周/第一周/第二周各一行");
+        let week1 = merged
+            .iter()
+            .find(|row| row.get("zc").and_then(|v| v.as_str()) == Some("1"))
+            .expect("第一周合并行存在");
+        assert_eq!(week1.get("monday").and_then(|v| v.as_str()), Some("31"));
+        assert_eq!(week1.get("sunday").and_then(|v| v.as_str()), Some("6"));
+        // 合并后的单行必须能被跨月日期解析
+        assert_eq!(
+            HbutClient::parse_calendar_date(week1, "monday"),
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 8, 31).unwrap())
+        );
+        assert_eq!(
+            HbutClient::parse_calendar_date(week1, "sunday"),
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 6).unwrap())
+        );
+    }
+
+    #[test]
+    fn zero_week_row_stays_intact_after_merge() {
+        let rows = vec![
+            json!({"zc": "0", "ny": "2026-08", "monday": "24", "sunday": "30"}),
+            json!({"zc": "1", "ny": "2026-09", "monday": "7", "sunday": "13"}),
+        ];
+        let merged = HbutClient::merge_calendar_week_rows(&rows);
+        assert_eq!(merged.len(), 2);
+        let week0 = &merged[0];
+        assert_eq!(
+            HbutClient::parse_calendar_date(week0, "monday"),
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 8, 24).unwrap())
+        );
     }
 }
