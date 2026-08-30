@@ -2,10 +2,14 @@ import axios from 'axios'
 import { fetchWithCache, getCacheKey, setCachedData } from './api.js'
 import { normalizeSemesterList, resolveCurrentSemester, semesterIsNewer } from './semester.js'
 import { afterScheduleRefresh } from './widget_bridge'
+import { pushDebugLog } from './debug_logger'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const SCHEDULE_META_KEY = 'hbu_schedule_meta'
 const SCHEDULE_LOCK_KEY = 'hbu_schedule_lock'
+// #750：本地「学期 → 开学日(YYYY-MM-DD)」映射缓存，时间驱动应选学期的数据源
+const SCHEDULE_SEMESTER_START_DATES_KEY = 'hbu_semester_start_dates'
+const SEMESTER_START_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const SCHEDULE_RENDER_SNAPSHOT_SCHEMA = 1
 const SCHEDULE_RENDER_SNAPSHOT_PREFIX = 'hbu_schedule_render_snapshot_v1'
 export const SCHEDULE_POPUP_PENDING_KEY = 'hbu_schedule_popup_pending'
@@ -20,7 +24,9 @@ const AUTO_SCHEDULE_LOCK_REASONS = new Set([
   'pending-switch',
   'notify-background',
   'fallback-semester',
-  'locked-cache'
+  'locked-cache',
+  // #750：时间驱动（开学日期）锁定——语义为「按开学日期自动切入的学期，启动路径不误清」
+  'term-start'
 ])
 
 const toSafeText = (value) => String(value ?? '').trim()
@@ -79,6 +85,38 @@ export const buildScheduleCacheKey = (studentId, semester = '') => {
   const sem = toSafeText(semester)
   if (!sid) return ''
   return sem ? `schedule:${sid}:${sem}` : `schedule:${sid}`
+}
+
+// ============ #750 学期开学日映射缓存 ============
+
+/**
+ * #750 读取本地「学期 → 开学日」映射缓存。
+ * 数据来源：warmup 探测各学期 meta.start_date、当前学期 applyMeta 持久化。
+ */
+export const readSemesterStartDates = () => {
+  const raw = readJSON(SCHEDULE_SEMESTER_START_DATES_KEY, {})
+  const out = {}
+  for (const [sem, date] of Object.entries(raw && typeof raw === 'object' ? raw : {})) {
+    const semester = toSafeText(sem)
+    const startDate = toSafeText(date)
+    if (semester && SEMESTER_START_DATE_RE.test(startDate)) {
+      out[semester] = startDate
+    }
+  }
+  return out
+}
+
+/** #750 记录单个学期开学日（仅接受 YYYY-MM-DD；非法输入忽略） */
+export const recordSemesterStartDate = (semester, startDate) => {
+  const sem = toSafeText(semester)
+  const dateText = toSafeText(startDate)
+  if (!sem || !SEMESTER_START_DATE_RE.test(dateText)) return false
+  const map = readJSON(SCHEDULE_SEMESTER_START_DATES_KEY, {})
+  const cached = map && typeof map === 'object' ? map : {}
+  if (cached[sem] === dateText) return true
+  cached[sem] = dateText
+  writeJSON(SCHEDULE_SEMESTER_START_DATES_KEY, cached)
+  return true
 }
 
 const buildScheduleRenderSnapshotKey = (studentId) => {
@@ -364,6 +402,61 @@ const normalizeSemesterPayload = (payload) => {
   }
 }
 
+// #750 轻量探测指定学期课表（启动决策与回前台重探共用）：
+// - 无论课表是否发布，只要 meta 带该学期 start_date 就记录映射（支撑提前窗口判定）；
+// - inflight 去重：启动路径与回前台并发触发时只发一次请求。
+const probeSemesterInflight = new Map()
+
+export const probeSemesterSchedule = async (studentId, semester = '') => {
+  const sid = toSafeText(studentId)
+  const sem = toSafeText(semester)
+  if (!sid || !sem) {
+    return { ok: false, semester: sem, published: false, count: 0, startDate: '' }
+  }
+  const inflightKey = `${sid}:${sem}`
+  if (probeSemesterInflight.has(inflightKey)) {
+    return probeSemesterInflight.get(inflightKey)
+  }
+  const task = (async () => {
+    try {
+      const queryResult = await querySchedule(sid, sem)
+      const payload = queryResult?.data
+      if (payload?.need_login) {
+        return { ok: false, semester: sem, published: false, count: 0, startDate: '', needLogin: true }
+      }
+      const normalized = normalizeSemesterPayload(payload)
+      const startDate = toSafeText(payload?.meta?.start_date)
+      const payloadSemester = toSafeText(payload?.meta?.semester)
+      // meta.semester 与请求学期一致才记录开学日，防止后端回退到其他学期 meta 造成误记
+      if (normalized && payloadSemester === sem && startDate) {
+        recordSemesterStartDate(sem, startDate)
+      }
+      const published = !!normalized && normalized.count > 0
+      pushDebugLog(
+        'Schedule',
+        `#750 探测学期课表 semester=${sem} published=${published} count=${normalized?.count ?? 0} start_date=${startDate || '未知'}`,
+        'debug'
+      )
+      return {
+        ok: !!normalized,
+        semester: sem,
+        published,
+        count: normalized?.count ?? 0,
+        startDate,
+        fromCache: !!queryResult?.fromCache,
+        stale: !!queryResult?.stale,
+        payload: normalized ? normalized.payload : null
+      }
+    } catch {
+      return { ok: false, semester: sem, published: false, count: 0, startDate: '' }
+    } finally {
+      probeSemesterInflight.delete(inflightKey)
+    }
+  })()
+  probeSemesterInflight.set(inflightKey, task)
+  return task
+}
+
 const isAuthoritativeSchedulePayload = (payload, queryResult) => {
   if (!payload?.success) return false
   if (payload?.offline) return false
@@ -449,6 +542,12 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
     const normalized = normalizeSemesterPayload(payload)
     if (!normalized) continue
 
+    // #750：记录各学期开学日（meta.start_date），即使该学期课表未发布，
+    // start_date 也可支撑提前窗口判定（开学前 3 天自动切新学期）。
+    if (payload?.meta?.start_date && normalized.semester) {
+      recordSemesterStartDate(normalized.semester, payload.meta.start_date)
+    }
+
     if (!firstSuccess) {
       firstSuccess = {
         semester: semester || normalized.semester,
@@ -508,6 +607,34 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
   const previousStoredSemester = cachedSemester
   const payloadSemester = toSafeText(picked.payload?.meta?.semester || picked.semester)
   let selectedSemester = payloadSemester || previousStoredSemester || anchorSemester
+
+  // #750 回跳保护①：现有锁定学期比探测结果更新 → 不得把学期改回更旧学期。
+  // 不覆盖 lock / 不清 lock / 不更新 meta.semester / 不弹提示；payload 置空，
+  // 调用方按返回的锁定学期自行取数（fetchSchedule(锁定学期)），保持 UI 与锁定一致。
+  const existingLockDetail = readScheduleLockDetail(sid)
+  const existingLockSemester = toSafeText(existingLockDetail?.semester)
+  if (
+    existingLockSemester &&
+    selectedSemester !== existingLockSemester &&
+    !semesterIsNewer(selectedSemester, existingLockSemester)
+  ) {
+    pushDebugLog(
+      'Schedule',
+      `#750 探测学期(${selectedSemester}) 不晚于现有锁定(${existingLockSemester})，保持锁定不回跳`,
+      'info'
+    )
+    return {
+      success: true,
+      semester: existingLockSemester,
+      count: courseCount(picked.payload),
+      fromCache: true,
+      stale: !!picked.stale,
+      authoritative: false,
+      source: 'existing-lock-protected',
+      payload: null
+    }
+  }
+
   if (authoritative || !previousStoredSemester) {
     selectedSemester = updateStoredScheduleMeta(picked.payload?.meta, selectedSemester)
   }
@@ -518,21 +645,54 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
     setCachedData(scopedKey, picked.payload)
   }
   setCachedData(buildScheduleCacheKey(sid), picked.payload)
-  if (authoritative || options?.forceLock) {
-    writeScheduleLock(sid, selectedSemester, reasonText)
+
+  // #750 回跳保护②：时间驱动应选学期(targetSemester)比探测结果更新（提前窗口内新学期
+  // 课表未发布，picked 仍为旧学期）→ 不把更旧学期写入 lock，保持「未锁定」状态，
+  // 等待新学期发布后的 authoritative 探测以 term-start 锁定，避免锁死旧学期。
+  const targetSemester = toSafeText(options?.targetSemester)
+  const pickedOlderThanTarget =
+    !!targetSemester &&
+    selectedSemester !== targetSemester &&
+    !semesterIsNewer(selectedSemester, targetSemester)
+
+  if (pickedOlderThanTarget) {
+    pushDebugLog(
+      'Schedule',
+      `#750 探测学期(${selectedSemester}) 早于时间驱动应选学期(${targetSemester})，跳过锁定以等待新学期发布`,
+      'info'
+    )
+  } else if (authoritative || options?.forceLock) {
+    // #750：探测命中时间驱动应选学期且有课表 → 以 term-start 锁定（启动路径不误清）。
+    const lockReason =
+      targetSemester && selectedSemester === targetSemester ? 'term-start' : reasonText
+    writeScheduleLock(sid, selectedSemester, lockReason)
+    if (lockReason === 'term-start') {
+      pushDebugLog(
+        'Schedule',
+        `#750 时间驱动锁定学期 ${selectedSemester}（reason=term-start，探测课数=${courseCount(picked.payload)}）`,
+        'info'
+      )
+    }
   } else {
     const lockDetail = readScheduleLockDetail(sid)
     if (lockDetail && isAutoScheduleLockReason(lockDetail.reason)) {
       clearScheduleLock(sid)
     }
   }
-  if (!options?.skipPopup) {
+  if (!pickedOlderThanTarget && !options?.skipPopup) {
     queueScheduleSemesterPopup(sid, selectedSemester, reasonText)
   }
 
   // Widget 快照写入（异步，不阻塞返回）
   const metaWeek = Number(picked.payload?.meta?.current_week) || 1
   afterScheduleRefresh(sid, picked.payload, { selectedWeek: metaWeek }).catch(() => {})
+
+  // #750 取证日志：探测 picked 学期/课数与锁定学期（旧值→新值）
+  pushDebugLog(
+    'Schedule',
+    `#750 探测 picked semester=${selectedSemester} count=${courseCount(picked.payload)} lock=${existingLockSemester || '无'}→${selectedSemester} authoritative=${authoritative}`,
+    'debug'
+  )
 
   return {
     success: true,

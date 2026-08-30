@@ -1,9 +1,9 @@
 <script setup>
 /**
  * 课表主体：日期头 + 时间轴 + 课程网格（含周切换动画）。
- * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * 自 ScheduleView.vue 拆分；#749 起划分线由 grid-lines 单元素背景绘制（不再逐节循环 DOM 行）。
  */
-import { MAX_PERIOD, timeSchedule } from '../constants'
+import { timeSchedule } from '../constants'
 
 const props = defineProps({
   weekDates: { type: Array, default: () => [] },
@@ -25,8 +25,6 @@ const isTodayColumn = (dayIndex) => {
   const date = props.weekDates[idx]
   return !!date?.isToday
 }
-
-const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 </script>
 
 <template>
@@ -58,10 +56,9 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 
         <!-- 课程网格 -->
         <div class="courses-grid" :key="`courses-grid-${scheduleCourseCardStyle}-${courseCardRefreshNonce}`">
-          <!-- 背景线 -->
-          <div class="grid-lines">
-            <div v-for="i in periodRows" :key="i" class="line-row"></div>
-          </div>
+          <!-- 背景划分线：单元素背景绘制（#749）。线距严格等于 var(--slot-height) 整数倍，
+               无可被 flex 压缩的 DOM 行，任何视口下都与时间轴/课程网格的第 k 节边界重合 -->
+          <div class="grid-lines" aria-hidden="true"></div>
 
           <!-- 每天一列 -->
           <div v-for="day in 7" :key="day" class="day-column" :class="{ 'is-today-column': isTodayColumn(day) }">
@@ -208,6 +205,8 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 }
 
 .time-slot {
+  /* #749：flex 固定行高，禁止时间轴行被压缩/拉伸，行距恒等于 var(--slot-height) */
+  flex: 0 0 var(--slot-height);
   height: var(--slot-height);
   display: flex;
   flex-direction: column;
@@ -244,24 +243,33 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
   grid-template-columns: repeat(7, minmax(0, 1fr));
   position: relative;
   height: 100%;
+  /* #749：恢复 v1.4.6 高度保护——视口不足 11×slot 时容器不再被压缩，
+     课程网格 / 时间轴 / 划分线三套行距在任意视口下保持恒等 */
+  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
   box-sizing: border-box;
 }
 
+/* 划分线：单元素背景绘制（#749 结构性免疫）。
+   repeating-linear-gradient 每个周期 = var(--slot-height)，仅周期底部 1px 着色，
+   线位置恒为 var(--slot-height) 的整数倍；background-size 限定 11 个完整周期，
+   即恰好 11 条线，与 11 个 time-slot / day-column 网格行一一对应。
+   原方案（11 个 line-row 行 DOM 循环）在容器高度不足时会被 flex 均匀压缩导致行距分叉，已移除 */
 .grid-lines {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  flex-direction: column;
   pointer-events: none;
-}
-
-.line-row {
-  height: var(--slot-height);
-  border-bottom: 1px dashed #e5e7eb;
-  box-sizing: border-box;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--slot-height) - 1px),
+    #e5e7eb calc(var(--slot-height) - 1px),
+    #e5e7eb var(--slot-height)
+  );
+  background-size: 100% calc(var(--slot-height) * 11);
+  background-repeat: no-repeat;
 }
 
 .day-column {
@@ -463,10 +471,6 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 
   .day-column {
     grid-template-rows: repeat(11, var(--slot-height));
-  }
-
-  .line-row {
-    height: var(--slot-height);
   }
 
   .course-card {
