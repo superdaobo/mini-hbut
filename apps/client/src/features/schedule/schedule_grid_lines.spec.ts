@@ -11,9 +11,9 @@ import { readVueContractSource } from '../../utils/contract_source_test'
  *
  * 失败条件（回归即挂）：
  * 1. .courses-grid 丢失 min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap))
- * 2. 划分线回退为 .line-row DOM 循环（可被 flex 压缩的实现）
- * 3. 划分线尺寸不再绑定 var(--slot-height)（线位漂移）
- * 4. .time-slot 丢失 flex: 0 0 固定（时间轴行被压缩/拉伸）
+ * 2. .line-row 丢失 flex: 0 0 / dashed 视觉（划分线被改为实线或可压缩实现）
+ * 3. .time-slot 丢失 flex: 0 0 固定（时间轴行被压缩/拉伸）
+ * 4. 划分线尺寸不再绑定 var(--slot-height)（线位漂移）
  */
 const source = readVueContractSource('src/features/schedule/components/ScheduleGrid.vue')
 
@@ -41,16 +41,18 @@ describe('schedule grid lines contract (#749)', () => {
     expect(block).toContain('height: 100%')
   })
 
-  it('grid lines are painted as slot-height-bound background (no compressible line-row DOM)', () => {
-    // B：划分线为单元素背景绘制，线距 = var(--slot-height) 整数倍
-    const block = cssBlock('.grid-lines')
-    expect(block).toContain('repeating-linear-gradient')
-    expect(block).toContain('calc(var(--slot-height) - 1px)')
-    // background-size 限定 11 个完整周期 = 11 条线，底部留白不着色
-    expect(block).toContain('calc(var(--slot-height) * 11)')
-    // 禁止回归可被 flex 压缩的 line-row 行循环
-    expect(source).not.toContain('.line-row')
-    expect(source).not.toContain('class="line-row"')
+  it('grid lines keep sparse dashed line-row pinned by flex-basis (v1.4.6 rhythm, anti-compression)', () => {
+    // 划分线为 line-row 稀疏虚线（用户指定疏密），线本体 = ::after 1px 高 + 水平渐变，
+    // 行高由 flex: 0 0 固定 + 容器 min-height 保护，杜绝 flex 压缩
+    const block = cssBlock('.line-row')
+    expect(block).toContain('flex: 0 0 var(--slot-height)')
+    expect(block).toContain('height: var(--slot-height)')
+    const after = cssBlock('.line-row::after')
+    expect(after).toContain('height: 1px')
+    expect(after).toContain('repeating-linear-gradient')
+    expect(after).toContain('#e5e7eb')
+    // 禁止回退为实线背景绘制（用户否决过 gradient 实线视觉）
+    expect(source).not.toContain('background-size: 100% calc(var(--slot-height) * 11)')
   })
 
   it('time-slot rows are flex-fixed to slot-height', () => {
