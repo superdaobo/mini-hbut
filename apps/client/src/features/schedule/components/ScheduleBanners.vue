@@ -2,6 +2,7 @@
 /**
  * 课表横幅区：离线/假期/错误提示 + 回到当前周按钮。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * #750：新增学期切换提示横幅（提前窗口内新学期课表未发布时展示）。
  */
 defineProps({
   offline: { type: Boolean, default: false },
@@ -12,6 +13,7 @@ defineProps({
   errorMsg: { type: String, default: '' },
   currentWeek: { type: Number, default: 0 },
   selectedWeek: { type: Number, default: 0 },
+  termStartNotice: { type: String, default: '' },
 })
 const emit = defineEmits(['jump-current'])
 </script>
@@ -24,6 +26,11 @@ const emit = defineEmits(['jump-current'])
 
   <div v-if="vacationNotice" class="vacation-banner">
     {{ vacationNotice }}
+  </div>
+
+  <!-- #750：提前窗口内新学期课表未发布，保持旧学期并提示将自动切换 -->
+  <div v-if="termStartNotice" class="term-start-banner">
+    {{ termStartNotice }}
   </div>
 
   <div v-if="errorMsg" class="error-banner">
@@ -57,6 +64,17 @@ const emit = defineEmits(['jump-current'])
   background: rgba(245, 158, 11, 0.16);
   border: 1px solid rgba(217, 119, 6, 0.35);
   color: #92400e;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+/* #750：学期切换提示（信息级，蓝色系与回当前周按钮呼应） */
+.term-start-banner {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #1d4ed8;
   border-radius: 12px;
   font-weight: 600;
 }
