@@ -20,7 +20,7 @@ mod schedule;
 mod session;
 
 pub use academic::AcademicReadService;
-pub use auth::{import_cookies_ok_payload, AuthService, SavedAccountInfo, mask_student_id};
+pub use auth::{import_cookies_ok_payload, mask_student_id, AuthService, SavedAccountInfo};
 pub use context::ApplicationContext;
 pub use error::{ApplicationError, ApplicationErrorKind};
 pub use schedule::ScheduleService;

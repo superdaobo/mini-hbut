@@ -528,7 +528,10 @@ mod tests {
             .expect("save b");
 
         // 切到 b 后：b 应标记为当前，a 不是
-        service.switch_active_account(sid_b).await.expect("switch b");
+        service
+            .switch_active_account(sid_b)
+            .await
+            .expect("switch b");
         // 同秒保存时 last_login 精度不足，显式拉开以验证「最近使用优先」排序
         {
             use crate::db::open_db_connection;
@@ -565,7 +568,10 @@ mod tests {
             .expect("save b");
 
         // 当前活跃 = a，删除非活跃 b：b 行消失、a 与登录态不受影响
-        service.switch_active_account(sid_a).await.expect("switch a");
+        service
+            .switch_active_account(sid_a)
+            .await
+            .expect("switch a");
         service.delete_saved_account(sid_b).await.expect("delete b");
         assert!(db::get_user_session(&db_path, sid_b)
             .expect("read")

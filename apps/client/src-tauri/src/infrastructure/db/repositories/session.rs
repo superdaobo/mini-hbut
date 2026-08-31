@@ -851,11 +851,9 @@ mod tests {
             .expect("row exists");
         assert_eq!(cred_status.0, true);
         assert_eq!(cred_status.1, false);
-        assert!(
-            session_has_encrypted_secrets(&path, "2510239999")
-                .expect("missing query")
-                .is_none()
-        );
+        assert!(session_has_encrypted_secrets(&path, "2510239999")
+            .expect("missing query")
+            .is_none());
         let _ = std::fs::remove_file(&path);
     }
 }
