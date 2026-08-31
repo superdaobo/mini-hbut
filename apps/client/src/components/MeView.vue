@@ -13,6 +13,7 @@ import {
 } from '../config/app_store_policy'
 import { isTestAccountSession, clearTestAccountSession } from '../utils/test_account.js'
 import { showToast } from '../utils/toast'
+import { invokeNative } from '../platform/native'
 import { useCertProbeBanner } from '../composables/certProbe'
 
 const props = defineProps({
@@ -39,7 +40,7 @@ onMounted(() => {
   ensureCertProbe()
 })
 
-const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig', 'openSettings'])
+const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig', 'openSettings', 'account-switched'])
 
 const activeLegalTab = ref('disclaimer')
 const legalSectionRef = ref(null)
@@ -189,6 +190,91 @@ const handleShowLegal = async (tab) => {
     legalSectionRef.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }
+
+// ============ #755 一键切换账号 ============
+// 从本机已登录账号（user_sessions 多行）中脱敏列出并秒切：
+// 切换为纯本地解密 + cookie 注入（不发网络登录），成功后由父级
+// handleAccountSwitch 更新标记并派发 hbu-session-online 全量刷新。
+const showAccountSwitchModal = ref(false)
+const savedAccounts = ref([])
+const switchingAccount = ref('')
+
+const loadSavedAccounts = async () => {
+  try {
+    const list = await invokeNative('list_saved_accounts')
+    savedAccounts.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    console.warn('[AccountSwitch] 读取已保存账号失败:', e)
+    savedAccounts.value = []
+  }
+}
+
+const openAccountSwitch = async () => {
+  showAccountSwitchModal.value = true
+  switchingAccount.value = ''
+  await loadSavedAccounts()
+  if (!savedAccounts.value.length) {
+    showToast('暂无其他已保存账号', 'info')
+    showAccountSwitchModal.value = false
+  }
+}
+
+const switchToAccount = async (acc) => {
+  if (switchingAccount.value) return
+  if (acc.is_current) {
+    showAccountSwitchModal.value = false
+    return
+  }
+  if (!acc.has_cookies) {
+    showToast('该账号会话已失效，请先登录该账号后再切换', 'warning')
+    return
+  }
+  switchingAccount.value = acc.student_id
+  try {
+    const info = await invokeNative('switch_active_account', {
+      studentId: acc.student_id,
+      student_id: acc.student_id
+    })
+    const sid = String(info?.student_id || acc.student_id || '').trim()
+    showAccountSwitchModal.value = false
+    if (sid) {
+      // 交给 App.vue 统一收尾：更新 hbu_username 标记 + 派发全量刷新
+      emit('account-switched', sid)
+      showToast(`已切换账号 ${acc.masked_id || sid}`, 'success')
+    } else {
+      showToast('切换账号失败：未识别到目标学号', 'error')
+    }
+  } catch (e) {
+    showToast(String(e?.message || e || '切换账号失败，请稍后重试'), 'error')
+  } finally {
+    switchingAccount.value = ''
+  }
+}
+
+const removeAccount = async (acc) => {
+  if (switchingAccount.value) return
+  if (!window.confirm(`确定删除账号 ${acc.masked_id || acc.student_id} 的本地登录记录吗？删除后该账号需重新登录才能使用。`)) {
+    return
+  }
+  switchingAccount.value = acc.student_id
+  try {
+    await invokeNative('delete_saved_account', {
+      studentId: acc.student_id,
+      student_id: acc.student_id
+    })
+    savedAccounts.value = savedAccounts.value.filter((a) => a.student_id !== acc.student_id)
+    showToast('已删除该账号的本地记录', 'success')
+    if (acc.is_current) {
+      // 删除的是当前活跃账号：Rust 侧已清登录态，前端走统一退出流程
+      showAccountSwitchModal.value = false
+      emit('logout')
+    }
+  } catch (e) {
+    showToast(String(e?.message || e || '删除账号失败，请稍后重试'), 'error')
+  } finally {
+    switchingAccount.value = ''
+  }
+}
 </script>
 
 <template>
@@ -211,6 +297,8 @@ const handleShowLegal = async (tab) => {
       <p class="profile-school">{{ isDemoSession ? '演示会话（虚构数据）' : '学生工具' }}</p>
       <div class="profile-actions">
         <button class="btn-info" @click="goStudentInfo">个人信息</button>
+        <!-- #755：一键切换账号（多账号并存；演示会话无真实本地会话，不展示） -->
+        <button v-if="!isDemoSession" class="btn-switch" @click="openAccountSwitch">切换账号</button>
         <button class="btn-logout" @click="handleLogout">退出登录</button>
       </div>
       <div v-if="isDemoSession" class="demo-actions">
@@ -485,6 +573,51 @@ const handleShowLegal = async (tab) => {
       </div>
       </div>
     </Transition>
+
+    <!-- #755 切换账号弹层：脱敏列表 + 一键秒切 + 删除此账号（当前账号不可删） -->
+    <Transition name="modal-pop">
+      <div
+        v-if="showAccountSwitchModal"
+        class="modal-mask"
+        @click="showAccountSwitchModal = false"
+      >
+        <div class="modal-card account-switch-modal modal-pop-card" @click.stop>
+          <h3><span class="material-symbols-outlined account-switch-title-icon">swap_account</span> 切换账号</h3>
+          <p class="intro">在本机已登录账号间快速切换（免重新登录，不会发起网络登录）。切换后自动刷新成绩与课表。</p>
+          <ul v-if="savedAccounts.length" class="account-list">
+            <li
+              v-for="acc in savedAccounts"
+              :key="acc.student_id"
+              class="account-item"
+              :class="{ 'account-item--busy': switchingAccount === acc.student_id }"
+            >
+              <div class="account-main" @click="switchToAccount(acc)">
+                <div class="account-info">
+                  <span class="account-label">{{ acc.display_name || acc.masked_id }}</span>
+                  <span class="account-id">{{ acc.masked_id }}</span>
+                </div>
+                <span v-if="acc.is_current" class="account-badge account-badge--current">当前</span>
+                <span v-else-if="switchingAccount === acc.student_id" class="account-badge account-badge--busy">切换中…</span>
+                <span v-else-if="!acc.has_cookies" class="account-badge account-badge--warn">需重新登录</span>
+                <span v-else class="account-badge account-badge--ready">可切换</span>
+              </div>
+              <!-- 当前账号不可从弹层删除：需先退出登录（避免误删正在使用的会话） -->
+              <button
+                v-if="!acc.is_current"
+                type="button"
+                class="account-delete"
+                :disabled="!!switchingAccount"
+                @click="removeAccount(acc)"
+              >删除</button>
+            </li>
+          </ul>
+          <p v-else class="empty-hint">暂无其他已保存账号，登录新账号后会出现在这里。</p>
+          <div class="modal-actions">
+            <button class="btn-primary" :disabled="!!switchingAccount" @click="showAccountSwitchModal = false">关闭</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -592,7 +725,7 @@ const handleShowLegal = async (tab) => {
   display: flex;
   gap: 12px;
   width: 100%;
-  max-width: 280px;
+  max-width: 340px;
 }
 
 .btn-info {
@@ -609,6 +742,24 @@ const handleShowLegal = async (tab) => {
 }
 
 .btn-info:active {
+  opacity: 0.85;
+}
+
+/* #755：切换账号按钮 —— 中性蓝灰，避免与主操作/危险操作混淆 */
+.btn-switch {
+  flex: 1;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #e8eaf6;
+  color: #3949ab;
+  transition: opacity 0.2s;
+}
+
+.btn-switch:active {
   opacity: 0.85;
 }
 
@@ -1090,6 +1241,136 @@ const handleShowLegal = async (tab) => {
   font-size: 12px;
   color: #6b7280;
   margin: 8px 0 16px;
+}
+
+/* #755 切换账号弹层：账号列表 */
+.account-switch-modal {
+  max-width: 360px;
+}
+
+.account-switch-title-icon {
+  font-size: 20px;
+  vertical-align: -4px;
+  margin-right: 6px;
+  color: var(--ui-primary, #2563eb);
+}
+
+.account-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.account-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: #fbfcfe;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.account-item--busy {
+  opacity: 0.7;
+}
+
+.account-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.account-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-id {
+  font-size: 12px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 9999px;
+}
+
+.account-badge--current {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.account-badge--ready {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.account-badge--warn {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.account-badge--busy {
+  background: #e5e7eb;
+  color: #6b7280;
+}
+
+.account-delete {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #fce8e6;
+  color: #d93025;
+  transition: opacity 0.2s;
+}
+
+.account-delete:active {
+  opacity: 0.8;
+}
+
+.account-delete:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.empty-hint {
+  margin: 0;
+  padding: 10px 0 4px;
+  font-size: 13px;
+  color: #6b7280;
+  text-align: center;
 }
 
 /* Responsive: 小屏幕 grid 变 3 列 */

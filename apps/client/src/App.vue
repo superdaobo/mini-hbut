@@ -111,7 +111,8 @@ const {
   handleDailyAccessInput,
   submitDailyAccessKey,
   cancelExitDialog,
-  confirmExitDialog
+  confirmExitDialog,
+  handleAccountSwitch
 } = handlers
 
 const {
@@ -264,6 +265,7 @@ const {
         :config-admin-ids="configAdminIds"
         @success="handleLoginSuccess"
         @switchMode="handleSwitchLoginMode"
+        @account-switched="handleAccountSwitch"
         @navigate="handleNavigate"
         @logout="handleLogout"
         @checkUpdate="handleCheckUpdate"

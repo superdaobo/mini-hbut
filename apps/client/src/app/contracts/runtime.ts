@@ -140,6 +140,8 @@ export interface AuthCoordinator {
   handleLogout(options?: Record<string, unknown>): Promise<void>
   handleSwitchLoginMode(mode: string): void
   handleRequireLogin(): void
+  /** #755：账号切换成功收尾（更新本地账号标记 + 派发 hbu-session-online 全量刷新） */
+  handleAccountSwitch(studentId: string): void
 }
 
 export interface LifecycleCoordinator {
@@ -253,6 +255,8 @@ export interface AppHandlers {
   handleRetrySessionRecovery: () => Promise<void>
   handleLoginSuccess: (data: unknown) => void
   handleSwitchLoginMode: (mode: string) => void
+  /** #755：一键切换账号成功后的统一收尾（供 MeView 弹层回调） */
+  handleAccountSwitch: (studentId: string) => void
   handleCheckUpdate: () => void
   handleOpenOfficial: () => void
   handleOpenFeedback: () => void

@@ -4,6 +4,7 @@
 //! 跨领域共享的传输辅助位于 [`common`]。
 
 pub mod academic;
+pub mod account;
 pub mod auth;
 pub mod chaoxing;
 pub mod common;

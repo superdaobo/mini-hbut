@@ -435,6 +435,10 @@ pub fn run() {
             transport::tauri::auth::get_login_page,
             transport::tauri::auth::get_captcha,
             transport::tauri::auth::recognize_captcha,
+            // #755：一键切换账号（多账号并存 + keyring 凭据）
+            transport::tauri::account::list_saved_accounts,
+            transport::tauri::account::switch_active_account,
+            transport::tauri::account::delete_saved_account,
             transport::tauri::config::set_ocr_endpoint,
             transport::tauri::config::set_ocr_runtime_config,
             transport::tauri::config::get_ocr_runtime_status,

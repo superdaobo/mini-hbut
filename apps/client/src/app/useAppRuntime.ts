@@ -120,6 +120,8 @@ export const useAppRuntime = () => {
     handleRetrySessionRecovery: runtime.session.handleRetrySessionRecovery,
     handleLoginSuccess: runtime.auth.handleLoginSuccess,
     handleSwitchLoginMode: runtime.auth.handleSwitchLoginMode,
+    // #755：一键切换账号成功收尾（MeView 弹层回调）
+    handleAccountSwitch: runtime.auth.handleAccountSwitch,
     handleCheckUpdate: runtime.update.handleCheckUpdate,
     handleOpenOfficial: runtime.navigation.handleOpenOfficial,
     handleOpenFeedback: runtime.navigation.handleOpenFeedback,
