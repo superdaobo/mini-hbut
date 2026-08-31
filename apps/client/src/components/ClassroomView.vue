@@ -22,6 +22,16 @@ const CLASSROOM_SNAPSHOT_FRESH_MS = 60 * 1000
 const CLASSROOM_AUTO_QUERY_COOLDOWN_MS = 20 * 1000
 const CLASSROOM_DEFERRED_REFRESH_MS = 2500
 
+// #753：楼栋显示名映射。教务接口返回「N号教学楼」等原文（同时是 jxlmc 查询值，
+// 不可改动），页面按校内习惯显示为「N教」（数字转汉字）。
+const CN_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+const displayBuildingName = (name) => {
+  const m = String(name || '').trim().match(/^(\d+)(?:号教学(?:楼)?|号楼|教)$/)
+  if (!m) return name
+  const cn = m[1].split('').map((d) => CN_DIGITS[Number(d)] || d).join('')
+  return `${cn}教`
+}
+
 // 状态
 const loading = ref(false)
 const buildings = ref([])
@@ -811,7 +821,7 @@ onBeforeUnmount(() => {
                   'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
                   filters.building === b.name ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
                 ]"
-              >{{ b.name }}</button>
+              >{{ displayBuildingName(b.name) }}</button>
             </div>
           </div>
 
