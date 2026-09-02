@@ -5,7 +5,7 @@
 // 注意：本文件不得从 schedule_prefetch.js 导入，避免循环依赖。
 // schedule_prefetch.js 导入了本文件的 afterScheduleRefresh。
 
-import { buildTodayCourseSnapshot } from './widget_snapshot'
+import { buildTodayCourseSnapshot, resolveWeekIndexFromAnchor } from './widget_snapshot'
 import {
   writeSnapshotWithRetry,
   clearSnapshot,
@@ -21,6 +21,7 @@ import { isTauriRuntime, invokeNative } from '@/platform/native'
 // ─── 内联的缓存读取逻辑（避免循环依赖 schedule_prefetch ↔ widget_bridge） ───
 
 const SCHEDULE_LOCK_KEY = 'hbu_schedule_lock'
+const SCHEDULE_META_KEY = 'hbu_schedule_meta'
 
 function readJson(key: string): unknown {
   try {
@@ -107,7 +108,7 @@ function readCustomCoursesInline(studentId: string, _semester: string): unknown[
  */
 function readCurrentWeekFromMeta(): number {
   try {
-    const raw = localStorage.getItem('hbu_schedule_meta')
+    const raw = localStorage.getItem(SCHEDULE_META_KEY)
     if (!raw) return 1
     const parsed = JSON.parse(raw)
     const week = Number(parsed?.current_week)
@@ -115,6 +116,54 @@ function readCurrentWeekFromMeta(): number {
   } catch {
     return 1
   }
+}
+
+/**
+ * 从 schedule meta（localStorage）读取 current_week，缺失/非法时返回 0
+ * 用于区分「meta 没有 current_week」与「真实周次 = 1」
+ */
+function readMetaCurrentWeek(): number {
+  try {
+    const raw = localStorage.getItem(SCHEDULE_META_KEY)
+    if (!raw) return 0
+    const parsed = JSON.parse(raw)
+    const week = Number(parsed?.current_week)
+    return Number.isFinite(week) && week >= 1 ? Math.floor(week) : 0
+  } catch {
+    return 0
+  }
+}
+
+/** #759：meta.current_week 可用则用真实周，否则退回给定的回退值 */
+function readMetaCurrentWeekOr(fallback: number): number {
+  const week = readMetaCurrentWeek()
+  return week >= 1 ? week : fallback
+}
+
+/**
+ * 从 localStorage 读取课表 meta（内联版）：
+ * 结构 { semester, start_date, current_week, total_weeks, vacation_notice }
+ */
+function readScheduleMetaInline(): Record<string, unknown> | null {
+  const raw = readJson(SCHEDULE_META_KEY)
+  if (!raw || typeof raw !== 'object') return null
+  return raw as Record<string, unknown>
+}
+
+/**
+ * #759：解析写入 Widget 快照应使用的「当前真实周次」。
+ * 优先级：meta.start_date 开学锚点推算（跨天后依然正确，修复周一凌晨写错周次）
+ * → meta.current_week 缓存（无锚点时回退，此时周次可能滞后一天，已写入提交说明限制）
+ * → 1（readCurrentWeekFromMeta 的兜底语义）。
+ */
+export function resolveWeekIndexForSnapshot(now: Date = new Date()): number {
+  const meta = readScheduleMetaInline()
+  const startDate = toSafeText(meta?.start_date)
+  const totalWeeksRaw = Number(meta?.total_weeks)
+  const totalWeeks = Number.isFinite(totalWeeksRaw) && totalWeeksRaw >= 1 ? Math.floor(totalWeeksRaw) : 25
+  const anchorWeek = startDate ? resolveWeekIndexFromAnchor(startDate, now, totalWeeks) : 0
+  if (anchorWeek >= 1) return anchorWeek
+  return readCurrentWeekFromMeta()
 }
 
 /**
@@ -143,7 +192,9 @@ export async function afterScheduleRefresh(
     const snapshot = buildTodayCourseSnapshot({
       cache: allCourses,
       studentId: sid,
-      weekIndex: opts.selectedWeek
+      // #759：真实周优先（meta.current_week 是服务端权威值）；缺失时才退回界面选中周，
+      // 避免用户手动翻周污染小组件快照
+      weekIndex: readMetaCurrentWeekOr(opts.selectedWeek)
     })
 
     await writeSnapshotWithRetry(snapshot)
@@ -176,7 +227,10 @@ export async function tryWriteSnapshotFromCache(sid: string): Promise<void> {
     const customCourses = readCustomCoursesInline(sid, lockedSemester)
     const allCourses = [...remoteCourses, ...customCourses]
 
-    const weekIndex = readCurrentWeekFromMeta()
+    // #759：跨天定时器/回前台触发时重算当前真实周次（优先开学锚点推算），
+    // 不再直接信任前一天缓存写入的 current_week；date/weekday 由
+    // buildTodayCourseSnapshot 用当下时间计算，天然正确
+    const weekIndex = resolveWeekIndexForSnapshot()
 
     const snapshot = buildTodayCourseSnapshot({
       cache: allCourses,

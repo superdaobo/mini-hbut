@@ -112,8 +112,14 @@ class TodayCoursesRemoteViewsFactory(
             contentDesc
         )
 
-        // 行点击深链：携带节次参数
-        val snapshotDate = readSnapshotDate(store.readSnapshot())
+        // 行点击深链：携带节次参数（#759：快照过期时深链用今天，避免前端高亮到昨天）
+        val snapshotJson = store.readSnapshot()
+        val snapshotDateRaw = readSnapshotDate(snapshotJson)
+        val snapshotDate = if (isBeforeToday(snapshotDateRaw)) {
+            java.time.LocalDate.now().toString()
+        } else {
+            snapshotDateRaw
+        }
         if (snapshotDate.isNotEmpty() && row.periodStart >= 1) {
             val fillInIntent = Intent().apply {
                 data = WidgetDeepLink.scheduleUri(snapshotDate, row.periodStart)
@@ -139,6 +145,16 @@ class TodayCoursesRemoteViewsFactory(
             JSONObject(json).optString("date", "")
         } catch (_: Exception) {
             ""
+        }
+    }
+
+    /** #759：快照日期是否早于今天（解析失败按未过期处理，保持原行为） */
+    private fun isBeforeToday(dateStr: String): Boolean {
+        if (dateStr.isBlank()) return false
+        return try {
+            java.time.LocalDate.parse(dateStr).isBefore(java.time.LocalDate.now())
+        } catch (_: Exception) {
+            false
         }
     }
 

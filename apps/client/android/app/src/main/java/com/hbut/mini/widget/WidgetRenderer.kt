@@ -36,7 +36,13 @@ object WidgetRenderer {
         val courses = snapshot?.optJSONArray("courses")
         val courseCount = courses?.length() ?: 0
         val emptyMessage = WidgetLayoutHelper.emptyStateMessage(context, snapshot)
-        val stale = snapshot != null && WidgetLayoutHelper.isStale(snapshot)
+        // #759：快照 date 早于今天 = 跨天重写失败（WebView 冻结/进程被杀后前端定时器失效）。
+        // 兜底策略：标题日期显示今天 + 溢出位显示「数据更新于 X月X日」陈旧标记，
+        // 深链同样携带今天，避免点击后前端高亮到昨天。快照内容仍由前端主修路径重写。
+        val snapshotDate = try { java.time.LocalDate.parse(date) } catch (_: Exception) { null }
+        val today = java.time.LocalDate.now()
+        val outdated = snapshotDate != null && snapshotDate.isBefore(today)
+        val stale = (snapshot != null && WidgetLayoutHelper.isStale(snapshot)) || outdated
 
         val titleId = context.resources.getIdentifier("widget_title", "id", packageName)
         val overflowId = context.resources.getIdentifier("widget_overflow_tag", "id", packageName)
@@ -46,7 +52,8 @@ object WidgetRenderer {
         if (titleId != 0) {
             val titleText = when {
                 weekIndex > 0 && date.isNotEmpty() -> {
-                    val displayDate = formatDateChinese(date)
+                    // #759：快照过期时标题日期显示今天（列表内容仍为旧快照，由陈旧标记提示）
+                    val displayDate = formatDateChinese(if (outdated) today.toString() else date)
                     "今日课程 · $displayDate"
                 }
                 emptyMessage.isNotEmpty() -> emptyMessage
@@ -62,7 +69,13 @@ object WidgetRenderer {
                 views.setTextColor(overflowId, themeColor)
                 views.setViewVisibility(overflowId, View.VISIBLE)
             } else if (stale) {
-                views.setTextViewText(overflowId, WidgetLayoutHelper.staleHint(context))
+                // #759：跨天旧快照显示「数据更新于 X月X日」，其余陈旧沿用通用提示
+                val staleText = if (outdated && date.isNotEmpty()) {
+                    WidgetLayoutHelper.outdatedHint(context, date)
+                } else {
+                    WidgetLayoutHelper.staleHint(context)
+                }
+                views.setTextViewText(overflowId, staleText)
                 views.setTextColor(overflowId, themeColor)
                 views.setViewVisibility(overflowId, View.VISIBLE)
             } else {
@@ -70,7 +83,11 @@ object WidgetRenderer {
             }
         }
 
-        val deepLinkDate = if (date.isNotEmpty()) date else java.time.LocalDate.now().toString()
+        val deepLinkDate = when {
+            outdated -> today.toString()
+            date.isNotEmpty() -> date
+            else -> java.time.LocalDate.now().toString()
+        }
         val rootPendingIntent = WidgetDeepLink.pendingIntent(
             context,
             appWidgetId,
