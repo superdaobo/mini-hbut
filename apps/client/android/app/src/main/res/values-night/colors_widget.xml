@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Widget 深色主题 -->
-    <color name="widget_bg">#FF1E293B</color>
+    <!-- #758：背景默认 85% 不透明（D9），透出桌面壁纸 -->
+    <color name="widget_bg">#D91E293B</color>
     <color name="widget_text_primary">#FFF1F5F9</color>
     <color name="widget_text_secondary">#FF94A3B8</color>
     <color name="widget_accent">#FF34D399</color>

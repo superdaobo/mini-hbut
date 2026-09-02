@@ -22,6 +22,8 @@ object ElectricityWidgetRenderer {
         val store = WidgetDataStore(context)
         val json = store.readElectricity()
         val data = parseJson(json)
+        // #758：应用强制 light/dark 时覆盖背景与中性文字色；system 模式零干预
+        val themeMode = WidgetThemeMode.resolve(context)
 
         val titleId = context.resources.getIdentifier("widget_elec_title", "id", packageName)
         val quantityId = context.resources.getIdentifier("widget_elec_quantity", "id", packageName)
@@ -65,6 +67,11 @@ object ElectricityWidgetRenderer {
         }
         val rootId = context.resources.getIdentifier("widget_elec_root", "id", packageName)
         if (rootId != 0) views.setOnClickPendingIntent(rootId, pi)
+        // #758：强制模式下覆盖背景与中性文字色（电量数值沿用品牌主题色）
+        WidgetThemeMode.applyBackground(context, themeMode, views, rootId)
+        WidgetThemeMode.bindTextColor(context, themeMode, views, titleId, "widget_text_primary")
+        WidgetThemeMode.bindTextColor(context, themeMode, views, roomId, "widget_text_secondary")
+        WidgetThemeMode.bindTextColor(context, themeMode, views, statusId, "widget_location_text")
 
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }

@@ -16,6 +16,12 @@ import { isTauriRuntime, isCapacitorRuntime, invokeNative } from '@/platform/nat
 /** 最大 snapshot 字节数：32 KB */
 const MAX_SNAPSHOT_BYTES = 32 * 1024
 
+/**
+ * #758：应用内主题模式（与线A #757 三态对应）。
+ * Kotlin 端 WidgetThemeMode 按此值覆盖小组件深浅色。
+ */
+export type WidgetThemeMode = 'system' | 'light' | 'dark'
+
 /** 自定义错误，携带 code 字段便于上层判断 */
 export class WidgetBridgeError extends Error {
   constructor(
@@ -183,6 +189,34 @@ export async function writeExamSnapshot(data: ExamWidgetSnapshot): Promise<void>
 
 export async function writeWidgetThemeColor(color: string): Promise<void> {
   await getWidgetBridge().writeThemeColor({ color })
+}
+
+/**
+ * #758：将应用当前主题模式写入原生 Widget 存储（SharedPreferences key=theme_mode）。
+ * 写入通路：
+ * - Tauri Android：invokeNative('write_widget_theme_mode')（原生命令尚未注册时 reject）
+ * - Capacitor：MiniHbutWidget.writeThemeMode（插件尚未实现该方法时 reject）
+ * - 桌面/Web：不支持，reject
+ * 调用方（widget_bridge.writeWidgetThemeMode）必须静默捕获失败——通路未就绪时
+ * Kotlin 端按 "system" 渲染，与旧版行为完全一致。
+ */
+export async function writeThemeMode(mode: WidgetThemeMode): Promise<void> {
+  if (isTauriAndroid()) {
+    await invokeNative('write_widget_theme_mode', { mode })
+    return
+  }
+  if (isCapacitorRuntime()) {
+    const cap = typeof window === 'undefined' ? undefined : (window as any).Capacitor
+    const plugin = cap?.Plugins?.MiniHbutWidget as
+      | { writeThemeMode?: (options: { mode: string }) => Promise<void> }
+      | undefined
+    if (plugin && typeof plugin.writeThemeMode === 'function') {
+      await plugin.writeThemeMode({ mode })
+      return
+    }
+    throw new Error('MiniHbutWidget.writeThemeMode not implemented')
+  }
+  throw new Error('theme mode sync is unavailable on this runtime')
 }
 
 /**
