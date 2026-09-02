@@ -10,7 +10,8 @@ import { tryWriteSnapshotFromCache } from '../../utils/widget_bridge'
 import { isTestAccountSession } from '../../utils/test_account.js'
 import { normalizeViewName } from '../../navigation/app_navigation'
 
-const msUntilNextDayCrossover = () => {
+/** 导出供单测：计算距离下一个「00:01」（Asia/Shanghai）的毫秒数 */
+export const msUntilNextDayCrossover = () => {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Shanghai',
     hour: '2-digit',
@@ -37,6 +38,8 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
     state.mutable.widgetCrossDayTimer = window.setTimeout(() => {
       state.mutable.widgetCrossDayTimer = null
       if (state.studentId.value && !isTestAccountSession()) {
+        // #759：tryWriteSnapshotFromCache 内部按当下时间重算 date/weekday，
+        // 并优先用开学锚点推算当前真实周次（不再信任前一天缓存的 current_week）
         void tryWriteSnapshotFromCache(state.studentId.value)
         scheduleWidgetCrossDayTimer()
       }

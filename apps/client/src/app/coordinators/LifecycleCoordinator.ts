@@ -299,9 +299,15 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     })
     // 回前台：探测 loopback bridge，并通知内嵌页恢复（官网/模块）
     void recoverEmbeddedWebAfterResume(targetView, idle)
-    // 回前台：重算跨天定时器剩余时间
+    // 回前台：重算跨天定时器剩余时间；并无条件补写小组件快照（#759）
     if (state.studentId.value) {
       runtime.notification.scheduleWidgetCrossDayTimer()
+      // #759：跨天定时器在 WebView 冻结/进程被杀后会失效，导致小组件全天显示昨天。
+      // 回前台时无条件用缓存重写一次快照（date/weekday/周次按当下重算），
+      // 与定时器重排并行执行；内部已全静默捕获，失败不影响 resume 主流程。
+      void import('../../utils/widget_bridge')
+        .then((mod) => mod.tryWriteSnapshotFromCache(state.studentId.value))
+        .catch(() => {})
       // #610：resume/跨天后第一次活跃 → 触发系统预调度 reconcile
       // （窗口随"今天"滚动，跨天自然重算；幂等 diff 保证无变化时零系统调用）
       void import('../../utils/local_reminder_scheduler').then((mod) =>

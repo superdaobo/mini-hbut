@@ -48,6 +48,14 @@ class WidgetDataStore(context: Context) {
             .commit()
     }
 
+    /**
+     * #758：读取应用写入的主题模式（system/light/dark，见 WidgetThemeMode）。
+     * 缺省/非法值由消费端兜底为 system（保持系统资源限定符行为）。
+     */
+    fun readThemeMode(): String {
+        return prefs.getString(KEY_THEME_MODE, THEME_MODE_SYSTEM) ?: THEME_MODE_SYSTEM
+    }
+
     fun readElectricity(): String? = prefs.getString(KEY_ELECTRICITY_JSON, null)
 
     fun writeElectricity(json: String): Boolean {
@@ -73,6 +81,9 @@ class WidgetDataStore(context: Context) {
         private const val KEY_ELECTRICITY_JSON = "electricity_json"
         private const val KEY_EXAM_JSON = "exam_json"
         private const val KEY_THEME_COLOR = "theme_color"
+        /** #758：应用内主题模式（system/light/dark），由前端经桥接写入 */
+        private const val KEY_THEME_MODE = "theme_mode"
         const val DEFAULT_THEME_COLOR = "#2563eb"
+        const val THEME_MODE_SYSTEM = "system"
     }
 }
