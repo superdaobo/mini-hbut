@@ -80,6 +80,39 @@ export function getIsoWeekday(now: Date): number {
 }
 
 /**
+ * 解析 "YYYY-MM-DD" 为 UTC 午夜毫秒时间戳（非法输入返回 null）
+ * 统一用 UTC 午夜对齐，避免时区/夏令时对「天数差」计算的干扰
+ */
+function parseUtcMidnightMs(dateStr: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim())
+  if (!m) return null
+  const ms = Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`)
+  return Number.isFinite(ms) ? ms : null
+}
+
+/**
+ * #759：按开学日期锚点推算「当前真实周次」（Asia/Shanghai 日期语义）
+ * - 第 1 周 = start_date 起始的 7 天（与课表 week_index 契约语义一致）
+ * - 今天早于开学日（未开学）→ 返回 0，由调用方回退到缓存周次
+ * - 结果钳制到 [1, totalWeeks]；start_date 非法/解析失败 → 返回 0
+ */
+export function resolveWeekIndexFromAnchor(
+  startDate: string,
+  now: Date,
+  totalWeeks = 25,
+): number {
+  const startMs = parseUtcMidnightMs(startDate)
+  if (startMs == null) return 0
+  const todayMs = parseUtcMidnightMs(formatLocalDate(now))
+  if (todayMs == null) return 0
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const days = Math.floor((todayMs - startMs) / DAY_MS)
+  if (days < 0) return 0
+  const maxWeek = Number.isFinite(totalWeeks) && totalWeeks >= 1 ? Math.floor(totalWeeks) : 25
+  return Math.min(Math.floor(days / 7) + 1, maxWeek)
+}
+
+/**
  * 从 cache 数组中提取指定 weekIndex + weekday 的课程
  * - 按 week_index（或 weeks 数组）+ weekday 过滤
  * - 跨周重复实例去重（按 name+period_start+period_end+location 组合）

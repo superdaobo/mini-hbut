@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    #758：API 31+ 的 widget 背景使用 Material You 动态色（@color/widget_bg 在
+    values-v31/values-night-v31 下解析为 system_accent1_50/900）。动态色是运行时
+    取色值，无法在颜色资源上静态叠加 alpha，故用 layer-list 的 item android:alpha
+    （API 23+ 支持，v31 限定保证安全）把整个 shape 调到 85% 不透明度，
+    与 < v31 的 #D9FFFFFF / #D91E293B 等效，且不破坏 Material You 取色。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:alpha="0.85">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/widget_bg" />
+            <corners android:radius="20dp" />
+        </shape>
+    </item>
+</layer-list>
