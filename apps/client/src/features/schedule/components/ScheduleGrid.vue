@@ -1,7 +1,8 @@
 <script setup>
 /**
  * 课表主体：日期头 + 时间轴 + 课程网格（含周切换动画）。
- * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * 自 ScheduleView.vue 拆分；#749 修复行距错位（容器 min-height + 行 flex 固定），
+ * 划分线保持 v1.4.6 的 line-row dashed 虚线视觉（用户指定）。
  */
 import { MAX_PERIOD, timeSchedule } from '../constants'
 
@@ -9,6 +10,8 @@ const props = defineProps({
   weekDates: { type: Array, default: () => [] },
   currentMonth: { type: Number, default: 0 },
   selectedWeek: { type: Number, default: 0 },
+  // #742a：周切换过渡方向（由 useScheduleSemester 按滑动/键盘方向设置）
+  weekTransitionName: { type: String, default: 'week-slide-left' },
   scheduleCourseCardStyle: { type: String, default: 'modern' },
   courseCardRefreshNonce: { type: Number, default: 0 },
   getCoursesForDay: { type: Function, default: () => () => [] },
@@ -28,7 +31,7 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 </script>
 
 <template>
-  <Transition :name="selectedWeek ? 'week-slide-left' : 'week-slide-right'" mode="out-in">
+  <Transition :name="weekTransitionName" mode="out-in">
     <div class="timetable-container" :key="`week-${selectedWeek}`">
       <!-- 日期头 -->
       <div class="date-header">
@@ -56,8 +59,10 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 
         <!-- 课程网格 -->
         <div class="courses-grid" :key="`courses-grid-${scheduleCourseCardStyle}-${courseCardRefreshNonce}`">
-          <!-- 背景线 -->
-          <div class="grid-lines">
+          <!-- 背景划分线：虚线视觉与 v1.4.6 一致（用户指定 dashed）。
+               #749 的行距对齐由「容器 min-height + 行 flex: 0 0」双保护保证，
+               line-row 不再可能被 flex 压缩 -->
+          <div class="grid-lines" aria-hidden="true">
             <div v-for="i in periodRows" :key="i" class="line-row"></div>
           </div>
 
@@ -206,6 +211,8 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 }
 
 .time-slot {
+  /* #749：flex 固定行高，禁止时间轴行被压缩/拉伸，行距恒等于 var(--slot-height) */
+  flex: 0 0 var(--slot-height);
   height: var(--slot-height);
   display: flex;
   flex-direction: column;
@@ -242,9 +249,16 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
   grid-template-columns: repeat(7, minmax(0, 1fr));
   position: relative;
   height: 100%;
+  /* #749：恢复 v1.4.6 高度保护——视口不足 11×slot 时容器不再被压缩，
+     课程网格 / 时间轴 / 划分线三套行距在任意视口下保持恒等 */
+  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
   box-sizing: border-box;
 }
 
+/* 划分线：line-row 虚线（v1.4.6 视觉，用户指定 dashed）。
+   #749 行距对齐的根因修复是两道保护，与线实现解耦：
+   1) .courses-grid 的 min-height 保证 grid-lines 容器 ≥ 11×slot，行不再被压缩
+   2) .line-row / .time-slot 的 flex: 0 0 固定行高，禁止压缩/拉伸 */
 .grid-lines {
   position: absolute;
   top: 0;
@@ -258,8 +272,27 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 
 .line-row {
   height: var(--slot-height);
-  border-bottom: 1px dashed #e5e7eb;
+  flex: 0 0 var(--slot-height);
+  position: relative;
   box-sizing: border-box;
+}
+
+/* 稀疏虚线：::after 限定 1px 线高，水平 repeating 渐变控制疏密
+   （8px 实段 / 8px 空，浏览器原生 dashed 约 3px 段太密，用户要求稀松） */
+.line-row::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    #e5e7eb 0,
+    #e5e7eb 8px,
+    transparent 8px,
+    transparent 16px
+  );
 }
 
 .day-column {
@@ -461,10 +494,6 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 
   .day-column {
     grid-template-rows: repeat(11, var(--slot-height));
-  }
-
-  .line-row {
-    height: var(--slot-height);
   }
 
   .course-card {

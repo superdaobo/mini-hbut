@@ -302,7 +302,7 @@ describe('initThemeBridge', () => {
     expect(mockRoot.classList.add).not.toHaveBeenCalledWith('dark')
   })
 
-  it('应在无持久化主题偏好且 OS 为 dark 时使用 dark 预设但不自动开启夜晚模式', () => {
+  it('应在无持久化主题偏好且 OS 为 dark 时使用 dark 预设，并按 system 偏好开启夜晚模式（#757）', () => {
     mockMatchMedia.mockReturnValue({
       matches: true,
       addEventListener: vi.fn(),
@@ -310,10 +310,11 @@ describe('initThemeBridge', () => {
 
     initThemeBridge()
 
-    expect(mockRoot.classList.add).not.toHaveBeenCalledWith('dark')
+    // #757：无用户偏好时默认跟随系统（system），OS 为 dark 即开启夜晚模式
+    expect(mockRoot.classList.add).toHaveBeenCalledWith('dark')
   })
 
-  it('应在无持久化偏好且 OS 为 light 时使用默认 light 预设', () => {
+  it('应在无持久化偏好且 OS 为 light 时使用默认 light 预设并清除 dark class（#757）', () => {
     mockMatchMedia.mockReturnValue({
       matches: false,
       addEventListener: vi.fn(),
@@ -321,7 +322,8 @@ describe('initThemeBridge', () => {
 
     initThemeBridge()
 
-    expect(mockRoot.classList.remove).not.toHaveBeenCalledWith('dark')
+    // #757：system 偏好 + OS 浅色 → 主动移除 dark class（保证与系统一致）
+    expect(mockRoot.classList.remove).toHaveBeenCalledWith('dark')
   })
 
   it('应根据独立夜晚模式偏好恢复 html.dark', () => {

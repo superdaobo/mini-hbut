@@ -30,8 +30,9 @@ import { useScheduleDetail } from '../features/schedule/composables/useScheduleD
 import { useScheduleEditor } from '../features/schedule/composables/useScheduleEditor'
 import { useScheduleIO } from '../features/schedule/composables/useScheduleIO'
 import { useScheduleSync } from '../features/schedule/composables/useScheduleSync'
+import { useScheduleTermStart } from '../features/schedule/composables/useScheduleTermStart'
 import { deriveSemesterByDate, readStoredSemester } from '../features/schedule/utils/semester'
-import { consumePendingSemesterPopup } from '../features/schedule/utils/popup'
+import { semesterIsNewer } from '../utils/semester.js'
 
 import ScheduleTopbar from '../features/schedule/components/ScheduleTopbar.vue'
 import ScheduleDrawer from '../features/schedule/components/ScheduleDrawer.vue'
@@ -53,7 +54,7 @@ const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed'])
 
 // ============ 组合式状态（按依赖顺序实例化） ============
 const confirmDialog = useConfirmDialog()
-const menu = useScheduleMenu({ props })
+const menu = useScheduleMenu()
 const semesterApi = useScheduleSemester({
   // 惰性求值：运行时各弹层状态均已就绪
   isAnyOverlayOpen: () => anyOverlayOpen.value,
@@ -64,13 +65,14 @@ const detail = useScheduleDetail({ data, semester: semesterApi })
 const editor = useScheduleEditor({ props, data, semester: semesterApi, detail, menu, confirmDialog })
 const io = useScheduleIO({ props, data, semester: semesterApi, editor, confirmDialog })
 const sync = useScheduleSync({ props, data, semester: semesterApi, editor, confirmDialog })
+// #750：开学日期驱动学期切换（时间应选学期判定/自动切换/横幅/回前台重探）
+const termStart = useScheduleTermStart({ props, data, semester: semesterApi })
 
 // 任一弹层打开时禁用周次滑动/键盘切换（与原始 shouldIgnoreWeekSwipe 一致）
+// #742：学期徽章/提示弹窗 UI 已移除，其状态不再参与门控
 const anyOverlayOpen = computed(() => {
   return (
     menu.showMenu.value ||
-    menu.showSemesterBadgePopover.value ||
-    menu.showSemesterPopup.value ||
     detail.showDetail.value ||
     editor.showAddCourse.value ||
     editor.showManageCourses.value ||
@@ -196,6 +198,8 @@ const handleEditManagedCourse = (course: any) => {
 }
 
 const handleSemesterChange = () => {
+  // #750：手动切换 = 会话内临时行为（manual-select 锁，重启后以时间驱动为准）
+  termStart.clearNoticeIfMatches(semesterDraft.value)
   void data.onSemesterChange()
 }
 
@@ -272,36 +276,65 @@ onMounted(async () => {
   window.addEventListener('hbu-session-online', data.handleSessionOnline)
   window.addEventListener('hbu-session-logout', data.handleSessionLogout)
   document.addEventListener('visibilitychange', sync.handleScheduleVisibilityChange)
+  // #750：回前台轻量重探（提前窗口内检查新学期发布状态，60s 节流）
+  document.addEventListener('visibilitychange', termStart.handleForegroundVisibility)
   sync.refreshCloudSyncCooldown()
   sync.ensureCloudSyncCooldownTimer()
   void data.fetchSemesterOptions()
 
+  // #750：时间驱动应选学期——学期开学日(start_date) <= 今天+3天 的最近一个；
+  // 本地无开学日数据时回退 deriveSemesterByDate() 月份推算（仅作 lock 比较基准，不用于自动切换）。
+  const timeDriven = termStart.resolveTimeDrivenSemester()
+
   // 下次进入自动切换：后台检测到新学期并已确认有课表数据时生效。
+  // #750：后台 pending 若早于时间驱动应选学期（后端 current 尚未推进）→ 丢弃，避免回跳旧学期。
   const switchSemester = consumeScheduleSwitchPending(props.studentId)
   if (switchSemester) {
-    writeScheduleLock(props.studentId, switchSemester, 'pending-switch')
-    semester.value = switchSemester
-    semesterDraft.value = switchSemester
+    const pendingStale =
+      !!timeDriven.target &&
+      timeDriven.target !== switchSemester &&
+      !semesterIsNewer(switchSemester, timeDriven.target)
+    if (pendingStale) {
+      pushDebugLog(
+        'Schedule',
+        `#750 后台切换 pending(${switchSemester}) 早于时间驱动应选学期(${timeDriven.target})，丢弃以避免回跳`,
+        'warn'
+      )
+    } else {
+      writeScheduleLock(props.studentId, switchSemester, 'pending-switch')
+      semester.value = switchSemester
+      semesterDraft.value = switchSemester
+    }
   }
 
+  // #750：lock 清理规则（替代原「lock ≠ deriveSemesterByDate() 即清」）：
+  // - manual-select：会话内临时行为，启动一律清除（重启后以时间驱动应选学期为准）；
+  // - auto 锁 == target：保留（term-start/pending-switch 等时间驱动锁定不被误清）；
+  // - auto 锁早于 target（时间推进）：清理并重探；
+  // - auto 锁晚于 target（本地开学日数据滞后）：保留，避免误清后台已确认的新学期。
   const lockDetail = readScheduleLockDetail(props.studentId) as {
     semester?: string
     reason?: string
   } | null
-  const todaySemester = deriveSemesterByDate()
-  if (
-    lockDetail?.semester &&
-    todaySemester &&
-    lockDetail.semester !== todaySemester &&
-    isAutoScheduleLockReason(lockDetail.reason)
-  ) {
-    const cleared = clearScheduleLock(props.studentId)
-    if (cleared) {
-      pushDebugLog(
-        'Schedule',
-        `检测到自动锁定学期(${lockDetail.semester})与当前日期学期(${todaySemester})冲突，已清理并重探测`,
-        'warn'
-      )
+  if (lockDetail?.semester) {
+    const lockIsManual = !isAutoScheduleLockReason(lockDetail.reason)
+    const lockNewerThanTarget = timeDriven.target
+      ? semesterIsNewer(lockDetail.semester, timeDriven.target)
+      : true
+    const shouldClearLock =
+      lockIsManual ||
+      (!!timeDriven.target && lockDetail.semester !== timeDriven.target && !lockNewerThanTarget)
+    if (shouldClearLock) {
+      const cleared = clearScheduleLock(props.studentId)
+      if (cleared) {
+        pushDebugLog(
+          'Schedule',
+          lockIsManual
+            ? `#750 手动锁定学期(${lockDetail.semester})为会话内临时，启动不延续，已清理`
+            : `#750 自动锁定学期(${lockDetail.semester})早于时间驱动应选学期(${timeDriven.target})，已清理并重探`,
+          'warn'
+        )
+      }
     }
   }
 
@@ -335,7 +368,10 @@ onMounted(async () => {
     const probeAndRefresh = async () => {
       const warmed = await warmupScheduleForStudent(props.studentId, {
         forceProbe: true,
-        reason: 'first-enter'
+        reason: 'first-enter',
+        // #750：传入时间驱动应选学期——探测命中且有课表 → term-start 锁定；
+        // picked 早于 target（窗口内新学期未发布）→ 不写锁，等待发布后自动切。
+        targetSemester: timeDriven.target || ''
       }) as {
         success?: boolean
         semester?: string
@@ -344,6 +380,7 @@ onMounted(async () => {
       if (warmed?.success && warmed?.semester) {
         semester.value = warmed.semester
         semesterDraft.value = warmed.semester
+        // #750：回跳保护路径返回 payload=null（保持锁定学期语义），回落 fetchSchedule 取数
         if (!data.applySchedulePayload(warmed.payload, warmed.semester)) {
           await data.fetchSchedule(warmed.semester)
         } else {
@@ -364,16 +401,11 @@ onMounted(async () => {
       await data.fetchSchedule()
     }
   }
-
-  const pendingSemester = consumePendingSemesterPopup(props.studentId)
-  if (pendingSemester) {
-    menu.openSemesterPopup(pendingSemester)
-    return
-  }
-  if (!menu.isPopupShown()) {
-    menu.openSemesterPopup(semester.value || semesterDraft.value)
-  }
-  document.addEventListener('click', menu.closeSemesterBadgePopover)
+  // #750：时间驱动学期决策（异步，不阻塞首屏）：进入提前窗口 → 探测新学期发布状态，
+  // 已发布自动切换（term-start 锁定），未发布保持旧学期 + 顶部横幅提示。
+  void termStart.ensureTimeDrivenSemester('startup')
+  // #742：学期徽章/提示弹窗 UI 已移除，原 popup 状态机会让 anyOverlayOpen 永久为真
+  // 从而禁用滑动与键盘切换周次；清理后不再弹任何学期提示。
 })
 
 onBeforeUnmount(() => {
@@ -383,7 +415,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('hbu-session-online', data.handleSessionOnline)
   window.removeEventListener('hbu-session-logout', data.handleSessionLogout)
   document.removeEventListener('visibilitychange', sync.handleScheduleVisibilityChange)
-  document.removeEventListener('click', menu.closeSemesterBadgePopover)
+  document.removeEventListener('visibilitychange', termStart.handleForegroundVisibility)
   sync.clearCloudSyncCooldownTimer()
   if (widgetHighlightTimer) {
     clearTimeout(widgetHighlightTimer)
@@ -459,6 +491,7 @@ onBeforeUnmount(() => {
       :error-msg="errorMsg"
       :current-week="currentWeek"
       :selected-week="selectedWeek"
+      :term-start-notice="termStart.termStartNotice.value"
       @jump-current="jumpToCurrentWeek"
     />
 

@@ -1,14 +1,1 @@
-[
-  {
-    "key": "size:src/utils/axios_adapter/post.ts",
-    "issue": "#646",
-    "owner": "frontend-http-layer",
-    "deadline": "2026-09-30"
-  },
-  {
-    "key": "size:src/utils/notify_center_checks.ts",
-    "issue": "#646",
-    "owner": "frontend-notification",
-    "deadline": "2026-09-30"
-  }
-]
+[]

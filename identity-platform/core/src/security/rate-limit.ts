@@ -198,7 +198,13 @@ export function rateLimitMiddleware(options: RateLimiterOptions): Middleware {
       return
     }
     try {
-      const decision = await checkRateLimit(options.sql, group, ctx.ip)
+      // #708：小黄云开启后 ctx.ip 是 Cloudflare 边缘 IP（全体访客共用），
+      // 必须优先读取 CF 附带的真实访客地址，否则限流会把所有人算成同一拨人误伤。
+      const realIp =
+        ctx.get('cf-connecting-ip') ||
+        (ctx.get('x-forwarded-for') || '').split(',')[0]?.trim() ||
+        ctx.ip
+      const decision = await checkRateLimit(options.sql, group, realIp)
       if (!decision.allowed) {
         ctx.status = 429
         ctx.set('Retry-After', String(decision.retryAfterSeconds))

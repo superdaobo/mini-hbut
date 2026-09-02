@@ -63,4 +63,16 @@ describe('ClassroomView display contract', () => {
     expect(vue).toMatch(/\.classroom-period-button\s*\{[^}]*min-width:\s*42px;/s)
     expect(vue).toMatch(/\.classroom-period-row-buttons\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*42px\);/s)
   })
+
+  it('displays buildings as 一教/二教… while keeping the original jxlmc query value (#753)', () => {
+    const vue = source()
+
+    // 显示：按钮文案经 displayBuildingName 映射（教务原文「N号教学楼」→「N教」）
+    expect(vue).toContain('{{ displayBuildingName(b.name) }}')
+    // 查询：filters.building 仍写入教务原始 name（jxlmc 语义不可变）
+    expect(vue).toContain('filters.building = b.name')
+    // 映射规则：数字转汉字 + 「教」后缀，兼容「N号教学楼/N号楼/N教」形态
+    expect(vue).toContain('CN_DIGITS')
+    expect(vue).toMatch(/\(\?:号教学\(\?:楼\)\?\|号楼\|教\)/)
+  })
 })

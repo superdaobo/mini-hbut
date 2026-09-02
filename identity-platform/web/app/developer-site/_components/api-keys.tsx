@@ -12,6 +12,9 @@
  * - mutation 一律带 x-csrf-token（双提交 Cookie，与 developer API 同机制）。
  */
 'use client'
+import { TurnstileField } from './turnstile-field'
+
+import { consumeTurnstileToken } from '@/lib/developer/turnstile-client'
 
 import { useEffect, useState } from 'react'
 import { ClientApiError, fetchMe } from './api'
@@ -45,6 +48,11 @@ async function keysRequest<T>(path: string, init?: { method?: string; body?: unk
   }
   if (init?.csrf) {
     headers['x-csrf-token'] = init.csrf
+  }
+  // #708：创建密钥属敏感写动作，附带一次性 Turnstile 令牌
+  const tt = consumeTurnstileToken()
+  if (tt) {
+    headers['x-turnstile-token'] = tt
   }
   const res = await fetch(path, {
     method: init?.method ?? 'GET',
@@ -217,6 +225,8 @@ export function ApiKeys() {
       <div className="dev-card">
         <h2>创建新密钥</h2>
         <p className="dev-hint">起一个好认的名字（比如「办公电脑」「CI 服务器」），方便以后管理。</p>
+        {/* #708 人机验证（申请密钥属敏感写动作） */}
+        <TurnstileField />
         <form onSubmit={(e) => void handleCreate(e)}>
           <div className="dev-field">
             <label htmlFor="api-key-name">密钥名称（必填）</label>

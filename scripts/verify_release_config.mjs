@@ -15,7 +15,7 @@ const tauriConfig = readJson('src-tauri/tauri.conf.json')
 const cargoToml = readText('src-tauri/Cargo.toml')
 const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1]
 
-const expected = '1.4.6'
+const expected = '1.4.8'
 for (const [label, version] of [
   ['package.json', packageJson.version],
   ['tauri.conf.json', tauriConfig.version],

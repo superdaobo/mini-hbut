@@ -94,17 +94,26 @@ pub fn run() {
 
     // #671 线上可观测性：文件日志（LogDir）+ stdout（dev 可见）。release 版 stderr 被
     // windows_subsystem 丢弃，关键链路（identity / credential_store）必须有落盘日志。
-    // 级别策略：debug 全量 Debug；release 默认 Warn，identity/credential_store 模块放宽 Info。
+    // 级别策略：release 默认 Warn（identity / credential_store 放宽 Info）；dev 全局
+    // 只开 Info —— 第三方 crate 的内部 DEBUG 是刷屏主源（#721 实测 selectors /
+    // html5ever / cookie_store / keyring 占文件日志 95% 左右，cookie_store 还会把
+    // Set-Cookie 明文落盘），统一压到 Info 上限；自家代码按最具体前缀优先原则，
+    // 通过 hbut_helper 前缀覆盖保持全量 Debug。
     // 单文件 1MB，保留最近 3 份（KeepSome）。
+    let mut log_plugin = tauri_plugin_log::Builder::new()
+        .level(if cfg!(debug_assertions) {
+            log::LevelFilter::Info
+        } else {
+            log::LevelFilter::Warn
+        })
+        .level_for("hbut_helper::identity", log::LevelFilter::Info)
+        .level_for("hbut_helper::credential_store", log::LevelFilter::Info);
+    #[cfg(debug_assertions)]
+    {
+        log_plugin = log_plugin.level_for("hbut_helper", log::LevelFilter::Debug);
+    }
     let builder = builder.plugin(
-        tauri_plugin_log::Builder::new()
-            .level(if cfg!(debug_assertions) {
-                log::LevelFilter::Debug
-            } else {
-                log::LevelFilter::Warn
-            })
-            .level_for("hbut_helper::identity", log::LevelFilter::Info)
-            .level_for("hbut_helper::credential_store", log::LevelFilter::Info)
+        log_plugin
             .max_file_size(1_000_000)
             .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
             .targets([
@@ -426,6 +435,10 @@ pub fn run() {
             transport::tauri::auth::get_login_page,
             transport::tauri::auth::get_captcha,
             transport::tauri::auth::recognize_captcha,
+            // #755：一键切换账号（多账号并存 + keyring 凭据）
+            transport::tauri::account::list_saved_accounts,
+            transport::tauri::account::switch_active_account,
+            transport::tauri::account::delete_saved_account,
             transport::tauri::config::set_ocr_endpoint,
             transport::tauri::config::set_ocr_runtime_config,
             transport::tauri::config::get_ocr_runtime_status,
@@ -454,6 +467,8 @@ pub fn run() {
             modules::school_website_embed::school_website_embed_open,
             modules::school_website_embed::school_website_embed_resize,
             modules::school_website_embed::school_website_embed_close,
+            // #719：冷启动校内证书探测（独立严格校验客户端，结果供「我的」页兼容模式提示）
+            modules::cert_probe::probe_school_cert_status,
             // #452：长后台回前台 ensure/respawn loopback HTTP Bridge
             #[cfg(feature = "bridge")]
             http_server::ensure_http_bridge,

@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Widget 浅色主题 -->
-    <color name="widget_bg">#FFFFFFFF</color>
+    <!-- #758：背景默认 85% 不透明（D9），透出桌面壁纸 -->
+    <color name="widget_bg">#D9FFFFFF</color>
+    <!-- #758：应用强制 light/dark 时的恒定背景色（不受 values-night 限定符影响） -->
+    <color name="widget_bg_forced_light">#D9FFFFFF</color>
+    <color name="widget_bg_forced_dark">#D91E293B</color>
     <color name="widget_text_primary">#FF1A2332</color>
     <color name="widget_text_secondary">#FF5C6B7A</color>
     <color name="widget_accent">#FF10B981</color>

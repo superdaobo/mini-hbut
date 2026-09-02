@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import axios from 'axios'
 import { setCachedData, fetchWithCache } from '../utils/api.js'
 import { qrToDataURL } from '../utils/qrcode.js'
@@ -468,9 +468,28 @@ const usageTab = ref('week')
 const selectedBarIdx = ref(-1)
 const chartReady = ref(false)
 
+// #737：一码通接口的周/月列表顺序不保证（月视图含电表开户以来全部月份），
+// 按标签中的数字段逐级数值比较做升序排序（如 2024-01 < 2024-10 < 2025-01），
+// 解析失败的字段保持原相对顺序（Array.sort 稳定）。
+const comparePointLabel = (a, b) => {
+  const extract = (p) =>
+    String(p?.label || p?.date || p?.fullLabel || '')
+      .match(/\d+/g)
+      ?.map(Number) ?? []
+  const na = extract(a)
+  const nb = extract(b)
+  const len = Math.max(na.length, nb.length)
+  for (let i = 0; i < len; i += 1) {
+    const va = na[i] ?? -1
+    const vb = nb[i] ?? -1
+    if (va !== vb) return va - vb
+  }
+  return 0
+}
+
 const mapPoints = (pts, short = true) => {
   if (!Array.isArray(pts)) return []
-  return pts.map((p) => {
+  return [...pts].sort(comparePointLabel).map((p) => {
     const full = String(p?.label || p?.date || p?.fullLabel || '—')
     const label = short
       ? full.replace(/^\d{4}-?/, '').slice(0, 5) || full
@@ -492,6 +511,15 @@ const monthPoints = computed(() =>
 const activePoints = computed(() =>
   usageTab.value === 'month' ? monthPoints.value : weekPoints.value
 )
+
+// #737：月视图数据多时图表横向滚动，加载/切换后默认停在最右（最新月份）
+const ibarRef = ref(null)
+watch([activePoints, chartReady], () => {
+  nextTick(() => {
+    const el = ibarRef.value
+    if (el) el.scrollLeft = el.scrollWidth
+  })
+})
 
 const chartMax = computed(() => {
   const vals = activePoints.value.map((p) => p.value)
@@ -1075,6 +1103,7 @@ watch(
             :class="{ ready: chartReady }"
             role="listbox"
             aria-label="用电柱图"
+            ref="ibarRef"
           >
             <button
               v-for="(p, i) in activePoints"

@@ -11,7 +11,7 @@
  *  1. PATCH 更新 name/description/contact 成功且 DB 真实落库（contact 白名单修复）；
  *  2. detail 返回 secret 元数据 last4 / fingerprint 非 null 且值正确；
  *  3. GET scopes 返回 scope 列表；
- *  4. 越权/状态机兜底：无 subject 401；active 应用 PATCH 409。
+ *  4. 越权/状态机兜底：无 subject 401；pending_review PATCH 409；active 应用元数据可编辑并写审计。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Koa from 'koa'
@@ -202,20 +202,45 @@ describe('#687 developer API', () => {
     })
   })
 
-  it('5. active 应用 PATCH → 409 invalid_state（仅 draft/rejected 可编辑）', async () => {
+  it('5. active 应用 PATCH 元数据 → 成功落库并写审计（#692 后续放开）', async () => {
     const fixture = await createClientFixture(db.sql, { status: 'active', scopes: ['openid'] })
     const app = buildDeveloperApp(db.sql)
     await withServer(app, async (baseUrl) => {
       const res = await devPatch(
         baseUrl,
         `/api/v1/developer/apps/${fixture.applicationId}`,
-        { name: '不该生效' },
+        { name: '上架后改名', description: '上架后新简介' },
+        subjectFor(fixture.userId),
+      )
+      expect(res.status).toBe(200)
+      const updated = res.body.app as Record<string, unknown>
+      expect(updated.name).toBe('上架后改名')
+      // 审计：developer.app_updated 落库（元数据编辑可追溯）
+      const audit = await db.sql.query(
+        `SELECT event_type FROM audit_events WHERE target_id = $1 AND event_type = 'developer.app_updated'`,
+        [fixture.applicationId],
+      )
+      expect(audit.rows.length).toBe(1)
+      const row = await findApplicationByClientId(db.sql, fixture.clientId)
+      expect(row?.name).toBe('上架后改名')
+    })
+  })
+
+  it('5b. pending_review 应用 PATCH → 409 invalid_state（审核中编辑会使审核失效）', async () => {
+    const fixture = await createClientFixture(db.sql, {
+      status: 'pending_review',
+      scopes: ['openid'],
+    })
+    const app = buildDeveloperApp(db.sql)
+    await withServer(app, async (baseUrl) => {
+      const res = await devPatch(
+        baseUrl,
+        `/api/v1/developer/apps/${fixture.applicationId}`,
+        { name: '审核中改名尝试' },
         subjectFor(fixture.userId),
       )
       expect(res.status).toBe(409)
       expect(res.body.error).toBe('invalid_state')
-      const row = await findApplicationByClientId(db.sql, fixture.clientId)
-      expect(row?.name).not.toBe('不该生效')
     })
   })
 
@@ -231,7 +256,25 @@ describe('#687 developer API', () => {
         subjectFor(stranger.userId),
       )
       expect(res.status).toBe(404)
-      expect(res.body.error).toBe('not_found')
+      expect(res.body.error).toBe('not_found')    
+    })
+  })
+
+  it('7. pending_review 应用 PATCH → 409 invalid_state（审核中编辑会使审核失效）', async () => {
+    const fixture: ClientFixture = await createClientFixture(db.sql, {
+      status: 'pending_review',
+      scopes: ['openid'],
+    })
+    const app = buildDeveloperApp(db.sql)
+    await withServer(app, async (baseUrl) => {
+      const res = await devPatch(
+        baseUrl,
+        `/api/v1/developer/apps/${fixture.applicationId}`,
+        { name: '改名尝试' },
+        subjectFor(fixture.userId),
+      )
+      expect(res.status).toBe(409)
+      expect(res.body.error).toBe('invalid_state')
     })
   })
 })

@@ -9,6 +9,7 @@ import { SESSION_COOKIE_NAME, decryptSession, isSessionValid } from '@/lib/auth-
 import { environmentLabel } from '@/lib/developer/issuer'
 import { OFFICIAL_IDENTITY_DOCS_URL } from '@/lib/developer/docs'
 import { LogoutButton } from './_components/logout-button'
+import Script from 'next/script'
 import './developer.css'
 
 export const dynamic = 'force-dynamic'
@@ -21,6 +22,11 @@ export default async function DeveloperSiteLayout({ children }: { children: Reac
 
   return (
     <div className="dev-shell">
+      {/* #708：Turnstile 人机验证脚本（创建应用 / 提交审核 / 申请 Key 三个敏感写动作的表单暗哨） */}
+      <Script
+        src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+        strategy="afterInteractive"
+      />
       <header className="dev-header">
         <div className="dev-header-left">
           <a className="dev-brand" href="/">

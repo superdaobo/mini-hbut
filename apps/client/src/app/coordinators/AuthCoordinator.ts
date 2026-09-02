@@ -35,6 +35,7 @@ import {
 } from '../../utils/usage_tracker.js'
 import { scheduleUsageUpload } from '../../utils/usage_uploader.js'
 import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/local_reminder_scheduler'
+import { saveRememberedUsername } from '../../utils/remembered_username'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
 export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
@@ -231,6 +232,44 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     localStorage.setItem(LOGIN_METHOD_VIEW_KEY, mode)
   }
 
+  // #755：一键切换账号成功后的统一收尾。
+  // 切换为纯本地操作（Rust 侧已注入指定学号会话），这里只需：
+  // 1. 更新本地账号标记（hbu_username 等，与 Rust 返回账号保持一致）
+  // 2. 让状态源指向新账号（studentId / 成绩缓存键）
+  // 3. 派发 hbu-session-online 触发各模块全量刷新（课表等现有链路），
+  //    并主动走一遍成绩刷新链路；keep-alive / 通知监控 / 云同步切到新账号
+  const handleAccountSwitch = (studentId: string) => {
+    const sid = saveRememberedUsername(studentId)
+    if (!sid) return
+    state.studentId.value = sid
+    state.gradeData.value = []
+    state.gradeTeacherCache.value = null
+    state.gradeTeacherCacheSid.value = sid
+    // 主动切换不是登出：清除手动登出标记，保证会话恢复链路可用
+    localStorage.removeItem('hbu_manual_logout')
+    localStorage.removeItem(LOGOUT_REASON_KEY)
+    runtime.session.markLoginSessionToken()
+    if (isTestAccountSession()) return
+    void runtime.session.persistSessionCookies()
+    runtime.session.startSessionKeepAlive()
+    runtime.session.startElectricityKeepAlive()
+    // 会话在线通知：驱动已挂载的模块走现有 hbu-session-online 刷新链路
+    runtime.session.notifySessionOnline('account-switch')
+    // 成绩全量刷新（现有刷新链路）
+    void runtime.grade.handleRefreshGrades()
+    startNotificationMonitor({ studentId: sid }).catch((e) => {
+      console.warn('[Notify] 切换账号后启动通知监控失败:', e)
+    })
+    void reconcileLocalReminders({ studentId: sid, reason: 'account-switch' }).catch((e) => {
+      console.warn('[Reminder] 切换账号后预调度 reconcile 失败:', e)
+    })
+    resetCloudSyncCooldownForSession(sid)
+    runAutoCloudSyncAfterLogin({ studentId: sid, latestGrades: [] }).catch((e) => {
+      console.warn('[CloudSync] 切换账号后自动同步失败:', e)
+    })
+    setUsageTrackingStudentId(sid)
+  }
+
   const handleRequireLogin = () => {
     state.showLoginPrompt.value = true
     setTimeout(() => {
@@ -242,6 +281,7 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     handleLoginSuccess,
     handleLogout,
     handleSwitchLoginMode,
-    handleRequireLogin
+    handleRequireLogin,
+    handleAccountSwitch
   }
 }

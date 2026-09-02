@@ -58,6 +58,11 @@ async function request<T>(path: string, init?: RequestInit & { csrf?: string }):
   if (init?.csrf) {
     headers['x-csrf-token'] = init.csrf
   }
+  // #708：存在未消费的 Turnstile 令牌则自动附带（消费后置空，防重放）
+  const tt = consumeTurnstileToken()
+  if (tt) {
+    headers['x-turnstile-token'] = tt
+  }
   const res = await fetch(path, { ...init, headers, credentials: 'same-origin' })
   if (!res.ok) {
     let code = 'internal'
@@ -100,6 +105,8 @@ export async function fetchApp(id: string): Promise<DeveloperAppDetailDTO> {
   const data = await request<{ app: DeveloperAppDetailDTO }>(`/api/v1/developer/apps/${encodeURIComponent(id)}`)
   return data.app
 }
+
+import { consumeTurnstileToken } from '@/lib/developer/turnstile-client'
 
 export async function createApp(input: CreateAppInput, csrf: string): Promise<{ id: string; client_id: string; client_secret: string | null }> {
   return request<{ id: string; client_id: string; client_secret: string | null }>(

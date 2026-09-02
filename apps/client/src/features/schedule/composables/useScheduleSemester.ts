@@ -5,6 +5,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { isTestAccountSession } from '../../../utils/test_account.js'
+import { recordSemesterStartDate } from '../../../utils/schedule_prefetch.js'
 import { SCHEDULE_META_KEY, weekDays } from '../constants'
 import { readStoredSemester } from '../utils/semester'
 
@@ -107,6 +108,10 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
         total_weeks: totalWeeks.value,
         vacation_notice: vacationNotice.value
       }))
+      // #750：同步「学期 → 开学日」映射，供时间驱动应选学期判定使用
+      if (resolvedSemester && startDateStr.value) {
+        recordSemesterStartDate(resolvedSemester, startDateStr.value)
+      }
     }
   }
 

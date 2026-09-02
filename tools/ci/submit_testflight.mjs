@@ -187,12 +187,39 @@ export function createAppEncryptionDeclarationLookupPath({ appId, limit = 200 })
   return `/appEncryptionDeclarations?${qs}`
 }
 
+/** 查询单个出口合规声明的详情（用于轮询审批状态）。 */
+export function createAppEncryptionDeclarationGetPath(declarationId) {
+  const qs = new URLSearchParams({
+    'fields[appEncryptionDeclarations]': 'appEncryptionDeclarationState',
+  })
+  return `/appEncryptionDeclarations/${encodeURIComponent(declarationId)}?${qs}`
+}
+
 /**
- * 创建「不包含任何加密算法」的出口合规声明请求体。
- * 对应 TestFlight 网页上的 Export Compliance = No（标准免税声明）。
- * 注意 Apple 真实 schema：CREATE 操作不接受 usesEncryption（只读派生字段，
- * 由 contains* 两项推导），且 appDescription / availableOnFrenchStore 为必填
- * （实测 409：ENTITY_ERROR.ATTRIBUTE.NOT_ALLOWED / REQUIRED，2026-08-25 run 32792223891）。
+ * 把 build 标记为「仅使用非豁免加密之外的系统加密」（usesNonExemptEncryption=false）。
+ * 这是 ASC 网页上回答 Export Compliance = No 的直接等价动作：声明资源本身停在
+ * CREATED 不会被自动审批（实测 2026-08-25 run 32797202004 轮询 3 分钟无变化），
+ * 而 build 打上该标记后才满足「可分配外部组」状态。
+ */
+export function createBuildExemptionPatchBody({ buildId }) {
+  return {
+    data: {
+      type: 'builds',
+      id: buildId,
+      attributes: { usesNonExemptEncryption: false },
+    },
+  }
+}
+
+/**
+ * 创建「不包含任何（自研）加密算法」的出口合规声明请求体。
+ * 对应 TestFlight 网页上 Export Compliance 问卷回答 No（标准免税声明）。
+ * Apple 数据模型（实测 2026-08-25 run 32794289891 两次 409 校准）：
+ *  - CREATE 不接受 usesEncryption（只读派生字段）；
+ *  - 不允许 containsProprietaryCryptography 与 containsThirdPartyCryptography
+ *    同时为 false（iOS 应用必然使用系统级加密，归入 third-party 一类）；
+ *  - 「无自研加密」的正确表达 = 仅系统加密（third-party=true）+ 法国可分发，
+ *    即美国/欧盟出口豁免（exemption）路径，无需逐次人工回答问卷。
  */
 export function createAppEncryptionDeclarationBody({ appId }) {
   return {
@@ -200,10 +227,10 @@ export function createAppEncryptionDeclarationBody({ appId }) {
       type: 'appEncryptionDeclarations',
       attributes: {
         appDescription:
-          'This app does not implement any encryption algorithms and does not use cryptography beyond the standard iOS system libraries.',
+          'This app does not implement any proprietary encryption algorithms; it only uses the standard iOS system cryptography libraries (e.g. HTTPS/TLS).',
         availableOnFrenchStore: true,
         containsProprietaryCryptography: false,
-        containsThirdPartyCryptography: false,
+        containsThirdPartyCryptography: true,
       },
       relationships: { app: { data: { type: 'apps', id: appId } } },
     },
@@ -414,6 +441,24 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
     console.warn('⚠️ 出口合规声明创建/查找失败，跳过关联（不影响测试组投递）')
     return
   }
+
+  // Apple 对新建声明不做自动审批（实测 run 32797202004 轮询 3 分钟恒为 CREATED），
+  // 短暂重查几次即可；真正让 build 可分配外部组的是下方对 build 的豁免标记。
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    const detail = await apiRequest(token, createAppEncryptionDeclarationGetPath(declarationId))
+    const state = detail?.data?.attributes?.appEncryptionDeclarationState
+    if (state === 'APPROVED') {
+      console.log(`✅ 出口合规声明已生效（APPROVED，第 ${attempt} 次查询）`)
+      break
+    }
+    if (attempt < 6) {
+      console.log(`⏳ 出口合规声明状态 ${state || 'UNKNOWN'}，10 秒后重查（${attempt}/6）…`)
+      await sleep(10_000)
+    } else {
+      console.warn(`⚠️ 声明状态仍为 ${state || 'UNKNOWN'}，改用 build 豁免标记兜底`)
+    }
+  }
+
   await apiRequest(
     token,
     `/builds/${encodeURIComponent(buildId)}/relationships/appEncryptionDeclaration`,
@@ -422,7 +467,19 @@ async function assignExportCompliance(token, { appId, buildId, mode }) {
       body: createBuildEncryptionDeclarationLinkageBody(declarationId),
     },
   )
-  console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}，usesEncryption=false）`)
+  console.log(`✅ 已关联出口合规声明（声明 id=${declarationId}）`)
+
+  // 网页问卷「不使用加密」的等价动作：直接给 build 打非豁免加密=false 标记
+  try {
+    await apiRequest(token, `/builds/${encodeURIComponent(buildId)}`, {
+      method: 'PATCH',
+      body: createBuildExemptionPatchBody({ buildId }),
+    })
+    console.log('✅ 已标记构建仅使用系统加密（usesNonExemptEncryption=false）')
+  } catch (err) {
+    // 个别账号/状态下 Apple 可能拒绝直改，降级告警：外部组投递会再给出明确报错
+    console.warn(`⚠️ 构建豁免标记失败：${err.message}`)
+  }
 }
 
 /**

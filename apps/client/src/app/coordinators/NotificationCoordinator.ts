@@ -2,6 +2,7 @@ import type { AppRuntime, NotificationCoordinator } from '../contracts/runtime'
 import { platformBridge } from '../../platform'
 import {
   installMiniHbutDeepLinkListeners,
+  type DeepLinkDelivery,
   type MiniHbutDeepLink
 } from '../../platform/deep_link'
 import { resolveNotificationActionTarget } from '../../platform/notification_actions'
@@ -9,7 +10,8 @@ import { tryWriteSnapshotFromCache } from '../../utils/widget_bridge'
 import { isTestAccountSession } from '../../utils/test_account.js'
 import { normalizeViewName } from '../../navigation/app_navigation'
 
-const msUntilNextDayCrossover = () => {
+/** 导出供单测：计算距离下一个「00:01」（Asia/Shanghai）的毫秒数 */
+export const msUntilNextDayCrossover = () => {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Shanghai',
     hour: '2-digit',
@@ -36,6 +38,8 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
     state.mutable.widgetCrossDayTimer = window.setTimeout(() => {
       state.mutable.widgetCrossDayTimer = null
       if (state.studentId.value && !isTestAccountSession()) {
+        // #759：tryWriteSnapshotFromCache 内部按当下时间重算 date/weekday，
+        // 并优先用开学锚点推算当前真实周次（不再信任前一天缓存的 current_week）
         void tryWriteSnapshotFromCache(state.studentId.value)
         scheduleWidgetCrossDayTimer()
       }
@@ -72,7 +76,7 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
 
   // #621：统一深链分发（widget / identity 共用同一 parser 与监听入口）。
   // 深链解析已迁移到 src/platform/deep_link.ts；widget 保持原行为，identity 进入 IdentityCoordinator。
-  const dispatchMiniHbutDeepLink = (link: MiniHbutDeepLink) => {
+  const dispatchMiniHbutDeepLink = (link: MiniHbutDeepLink, delivery: DeepLinkDelivery) => {
     if (link.kind === 'widget-schedule') {
       runAfterBoot(() =>
         handleWidgetDeeplinkPayload({
@@ -87,12 +91,15 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
       runAfterBoot(() => handleNavigatePayload({ view: link.view, source: link.source }))
       return
     }
-    // identity：交给 IdentityCoordinator（内部处理冷启动缓冲与队列调度）
-    runtime.identity.submitIntent({
-      requestId: link.requestId,
-      handoff: link.handoff,
-      arrivedAt: Date.now()
-    })
+    // identity：交给 IdentityCoordinator（内部处理冷启动缓冲、队列调度与 #739 死信降级）
+    runtime.identity.submitIntent(
+      {
+        requestId: link.requestId,
+        handoff: link.handoff,
+        arrivedAt: Date.now()
+      },
+      delivery
+    )
   }
 
   const installWidgetDeeplinkListeners = () => {

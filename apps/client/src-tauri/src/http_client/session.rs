@@ -67,6 +67,24 @@ fn parse_cookie_pairs(raw: &str) -> Vec<(String, String)> {
     pairs
 }
 
+/// 从 cookies 串中提取学习通 `username=` 段值（#755 展示用昵称；无损，无值返回 None）。
+fn extract_cookie_username(cookies: &str) -> Option<String> {
+    for chunk in cookies.split(';') {
+        let item = chunk.trim();
+        let Some((name, value)) = item.split_once('=') else {
+            continue;
+        };
+        if !name.trim().eq_ignore_ascii_case("username") {
+            continue;
+        }
+        let value = value.trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
 fn extract_scoped_cookie_blob(raw: &str, scope: &str) -> Option<String> {
     let prefix = format!("{}:", scope);
     raw.split('|')
@@ -1144,6 +1162,142 @@ impl HbutClient {
 
         // 仅用于离线缓存兜底场景：保证缓存键可定位到当前账号。
         self.is_logged_in = true;
+    }
+
+    /// 加载指定学号的本地会话快照（#755 一键切换；纯本地注入，**不发网络登录**）。
+    ///
+    /// 与 `restore_session` 的差异：不校验会话有效性（CAS 验证码不可控），
+    /// 直接从该学号行的加密信封解密出的 cookies/凭据重建内存会话，称为
+    /// 「cookie 注入」：v2 全域 cookie 优先、旧列 scoped cookie 兜底；
+    /// 刻意**不做文件快照 fallback**，避免全局快照文件属于其他账号时污染本账号会话。
+    ///
+    /// 成功后成为当前活跃账号（与登录成功后的状态语义一致）：
+    /// `is_logged_in`、`user_info`、`last_username`、电费会话均指向该学号。
+    pub fn activate_saved_account_session(
+        &mut self,
+        student_id: &str,
+        cookies: &str,
+        password: &str,
+        one_code_token: &str,
+        refresh_token: &str,
+        token_expires_at: &str,
+    ) -> UserInfo {
+        let sid = student_id.trim().to_string();
+        // 1. 重置内存会话（避免旧账号脏 cookie 污染；与 restore_session 同款）
+        self.reset_http_state();
+        // 2. v2 全域 cookie（该学号专属；不做全局文件快照 fallback）
+        let v2_restored = self.hydrate_auth_cookie_v2_for_student(&sid);
+        // 3. 旧列 scoped cookie 注入（Code/Auth/Jwxt/ChaoxingJwxt）
+        self.restore_session_cookie_blob(cookies);
+        // 4. 凭据回填（与 lib.rs 启动恢复路径一致）
+        if !password.trim().is_empty() {
+            self.set_credentials(sid.clone(), password.to_string());
+        }
+        if !one_code_token.trim().is_empty() {
+            let expires_at = chrono::DateTime::parse_from_rfc3339(token_expires_at)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc));
+            let refresh = if refresh_token.trim().is_empty() {
+                None
+            } else {
+                Some(refresh_token.to_string())
+            };
+            self.set_electricity_session(one_code_token.to_string(), refresh, expires_at);
+        }
+        // 5. 会话态：本地快照已建立（不发网络校验）。姓名缺失时以学号占位，
+        //    展示用昵称（学习通 username 段）可无损提取则优先。
+        let display_name = extract_cookie_username(cookies).unwrap_or_else(|| sid.clone());
+        self.is_logged_in = true;
+        self.user_info = Some(UserInfo {
+            student_id: sid.clone(),
+            student_name: display_name.clone(),
+            college: None,
+            major: None,
+            class_name: None,
+            grade: None,
+        });
+        self.last_username = Some(sid.clone());
+        if !password.trim().is_empty() {
+            self.last_password = Some(password.to_string());
+        }
+        println!(
+            "[调试] 账号切换：student_id={} display_name={} v2_restored={} chaoxing_mode={}",
+            sid, display_name, v2_restored, self.prefer_chaoxing_jwxt
+        );
+        self.user_info.clone().expect("user_info 已设置")
+    }
+
+    /// 仅按学号恢复 auth_cookie_v2 全域 cookie（切换账号专用）。
+    ///
+    /// 与 `hydrate_session_cookies_from_store` 的区别：v2 未命中时**不**回退
+    /// 全局文件快照（那是最近一次活跃账号的 cookie，可能属于其他账号），
+    /// 避免切换时跨账号污染 jar。
+    fn hydrate_auth_cookie_v2_for_student(&mut self, student_id: &str) -> bool {
+        let sid = student_id.trim();
+        if sid.is_empty() {
+            return false;
+        }
+        if let Ok(rows) = crate::db::load_auth_cookies_for_student(crate::DB_FILENAME, sid) {
+            if !rows.is_empty() {
+                self.restore_auth_cookie_v2_rows(&rows);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 将保存的 cookies 串注入 cookie jar（旧列 scoped 格式兼容）。
+    ///
+    /// 复刻 `restore_session` 的注入语义：识别 `Code:/Auth:/Jwxt:/ChaoxingJwxt:`
+    /// 作用域段按域注入，否则整体按 jwxt 域注入并探测学习通特征。
+    /// 独立维护而不复用 `restore_session`，避免登录/恢复路径行为漂移。
+    fn restore_session_cookie_blob(&mut self, cookies: &str) {
+        if cookies.trim().is_empty() {
+            return;
+        }
+        let code_url: Url = "https://code.hbut.edu.cn".parse().expect("code url");
+        let auth_url: Url = "https://auth.hbut.edu.cn".parse().expect("auth url");
+        let jwxt_url: Url = JWXT_BASE_URL.parse().expect("jwxt url");
+        let chaoxing_url: Url = CHAOXING_JWXT_BASE_URL.parse().expect("chaoxing url");
+        let has_scoped = cookies.contains("Code:")
+            || cookies.contains("Auth:")
+            || cookies.contains("Jwxt:")
+            || cookies.contains("ChaoxingJwxt:");
+
+        let add_pairs = |jar: &Arc<Jar>, target_url: &Url, domain: &str, raw: &str| {
+            for (name, value) in parse_cookie_pairs(raw) {
+                jar.add_cookie_str(
+                    &format!("{}={}; Domain={}; Path=/", name, value, domain),
+                    target_url,
+                );
+            }
+        };
+
+        if has_scoped {
+            if let Some(raw) = extract_scoped_cookie_blob(cookies, "Code") {
+                add_pairs(&self.cookie_jar, &code_url, ".hbut.edu.cn", &raw);
+            }
+            if let Some(raw) = extract_scoped_cookie_blob(cookies, "Auth") {
+                add_pairs(&self.cookie_jar, &auth_url, ".hbut.edu.cn", &raw);
+            }
+            if let Some(raw) = extract_scoped_cookie_blob(cookies, "Jwxt") {
+                add_pairs(&self.cookie_jar, &jwxt_url, ".hbut.edu.cn", &raw);
+            }
+            if let Some(raw) = extract_scoped_cookie_blob(cookies, "ChaoxingJwxt") {
+                add_pairs(&self.cookie_jar, &chaoxing_url, ".chaoxing.com", &raw);
+                self.prefer_chaoxing_jwxt = true;
+            }
+        } else {
+            add_pairs(&self.cookie_jar, &jwxt_url, ".hbut.edu.cn", cookies);
+            if cookies.contains("xxtenc=")
+                || cookies.contains("p_auth_token=")
+                || cookies.contains("cx_p_token=")
+                || cookies.contains("jw_uf=")
+            {
+                add_pairs(&self.cookie_jar, &chaoxing_url, ".chaoxing.com", cookies);
+                self.prefer_chaoxing_jwxt = true;
+            }
+        }
     }
 
     /// 清理会话缓存与用户信息

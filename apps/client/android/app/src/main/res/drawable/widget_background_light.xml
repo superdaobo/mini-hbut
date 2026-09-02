@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #758：应用强制 light 模式时的小组件背景（恒定浅色 85% 不透明） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_bg_forced_light" />
+    <corners android:radius="20dp" />
+</shape>

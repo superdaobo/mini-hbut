@@ -20,17 +20,17 @@ import {
   recordLedgerEntry
 } from './notification_event_ledger'
 import { hasUnconsumedPresentedEvent } from './background_notification'
+import { checkElectricity } from './notify_center_electricity.js'
+export type { ElectricityCheckResult } from './notify_center_electricity.js'
 import {
-  APP_BOOT_ID,
   DEFAULT_CHANNEL_ID,
   NotifySettingsFull,
-  POWER_ALERT_THRESHOLD,
   buildGradesSignature,
   buildTomorrowExamSignature,
   classReminderStateKeyFor,
+  chaoxingInboxStateKeyFor,
   examSigKeyFor,
   getCurrentMinutePrecise,
-  getDormSelection,
   getMergedTodayClasses,
   getRequestTimeoutMs,
   getSchedulePayloadForReminder,
@@ -39,7 +39,6 @@ import {
   nowIso,
   pickGradePreview,
   pickUpcomingExams,
-  powerStateKeyFor,
   readJSON,
   resolveLoginMode,
   schoolInboxStateKeyFor,
@@ -47,7 +46,6 @@ import {
   toCourseReminderItems,
   toDayKey,
   toPositiveInt,
-  toSafeNumber,
   toSafeText,
   writeJSON
 } from './notify_center_util.js'
@@ -81,11 +79,11 @@ const isSchoolInboxItemRead = (item: unknown): boolean => {
   return !!(raw?.is_read ?? raw?.isRead)
 }
 
-export const readSchoolInboxState = (studentId: string): { initialized: boolean; ids: string[] } => {
-  const state = readJSON<{ initialized?: boolean; ids?: unknown[] }>(
-    schoolInboxStateKeyFor(studentId),
-    null
-  )
+const readInboxStateByKey = (
+  keyFor: (studentId: string) => string,
+  studentId: string
+): { initialized: boolean; ids: string[] } => {
+  const state = readJSON<{ initialized?: boolean; ids?: unknown[] }>(keyFor(studentId), null)
   const ids = Array.isArray(state?.ids)
     ? state.ids.map((item) => toSafeText(item)).filter(Boolean)
     : []
@@ -94,6 +92,13 @@ export const readSchoolInboxState = (studentId: string): { initialized: boolean;
     ids
   }
 }
+
+export const readSchoolInboxState = (studentId: string): { initialized: boolean; ids: string[] } =>
+  readInboxStateByKey(schoolInboxStateKeyFor, studentId)
+
+// #715：学习通通知独立去重快照（与学校消息互不串扰）
+const readChaoxingInboxState = (studentId: string): { initialized: boolean; ids: string[] } =>
+  readInboxStateByKey(chaoxingInboxStateKeyFor, studentId)
 
 // #616：旧 Capacitor Headless 专用的 hbu_bg_* 后台预写函数已随 Headless 退役
 // 整体删除；前台去重快照（schoolInboxStateKeyFor）继续生效。
@@ -567,190 +572,6 @@ const getTomorrowKeyForState = (): string => {
   return toDayKey(date)
 }
 
-export interface ElectricityCheckResult extends CheckResult {
-  configured: boolean
-  selectedPath: string[]
-  quantity?: number | null
-  balance?: number | null
-  acQuantity?: number | null
-  acBalance?: number | null
-  isDual?: boolean
-  status?: string
-  isLow?: boolean
-  sync_time?: string
-  error?: string
-}
-
-const checkElectricity = async (
-  studentId: string,
-  settings: NotifySettingsFull,
-  queue: NoticeItem[],
-  launchCheck = false
-): Promise<ElectricityCheckResult> => {
-  const timeoutMs = getRequestTimeoutMs()
-  const selectedPath = getDormSelection()
-  if (selectedPath.length !== 4) {
-    return {
-      success: false,
-      configured: false,
-      selectedPath: [],
-      error: '未设置宿舍房间，请先在电费模块选择房间。'
-    }
-  }
-
-  const [area_id, building_id, layer_id, room_id] = selectedPath
-  const roomKey = selectedPath.join('-')
-  const powerStateKey = powerStateKeyFor(studentId, roomKey)
-
-  // 判断是否为双计费模式（照明+空调分开）
-  const layerStr = String(layer_id)
-  const isDual = layerStr.startsWith('merged_')
-  let lightLayerId = layer_id
-  let acLayerId: string | null = null
-  if (isDual) {
-    const parts = layerStr.split('_')
-    lightLayerId = parts[2]
-    acLayerId = parts[3]
-  }
-
-  // 空调房间值从 localStorage 读取（ElectricityView 选择时已存储）
-  let acRoomValue = isDual ? toSafeText(readJSON<string>('last_dorm_ac_room', '')) : null
-  // 回退：如果未存储空调房间值，从 room_id 推导（替换 layer_id + 房间号前缀1）
-  if (isDual && !acRoomValue && acLayerId) {
-    const m = String(room_id).match(/^(.+?)--(\d+)-(\d+)$/)
-    if (m) {
-      acRoomValue = `${m[1]}--${acLayerId}-1${m[3]}`
-    }
-  }
-
-  try {
-    // 照明查询（非双计费时直接用原值）
-    const lightRes = await axios.post(
-      toApiUrl('/v2/electricity/balance'),
-      {
-        area_id,
-        building_id,
-        layer_id: isDual ? lightLayerId : layer_id,
-        room_id,
-        student_id: studentId
-      },
-      { timeout: timeoutMs }
-    )
-    const lightData = lightRes?.data as {
-      success?: boolean
-      error?: unknown
-      quantity?: unknown
-      balance?: unknown
-      status?: unknown
-      sync_time?: unknown
-    } | null
-    if (!lightData?.success) {
-      return {
-        success: false,
-        configured: true,
-        selectedPath,
-        error: toSafeText(lightData?.error || '电费检查失败（照明）')
-      }
-    }
-
-    const quantity = toSafeNumber(lightData.quantity)
-    const balance = toSafeNumber(lightData.balance)
-
-    // 空调查询（仅双计费时）
-    let acQuantity: number | null = null
-    let acBalance: number | null = null
-    if (isDual && acLayerId && acRoomValue) {
-      try {
-        const acRes = await axios.post(
-          toApiUrl('/v2/electricity/balance'),
-          {
-            area_id,
-            building_id,
-            layer_id: acLayerId,
-            room_id: acRoomValue,
-            student_id: studentId
-          },
-          { timeout: timeoutMs }
-        )
-        const acData = acRes?.data as { success?: boolean; quantity?: unknown; balance?: unknown } | null
-        if (acData?.success) {
-          acQuantity = toSafeNumber(acData.quantity)
-          acBalance = toSafeNumber(acData.balance)
-        }
-      } catch {
-        // 空调查询失败不阻塞主流程
-      }
-    }
-
-    const isLightLow = Number.isFinite(quantity) && quantity < POWER_ALERT_THRESHOLD
-    const isAcLow = acQuantity !== null && Number.isFinite(acQuantity) && acQuantity < POWER_ALERT_THRESHOLD
-    const isLow = isLightLow || isAcLow
-    const state = readJSON<Record<string, unknown>>(powerStateKey, {})
-
-    // 低电提醒去重策略
-    let shouldNotify = false
-    if (settings.enablePowerNotice && isLow) {
-      if (launchCheck) {
-        shouldNotify = toSafeText(state?.last_launch_boot) !== APP_BOOT_ID
-      } else {
-        shouldNotify = !state?.was_low
-      }
-    }
-
-    if (shouldNotify) {
-      let bodyText
-      if (isDual) {
-        const parts: string[] = []
-        if (isLightLow) parts.push(`照明 ${Number.isFinite(quantity) ? quantity.toFixed(2) : lightData.quantity} 度`)
-        if (isAcLow) parts.push(`空调 ${acQuantity !== null && Number.isFinite(acQuantity) ? acQuantity.toFixed(2) : '?'} 度`)
-        bodyText = `当前宿舍 ${parts.join('、')} 不足 ${POWER_ALERT_THRESHOLD} 度，请及时充值。`
-      } else {
-        bodyText = `当前宿舍剩余电量 ${Number.isFinite(quantity) ? quantity.toFixed(2) : lightData.quantity} 度，已低于 ${POWER_ALERT_THRESHOLD} 度，请及时充值。`
-      }
-      queue.push({
-        title: '电费不足提醒',
-        body: bodyText,
-        targetView: 'electricity'
-      })
-    }
-
-    writeJSON(powerStateKey, {
-      was_low: isLow,
-      last_quantity: Number.isFinite(quantity) ? quantity : null,
-      last_balance: Number.isFinite(balance) ? balance : null,
-      ac_quantity: Number.isFinite(acQuantity) ? acQuantity : null,
-      ac_balance: Number.isFinite(acBalance) ? acBalance : null,
-      is_dual: isDual,
-      last_launch_boot:
-        launchCheck && isLow && settings.enablePowerNotice ? APP_BOOT_ID : toSafeText(state?.last_launch_boot),
-      last_notified_at:
-        shouldNotify ? nowIso() : toSafeText(state?.last_notified_at),
-      updated_at: nowIso()
-    })
-
-    return {
-      success: true,
-      configured: true,
-      selectedPath,
-      quantity: Number.isFinite(quantity) ? quantity : null,
-      balance: Number.isFinite(balance) ? balance : null,
-      acQuantity: Number.isFinite(acQuantity) ? acQuantity : null,
-      acBalance: Number.isFinite(acBalance) ? acBalance : null,
-      isDual,
-      status: toSafeText(lightData.status),
-      isLow,
-      sync_time: toSafeText(lightData.sync_time)
-    }
-  } catch (error) {
-    return {
-      success: false,
-      configured: true,
-      selectedPath,
-      error: toSafeText((error as Error | undefined)?.message || error || '电费检查失败')
-    }
-  }
-}
-
 export interface ClassReminderResult extends CheckResult {
   enabled: boolean
   totalToday: number
@@ -1002,6 +823,117 @@ const checkSchoolInbox = async (
       total: 0,
       triggered: 0,
       error: message || '学校消息检查失败'
+    }
+  }
+}
+
+// #715：「学习通通知」独立渠道——固定 chaoxing 源（复用 school_inbox_fetch 的
+// loginMode 门控，与 ChaoxingInboxView 同一取数路径），与「学校消息」（教务）
+// 并行检测；已读基线快照与 ledger domain 独立（chaoxing-inbox），互不串扰。
+export const checkChaoxingInbox = async (
+  studentId: string,
+  settings: NotifySettingsFull,
+  queue: NoticeItem[]
+): Promise<SchoolInboxResult> => {
+  const sid = toSafeText(studentId)
+  if (!sid) {
+    return { success: false, enabled: false, total: 0, triggered: 0, reason: 'missing-student-id' }
+  }
+  if (!settings.enableChaoxingInbox) {
+    return { success: true, enabled: false, total: 0, triggered: 0 }
+  }
+  if (!isTauriRuntime()) {
+    return {
+      success: false,
+      enabled: true,
+      total: 0,
+      triggered: 0,
+      error: '学习通通知抓取需在客户端内运行'
+    }
+  }
+
+  try {
+    const response = (await invokeNative('school_inbox_fetch', {
+      loginMode: 'chaoxing'
+    })) as {
+      items?: unknown[]
+      source?: unknown
+      fetchedAt?: unknown
+    } | null
+    const items = Array.isArray(response?.items) ? response.items : []
+    const stateKey = chaoxingInboxStateKeyFor(sid)
+    const state = readChaoxingInboxState(sid)
+    const isFirstSync = !state.initialized
+    const knownSet = new Set(state.ids)
+    const allIds = items
+      .map((item) => {
+        const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+        return toSafeText(raw?.id)
+      })
+      .filter(Boolean)
+    // 仅通知未读的新消息；首次同步只建立基线，不推历史
+    const toNotify =
+      isFirstSync
+        ? []
+        : items.filter((item) => {
+            const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+            const id = toSafeText(raw?.id)
+            if (!id || knownSet.has(id)) return false
+            return !isSchoolInboxItemRead(item)
+          })
+
+    // ledger 去重：后台未来接入 chaoxing 事件时共享同一 domain，不与学校消息串扰
+    const notYetNotified = []
+    for (const item of toNotify) {
+      const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+      const id = toSafeText(raw?.id)
+      const eventKey = id ? buildLedgerEventKey('chaoxing-inbox', id) : ''
+      if (eventKey && hasLedgerEntry(sid, eventKey)) continue
+      notYetNotified.push({ item, eventKey })
+    }
+
+    for (const { item, eventKey } of notYetNotified) {
+      const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+      queue.push({
+        title: toSafeText(raw?.title) || '学习通通知',
+        body: toSafeText(raw?.summary) || '你有新的学习通消息',
+        targetView: 'notifications',
+        eventKey: eventKey || undefined,
+        domain: 'chaoxing-inbox'
+      })
+    }
+
+    writeJSON(stateKey, {
+      initialized: true,
+      ids: allIds.slice(0, 500),
+      updated_at: nowIso()
+    })
+    await snapshotChaoxingNoticeCookie('chaoxing')
+
+    pushDebugLog(
+      'Notify',
+      `学习通通知检查完成 total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
+      'info'
+    )
+
+    return {
+      success: true,
+      enabled: true,
+      total: items.length,
+      triggered: notYetNotified.length,
+      source: toSafeText(response?.source) || 'chaoxing',
+      checkedAt: toSafeText(response?.fetchedAt),
+      baseline: isFirstSync
+    }
+  } catch (error) {
+    const message = toSafeText((error as Error | undefined)?.message || error)
+    pushDebugLog('Notify', `学习通通知检查失败: ${message}`, 'warn')
+    return {
+      success: false,
+      enabled: true,
+      total: 0,
+      triggered: 0,
+      error: message || '学习通通知检查失败'
     }
   }
 }

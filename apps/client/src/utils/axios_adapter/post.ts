@@ -1,6 +1,7 @@
 import { isTestAccountSession } from '../test_account.js';
 import { resolveTestAccountHttpResponse } from '../test_account_fixtures.js';
 import { handleAuthPost } from './auth';
+import { handleCampusCodePost } from './campus_code';
 import { reconcileLocalReminders } from '../local_reminder_scheduler';
 import {
   asRecord,
@@ -946,54 +947,8 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
                 return mockResponse({ success: false, error: errorMessage(err) });
             }
         }
-        if (url.includes('/v2/campus_code/config')) {
-            const payload = {
-                devCode: data?.dev_code || data?.devCode || ''
-            };
-            try {
-                if (!hasTauri) {
-                    const res = await bridgePost('/campus_code/config', { payload });
-                    return mockResponse(unwrapBridge(res));
-                }
-                const res = await invoke('campus_code_fetch_config', { payload });
-                return mockResponse(res);
-            } catch (err) {
-                return mockResponse({ success: false, error: errorMessage(err) });
-            }
-        }
-        if (url.includes('/v2/campus_code/qrcode')) {
-            const payload = {
-                mode: data?.mode || 'online',
-                devCode: data?.dev_code || data?.devCode || '',
-                qrcodeType: data?.qrcode_type || data?.qrcodeType || ''
-            };
-            try {
-                if (!hasTauri) {
-                    const res = await bridgePost('/campus_code/qrcode', { payload });
-                    return mockResponse(unwrapBridge(res));
-                }
-                const res = await invoke('campus_code_fetch_qrcode', { payload });
-                return mockResponse(res);
-            } catch (err) {
-                return mockResponse({ success: false, error: errorMessage(err) });
-            }
-        }
-        if (url.includes('/v2/campus_code/order_status')) {
-            const payload = {
-                qrcode: data?.qrcode || '',
-                offline: !!data?.offline
-            };
-            try {
-                if (!hasTauri) {
-                    const res = await bridgePost('/campus_code/order_status', { payload });
-                    return mockResponse(unwrapBridge(res));
-                }
-                const res = await invoke('campus_code_fetch_order_status', { payload });
-                return mockResponse(res);
-            } catch (err) {
-                return mockResponse({ success: false, error: errorMessage(err) });
-            }
-        }
+        const campusCodeResponse = await handleCampusCodePost(url, data);
+        if (campusCodeResponse) return campusCodeResponse;
         if (url.includes('/v2/calendar')) {
             try {
                 const { semester } = data;

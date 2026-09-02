@@ -22,7 +22,7 @@ export async function createClientFixture(
   opts: {
     scopes?: string[]
     clientType?: 'web_confidential' | 'native_public'
-    status?: 'active' | 'suspended' | 'revoked' | 'draft'
+    status?: 'active' | 'suspended' | 'revoked' | 'draft' | 'pending_review' | 'rejected'
     /** 自定义 redirect_uri（默认 https://app.example.com/cb，kind=web_https） */
     redirectUris?: Array<{ uri: string; kind: 'web_https' | 'native_loopback' }>
     /** 自定义 homepage_url（默认 https://app.example.com） */
@@ -57,11 +57,13 @@ export async function createClientFixture(
   const status = opts.status ?? 'active'
   if (status !== 'draft') {
     // 审核流：draft → pending_review → approved → active（简化：逐级推进）
-    const path: Array<'pending_review' | 'approved' | 'active' | 'suspended' | 'revoked'> =
+    const path: Array<'pending_review' | 'approved' | 'active' | 'suspended' | 'revoked' | 'rejected'> =
       status === 'active' ? ['pending_review', 'approved', 'active']
         : status === 'suspended' ? ['pending_review', 'approved', 'active', 'suspended']
           : status === 'revoked' ? ['pending_review', 'approved', 'active', 'revoked']
-            : ['pending_review', 'approved']
+            : status === 'pending_review' ? ['pending_review']
+              : status === 'rejected' ? ['pending_review', 'rejected']
+                : ['pending_review', 'approved']
     for (const s of path) {
       await setClientStatus(sql, result.clientId, s)
     }

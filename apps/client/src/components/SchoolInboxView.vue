@@ -9,6 +9,12 @@ import { TPageHeader, TEmptyState } from './templates'
 
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 
+// #729：登录方式键仅由账号密码登录（LoginV3）/测试账号路径写入，OIDC 认证会话、
+// 设备授权等直登路径不产生该键但会话完全有效。键缺失时降级为 portal（教务通知，
+// 与 Rust 端空 login_mode 的默认分流一致），不再误报「请重新登录」阻断页面。
+const resolveInboxLoginMode = () =>
+  String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim() || 'portal'
+
 const props = defineProps({
   studentId: { type: String, required: true }
 })
@@ -111,11 +117,7 @@ const fetchMessages = async ({ force = false } = {}) => {
     return
   }
 
-  const loginMode = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
-  if (!loginMode) {
-    error.value = '缺少登录方式，请重新登录'
-    return
-  }
+  const loginMode = resolveInboxLoginMode()
 
   if (force) {
     refreshing.value = true
@@ -144,8 +146,7 @@ const fetchMessages = async ({ force = false } = {}) => {
 const loadDetail = async (item) => {
   if (!isTauriRuntime() || !item?.id) return
 
-  const loginMode = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
-  if (!loginMode) return
+  const loginMode = resolveInboxLoginMode()
 
   detailLoading.value = true
   markReadHint.value = ''
@@ -218,11 +219,7 @@ const markSelectedAsRead = async () => {
   if (!selectedItem.value || selectedItem.value.isRead || markingRead.value) return
   if (!isTauriRuntime()) return
 
-  const loginMode = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
-  if (!loginMode) {
-    markReadHint.value = '缺少登录方式，请重新登录'
-    return
-  }
+  const loginMode = resolveInboxLoginMode()
 
   const itemId = selectedItem.value.id
   markingRead.value = true

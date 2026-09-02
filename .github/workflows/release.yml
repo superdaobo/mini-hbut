@@ -188,6 +188,15 @@ jobs:
       - name: Setup Android NDK
         uses: ./.github/actions/setup-android-ndk
 
+      # 兜底接受 SDK 许可：2026-08-28 起 GitHub runner 预装 sdkmanager 版本错乱，
+      # setup-android@v3 的 accept licenses 步骤检出 6/7 许可未接受后要求交互确认
+      # （非 TTY 环境直接失败）。此处非交互式写入许可文件，失败不阻断（许可可能已存在）。
+      - name: Accept Android SDK licenses (non-interactive fallback)
+        run: |
+          set -uo pipefail
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          ls "$ANDROID_HOME/licenses" > /dev/null 2>&1 && echo "licenses dir present" || true
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -360,6 +369,10 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_ROOT: ${{ env.NDK_HOME }}
+          # 关键：tauri CLI 的 beforeBuildCommand 会重新执行 npm run build，
+          # env 不随步骤继承，必须在此注入，否则 dist 被重建为全功能版、
+          # ForumView 等隐藏视图 chunk 重新进入发布包（boundary guard 失败，#595/#591 回归）。
+          VITE_EXCLUDE_HIDDEN_VIEWS: "1"
 
       - name: Mobile boundary guard (hidden views excluded, kept capabilities intact)
         working-directory: apps/client

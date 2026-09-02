@@ -453,12 +453,22 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     return { sid: snapshot.sid, view: normalizeViewName(snapshot.view) }
   }
 
+  // #761：仅当 URL hash 命中 `#/学号/视图`（带显式视图）时才视为外部深链，深链优先。
+  // 空 hash、`#/学号`（无视图）与仅残留 history 快照均视为冷启动——此时启动页设置
+  // （startupPage）优先，避免 WebView 会话残留的 history 快照覆盖用户启动页选择。
+  const readStartupHashDeepLink = (): { sid: string; view: string } | null => {
+    if (typeof window === 'undefined') return null
+    const match = String(window.location.hash || '').match(/^#\/(\d{10})\/(\w+)$/)
+    if (!match) return null
+    return { sid: match[1], view: normalizeViewName(match[2]) }
+  }
+
   const syncFromHash = async () => {
     const route = parseHashRoute()
     if (!route) {
-      if (state.currentView.value !== 'home') {
-        applyViewState('home')
-      }
+      // #761：无 hash 路由（冷启动无深链）时保留 setup 阶段依据启动页设置
+      // （startupPage）得到的 currentView；不得强制回 home，否则用户选择
+      // 「课表」启动页的意图会被抹掉。
       return
     }
     state.studentId.value = route.sid
@@ -765,18 +775,27 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     },
     readStartupSnapshot: () => {
       const snapshot = readWindowRouteSnapshot()
+      const deepLink = readStartupHashDeepLink()
       const startupPageSetting = useUiSettings().startupPage || 'home'
-      const startupView = resolvePolicySafeView(snapshot?.view || startupPageSetting, 'home')
+      // #761：冷启动时启动页设置优先（残留 history 快照的 view/tab/module 不再覆盖）；
+      // 带显式视图的 hash 深链（#/学号/视图）时深链优先，保证外部跳转行为不受破坏。
+      const startupView = resolvePolicySafeView(deepLink?.view || startupPageSetting, 'home')
       const initialView = isProtectedView(startupView) && !hasDailyAccessGrant() ? 'home' : startupView
-      const initialTab = String(
-        snapshot?.tab ||
-          ((MAIN_TABS as readonly string[]).includes(initialView) ? initialView : (ME_SUB_VIEWS as readonly string[]).includes(initialView) ? 'me' : 'home')
-      ).trim() || 'home'
-      const initialModule = String(
-        snapshot?.module ||
-          ((MAIN_TABS as readonly string[]).includes(initialView) ? '' : initialView === 'home' ? '' : initialView)
-      ).trim()
-      const bootStudentIdHint = String(snapshot?.sid || '').trim()
+      const tabFallback = (MAIN_TABS as readonly string[]).includes(initialView)
+        ? initialView
+        : (ME_SUB_VIEWS as readonly string[]).includes(initialView)
+          ? 'me'
+          : 'home'
+      const moduleFallback = (MAIN_TABS as readonly string[]).includes(initialView)
+        ? ''
+        : initialView === 'home'
+          ? ''
+          : initialView
+      // 深链时沿用 history 快照的 tab/module（与深链 view 配套）；冷启动一律由 initialView 推导
+      const initialTab = String((deepLink ? snapshot?.tab : '') || tabFallback).trim() || 'home'
+      const initialModule = String((deepLink ? snapshot?.module : '') || moduleFallback).trim()
+      // 学号 hint 保留残留快照来源：供快速课表启动（bootScheduleSnapshot）复用
+      const bootStudentIdHint = String(deepLink?.sid || snapshot?.sid || '').trim()
       const bootScheduleSnapshot =
         initialView === 'schedule' && bootStudentIdHint
           ? (readScheduleRenderSnapshot(bootStudentIdHint) as Record<string, unknown> | null)
