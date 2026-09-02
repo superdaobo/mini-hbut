@@ -42,9 +42,11 @@ import {
   subscribeDebugLogs
 } from '../utils/debug_logger'
 import {
-  applyNightModePreference,
+  getNightModePreference,
   initNightModeClass,
-  isNightModeEnabled
+  isNightModeEnabled,
+  resolveNightModeDark,
+  setNightModePreference
 } from '../utils/night_mode'
 
 const emit = defineEmits(['back', 'openWorkspaceLayout'])
@@ -75,20 +77,33 @@ const uiSettings = useUiSettings()
 const appSettings = useAppSettings()
 const fontSettings = useFontSettings()
 
-// 夜间模式状态
+// #757 深浅色三态：'system' 跟随系统（默认）/ 'light' 白天 / 'dark' 夜间
+const nightModeOptions = [
+  { key: 'system', label: '跟随系统', desc: '自动适配系统深浅色' },
+  { key: 'light', label: '白天', desc: '清爽明亮' },
+  { key: 'dark', label: '夜间', desc: '夜间模式，保护眼睛' }
+]
+const nightModePreference = ref(getNightModePreference())
 const isDarkMode = ref(isNightModeEnabled())
 const themeTransitioning = ref(false)
 const themeTransitionType = ref('') // 'to-dark' or 'to-light'
 
-const toggleDarkMode = (event) => {
-  const willBeDark = !isDarkMode.value
+const nightModeHint = computed(() => {
+  if (nightModePreference.value === 'system') return '正在跟随系统深浅色自动切换'
+  return nightModePreference.value === 'dark' ? '夜间模式已开启，保护您的眼睛' : '白天模式，清爽明亮'
+})
+
+// 三态切换：保留原二态切换的全屏过渡动画，动画先播、主题后切
+const setNightMode = (mode) => {
+  if (nightModePreference.value === mode) return
+  const willBeDark = resolveNightModeDark(mode)
   themeTransitionType.value = willBeDark ? 'to-dark' : 'to-light'
   themeTransitioning.value = true
 
   // 延迟切换实际主题，让动画先播放
   setTimeout(() => {
-    isDarkMode.value = willBeDark
-    applyNightModePreference(willBeDark)
+    nightModePreference.value = mode
+    isDarkMode.value = setNightModePreference(mode)
     flushUiSettings()
   }, 400)
 
@@ -99,8 +114,9 @@ const toggleDarkMode = (event) => {
   }, 1200)
 }
 
-// 初始化时读取暗色模式偏好
+// 初始化时读取偏好（含旧版二态键 hbu_dark_mode 的一次性迁移）与当前生效状态
 const initDarkMode = () => {
+  nightModePreference.value = getNightModePreference()
   isDarkMode.value = initNightModeClass()
 }
 initDarkMode()

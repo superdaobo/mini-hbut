@@ -62,31 +62,22 @@
         <div class="section-head">
           <h3>主题模式</h3>
         </div>
-        <!-- Day/Night Toggle with Animation -->
-        <div class="theme-toggle-container">
-          <div class="theme-toggle-track" :class="{ 'is-dark': isDarkMode }" @click="toggleDarkMode">
-            <!-- Sky background -->
-            <div class="theme-sky" :class="isDarkMode ? 'theme-sky--night' : 'theme-sky--day'">
-              <div class="theme-stars" :class="{ 'opacity-100': isDarkMode, 'opacity-0': !isDarkMode }">
-                <span v-for="i in 6" :key="i" class="star" :style="{ left: `${10 + i * 14}%`, top: `${15 + (i % 3) * 20}%`, animationDelay: `${i * 0.3}s` }"></span>
-              </div>
-            </div>
-            <!-- Sun/Moon -->
-            <div class="theme-celestial" :class="isDarkMode ? 'theme-celestial--moon' : 'theme-celestial--sun'">
-              <div v-if="!isDarkMode" class="sun-icon">
-                <i class="fas fa-sun"></i>
-              </div>
-              <div v-else class="moon-icon">
-                <i class="fas fa-moon"></i>
-              </div>
-            </div>
-            <!-- Labels -->
-            <div class="theme-labels">
-              <span class="theme-label" :class="{ active: !isDarkMode }">白天</span>
-              <span class="theme-label" :class="{ active: isDarkMode }">夜间</span>
-            </div>
+        <!-- #757 三态外观：跟随系统 / 白天 / 夜间（沿用界面个性化的 chip 视觉） -->
+        <div class="option-group">
+          <label>外观模式</label>
+          <div class="chip-row">
+            <button
+              v-for="item in nightModeOptions"
+              :key="item.key"
+              class="option-chip"
+              :class="{ active: nightModePreference === item.key }"
+              @click="setNightMode(item.key)"
+            >
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.desc }}</small>
+            </button>
           </div>
-          <p class="theme-hint">{{ isDarkMode ? '夜间模式已开启，保护您的眼睛' : '白天模式，清爽明亮' }}</p>
+          <p class="theme-hint">{{ nightModeHint }}</p>
         </div>
       </section>
 
