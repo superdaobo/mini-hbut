@@ -29,6 +29,8 @@ object WidgetRenderer {
         val store = WidgetDataStore(context)
         val snapshotJson = store.readSnapshot()
         val themeColor = parseColor(store.readThemeColor())
+        // #758：应用强制 light/dark 时覆盖背景与中性文字色；system 模式零干预
+        val themeMode = WidgetThemeMode.resolve(context)
         val snapshot = parseSnapshot(snapshotJson)
         val date = snapshot?.optString("date", "") ?: ""
         val weekIndex = snapshot?.optInt("week_index", 0) ?: 0
@@ -98,9 +100,14 @@ object WidgetRenderer {
         if (rootId != 0) {
             views.setOnClickPendingIntent(rootId, rootPendingIntent)
         }
+        // #758：强制模式下覆盖背景（system 模式保持布局默认的 @drawable/widget_background）
+        WidgetThemeMode.applyBackground(context, themeMode, views, rootId)
+        // #758：强制模式下覆盖标题/空态文案的中性色
+        WidgetThemeMode.bindTextColor(context, themeMode, views, titleId, "widget_text_primary")
+        WidgetThemeMode.bindTextColor(context, themeMode, views, emptyId, "widget_text_secondary")
 
         if (WidgetLayoutHelper.isCompactLayout(layoutName)) {
-            bindCompactCourse(context, views, courses, themeColor)
+            bindCompactCourse(context, views, courses, themeColor, themeMode)
             if (listId != 0) views.setViewVisibility(listId, View.GONE)
             if (emptyId != 0) views.setViewVisibility(emptyId, View.GONE)
         } else {
@@ -117,7 +124,8 @@ object WidgetRenderer {
         context: Context,
         views: RemoteViews,
         courses: JSONArray?,
-        themeColor: Int
+        themeColor: Int,
+        themeMode: String
     ) {
         val packageName = context.packageName
         val nameId = context.resources.getIdentifier("widget_next_course_name", "id", packageName)
@@ -153,6 +161,9 @@ object WidgetRenderer {
                 views.setViewVisibility(locationId, View.GONE)
             }
         }
+        // #758：强制模式下覆盖中性文字色（时间行沿用品牌主题色）
+        WidgetThemeMode.bindTextColor(context, themeMode, views, nameId, "widget_text_primary")
+        WidgetThemeMode.bindTextColor(context, themeMode, views, locationId, "widget_location_text")
     }
 
     private fun bindListCourse(

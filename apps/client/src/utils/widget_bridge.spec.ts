@@ -15,6 +15,7 @@ vi.mock('@/platform/capacitor/widget', () => ({
   writeElectricitySnapshot: vi.fn(async () => {}),
   writeExamSnapshot: vi.fn(async () => {}),
   writeWidgetThemeColor: vi.fn(async () => {}),
+  writeThemeMode: vi.fn(async () => {}),
   requestRefresh: vi.fn(async () => {})
 }))
 
@@ -31,11 +32,12 @@ vi.mock('./debug_logger', () => ({
   pushDebugLog: vi.fn()
 }))
 
-import { afterScheduleRefresh, tryWriteSnapshotFromCache } from './widget_bridge'
-import { writeSnapshotWithRetry } from '@/platform/capacitor/widget'
+import { afterScheduleRefresh, tryWriteSnapshotFromCache, writeWidgetThemeMode } from './widget_bridge'
+import { writeSnapshotWithRetry, writeThemeMode } from '@/platform/capacitor/widget'
 import { getCacheKey } from './api.js'
 
 const mockWrite = vi.mocked(writeSnapshotWithRetry)
+const mockWriteThemeMode = vi.mocked(writeThemeMode)
 
 // ─── localStorage stub（node 环境无全局 localStorage） ──────────────────────
 
@@ -73,6 +75,20 @@ const lastSnapshot = () => {
 beforeEach(() => {
   storageMap.clear()
   mockWrite.mockClear()
+  mockWriteThemeMode.mockClear()
+})
+
+describe('#758 writeWidgetThemeMode 主题模式通路', () => {
+  it('通路就绪时把模式透传给 platform 层', async () => {
+    await expect(writeWidgetThemeMode('dark')).resolves.toBeUndefined()
+    expect(mockWriteThemeMode).toHaveBeenCalledWith('dark')
+  })
+
+  it('通路未就绪（原生命令/插件未实现 reject）时静默吞错，不抛出', async () => {
+    mockWriteThemeMode.mockRejectedValueOnce(new Error('unimplemented'))
+    await expect(writeWidgetThemeMode('light')).resolves.toBeUndefined()
+    await expect(writeWidgetThemeMode('system')).resolves.toBeUndefined()
+  })
 })
 
 describe('#759 tryWriteSnapshotFromCache 周次重算', () => {

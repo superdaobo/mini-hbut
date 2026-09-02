@@ -78,6 +78,8 @@ class TodayCoursesRemoteViewsFactory(
         } catch (_: Exception) {
             android.graphics.Color.parseColor("#2563eb")
         }
+        // #758：应用强制 light/dark 时覆盖中性文字色；system 模式零干预
+        val themeMode = WidgetThemeMode.resolve(context)
 
         // 节次徽标（合并后显示范围，如 "3-4节"）
         val periodText = if (row.periodStart == row.periodEnd) {
@@ -90,20 +92,19 @@ class TodayCoursesRemoteViewsFactory(
         views.setTextColor(periodId, themeColor)
 
         // 时间
-        views.setTextViewText(
-            context.resources.getIdentifier("widget_item_time", "id", packageName),
-            "${row.timeStart}-${row.timeEnd}"
-        )
+        val timeId = context.resources.getIdentifier("widget_item_time", "id", packageName)
+        views.setTextViewText(timeId, "${row.timeStart}-${row.timeEnd}")
         // 课程名
-        views.setTextViewText(
-            context.resources.getIdentifier("widget_item_name", "id", packageName),
-            row.name
-        )
+        val nameId = context.resources.getIdentifier("widget_item_name", "id", packageName)
+        views.setTextViewText(nameId, row.name)
         // 教室
-        views.setTextViewText(
-            context.resources.getIdentifier("widget_item_location", "id", packageName),
-            row.location
-        )
+        val locationId = context.resources.getIdentifier("widget_item_location", "id", packageName)
+        views.setTextViewText(locationId, row.location)
+
+        // #758：强制模式下覆盖中性文字色（节次徽标沿用品牌主题色）
+        WidgetThemeMode.bindTextColor(context, themeMode, views, nameId, "widget_text_primary")
+        WidgetThemeMode.bindTextColor(context, themeMode, views, timeId, "widget_text_secondary")
+        WidgetThemeMode.bindTextColor(context, themeMode, views, locationId, "widget_location_text")
 
         // 无障碍 contentDescription — 对齐 a11yLabel 格式
         val contentDesc = "第 ${row.periodStart} 节 ${row.timeStart} 到 ${row.timeEnd} ${row.name} ${row.location}".trimEnd()
@@ -115,11 +116,7 @@ class TodayCoursesRemoteViewsFactory(
         // 行点击深链：携带节次参数（#759：快照过期时深链用今天，避免前端高亮到昨天）
         val snapshotJson = store.readSnapshot()
         val snapshotDateRaw = readSnapshotDate(snapshotJson)
-        val snapshotDate = if (isBeforeToday(snapshotDateRaw)) {
-            java.time.LocalDate.now().toString()
-        } else {
-            snapshotDateRaw
-        }
+        val snapshotDate = if (isBeforeToday(snapshotDateRaw)) todayString() else snapshotDateRaw
         if (snapshotDate.isNotEmpty() && row.periodStart >= 1) {
             val fillInIntent = Intent().apply {
                 data = WidgetDeepLink.scheduleUri(snapshotDate, row.periodStart)
@@ -148,14 +145,20 @@ class TodayCoursesRemoteViewsFactory(
         }
     }
 
-    /** #759：快照日期是否早于今天（解析失败按未过期处理，保持原行为） */
+    /**
+     * #759：快照日期是否早于今天（解析失败按未过期处理，保持原行为）。
+     * 用 "yyyy-MM-dd" 字典序比较（ISO 日期字符串字典序 = 时间序），
+     * 避免在本类引入 java.time（API 26+，minSdk 22 无 desugaring）依赖。
+     */
     private fun isBeforeToday(dateStr: String): Boolean {
-        if (dateStr.isBlank()) return false
-        return try {
-            java.time.LocalDate.parse(dateStr).isBefore(java.time.LocalDate.now())
-        } catch (_: Exception) {
-            false
-        }
+        if (!Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(dateStr)) return false
+        return dateStr < todayString()
+    }
+
+    /** 今天的 "yyyy-MM-dd"（SimpleDateFormat API 1+，与 isBeforeToday 同源比较基准） */
+    private fun todayString(): String {
+        return java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date())
     }
 
     override fun getLoadingView(): RemoteViews? = null

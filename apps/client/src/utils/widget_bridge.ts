@@ -12,7 +12,9 @@ import {
   writeElectricitySnapshot,
   writeExamSnapshot,
   writeWidgetThemeColor as writeNativeWidgetThemeColor,
-  requestRefresh as requestWidgetRefresh
+  writeThemeMode as writeNativeWidgetThemeMode,
+  requestRefresh as requestWidgetRefresh,
+  type WidgetThemeMode as NativeWidgetThemeMode
 } from '@/platform/capacitor/widget'
 import { pushDebugLog } from './debug_logger'
 import { getCacheKey } from './api.js'
@@ -319,5 +321,27 @@ export async function writeWidgetThemeColor(color: string): Promise<void> {
   } catch (err: unknown) {
     console.warn('[widget] writeWidgetThemeColor failed:', err)
     pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeWidgetThemeColor' })
+  }
+}
+
+/**
+ * #758：将应用当前主题模式（system/light/dark）写入小组件，Kotlin 渲染时据此
+ * 覆盖深浅色资源（system = 维持 values-night / Material You 机制）。
+ *
+ * 接入时机（待线A #757 三态合并后接入）：主题初始化与应用内深浅色切换处调用
+ * `writeWidgetThemeMode(resolvedMode)`，与 writeWidgetThemeColor 同点触发。
+ * 当前不自动接入的原因：现有 night_mode 信号只有二态（html.dark），无法区分
+ * system 与 light，误写会破坏「跟随系统」用户。
+ *
+ * 失败静默：写入通路未就绪（Tauri 原生命令 / Capacitor 插件方法尚未实现）时
+ * Kotlin 端按 "system" 渲染，与旧版行为完全一致。
+ */
+export async function writeWidgetThemeMode(mode: NativeWidgetThemeMode): Promise<void> {
+  try {
+    await writeNativeWidgetThemeMode(mode)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn(`[widget] writeWidgetThemeMode(${mode}) unavailable: ${message}`)
+    pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeWidgetThemeMode' })
   }
 }
