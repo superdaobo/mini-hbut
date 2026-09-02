@@ -65,6 +65,9 @@ pub async fn login_campus_network(
 
     let service = carrier.eportal_service();
     let srun_username = carrier.srun_username(student_id);
+    // 记录最后一次 eportal 失败原因（已由适配器清洗为可读短文本），
+    // 全部网关失败时反馈给用户，避免只剩一句无信息量的通用文案。
+    let mut last_eportal_message = String::new();
 
     if let Some(ref q) = query {
         let eportal_gateways: Vec<String> = preferred_gateway
@@ -86,9 +89,8 @@ pub async fn login_campus_network(
                     };
                 }
                 Ok((false, message)) => {
-                    if preferred_gateway.as_deref() == Some(gw.as_str()) {
-                        // 记录首选网关失败原因，继续尝试 Srun
-                        let _ = message;
+                    if !message.trim().is_empty() {
+                        last_eportal_message = message;
                     }
                 }
                 Err(_) => continue,
@@ -112,9 +114,15 @@ pub async fn login_campus_network(
         }
     }
 
+    // eportal 与 Srun 全部失败：优先透出 eportal 的具体失败原因。
+    let message = if last_eportal_message.is_empty() {
+        "所有网关认证均失败，请检查账号密码或在校内网络重试".to_string()
+    } else {
+        format!("所有网关认证均失败（{last_eportal_message}），请检查账号密码或在校内网络重试")
+    };
     CampusNetworkLoginResult {
         success: false,
-        message: "所有网关认证均失败，请检查账号密码或在校内网络重试".to_string(),
+        message,
         adapter_used: None,
     }
 }
