@@ -3,6 +3,7 @@
  * 添加/修改自定义课程弹窗。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
  */
+import { computed } from 'vue'
 import { periodOptions, weekDayLabels } from '../constants'
 
 const props = defineProps({
@@ -17,7 +18,13 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'submit', 'open-week-picker'])
 
-const form = props.addCourseForm
+// #760：本弹窗被父组件（ScheduleView.vue）常驻挂载，setup 仅执行一次；而编辑器
+// （useScheduleEditor）每次打开弹窗都会整体替换 addCourseForm 对象
+// （resetAddCourseForm / populateCourseForm）。若在 setup 时固化 props.addCourseForm
+// 引用，用户输入会写进被替换掉的旧对象，校验读到的新对象恒为空，必然误报
+// 「课程名称不能为空」。改用 computed 始终解引用最新表单对象，模板中 v-model
+// 的读取与写回都落在当前 props 指向的对象上。
+const form = computed(() => props.addCourseForm)
 </script>
 
 <template>
