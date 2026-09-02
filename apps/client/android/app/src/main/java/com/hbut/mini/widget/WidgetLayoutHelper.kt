@@ -75,4 +75,24 @@ object WidgetLayoutHelper {
     fun staleHint(context: Context): String = context.getString(
         context.resources.getIdentifier("widget_stale_hint", "string", context.packageName)
     )
+
+    /**
+     * #759：跨天旧快照的陈旧标记文案 "数据更新于 X月X日"（snapshotDate 为 yyyy-MM-dd）。
+     * 资源缺失或日期格式异常时回退到通用 staleHint。
+     */
+    fun outdatedHint(context: Context, snapshotDate: String): String {
+        val id = context.resources.getIdentifier("widget_outdated_hint", "string", context.packageName)
+        if (id == 0) return staleHint(context)
+        val dateText = try {
+            val parts = snapshotDate.split("-")
+            if (parts.size == 3) "${parts[1].trimStart('0')}月${parts[2].trimStart('0')}日" else snapshotDate
+        } catch (_: Exception) {
+            snapshotDate
+        }
+        return try {
+            context.getString(id, dateText)
+        } catch (_: Exception) {
+            staleHint(context)
+        }
+    }
 }
