@@ -17,6 +17,8 @@ type LoadState = 'loading' | 'ready' | 'error' | 'no_device'
 const items = ref<IdentityAuthHistoryItem[]>([])
 const loadState = ref<LoadState>('loading')
 const errorMessage = ref('')
+/** #777：错误态附加指引（如安全存储不可用的重启建议；空字符串表示无附加指引） */
+const errorHint = ref('')
 const loading = ref(false)
 
 /** 相对时间（刚刚 / N 分钟前 / N 小时前 / N 天前 / 具体日期） */
@@ -55,6 +57,7 @@ const load = async () => {
   loading.value = true
   loadState.value = 'loading'
   errorMessage.value = ''
+  errorHint.value = ''
   try {
     items.value = await fetchAuthHistory()
     loadState.value = 'ready'
@@ -65,6 +68,10 @@ const load = async () => {
     } else {
       loadState.value = 'error'
       errorMessage.value = err instanceof IdentityServiceError ? err.message : '加载失败，请稍后重试'
+      // #777：安全存储不可用给出专属指引（fail closed，重启应用可能恢复临时性故障）
+      if (err instanceof IdentityServiceError && err.code === 'secure_storage_unavailable') {
+        errorHint.value = '这通常是系统凭据存储暂时不可用。可尝试完全退出并重启本应用后重试；若持续出现，请通过「设置 → 关于」反馈版本号。'
+      }
     }
   } finally {
     loading.value = false
@@ -120,6 +127,7 @@ onMounted(() => {
       <span class="material-symbols-outlined tip-icon tip-icon--error">error</span>
       <p class="tip-title">加载失败</p>
       <p class="tip-desc">{{ errorMessage }}</p>
+      <p v-if="errorHint" class="tip-desc tip-hint">{{ errorHint }}</p>
       <button class="history-retry-btn" @click="load">重试</button>
     </section>
 
@@ -283,6 +291,13 @@ onMounted(() => {
   font-size: 13px;
   line-height: 1.7;
   color: var(--ui-muted, #64748b);
+}
+
+/* #777：错误附加指引（与主文案区分的弱化样式） */
+.tip-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: color-mix(in oklab, var(--ui-muted, #64748b) 80%, var(--ui-text, #1f2937));
 }
 
 .history-retry-btn {

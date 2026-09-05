@@ -146,18 +146,14 @@ describe('#775 fetchAuthHistory 200 响应解析', () => {
   })
 })
 
-// ─── 3. 非法 JSON body（现状契约，待 #776 对齐） ─────────────────────────────
+// ─── 3. 非法 JSON body（#776 修复后契约：宽容解析） ─────────────────────────
 
-describe('#775 fetchAuthHistory 非法 JSON body（现状契约）', () => {
-  it('status=200 + 非法 JSON → 现状折叠为 network_unavailable（应为空态，待 #776 修复对齐）', async () => {
-    // 当前实现 `JSON.parse(output.body || '{}')` 无局部保护：
-    // SyntaxError 进外层 catch → network_unavailable('无法加载授权记录，请稍后重试')。
-    // 正确语义应为「返回空数组不抛」—— #776 修复后本用例需改为 resolves.toEqual([])。
+describe('#775 fetchAuthHistory 非法 JSON body（#776 修复后契约）', () => {
+  it('status=200 + 非法 JSON → 返回空数组不抛（宽容解析，不误报网络错误）', async () => {
+    // #776 修复后：成功路径响应体解析带局部保护，
+    // SyntaxError 不再进 catch 折叠为 network_unavailable，而是按空态处理。
     vi.mocked(identityFetchAuthHistory).mockResolvedValue(nativeOk(200, '{{not-json') as never)
-    await expect(fetchAuthHistory()).rejects.toMatchObject({
-      code: 'network_unavailable',
-      message: '无法加载授权记录，请稍后重试'
-    })
+    await expect(fetchAuthHistory()).resolves.toEqual([])
   })
 })
 
@@ -208,10 +204,12 @@ describe('#775 fetchAuthHistory 非 200 状态映射（现状契约）', () => {
   })
 })
 
-// ─── 5. 原生调用失败折叠（现状契约，可能被 #776 改变） ────────────────────────
+// ─── 5. 原生调用失败兜底（#777 修复后契约） ──────────────────────────────────
 
-describe('#775 fetchAuthHistory 原生调用失败折叠（现状契约）', () => {
-  it('invoke 抛错 → 折叠为 network_unavailable（用户可读文案，不泄露内部错误）', async () => {
+describe('#775 fetchAuthHistory 原生调用失败兜底（#777 修复后契约）', () => {
+  it('invoke 抛错 → 兜底 network_unavailable（用户可读文案，不泄露内部错误）', async () => {
+    // #777 修复后：invoke 本身失败（panic/运行时异常）拿不到结构化分类，
+    // 仍按网络类兜底，但文案改为与 requestJson 一致的「无法连接身份服务」。
     vi.mocked(identityFetchAuthHistory).mockRejectedValue(
       new Error('invoke failed: identity_fetch_auth_history panic detail')
     )
@@ -219,11 +217,58 @@ describe('#775 fetchAuthHistory 原生调用失败折叠（现状契约）', () 
     expect(err).toBeInstanceOf(IdentityServiceError)
     expect(err).toMatchObject({
       code: 'network_unavailable',
-      message: '无法加载授权记录，请稍后重试'
+      message: '无法连接身份服务，请检查网络后重试'
     })
     // 内部细节只进 internalDetail（脱敏日志），不进用户文案
     expect((err as IdentityServiceError).message).not.toContain('panic detail')
     expect((err as IdentityServiceError).internalDetail).toContain('invoke failed')
+  })
+
+  it('原生层 status=0 + error_kind=not_enrolled → device_not_bound（#777 结构化分类）', async () => {
+    vi.mocked(identityFetchAuthHistory).mockResolvedValue({
+      status: 0,
+      body: '',
+      error_kind: 'not_enrolled',
+      error_message: '本设备尚未注册身份，请先完成设备注册'
+    }) as never
+    await expect(fetchAuthHistory()).rejects.toMatchObject({
+      code: 'device_not_bound',
+      message: '本设备尚未注册身份，请先完成设备注册'
+    })
+  })
+
+  it('原生层 status=0 + error_kind=keyring_unavailable → secure_storage_unavailable', async () => {
+    vi.mocked(identityFetchAuthHistory).mockResolvedValue({
+      status: 0,
+      body: '',
+      error_kind: 'keyring_unavailable',
+      error_message: '系统安全存储不可用，设备身份功能已停用（fail closed，不降级）：模拟'
+    }) as never
+    const err = await fetchAuthHistory().catch((e: unknown) => e)
+    expect(err).toMatchObject({ code: 'secure_storage_unavailable' })
+    // 用户文案来自 Rust 已脱敏 Display，不携带 device_id
+    expect((err as IdentityServiceError).message).not.toContain(TEST_DEVICE_ID)
+  })
+
+  it('原生层 status=0 + error_kind=network → network_unavailable', async () => {
+    vi.mocked(identityFetchAuthHistory).mockResolvedValue({
+      status: 0,
+      body: '',
+      error_kind: 'network',
+      error_message: '身份服务网络请求失败：连接超时'
+    }) as never
+    await expect(fetchAuthHistory()).rejects.toMatchObject({ code: 'network_unavailable' })
+  })
+
+  it('原生层 status=0 + error_kind=api（防御分支）→ 按状态码兜底映射', async () => {
+    // 理论不可达：api 类错误应携带 HTTP status（#776）；防御性走 500 兜底
+    vi.mocked(identityFetchAuthHistory).mockResolvedValue({
+      status: 0,
+      body: '',
+      error_kind: 'api',
+      error_message: '身份服务返回错误（HTTP 500）：服务器内部错误'
+    }) as never
+    await expect(fetchAuthHistory()).rejects.toMatchObject({ code: 'unknown' })
   })
 })
 
