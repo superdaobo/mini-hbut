@@ -6,6 +6,7 @@
 //! - 与 `credential_store.rs` 的密码兼容逻辑完全隔离（设备私钥禁止 Base64/SQLite 降级）。
 
 pub mod approval;
+pub mod auth_history_tests;
 pub mod canonical;
 pub mod client;
 pub mod commands;
