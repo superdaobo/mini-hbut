@@ -1,0 +1,232 @@
+
+.theme-module-icon[data-v-0b9dd728] {
+  width: var(--badge-size);
+  height: var(--badge-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--icon-size);
+  color: var(--module-icon-color, var(--ui-primary, #0066cc));
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  -webkit-user-select: none;
+     -moz-user-select: none;
+          user-select: none;
+  line-height: 1;
+}
+.theme-module-icon.variant-tab[data-v-0b9dd728] {
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+  color: currentColor;
+}
+.dashboard-root[data-v-fd8fe249] {
+  padding-bottom: 80px;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* 宽度由本文件接管（#714）：手机维持原 520 上限，≥600/≥768 阶梯放宽 */
+  max-width: 520px;
+}
+@media (min-width: 600px) {
+.dashboard-root[data-v-fd8fe249] {
+    max-width: 640px;
+}
+}
+
+/* 单列纵向节奏（对齐原 space-y-6=24px）：改由本文件统一管理，宽屏切换为 grid gap */
+.dashboard-main[data-v-fd8fe249] > * + * {
+  margin-top: 24px;
+}
+.home-col-right[data-v-fd8fe249] > * + * {
+  margin-top: 24px;
+}
+@media (min-width: 768px) {
+.dashboard-root[data-v-fd8fe249] {
+    max-width: 1080px;
+}
+
+  /* 双栏：左=今日安排（5），右=快捷入口+所有功能（7）；头部区块跨全宽。
+     整页仍由 .app-shell 独家滚动，两栏容器禁止任何纵向 overflow。 */
+.dashboard-main[data-v-fd8fe249] {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    align-items: start;
+    -moz-column-gap: 24px;
+         column-gap: 24px;
+    row-gap: 24px;
+}
+.dashboard-main[data-v-fd8fe249] > * + * {
+    margin-top: 0;
+}
+.home-area-greet[data-v-fd8fe249],
+  .home-area-user[data-v-fd8fe249],
+  .home-area-maint[data-v-fd8fe249] {
+    grid-column: 1 / -1;
+}
+
+  /* 功能宫格宽屏扩列到 6 列（与 Dashboard.vue featureGridCols 宽屏值一致） */
+.home-feature-grid[data-v-fd8fe249] {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+  /* 快捷入口编辑面板：底部动作面板 → 居中卡（IOSSelect 同款范式） */
+.quick-entry-editor-overlay[data-v-fd8fe249] {
+    align-items: center;
+    padding: 24px;
+}
+.quick-entry-editor-panel[data-v-fd8fe249] {
+    max-width: 480px;
+    border-radius: 24px;
+    max-height: min(80vh, 640px);
+}
+}
+
+
+/* 与 NotificationView / MeView 的 .logo-img 一致：圆形裁切整图 */
+.home-logo-img[data-v-fd8fe249] {
+  width: 32px;
+  height: 32px;
+  -o-object-fit: cover;
+     object-fit: cover;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: block;
+}
+.today-empty-icon[data-v-fd8fe249] {
+  display: block;
+  width: 80px;
+  max-width: 80px;
+  height: auto;
+  margin-bottom: 12px;
+  aspect-ratio: 1 / 1;
+  -o-object-fit: contain;
+     object-fit: contain;
+  opacity: 0.8;
+  flex: 0 0 auto;
+}
+.today-course-illustration[data-v-fd8fe249] {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  max-width: none;
+  height: 100%;
+  -o-object-fit: contain;
+     object-fit: contain;
+  -o-object-position: right center;
+     object-position: right center;
+  opacity: 0.3;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+.session-status-btn[data-v-fd8fe249] {
+  min-width: 2rem;
+  min-height: 2rem;
+  -webkit-tap-highlight-color: transparent;
+}
+.session-status-dot[data-v-fd8fe249] {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+.session-status-dot.is-green[data-v-fd8fe249] {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+}
+.session-status-dot.is-red[data-v-fd8fe249] {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
+}
+.session-status-dot.is-blink[data-v-fd8fe249] {
+  animation: session-status-blink-fd8fe249 0.9s ease-in-out infinite;
+}
+@keyframes session-status-blink-fd8fe249 {
+0%,
+  100% {
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+}
+50% {
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22);
+}
+}
+.card-shadow[data-v-fd8fe249] {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+}
+.timeline-line[data-v-fd8fe249] {
+  position: absolute;
+  left: 11px;
+  top: 10px;
+  bottom: 40px;
+  width: 2px;
+  background-color: #e5e7eb;
+  z-index: 0;
+}
+.gradient-card[data-v-fd8fe249] {
+  background: linear-gradient(135deg, #5b86e5 0%, #36d1dc 100%);
+  box-shadow: 0 10px 20px rgba(54, 209, 220, 0.3);
+}
+
+/* Animations */
+@keyframes scale-in-fd8fe249 {
+from { transform: scale(0.9); opacity: 0;
+}
+to { transform: scale(1); opacity: 1;
+}
+}
+.animate-scale-in[data-v-fd8fe249] {
+  animation: scale-in-fd8fe249 0.25s ease-out;
+}
+.scrollbar-hide[data-v-fd8fe249] {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide[data-v-fd8fe249]::-webkit-scrollbar {
+  display: none;
+}
+
+/* 所有功能：标题独占一行，分类横向滑动，避免与标题挤在一起 */
+.home-all-features__head[data-v-fd8fe249] {
+  margin-bottom: 12px;
+}
+.home-feature-tabs[data-v-fd8fe249] {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+  max-width: 100%;
+}
+.home-feature-tabs[data-v-fd8fe249]::-webkit-scrollbar {
+  display: none;
+}
+.home-feature-tab[data-v-fd8fe249] {
+  flex: 0 0 auto;
+  max-width: 7.5rem;
+  scroll-snap-align: start;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.home-feature-tab.is-active[data-v-fd8fe249] {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(59, 130, 246, 0.25);
+}
+/* 锁定宫格最小高度，避免分类模块数差异导致滚动跳变 */
+.home-feature-grid[data-v-fd8fe249] {
+  align-content: start;
+  box-sizing: border-box;
+}
