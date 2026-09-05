@@ -383,15 +383,20 @@ async fn fetch_auth_history_impl(
         },
         // #776：Api{status} 携带 Core HTTP 状态码，透传给前端按状态码分类；
         // 其余错误保持 status=0 + error_kind 分类。所有文本均为已脱敏 Display。
-        Err(IdentityError::Api { status, ref message }) => IdentityAuthHistoryOutput {
+        Err(IdentityError::Api {
+            status,
+            ref message,
+        }) => IdentityAuthHistoryOutput {
             status: i32::from(status),
             body: message.clone(),
             error_kind: Some("api".to_string()),
-            error_message: Some(IdentityError::Api {
-                status,
-                message: message.clone(),
-            }
-            .to_string()),
+            error_message: Some(
+                IdentityError::Api {
+                    status,
+                    message: message.clone(),
+                }
+                .to_string(),
+            ),
         },
         Err(err) => failure(&err),
     }
@@ -547,7 +552,10 @@ mod tests {
         assert_eq!(output.status, 0);
         assert_eq!(output.error_kind.as_deref(), Some("keyring_unavailable"));
         let message = output.error_message.unwrap_or_default();
-        assert!(message.contains("安全存储"), "应透传 KeyringUnavailable 脱敏文案");
+        assert!(
+            message.contains("安全存储"),
+            "应透传 KeyringUnavailable 脱敏文案"
+        );
         assert!(!message.contains(&test_device_id()));
     }
 
@@ -578,7 +586,10 @@ mod tests {
                 IdentityError::KeyringUnavailable("存储写入失败".to_string()),
                 "keyring_unavailable",
             ),
-            (IdentityError::KeyringWriteMismatch, "keyring_write_mismatch"),
+            (
+                IdentityError::KeyringWriteMismatch,
+                "keyring_write_mismatch",
+            ),
             (
                 IdentityError::KeyringBackendMissing("mock 后端".to_string()),
                 "keyring_backend_missing",
@@ -601,7 +612,11 @@ mod tests {
             (IdentityError::Internal("不可达".to_string()), "internal"),
         ];
         for (err, expected) in cases {
-            assert_eq!(error_kind_of(&err), expected, "{err:?} 的 error_kind 应为 {expected}");
+            assert_eq!(
+                error_kind_of(&err),
+                expected,
+                "{err:?} 的 error_kind 应为 {expected}"
+            );
         }
     }
 }
