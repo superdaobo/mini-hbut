@@ -336,6 +336,31 @@ html.dark .glass-card-warning {
   border: 1px solid #e2e8f0;
   background: #fff;
 }
+/* 缴费仅演示提醒 */
+.pay-demo-hint {
+  margin-top: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+.pay-demo-hint .material-symbols-outlined {
+  font-size: 16px;
+  flex: none;
+  margin-top: 1px;
+}
+.pay-demo-hint strong {
+  color: #475569;
+  font-weight: 700;
+}
+html.dark .pay-demo-hint {
+  color: #94a3b8;
+}
+html.dark .pay-demo-hint strong {
+  color: #cbd5e1;
+}
 html.dark .util-card {
   background: var(--ui-surface, #111827);
   border-color: #334155;
