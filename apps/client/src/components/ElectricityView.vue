@@ -1180,6 +1180,11 @@ watch(
         <div v-if="showPayQr && payQr" class="pay-qr">
           <img :src="payQr" alt="缴电费" width="180" height="180" />
         </div>
+        <!-- 提醒：本页仅查询演示，缴费需前往官方 i 湖工 -->
+        <p class="pay-demo-hint">
+          <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">info</span>
+          <span>应用内缴费入口仅供演示跳转，无法完成实际缴费；请前往 <strong>i 湖工</strong> 自行缴费。</span>
+        </p>
       </section>
     </main>
   </div>
