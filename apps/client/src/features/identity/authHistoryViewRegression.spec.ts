@@ -75,6 +75,8 @@ const setupView = (): ViewCtx => {
     .replace(/ref<LoadState>\('loading'\)/, "ref('loading')")
     .replace(/\(iso: string\): string =>/g, '(iso) =>')
     .replace(/\(n: number\) =>/g, '(n) =>')
+    // #776：errorHintFor 的签名标注（视图新增的错误指引映射函数）
+    .replace(/\(code: string\): string =>/g, '(code) =>')
     // 2) 清除所有 import 行（后续统一注入）
     .replace(/^import[^\n]*/gm, '')
   // 3) 剥壳头：`export default ...defineComponent({...setup(__props, {...) { __expose();`
