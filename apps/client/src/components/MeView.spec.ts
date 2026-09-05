@@ -43,3 +43,16 @@ describe('MeView account switch contract (#755)', () => {
     expect(vue).toContain("'account-switched'")
   })
 })
+
+describe('MeView account switch modal title icon contract (#770)', () => {
+  it('uses switch_account (in subset font) and never the non-existent swap_account', () => {
+    const vue = source()
+
+    // 回归：swap_account 不是 Material Symbols 官方图标，不在子集字体中，
+    // ligature 无法解析会被浏览器渲染为普通文本（issue #770）
+    // 只断言模板用法（带 class 前缀），避免误伤注释中的图标名说明
+    expect(vue).not.toContain('account-switch-title-icon">swap_account<')
+    // 标题图标必须是子集字体中已收录且语义匹配的 switch_account
+    expect(vue).toContain('material-symbols-outlined account-switch-title-icon">switch_account</span> 切换账号')
+  })
+})
