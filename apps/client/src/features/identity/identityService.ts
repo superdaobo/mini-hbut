@@ -24,7 +24,12 @@ import type {
   IdentityUserSafeErrorCode
 } from './types'
 import { IdentityServiceError } from './types'
-import { invokeNative, isTauriRuntime, identityFetchAuthHistory } from '../../platform/native'
+import {
+  invokeNative,
+  isTauriRuntime,
+  identityFetchAuthHistory,
+  type IdentityAuthHistoryNativeOutput
+} from '../../platform/native'
 
 /**
  * 本机设备 ID 的 localStorage key（与 identityStore.ts 的 IDENTITY_DEVICE_ID_KEY 保持一致）。
@@ -448,11 +453,38 @@ export const submitApprove = async (input: {
 }
 
 /**
+ * #777：原生层 error_kind → 用户可读错误码。
+ * 契约源头：commands.rs 的 error_kind_of（IdentityError 变体一一对应）。
+ */
+const mapAuthHistoryErrorKind = (kind: string): IdentityUserSafeErrorCode => {
+  switch (kind) {
+    case 'not_enrolled':
+      return 'device_not_bound'
+    case 'keyring_unavailable':
+    case 'keyring_write_mismatch':
+    case 'keyring_backend_missing':
+      return 'secure_storage_unavailable'
+    case 'network':
+      return 'network_unavailable'
+    case 'invalid_input':
+    case 'core_base_url_missing':
+    case 'no_local_login':
+    case 'internal':
+      return 'unknown'
+    default:
+      return 'unknown'
+  }
+}
+
+/**
  * 拉取本机授权历史（「授权记录」页数据源）。
  *
  * 认证：设备签名（MINI-HBUT-DEVICE-API-V1）。私钥在 Rust keyring，canonical 绑定
  * GET /api/v1/app/devices/me/auth-history，故 Tauri 环境必须走 Rust command
  * `identity_fetch_auth_history`；Web/Capacitor 无签名能力，明确提示不支持。
+ *
+ * #777：原生层错误不再折叠为单一文案 —— error_kind 映射为用户可读错误码
+ * （未注册/安全存储不可用/网络失败等），api 类错误按 Core HTTP 状态映射（#776）。
  */
 export const fetchAuthHistory = async (): Promise<IdentityAuthHistoryItem[]> => {
   const deviceId = typeof localStorage !== 'undefined'
@@ -464,35 +496,60 @@ export const fetchAuthHistory = async (): Promise<IdentityAuthHistoryItem[]> => 
   if (!isTauriRuntime()) {
     throw createServiceError('device_not_bound', '授权记录仅支持在桌面端查看')
   }
+  let output: IdentityAuthHistoryNativeOutput
   try {
-    const output = await identityFetchAuthHistory<{ status: number; body: string }>({
+    output = await identityFetchAuthHistory({
       base_url: getIdentityCoreBaseUrl(),
       device_id: deviceId
     })
-    if (output.status !== 200) {
-      let data: unknown = null
-      if (output.body) {
-        try {
-          data = JSON.parse(output.body)
-        } catch {
-          data = null
-        }
-      }
-      throwMappedError(output.status, data, 'fetchAuthHistory')
-    }
-    const parsed = JSON.parse(output.body || '{}') as IdentityAuthHistoryResponse
-    return Array.isArray(parsed?.items) ? parsed.items : []
   } catch (err) {
-    if (err instanceof IdentityServiceError) throw err
+    // invoke 本身失败（panic/运行时异常）：无法拿到结构化分类，按网络类兜底
     reportIdentityDiag('auth_history_error', {
       error: String((err as Error)?.message || 'fetchAuthHistory failed').slice(0, 200)
     })
     throw createServiceError(
       'network_unavailable',
-      '无法加载授权记录，请稍后重试',
+      '无法连接身份服务，请检查网络后重试',
       String((err as Error)?.message || 'fetchAuthHistory failed')
     )
   }
+  // 原生层失败（status=0）：按 error_kind 分类，internalDetail 只含脱敏诊断
+  if (output.status === 0) {
+    const kind = String(output.error_kind || 'internal')
+    if (kind === 'api') {
+      // 理论不可达（api 类应携带 HTTP status）；防御性走状态码映射
+      throwMappedError(500, null, 'fetchAuthHistory')
+    }
+    const code = mapAuthHistoryErrorKind(kind)
+    reportIdentityDiag('auth_history_failed', { kind, status: output.status })
+    throw createServiceError(
+      code,
+      output.error_message || DEFAULT_MESSAGES[code],
+      `fetchAuthHistory -> native error_kind=${kind}`
+    )
+  }
+  // Core HTTP 状态透传（#776）：非 200 按响应体 + 状态码统一映射
+  if (output.status !== 200) {
+    let data: unknown = null
+    if (output.body) {
+      try {
+        data = JSON.parse(output.body)
+      } catch {
+        data = null
+      }
+    }
+    throwMappedError(output.status, data, 'fetchAuthHistory')
+  }
+  // 成功：宽容解析（空 body / 缺 items → 空数组，不因响应体异常误报网络错误）
+  let parsed: IdentityAuthHistoryResponse | null = null
+  if (output.body) {
+    try {
+      parsed = JSON.parse(output.body) as IdentityAuthHistoryResponse
+    } catch {
+      parsed = null
+    }
+  }
+  return Array.isArray(parsed?.items) ? parsed.items : []
 }
 
 /**
