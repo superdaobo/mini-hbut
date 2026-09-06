@@ -93,6 +93,20 @@ export const t = (key: string): string => {
 }
 
 /**
+ * 整句插值翻译（issue #791 新增，与 #790 批次同签名）：
+ * 先按 t() 回落链取词，再把字典中的 {name} 占位符替换为参数值。
+ * 字典侧统一整句 key + {n}/{name} 占位（如 '系统预热中，正在重试 ({n}/{max})...'），
+ * 避免调用方碎片拼接。
+ */
+export const tf = (key: string, params: Record<string, unknown>): string => {
+  const text = t(key)
+  return Object.entries(params ?? {}).reduce(
+    (acc, [name, value]) => acc.split(`{${name}}`).join(String(value)),
+    text
+  )
+}
+
+/**
  * Vue 组合函数：返回响应式 locale 与 t。
  * - locale 为 ref，监听 hbu-locale-changed 事件跟随变化（设置页切换即时生效）；
  * - 可选监听 storage 事件，实现跨标签页同步（Tauri 单窗口场景为兜底）。
@@ -133,7 +147,8 @@ export const useLocale = () => {
  *    —— locale 是 ref，切换语言后模板自动重渲染，t() 取词即时生效；
  * 2. ❌ 非响应式：`import { t } from '../utils/app_i18n'` 后直接在模板绑定 t('key')
  *    —— t() 是普通函数，locale 变化不触发重渲染，仅适合 JS 逻辑内
- *    （如 showToast(t('xxx'))，取词发生在事件回调里，时机上已是最新语言）。
+ *    （如 showToast(t('xxx'))，取词发生在事件回调里，时机上已是最新语言）；
+ *    需要占位插值时用 tf('key', { name: value })（同样仅限 JS 逻辑内）。
  * 底层为同一函数，可混用；本别名仅用于让调用点意图更清晰。
  */
 export const useI18n = useLocale

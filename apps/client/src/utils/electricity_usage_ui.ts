@@ -71,3 +71,34 @@ export function resolveUsageEmptyText(opts: {
   }
   return '该房间暂无分日/分月用电曲线，可查看上方电费余额'
 }
+
+/**
+ * 电费楼层/房间标签词法（#791，从 ElectricityView.vue 外移）：
+ * 这些正则匹配的是后端宿舍数据集（dormitory_data.json）的固定中文词汇表，
+ * 属数据解析而非 UI 文案——数据集词汇表不变，正则必须保留中文原文。
+ * 本文件不纳入 i18n 白名单（解析函数返回值非用户可见固定文案）。
+ */
+/** 匹配「照明N层」楼层标签，返回楼层数字；不匹配返回 null */
+export function matchLightLevelLabel(label: unknown): string | null {
+  const m = String(label ?? '').match(/^照明(\d+)层$/)
+  return m ? m[1] : null
+}
+
+/** 匹配「空调N层」楼层标签，返回楼层数字；不匹配返回 null */
+export function matchAcLevelLabel(label: unknown): string | null {
+  const m = String(label ?? '').match(/^空调(\d+)层$/)
+  return m ? m[1] : null
+}
+
+/** 剥掉房间标签尾部的「房间」后缀（如「101房间」→「101」） */
+export function stripRoomSuffix(label: unknown): string {
+  return String(label ?? '').replace(/房间$/, '')
+}
+
+/**
+ * 后端把「请先选择宿舍」引导语塞进 message 时识别出来（#488/#791）：
+ * 该词组为后端中文词汇表，匹配逻辑从 ElectricityView.vue 外移至此。
+ */
+export function containsMisleadingRoomHint(message: unknown): boolean {
+  return /请先选择宿舍/.test(String(message ?? ''))
+}

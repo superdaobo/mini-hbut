@@ -35,7 +35,14 @@ const I18N_MIGRATED_FILES: string[] = [
   'utils/toast.js',
   // #785：本批接入 t() 的公共组件（内置默认文案 / 无障碍标签已全部 t() 化）
   'components/templates/TEmptyState.vue',
-  'components/templates/TModal.vue'
+  'components/templates/TModal.vue',
+  // #791：生活缴费域（Electricity/Broadband/CampusNetwork/CampusCode 页面文案全部
+  // t()/tf() 化。后端数据集固定中文词汇表（照明/空调/房间/请先选择宿舍）的解析正则
+  // 已外移至 utils/electricity_usage_ui.ts，本文件不纳入白名单（非 UI 文案）
+  'components/ElectricityView.vue',
+  'components/BroadbandView.vue',
+  'components/CampusNetworkView.vue',
+  'components/CampusCodeView.vue'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */
