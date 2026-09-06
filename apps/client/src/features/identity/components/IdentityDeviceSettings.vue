@@ -26,24 +26,36 @@ import {
   identityRevokeCurrentDeviceLocal
 } from '../../../platform/native'
 import { showToast } from '../../../utils/toast'
+// #795：响应式 t（locale 变化后模板即时重渲染）
+import { useI18n } from '../../../utils/app_i18n'
+
+const { t } = useI18n()
 
 const ui = identityUiState
 
-/** 撤销确认需要输入的确切短语（更强确认） */
-const REVOKE_CONFIRM_PHRASE = '撤销此设备'
+/** 撤销确认需要输入的确切短语（更强确认；文案随 locale，输入匹配按当前语言） */
+const revokeConfirmPhrase = computed(() => t('identity.device.action.revoke'))
 
 const revokeModalVisible = ref(false)
 const revokeConfirmInput = ref('')
-const confirmMismatch = computed(() => revokeConfirmInput.value !== REVOKE_CONFIRM_PHRASE)
+const confirmMismatch = computed(() => revokeConfirmInput.value !== revokeConfirmPhrase.value)
 
 const serviceEnabledText = computed(() =>
-  ui.deviceStatus === null ? '检测中…' : ui.deviceStatus.available ? '已启用' : '未启用'
+  ui.deviceStatus === null
+    ? t('identity.device.status.checking')
+    : ui.deviceStatus.available
+      ? t('identity.device.status.enabled')
+      : t('identity.device.status.disabled')
 )
 
 const boundText = computed(() => {
-  if (ui.deviceStatus === null) return '检测中…'
-  if (ui.deviceStatus.available === false) return '不可用'
-  return ui.deviceId ? '已绑定' : ui.deviceStatus.has_key ? '本机已有密钥（待绑定）' : '未绑定'
+  if (ui.deviceStatus === null) return t('identity.device.status.checking')
+  if (ui.deviceStatus.available === false) return t('identity.device.bind.unavailable')
+  return ui.deviceId
+    ? t('identity.device.bind.bound')
+    : ui.deviceStatus.has_key
+      ? t('identity.device.bind.key_pending')
+      : t('identity.device.bind.unbound')
 })
 
 const verifiedAtText = computed(() => {
@@ -62,10 +74,10 @@ const refreshDeviceStatus = async (): Promise<void> => {
     const status = await invokeIdentityDeviceStatus<IdentityLocalDeviceStatus>()
     setIdentityDeviceStatus(status)
     if (status?.available === false) {
-      setIdentityDeviceError(status.error || '本机安全存储不可用')
+      setIdentityDeviceError(status.error || t('identity.device.error.storage_unavailable'))
     }
   } catch {
-    setIdentityDeviceError('无法读取设备状态')
+    setIdentityDeviceError(t('identity.device.error.read_failed'))
   } finally {
     setIdentityDeviceRefreshing(false)
   }
@@ -85,7 +97,7 @@ const revokeCurrentDevice = async (): Promise<void> => {
   if (confirmMismatch.value || ui.revoking) return
   const deviceId = ui.deviceId
   if (!deviceId) {
-    showToast('当前设备尚未绑定，无需撤销', 'info')
+    showToast(t('identity.device.toast.not_bound'), 'info')
     closeRevokeModal()
     return
   }
@@ -99,11 +111,11 @@ const revokeCurrentDevice = async (): Promise<void> => {
     // Rust 侧已先调 Core revoke（成功才删本地 key）
     clearIdentityDeviceMeta()
     closeRevokeModal()
-    showToast('当前设备已撤销', 'success')
+    showToast(t('identity.device.toast.revoked'), 'success')
   } catch (err) {
-    const message = String((err as Error)?.message || err || '撤销失败')
+    const message = String((err as Error)?.message || err || t('identity.device.revoke.fallback_message'))
     setIdentityDeviceError(message)
-    showToast('撤销失败，请稍后重试', 'error')
+    showToast(t('identity.device.toast.revoke_failed'), 'error')
   } finally {
     setIdentityRevoking(false)
   }
@@ -126,49 +138,48 @@ defineExpose({ refreshDeviceStatus })
         <span class="identity-device-pill" :class="{ ok: ui.deviceStatus?.available }">{{ serviceEnabledText }}</span>
       </div>
       <p class="identity-test-note">
-        🧪 <strong>测试说明</strong>：当前连接的身份服务为测试部署（id.湖北工业大学.com 测试环境）。
-        授权测试应用（如 mini-hbut-test）时不会获取你的真实数据；正式环境上线后会移除本说明。
+        🧪 <strong>{{ t('identity.overlay.test.badge') }}</strong>{{ t('identity.device.test_note') }}
       </p>
       <dl class="identity-device-grid">
         <div class="identity-device-field">
-          <dt>当前设备</dt>
+          <dt>{{ t('identity.device.field.device') }}</dt>
           <dd>{{ getIdentityDeviceDisplayName() }}</dd>
         </div>
         <div class="identity-device-field">
-          <dt>绑定状态</dt>
+          <dt>{{ t('identity.device.field.bind_status') }}</dt>
           <dd>{{ boundText }}</dd>
         </div>
         <div class="identity-device-field">
-          <dt>最近认证</dt>
+          <dt>{{ t('identity.device.field.last_auth') }}</dt>
           <dd>{{ verifiedAtText }}</dd>
         </div>
         <div class="identity-device-field">
-          <dt>学校身份验证方式</dt>
-          <dd>Mini-HBUT 本地验证</dd>
+          <dt>{{ t('identity.device.field.method') }}</dt>
+          <dd>{{ t('identity.device.field.method_value') }}</dd>
         </div>
         <div v-if="ui.deviceStatus?.fingerprint" class="identity-device-field identity-device-field--wide">
-          <dt>设备指纹</dt>
+          <dt>{{ t('identity.device.field.fingerprint') }}</dt>
           <dd class="identity-device-mono">{{ ui.deviceStatus.fingerprint }}</dd>
         </div>
         <div v-if="ui.deviceId" class="identity-device-field identity-device-field--wide">
-          <dt>设备 ID</dt>
+          <dt>{{ t('identity.device.field.device_id') }}</dt>
           <dd class="identity-device-mono">{{ ui.deviceId }}</dd>
         </div>
       </dl>
       <p class="identity-device-hint">
-        首次允许授权时 App 会自动绑定本设备；撤销后如需恢复，请重新从网页发起授权流程。
+        {{ t('identity.device.hint.bind_flow') }}
       </p>
       <p v-if="ui.deviceError" class="identity-device-error">{{ ui.deviceError }}</p>
       <div class="identity-device-actions">
         <button class="mini-btn btn-ripple" :disabled="ui.deviceRefreshing" @click="refreshDeviceStatus">
-          {{ ui.deviceRefreshing ? '刷新中…' : '刷新状态' }}
+          {{ ui.deviceRefreshing ? t('identity.device.action.refreshing') : t('identity.device.action.refresh') }}
         </button>
         <button
           class="mini-btn btn-ripple identity-device-revoke"
           :disabled="!ui.deviceId || ui.revoking"
           @click="openRevokeModal"
         >
-          {{ ui.revoking ? '撤销中…' : '撤销此设备' }}
+          {{ ui.revoking ? t('identity.device.action.revoking') : t('identity.device.action.revoke') }}
         </button>
       </div>
     </section>
@@ -176,43 +187,43 @@ defineExpose({ refreshDeviceStatus })
     <!-- 授权记录：入口引导（完整列表在「我的 → 授权记录」页） -->
     <section class="identity-device-section glass-card">
       <div class="section-head">
-        <h3>授权记录</h3>
+        <h3>{{ t('identity.device.history.title') }}</h3>
       </div>
       <p class="identity-device-hint">
-        本设备批准过的身份授权（哪些应用、何时、授权了哪些权限）可在「我的 → 授权记录」查看。
+        {{ t('identity.device.history.desc') }}
       </p>
     </section>
 
     <!-- 撤销强确认 Modal -->
-    <div v-if="revokeModalVisible" class="identity-revoke-modal" role="dialog" aria-modal="true" aria-label="撤销当前设备">
+    <div v-if="revokeModalVisible" class="identity-revoke-modal" role="dialog" aria-modal="true" :aria-label="t('identity.device.revoke.dialog.aria')">
       <div class="identity-revoke-card modal-pop-card">
-        <h3>撤销当前设备</h3>
+        <h3>{{ t('identity.device.revoke.title') }}</h3>
         <p class="identity-revoke-desc">
-          撤销后，本设备将无法再完成 Mini-HBUT 授权审批；此操作不会影响其他设备（如有）。
+          {{ t('identity.device.revoke.desc.effect') }}
         </p>
         <p class="identity-revoke-desc identity-revoke-desc--strong">
-          如果这是你唯一的设备，撤销后将无法在此设备继续使用身份服务，需要重新通过网页授权流程绑定。
+          {{ t('identity.device.revoke.desc.last_device') }}
         </p>
         <label class="identity-revoke-label">
-          请输入「{{ REVOKE_CONFIRM_PHRASE }}」以确认
+          {{ t('identity.device.revoke.confirm_prompt').replace('{phrase}', revokeConfirmPhrase) }}
           <input
             v-model="revokeConfirmInput"
             class="identity-revoke-input"
             type="text"
-            :placeholder="REVOKE_CONFIRM_PHRASE"
+            :placeholder="revokeConfirmPhrase"
             autocomplete="off"
             spellcheck="false"
             @keydown.esc="closeRevokeModal"
           />
         </label>
         <div class="identity-revoke-actions">
-          <button class="btn-secondary btn-ripple" :disabled="ui.revoking" @click="closeRevokeModal">取消</button>
+          <button class="btn-secondary btn-ripple" :disabled="ui.revoking" @click="closeRevokeModal">{{ t('identity.device.revoke.action.cancel') }}</button>
           <button
             class="btn-danger btn-ripple"
             :disabled="confirmMismatch || ui.revoking"
             @click="revokeCurrentDevice"
           >
-            {{ ui.revoking ? '撤销中…' : '确认撤销' }}
+            {{ ui.revoking ? t('identity.device.action.revoking') : t('identity.device.revoke.action.confirm') }}
           </button>
         </div>
       </div>

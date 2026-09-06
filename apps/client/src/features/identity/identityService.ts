@@ -30,6 +30,9 @@ import {
   identityFetchAuthHistory,
   type IdentityAuthHistoryNativeOutput
 } from '../../platform/native'
+// #795：错误码默认文案经 t() 查 identity.error.* 双语字典（zh 值与迁移前逐字一致）。
+// service 层为纯 TS 模块，取词发生在错误构造时机（事件/异步回调），使用非响应式 t。
+import { t } from '../../utils/app_i18n'
 
 /**
  * 本机设备 ID 的 localStorage key（与 identityStore.ts 的 IDENTITY_DEVICE_ID_KEY 保持一致）。
@@ -158,7 +161,7 @@ const requestJson = async (
       })
       throw createServiceError(
         'network_unavailable',
-        '网络不可用，无法连接身份服务，请稍后重试',
+        t('identity.error.network_unavailable'),
         String((err as Error)?.message || 'identity_core_fetch failed')
       )
     }
@@ -191,7 +194,7 @@ const requestJson = async (
     })
     throw createServiceError(
       'network_unavailable',
-      '网络不可用，无法连接身份服务，请稍后重试',
+      t('identity.error.network_unavailable'),
       String((err as Error)?.message || 'fetch failed')
     )
   } finally {
@@ -266,19 +269,19 @@ const mapStatusFallback = (status: number): IdentityUserSafeErrorCode => {
 }
 
 const DEFAULT_MESSAGES: Record<IdentityUserSafeErrorCode, string> = {
-  request_expired: '应用请求已过期，请从网页重新发起',
-  request_not_found: '请求不存在或已完成',
-  client_unavailable: '应用已被暂停，无法继续授权',
-  invalid_handoff: '接力凭据无效，请从网页重新发起授权',
-  network_unavailable: '网络不可用，无法连接身份服务，请稍后重试',
-  device_not_bound: '当前设备尚未绑定到身份服务',
-  device_revoked: '当前设备已被撤销，无法继续授权',
-  session_revalidation_required: '学校登录需要重新验证，请重新登录后再试',
-  secure_storage_unavailable: '本机安全存储不可用，无法完成授权',
-  signature_rejected: '服务器无法验证签名，请重试或重新发起授权',
-  signing_material_missing: '授权签名材料不完整，请更新 App 后重试',
-  test_account_blocked: '测试账号不能用于正式身份服务',
-  unknown: '授权处理失败，请稍后重试'
+  request_expired: t('identity.error.request_expired'),
+  request_not_found: t('identity.error.request_not_found'),
+  client_unavailable: t('identity.error.client_unavailable'),
+  invalid_handoff: t('identity.error.invalid_handoff'),
+  network_unavailable: t('identity.error.network_unavailable'),
+  device_not_bound: t('identity.error.device_not_bound'),
+  device_revoked: t('identity.error.device_revoked'),
+  session_revalidation_required: t('identity.error.session_revalidation_required'),
+  secure_storage_unavailable: t('identity.error.secure_storage_unavailable'),
+  signature_rejected: t('identity.error.signature_rejected'),
+  signing_material_missing: t('identity.error.signing_material_missing'),
+  test_account_blocked: t('identity.error.test_account_blocked'),
+  unknown: t('identity.error.unknown')
 }
 
 /** 构造带用户可读文案的业务错误（内部 code 可作脱敏日志） */
@@ -343,7 +346,7 @@ export const fetchRequestDetail = async (input: {
     }
     const detail = data as IdentityRequestDetail
     if (!detail || typeof detail !== 'object' || !detail.request_id || !detail.client) {
-      throw createServiceError('unknown', '身份服务返回了无效数据', 'fetchRequestDetail malformed payload')
+      throw createServiceError('unknown', t('identity.error.invalid_data'), 'fetchRequestDetail malformed payload')
     }
     reportIdentityDiag('detail_ok', { requestId: detail.request_id, client: detail.client?.name })
     return {
@@ -402,7 +405,7 @@ export const fetchEnrollmentChallenge = async (input: {
   }
   const challenge = (data as { challenge?: unknown })?.challenge
   if (typeof challenge !== 'string' || !challenge) {
-    throw createServiceError('device_not_bound', '设备绑定失败，请重试', 'enrollment challenge malformed')
+    throw createServiceError('device_not_bound', t('identity.error.enroll_failed'), 'enrollment challenge malformed')
   }
   return {
     challenge,
@@ -491,10 +494,10 @@ export const fetchAuthHistory = async (): Promise<IdentityAuthHistoryItem[]> => 
     ? (localStorage.getItem(IDENTITY_DEVICE_ID_KEY) || '').trim()
     : ''
   if (!deviceId) {
-    throw createServiceError('device_not_bound', '本机尚未注册为身份签名设备，请先在设置中完成设备注册')
+    throw createServiceError('device_not_bound', t('identity.error.device_not_enrolled'))
   }
   if (!isTauriRuntime()) {
-    throw createServiceError('device_not_bound', '授权记录仅支持在桌面端查看')
+    throw createServiceError('device_not_bound', t('identity.error.desktop_only'))
   }
   let output: IdentityAuthHistoryNativeOutput
   try {
@@ -509,7 +512,7 @@ export const fetchAuthHistory = async (): Promise<IdentityAuthHistoryItem[]> => 
     })
     throw createServiceError(
       'network_unavailable',
-      '无法连接身份服务，请检查网络后重试',
+      t('identity.error.connect_failed'),
       String((err as Error)?.message || 'fetchAuthHistory failed')
     )
   }

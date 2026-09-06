@@ -31,6 +31,12 @@ vi.mock('../../utils/toast', () => ({
 
 import { fetchAuthHistory } from './identityService'
 import { showToast } from '../../utils/toast'
+// #795：视图文案 t() 化，剥壳执行 setup 时需注入真实 useI18n（默认 locale zh-CN）
+import { useI18n } from '../../utils/app_i18n'
+import { messages as i18nMessages } from '../../utils/app_i18n'
+
+/** 读取 zh-CN 字典值（node 测试环境默认 locale 为 zh-CN） */
+const zh = (key: string): string => i18nMessages['zh-CN'][key]
 
 // ─── SFC 编译基建：把 <script setup> 编译为可执行的 setup 函数体 ─────────────
 
@@ -100,6 +106,7 @@ const setupView = (): ViewCtx => {
     '__identityService__',
     '__types__',
     '__toast__',
+    '__i18n__',
     '__emit__',
     'const { computed, ref } = __vue__;\n' +
       'const onMounted = (hook) => { __onMountedHooks__.push(hook) };\n' +
@@ -107,6 +114,7 @@ const setupView = (): ViewCtx => {
       'const { fetchAuthHistory } = __identityService__;\n' +
       'const { IdentityServiceError } = __types__;\n' +
       'const { showToast } = __toast__;\n' +
+      'const { useI18n } = __i18n__;\n' +
       `${body}\nreturn __returned__;`
   )
   const result = factory(
@@ -116,6 +124,7 @@ const setupView = (): ViewCtx => {
     { fetchAuthHistory },
     { IdentityServiceError },
     { showToast },
+    { useI18n },
     () => {}
   )
   // reactive 包裹让测试读取 .value 解包后的最新状态（模拟模板读取行为）
@@ -170,11 +179,15 @@ describe('#775 授权记录视图源码契约', () => {
     const source = viewSource()
     expect(source).toContain("type LoadState = 'loading' | 'ready' | 'error' | 'no_device'")
     expect(source).toContain("loadState === 'no_device'")
-    expect(source).toContain('本机尚未注册为身份签名设备')
+    // #795：文案 t() 化，源码断言 key 存在 + 字典 zh 值锁定
+    expect(source).toContain("t('identity.history.no_device.title')")
+    expect(zh('identity.history.no_device.title')).toBe('本机尚未注册为身份签名设备')
     expect(source).toContain("loadState === 'error'")
     expect(source).toContain('history-retry-btn')
-    expect(source).toContain('>重试</button>')
-    expect(source).toContain('还没有授权记录')
+    expect(source).toContain("{{ t('identity.history.error.retry') }}")
+    expect(zh('identity.history.error.retry')).toBe('重试')
+    expect(source).toContain("t('identity.history.empty')")
+    expect(zh('identity.history.empty')).toContain('还没有授权记录')
   })
 
   it('device_not_bound 精确映射 no_device，其余错误映射 error（分支契约）', () => {
@@ -220,7 +233,7 @@ describe('#775 授权记录视图数据流', () => {
     // 统计派生值（模板渲染数据源）：总次数 / 去重应用数
     expect(ctx.totalCount).toBe(2)
     expect(ctx.appCount).toBe(2)
-    // 相对时间已格式化（2 分钟前 → "2 分钟前"）
+    // 相对时间已格式化（2 分钟前 → "2 分钟前"；#795 t() 化后 zh 字典值不变）
     expect(ctx.lastTime).toBe('2 分钟前')
     // 渲染契约：应用名来自 sanitized 数据；scope 标签与 sensitive 高亮分支存在
     const source = viewSource()
@@ -228,7 +241,8 @@ describe('#775 授权记录视图数据流', () => {
     expect(source).toContain('v-for="scope in item.scopes"')
     expect(source).toContain("scope.risk === 'sensitive'")
     expect(source).toContain('formatRelativeTime(item.approved_at)')
-    expect(source).toContain('授权次数')
+    expect(source).toContain("t('identity.history.stat.total')")
+    expect(zh('identity.history.stat.total')).toBe('授权次数')
   })
 
   it('空数组 → ready 空态（items 为空，模板走 TEmptyState 分支）', async () => {
@@ -275,6 +289,8 @@ describe('#775 授权记录视图数据流', () => {
     const ctx = setupView()
     await flushAsync()
     expect(ctx.loadState).toBe('error')
+    // #795：兜底文案 t('identity.history.fallback.load_failed')，zh 字典值与 common.empty.error 一致
+    expect(ctx.errorMessage).toBe(zh('identity.history.fallback.load_failed'))
     expect(ctx.errorMessage).toBe('加载失败，请稍后重试')
   })
 
@@ -282,11 +298,12 @@ describe('#775 授权记录视图数据流', () => {
     vi.mocked(fetchAuthHistory).mockResolvedValue([makeItem('ar_test_0004', '刷新应用')])
     const ctx = setupView()
     await flushAsync()
-    // 刷新成功后提示「授权记录已刷新」
+    // 刷新成功后提示「授权记录已刷新」（#795：视图内经 t() 取词，zh 字典值不变）
     await ctx.handleRefresh()
     await flushAsync()
     expect(vi.mocked(fetchAuthHistory)).toHaveBeenCalledTimes(2)
-    expect(showToast).toHaveBeenCalledWith('授权记录已刷新')
+    expect(showToast).toHaveBeenCalledWith(zh('identity.history.toast.refreshed'))
+    expect(zh('identity.history.toast.refreshed')).toBe('授权记录已刷新')
   })
 
   it('刷新期间 loading 门闩存在：UI 禁用 + handleRefresh 不吞错误状态', async () => {

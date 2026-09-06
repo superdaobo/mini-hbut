@@ -65,7 +65,16 @@ const I18N_MIGRATED_FILES: string[] = [
   'components/ElectricityView.vue',
   'components/BroadbandView.vue',
   'components/CampusNetworkView.vue',
-  'components/CampusCodeView.vue'
+  'components/CampusCodeView.vue',
+  'features/identity/components/IdentityApprovalOverlay.vue',
+  'features/identity/components/IdentityDeviceSettings.vue',
+  'features/identity/components/IdentityClientCard.vue',
+  'features/identity/components/IdentityScopeList.vue',
+  'features/identity/components/IdentityResultState.vue',
+  'features/identity/views/IdentityAuthHistoryView.vue',
+  'features/identity/qr/IdentityQrLoginEntry.vue',
+  'features/identity/qr/IdentityQrScanner.vue',
+  'features/identity/identityService.ts'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */

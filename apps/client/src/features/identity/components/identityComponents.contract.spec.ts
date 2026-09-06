@@ -18,6 +18,11 @@ import {
   NON_OFFICIAL_NOTICE,
   SENSITIVE_SCOPE_NOTICE
 } from '../identityScopes'
+// #795：组件文案 t() 化后，源码契约断言改为「key 存在性 + 字典 zh 值」双保险
+import { messages } from '../../../utils/app_i18n'
+
+/** 读取 zh-CN 字典值（node 测试环境默认 locale 为 zh-CN） */
+const zh = (key: string): string => messages['zh-CN'][key]
 
 const overlaySource = () => readVueContractSource('src/features/identity/components/IdentityApprovalOverlay.vue')
 const scopeListSource = () => readVueContractSource('src/features/identity/components/IdentityScopeList.vue')
@@ -31,11 +36,15 @@ describe('#623 Component 契约：应用信息与权限展示', () => {
     // 应用名与域名都绑定展示
     expect(source).toContain('client.name')
     expect(source).toContain('client.homepage_host')
-    expect(source).toContain('未知应用') // 无 name 时兜底
+    // 无 name 时兜底（#795：文案 t() 化，key + 字典值双断言）
+    expect(source).toContain("t('identity.client.unknown_name')")
+    expect(zh('identity.client.unknown_name')).toBe('未知应用')
     // 开发者显示名 + 审核状态
     expect(source).toContain('client.developer_display_name')
-    expect(source).toContain('已审核')
-    expect(source).toContain('未审核')
+    expect(source).toContain("t('identity.client.review.verified')")
+    expect(source).toContain("t('identity.client.review.unreviewed')")
+    expect(zh('identity.client.review.verified')).toBe('已审核')
+    expect(zh('identity.client.review.unreviewed')).toBe('未审核')
     // 展示资料全部来自 Core sanitized DTO，不信任深链字段
     const overlay = overlaySource()
     expect(overlay).toContain('ui.requestDetail')
@@ -50,14 +59,17 @@ describe('#623 Component 契约：应用信息与权限展示', () => {
     const source = scopeListSource()
     expect(source).toContain('scope.id')
     expect(source).toContain('scope.label')
-    expect(source).toContain('基础权限')
-    expect(source).toContain('敏感权限')
+    expect(source).toContain("t('identity.scope.group.basic')")
+    expect(source).toContain("t('identity.scope.group.sensitive')")
+    expect(zh('identity.scope.group.basic')).toBe('基础权限')
+    expect(zh('identity.scope.group.sensitive')).toBe('敏感权限')
   })
 
   it('student.identity 明确「Mini-HBUT 本地验证」，不显示官方认证字样', () => {
     const source = overlaySource()
-    // 当前身份区：学校身份验证方式明确为 Mini-HBUT 本地验证
-    expect(source).toContain('学校身份验证方式：Mini-HBUT 本地验证')
+    // 当前身份区：学校身份验证方式明确为 Mini-HBUT 本地验证（#795：key + 字典值双断言）
+    expect(source).toContain("t('identity.overlay.current.meta_method')")
+    expect(zh('identity.overlay.current.meta_method')).toBe('学校身份验证方式：Mini-HBUT 本地验证')
     // 非官方声明（#617 信任边界）：由 IdentityScopeList 插值 identityScopes 常量
     const scopeList = scopeListSource()
     expect(scopeList).toContain('NON_OFFICIAL_NOTICE')
@@ -70,7 +82,8 @@ describe('#623 Component 契约：应用信息与权限展示', () => {
   it('敏感 scope：图标 + 边框 + 文字三重标识（不只依赖颜色）', () => {
     const source = scopeListSource()
     // 文字标识：aria-label + 非恐吓式提示文案（组件插值常量）
-    expect(source).toContain('aria-label="敏感权限"')
+    expect(source).toContain('aria-label') // #795：aria-label 绑定 t('identity.scope.group.sensitive')
+    expect(source).toContain("t('identity.scope.group.sensitive')")
     expect(source).toContain('SENSITIVE_SCOPE_NOTICE')
     expect(SENSITIVE_SCOPE_NOTICE).toContain('在线验证你的学校登录状态')
     // 视觉标识：敏感分组 class + 图标（颜色之外的冗余通道）
@@ -83,11 +96,17 @@ describe('#623 Component 契约：应用信息与权限展示', () => {
 
   it('approved/denied/cancelled/expired/error 五种结果状态', () => {
     const source = resultSource()
-    expect(source).toContain('已允许登录')
-    expect(source).toContain('已拒绝授权')
-    expect(source).toContain('已取消授权')
-    expect(source).toContain('请求已过期')
-    expect(source).toContain('授权失败')
+    // #795：文案 t() 化，源码断言五个结果态 key 存在 + 字典 zh 值锁定
+    expect(source).toContain("t('identity.result.approved.title')")
+    expect(source).toContain("t('identity.result.denied.title')")
+    expect(source).toContain("t('identity.result.cancelled.title')")
+    expect(source).toContain("t('identity.result.expired.title')")
+    expect(source).toContain("t('identity.result.error.title')")
+    expect(zh('identity.result.approved.title')).toBe('已允许登录')
+    expect(zh('identity.result.denied.title')).toBe('已拒绝授权')
+    expect(zh('identity.result.cancelled.title')).toBe('已取消授权')
+    expect(zh('identity.result.expired.title')).toBe('请求已过期')
+    expect(zh('identity.result.error.title')).toBe('授权失败')
     // 终态不泄露内部错误细节：结果页不渲染 errorCode/internalDetail/脱敏日志
     expect(source).not.toContain('errorCode')
     expect(source).not.toContain('internalDetail')
@@ -108,8 +127,9 @@ describe('#623 Component 契约：应用信息与权限展示', () => {
     expect(source).toContain('focusCard')
     // 动作进行中禁用按钮（防重复点击/悬空）
     expect(source).toContain(':disabled="busy"')
-    // 关闭按钮 = 取消此次授权（不是隐藏 Overlay）
-    expect(source).toContain('aria-label="取消此次授权"')
+    // 关闭按钮 = 取消此次授权（不是隐藏 Overlay；#795：aria-label 绑定 t key）
+    expect(source).toContain("t('identity.overlay.close.aria')")
+    expect(zh('identity.overlay.close.aria')).toBe('取消此次授权')
     // 强制遮罩优先级：force update / blocking announcement 可见时本 Overlay 隐藏
     expect(source).toContain('forceUpdateVisible')
     expect(source).toContain('blockingAnnouncementVisible')
@@ -117,14 +137,19 @@ describe('#623 Component 契约：应用信息与权限展示', () => {
 
   it('设备安全设置：撤销强确认 Modal + 恢复说明 + 授权记录 V1.1 预留', () => {
     const source = deviceSource()
-    expect(source).toContain('撤销此设备')
-    expect(source).toContain('REVOKE_CONFIRM_PHRASE')
-    expect(source).toContain('输入「')
-    // 最后设备/恢复说明
-    expect(source).toContain('唯一的设备')
-    expect(source).toContain('重新通过网页授权流程绑定')
+    // #795：文案 t() 化，源码断言 key 存在 + 字典 zh 值锁定
+    expect(source).toContain("t('identity.device.action.revoke')")
+    expect(zh('identity.device.action.revoke')).toBe('撤销此设备')
+    expect(source).toContain('revokeConfirmPhrase')
+    expect(source).toContain("t('identity.device.revoke.confirm_prompt')")
+    expect(zh('identity.device.revoke.confirm_prompt')).toBe('请输入「{phrase}」以确认')
+    // 最后设备/恢复说明（安全语义不得弱化）
+    expect(zh('identity.device.revoke.desc.last_device')).toContain('唯一的设备')
+    expect(zh('identity.device.revoke.desc.last_device')).toContain('重新通过网页授权流程绑定')
+    expect(source).toContain("t('identity.device.revoke.desc.last_device')")
     // 授权记录 V1.1 预留入口
-    expect(source).toContain('授权记录')
+    expect(source).toContain("t('identity.device.history.title')")
+    expect(zh('identity.device.history.title')).toBe('授权记录')
     expect(source).toContain('V1.1')
   })
 })
