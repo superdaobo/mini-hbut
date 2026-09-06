@@ -1,13 +1,30 @@
 /**
  * 课表领域常量：周次、节次、时间表、主题配色、样式选项。
  * 原内联于 ScheduleView.vue，拆分后统一收敛至此。
+ *
+ * #788 i18n：含文案的常量改为 getter 函数（内部经 t() 取词），
+ * 保证语言切换后取词即时生效；调用方每次渲染/调用时重新调用 getter 即可。
+ * 时间表/主题配色等纯数据常量不受语言影响，保持原样导出。
  */
 
-/** 一周七天标签（含序号前缀，用于日期头展示） */
-export const weekDays = ['1 周一', '2 周二', '3 周三', '4 周四', '5 周五', '6 周六', '7 周日']
+import { t } from '../../utils/app_i18n'
 
-/** 一周七天短标签 */
-export const weekDayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+/**
+ * 一周七天标签（含序号前缀，用于日期头展示）。
+ * #788：由常量改为函数——weekDates 在 computed 中逐次调用，
+ * 语言切换重渲染时自然取到新语言标签。
+ */
+export const getWeekDays = (): string[] =>
+  [1, 2, 3, 4, 5, 6, 7].map((i) => t(`schedule.weekdayLong.${i}`))
+
+/**
+ * 一周七天短标签（周一..周日 / Mon..Sun）。
+ * #788：由常量 weekDayLabels 改为函数。使用点（ScheduleAddCourseDialog /
+ * ScheduleManageCoursesDialog / useScheduleEditor 确认行）均在 computed 或
+ * 事件回调中取值，改为函数后语义不变、随语言切换生效。
+ */
+export const getWeekDayLabels = (): string[] =>
+  [1, 2, 3, 4, 5, 6, 7].map((i) => t(`schedule.weekday.${i}`))
 
 /** 每日最大节次数 */
 export const MAX_PERIOD = 11
@@ -15,11 +32,14 @@ export const MAX_PERIOD = 11
 /** 可选节次 1..11 */
 export const periodOptions = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
 
-/** 课表卡片样式选项（抽屉「课程样式」） */
-export const courseCardStyleOptions = [
-  { key: 'modern', label: '现代' },
-  { key: 'traditional', label: '传统' },
-  { key: 'class', label: '标准' }
+/**
+ * 课表卡片样式选项（抽屉「课程样式」）。
+ * #788：label 经 t() 取词（schedule.style.*），key 为持久化标识不翻译。
+ */
+export const getCourseCardStyleOptions = (): { key: string; label: string }[] => [
+  { key: 'modern', label: t('schedule.style.modern') },
+  { key: 'traditional', label: t('schedule.style.traditional') },
+  { key: 'class', label: t('schedule.style.class') }
 ]
 
 /** 节次时间表（第 1-11 节起止时间） */

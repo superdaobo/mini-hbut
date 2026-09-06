@@ -8,7 +8,8 @@ import { computed, ref, watch } from 'vue'
 import { flushUiSettings, useUiSettings } from '../../../utils/ui_settings'
 import { pushDebugLog } from '../../../utils/debug_logger'
 import { showToast } from '../../../utils/toast'
-import { courseCardStyleOptions } from '../constants'
+import { t } from '../../../utils/app_i18n'
+import { getCourseCardStyleOptions } from '../constants'
 import { normalizeCourseCardStyle } from '../utils/weeks'
 
 export const useScheduleMenu = () => {
@@ -19,13 +20,14 @@ export const useScheduleMenu = () => {
   const courseCardRefreshNonce = ref(0)
 
   // 与外部保持一致的课程样式枚举（供模板使用）
-  const styleOptions = courseCardStyleOptions
+  // #788：label 随语言变化，改为每次调用 getter 取最新词
+  const styleOptions = computed(() => getCourseCardStyleOptions())
 
   watch(
     () => uiSettings.scheduleCourseCardStyle,
     (value) => {
       scheduleCourseCardStyle.value = normalizeCourseCardStyle(value)
-      pushDebugLog('Schedule', `课表样式状态同步：${scheduleCourseCardStyle.value}`, 'debug')
+      pushDebugLog('Schedule', `Schedule style state synced: ${scheduleCourseCardStyle.value}`, 'debug')
     },
     { immediate: true }
   )
@@ -41,24 +43,25 @@ export const useScheduleMenu = () => {
     courseCardRefreshNonce.value += 1
     uiSettings.scheduleCourseCardStyle = nextStyle
     flushUiSettings()
-    pushDebugLog('Schedule', `切换课表样式：${nextStyle}`, 'info')
+    pushDebugLog('Schedule', `Schedule style switched: ${nextStyle}`, 'info')
     try {
       const snapshot = JSON.parse(localStorage.getItem('hbu_ui_settings_v2') || '{}')
       pushDebugLog(
         'Schedule',
-        `课表样式已写入本地缓存：${String(snapshot?.scheduleCourseCardStyle || '') || 'unknown'}`,
+        `Schedule style persisted to local cache: ${String(snapshot?.scheduleCourseCardStyle || '') || 'unknown'}`,
         'debug'
       )
     } catch (error) {
-      pushDebugLog('Schedule', '读取课表样式缓存失败', 'warn', error)
+      pushDebugLog('Schedule', 'Failed to read schedule style cache', 'warn', error)
     }
     // 组件卸载期 flush 会丢失样式；热刷新交给 courseCardRefreshNonce
+    // #788：toast 文案经 t() 取词（事件回调内取词时机天然正确）
     const styleLabelMap: Record<string, string> = {
-      modern: '现代',
-      traditional: '传统',
-      class: '标准'
+      modern: t('schedule.menu.styleModern'),
+      traditional: t('schedule.menu.styleTraditional'),
+      class: t('schedule.menu.styleClass')
     }
-    showToast(`已切换为${styleLabelMap[nextStyle] || '现代'}样式`, 'success')
+    showToast(t('schedule.menu.styleToast').replace('{t}', styleLabelMap[nextStyle] || t('schedule.menu.styleModern')), 'success')
   }
 
   /** 抽屉关闭时重置导出复制态由入口监听（依赖导出状态），此处仅暴露状态 */
