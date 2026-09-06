@@ -311,6 +311,7 @@ $commit = if ($env:GITHUB_SHA) { $env:GITHUB_SHA } else { (git -C $RepoRoot rev-
 $workRoot = if ($env:RUNNER_TEMP) { Join-Path $env:RUNNER_TEMP 'hbut-installer-regression' } else { Join-Path ([IO.Path]::GetTempPath()) 'hbut-installer-regression' }
 $nsisInstallDir = Join-Path $workRoot 'nsis-install'
 $msiInstallDir = Join-Path $workRoot 'msi-install'
+$msiInstallDirResolved = ''  # MSI 真实安装目录（安装后从注册表解析）；finally 清理也引用
 
 # 用户数据目录隔离：测试前若已存在则改名备份 .bak-ci
 $appDataDir = Join-Path $env:APPDATA $script:BundleId
@@ -532,7 +533,6 @@ try {
 
     # 从注册表定位真实安装目录：优先 HKCU\Software\hbut\Mini-HBUT 的 InstallDir
     # （模板 RegistryEntries 组件写入），回退 ARP 项 InstallLocation。
-    $msiInstallDirResolved = ''
     $registryInstallDir = 'HKCU:\Software\hbut\Mini-HBUT'
     if (Test-Path $registryInstallDir) {
       $v = (Get-ItemProperty $registryInstallDir -ErrorAction SilentlyContinue).PSObject.Properties['InstallDir']
