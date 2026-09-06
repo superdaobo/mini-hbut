@@ -52,7 +52,8 @@ function Write-Step([string]$Message) {
 
 function Read-FrozenVersion {
   # 冻结版本以 scripts/verify_release_config.mjs 的 expected 为唯一真源（1.4.8）
-  $verifyScript = Join-Path (Join-Path $RepoRoot '..') 'scripts/verify_release_config.mjs'
+  # 注意：RepoRoot 是 apps/client（仅一层 apps），到仓库根需上两级（../..）。
+  $verifyScript = Join-Path (Join-Path $RepoRoot '..') (Join-Path '..' 'scripts/verify_release_config.mjs')
   if (-not (Test-Path $verifyScript -PathType Leaf)) { throw "Frozen version source not found: $verifyScript" }
   $match = [regex]::Match((Get-Content $verifyScript -Raw), "const\s+expected\s*=\s*'([^']+)'")
   if (-not $match.Success) { throw 'Frozen version constant not found in verify_release_config.mjs' }
