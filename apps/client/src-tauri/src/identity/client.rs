@@ -150,6 +150,8 @@ impl IdentityApiClient {
 }
 
 /// 解析 Core 错误响应（error.message 或 error 字符串），已脱敏，不回显敏感材料。
+/// #776：auth-history 链路的调用方会把 Api{status} 的状态码透传给前端按状态码分类，
+/// 其他端点（enroll/revoke）继续整体上抛 Api 错误，行为不变。
 fn parse_api_error(status: u16, text: &str) -> IdentityError {
     let parsed = serde_json::from_str::<serde_json::Value>(text).ok();
     let message = parsed

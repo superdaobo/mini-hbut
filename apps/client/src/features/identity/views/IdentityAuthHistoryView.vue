@@ -53,6 +53,26 @@ const appCount = computed(() => new Set(items.value.map((i) => i.client.name)).s
 /** 最近授权时间 */
 const lastTime = computed(() => (items.value[0] ? formatRelativeTime(items.value[0].approved_at) : '—'))
 
+/** #777/#776：错误码 → 错误态下一步指引（无指引返回空字符串） */
+const errorHintFor = (code: string): string => {
+  switch (code) {
+    case 'secure_storage_unavailable':
+      return '这通常是系统凭据存储暂时不可用。可尝试完全退出并重启本应用后重试；若持续出现，请通过「设置 → 关于」反馈版本号。'
+    case 'device_revoked':
+      return '本机设备身份已被撤销。请在「设置 → 登录与安全」重新完成设备注册后再查看授权记录。'
+    case 'signature_rejected':
+      return '签名校验未通过，可点击重试；若持续失败，请重新完成设备注册。'
+    case 'network_unavailable':
+      return '请检查网络连接后点击重试。'
+    case 'client_unavailable':
+      return '发起授权的应用已被暂停，历史记录暂时无法查看。'
+    case 'unknown':
+      return '身份服务暂时不可用，请稍后重试。'
+    default:
+      return ''
+  }
+}
+
 const load = async () => {
   loading.value = true
   loadState.value = 'loading'
@@ -68,9 +88,9 @@ const load = async () => {
     } else {
       loadState.value = 'error'
       errorMessage.value = err instanceof IdentityServiceError ? err.message : '加载失败，请稍后重试'
-      // #777：安全存储不可用给出专属指引（fail closed，重启应用可能恢复临时性故障）
-      if (err instanceof IdentityServiceError && err.code === 'secure_storage_unavailable') {
-        errorHint.value = '这通常是系统凭据存储暂时不可用。可尝试完全退出并重启本应用后重试；若持续出现，请通过「设置 → 关于」反馈版本号。'
+      // #776：按错误码给出「下一步指引」，而非统一「加载失败」
+      if (err instanceof IdentityServiceError) {
+        errorHint.value = errorHintFor(err.code)
       }
     }
   } finally {
