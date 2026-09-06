@@ -180,6 +180,27 @@ describe('P0 multi-module contracts', () => {
     expect(docs).toContain('ensure_http_bridge')
   })
 
+  it('iOS CI injects bridge feature via the only effective channel: tauri-cli-options-server (#778)', () => {
+    // #778 回归根因：xcodebuild → tauri-cli xcode-script 的 cargo features 唯一来源是
+    // tools/ci/tauri-cli-options-server.cjs；CARGO_BUILD_FEATURES 非 Cargo 变量、
+    // tauri.conf.json build.features 只影响 tauri build 路径。任何一处漏掉 bridge
+    // 都会让 iOS Release 包整体裁掉 http_server（v1.4.7-v1.4.9 小游戏白屏/官网降级）。
+    const optionsServer = read('../../tools/ci/tauri-cli-options-server.cjs')
+    expect(optionsServer).toContain("'mobile-slim'")
+    expect(optionsServer).toContain("'bridge'")
+    // args 与 features 必须同集（防一处改一处漏）
+    expect(optionsServer).toContain('custom-protocol,mobile-slim,bridge')
+
+    // workflow 中两处文档化注入点保持同集（防未来有人只改其一）
+    const workflow = read('../../.github/workflows/ios-testflight.yml')
+    expect(workflow).toContain('CARGO_BUILD_FEATURES: "mobile-slim,bridge"')
+    expect(workflow).toContain("conf.build.features = ['mobile-slim', 'bridge']")
+
+    // bridge feature 必须仍挂在 http_server 模块门控上（裁剪机制本身不能被移除检测）
+    const lib = read('src-tauri/src/lib.rs')
+    expect(lib).toMatch(/\#\[cfg\(feature = "bridge"\)\]\s*\npub mod http_server;/)
+  })
+
   it('wires ensure-then-remount embed resume path (#453)', () => {
     const app = appSources()
     const embed = read('src/utils/school_website_embed.ts')
