@@ -21,9 +21,12 @@
 [CmdletBinding()]
 param(
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path,
-  [string]$NsisInstaller = '',
-  [string]$MsiInstaller = '',
-  [string]$EvidenceRoot = 'dist-dry-run',
+  # 安装包路径优先从环境变量读取（CI 内联 pwsh 的参数传递行为不稳定，
+  # 实测会把 '-NsisInstaller\-MsiInstaller' 字面值绑进参数——见 #797 修复记录），
+  # 环境变量不存在时回退到显式命名参数（本地调试用）。
+  [string]$NsisInstaller = $env:NSIS_INSTALLER_PATH,
+  [string]$MsiInstaller = $env:MSI_INSTALLER_PATH,
+  [string]$EvidenceRoot = $env:INSTALLER_EVIDENCE_ROOT ?? 'dist-dry-run',
   [string]$BaselineUrl = '',
   [string]$BaselineVersion = '',
   [int]$InstallerTimeoutSeconds = 300

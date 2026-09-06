@@ -128,21 +128,31 @@ jobs:
         working-directory: apps/client
         run: ./scripts/ci/windows_release_smoke.ps1
 
+      - name: Resolve installer artifact paths (#797)
+        id: resolve-installer-paths
+        shell: pwsh
+        working-directory: apps/client
+        run: |
+          $nsis = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          if (-not $nsis) { throw "NSIS installer not found in bundle/nsis" }
+          "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
+          if ($msi) { "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT }
+          Write-Host "[installer-regression] nsis=$($nsis.FullName)"
+          Write-Host "[installer-regression] msi=$(if ($msi) { $msi.FullName } else { '<none>' })"
+
       - name: Run installer regression suite (#797)
         shell: pwsh
         working-directory: apps/client
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          $nsis = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-          # 注意：$args 是 PowerShell 自动变量，内联脚本里给它赋值会被引擎重置，
-          # 导致 splatting 变成空参数（CI 实证：-NsisInstaller/-MsiInstaller 丢失）。
-          # 必须使用自定义变量名 + 显式 splatting。
-          $regArgs = @()
-          if ($nsis) { $regArgs += @('-NsisInstaller', $nsis.FullName) }
-          if ($msi) { $regArgs += @('-MsiInstaller', $msi.FullName) }
-          ./scripts/ci/windows_installer_regression.ps1 @regArgs
+          # 安装包路径一律走环境变量传递：CI 实证内联 pwsh 的
+          # splatting/命名参数绑定不稳定（会把 '-NsisInstaller\-MsiInstaller'
+          # 字面值绑进参数），param 默认值从 env 读取后此通道被彻底绕开。
+          NSIS_INSTALLER_PATH: ${{ steps.resolve-installer-paths.outputs.nsis_path }}
+          MSI_INSTALLER_PATH: ${{ steps.resolve-installer-paths.outputs.msi_path }}
+          INSTALLER_EVIDENCE_ROOT: dist-dry-run
+        run: ./scripts/ci/windows_installer_regression.ps1
 
       - name: Report packaged size
         shell: pwsh
