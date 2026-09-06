@@ -3,10 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 import { TPageHeader } from './templates'
 import { showToast } from '../utils/toast'
 import { loadRememberedCredential, buildCampusAccountKey } from '../utils/credential_storage'
+import { tf, useI18n } from '../utils/app_i18n'
 import {
   CAMPUS_CARRIER_OPTIONS,
   HBUT_CAMPUS_GATEWAYS,
-  campusStatusLabel,
+  campusCarrierHintKey,
+  campusCarrierLabelKey,
+  campusStatusLabelKey,
   readCampusNetworkSettings,
   writeCampusNetworkSettings
 } from '../utils/campus_network_settings'
@@ -28,20 +31,36 @@ const loggingIn = ref(false)
 const probeMessage = ref('')
 const status = ref(settings.value.last_status || 'unknown')
 
+// #791：响应式 t —— 语言切换后模板即时生效
+const { t: tLocale } = useI18n()
+
+// 预置网关列表（IP 地址无语言差异，仅拼接「预置：」前缀随语言变化）
+const gatewayPresetText = computed(() =>
+  tf('campusnet.advanced.gatewayPreset', { gateways: HBUT_CAMPUS_GATEWAYS.join('、') })
+)
+
 const statusText = computed(() => {
-  if (probing.value) return '检测中…'
-  const base = campusStatusLabel(status.value)
+  if (probing.value) return tLocale('campusnet.status.checking')
+  const base = tLocale(campusStatusLabelKey(status.value))
   if (status.value === 'error' || status.value === 'needs_auth') {
     const msg = probeMessage.value || settings.value.last_message
-    return msg ? `${base}：${msg}` : base
+    return msg ? `${base}${tLocale('campusnet.status.separator')}${msg}` : base
   }
   return probeMessage.value || base
 })
 
+const carrierOptions = computed(() =>
+  CAMPUS_CARRIER_OPTIONS.map((item) => ({
+    ...item,
+    label: tLocale(campusCarrierLabelKey(item.id)),
+    hint: tLocale(campusCarrierHintKey(item.id))
+  }))
+)
+
 const refreshProbe = async () => {
   if (!isTauriRuntime()) {
     status.value = 'unknown'
-    probeMessage.value = '请在桌面/移动端应用中使用校园网认证'
+    probeMessage.value = t('campusnet.status.probeHint')
     return
   }
   probing.value = true
@@ -83,11 +102,11 @@ const handleGatewayInput = (event) => {
 const handleLogin = async () => {
   const sid = String(account.value || props.studentId || localStorage.getItem('hbu_username') || '').trim()
   if (!sid) {
-    showToast('请填写学号', 'error')
+    showToast(t('campusnet.login.errorNoStudentId'), 'error')
     return
   }
   if (!password.value) {
-    showToast('请填写密码', 'error')
+    showToast(t('campusnet.login.errorNoPassword'), 'error')
     return
   }
 
@@ -127,16 +146,16 @@ onMounted(async () => {
 
 <template>
   <div class="campus-network-view">
-    <TPageHeader title="校园网" icon="wifi" @back="emit('back')" />
+    <TPageHeader :title="tLocale('campusnet.title')" icon="wifi" @back="emit('back')" />
 
     <section class="glass-card status-card">
       <div class="status-row">
         <span class="material-symbols-outlined status-icon">router</span>
         <div class="status-copy">
-          <span class="status-label">连接状态</span>
+          <span class="status-label">{{ tLocale('campusnet.status.label') }}</span>
           <span class="status-value">{{ statusText }}</span>
         </div>
-        <button class="icon-btn" type="button" :disabled="probing" @click="refreshProbe" aria-label="重新检测">
+        <button class="icon-btn" type="button" :disabled="probing" @click="refreshProbe" :aria-label="tLocale('campusnet.status.refreshAria')">
           <span class="material-symbols-outlined" :class="{ spin: probing }">refresh</span>
         </button>
       </div>
@@ -144,20 +163,20 @@ onMounted(async () => {
 
     <section class="glass-card form-card">
       <label class="field">
-        <span>学号</span>
-        <input v-model="account" type="text" inputmode="numeric" autocomplete="username" placeholder="默认读取已保存学号" />
+        <span>{{ tLocale('campusnet.form.studentId') }}</span>
+        <input v-model="account" type="text" inputmode="numeric" autocomplete="username" :placeholder="tLocale('campusnet.form.studentIdPlaceholder')" />
       </label>
 
       <label class="field">
-        <span>密码</span>
+        <span>{{ tLocale('campusnet.form.password') }}</span>
         <div class="password-row">
           <input
             v-model="password"
             :type="showPassword ? 'text' : 'password'"
             autocomplete="current-password"
-            placeholder="校园网密码"
+            :placeholder="tLocale('campusnet.form.passwordPlaceholder')"
           />
-          <button class="icon-btn" type="button" @click="showPassword = !showPassword" aria-label="显示密码">
+          <button class="icon-btn" type="button" @click="showPassword = !showPassword" :aria-label="tLocale('campusnet.form.showPasswordAria')">
             <span class="material-symbols-outlined">{{ showPassword ? 'visibility_off' : 'visibility' }}</span>
           </button>
         </div>
@@ -165,8 +184,8 @@ onMounted(async () => {
 
       <div class="toggle-row">
         <div>
-          <strong>记住密码</strong>
-          <small>保存到系统密钥环（campus: 前缀）</small>
+          <strong>{{ tLocale('campusnet.remember.title') }}</strong>
+          <small>{{ tLocale('campusnet.remember.desc') }}</small>
         </div>
         <button
           class="toggle"
@@ -179,10 +198,10 @@ onMounted(async () => {
       </div>
 
       <div class="option-group">
-        <label>运营商</label>
+        <label>{{ tLocale('campusnet.carrier.label') }}</label>
         <div class="chip-row">
           <button
-            v-for="item in CAMPUS_CARRIER_OPTIONS"
+            v-for="item in carrierOptions"
             :key="item.id"
             type="button"
             class="option-chip"
@@ -197,8 +216,8 @@ onMounted(async () => {
 
       <div class="toggle-row">
         <div>
-          <strong>自动认证</strong>
-          <small>连接 iHBUT 后，应用前台恢复时尽力自动登录</small>
+          <strong>{{ tLocale('campusnet.autoLogin.title') }}</strong>
+          <small>{{ tLocale('campusnet.autoLogin.desc') }}</small>
         </div>
         <button
           class="toggle"
@@ -211,25 +230,25 @@ onMounted(async () => {
       </div>
 
       <button class="primary-btn" type="button" :disabled="loggingIn" @click="handleLogin">
-        {{ loggingIn ? '认证中…' : '立即认证' }}
+        {{ loggingIn ? tLocale('campusnet.login.working') : tLocale('campusnet.login.idle') }}
       </button>
 
       <button class="link-btn" type="button" @click="handleToggleAdvanced">
-        {{ settings.show_advanced ? '收起高级' : '高级' }}
+        {{ settings.show_advanced ? tLocale('campusnet.advanced.collapse') : tLocale('campusnet.advanced.expand') }}
       </button>
 
       <div v-if="settings.show_advanced" class="advanced-box">
         <label class="field">
-          <span>认证服务器覆盖</span>
+          <span>{{ tLocale('campusnet.advanced.gatewayLabel') }}</span>
           <input
             :value="settings.gateway_override"
             type="url"
-            placeholder="留空使用预置网关"
+            :placeholder="tLocale('campusnet.advanced.gatewayPlaceholder')"
             @input="handleGatewayInput"
           />
         </label>
-        <p class="hint">预置：{{ HBUT_CAMPUS_GATEWAYS.join('、') }}</p>
-        <p class="hint">iOS 无法保证后台连 WiFi 即登；Android 依赖系统后台任务频率。</p>
+        <p class="hint">{{ gatewayPresetText }}</p>
+        <p class="hint">{{ tLocale('campusnet.advanced.autoLoginHint') }}</p>
       </div>
     </section>
   </div>

@@ -146,7 +146,8 @@ export const useLocale = () => {
  *    —— locale 是 ref，切换语言后模板自动重渲染，t() 取词即时生效；
  * 2. ❌ 非响应式：`import { t } from '../utils/app_i18n'` 后直接在模板绑定 t('key')
  *    —— t() 是普通函数，locale 变化不触发重渲染，仅适合 JS 逻辑内
- *    （如 showToast(t('xxx'))，取词发生在事件回调里，时机上已是最新语言）。
+ *    （如 showToast(t('xxx'))，取词发生在事件回调里，时机上已是最新语言）；
+ *    需要占位插值时用 tf('key', { name: value })（同样仅限 JS 逻辑内）。
  * 底层为同一函数，可混用；本别名仅用于让调用点意图更清晰。
  */
 export const useI18n = useLocale

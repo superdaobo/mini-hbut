@@ -226,5 +226,39 @@ describe('app_i18n（#773 语言偏好）', () => {
       warnSpy.mockRestore()
     }
   })
+
+  // ── 以下为 #791 新增用例：tf() 整句插值 ──
+
+  it('#791 tf()：按当前语言取整句并替换 {name} 占位符', async () => {
+    const i18n = await loadModule()
+
+    // 向 zh-CN 注入带占位的探针 key（用后清理，不污染契约测试）
+    const probeKey = 'test.interpolate.probe'
+    i18n.messages['zh-CN'][probeKey] = '系统预热中，正在重试 ({n}/{max})...'
+    i18n.messages.en[probeKey] = 'Server warming up, retrying ({n}/{max})...'
+    try {
+      expect(i18n.tf(probeKey, { n: 1, max: 3 })).toBe('系统预热中，正在重试 (1/3)...')
+      i18n.setLocale('en')
+      expect(i18n.tf(probeKey, { n: 2, max: 3 })).toBe('Server warming up, retrying (2/3)...')
+    } finally {
+      delete i18n.messages['zh-CN'][probeKey]
+      delete i18n.messages.en[probeKey]
+    }
+  })
+
+  it('#791 tf()：无占位符 key 原样返回，params 缺失时占位保留原文', async () => {
+    const i18n = await loadModule()
+
+    // 无占位符的 key：tf 与 t 等价
+    expect(i18n.tf('settings.title', {})).toBe('设置中心')
+    // params 未提供对应占位值 → 占位符原样保留（不产出 undefined 字样）
+    const probeKey = 'test.interpolate.missing-param'
+    i18n.messages['zh-CN'][probeKey] = '值={value}'
+    try {
+      expect(i18n.tf(probeKey, {})).toBe('值={value}')
+    } finally {
+      delete i18n.messages['zh-CN'][probeKey]
+    }
+  })
 })
 

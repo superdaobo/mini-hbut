@@ -61,7 +61,11 @@ const I18N_MIGRATED_FILES: string[] = [
   'components/ChaoxingInboxView.vue',
   'utils/local_reminder_scheduler.ts',
   'utils/notify_center_checks.ts',
-  'utils/notify_center_electricity.ts'
+  'utils/notify_center_electricity.ts',
+  'components/ElectricityView.vue',
+  'components/BroadbandView.vue',
+  'components/CampusNetworkView.vue',
+  'components/CampusCodeView.vue'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */
