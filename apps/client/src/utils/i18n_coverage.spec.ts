@@ -35,7 +35,16 @@ const I18N_MIGRATED_FILES: string[] = [
   'utils/toast.js',
   // #785：本批接入 t() 的公共组件（内置默认文案 / 无障碍标签已全部 t() 化）
   'components/templates/TEmptyState.vue',
-  'components/templates/TModal.vue'
+  'components/templates/TModal.vue',
+  // #790：通知消息域（页面 + utils 用户可见文案全部 t()/tf() 化；
+  // background_notification.ts 的 errors 为内部诊断字段（spec 断言中文字样），
+  // 不属用户可见文案，故未纳入白名单）
+  'components/NotificationView.vue',
+  'components/SchoolInboxView.vue',
+  'components/ChaoxingInboxView.vue',
+  'utils/local_reminder_scheduler.ts',
+  'utils/notify_center_checks.ts',
+  'utils/notify_center_electricity.ts'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */

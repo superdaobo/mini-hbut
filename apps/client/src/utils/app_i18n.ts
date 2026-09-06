@@ -93,6 +93,19 @@ export const t = (key: string): string => {
 }
 
 /**
+ * 整句插值翻译（issue #790 新增）：
+ * 先按 t() 回落链取词，再把字典中的 {name} 占位符替换为参数值。
+ * 字典侧统一整句 key + {n}/{name} 占位（如 '共 {n} 条'），避免调用方碎片拼接。
+ */
+export const tf = (key: string, params: Record<string, unknown>): string => {
+  const text = t(key)
+  return Object.entries(params ?? {}).reduce(
+    (acc, [name, value]) => acc.split(`{${name}}`).join(String(value)),
+    text
+  )
+}
+
+/**
  * Vue 组合函数：返回响应式 locale 与 t。
  * - locale 为 ref，监听 hbu-locale-changed 事件跟随变化（设置页切换即时生效）；
  * - 可选监听 storage 事件，实现跨标签页同步（Tauri 单窗口场景为兜底）。

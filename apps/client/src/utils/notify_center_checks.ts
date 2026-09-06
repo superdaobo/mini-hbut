@@ -20,6 +20,7 @@ import {
   recordLedgerEntry
 } from './notification_event_ledger'
 import { hasUnconsumedPresentedEvent } from './background_notification'
+import { t, tf } from './app_i18n'
 import { checkElectricity } from './notify_center_electricity.js'
 export type { ElectricityCheckResult } from './notify_center_electricity.js'
 import {
@@ -161,7 +162,7 @@ const resolveRoomLabel = (): string => {
     }
     const layerLabel = layer?.label || ''
     const floorMatch = String(layerLabel).match(/(\d+)/)
-    labels.push(floorMatch ? `${floorMatch[0]}层` : String(layerLabel || '?'))
+    labels.push(floorMatch ? tf('notify.room.floor', { n: floorMatch[0] }) : String(layerLabel || '?'))
 
     return labels.join(' ')
   } catch {
@@ -319,7 +320,7 @@ const refreshScheduleSilently = async (studentId: string): Promise<ScheduleRefre
     if (!data?.success) {
       return {
         success: false,
-        error: toSafeText(data?.error || '课表刷新失败')
+        error: toSafeText(data?.error || t('notify.error.scheduleRefresh'))
       }
     }
     const incomingSemester = toSafeText(data?.meta?.semester)
@@ -364,7 +365,7 @@ const refreshScheduleSilently = async (studentId: string): Promise<ScheduleRefre
   } catch (error) {
     return {
       success: false,
-      error: toSafeText((error as Error | undefined)?.message || error || '课表刷新失败')
+      error: toSafeText((error as Error | undefined)?.message || error || t('notify.error.scheduleRefresh'))
     }
   }
 }
@@ -397,7 +398,7 @@ const checkGrades = async (
         total: 0,
         changed: false,
         latestItems: [],
-        error: toSafeText(data?.error || '成绩检查失败')
+        error: toSafeText(data?.error || t('notify.error.gradesCheck'))
       }
     }
 
@@ -419,8 +420,8 @@ const checkGrades = async (
       const nativePending = !alreadyNotified && (await hasUnconsumedPresentedEvent(sid, 'grades'))
       if (!alreadyNotified && !nativePending) {
         queue.push({
-          title: '成绩有更新',
-          body: `检测到新的成绩变动，共 ${grades.length} 条成绩记录，请进入应用查看详情。`,
+          title: t('notify.notice.gradesChanged'),
+          body: tf('notify.notice.gradesChangedBody', { total: grades.length }),
           targetView: 'grades',
           eventKey: ledgerKey || undefined,
           domain: 'grades'
@@ -441,7 +442,7 @@ const checkGrades = async (
       total: 0,
       changed: false,
       latestItems: [],
-      error: toSafeText((error as Error | undefined)?.message || error || '成绩检查失败')
+      error: toSafeText((error as Error | undefined)?.message || error || t('notify.error.gradesCheck'))
     }
   }
 }
@@ -473,7 +474,7 @@ const checkExams = async (
         total: 0,
         upcoming: [],
         tomorrowCount: 0,
-        error: toSafeText(data?.error || '考试检查失败')
+        error: toSafeText(data?.error || t('notify.error.examsCheck'))
       }
     }
 
@@ -495,11 +496,11 @@ const checkExams = async (
 
     if (shouldNotify) {
       queue.push({
-        title: '考试提醒',
+        title: t('reminder.exam.title'),
         body:
           tomorrow.length === 1
-            ? `明天有考试：${toSafeText(tomorrow[0].course_name)}`
-            : `明天共有 ${tomorrow.length} 门考试，请提前做好准备。`,
+            ? tf('notify.notice.examTomorrowOne', { course: toSafeText(tomorrow[0].course_name) })
+            : tf('notify.notice.examTomorrowMany', { total: tomorrow.length }),
         targetView: 'exams'
       })
     }
@@ -524,8 +525,8 @@ const checkExams = async (
         const nativePending = !alreadyNotified && (await hasUnconsumedPresentedEvent(sid, 'exams'))
         if (!alreadyNotified && !nativePending) {
           queue.push({
-            title: '考试安排有更新',
-            body: '检测到考试安排变化，请打开 Mini-HBUT 查看详情。',
+            title: t('notify.notice.examsUpdated'),
+            body: t('notify.notice.examsUpdatedBody'),
             targetView: 'exams',
             eventKey: ledgerKey || undefined,
             domain: 'exams'
@@ -560,7 +561,7 @@ const checkExams = async (
       total: 0,
       upcoming: [],
       tomorrowCount: 0,
-      error: toSafeText((error as Error | undefined)?.message || error || '考试检查失败')
+      error: toSafeText((error as Error | undefined)?.message || error || t('notify.error.examsCheck'))
     }
   }
 }
@@ -661,11 +662,17 @@ const checkClassReminder = async (
   const toNotify = candidates.filter((item) => !sentSet.has(item.id))
 
   toNotify.forEach((item) => {
-    const suffix = item.teacher ? `，授课教师 ${item.teacher}` : ''
-    const leadText = item.minsUntilStart > 0 ? `${item.minsUntilStart} 分钟后` : '即将'
+    const suffix = item.teacher ? tf('reminder.class.withTeacher', { teacher: item.teacher }) : ''
+    const leadText = item.minsUntilStart > 0 ? tf('notify.class.inMinutes', { n: item.minsUntilStart }) : t('notify.class.soon')
     queue.push({
-      title: '上课提醒',
-      body: `${leadText}开始：${item.name}（${item.startClock}，${item.room}${suffix}）`,
+      title: t('reminder.class.title'),
+      body: tf('notify.class.foregroundBody', {
+        lead: leadText,
+        course: item.name,
+        clock: item.startClock,
+        room: item.room,
+        teacher: suffix
+      }),
       targetView: 'schedule'
     })
   })
@@ -680,7 +687,7 @@ const checkClassReminder = async (
 
   pushDebugLog(
     'Notify',
-    `上课提醒检查完成 total=${todayClasses.length} trigger=${toNotify.length} lead=${leadMinutes}min`,
+    `class reminder check done total=${todayClasses.length} trigger=${toNotify.length} lead=${leadMinutes}min`,
     'debug',
     {
       semester: semesterHint,
@@ -740,7 +747,7 @@ const checkSchoolInbox = async (
       enabled: true,
       total: 0,
       triggered: 0,
-      error: '学校消息抓取需在 Tauri 桌面端前台运行'
+      error: t('notify.error.schoolInboxDesktopOnly')
     }
   }
 
@@ -783,8 +790,8 @@ const checkSchoolInbox = async (
     for (const { item, eventKey } of notYetNotified) {
       const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
       queue.push({
-        title: toSafeText(raw?.title) || '学校通知',
-        body: toSafeText(raw?.summary) || '你有新的学校消息',
+        title: toSafeText(raw?.title) || t('notify.notice.schoolTitle'),
+        body: toSafeText(raw?.summary) || t('notify.notice.schoolBody'),
         targetView: 'notifications',
         eventKey: eventKey || undefined,
         domain: 'school-message'
@@ -800,7 +807,7 @@ const checkSchoolInbox = async (
 
     pushDebugLog(
       'Notify',
-      `学校消息检查完成 total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
+      `school inbox check done total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
       'info',
       { source: toSafeText(response?.source), loginMode }
     )
@@ -816,13 +823,13 @@ const checkSchoolInbox = async (
     }
   } catch (error) {
     const message = toSafeText((error as Error | undefined)?.message || error)
-    pushDebugLog('Notify', `学校消息检查失败: ${message}`, 'warn')
+    pushDebugLog('Notify', `school inbox check failed: ${message}`, 'warn')
     return {
       success: false,
       enabled: true,
       total: 0,
       triggered: 0,
-      error: message || '学校消息检查失败'
+      error: message || t('notify.error.schoolInboxCheck')
     }
   }
 }
@@ -848,7 +855,7 @@ export const checkChaoxingInbox = async (
       enabled: true,
       total: 0,
       triggered: 0,
-      error: '学习通通知抓取需在客户端内运行'
+      error: t('notify.error.chaoxingClientOnly')
     }
   }
 
@@ -895,8 +902,8 @@ export const checkChaoxingInbox = async (
     for (const { item, eventKey } of notYetNotified) {
       const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
       queue.push({
-        title: toSafeText(raw?.title) || '学习通通知',
-        body: toSafeText(raw?.summary) || '你有新的学习通消息',
+        title: toSafeText(raw?.title) || t('notify.notice.chaoxingTitle'),
+        body: toSafeText(raw?.summary) || t('notify.notice.chaoxingBody'),
         targetView: 'notifications',
         eventKey: eventKey || undefined,
         domain: 'chaoxing-inbox'
@@ -912,7 +919,7 @@ export const checkChaoxingInbox = async (
 
     pushDebugLog(
       'Notify',
-      `学习通通知检查完成 total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
+      `chaoxing inbox check done total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
       'info'
     )
 
@@ -927,13 +934,13 @@ export const checkChaoxingInbox = async (
     }
   } catch (error) {
     const message = toSafeText((error as Error | undefined)?.message || error)
-    pushDebugLog('Notify', `学习通通知检查失败: ${message}`, 'warn')
+    pushDebugLog('Notify', `chaoxing inbox check failed: ${message}`, 'warn')
     return {
       success: false,
       enabled: true,
       total: 0,
       triggered: 0,
-      error: message || '学习通通知检查失败'
+      error: message || t('notify.error.chaoxingCheck')
     }
   }
 }
