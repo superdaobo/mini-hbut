@@ -167,5 +167,64 @@ describe('app_i18n（#773 语言偏好）', () => {
     const enKeys = Object.keys(i18n.messages.en).sort()
     expect(enKeys).toEqual(zhKeys)
   })
+
+  // ── 以下为 #785 新增用例：字典拆分后的公开 API 兼容 + useI18n + DEV 缺 key 告警 ──
+
+  it('#785 公开 API 兼容：常量/类型/re-export 与拆分前一致，messages 指向拆分字典', async () => {
+    const i18n = await loadModule()
+
+    // 事件名/存储键/默认语言不变（SettingsView 与 App.vue 依赖）
+    expect(i18n.APP_LOCALE_STORAGE_KEY).toBe('hbu_app_locale')
+    expect(i18n.APP_LOCALE_CHANGED_EVENT).toBe('hbu-locale-changed')
+    expect(i18n.DEFAULT_LOCALE).toBe('zh-CN')
+    // messages 为拆分后的聚合字典（17 个既有 key + #785 公共组件 key 均可查）
+    expect(i18n.messages['zh-CN']['app.name']).toBe('校园小助手')
+    expect(i18n.messages.en['settings.title']).toBe('Settings')
+    expect(i18n.messages['zh-CN']['common.empty.text']).toBe('暂无数据')
+  })
+
+  it('#785 useI18n：与 useLocale 返回结构一致，事件跟随 + t 取词即时生效', async () => {
+    const i18n = await loadModule()
+
+    const localeChangedHandlers: Array<(event: unknown) => void> = []
+    ;(globalThis as { window?: unknown }).window = {
+      dispatchEvent: vi.fn(),
+      addEventListener: vi.fn((type: string, cb: (event: unknown) => void) => {
+        if (type === 'hbu-locale-changed') localeChangedHandlers.push(cb)
+      }),
+      removeEventListener: vi.fn()
+    }
+
+    const viaUseI18n = i18n.useI18n()
+    const viaUseLocale = i18n.useLocale()
+    // useI18n 为 useLocale 的语义化别名（同底层函数，同一契约）
+    expect(typeof viaUseI18n.t).toBe('function')
+    expect(viaUseLocale.locale.value).toBe('zh-CN')
+
+    viaUseI18n.locale.value = 'zh-CN'
+    i18n.setLocale('en')
+    localeChangedHandlers.forEach((cb) => cb({ detail: { locale: 'en' } }))
+    expect(viaUseI18n.locale.value).toBe('en')
+    expect(viaUseI18n.t('tab.home')).toBe('Home')
+  })
+
+  it('#785 t() 缺失 key：DEV 态 console.warn，且仍回落 key 本身', async () => {
+    const i18n = await loadModule()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      // 未命中任何字典 → 返回 key 本身（回落链不变）+ DEV 告警一次
+      expect(i18n.t('no.such.key')).toBe('no.such.key')
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith('[i18n] missing key: no.such.key')
+
+      // 命中字典的 key 不告警
+      warnSpy.mockClear()
+      expect(i18n.t('settings.title')).toBe('设置中心')
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
 })
 
