@@ -25,6 +25,10 @@ import { filterAllowedModules, isModuleAllowed } from '../config/app_store_polic
 import { decideHomeNavigate } from '../utils/moduleAccess'
 import { useAuthStore } from '../stores'
 import { useViewportBreakpoint } from '../composables/useViewportBreakpoint'
+import { useLocale } from '../utils/app_i18n'
+
+// 响应式取词：必须经 useLocale() 解构 t（locale 变化触发重渲染），不可直接 import { t }
+const { t } = useLocale()
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -53,22 +57,22 @@ const maintenanceTitle = computed(() => {
   const phase = String(props.jwxtRecoveryPhase || '')
   // #659：本地身份已恢复但教务在线会话未恢复（尚未进入恢复轮询）
   if (onlineSessionState.value === 'cached_offline' && phase === 'idle') {
-    return '本地身份已恢复，教务在线会话未恢复'
+    return t('home.maint.title.cachedOffline')
   }
-  if (phase === 'recovering') return '正在后台恢复登录'
-  if (phase === 'need_login') return '需要重新登录'
-  if (phase === 'failed') return '会话恢复未成功'
-  return '教务系统正在维护'
+  if (phase === 'recovering') return t('home.maint.title.recovering')
+  if (phase === 'need_login') return t('home.maint.title.needLogin')
+  if (phase === 'failed') return t('home.maint.title.failed')
+  return t('home.maint.title.maintenance')
 })
 
 const maintenancePhaseLabel = computed(() => {
   const phase = String(props.jwxtRecoveryPhase || '')
-  if (onlineSessionState.value === 'cached_offline' && phase === 'idle') return '展示缓存数据'
-  if (phase === 'recovering') return '后台自动登录中'
-  if (phase === 'need_login') return '请手动登录'
-  if (phase === 'failed') return '将定时重试'
-  if (phase === 'maintenance') return '教务暂不可用'
-  return '状态未知'
+  if (onlineSessionState.value === 'cached_offline' && phase === 'idle') return t('home.maint.phase.cachedOffline')
+  if (phase === 'recovering') return t('home.maint.phase.recovering')
+  if (phase === 'need_login') return t('home.maint.phase.needLogin')
+  if (phase === 'failed') return t('home.maint.phase.failed')
+  if (phase === 'maintenance') return t('home.maint.phase.maintenance')
+  return t('home.maint.phase.unknown')
 })
 
 const maintenanceNotices = computed(() => {
@@ -125,9 +129,9 @@ const sessionStatusVisual = computed(() => {
 
 const sessionStatusAria = computed(() => {
   const v = sessionStatusVisual.value
-  if (v === 'green') return '会话已连接'
-  if (v === 'blink') return '正在重连会话，点击查看详情'
-  return '会话异常或未连接，点击查看详情'
+  if (v === 'green') return t('home.session.connected')
+  if (v === 'blink') return t('home.session.reconnecting')
+  return t('home.session.offline')
 })
 
 const onSessionStatusClick = (event) => {
@@ -225,19 +229,19 @@ const currentMinute = computed(() => {
 // 更细致的问候语（根据时间段）
 const greetingText = computed(() => {
   const hour = new Date(nowTick.value).getHours()
-  if (hour >= 5 && hour < 8) return '早上好'
-  if (hour >= 8 && hour < 11) return '上午好'
-  if (hour >= 11 && hour < 13) return '中午好'
-  if (hour >= 13 && hour < 17) return '下午好'
-  if (hour >= 17 && hour < 19) return '傍晚好'
-  if (hour >= 19 && hour < 22) return '晚上好'
-  return '夜深了'
+  if (hour >= 5 && hour < 8) return t('home.greeting.dawn')
+  if (hour >= 8 && hour < 11) return t('home.greeting.morning')
+  if (hour >= 11 && hour < 13) return t('home.greeting.noon')
+  if (hour >= 13 && hour < 17) return t('home.greeting.afternoon')
+  if (hour >= 17 && hour < 19) return t('home.greeting.dusk')
+  if (hour >= 19 && hour < 22) return t('home.greeting.evening')
+  return t('home.greeting.night')
 })
 
 // 用户学院信息（从缓存的学生信息中读取）
 const userCollegeInfo = computed(() => {
   const sid = String(props.studentId || '').trim()
-  if (!sid) return '湖北工业大学'
+  if (!sid) return t('home.profile.university')
   try {
     // fetchWithCache 存储格式: cache:studentinfo:{studentId} -> { data: { success, data: {...} }, timestamp }
     const raw = localStorage.getItem(`cache:studentinfo:${sid}`)
@@ -246,11 +250,11 @@ const userCollegeInfo = computed(() => {
       const info = parsed?.data?.data || parsed?.data || {}
       const college = String(info.college || '').trim()
       const grade = String(info.grade || '').trim()
-      if (college && grade) return `${college} • ${grade}级`
+      if (college && grade) return t('home.profile.collegeGrade').replace('{college}', college).replace('{grade}', grade)
       if (college) return college
     }
   } catch (_e) { /* ignore */ }
-  return '湖北工业大学'
+  return t('home.profile.university')
 })
 
 const currentMinutePrecise = computed(() => {
@@ -271,13 +275,13 @@ const timelineCourses = computed(() => {
 })
 
 const todayBlockTitle = computed(() => {
-  if (!props.isLoggedIn) return '今日课程'
-  if (timelineCourses.value.length === 0) return '今日课程'
+  if (!props.isLoggedIn) return t('home.today.blockTitle')
+  if (timelineCourses.value.length === 0) return t('home.today.blockTitle')
   const first = timelineCourses.value[0]
   if (first.startMinutes <= currentMinutePrecise.value && currentMinutePrecise.value < first.endMinutes) {
-    return '正在进行'
+    return t('home.today.blockOngoing')
   }
-  return '即将开始'
+  return t('home.today.blockNext')
 })
 
 const syncNowTick = () => { nowTick.value = Date.now() }
@@ -476,7 +480,7 @@ const fetchTodayCourses = async () => {
       } else {
         todayCourses.value = []
         homeSearchCourses.value = []
-        todayError.value = payload?.error || '今日课程加载失败'
+        todayError.value = payload?.error || t('home.today.loadFailed')
       }
       return
     }
@@ -493,38 +497,49 @@ const fetchTodayCourses = async () => {
     todayCourses.value = buildTodayCourses(mergedCourses, week)
     homeSearchCourses.value = buildWeeklyCourseSearchEntries({ courses: mergedCourses, currentWeek: week, periodTimeMap })
     todayError.value = ''
-  } catch (error) { todayCourses.value = []; homeSearchCourses.value = []; todayError.value = '今日课程加载失败' }
+  } catch (error) { todayCourses.value = []; homeSearchCourses.value = []; todayError.value = t('home.today.loadFailed') }
   finally { todayLoading.value = false }
 }
 
-// 模块列表
+// 模块列表（name/desc 仅存 i18n key，渲染时经 moduleLabel/moduleDesc 按当前语言取词）
 const baseModules = [
-  { id: 'grades', name: '成绩查询', iconKey: 'grades', color: '#667eea', desc: '查看所有学期成绩', available: true, requiresLogin: true },
-  { id: 'classroom', name: '空教室', iconKey: 'classroom', color: '#ed8936', desc: '查询空闲教室', available: true, requiresLogin: true },
-  { id: 'electricity', name: '电费查询', iconKey: 'electricity', color: '#e53e3e', desc: '宿舍电费余额', available: true, requiresLogin: true },
-  { id: 'transactions', name: '交易记录', iconKey: 'transactions', color: '#F56C6C', desc: '一码通消费记录', available: true, requiresLogin: true },
-  { id: 'exams', name: '考试安排', iconKey: 'exams', color: '#38b2ac', desc: '查询考试时间地点', available: true, requiresLogin: true },
-  { id: 'ranking', name: '绩点排名', iconKey: 'ranking', color: '#f6ad55', desc: '专业班级排名', available: true, requiresLogin: true },
-  { id: 'campus_code', name: '校园码', iconKey: 'campus_code', color: '#0f766e', desc: '在线/高能模式二维码', available: true, requiresLogin: true },
-  { id: 'calendar', name: '校历', iconKey: 'calendar', color: '#3b82f6', desc: '查看学期校历', available: true, requiresLogin: true },
-  { id: 'school_inbox', name: '学校消息', iconKey: 'school_inbox', color: '#6366f1', desc: '教务与学习通消息', available: true, requiresLogin: true },
-  { id: 'academic', name: '学业情况', iconKey: 'academic', color: '#10b981', desc: '学业完成度与课程进度', available: true, requiresLogin: true },
-  { id: 'qxzkb', name: '全校课表', iconKey: 'qxzkb', color: '#6366f1', desc: '查询全校课程与排课', available: true, requiresLogin: true },
-  { id: 'course_selection', name: '选课中心', iconKey: 'course_selection', color: '#f59e0b', desc: '通识选课与退课', available: true, requiresLogin: true },
-  { id: 'training', name: '培养方案', iconKey: 'training', color: '#0ea5e9', desc: '培养方案与课程设置', available: true, requiresLogin: true },
-  { id: 'teaching_eval', name: '教学评教', iconKey: 'teaching_eval', color: '#a855f7', desc: '待评课程与一键满分提交', available: true, requiresLogin: true },
-  { id: 'chaoxing_hub', name: '课程中心', iconKey: 'chaoxing_hub', color: '#2563eb', desc: '学习通课程、作业与进度', available: true, requiresLogin: true },
-  { id: 'chaoxing_inbox', name: '收件箱', iconKey: 'chaoxing_inbox', color: '#4f46e5', desc: '学习通通知与消息', available: true, requiresLogin: true },
-  { id: 'chaoxing_class', name: '资料分享', iconKey: 'chaoxing_class', color: '#3b82f6', desc: '邀请码入班与班级资料', available: true, requiresLogin: true },
-  { id: 'broadband', name: '教育网网费', iconKey: 'broadband', color: '#0891b2', desc: '校园网费用查询与缴纳入口', available: true, requiresLogin: true },
+  { id: 'grades', name: 'home.module.grades', iconKey: 'grades', color: '#667eea', desc: 'home.module.grades.desc', available: true, requiresLogin: true },
+  { id: 'classroom', name: 'home.module.classroom', iconKey: 'classroom', color: '#ed8936', desc: 'home.module.classroom.desc', available: true, requiresLogin: true },
+  { id: 'electricity', name: 'home.module.electricity', iconKey: 'electricity', color: '#e53e3e', desc: 'home.module.electricity.desc', available: true, requiresLogin: true },
+  { id: 'transactions', name: 'home.module.transactions', iconKey: 'transactions', color: '#F56C6C', desc: 'home.module.transactions.desc', available: true, requiresLogin: true },
+  { id: 'exams', name: 'home.module.exams', iconKey: 'exams', color: '#38b2ac', desc: 'home.module.exams.desc', available: true, requiresLogin: true },
+  { id: 'ranking', name: 'home.module.ranking', iconKey: 'ranking', color: '#f6ad55', desc: 'home.module.ranking.desc', available: true, requiresLogin: true },
+  { id: 'campus_code', name: 'home.module.campus_code', iconKey: 'campus_code', color: '#0f766e', desc: 'home.module.campus_code.desc', available: true, requiresLogin: true },
+  { id: 'calendar', name: 'home.module.calendar', iconKey: 'calendar', color: '#3b82f6', desc: 'home.module.calendar.desc', available: true, requiresLogin: true },
+  { id: 'school_inbox', name: 'home.module.school_inbox', iconKey: 'school_inbox', color: '#6366f1', desc: 'home.module.school_inbox.desc', available: true, requiresLogin: true },
+  { id: 'academic', name: 'home.module.academic', iconKey: 'academic', color: '#10b981', desc: 'home.module.academic.desc', available: true, requiresLogin: true },
+  { id: 'qxzkb', name: 'home.module.qxzkb', iconKey: 'qxzkb', color: '#6366f1', desc: 'home.module.qxzkb.desc', available: true, requiresLogin: true },
+  { id: 'course_selection', name: 'home.module.course_selection', iconKey: 'course_selection', color: '#f59e0b', desc: 'home.module.course_selection.desc', available: true, requiresLogin: true },
+  { id: 'training', name: 'home.module.training', iconKey: 'training', color: '#0ea5e9', desc: 'home.module.training.desc', available: true, requiresLogin: true },
+  { id: 'teaching_eval', name: 'home.module.teaching_eval', iconKey: 'teaching_eval', color: '#a855f7', desc: 'home.module.teaching_eval.desc', available: true, requiresLogin: true },
+  { id: 'chaoxing_hub', name: 'home.module.chaoxing_hub', iconKey: 'chaoxing_hub', color: '#2563eb', desc: 'home.module.chaoxing_hub.desc', available: true, requiresLogin: true },
+  { id: 'chaoxing_inbox', name: 'home.module.chaoxing_inbox', iconKey: 'chaoxing_inbox', color: '#4f46e5', desc: 'home.module.chaoxing_inbox.desc', available: true, requiresLogin: true },
+  { id: 'chaoxing_class', name: 'home.module.chaoxing_class', iconKey: 'chaoxing_class', color: '#3b82f6', desc: 'home.module.chaoxing_class.desc', available: true, requiresLogin: true },
+  { id: 'broadband', name: 'home.module.broadband', iconKey: 'broadband', color: '#0891b2', desc: 'home.module.broadband.desc', available: true, requiresLogin: true },
   // 场馆依赖 172.16.54.20 校园网 + accessToken；外网/无校园网时 third/open 无法落地，暂禁用避免死入口
-  { id: 'sports_venue', name: '运动场馆', iconKey: 'sports_venue', color: '#16a34a', desc: '场馆预约需校园网（暂不可用）', available: false, requiresLogin: true },
-  { id: 'library', name: '图书查询', iconKey: 'library', color: '#0f766e', desc: '馆藏检索与定位', available: true, requiresLogin: false },
-  { id: 'campus_map', name: '校园地图', iconKey: 'campus_map', color: '#14b8a6', desc: '校园地图查看', available: true, requiresLogin: false },
-  { id: 'resource_share', name: '资源网盘', iconKey: 'resource_share', color: '#0ea5e9', desc: 'WebDAV 资料浏览与下载', available: true, requiresLogin: false },
-  { id: 'towergo', name: '小塔出行', iconKey: 'towergo', color: '#22c55e', desc: '校园电单车与骑行服务', available: true, requiresLogin: false },
-  { id: 'ai', name: '校园助手', iconKey: 'ai', color: '#94a3b8', desc: '暂不可用', available: true, requiresLogin: true }
+  { id: 'sports_venue', name: 'home.module.sports_venue', iconKey: 'sports_venue', color: '#16a34a', desc: 'home.module.sports_venue.desc', available: false, requiresLogin: true },
+  { id: 'library', name: 'home.module.library', iconKey: 'library', color: '#0f766e', desc: 'home.module.library.desc', available: true, requiresLogin: false },
+  { id: 'campus_map', name: 'home.module.campus_map', iconKey: 'campus_map', color: '#14b8a6', desc: 'home.module.campus_map.desc', available: true, requiresLogin: false },
+  { id: 'resource_share', name: 'home.module.resource_share', iconKey: 'resource_share', color: '#0ea5e9', desc: 'home.module.resource_share.desc', available: true, requiresLogin: false },
+  { id: 'towergo', name: 'home.module.towergo', iconKey: 'towergo', color: '#22c55e', desc: 'home.module.towergo.desc', available: true, requiresLogin: false },
+  { id: 'ai', name: 'home.module.ai', iconKey: 'ai', color: '#94a3b8', desc: 'home.module.ai.desc', available: true, requiresLogin: true }
 ]
+
+/** 模块名取词（key 形如 home.module.*；点击「更多」等合成项直接渲染译名） */
+const moduleLabel = (module) => {
+  const name = String(module?.name || '')
+  return name.startsWith('home.') ? t(name) : name
+}
+/** 模块描述取词 */
+const moduleDesc = (module) => {
+  const desc = String(module?.desc || '')
+  return desc.startsWith('home.') ? t(desc) : desc
+}
 
 const modules = computed(() => {
   // 依赖登录态：合规包真实登录后应展开全功能模块列表
@@ -556,7 +571,7 @@ const orderedModules = computed(() => {
 
 const displayModules = computed(() => {
   const first7 = orderedModules.value.slice(0, 7)
-  return [...first7, { id: '__more__', name: '更多', iconKey: 'more', color: '#6b7280', available: true, requiresLogin: false }]
+  return [...first7, { id: '__more__', name: t('home.module.more'), iconKey: 'more', color: '#6b7280', available: true, requiresLogin: false }]
 })
 
 const homeWidgetOrder = computed(() => isHomeLayoutEditing.value ? draftHomeWidgetsOrder.value : uiSettings.workspaceLayout.home.widgetsOrder)
@@ -564,10 +579,13 @@ const isChaoxingLogin = computed(() => isChaoxingMethod(loginMethod.value))
 const homeCollisionFx = ref([])
 
 // 合规 guest/demo 下学习通、一码通等整组会被滤空：不渲染空分组标题，避免误导审核员
+// （title 仅存 key，渲染时经 categoryLabel 取词；activeFeatureTab 持久化同样存 key）
+const categoryLabel = (cat) => (String(cat?.title || '').startsWith('home.') ? t(cat.title) : String(cat?.title || ''))
+
 const moduleCategories = computed(() => {
   const cats = [
     {
-      title: '教务服务',
+      title: 'home.cat.academic',
       modules: modules.value.filter((m) =>
         [
           'grades',
@@ -585,19 +603,19 @@ const moduleCategories = computed(() => {
       )
     },
     {
-      title: '学习通',
+      title: 'home.cat.chaoxing',
       modules: modules.value.filter((m) =>
         ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class'].includes(m.id)
       )
     },
     {
-      title: '一码通',
+      title: 'home.cat.yimatong',
       modules: modules.value.filter((m) =>
         ['campus_code', 'electricity', 'transactions', 'broadband', 'sports_venue'].includes(m.id)
       )
     },
     {
-      title: '资源',
+      title: 'home.cat.resource',
       modules: modules.value.filter((m) =>
         ['library', 'campus_map', 'resource_share', 'towergo', 'ai'].includes(m.id)
       )
@@ -623,7 +641,7 @@ const navigateTo = (moduleId) => {
       isDemoSession: isTestAccountSession()
     })
   ) {
-    showToast('当前版本不可用该功能')
+    showToast(t('home.common.featureUnavailable'))
     return
   }
   // 唯一准入：decideHomeNavigate（available:false / 硬禁用 sports_venue / 需登录）
@@ -636,7 +654,7 @@ const navigateTo = (moduleId) => {
       emit('require-login')
       return
     }
-    showToast(access.reason || '暂不可用')
+    showToast(access.reason || t('home.common.unavailable'))
     return
   }
   emit('navigate', moduleId)
@@ -683,7 +701,7 @@ const spawnHomeCollisionFx = (section, activeKey, target) => {
 const stopHomeLayoutDrag = () => { activeHomeDragSection.value = ''; hoverLayoutKey.value = ''; homeDragAnchors = []; homeDragTargetIndex = -1 }
 const enterHomeLayoutEdit = () => { if (!isHomeLayoutEditing.value) { syncHomeLayoutDraft(); isHomeLayoutEditing.value = true; suppressModuleClickUntil = Date.now() + 180 } }
 const cancelHomeLayoutEdit = () => { stopHomeLayoutDrag(); syncHomeLayoutDraft(); isHomeLayoutEditing.value = false }
-const resetHomeLayoutEdit = () => { const defaults = buildDefaultWorkspaceLayout(); draftHomeWidgetsOrder.value = [...defaults.home.widgetsOrder]; draftHomeModuleOrder.value = [...defaults.home.moduleOrder]; showToast('首页布局已恢复默认。', 'success') }
+const resetHomeLayoutEdit = () => { const defaults = buildDefaultWorkspaceLayout(); draftHomeWidgetsOrder.value = [...defaults.home.widgetsOrder]; draftHomeModuleOrder.value = [...defaults.home.moduleOrder]; showToast(t('home.layout.reset'), 'success') }
 const saveHomeLayoutEdit = () => {
   const nextLayout = cloneWorkspaceLayout(uiSettings.workspaceLayout)
   nextLayout.home.widgetsOrder = [...draftHomeWidgetsOrder.value]
@@ -692,7 +710,7 @@ const saveHomeLayoutEdit = () => {
   flushUiSettings()
   stopHomeLayoutDrag()
   isHomeLayoutEditing.value = false
-  showToast('首页布局已保存。', 'success')
+  showToast(t('home.layout.saved'), 'success')
 }
 
 const handleHomeDragStart = ({ section, id }) => {
@@ -746,14 +764,14 @@ const getCourseCountdown = (course) => {
   const now = currentMinutePrecise.value
   if (course.startMinutes <= now && now < course.endMinutes) {
     const remaining = Math.ceil(course.endMinutes - now)
-    return `剩余 ${remaining} 分钟`
+    return t('home.course.remaining').replace('{n}', String(remaining))
   }
   const minutesUntil = Math.ceil(course.startMinutes - now)
-  if (minutesUntil <= 0) return '即将开始'
-  if (minutesUntil < 60) return `距开始 ${minutesUntil} 分钟`
+  if (minutesUntil <= 0) return t('home.status.startingSoon')
+  if (minutesUntil < 60) return t('home.course.startsInMinutes').replace('{n}', String(minutesUntil))
   const hours = Math.floor(minutesUntil / 60)
   const mins = minutesUntil % 60
-  return `距开始 ${hours}h${mins > 0 ? mins + 'm' : ''}`
+  return `${t('home.course.startsInPrefix')}${hours}h${mins > 0 ? mins + 'm' : ''}`
 }
 
 const handleModuleCardClick = (moduleId) => {
@@ -768,8 +786,8 @@ const handleProfileClick = () => { emit('navigate', 'me') }
 // === 天气数据 ===
 const weatherData = ref({
   temp: '--',
-  city: '武汉市洪山区',
-  condition: '加载中',
+  city: t('home.weather.district'),
+  condition: t('home.weather.loading'),
   icon: 'fa-cloud',
   humidity: 0,
   wind: '--',
@@ -863,7 +881,7 @@ const hourlyForecast = computed(() => {
     // 模拟日间温度变化曲线（14点最高，5点最低）
     const tempOffset = Math.round(Math.sin((hour - 14) * Math.PI / 12) * 5)
     result.push({
-      time: i === 0 ? '现在' : `${String(hour).padStart(2, '0')}:00`,
+      time: i === 0 ? t('home.weather.now') : `${String(hour).padStart(2, '0')}:00`,
       temp: baseTemp + tempOffset,
       condition: weatherData.value.condition,
       icon: weatherData.value.icon
@@ -904,12 +922,14 @@ const fetchWeather = async (force = false) => {
       saveWeatherToCache(data)
     }
   } catch (e) {
+    // console 保留中文（仅开发日志，不迁移）
     console.warn('[Weather] 天气获取失败:', e)
     const cachedFallback = loadWeatherFromCache()
     if (cachedFallback) { weatherData.value = cachedFallback; return }
+    // 天气兜底数据沿用后端中文 condition 词汇表（weather_visuals 的样式匹配依赖中文条件词）
     weatherData.value = {
       temp: 26,
-      city: '武汉市洪山区',
+      city: t('home.weather.district'),
       condition: '晴',
       icon: 'fa-sun',
       humidity: 65,
@@ -954,13 +974,13 @@ const saveQuickEntries = () => {
   // 再次过滤：防止草稿残留被禁 id
   const next = draftQuickEntries.value.filter((id) => isModuleAllowed(id, session))
   if (next.length !== 5) {
-    showToast('请选择 5 个可用模块')
+    showToast(t('home.quick.pickFive'))
     return
   }
   quickEntryIds.value = next
   localStorage.setItem(QUICK_ENTRY_KEY, JSON.stringify(quickEntryIds.value))
   showQuickEntryEditor.value = false
-  showToast('快捷入口已更新', 'success')
+  showToast(t('home.quick.updated'), 'success')
 }
 
 const openQuickEntryEditor = () => {
@@ -976,48 +996,50 @@ const toggleDraftEntry = (id) => {
   else if (draftQuickEntries.value.length < 5) { draftQuickEntries.value.push(id) }
 }
 
-// 快捷入口的图标/颜色映射（含 schedule）
+// 快捷入口的图标/颜色映射（含 schedule）；name 仅存 i18n key，渲染时取词
 const quickEntryMeta = {
-  grades: { name: '成绩查询', icon: 'fa-award', color: 'bg-blue-50', iconColor: 'text-blue-500' },
-  schedule: { name: '课表', icon: 'fa-calendar-check', color: 'bg-orange-50', iconColor: 'text-orange-500' },
-  classroom: { name: '空教室', icon: 'fa-door-open', color: 'bg-green-50', iconColor: 'text-green-500' },
-  electricity: { name: '电费查询', icon: 'fa-bolt', color: 'bg-red-50', iconColor: 'text-red-500' },
-  ranking: { name: '绩点排名', icon: 'fa-chart-bar', color: 'bg-yellow-50', iconColor: 'text-yellow-500' },
-  exams: { name: '考试安排', icon: 'fa-file-alt', color: 'bg-teal-50', iconColor: 'text-teal-500' },
-  calendar: { name: '校历', icon: 'fa-calendar-alt', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
-  school_inbox: { name: '学校消息', icon: 'fa-envelope', color: 'bg-indigo-50', iconColor: 'text-indigo-600' },
-  academic: { name: '学业情况', icon: 'fa-chart-line', color: 'bg-emerald-50', iconColor: 'text-emerald-500' },
-  campus_code: { name: '校园码', icon: 'fa-qrcode', color: 'bg-cyan-50', iconColor: 'text-cyan-500' },
-  transactions: { name: '交易记录', icon: 'fa-wallet', color: 'bg-pink-50', iconColor: 'text-pink-500' },
-  qxzkb: { name: '全校课表', icon: 'fa-table', color: 'bg-violet-50', iconColor: 'text-violet-500' },
-  course_selection: { name: '选课中心', icon: 'fa-tasks', color: 'bg-amber-50', iconColor: 'text-amber-500' },
-  training: { name: '培养方案', icon: 'fa-sitemap', color: 'bg-sky-50', iconColor: 'text-sky-500' },
-  teaching_eval: { name: '教学评教', icon: 'fa-star', color: 'bg-purple-50', iconColor: 'text-purple-500' },
-  chaoxing_hub: { name: '课程中心', icon: 'fa-graduation-cap', color: 'bg-blue-50', iconColor: 'text-blue-600' },
-  chaoxing_inbox: { name: '收件箱', icon: 'fa-inbox', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
-  chaoxing_class: { name: '资料分享', icon: 'fa-folder-open', color: 'bg-sky-50', iconColor: 'text-sky-600' },
-  broadband: { name: '教育网网费', icon: 'fa-wifi', color: 'bg-cyan-50', iconColor: 'text-cyan-600' },
-  sports_venue: { name: '运动场馆', icon: 'fa-futbol', color: 'bg-green-50', iconColor: 'text-green-600' },
-  library: { name: '图书查询', icon: 'fa-book', color: 'bg-lime-50', iconColor: 'text-lime-600' },
-  resource_share: { name: '资源网盘', icon: 'fa-cloud', color: 'bg-blue-50', iconColor: 'text-blue-500' },
-  campus_map: { name: '校园地图', icon: 'fa-map-marked-alt', color: 'bg-teal-50', iconColor: 'text-teal-600' },
-  resource_share: { name: '资料分享', icon: 'fa-folder-open', color: 'bg-blue-50', iconColor: 'text-blue-600' },
-  towergo: { name: '小塔出行', icon: 'fa-bicycle', color: 'bg-emerald-50', iconColor: 'text-emerald-600' },
-  ai: { name: '校园助手', icon: 'fa-robot', color: 'bg-gray-50', iconColor: 'text-gray-500' }
+  grades: { name: 'home.module.grades', icon: 'fa-award', color: 'bg-blue-50', iconColor: 'text-blue-500' },
+  schedule: { name: 'home.module.schedule', icon: 'fa-calendar-check', color: 'bg-orange-50', iconColor: 'text-orange-500' },
+  classroom: { name: 'home.module.classroom', icon: 'fa-door-open', color: 'bg-green-50', iconColor: 'text-green-500' },
+  electricity: { name: 'home.module.electricity', icon: 'fa-bolt', color: 'bg-red-50', iconColor: 'text-red-500' },
+  ranking: { name: 'home.module.ranking', icon: 'fa-chart-bar', color: 'bg-yellow-50', iconColor: 'text-yellow-500' },
+  exams: { name: 'home.module.exams', icon: 'fa-file-alt', color: 'bg-teal-50', iconColor: 'text-teal-500' },
+  calendar: { name: 'home.module.calendar', icon: 'fa-calendar-alt', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
+  school_inbox: { name: 'home.module.school_inbox', icon: 'fa-envelope', color: 'bg-indigo-50', iconColor: 'text-indigo-600' },
+  academic: { name: 'home.module.academic', icon: 'fa-chart-line', color: 'bg-emerald-50', iconColor: 'text-emerald-500' },
+  campus_code: { name: 'home.module.campus_code', icon: 'fa-qrcode', color: 'bg-cyan-50', iconColor: 'text-cyan-500' },
+  transactions: { name: 'home.module.transactions', icon: 'fa-wallet', color: 'bg-pink-50', iconColor: 'text-pink-500' },
+  qxzkb: { name: 'home.module.qxzkb', icon: 'fa-table', color: 'bg-violet-50', iconColor: 'text-violet-500' },
+  course_selection: { name: 'home.module.course_selection', icon: 'fa-tasks', color: 'bg-amber-50', iconColor: 'text-amber-500' },
+  training: { name: 'home.module.training', icon: 'fa-sitemap', color: 'bg-sky-50', iconColor: 'text-sky-500' },
+  teaching_eval: { name: 'home.module.teaching_eval', icon: 'fa-star', color: 'bg-purple-50', iconColor: 'text-purple-500' },
+  chaoxing_hub: { name: 'home.module.chaoxing_hub', icon: 'fa-graduation-cap', color: 'bg-blue-50', iconColor: 'text-blue-600' },
+  chaoxing_inbox: { name: 'home.module.chaoxing_inbox', icon: 'fa-inbox', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
+  chaoxing_class: { name: 'home.module.chaoxing_class', icon: 'fa-folder-open', color: 'bg-sky-50', iconColor: 'text-sky-600' },
+  broadband: { name: 'home.module.broadband', icon: 'fa-wifi', color: 'bg-cyan-50', iconColor: 'text-cyan-600' },
+  sports_venue: { name: 'home.module.sports_venue', icon: 'fa-futbol', color: 'bg-green-50', iconColor: 'text-green-600' },
+  library: { name: 'home.module.library', icon: 'fa-book', color: 'bg-lime-50', iconColor: 'text-lime-600' },
+  resource_share: { name: 'home.module.resource_share', icon: 'fa-cloud', color: 'bg-blue-50', iconColor: 'text-blue-500' },
+  campus_map: { name: 'home.module.campus_map', icon: 'fa-map-marked-alt', color: 'bg-teal-50', iconColor: 'text-teal-600' },
+  towergo: { name: 'home.module.towergo', icon: 'fa-bicycle', color: 'bg-emerald-50', iconColor: 'text-emerald-600' },
+  ai: { name: 'home.module.ai', icon: 'fa-robot', color: 'bg-gray-50', iconColor: 'text-gray-500' }
 }
 
 // 快捷入口也走策略过滤：默认含 electricity/ranking，guest/demo 不得展示被禁模块
 const quickEntryItems = computed(() => {
   return quickEntryIds.value
-    .map((id) => ({ id, ...quickEntryMeta[id] }))
+    .map((id) => ({ id, ...quickEntryMeta[id], name: t(quickEntryMeta[id]?.name || '') }))
     .filter((item) => item.name && isModuleAllowed(item.id, appStoreSessionOpts()))
 })
 
 /** 编辑器可选模块：同样隐藏合规收紧会话下的被禁入口 */
+// 编辑器渲染时同样按当前语言取词（meta.name 存 key）
 const editableQuickEntryMeta = computed(() => {
   const session = appStoreSessionOpts()
   return Object.fromEntries(
-    Object.entries(quickEntryMeta).filter(([id]) => isModuleAllowed(id, session))
+    Object.entries(quickEntryMeta)
+      .filter(([id]) => isModuleAllowed(id, session))
+      .map(([id, meta]) => [id, { ...meta, name: t(meta.name) }])
   )
 })
 
@@ -1028,11 +1050,14 @@ const handleQuickEntryClick = (id) => {
 }
 
 // === 全部功能 Tab ===
+// activeFeatureTab 持久化存 i18n key（home.cat.*）；旧版本存的是中文标题，读取时映射回 key
+const FEATURE_TAB_KEY_MAP = { 教务服务: 'home.cat.academic', 学习通: 'home.cat.chaoxing', 一码通: 'home.cat.yimatong', 资源: 'home.cat.resource' }
 const readStoredHomeFeatureTab = () => {
   try {
-    return localStorage.getItem(HOME_FEATURE_TAB_KEY) || '教务服务'
+    const stored = localStorage.getItem(HOME_FEATURE_TAB_KEY) || ''
+    return FEATURE_TAB_KEY_MAP[stored] || stored || 'home.cat.academic'
   } catch (_e) {
-    return '教务服务'
+    return 'home.cat.academic'
   }
 }
 
@@ -1230,7 +1255,7 @@ const startTickerLoop = () => {
 const stopTickerLoop = () => { if (!tickerRafId) return; window.cancelAnimationFrame(tickerRafId); tickerRafId = 0; tickerLastFrameTs = 0 }
 const updateNoticeSwipeMode = (force = false) => { if (typeof window === 'undefined') return; const width = Math.max(0, Number(window.innerWidth || 0)); const mobile = !isWideViewport.value; const modeChanged = isMobileNoticeSwipe.value !== mobile; const widthDelta = Math.abs(width - lastNoticeViewportWidth); isMobileNoticeSwipe.value = mobile; lastNoticeViewportWidth = width; if (force || modeChanged || widthDelta >= 24) void refreshTickerMetrics() }
 const handleNoticeResize = () => { if (noticeResizeRaf) return; noticeResizeRaf = window.requestAnimationFrame(() => { noticeResizeRaf = 0; updateNoticeSwipeMode(false) }) }
-const noticeSummary = (notice) => notice?.summary || stripMarkdown(notice?.content || '') || '点击查看详情'
+const noticeSummary = (notice) => notice?.summary || stripMarkdown(notice?.content || '') || t('home.notice.viewDetail')
 const hasBrokenImage = (notice) => { const key = notice?.id || notice?.title; return key ? brokenImages.value.has(key) : false }
 const handleImageError = (notice) => { const key = notice?.id || notice?.title; if (!key) return; const next = new Set(brokenImages.value); next.add(key); brokenImages.value = next }
 const openNotice = (notice) => { if (Date.now() < tickerSuppressClickUntil.value) return; emit('open-notice', notice) }
@@ -1256,7 +1281,7 @@ const homeSearchSuggestions = computed(() =>
     type: 'service',
     id: item.id,
     title: item.name,
-    subtitle: item.id === 'schedule' ? '本周课表与课程安排' : '常用服务',
+    subtitle: item.id === 'schedule' ? t('home.search.subtitleSchedule') : t('home.search.subtitleService'),
     target: item.id,
     iconClass: item.icon,
     colorClass: item.color,
@@ -1334,7 +1359,7 @@ let announcementTimer = null
 const startAnnouncementRotation = () => { stopAnnouncementRotation(); if (marqueeItems.value.length <= 1) return; announcementTimer = setInterval(() => { currentAnnouncementIndex.value = (currentAnnouncementIndex.value + 1) % Math.min(marqueeItems.value.length, 5) }, 3000) }
 const stopAnnouncementRotation = () => { if (announcementTimer) { clearInterval(announcementTimer); announcementTimer = null } }
 const shareLink = computed(() => 'https://hbut.6661111.xyz')
-const copyShareLink = async () => { if (shareLink.value) { await navigator.clipboard.writeText(shareLink.value); showToast('链接已复制！', 'success') } }
+const copyShareLink = async () => { if (shareLink.value) { await navigator.clipboard.writeText(shareLink.value); showToast(t('home.share.copied'), 'success') } }
 const getRandomGradient = (idx) => { const gradients = ['linear-gradient(135deg, #f6d365 0%, #fda085 100%)', 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)', 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)', 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)']; return gradients[idx % gradients.length] }
 const handleContentClick = async (e) => { const target = e.target.closest('a'); if (target && target.href) { e.preventDefault(); await openExternal(target.href) } }
 const attachCardSpotlight = () => { const cards = document.querySelectorAll('.module-card'); cards.forEach((card) => { const handleMove = (event) => { const rect = card.getBoundingClientRect(); const x = event.clientX - rect.left; const y = event.clientY - rect.top; card.style.setProperty('--hover-x', `${x}px`); card.style.setProperty('--hover-y', `${y}px`) }; card.addEventListener('mousemove', handleMove); cardListeners.push({ card, handleMove }) }) }

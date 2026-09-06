@@ -5,6 +5,10 @@ import {
   DEMO_MODE_BANNER_ZH
 } from '../config/app_store_policy'
 import { isTestAccountSession } from '../utils/test_account.js'
+import { useLocale } from '../utils/app_i18n'
+
+// 响应式取词：必须经 useLocale() 解构 t（locale 变化触发重渲染），不可直接 import { t }
+const { t } = useLocale()
 
 const DISMISS_KEY = 'hbu_demo_banner_dismissed'
 
@@ -49,11 +53,11 @@ defineExpose({
 <template>
   <div v-if="visible" class="demo-mode-banner" role="status">
     <div class="demo-mode-banner__text">
-      <strong>演示模式</strong>
+      <strong>{{ t('home.demo.title') }}</strong>
       <span>{{ DEMO_MODE_BANNER_ZH }}</span>
       <span class="demo-mode-banner__en">{{ DEMO_MODE_BANNER_EN }}</span>
     </div>
-    <button type="button" class="demo-mode-banner__close" aria-label="关闭" @click="dismiss">
+    <button type="button" class="demo-mode-banner__close" :aria-label="t('home.demo.close')" @click="dismiss">
       ×
     </button>
   </div>
