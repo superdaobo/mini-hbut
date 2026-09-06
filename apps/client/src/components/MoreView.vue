@@ -19,6 +19,20 @@ import {
   normalizeModuleCenterChannel as normalizeChannel
 } from '../utils/module_center.js'
 import { trackModuleOpen } from '../utils/usage_tracker.js'
+import { useLocale } from '../utils/app_i18n'
+
+const { t } = useLocale()
+
+/**
+ * i18n 占位符插值：将 key 字典中的 {name} 占位替换为实际值。
+ */
+const tr = (key, params = {}) => {
+  let text = t(key)
+  for (const [name, value] of Object.entries(params)) {
+    text = text.split(`{${name}}`).join(String(value))
+  }
+  return text
+}
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -203,7 +217,7 @@ const isManifestVersionCompatible = (manifest, minVersion = '') => {
   return compareModuleVersion(currentVersion, requiredVersion) >= 0
 }
 
-const INCOMPATIBLE_CACHE_MESSAGE = '当前缓存版本存在已知布局问题，请联网更新后再打开。'
+const INCOMPATIBLE_CACHE_MESSAGE_KEY = 'more.msg.incompatibleCache'
 
 const appendModuleContextQuery = (
   moduleId,
@@ -387,7 +401,7 @@ const bootstrapModuleState = () => {
     if (current.status && current.status !== 'not_downloaded') continue
 
     if (item.kind !== 'remote') {
-      setModuleState(item.id, { status: 'ready', message: '点击进入模块' })
+      setModuleState(item.id, { status: 'ready', message: t('more.state.enterModule') })
       continue
     }
 
@@ -398,13 +412,13 @@ const bootstrapModuleState = () => {
         channel: safeText(local?.channel || moduleChannel.value),
         version: safeText(local.version),
         source: safeText(local?.source || 'cache'),
-        message: '本地缓存可用'
+        message: t('more.state.cacheReady')
       })
     } else {
       setModuleState(item.id, {
         status: 'not_downloaded',
         channel: moduleChannel.value,
-        message: '首次使用需下载'
+        message: t('more.state.needDownload')
       })
     }
   }
@@ -421,29 +435,29 @@ const resolveModuleBadgeType = (_moduleItem, state) => {
 
 const resolveModuleStatusText = (_moduleItem, state) => {
   const status = safeText(state?.status)
-  if (status === 'checking') return '检查更新'
-  if (status === 'downloading') return '下载中'
-  if (status === 'ready') return '已就绪'
-  if (status === 'failed') return '打开失败'
-  if (status === 'locked') return '未解锁'
-  return '未下载'
+  if (status === 'checking') return t('more.status.checking')
+  if (status === 'downloading') return t('more.status.downloading')
+  if (status === 'ready') return t('more.status.ready')
+  if (status === 'failed') return t('more.status.failed')
+  if (status === 'locked') return t('more.status.locked')
+  return t('more.status.notDownloaded')
 }
 
 const resolveModuleSourceText = (value) => {
   const source = safeText(value).toLowerCase()
-  if (source === 'cache') return '缓存'
-  if (source === 'download') return '下载'
-  if (source === 'in_app') return '内嵌'
-  if (source === 'remote') return '官网'
+  if (source === 'cache') return t('more.source.cache')
+  if (source === 'download') return t('more.source.download')
+  if (source === 'in_app') return t('more.source.inApp')
+  if (source === 'remote') return t('more.source.remote')
   return ''
 }
 
 const formatModuleChannelLabel = (value) => {
   const channel = safeText(value).toLowerCase()
-  if (channel === 'latest') return '最新包'
-  if (channel === 'dev') return '测试渠道'
-  if (channel === 'main') return '正式渠道'
-  return channel ? `渠道 ${channel}` : ''
+  if (channel === 'latest') return t('more.channel.latest')
+  if (channel === 'dev') return t('more.channel.dev')
+  if (channel === 'main') return t('more.channel.main')
+  return channel ? tr('more.channel.named', { name: channel }) : ''
 }
 
 const resolveModuleMetaLine = (state) => {
@@ -451,16 +465,16 @@ const resolveModuleMetaLine = (state) => {
   const channelLabel = formatModuleChannelLabel(state?.channel || moduleChannel.value)
   if (channelLabel) parts.push(channelLabel)
   if (safeText(state?.version)) parts.push(`v${safeText(state.version)}`)
-  return parts.join(' · ') || '正式渠道'
+  return parts.join(' · ') || t('more.channel.main')
 }
 
 const resolveModuleDetailLine = (state) => {
   const parts = []
   const sourceLabel = resolveModuleSourceText(state?.source)
-  if (sourceLabel) parts.push(`来源 ${sourceLabel}`)
+  if (sourceLabel) parts.push(`${t('more.detail.sourcePrefix')}${sourceLabel}`)
   const message = safeText(state?.message)
   if (message) parts.push(message)
-  return parts.join(' · ') || '点击进入'
+  return parts.join(' · ') || t('more.detail.enter')
 }
 
 const handleOpenInternalModule = (moduleItem) => {
@@ -478,17 +492,17 @@ const handleOpenRemoteModule = async (moduleItem) => {
     setModuleState(moduleId, {
       status: 'failed',
       channel: moduleChannel.value,
-      message: '模块清单未发布'
+      message: t('more.msg.manifestMissing')
     })
     return
   }
 
   moduleBusyKey.value = moduleId
-  const openPreparedModule = async (manifest, initialMessage = '检查更新中', sessionMeta = {}) => {
+  const openPreparedModule = async (manifest, initialMessageKey, initialMessageParams = {}, sessionMeta = {}) => {
     setModuleState(moduleId, {
       status: 'checking',
       channel: moduleChannel.value,
-      message: initialMessage
+      message: tr(initialMessageKey, initialMessageParams)
     })
     const prepared = await prepareModuleBundle({
       channel: moduleChannel.value,
@@ -501,8 +515,8 @@ const handleOpenRemoteModule = async (moduleItem) => {
       source: safeText(prepared.source || ''),
       message:
         prepared.launch_mode === 'cache'
-          ? '已命中本地缓存'
-          : '已更新并内嵌打开',
+          ? t('more.msg.cacheHit')
+          : t('more.msg.updatedAndOpened'),
       version: safeText(prepared.version || manifest.version)
     })
     emitPreparedModuleNavigate(moduleItem, prepared, manifest, {
@@ -519,7 +533,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
     setModuleState(moduleId, {
       status: 'checking',
       channel: moduleChannel.value,
-      message: cachedManifest ? '检查线上版本中' : '获取模块清单中'
+      message: cachedManifest ? t('more.msg.checkingRemote') : t('more.msg.fetchingManifest')
     })
 
     try {
@@ -545,7 +559,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
 
       if (canUseCache) {
         try {
-          await openPreparedModule(cachedManifest, '命中最新缓存中', {
+          await openPreparedModule(cachedManifest, 'more.msg.verifyingCache', {}, {
             manifest_url: safeText(remoteManifest.url || moduleItem.manifest_url),
             manifest_checked_at: new Date().toISOString()
           })
@@ -554,7 +568,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
           setModuleState(moduleId, {
             status: 'checking',
             channel: moduleChannel.value,
-            message: '本地缓存失效，重新准备最新版本'
+            message: t('more.msg.cacheInvalidReprepare')
           })
         }
       }
@@ -563,12 +577,13 @@ const handleOpenRemoteModule = async (moduleItem) => {
         status: 'downloading',
         channel: moduleChannel.value,
         source: cachedManifest ? 'download' : '',
-        message: cachedManifest ? '发现新版本，更新本地包' : '下载并准备本地包',
+        message: cachedManifest ? t('more.msg.newVersionUpdating') : t('more.msg.downloadingPrepare'),
         version: remoteVersion
       })
       await openPreparedModule(
         remoteManifest,
-        cachedManifest ? '发现新版本，更新本地包' : '下载并准备本地包',
+        cachedManifest ? 'more.msg.newVersionUpdating' : 'more.msg.downloadingPrepare',
+        {},
         {
           manifest_url: safeText(remoteManifest.url || moduleItem.manifest_url),
           manifest_checked_at: new Date().toISOString()
@@ -579,18 +594,18 @@ const handleOpenRemoteModule = async (moduleItem) => {
 
     if (cachedManifest) {
       if (!isManifestVersionCompatible(cachedManifest, moduleItem?.min_compatible_version)) {
-        throw new Error(INCOMPATIBLE_CACHE_MESSAGE)
+        throw new Error(t(INCOMPATIBLE_CACHE_MESSAGE_KEY))
       }
-      await openPreparedModule(cachedManifest, '线上检查失败，回退本地缓存')
+      await openPreparedModule(cachedManifest, 'more.msg.remoteFailFallbackCache')
       return
     }
 
-    throw remoteManifestError || new Error('模块清单获取失败')
+    throw remoteManifestError || new Error(t('more.msg.manifestFetchFailed'))
   } catch (err) {
     setModuleState(moduleId, {
       status: 'failed',
       channel: moduleChannel.value,
-      message: safeText(err?.message || err) || '模块打开失败'
+      message: safeText(err?.message || err) || t('more.msg.openFailed')
     })
   } finally {
     moduleBusyKey.value = ''
@@ -686,7 +701,7 @@ onMounted(async () => {
         <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
           <span class="text-lg">🧩</span>
         </div>
-        <span class="font-bold text-lg tracking-wide text-gray-800">模块中心</span>
+        <span class="font-bold text-lg tracking-wide text-gray-800">{{ t('more.title') }}</span>
       </div>
 
       <!-- 右侧：刷新按钮 -->
@@ -725,7 +740,7 @@ onMounted(async () => {
           </div>
           <div class="min-h-[52px]">
             <strong class="block text-sm font-bold text-gray-800">{{ item.name }}</strong>
-            <p class="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">{{ item.description || '模块说明缺失' }}</p>
+            <p class="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">{{ item.description || t('more.descMissing') }}</p>
           </div>
           <div class="mt-2 pt-2 border-t border-gray-100">
             <span class="text-[11px] text-gray-400">{{ resolveModuleMetaLine(readModuleState(item.id)) }}</span>
@@ -737,7 +752,7 @@ onMounted(async () => {
       <p v-if="moduleError" class="text-red-500 font-semibold text-sm px-1">{{ moduleError }}</p>
 
       <!-- Loading -->
-      <div v-if="moduleLoading" class="text-center py-10 text-gray-400 text-sm">正在加载模块中心...</div>
+      <div v-if="moduleLoading" class="text-center py-10 text-gray-400 text-sm">{{ t('more.loading') }}</div>
     </main>
   </div>
 </template>

@@ -7,6 +7,20 @@ import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { showToast } from '../utils/toast'
 import { TPageHeader, TEmptyState } from './templates'
+import { useLocale } from '../utils/app_i18n'
+
+const { t } = useLocale()
+
+/**
+ * i18n 占位符插值：将 key 字典中的 {name} 占位替换为实际值。
+ */
+const tr = (key, params = {}) => {
+  let text = t(key)
+  for (const [name, value] of Object.entries(params)) {
+    text = text.split(`{${name}}`).join(String(value))
+  }
+  return text
+}
 
 const emit = defineEmits(['back'])
 
@@ -52,7 +66,7 @@ const todayStr = () => {
 
 const bootstrap = async () => {
   if (!isTauriRuntime()) {
-    error.value = '请在客户端内使用'
+    error.value = t('venue.error.clientOnly')
     loading.value = false
     return
   }
@@ -61,7 +75,8 @@ const bootstrap = async () => {
   try {
     const res = await invokeNative('sports_venue_bootstrap', {})
     if (!res?.success && !res?.token) {
-      throw new Error(res?.message || '登录场馆失败')
+      // Rust 下发 message 优先原样展示，无 message 时用前端构造兜底文案
+      throw new Error(res?.message || t('venue.error.venueLoginFailed'))
     }
     token.value = res.token || ''
     user.value = res.user || null
@@ -71,7 +86,7 @@ const bootstrap = async () => {
     }
     selectDate.value = todayStr()
   } catch (e) {
-    error.value = String(e?.message || e || '加载失败（需校园网）')
+    error.value = String(e?.message || e || t('venue.error.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -109,7 +124,7 @@ const loadDetail = async () => {
     enablePay.value = String(data.enablePay ?? '1')
     followNum.value = Number(data.followNum || 0)
   } catch (e) {
-    error.value = String(e?.message || e || '加载场地失败')
+    error.value = String(e?.message || e || t('venue.error.loadCourtsFailed'))
     showToast(error.value)
   } finally {
     acting.value = false
@@ -137,16 +152,16 @@ const toggleSlot = (placeWrap, slot, index) => {
   const list = placeWrap?.placeList || []
   if (!place || !slot) return
   if (slot.status === 1) {
-    showToast('该时段已预约')
+    showToast(t('venue.toast.slotBooked'))
     return
   }
   if (slot.status !== 0) {
-    showToast('该时段不可约')
+    showToast(t('venue.toast.slotUnavailable'))
     return
   }
   const next = list[index + 1]
   if (!next || next.status !== 0) {
-    showToast('请选择完整时段')
+    showToast(t('venue.toast.needContinuous'))
     return
   }
 
@@ -180,11 +195,11 @@ const toggleSlot = (placeWrap, slot, index) => {
 
 const submitReserve = async () => {
   if (enablePay.value === '0') {
-    showToast('暂未开放预约')
+    showToast(t('venue.toast.bookingClosed'))
     return
   }
   if (!cart.value.length) {
-    showToast('请先选择时段')
+    showToast(t('venue.toast.selectSlotFirst'))
     return
   }
   acting.value = true
@@ -201,7 +216,7 @@ const submitReserve = async () => {
       }
     })
     const data = res?.data
-    showToast('预约成功')
+    showToast(t('venue.toast.reserveSuccess'))
     pendingOrder.value = data
     cart.value = []
     if (data?.orderId != null) {
@@ -211,7 +226,7 @@ const submitReserve = async () => {
       await loadDetail()
     }
   } catch (e) {
-    showToast(String(e?.message || e || '预约失败'))
+    showToast(String(e?.message || e || t('venue.toast.reserveFailed')))
   } finally {
     acting.value = false
   }
@@ -234,7 +249,7 @@ const loadOrders = async () => {
         ? data
         : []
   } catch (e) {
-    showToast(String(e?.message || e || '订单加载失败'))
+    showToast(String(e?.message || e || t('venue.toast.orderLoadFailed')))
   } finally {
     acting.value = false
   }
@@ -244,7 +259,7 @@ const payOrder = async (order) => {
   const orderId = order?.orderId ?? order?.id
   const price = order?.price ?? order?.totalPrice ?? totalPriceFen.value
   if (!payPassword.value) {
-    showToast('请输入校园卡密码')
+    showToast(t('venue.toast.enterCardPassword'))
     return
   }
   acting.value = true
@@ -256,12 +271,12 @@ const payOrder = async (order) => {
       price,
       password: payPassword.value
     })
-    showToast('支付成功')
+    showToast(t('venue.toast.paySuccess'))
     payPassword.value = ''
     pendingOrder.value = null
     await loadOrders()
   } catch (e) {
-    showToast(String(e?.message || e || '支付失败'))
+    showToast(String(e?.message || e || t('venue.toast.payFailed')))
   } finally {
     acting.value = false
   }
@@ -276,10 +291,10 @@ const cancelOrder = async (order) => {
       roleId: roleId.value || null,
       orderId
     })
-    showToast('已取消')
+    showToast(t('venue.toast.cancelled'))
     await loadOrders()
   } catch (e) {
-    showToast(String(e?.message || e || '取消失败'))
+    showToast(String(e?.message || e || t('venue.toast.cancelFailed')))
   } finally {
     acting.value = false
   }
@@ -296,7 +311,7 @@ onMounted(bootstrap)
 
 <template>
   <div class="page">
-    <TPageHeader title="运动场馆" icon="sports_soccer" @back="emit('back')">
+    <TPageHeader :title="t('venue.title')" icon="sports_soccer" @back="emit('back')">
       <template #actions>
         <button
           type="button"
@@ -310,18 +325,18 @@ onMounted(bootstrap)
     </TPageHeader>
 
     <div class="body">
-      <TEmptyState v-if="loading" type="loading" message="连接场馆服务…" />
+      <TEmptyState v-if="loading" type="loading" :message="t('venue.state.connecting')" />
 
       <section v-else-if="error && !stadiums.length && tab === 'home'" class="card">
         <p class="err">{{ error }}</p>
-        <p class="hint">需连接校园网</p>
-        <button type="button" class="main" @click="bootstrap">重试</button>
+        <p class="hint">{{ t('venue.state.campusNetworkRequired') }}</p>
+        <button type="button" class="main" @click="bootstrap">{{ t('venue.btn.retry') }}</button>
       </section>
 
       <!-- 场馆列表 -->
       <template v-else-if="tab === 'home'">
         <div v-if="user" class="user-bar">
-          <strong>{{ user.username || user.name || '同学' }}</strong>
+          <strong>{{ user.username || user.name || t('venue.user.fallbackName') }}</strong>
           <span>{{ user.idserial || user.studentId || '' }}</span>
         </div>
 
@@ -334,7 +349,7 @@ onMounted(bootstrap)
             @click="openStadium(s, 0)"
           >
             <div class="stadium-top">
-              <span class="badge">运营中</span>
+              <span class="badge">{{ t('venue.badge.open') }}</span>
               <h3>{{ s.stadiumName || s.name }}</h3>
             </div>
             <p v-if="s.address" class="meta">{{ s.address }}</p>
@@ -342,12 +357,12 @@ onMounted(bootstrap)
               {{ s.openTime || s.businessHours }}
             </p>
             <div v-if="String(s.stadiumType) === '2'" class="half-row" @click.stop>
-              <button type="button" class="chip" @click="openStadium(s, 0)">全场</button>
-              <button type="button" class="chip" @click="openStadium(s, 1)">半场</button>
+              <button type="button" class="chip" @click="openStadium(s, 0)">{{ t('venue.chip.full') }}</button>
+              <button type="button" class="chip" @click="openStadium(s, 1)">{{ t('venue.chip.half') }}</button>
             </div>
           </button>
         </div>
-        <p v-if="!stadiums.length" class="hint">暂无场馆</p>
+        <p v-if="!stadiums.length" class="hint">{{ t('venue.empty.stadiums') }}</p>
       </template>
 
       <!-- 预约详情 -->
@@ -377,10 +392,10 @@ onMounted(bootstrap)
         <p v-if="costDesc" class="cost">{{ costDesc }}</p>
         <p v-if="error" class="err">{{ error }}</p>
 
-        <div v-if="acting && !placeDetailList.length" class="hint">加载时段…</div>
+        <div v-if="acting && !placeDetailList.length" class="hint">{{ t('venue.loading.slots') }}</div>
 
         <div v-for="(wrap, wi) in placeDetailList" :key="wi" class="place-block">
-          <h4>{{ wrap.place?.name || wrap.name || `场地 ${wi + 1}` }}</h4>
+          <h4>{{ wrap.place?.name || wrap.name || tr('venue.place.fallback', { n: wi + 1 }) }}</h4>
           <div class="slots">
             <button
               v-for="(slot, si) in (wrap.placeList || [])"
@@ -399,15 +414,15 @@ onMounted(bootstrap)
         </div>
 
         <div class="legend">
-          <span><i class="free" />可约</span>
-          <span><i class="busy" />已约</span>
-          <span><i class="mine" />已选</span>
+          <span><i class="free" />{{ t('venue.legend.free') }}</span>
+          <span><i class="busy" />{{ t('venue.legend.booked') }}</span>
+          <span><i class="mine" />{{ t('venue.legend.selected') }}</span>
         </div>
 
         <div class="cart-bar">
           <div>
             <strong>¥{{ totalPriceYuan }}</strong>
-            <span class="muted">{{ cart.length }} 段</span>
+            <span class="muted">{{ tr('venue.cart.slotCount', { n: cart.length }) }}</span>
           </div>
           <button
             type="button"
@@ -415,7 +430,7 @@ onMounted(bootstrap)
             :disabled="acting || !cart.length"
             @click="submitReserve"
           >
-            {{ acting ? '提交中…' : '提交预约' }}
+            {{ acting ? t('venue.btn.submitting') : t('venue.btn.submitBooking') }}
           </button>
         </div>
       </template>
@@ -423,17 +438,17 @@ onMounted(bootstrap)
       <!-- 订单 -->
       <template v-else-if="tab === 'orders'">
         <div class="user-bar">
-          <strong>我的订单</strong>
-          <button type="button" class="link" @click="loadOrders">刷新</button>
+          <strong>{{ t('venue.orders.title') }}</strong>
+          <button type="button" class="link" @click="loadOrders">{{ t('venue.orders.refresh') }}</button>
         </div>
 
         <div v-if="pendingOrder" class="card pay-box">
-          <p>待支付订单</p>
+          <p>{{ t('venue.pay.pendingOrder') }}</p>
           <input
             v-model="payPassword"
             type="password"
             class="pwd"
-            placeholder="校园卡支付密码"
+            :placeholder="t('venue.pay.cardPasswordPlaceholder')"
             autocomplete="off"
           />
           <button
@@ -442,13 +457,13 @@ onMounted(bootstrap)
             :disabled="acting"
             @click="payOrder(pendingOrder)"
           >
-            支付
+            {{ t('venue.btn.pay') }}
           </button>
         </div>
 
         <div v-for="(o, i) in orders" :key="i" class="order">
           <div class="order-top">
-            <strong>{{ o.stadiumName || o.placeName || '订单' }}</strong>
+            <strong>{{ o.stadiumName || o.placeName || t('venue.order.fallback') }}</strong>
             <span>{{ o.statusName || o.status || '' }}</span>
           </div>
           <p class="meta">{{ o.reserveDate || o.createTime || '' }}</p>
@@ -460,7 +475,7 @@ onMounted(bootstrap)
               class="chip"
               @click="pendingOrder = o"
             >
-              支付
+              {{ t('venue.btn.pay') }}
             </button>
             <button
               v-if="String(o.status) === '0'"
@@ -468,11 +483,11 @@ onMounted(bootstrap)
               class="chip ghost"
               @click="cancelOrder(o)"
             >
-              取消
+              {{ t('venue.btn.cancel') }}
             </button>
           </div>
         </div>
-        <p v-if="!orders.length" class="hint">暂无订单</p>
+        <p v-if="!orders.length" class="hint">{{ t('venue.empty.orders') }}</p>
       </template>
     </div>
   </div>
