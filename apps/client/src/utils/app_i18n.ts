@@ -1,24 +1,29 @@
 /**
- * 轻量应用内多语言模块（issue #773）。
+ * 轻量应用内多语言模块（issue #773 建立基建，issue #785 完成字典拆分与接入）。
  *
- * ⚠️ 本期范围控制（刻意收敛，避免巨量 diff 与回归风险）：
- * 仅覆盖「设置中心外观页（SettingsView）+ 底部/全局公共导航（App.vue TabBar）」
- * 的固定文案；其余页面文案保持中文，后续逐步开放（设置页语言项下方有小字说明）。
+ * 字典已拆分至 ./i18n/messages/（zh-CN.ts / en.ts / index.ts），本文件仅保留
+ * 公开 API（t / setLocale / useLocale / useI18n / getLocale / resolveLocale /
+ * messages / DEFAULT_LOCALE 等），签名与行为与拆分前完全一致。
+ * #784 各批次代理新增文案：直接往 ./i18n/messages/zh-CN.ts 与 en.ts 追加 key
+ * （两侧同步，契约测试强制校验），不要改本文件。
  *
  * 设计要点：
  * - 不引入 vue-i18n 等第三方库，自建轻量字典 + t() 查找函数；
  * - 存储：localStorage 键 hbu_app_locale（与项目 hbu_ 前缀惯例一致），
  *   读取时校验合法性，无效/缺失/损坏 → 回落默认 zh-CN（不污染其他设置键）；
  * - 切换：setLocale 写存储 + 派发 window 自定义事件 hbu-locale-changed
- *   （detail 携带新 locale），消费方通过 useLocale() 获得响应式 locale 与 t；
- * - t() 回落链：当前 locale 字典 → zh-CN 字典 → key 本身（保证永不空白）。
+ *   （detail 携带新 locale），消费方通过 useLocale()/useI18n() 获得响应式 locale 与 t；
+ * - t() 回落链：当前 locale 字典 → zh-CN 字典 → key 本身（保证永不空白）；
+ * - 开发态（import.meta.env.DEV）key 未命中任何字典时 console.warn 告警，
+ *   生产构建静默（vite define 静态替换，无运行时开销）。
  */
+import { ref } from 'vue'
+import { messages, DEFAULT_LOCALE as DEFAULT_LOCALE_INNER, type Locale } from './i18n/messages'
 
-/** 支持的语言标识：首批 简体中文（默认）+ English */
-export type Locale = 'zh-CN' | 'en'
+export type { Locale } from './i18n/messages'
 
 /** 默认语言：简体中文 */
-export const DEFAULT_LOCALE: Locale = 'zh-CN'
+export const DEFAULT_LOCALE: Locale = DEFAULT_LOCALE_INNER
 
 /** 语言偏好存储键（hbu_ 前缀与项目其他设置键一致） */
 export const APP_LOCALE_STORAGE_KEY = 'hbu_app_locale'
@@ -39,54 +44,8 @@ export const resolveLocale = (raw: unknown): Locale => {
   return DEFAULT_LOCALE
 }
 
-/**
- * 界面文案字典：语义化 key，与设置页/导航实际文案一一对应。
- * 新增文案时 zh-CN 与 en 必须同时补齐（t() 对缺失 key 会回落 zh-CN 再回落 key）。
- */
-export const messages: Record<Locale, Record<string, string>> = {
-  'zh-CN': {
-    // —— 通用 ——
-    'app.name': '校园小助手',
-    // —— 底部公共导航（App.vue TabBar）——
-    'tab.home': '首页',
-    'tab.schedule': '课表',
-    'tab.notifications': '通知',
-    'tab.me': '我的',
-    // —— 设置中心 header / tab 栏 ——
-    'settings.title': '设置中心',
-    'settings.tab.appearance': '外观',
-    'settings.tab.backend': '后端',
-    'settings.tab.security': '安全',
-    'settings.tab.debug': '调试',
-    // —— 设置中心：语言 section ——
-    'settings.language.label': '语言 / Language',
-    'settings.language.option.zh-CN': '简体中文',
-    'settings.language.option.en': 'English',
-    'settings.language.toast': '语言：简体中文',
-    'settings.language.hint': '更多界面语言支持将逐步开放'
-  },
-  en: {
-    // —— Common ——
-    'app.name': 'Campus Assistant',
-    // —— Bottom tab bar (App.vue) ——
-    'tab.home': 'Home',
-    'tab.schedule': 'Schedule',
-    'tab.notifications': 'Alerts',
-    'tab.me': 'Me',
-    // —— Settings header / tab bar ——
-    'settings.title': 'Settings',
-    'settings.tab.appearance': 'Appearance',
-    'settings.tab.backend': 'Backend',
-    'settings.tab.security': 'Security',
-    'settings.tab.debug': 'Debug',
-    // —— Settings: language section ——
-    'settings.language.label': 'Language / 语言',
-    'settings.language.option.zh-CN': '简体中文',
-    'settings.language.option.en': 'English',
-    'settings.language.toast': 'Language: English',
-    'settings.language.hint': 'More interface languages coming soon'
-  }
-}
+// 字典统一由 ./i18n/messages 提供（re-export 保持旧 import 路径可用）
+export { messages }
 
 /** 模块级当前语言（resolveLocale 保证始终合法） */
 let currentLocale: Locale = DEFAULT_LOCALE
@@ -115,6 +74,8 @@ export const setLocale = (locale: Locale): void => {
 
 /**
  * 翻译查找：当前 locale 字典 → zh-CN 字典 → key 本身（永不空白）。
+ * 开发态（DEV）key 未命中任何字典时 console.warn 一次提示，帮助各批次代理
+ * 及时发现 key 拼写错误/漏翻译；生产构建该分支被 define 静态剪除，静默兜底。
  */
 export const t = (key: string): string => {
   const dict = messages[currentLocale]
@@ -125,10 +86,24 @@ export const t = (key: string): string => {
   if (fallback && Object.prototype.hasOwnProperty.call(fallback, key)) {
     return fallback[key]
   }
+  if (import.meta.env.DEV) {
+    console.warn(`[i18n] missing key: ${key}`)
+  }
   return key
 }
 
-import { ref } from 'vue'
+/**
+ * 整句插值翻译（issue #790 新增）：
+ * 先按 t() 回落链取词，再把字典中的 {name} 占位符替换为参数值。
+ * 字典侧统一整句 key + {n}/{name} 占位（如 '共 {n} 条'），避免调用方碎片拼接。
+ */
+export const tf = (key: string, params: Record<string, unknown>): string => {
+  const text = t(key)
+  return Object.entries(params ?? {}).reduce(
+    (acc, [name, value]) => acc.split(`{${name}}`).join(String(value)),
+    text
+  )
+}
 
 /**
  * Vue 组合函数：返回响应式 locale 与 t。
@@ -162,6 +137,20 @@ export const useLocale = () => {
 
   return { locale, t }
 }
+
+/**
+ * useI18n（issue #785 新增）：与 useLocale 返回结构一致（{ locale, t }）的语义化别名。
+ *
+ * ⚠️ 两种在组件里取词的方式与推荐（#784 各批次代理必读）：
+ * 1. ✅ 推荐：`const { t } = useI18n()`（或 useLocale()），模板/计算属性里 t('域.页面.元素')
+ *    —— locale 是 ref，切换语言后模板自动重渲染，t() 取词即时生效；
+ * 2. ❌ 非响应式：`import { t } from '../utils/app_i18n'` 后直接在模板绑定 t('key')
+ *    —— t() 是普通函数，locale 变化不触发重渲染，仅适合 JS 逻辑内
+ *    （如 showToast(t('xxx'))，取词发生在事件回调里，时机上已是最新语言）；
+ *    需要占位插值时用 tf('key', { name: value })（同样仅限 JS 逻辑内）。
+ * 底层为同一函数，可混用；本别名仅用于让调用点意图更清晰。
+ */
+export const useI18n = useLocale
 
 // 模块加载时从存储初始化（缺失/非法/损坏一律回落 zh-CN）
 try {

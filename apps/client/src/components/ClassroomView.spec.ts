@@ -8,7 +8,8 @@ describe('ClassroomView display contract', () => {
     const vue = source()
 
     expect(vue).toContain('{{ p.value }}')
-    expect(vue).toContain(":aria-label=\"`第${p.value}节`\"")
+    // i18n(#793)：节次 aria 标签经 tr() 取词（classroom.period.aria）
+    expect(vue).toContain(":aria-label=\"tr('classroom.period.aria', { n: p.value })\"")
     expect(vue).not.toContain('{{ p.value }}-{{ p.value + 1')
   })
 
@@ -16,7 +17,8 @@ describe('ClassroomView display contract', () => {
     const vue = source()
 
     expect(vue).toContain('queryDateLabel')
-    expect(vue).toContain('查询日期')
+    // i18n(#793)：日期前缀走 t('classroom.meta.datePrefix') 字典
+    expect(vue).toContain("t('classroom.meta.datePrefix')")
     expect(vue).toContain('classroom-result-meta')
   })
 
@@ -48,9 +50,10 @@ describe('ClassroomView display contract', () => {
     const vue = source()
 
     expect(vue).toContain('const periodGroups = [')
-    expect(vue).toContain("label: '上午'")
-    expect(vue).toContain("label: '下午'")
-    expect(vue).toContain("label: '晚上'")
+    // i18n(#793)：时段分组标题走 t() 字典（key：classroom.time.*）
+    expect(vue).toContain("t('classroom.time.morning')")
+    expect(vue).toContain("t('classroom.time.afternoon')")
+    expect(vue).toContain("t('classroom.time.evening')")
     expect(vue).toContain('v-for="group in periodGroups"')
     expect(vue).toContain('classroom-period-row')
     expect(vue).not.toContain('v-for="p in periodOptions"')

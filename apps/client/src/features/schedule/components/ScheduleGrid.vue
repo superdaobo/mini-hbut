@@ -5,6 +5,8 @@
  * 划分线保持 v1.4.6 的 line-row dashed 虚线视觉（用户指定）。
  */
 import { MAX_PERIOD, timeSchedule } from '../constants'
+// #788 i18n：文案经 useI18n 响应式取词
+import { useI18n } from '../../../utils/app_i18n'
 
 const props = defineProps({
   weekDates: { type: Array, default: () => [] },
@@ -19,6 +21,9 @@ const props = defineProps({
   isWidgetHighlighted: { type: Function, default: () => false },
 })
 const emit = defineEmits(['open-detail'])
+
+// 响应式 t：语言切换后网格文案即时生效
+const { t } = useI18n()
 
 const isTodayColumn = (dayIndex) => {
   const idx = Number(dayIndex) - 1
@@ -36,7 +41,7 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
       <!-- 日期头 -->
       <div class="date-header">
         <div class="month-col">
-          <div class="month-num">{{ currentMonth }}<span class="month-label">月</span></div>
+          <div class="month-num">{{ currentMonth }}<span v-if="t('schedule.grid.monthSuffix')" class="month-label">{{ t('schedule.grid.monthSuffix') }}</span></div>
         </div>
         <div class="days-row">
           <div v-for="day in 7" :key="day" class="day-col" :class="{ 'is-today': isTodayColumn(day) }">
@@ -82,13 +87,13 @@ const periodRows = Array.from({ length: MAX_PERIOD }, (_, i) => i + 1)
             >
               <div class="course-name">{{ course.name }}</div>
               <div class="course-room">
-                {{ course.is_conflict ? '点击查看冲突课程详情' : (course.room_code || course.room) }}
+                {{ course.is_conflict ? t('schedule.grid.conflictHint') : (course.room_code || course.room) }}
               </div>
               <div
                 v-if="scheduleCourseCardStyle === 'class' && !course.is_conflict"
                 class="course-teacher"
               >
-                {{ course.teacher || '未标注教师' }}
+                {{ course.teacher || t('schedule.grid.noTeacher') }}
               </div>
             </div>
           </div>

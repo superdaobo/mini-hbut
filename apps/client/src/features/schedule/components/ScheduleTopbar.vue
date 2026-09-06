@@ -2,29 +2,35 @@
 /**
  * 课表顶部导航：菜单按钮 + 标题/学期 + 周次选择。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * #788 i18n：文案经 useI18n 响应式取词。
  */
+import { useI18n } from '../../../utils/app_i18n'
+
 defineProps({
   semester: { type: String, default: '' },
   selectedWeek: { type: Number, default: 0 },
   totalWeeks: { type: Number, default: 25 },
 })
 const emit = defineEmits(['update:selectedWeek', 'toggle-menu'])
+
+// 响应式 t：语言切换后顶栏文案即时生效
+const { t } = useI18n()
 </script>
 
 <template>
   <div class="schedule-topbar">
-    <button class="menu-btn btn-ripple" @click="emit('toggle-menu')" aria-label="打开课表菜单">
+    <button class="menu-btn btn-ripple" @click="emit('toggle-menu')" :aria-label="t('schedule.topbar.openMenu')">
       <span class="material-symbols-outlined menu-icon">menu</span>
     </button>
     <div class="topbar-center">
-      <h1 class="topbar-title">课表</h1>
-      <p class="topbar-semester">{{ semester || '加载中...' }}</p>
+      <h1 class="topbar-title">{{ t('schedule.topbar.title') }}</h1>
+      <p class="topbar-semester">{{ semester || t('schedule.topbar.loading') }}</p>
     </div>
     <div class="topbar-right">
       <div class="week-selector">
         <IOSSelect :model-value="selectedWeek" @update:model-value="emit('update:selectedWeek', $event)">
-          <option disabled :value="0">请选择周次</option>
-          <option v-for="w in totalWeeks" :key="w" :value="w">第{{ w }}周</option>
+          <option disabled :value="0">{{ t('schedule.topbar.weekPlaceholder') }}</option>
+          <option v-for="w in totalWeeks" :key="w" :value="w">{{ t('schedule.topbar.weekOption').replace('{n}', String(w)) }}</option>
         </IOSSelect>
       </div>
     </div>

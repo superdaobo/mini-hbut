@@ -2,8 +2,10 @@
 /**
  * 课程详情弹窗：单门课程信息 / 冲突详情 / 复制 / 编辑 / 删除。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * #788 i18n：文案经 useI18n 响应式取词。
  */
 import { getCourseEndPeriod } from '../utils/layout'
+import { useI18n } from '../../../utils/app_i18n'
 
 defineProps({
   showDetail: { type: Boolean, default: false },
@@ -17,6 +19,9 @@ const emit = defineEmits([
   'delete-custom-course',
   'copy-detail',
 ])
+
+// 响应式 t：语言切换后详情文案即时生效
+const { t } = useI18n()
 </script>
 
 <template>
@@ -28,7 +33,7 @@ const emit = defineEmits([
           <button class="close-btn" @click="emit('close')">×</button>
         </div>
         <div v-if="selectedCourse?.is_conflict" class="modal-body">
-          <div class="conflict-hint">当前时段存在多个课程重叠，请按下列信息核对。</div>
+          <div class="conflict-hint">{{ t('schedule.detail.conflictBannerHint') }}</div>
           <div
             v-for="(item, idx) in selectedCourse?.conflict_courses || []"
             :key="`${item.id || item.name}-${idx}`"
@@ -38,54 +43,54 @@ const emit = defineEmits([
           >
             <div class="conflict-item-title">
               {{ idx + 1 }}. {{ item.name }}
-              <span v-if="item.is_custom" class="conflict-tag">自定义</span>
+              <span v-if="item.is_custom" class="conflict-tag">{{ t('schedule.detail.tag.custom') }}</span>
             </div>
-            <div class="conflict-item-row">教师：{{ item.teacher || '未填写' }}</div>
+            <div class="conflict-item-row">{{ t('schedule.detail.teacher') }}：{{ item.teacher || t('schedule.detail.teacherNotFilled') }}</div>
             <div class="conflict-item-row">
-              地点：{{ [item.building, item.room || item.room_code].filter(Boolean).join(' ') || '未填写' }}
+              {{ t('schedule.detail.location') }}：{{ [item.building, item.room || item.room_code].filter(Boolean).join(' ') || t('schedule.detail.locationNotFilled') }}
             </div>
             <div class="conflict-item-row">
-              时间：周{{ item.weekday }} 第{{ item.period }}-{{ getCourseEndPeriod(item) }}节
+              {{ t('schedule.detail.time') }}：{{ t('schedule.detail.conflictPeriod').replace('{n}', String(item.weekday)).replace('{s}', String(item.period)).replace('{e}', String(getCourseEndPeriod(item))) }}
             </div>
           </div>
         </div>
         <div v-else class="modal-body">
           <div v-if="selectedCourse?.is_custom" class="info-row">
-            <span class="label">类型</span>
-            <span class="value">自定义课程</span>
+            <span class="label">{{ t('schedule.detail.type') }}</span>
+            <span class="value">{{ t('schedule.detail.typeCustom') }}</span>
           </div>
           <div class="info-row">
-            <span class="label">教师</span>
+            <span class="label">{{ t('schedule.detail.teacher') }}</span>
             <span class="value">{{ selectedCourse?.teacher }}</span>
           </div>
           <div class="info-row">
-            <span class="label">教室</span>
+            <span class="label">{{ t('schedule.detail.classroom') }}</span>
             <span class="value">{{ selectedCourse?.room }} ({{ selectedCourse?.building }})</span>
           </div>
           <div class="info-row">
-            <span class="label">时间</span>
-            <span class="value">周{{ selectedCourse?.weekday }} 第{{ selectedCourse?.period }}-{{ getCourseEndPeriod(selectedCourse) }}节</span>
+            <span class="label">{{ t('schedule.detail.time') }}</span>
+            <span class="value">{{ t('schedule.detail.conflictPeriod').replace('{n}', String(selectedCourse?.weekday ?? '')).replace('{s}', String(selectedCourse?.period ?? '')).replace('{e}', String(getCourseEndPeriod(selectedCourse))) }}</span>
           </div>
           <div class="info-row">
-            <span class="label">周次</span>
-            <span class="value">{{ selectedCourse?.weeks_text }}周</span>
+            <span class="label">{{ t('schedule.detail.weeks') }}</span>
+            <span class="value">{{ selectedCourse?.weeks_text }}</span>
           </div>
           <div class="info-row">
-            <span class="label">学分</span>
+            <span class="label">{{ t('schedule.detail.credit') }}</span>
             <span class="value">{{ selectedCourse?.credit }}</span>
           </div>
           <div class="info-row">
-            <span class="label">教学班</span>
+            <span class="label">{{ t('schedule.detail.classGroup') }}</span>
             <span class="value">{{ selectedCourse?.class_name }}</span>
           </div>
           <div v-if="selectedCourse?.is_custom" class="custom-course-actions">
-            <button class="custom-delete-btn edit" @click="emit('open-edit-course', selectedCourse, { reopenDetail: true })">修改课程</button>
-            <button class="custom-delete-btn week" @click="emit('delete-custom-course', 'current_week')">删除这一周</button>
-            <button class="custom-delete-btn all" @click="emit('delete-custom-course', 'all')">删除全部周次</button>
+            <button class="custom-delete-btn edit" @click="emit('open-edit-course', selectedCourse, { reopenDetail: true })">{{ t('schedule.detail.editCourse') }}</button>
+            <button class="custom-delete-btn week" @click="emit('delete-custom-course', 'current_week')">{{ t('schedule.detail.deleteCurrentWeek') }}</button>
+            <button class="custom-delete-btn all" @click="emit('delete-custom-course', 'all')">{{ t('schedule.detail.deleteAllWeeks') }}</button>
           </div>
         </div>
         <div class="detail-copy-actions">
-          <button class="detail-copy-btn" @click="emit('copy-detail')">复制课程详情</button>
+          <button class="detail-copy-btn" @click="emit('copy-detail')">{{ t('schedule.detail.copyDetail') }}</button>
         </div>
         <div v-if="detailActionError" class="detail-action-error">{{ detailActionError }}</div>
       </div>

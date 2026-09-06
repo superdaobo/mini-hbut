@@ -31,6 +31,7 @@ import { useScheduleEditor } from '../features/schedule/composables/useScheduleE
 import { useScheduleIO } from '../features/schedule/composables/useScheduleIO'
 import { useScheduleSync } from '../features/schedule/composables/useScheduleSync'
 import { useScheduleTermStart } from '../features/schedule/composables/useScheduleTermStart'
+import { useI18n } from '../utils/app_i18n'
 import { deriveSemesterByDate, readStoredSemester } from '../features/schedule/utils/semester'
 import { semesterIsNewer } from '../utils/semester.js'
 
@@ -167,12 +168,18 @@ const {
 } = confirmDialog
 
 // ============ 展示派生 ============
+// #788 i18n：响应式 t + locale；离线横幅文案 computed 内读 locale.value
+// 建立响应式依赖，语言切换后横幅即时刷新
+const { locale, t } = useI18n()
+
 const offlineBannerText = computed(() => {
+  // 读 locale.value 建立响应式依赖（t() 本身非响应式）
+  void locale.value
   if (offlineHint.value) return offlineHint.value
   if (syncTime.value) {
-    return `当前显示为离线数据，更新于${formatRelativeTime(syncTime.value)}`
+    return t('schedule.view.offlineUpdatedAt').replace('{t}', formatRelativeTime(syncTime.value))
   }
-  return '当前显示为离线数据'
+  return t('schedule.view.offline')
 })
 
 // ============ 入口级交互接线 ============
@@ -297,7 +304,7 @@ onMounted(async () => {
     if (pendingStale) {
       pushDebugLog(
         'Schedule',
-        `#750 后台切换 pending(${switchSemester}) 早于时间驱动应选学期(${timeDriven.target})，丢弃以避免回跳`,
+        `#750 pending semester(${switchSemester}) from background is older than time-driven target(${timeDriven.target}), dropping to avoid rollback`,
         'warn'
       )
     } else {
@@ -330,8 +337,8 @@ onMounted(async () => {
         pushDebugLog(
           'Schedule',
           lockIsManual
-            ? `#750 手动锁定学期(${lockDetail.semester})为会话内临时，启动不延续，已清理`
-            : `#750 自动锁定学期(${lockDetail.semester})早于时间驱动应选学期(${timeDriven.target})，已清理并重探`,
+            ? `#750 manual lock(${lockDetail.semester}) is session-scoped, cleared at startup`
+            : `#750 auto lock(${lockDetail.semester}) is older than time-driven target(${timeDriven.target}), cleared and re-probed`,
           'warn'
         )
       }

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchPersonalUsageSummary } from '../utils/usage_tracker.js'
 import { fetchRemotePersonalUsageSummary } from '../utils/usage_uploader.js'
+import { useI18n, tf } from '../utils/app_i18n'
 
 const props = defineProps({
   studentId: {
@@ -11,6 +12,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['back'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 
 const HEALTH_URL = 'https://mini-hbut-ocr-service.hf.space/health'
 const HEALTH_CACHE_KEY = 'hbu_service_health_cache_v1'
@@ -31,9 +35,9 @@ const formatDuration = (seconds) => {
   const days = Math.floor(totalSeconds / 86400)
   const hours = Math.floor((totalSeconds % 86400) / 3600)
   const minutes = Math.floor((totalSeconds % 3600) / 60)
-  if (days > 0) return `${days}天 ${hours}小时`
-  if (hours > 0) return `${hours}小时 ${minutes}分钟`
-  return `${minutes}分钟`
+  if (days > 0) return tf('stats.duration.daysHours', { d: days, h: hours })
+  if (hours > 0) return tf('stats.duration.hoursMinutes', { h: hours, m: minutes })
+  return tf('stats.duration.minutes', { m: minutes })
 }
 
 const formatDurationMs = (ms) => formatDuration(Math.floor(toNumber(ms) / 1000))
@@ -256,9 +260,9 @@ const applyHealthData = (data, updatedAt = Date.now()) => {
 }
 
 const statusText = computed(() => {
-  if (health.value.status === 'ok') return '运行正常'
-  if (health.value.status === 'degraded') return '部分异常'
-  return '状态未知'
+  if (health.value.status === 'ok') return t('stats.status.ok')
+  if (health.value.status === 'degraded') return t('stats.status.degraded')
+  return t('stats.status.unknown')
 })
 
 const statusClass = computed(() => ({
@@ -278,28 +282,28 @@ const hasClientUsage = computed(() => (
 
 const loadModeLabel = (mode) => {
   const key = String(mode || '').trim()
-  if (key === 'remote-site') return '服务器软加载'
-  if (key === 'tauri-local' || key === 'capacitor-local') return '本地直接加载'
-  if (key === 'native') return '原生页面'
-  return key || '未知'
+  if (key === 'remote-site') return t('stats.loadMode.remoteSite')
+  if (key === 'tauri-local' || key === 'capacitor-local') return t('stats.loadMode.local')
+  if (key === 'native') return t('stats.loadMode.native')
+  return key || t('common.unknown')
 }
 
 const personalOverviewItems = computed(() => {
   const today = personalUsage.value?.today
   if (!today) return []
   return [
-    { label: '今日打开', value: formatNumber(today.open_count), icon: 'touch_app' },
-    { label: '今日时长', value: formatDurationMs(today.duration_ms), icon: 'schedule' },
-    { label: '模块打开', value: formatNumber(today.module_open_count), icon: 'extension' },
-    { label: '页面打开', value: formatNumber(today.view_open_count), icon: 'web' }
+    { label: t('stats.metric.todayOpens'), value: formatNumber(today.open_count), icon: 'touch_app' },
+    { label: t('stats.metric.todayDurationMs'), value: formatDurationMs(today.duration_ms), icon: 'schedule' },
+    { label: t('stats.metric.moduleOpens'), value: formatNumber(today.module_open_count), icon: 'extension' },
+    { label: t('stats.metric.viewOpens'), value: formatNumber(today.view_open_count), icon: 'web' }
   ]
 })
 
 const globalUsageOverviewItems = computed(() => [
-  { label: '今日活跃', value: formatNumber(clientUsage.value.today_active_users), icon: 'groups' },
-  { label: '今日事件', value: formatNumber(clientUsage.value.today_total_events), icon: 'analytics' },
-  { label: '今日时长', value: `${clientUsage.value.today_duration_hours.toFixed(1)} 小时`, icon: 'timer' },
-  { label: '应用打开', value: formatNumber(clientUsage.value.today_app_opens), icon: 'smartphone' }
+  { label: t('stats.metric.todayActive'), value: formatNumber(clientUsage.value.today_active_users), icon: 'groups' },
+  { label: t('stats.metric.todayEvents'), value: formatNumber(clientUsage.value.today_total_events), icon: 'analytics' },
+  { label: t('stats.metric.todayDuration'), value: tf('stats.hoursSuffix', { n: clientUsage.value.today_duration_hours.toFixed(1) }), icon: 'timer' },
+  { label: t('stats.metric.appOpens'), value: formatNumber(clientUsage.value.today_app_opens), icon: 'smartphone' }
 ])
 
 const loadModeSplitRows = computed(() => {
@@ -320,32 +324,32 @@ const hasPersonalUsage = computed(() => Boolean(personalUsage.value?.today))
 
 const overviewItems = computed(() => [
   {
-    label: 'OCR 今日',
+    label: t('stats.metric.ocrToday'),
     value: formatNumber(health.value.daily_usage.ocr_count),
     icon: 'document_scanner'
   },
   {
-    label: '课表上传',
+    label: t('stats.metric.uploadToday'),
     value: formatNumber(health.value.daily_usage.upload_count),
     icon: 'cloud_upload'
   },
   {
-    label: '给分查询',
+    label: t('stats.metric.gradeQueryToday'),
     value: formatNumber(health.value.daily_usage.grade_dist_query_count),
     icon: 'query_stats'
   },
   {
-    label: '云同步记录',
+    label: t('stats.metric.cloudSyncRecords'),
     value: formatNumber(health.value.cloud_sync.total_records),
     icon: 'database'
   },
   {
-    label: '最新版本人数',
+    label: t('stats.metric.latestVersionUsers'),
     value: formatNumber(health.value.cloud_sync.latest_version_user_count),
     icon: 'groups'
   },
   {
-    label: '运行时长',
+    label: t('stats.metric.uptime'),
     value: health.value.service.uptime,
     icon: 'schedule'
   }
@@ -366,25 +370,25 @@ const trendMetrics = computed(() => [
   },
   {
     key: 'upload_count',
-    label: '上传',
+    label: t('stats.trend.upload'),
     color: '#059669',
     values: trendRows.value.map((row) => row.upload_count)
   },
   {
     key: 'grade_dist_query_count',
-    label: '给分',
+    label: t('stats.trend.gradeDist'),
     color: '#d97706',
     values: trendRows.value.map((row) => row.grade_dist_query_count)
   },
   {
     key: 'cloud_sync_total',
-    label: '云同步',
+    label: t('stats.trend.cloudSync'),
     color: '#7c3aed',
     values: trendRows.value.map((row) => row.cloud_sync_total)
   },
   {
     key: 'latest_version_user_count',
-    label: '最新版本人数',
+    label: t('stats.metric.latestVersionUsers'),
     color: '#0891b2',
     values: trendRows.value.map((row) => row.latest_version_user_count),
     axisLabelKey: 'latest_version'
@@ -402,7 +406,7 @@ const CHART_PADDING = {
 
 const formatAxisValue = (value) => {
   const number = toNumber(value)
-  if (Math.abs(number) >= 10000) return `${(number / 10000).toFixed(1).replace(/\.0$/, '')}万`
+  if (Math.abs(number) >= 10000) return tf('stats.axis.tenThousand', { n: (number / 10000).toFixed(1).replace(/\.0$/, '') })
   return formatNumber(Math.round(number))
 }
 
@@ -511,9 +515,9 @@ const loadHealth = async ({ silent = false } = {}) => {
   const cached = readCachedHealth()
   if (cached?.data) {
     applyHealthData(cached.data, cached.cachedAt)
-    error.value = '读取服务状态失败，显示上次数据'
+    error.value = t('stats.error.showingCached')
   } else {
-    error.value = '读取服务状态失败'
+    error.value = t('stats.error.readFailed')
   }
   console.warn('[ServiceStatsView] health request failed after retries', lastErr)
   if (!silent) loading.value = false
@@ -550,12 +554,12 @@ onBeforeUnmount(() => {
 <template>
   <div class="service-stats-view">
     <header class="stats-header">
-      <button class="back-button" type="button" @click="emit('back')" aria-label="返回">
+      <button class="back-button" type="button" @click="emit('back')" :aria-label="t('stats.back')">
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
       <div class="header-copy">
-        <span class="header-kicker">我的</span>
-        <h1>服务统计</h1>
+        <span class="header-kicker">{{ t('stats.kicker') }}</span>
+        <h1>{{ t('stats.title') }}</h1>
       </div>
       <button class="refresh-button" type="button" :disabled="loading" @click="refreshNow">
         <span class="material-symbols-outlined" :class="{ spinning: loading }">refresh</span>
@@ -564,21 +568,21 @@ onBeforeUnmount(() => {
 
     <section class="status-card">
       <div>
-        <span class="status-label">OCR 服务</span>
+        <span class="status-label">{{ t('stats.ocrService') }}</span>
         <div class="status-row">
           <span class="status-dot" :class="statusClass"></span>
           <strong>{{ statusText }}</strong>
         </div>
       </div>
       <div class="status-meta">
-        <span>版本 {{ displayClientVersion || '未知' }}</span>
-        <span>更新 {{ lastUpdatedAt || '等待中' }}</span>
+        <span>{{ tf('stats.version', { version: displayClientVersion || t('common.unknown') }) }}</span>
+        <span>{{ tf('stats.updatedAt', { time: lastUpdatedAt || t('stats.waiting') }) }}</span>
       </div>
     </section>
 
     <p v-if="error" class="error-banner">{{ error }}</p>
 
-    <section class="overview-grid" aria-label="服务总览">
+    <section class="overview-grid" :aria-label="t('stats.title')">
       <article v-for="item in overviewItems" :key="item.label" class="metric-card">
         <span class="material-symbols-outlined metric-icon">{{ item.icon }}</span>
         <span class="metric-label">{{ item.label }}</span>
@@ -586,10 +590,10 @@ onBeforeUnmount(() => {
       </article>
     </section>
 
-    <section v-if="hasPersonalUsage" class="usage-card" aria-label="我的使用">
+    <section v-if="hasPersonalUsage" class="usage-card" :aria-label="t('stats.section.mine')">
       <div class="section-title">
         <span class="material-symbols-outlined">person</span>
-        <h2>我的使用</h2>
+        <h2>{{ t('stats.section.mine') }}</h2>
       </div>
       <div class="overview-grid personal-grid">
         <article v-for="item in personalOverviewItems" :key="item.label" class="metric-card">
@@ -601,7 +605,7 @@ onBeforeUnmount(() => {
       <ul v-if="personalUsage?.top_modules?.length" class="version-list">
         <li v-for="item in personalUsage.top_modules" :key="item.target_id" class="version-row">
           <span class="version-name">{{ item.target_id }}</span>
-          <strong class="version-count">{{ formatNumber(item.open_count) }} 次</strong>
+          <strong class="version-count">{{ tf('stats.countSuffix', { n: formatNumber(item.open_count) }) }}</strong>
         </li>
       </ul>
       <ul v-if="personalLoadModeRows.length" class="version-list">
@@ -610,13 +614,13 @@ onBeforeUnmount(() => {
           <strong class="version-count">{{ formatNumber(item.open_count) }}</strong>
         </li>
       </ul>
-      <p v-else-if="personalLoading" class="empty-hint">正在加载个人统计…</p>
+      <p v-else-if="personalLoading" class="empty-hint">{{ t('common.empty.loading') }}</p>
     </section>
 
-    <section v-if="hasClientUsage" class="usage-card" aria-label="全站试用概况">
+    <section v-if="hasClientUsage" class="usage-card" :aria-label="t('stats.section.global')">
       <div class="section-title">
         <span class="material-symbols-outlined">public</span>
-        <h2>全站试用概况</h2>
+        <h2>{{ t('stats.section.global') }}</h2>
       </div>
       <div class="overview-grid personal-grid">
         <article v-for="item in globalUsageOverviewItems" :key="item.label" class="metric-card">
@@ -628,7 +632,7 @@ onBeforeUnmount(() => {
       <ul v-if="clientUsage.top_modules_today.length" class="version-list">
         <li v-for="item in clientUsage.top_modules_today" :key="item.module_id" class="version-row">
           <span class="version-name">{{ item.module_id }}</span>
-          <strong class="version-count">{{ formatNumber(item.open_count) }} 次</strong>
+          <strong class="version-count">{{ tf('stats.countSuffix', { n: formatNumber(item.open_count) }) }}</strong>
         </li>
       </ul>
       <ul v-if="loadModeSplitRows.length" class="version-list">
@@ -639,10 +643,10 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
-    <section v-if="hasVersionUserCounts" class="version-card" aria-label="各版本人数">
+    <section v-if="hasVersionUserCounts" class="version-card" :aria-label="t('stats.section.versionUsers')">
       <div class="section-title">
         <span class="material-symbols-outlined">devices</span>
-        <h2>各版本人数</h2>
+        <h2>{{ t('stats.section.versionUsers') }}</h2>
       </div>
       <ul class="version-list">
         <li v-for="item in versionUserCounts" :key="item.version" class="version-row">
@@ -655,7 +659,7 @@ onBeforeUnmount(() => {
     <section class="trend-card">
       <div class="section-title">
         <span class="material-symbols-outlined">stacked_line_chart</span>
-        <h2>近 7 天趋势</h2>
+        <h2>{{ t('stats.section.trend') }}</h2>
       </div>
 
       <div v-if="hasTrend" class="trend-list">
@@ -668,7 +672,7 @@ onBeforeUnmount(() => {
             class="trend-chart"
             :viewBox="`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`"
             role="img"
-            :aria-label="`${metric.label}趋势`"
+            :aria-label="tf('stats.trend.ariaLabel', { label: metric.label })"
           >
             <template v-for="tick in buildTrendChart(metric.values, metric.axisLabelKey).axisTicks" :key="`${metric.key}-${tick.label}`">
               <line
@@ -717,7 +721,7 @@ onBeforeUnmount(() => {
 
       <div v-else class="empty-state">
         <span class="material-symbols-outlined">bar_chart_off</span>
-        <p>趋势数据暂不可用</p>
+        <p>{{ t('stats.trend.empty') }}</p>
       </div>
     </section>
   </div>

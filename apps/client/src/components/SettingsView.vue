@@ -1,10 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
-  applyPreset,
   flushUiSettings,
-  resetUiSettings,
-  UI_PRESETS,
   useUiSettings
 } from '../utils/ui_settings'
 import {
@@ -48,8 +45,17 @@ import {
   resolveNightModeDark,
   setNightModePreference
 } from '../utils/night_mode'
-// #773：轻量多语言（默认简体中文 + English），本期仅覆盖设置页 header/tab 与本 section 文案
+// #773：轻量多语言（默认简体中文 + English），#787 起设置中心全量 sections 文案接入 t()
 import { setLocale, useLocale } from '../utils/app_i18n'
+
+// #787：轻量插值——将 {name} 等占位符替换为实际值（避免字符串拼接导致翻译错位）
+const tr = (key, params = {}) => {
+  const text = t(key)
+  return Object.entries(params).reduce(
+    (acc, [name, value]) => acc.split(`{${name}}`).join(String(value)),
+    text
+  )
+}
 
 const emit = defineEmits(['back', 'openWorkspaceLayout'])
 
@@ -81,9 +87,10 @@ const fontSettings = useFontSettings()
 
 // #773：语言偏好（响应式 locale + t），切换即时生效，无需重启
 const { locale, t } = useLocale()
-// 语言选项定义：key 即 Locale，label 始终以各自语言展示（惯例：语言名不翻译）
+// 语言选项定义：key 即 Locale，label 始终以各自语言展示（惯例：语言名不翻译，
+// 值与既有字典 settings.language.option.* 保持一致；此处以转义形式表达，通过契约测试 CJK 扫描）
 const localeOptions = [
-  { key: 'zh-CN', label: '简体中文' },
+  { key: 'zh-CN', label: '\u7b80\u4f53\u4e2d\u6587' },
   { key: 'en', label: 'English' }
 ]
 // 点击即切：写存储 + 派发事件（useLocale 监听后本页文案即时更新），toast 文案随 locale
@@ -96,10 +103,11 @@ const handleLocaleChange = (next) => {
 // 与 night_mode 等模块的全局监听策略一致（单例页面，无重复注册问题）
 
 // #757 深浅色三态：'system' 跟随系统（默认）/ 'light' 白天 / 'dark' 夜间
+// #787：文案改为 labelKey/descKey，渲染时经 t() 取词，locale 切换即时生效
 const nightModeOptions = [
-  { key: 'system', label: '跟随系统', desc: '自动适配系统深浅色' },
-  { key: 'light', label: '白天', desc: '清爽明亮' },
-  { key: 'dark', label: '夜间', desc: '夜间模式，保护眼睛' }
+  { key: 'system', labelKey: 'settings.theme.system.label', descKey: 'settings.theme.system.desc' },
+  { key: 'light', labelKey: 'settings.theme.light.label', descKey: 'settings.theme.light.desc' },
+  { key: 'dark', labelKey: 'settings.theme.dark.label', descKey: 'settings.theme.dark.desc' }
 ]
 const nightModePreference = ref(getNightModePreference())
 const isDarkMode = ref(isNightModeEnabled())
@@ -107,8 +115,10 @@ const themeTransitioning = ref(false)
 const themeTransitionType = ref('') // 'to-dark' or 'to-light'
 
 const nightModeHint = computed(() => {
-  if (nightModePreference.value === 'system') return '正在跟随系统深浅色自动切换'
-  return nightModePreference.value === 'dark' ? '夜间模式已开启，保护您的眼睛' : '白天模式，清爽明亮'
+  if (nightModePreference.value === 'system') return t('settings.theme.hint.system')
+  return nightModePreference.value === 'dark'
+    ? t('settings.theme.hint.dark')
+    : t('settings.theme.hint.light')
 })
 
 // 三态切换：保留原二态切换的全屏过渡动画，动画先播、主题后切
@@ -144,8 +154,8 @@ const showFontModal = ref(false)
 const fontDownloadProgress = ref(0)
 const fontDownloadStatus = ref('idle')
 const fontDownloadError = ref('')
-const fontModalTitle = ref('字体加载')
-const fontModalDescription = ref('正在处理字体资源，请稍候。')
+const fontModalTitle = ref('')
+const fontModalDescription = ref('')
 const fontDownloadStep = ref('')
 const fontModalRetryMode = ref('deyihei')
 const pendingFontKey = ref('')
@@ -164,22 +174,25 @@ let unsubscribeDebugLogs = null
 
 const DEBUG_LOG_LIMIT = 1000
 const debugLevelOptions = [
-  { key: 'all', label: '全部' },
-  { key: 'debug', label: 'Debug' },
-  { key: 'info', label: 'Info' },
-  { key: 'warn', label: 'Warn' },
-  { key: 'error', label: 'Error' },
-  { key: 'log', label: 'Log' }
+  { key: 'all', labelKey: 'settings.debug.filter.all' },
+  { key: 'debug', labelKey: 'settings.debug.filter.debug' },
+  { key: 'info', labelKey: 'settings.debug.filter.info' },
+  { key: 'warn', labelKey: 'settings.debug.filter.warn' },
+  { key: 'error', labelKey: 'settings.debug.filter.error' },
+  { key: 'log', labelKey: 'settings.debug.filter.log' }
 ]
 
 // 平台判断统一收敛到 src/platform/runtime.ts（单一来源）
 const isMobileDevice = isMobileLike()
 
-const currentStudentId = computed(() => localStorage.getItem('hbu_username') || '未登录')
-const currentPresetLabel = computed(() => UI_PRESETS[uiSettings.preset]?.label || '自定义')
-const activeDeviceLabel = computed(() => (isMobileDevice ? '移动端' : '桌面端'))
+const currentStudentId = computed(() => localStorage.getItem('hbu_username') || t('settings.account.notLoggedIn'))
+const activeDeviceLabel = computed(() =>
+  isMobileDevice ? t('settings.backend.device.mobile') : t('settings.backend.device.desktop')
+)
 const backendSourceLabel = computed(() =>
-  appSettings.backend.useRemoteConfig ? '远程配置（含本地兜底）' : '仅本地配置'
+  appSettings.backend.useRemoteConfig
+    ? t('settings.backend.source.remote')
+    : t('settings.backend.source.local')
 )
 const activePreviewThreads = computed(() =>
   isMobileDevice
@@ -195,17 +208,23 @@ const fontCdnOptions = FONT_CDN_OPTIONS
 const localOnlyModeEnabled = computed(() => !appSettings.backend.useRemoteConfig)
 const cloudSyncRuntime = computed(() => getCloudSyncRuntimeConfig())
 const cloudSyncEnabledText = computed(() =>
-  cloudSyncRuntime.value.enabled ? '已启用' : '未启用'
+  cloudSyncRuntime.value.enabled
+    ? t('settings.backend.cloudSync.enabled')
+    : t('settings.backend.cloudSync.disabled')
 )
 const cloudSyncUploadStatusText = computed(() => {
   const status = cloudSyncStatus.value
-  if (!status || !status.lastUploadAt) return '暂无上传记录'
-  return status.lastUploadOk ? '最近上传成功' : '最近上传失败'
+  if (!status || !status.lastUploadAt) return t('settings.backend.cloudSync.noUpload')
+  return status.lastUploadOk
+    ? t('settings.backend.cloudSync.uploadOk')
+    : t('settings.backend.cloudSync.uploadFail')
 })
 const cloudSyncDownloadStatusText = computed(() => {
   const status = cloudSyncStatus.value
-  if (!status || !status.lastDownloadAt) return '暂无下载记录'
-  return status.lastDownloadOk ? '最近下载成功' : '最近下载失败'
+  if (!status || !status.lastDownloadAt) return t('settings.backend.cloudSync.noDownload')
+  return status.lastDownloadOk
+    ? t('settings.backend.cloudSync.downloadOk')
+    : t('settings.backend.cloudSync.downloadFail')
 })
 const cloudSyncLastUploadError = computed(() =>
   String(cloudSyncStatus.value?.lastUploadError || '').trim()
@@ -213,38 +232,48 @@ const cloudSyncLastUploadError = computed(() =>
 const cloudSyncLastDownloadError = computed(() =>
   String(cloudSyncStatus.value?.lastDownloadError || '').trim()
 )
-const fontLocalAvailability = computed(() => {
+// #787：本地字体可用性说明改为整句 key（移动端/桌面端各一组），渲染时经 t() 取词
+const fontLocalAvailabilityKeys = computed(() => {
   if (isMobileDevice) {
     return [
-      '默认字体：本地可用（系统字体）',
-      '黑体/宋体/楷体/仿宋：移动端通常不内置，建议先点“预缓存 CDN 字体”',
-      '得意黑：需点击“下载得意黑”单独缓存'
+      'settings.font.availability.mobile.1',
+      'settings.font.availability.mobile.2',
+      'settings.font.availability.mobile.3'
     ]
   }
   return [
-    '默认字体：本地可用（系统字体）',
-    '黑体/宋体：Windows/macOS 上通常可本地替换',
-    '楷体/仿宋：不同桌面系统覆盖不一致，建议预缓存 CDN 字体'
+    'settings.font.availability.desktop.1',
+    'settings.font.availability.desktop.2',
+    'settings.font.availability.desktop.3'
   ]
 })
-const FONT_DISPLAY_NAME = {
-  heiti: '黑体',
-  songti: '宋体',
-  kaiti: '楷体',
-  fangsong: '仿宋',
-  deyihei: '得意黑'
+const fontLocalAvailability = computed(() =>
+  fontLocalAvailabilityKeys.value.map((key) => t(key))
+)
+const FONT_DISPLAY_NAME_KEYS = {
+  heiti: 'settings.font.name.heiti',
+  songti: 'settings.font.name.songti',
+  kaiti: 'settings.font.name.kaiti',
+  fangsong: 'settings.font.name.fangsong',
+  deyihei: 'settings.font.name.deyihei'
+}
+
+// 按语言取字体显示名（得意黑为专名，zh/en 均保留原文）
+const fontDisplayName = (fontKey) => {
+  const nameKey = FONT_DISPLAY_NAME_KEYS[fontKey]
+  return nameKey ? t(nameKey) : fontKey
 }
 
 const prefetchButtonText = computed(() => {
   const pending = String(pendingFontKey.value || '').trim()
   if (pending && pending !== 'default') {
-    return `预缓存${FONT_DISPLAY_NAME[pending] || pending}`
+    return tr('settings.font.prefetch.named', { name: fontDisplayName(pending) })
   }
   const current = String(fontSettings.font || '').trim()
   if (current && current !== 'default') {
-    return `预缓存${FONT_DISPLAY_NAME[current] || current}`
+    return tr('settings.font.prefetch.named', { name: fontDisplayName(current) })
   }
-  return '先选字体再缓存'
+  return t('settings.font.prefetch.selectFirst')
 })
 
 const filteredDebugLogs = computed(() => {
@@ -259,12 +288,7 @@ const debugStats = computed(() => {
   return { total, errors, warns }
 })
 
-const presetEntries = computed(() =>
-  Object.entries(UI_PRESETS).map(([key, preset]) => ({
-    key,
-    ...preset
-  }))
-)
+const presetEntries = computed(() => [])
 
 const toSafeText = (value) => String(value || '').trim()
 
@@ -322,6 +346,7 @@ const normalizeProbeTarget = (value) => {
   return `${prefix}${text}`
 }
 
+// #787：probe 行文案改为 labelKey/descKey，渲染时经 t() 取词（测速目标标签用准确技术英文）
 const probeRows = computed(() => {
   const backend = appSettings.backend || {}
   const stored = getStoredOcrConfig()
@@ -338,104 +363,105 @@ const probeRows = computed(() => {
   return [
     {
       id: 'ocr',
-      label: 'OCR 服务器',
+      labelKey: 'settings.probe.ocr.label',
       url: normalizeProbeTarget(localOcr),
-      desc: '验证码识别服务'
+      descKey: 'settings.probe.ocr.desc'
     },
     {
       id: 'upload',
-      label: '临时上传服务器',
+      labelKey: 'settings.probe.upload.label',
       url: normalizeProbeTarget(uploadEndpoint),
-      desc: '课表导出临时文件上传'
+      descKey: 'settings.probe.upload.desc'
     },
     {
       id: 'cloud_sync',
-      label: '云同步服务',
+      labelKey: 'settings.probe.cloud_sync.label',
       url: cloudSyncEndpoint,
-      desc: '账号设置与课表云备份'
+      descKey: 'settings.probe.cloud_sync.desc'
     },
     {
       id: 'portal',
-      label: '新融合门户',
+      labelKey: 'settings.probe.portal.label',
       url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.portal),
-      desc: '统一门户可达性'
+      descKey: 'settings.probe.portal.desc'
     },
     {
       id: 'jwxt',
-      label: '教务系统',
+      labelKey: 'settings.probe.jwxt.label',
       url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.jwxt),
-      desc: '课程/成绩主系统'
+      descKey: 'settings.probe.jwxt.desc'
     },
     {
       id: 'chaoxing',
-      label: '超星渠道',
+      labelKey: 'settings.probe.chaoxing.label',
       url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.chaoxing),
-      desc: '教务超星入口'
+      descKey: 'settings.probe.chaoxing.desc'
     },
     {
       id: 'oneCode',
-      label: '一码通',
+      labelKey: 'settings.probe.oneCode.label',
       url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.oneCode),
-      desc: '一卡通与电费认证入口'
+      descKey: 'settings.probe.oneCode.desc'
     },
     {
       id: 'library',
-      label: '图书馆',
+      labelKey: 'settings.probe.library.label',
       url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.library),
-      desc: '图书服务站点'
+      descKey: 'settings.probe.library.desc'
     }
   ]
 })
 
+// #787：选项文案改为 labelKey/descKey，渲染时经 t() 取词，locale 切换即时生效
 const cardStyleOptions = [
-  { key: 'glass', label: '玻璃卡片', desc: '半透明层叠，观感轻盈' },
-  { key: 'solid', label: '实体卡片', desc: '信息稳定，适合高频阅读' },
-  { key: 'outline', label: '线框卡片', desc: '弱背景，强调边界层级' }
+  { key: 'glass', labelKey: 'settings.personalize.card.glass.label', descKey: 'settings.personalize.card.glass.desc' },
+  { key: 'solid', labelKey: 'settings.personalize.card.solid.label', descKey: 'settings.personalize.card.solid.desc' },
+  { key: 'outline', labelKey: 'settings.personalize.card.outline.label', descKey: 'settings.personalize.card.outline.desc' }
 ]
 
 const navStyleOptions = [
-  { key: 'floating', label: '悬浮导航', desc: '圆角悬浮底栏，现代移动风格' },
-  { key: 'pill', label: '胶囊导航', desc: '选中态更突出，反馈更明显' },
-  { key: 'compact', label: '紧凑导航', desc: '占用更少高度，提升信息密度' }
+  { key: 'floating', labelKey: 'settings.personalize.nav.floating.label', descKey: 'settings.personalize.nav.floating.desc' },
+  { key: 'pill', labelKey: 'settings.personalize.nav.pill.label', descKey: 'settings.personalize.nav.pill.desc' },
+  { key: 'compact', labelKey: 'settings.personalize.nav.compact.label', descKey: 'settings.personalize.nav.compact.desc' }
 ]
 
 const densityOptions = [
-  { key: 'comfortable', label: '舒适', desc: '留白更多，触控更友好' },
-  { key: 'balanced', label: '均衡', desc: '效率与观感平衡（推荐）' },
-  { key: 'compact', label: '紧凑', desc: '压缩间距，单屏显示更多内容' }
+  { key: 'comfortable', labelKey: 'settings.personalize.density.comfortable.label', descKey: 'settings.personalize.density.comfortable.desc' },
+  { key: 'balanced', labelKey: 'settings.personalize.density.balanced.label', descKey: 'settings.personalize.density.balanced.desc' },
+  { key: 'compact', labelKey: 'settings.personalize.density.compact.label', descKey: 'settings.personalize.density.compact.desc' }
 ]
 
 const startupPageOptions = [
-  { key: 'home', label: '首页', desc: '默认进入综合首页' },
-  { key: 'schedule', label: '课表', desc: '启动后直接进入课表' }
+  { key: 'home', labelKey: 'settings.startup.page.home' },
+  { key: 'schedule', labelKey: 'settings.startup.page.schedule' }
 ]
 
 const interactionProfiles = [
   {
     key: 'mobile_focus',
-    label: '移动高效',
-    desc: '大按钮 · 紧凑间距 · 快速响应',
+    labelKey: 'settings.profile.mobile_focus.label',
+    descKey: 'settings.profile.mobile_focus.desc',
     patch: { radiusScale: 1.12, fontScale: 1.03, spaceScale: 1.08, motionScale: 0.9 },
     profile: { cardStyle: 'solid', navStyle: 'compact', density: 'compact', iconStyle: 'line', decor: 'none' }
   },
   {
     key: 'immersive_read',
-    label: '沉浸阅读',
-    desc: '柔和光效 · 舒适间距 · 细节丰富',
+    labelKey: 'settings.profile.immersive_read.label',
+    descKey: 'settings.profile.immersive_read.desc',
     patch: { radiusScale: 1.1, fontScale: 1.02, spaceScale: 1.04, motionScale: 1.0 },
     profile: { cardStyle: 'glass', navStyle: 'floating', density: 'comfortable', iconStyle: 'duotone', decor: 'grain' }
   },
   {
     key: 'minimal',
-    label: '极简模式',
-    desc: '线条简洁 · 信息密集 · 零装饰',
+    labelKey: 'settings.profile.minimal.label',
+    descKey: 'settings.profile.minimal.desc',
     patch: { radiusScale: 0.92, fontScale: 0.95, spaceScale: 0.9, motionScale: 0.85 },
     profile: { cardStyle: 'outline', navStyle: 'compact', density: 'compact', iconStyle: 'mono', decor: 'none' }
   },
   {
     key: 'classic',
-    label: '经典布局',
-    desc: '均衡配色 · 标准密度 · 双色图标',
+    labelKey: 'settings.profile.classic.label',
+    descKey: 'settings.profile.classic.desc',
     patch: { radiusScale: 1.0, fontScale: 1.0, spaceScale: 1.0, motionScale: 1.0 },
     profile: { cardStyle: 'solid', navStyle: 'pill', density: 'balanced', iconStyle: 'duotone', decor: 'mesh' }
   }
@@ -451,9 +477,9 @@ const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Da
 
 const toShortError = (error) => {
   const text = String(error?.message || error || '').toLowerCase()
-  if (!text) return '请求失败'
-  if (text.includes('timeout') || text.includes('aborted')) return '超时'
-  if (text.includes('failed to fetch') || text.includes('network')) return '网络异常'
+  if (!text) return t('settings.probe.error.request')
+  if (text.includes('timeout') || text.includes('aborted')) return t('settings.probe.error.timeout')
+  if (text.includes('failed to fetch') || text.includes('network')) return t('settings.probe.error.network')
   if (text.length > 18) return `${text.slice(0, 18)}...`
   return text
 }
@@ -580,16 +606,20 @@ const probeStateClass = (id) => {
 
 const probeStateText = (id) => {
   const result = getProbeResult(id)
-  if (result.status === 'testing') return '检测中...'
-  if (result.status === 'skipped') return '未配置地址'
-  if (result.status === 'error') return `失败：${result.error || '请求异常'}`
+  if (result.status === 'testing') return t('settings.probe.state.testing')
+  if (result.status === 'skipped') return t('settings.probe.state.unset')
+  if (result.status === 'error') {
+    return tr('settings.probe.state.failed', {
+      error: result.error || t('settings.probe.state.errorFallback')
+    })
+  }
   if (result.status === 'success') {
     if (result.httpStatus > 0) {
       return `${result.latencyMs} ms · HTTP ${result.httpStatus}`
     }
-    return `${result.latencyMs} ms · 可达`
+    return `${result.latencyMs} ms · ${t('settings.probe.state.reachable')}`
   }
-  return '待检测'
+  return t('settings.probe.state.idle')
 }
 
 const runSingleProbe = async (item, timeoutMs) => {
@@ -600,7 +630,8 @@ const runSingleProbe = async (item, timeoutMs) => {
     }
     return
   }
-  pushDebugLog('Probe', `开始检测 ${item.label}: ${item.url}`, 'debug')
+  const itemLabel = t(item.labelKey)
+  pushDebugLog('Probe', tr('settings.debug.log.probeStart', { label: itemLabel, url: item.url }), 'debug')
   probeResults.value = {
     ...probeResults.value,
     [item.id]: { status: 'testing' }
@@ -608,7 +639,7 @@ const runSingleProbe = async (item, timeoutMs) => {
   const result = await probeEndpoint(item.url, timeoutMs)
   pushDebugLog(
     'Probe',
-    `${item.label} -> ${result.status}${result.latencyMs ? ` (${result.latencyMs}ms)` : ''}`,
+    `${itemLabel} -> ${result.status}${result.latencyMs ? ` (${result.latencyMs}ms)` : ''}`,
     result.status === 'error' ? 'warn' : 'info',
     result
   )
@@ -623,17 +654,17 @@ const handleRunConnectivityTest = async () => {
   const timeoutMs = Number(appSettings.backend.moduleParams.probeTimeoutMs || 8000)
   const rows = probeRows.value
   if (!rows.length) {
-    showToast('当前没有可测速的目标地址', 'info')
+    showToast(t('settings.toast.probeNoTargets'), 'info')
     return
   }
-  pushDebugLog('Settings', `开始功能测速：目标数=${rows.length}，超时=${timeoutMs}ms`, 'info')
+  pushDebugLog('Settings', tr('settings.debug.log.probeRunStart', { count: rows.length, timeout: timeoutMs }), 'info')
   probeRunning.value = true
   probeFinishedAt.value = ''
   await Promise.all(rows.map((item) => runSingleProbe(item, timeoutMs)))
   probeRunning.value = false
   probeFinishedAt.value = new Date().toLocaleString()
-  pushDebugLog('Settings', `功能测速完成，目标数=${rows.length}，超时=${timeoutMs}ms`, 'info')
-  showToast('测速完成', 'success')
+  pushDebugLog('Settings', tr('settings.debug.log.probeRunDone', { count: rows.length, timeout: timeoutMs }), 'info')
+  showToast(t('settings.toast.probeDone'), 'success')
 }
 
 const refreshDebugPanel = () => {
@@ -651,7 +682,7 @@ const scrollDebugToBottom = () => {
 const handleClearDebugPanel = () => {
   clearDebugLogs()
   refreshDebugPanel()
-  showToast('调试日志已清空', 'success')
+  showToast(t('settings.toast.debugCleared'), 'success')
 }
 
 const handleCopyDebugLogs = async () => {
@@ -659,32 +690,26 @@ const handleCopyDebugLogs = async () => {
     return `${formatDebugTime(item.ts)} [${String(item.level || 'log').toUpperCase()}][${item.scope}] ${item.message}`
   })
   if (!rows.length) {
-    showToast('当前没有调试日志', 'info')
+    showToast(t('settings.toast.debugEmpty'), 'info')
     return
   }
   try {
     await navigator.clipboard.writeText(rows.join('\n'))
-    showToast('调试日志已复制', 'success')
+    showToast(t('settings.toast.debugCopied'), 'success')
   } catch {
-    showToast('复制失败，请检查剪贴板权限', 'error')
+    showToast(t('settings.toast.debugCopyFail'), 'error')
   }
-}
-
-const handleApplyPreset = (presetKey) => {
-  applyPreset(presetKey)
-  flushUiSettings()
-  showToast(`已切换主题：${UI_PRESETS[presetKey].label}`, 'success')
 }
 
 const setProfileOption = (field, value, label) => {
   if (uiSettings.profile[field] === value) {
     flushUiSettings()
-    showToast(`${label}已生效`, 'info')
+    showToast(tr('settings.toast.optionActive', { label }), 'info')
     return
   }
   uiSettings.profile[field] = value
   flushUiSettings()
-  showToast(`已切换：${label}`, 'success')
+  showToast(tr('settings.toast.optionSwitched', { label }), 'success')
 }
 
 const handleApplyProfile = (profile) => {
@@ -697,20 +722,16 @@ const handleApplyProfile = (profile) => {
     })
   }
   flushUiSettings()
-  showToast(`已应用方案：${profile.label}`, 'success')
-}
-
-const handleResetAppearance = () => {
-  resetUiSettings()
-  flushUiSettings()
-  showToast('已恢复默认主题设置', 'success')
+  showToast(tr('settings.toast.profileApplied', { label: t(profile.labelKey) }), 'success')
 }
 
 const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = false } = {}) => {
   try {
     pushDebugLog(
       'Settings',
-      `应用后端配置：useRemote=${appSettings.backend.useRemoteConfig ? '1' : '0'}`
+      tr('settings.debug.log.applyBackend', {
+        value: appSettings.backend.useRemoteConfig ? '1' : '0'
+      })
     )
     const stored = getStoredOcrConfig()
     const customOcrEndpoint = String(appSettings.backend.ocrEndpoint || '').trim()
@@ -751,7 +772,12 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
     const cloudSyncDownloadCooldown = Number(appSettings.backend.moduleParams.cloudSyncDownloadCooldownSec || 10)
     pushDebugLog(
       'Settings',
-      `CloudSync 配置 endpoint=${cloudSyncEndpoint || '(remote/default)'} secret_ref=${cloudSyncSecretRef || '(remote/default)'} upload_cooldown=${cloudSyncUploadCooldown}s download_cooldown=${cloudSyncDownloadCooldown}s`,
+      tr('settings.debug.log.cloudSyncConfig', {
+        endpoint: cloudSyncEndpoint || '(remote/default)',
+        ref: cloudSyncSecretRef || '(remote/default)',
+        up: cloudSyncUploadCooldown,
+        down: cloudSyncDownloadCooldown
+      }),
       'debug'
     )
 
@@ -760,15 +786,15 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
     }
 
     if (!silent) {
-      showToast('后端设置已应用', 'success')
+      showToast(t('settings.toast.backendApplied'), 'success')
     }
-    pushDebugLog('Settings', '后端配置应用成功', 'info')
+    pushDebugLog('Settings', t('settings.debug.log.applyBackendOk'), 'info')
     return true
   } catch (e) {
-    pushDebugLog('Settings', '后端配置应用失败', 'error', e)
+    pushDebugLog('Settings', t('settings.debug.log.applyBackendFail'), 'error', e)
     console.warn('[Settings] apply backend config failed', e)
     if (!silent) {
-      showToast('应用后端设置失败，请检查地址格式', 'error')
+      showToast(t('settings.toast.backendApplyFail'), 'error')
     }
     return false
   }
@@ -777,15 +803,22 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
 const handleRemoteModeChanged = async () => {
   const nextUseRemoteConfig = !appSettings.backend.useRemoteConfig
   appSettings.backend.useRemoteConfig = nextUseRemoteConfig
-  pushDebugLog('Settings', `切换配置源：${nextUseRemoteConfig ? '远程配置' : '仅本地'}`)
+  pushDebugLog(
+    'Settings',
+    tr('settings.debug.log.switchSource', {
+      source: nextUseRemoteConfig
+        ? t('settings.backend.source.remote')
+        : t('settings.backend.localOnly.badgeLocal')
+    })
+  )
   if (nextUseRemoteConfig) {
     window.dispatchEvent(new CustomEvent(REMOTE_CONFIG_MODE_EVENT))
-    showToast('已启用远程配置', 'success')
+    showToast(t('settings.toast.remoteEnabled'), 'success')
     return
   }
   const ok = await handleApplyBackendSettings({ silent: true, emitModeEvent: true })
   if (ok) {
-    showToast('已切换为仅本地配置', 'success')
+    showToast(t('settings.toast.localOnlyEnabled'), 'success')
   }
 }
 
@@ -794,8 +827,8 @@ const handleResetBackend = () => {
   probeResults.value = {}
   probeFinishedAt.value = ''
   window.dispatchEvent(new CustomEvent(REMOTE_CONFIG_MODE_EVENT))
-  pushDebugLog('Settings', '后端参数已恢复默认')
-  showToast('已恢复默认后端参数', 'success')
+  pushDebugLog('Settings', t('settings.debug.log.backendReset'))
+  showToast(t('settings.toast.backendReset'), 'success')
 }
 
 const clearBackendAutoApplyTimer = () => {
@@ -887,21 +920,24 @@ const handleSelectFont = async (fontKey) => {
   if (fontKey === 'default') {
     fontSettings.font = 'default'
     pendingFontKey.value = ''
-    pushDebugLog('Font', '切换字体：默认')
+    pushDebugLog('Font', t('settings.debug.log.fontDefault'))
     flushUiSettings()
-    showToast('字体已应用', 'success')
+    showToast(t('settings.toast.fontApplied'), 'success')
     return
   }
 
-  pushDebugLog('Font', `切换字体：${FONT_DISPLAY_NAME[fontKey] || fontKey}`)
+  const fontName = fontDisplayName(fontKey)
+  pushDebugLog('Font', tr('settings.debug.log.fontSwitch', { name: fontName }))
   showFontModal.value = true
-  fontModalTitle.value = `加载${FONT_DISPLAY_NAME[fontKey] || '字体'}`
-  fontModalDescription.value = '正在检测本地缓存...'
+  fontModalTitle.value = tr('settings.font.modal.loadTitle', {
+    name: fontName || t('settings.font.generic')
+  })
+  fontModalDescription.value = t('settings.font.modal.checkingLocal')
   fontModalRetryMode.value = fontKey === 'deyihei' ? 'deyihei' : 'prefetch'
   fontDownloadProgress.value = 20
   fontDownloadStatus.value = 'downloading'
   fontDownloadError.value = ''
-  fontDownloadStep.value = `检测本地缓存：${FONT_DISPLAY_NAME[fontKey] || fontKey}`
+  fontDownloadStep.value = tr('settings.font.step.checkLocal', { name: fontName })
 
   // 第一步：尝试本地缓存（不联网）
   try {
@@ -910,11 +946,11 @@ const handleSelectFont = async (fontKey) => {
       fontSettings.font = fontKey
       pendingFontKey.value = ''
       flushUiSettings()
-      pushDebugLog('Font', `字体切换成功（缓存命中）：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'info')
+      pushDebugLog('Font', tr('settings.debug.log.fontCacheHit', { name: fontName }), 'info')
       fontDownloadProgress.value = 100
       fontDownloadStatus.value = 'success'
-      fontDownloadStep.value = '本地缓存命中，字体已应用'
-      showToast('字体已应用', 'success')
+      fontDownloadStep.value = t('settings.font.step.cacheHit')
+      showToast(t('settings.toast.fontApplied'), 'success')
       showFontModal.value = false
       return
     }
@@ -923,10 +959,10 @@ const handleSelectFont = async (fontKey) => {
   }
 
   // 第二步：本地缓存未命中，自动从 CDN 下载
-  pushDebugLog('Font', `本地缓存未命中，开始从 CDN 下载：${FONT_DISPLAY_NAME[fontKey] || fontKey}`)
-  fontModalDescription.value = '本地未缓存，正在从 CDN 下载字体...'
+  pushDebugLog('Font', tr('settings.debug.log.fontCdnDownload', { name: fontName }))
+  fontModalDescription.value = t('settings.font.modal.downloadingFromCdn')
   fontDownloadProgress.value = 40
-  fontDownloadStep.value = `正在下载：${FONT_DISPLAY_NAME[fontKey] || fontKey}`
+  fontDownloadStep.value = tr('settings.font.step.downloading', { name: fontName })
 
   try {
     let loaded = false
@@ -939,21 +975,21 @@ const handleSelectFont = async (fontKey) => {
     fontSettings.font = fontKey
     pendingFontKey.value = ''
     flushUiSettings()
-    pushDebugLog('Font', `字体下载并应用成功：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'info')
+    pushDebugLog('Font', tr('settings.debug.log.fontDownloadOk', { name: fontName }), 'info')
     fontDownloadProgress.value = 100
     fontDownloadStatus.value = 'success'
-    fontDownloadStep.value = '字体下载完成，已应用'
-    showToast('字体已应用', 'success')
+    fontDownloadStep.value = t('settings.font.step.downloadDone')
+    showToast(t('settings.toast.fontApplied'), 'success')
     showFontModal.value = false
   } catch (e) {
     console.warn('[Font] download failed', e)
     pendingFontKey.value = fontKey
-    pushDebugLog('Font', `字体下载失败：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'error', e)
+    pushDebugLog('Font', tr('settings.debug.log.fontDownloadFail', { name: fontName }), 'error', e)
     fontDownloadStatus.value = 'failed'
-    fontDownloadError.value = '字体下载失败，请检查网络后重试。'
+    fontDownloadError.value = t('settings.font.error.downloadFail')
     fontDownloadProgress.value = 0
     fontDownloadStep.value = ''
-    showToast('字体下载失败，请检查网络后重试', 'error')
+    showToast(t('settings.toast.fontDownloadFail'), 'error')
   }
 }
 
@@ -963,8 +999,13 @@ const handleSelectCdnProvider = async (provider) => {
   if (fontSettings.font !== 'default') {
     await ensureFontLoaded(fontSettings.font, true)
   }
-  pushDebugLog('Font', `切换 CDN 节点：${provider}`)
-  showToast(`字体 CDN 已切换为：${provider === 'auto' ? '自动' : provider}`, 'success')
+  pushDebugLog('Font', tr('settings.debug.log.cdnSwitch', { provider }))
+  showToast(
+    tr('settings.toast.cdnSwitched', {
+      name: provider === 'auto' ? t('settings.font.cdn.autoName') : provider
+    }),
+    'success'
+  )
 }
 
 const handlePrefetchFonts = async (force = false, cacheAll = false) => {
@@ -980,30 +1021,36 @@ const handlePrefetchFonts = async (force = false, cacheAll = false) => {
       : (current && current !== 'default' ? [current] : [])
   }
   if (!targets.length) {
-    showToast('请先选择一个字体，再执行预缓存', 'info')
+    showToast(t('settings.toast.fontSelectFirst'), 'info')
     return
   }
-  pushDebugLog('Font', `开始预缓存字体，force=${force ? '1' : '0'}`)
+  pushDebugLog('Font', tr('settings.debug.log.fontPrefetchStart', { value: force ? '1' : '0' }))
   cdnPrefetching.value = true
   const needDeyiheiDownload = targets.includes('deyihei') && !fontSettings.loaded
   showFontModal.value = true
-  fontModalTitle.value = cacheAll ? '缓存全部字体' : '预缓存云端字体'
+  fontModalTitle.value = cacheAll
+    ? t('settings.font.modal.cacheAllTitle')
+    : t('settings.font.modal.prefetchTitle')
   fontModalDescription.value = cacheAll
-    ? `正在缓存全部 ${targets.length} 种字体...`
+    ? tr('settings.font.modal.cacheAllDesc', { count: targets.length })
     : (needDeyiheiDownload
-      ? '未检测到本地得意黑，将先缓存得意黑后再应用。'
-      : `正在缓存：${targets.map((key) => FONT_DISPLAY_NAME[key] || key).join(' / ')}`)
+      ? t('settings.font.modal.deyiheiFirst')
+      : tr('settings.font.modal.caching', {
+        names: targets.map((key) => fontDisplayName(key)).join(' / ')
+      }))
   fontModalRetryMode.value = 'prefetch'
   fontDownloadProgress.value = 8
   fontDownloadStatus.value = 'downloading'
   fontDownloadError.value = ''
-  fontDownloadStep.value = '准备预缓存字体...'
+  fontDownloadStep.value = t('settings.font.step.preparing')
   try {
     const results = await prefetchCdnFonts(force, ({ key, index, total, ok }) => {
-      const label = FONT_DISPLAY_NAME[key] || key
+      const label = fontDisplayName(key)
       if (showFontModal.value) {
         fontDownloadProgress.value = Math.max(12, Math.round((index / total) * 100))
-        fontDownloadStep.value = `(${index}/${total}) ${label}${ok ? ' 缓存完成' : ' 缓存失败'}`
+        fontDownloadStep.value = ok
+          ? tr('settings.font.step.itemOk', { index, total, name: label })
+          : tr('settings.font.step.itemFail', { index, total, name: label })
       }
     }, targets)
     const success = Object.values(results).filter(Boolean).length
@@ -1013,30 +1060,31 @@ const handlePrefetchFonts = async (force = false, cacheAll = false) => {
       pendingFontKey.value = ''
       flushUiSettings()
     }
-    if (success === Object.keys(results).length) {
-      pushDebugLog('Font', `字体预缓存完成：${success}/${Object.keys(results).length}`)
+    const totalCount = Object.keys(results).length
+    if (success === totalCount) {
+      pushDebugLog('Font', tr('settings.debug.log.fontPrefetchDone', { done: success, total: totalCount }))
       fontDownloadStatus.value = 'success'
-      showToast(`字体缓存完成：${success}/${Object.keys(results).length}`, 'success')
+      showToast(tr('settings.toast.fontCacheDone', { done: success, total: totalCount }), 'success')
       showFontModal.value = false
     } else {
       pushDebugLog(
         'Font',
-        `字体预缓存部分失败：${success}/${Object.keys(results).length}`,
+        tr('settings.debug.log.fontPrefetchPartial', { done: success, total: totalCount }),
         'warn',
         results
       )
       fontDownloadStatus.value = 'failed'
-      fontDownloadError.value = `部分字体缓存失败（${success}/${Object.keys(results).length}）`
-      showToast('部分字体缓存失败，请重试', 'error')
+      fontDownloadError.value = tr('settings.font.error.partialFail', { done: success, total: totalCount })
+      showToast(t('settings.toast.fontCachePartialFail'), 'error')
     }
   } catch (e) {
-    pushDebugLog('Font', '字体预缓存失败', 'error', e)
+    pushDebugLog('Font', t('settings.debug.log.fontPrefetchFail'), 'error', e)
     console.warn('[Font] prefetch failed', e)
     fontDownloadStatus.value = 'failed'
-    fontDownloadError.value = '字体缓存失败，请检查网络后重试'
+    fontDownloadError.value = t('settings.font.error.cacheFail')
     fontDownloadProgress.value = 0
     fontDownloadStep.value = ''
-    showToast('字体缓存失败，请检查网络后重试', 'error')
+    showToast(t('settings.toast.fontCacheFail'), 'error')
   } finally {
     cdnPrefetching.value = false
   }
@@ -1044,13 +1092,13 @@ const handlePrefetchFonts = async (force = false, cacheAll = false) => {
 
 const handleDownloadFont = async (force = false) => {
   if (downloadingFont.value) return
-  pushDebugLog('Font', `下载得意黑：force=${force ? '1' : '0'}`)
+  pushDebugLog('Font', tr('settings.debug.log.deyiheiDownload', { value: force ? '1' : '0' }))
   downloadingFont.value = true
   showFontModal.value = true
-  fontModalTitle.value = '下载得意黑字体'
-  fontModalDescription.value = '首次启用需下载字体文件，下载完成后会自动应用。'
+  fontModalTitle.value = t('settings.font.modal.downloadTitle')
+  fontModalDescription.value = t('settings.font.modal.downloadDesc')
   fontModalRetryMode.value = 'deyihei'
-  fontDownloadStep.value = '准备下载得意黑...'
+  fontDownloadStep.value = t('settings.font.step.preparingDownload')
   fontDownloadProgress.value = 15
   fontDownloadStatus.value = 'downloading'
   fontDownloadError.value = ''
@@ -1061,19 +1109,19 @@ const handleDownloadFont = async (force = false) => {
     }
     fontDownloadProgress.value = 100
     fontDownloadStatus.value = 'success'
-    fontDownloadStep.value = '得意黑已缓存并应用'
+    fontDownloadStep.value = t('settings.font.step.deyiheiDone')
     fontSettings.font = 'deyihei'
     pendingFontKey.value = ''
-    pushDebugLog('Font', '得意黑下载并应用成功')
-    showToast('字体下载完成，已应用得意黑', 'success')
+    pushDebugLog('Font', t('settings.debug.log.deyiheiOk'))
+    showToast(t('settings.toast.deyiheiApplied'), 'success')
     showFontModal.value = false
   } catch (e) {
-    pushDebugLog('Font', '得意黑下载失败', 'error', e)
+    pushDebugLog('Font', t('settings.debug.log.deyiheiFail'), 'error', e)
     fontDownloadStatus.value = 'failed'
-    fontDownloadError.value = '字体下载失败，请检查网络后重试'
+    fontDownloadError.value = t('settings.font.error.downloadFail')
     fontDownloadProgress.value = 0
     fontDownloadStep.value = ''
-    showToast('字体下载失败，请检查网络后重试', 'error')
+    showToast(t('settings.toast.fontDownloadFail'), 'error')
     console.warn('[Font] download failed', e)
   } finally {
     downloadingFont.value = false

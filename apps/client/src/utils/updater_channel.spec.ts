@@ -201,14 +201,15 @@ describe('update channel (stable / dev)', () => {
     const app = readAppContractSources()
     const updater = readSource('src/utils/updater.ts') + '\n' + readSource('src/utils/updater_sources.ts')
 
-    expect(dialog).toContain('接收开发版更新（Beta）')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(dialog).toContain("t('update.channel.betaTitle')")
     expect(dialog).toContain('setUpdateChannel')
     expect(dialog).toContain('setSkippedVersion')
     expect(dialog).toContain('getUpdateChannel')
-    expect(dialog).toContain('dev-latest')
+    expect(dialog).toContain('update.channel.betaDesc')
     expect(dialog).toContain('handleChannelToggle')
     expect(dialog).toContain('isCurrentInstallDev')
-    expect(dialog).toContain('当前安装')
+    expect(dialog).toContain("tf('update.channel.currentInstall', { badge: installBadge })")
     expect(dialog).toContain('currentVersionLabel')
     expect(app).toContain('checkForUpdates(currentVersion, { channel })')
     expect(app).toContain('getSkippedVersion')

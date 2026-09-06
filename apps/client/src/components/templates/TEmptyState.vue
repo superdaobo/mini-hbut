@@ -9,6 +9,8 @@
 
 <script setup>
 import { computed } from 'vue'
+// #785：内置默认文案接入轻量多语言（props 传入的 message 由调用方批次负责）
+import { useI18n } from '../../utils/app_i18n'
 
 const props = defineProps({
   type: { type: String, default: 'empty', validator: (v) => ['empty', 'loading', 'error'].includes(v) },
@@ -16,10 +18,13 @@ const props = defineProps({
   icon: { type: String, default: '' }
 })
 
+// 响应式 t：语言切换后默认文案即时生效
+const { t } = useI18n()
+
 const defaultMessage = computed(() => {
-  if (props.type === 'loading') return '加载中...'
-  if (props.type === 'error') return '加载失败，请稍后重试'
-  return '暂无数据'
+  if (props.type === 'loading') return t('common.empty.loading')
+  if (props.type === 'error') return t('common.empty.error')
+  return t('common.empty.text')
 })
 
 const resolvedIcon = computed(() => {

@@ -3,9 +3,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
 import { formatDebugTime, getDebugLogs, subscribeDebugLogs } from '../utils/debug_logger'
+import { useI18n } from '../utils/app_i18n'
 import { TEmptyState, TPageHeader } from './templates'
 
 const emit = defineEmits(['back'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 
 const feedbackUrl = 'https://docs.qq.com/sheet/DQkdvWHJxQ3RwWlB4?tab=BB08J2'
 const DEBUG_LOG_LIMIT = 200
@@ -47,11 +51,11 @@ const openInBrowser = async () => {
   try {
     const opened = await openExternal(feedbackUrl)
     if (!opened) {
-      throw new Error('默认浏览器未成功拉起')
+      throw new Error(t('feedback.toast.browserFailed'))
     }
-    showToast('已在默认浏览器打开反馈页', 'success')
+    showToast(t('feedback.toast.opened'), 'success')
   } catch (error) {
-    browserOpenError.value = String(error?.message || error || '浏览器打开失败')
+    browserOpenError.value = String(error?.message || error || t('feedback.toast.openFailed'))
     showToast(browserOpenError.value, 'error')
   } finally {
     browserOpening.value = false
@@ -68,21 +72,21 @@ const copyText = async (text, successMessage, emptyMessage) => {
     await navigator.clipboard.writeText(value)
     showToast(successMessage, 'success')
   } catch (error) {
-    console.error('[Feedback] 复制失败', error)
-    showToast('复制失败', 'error')
+    console.error('[Feedback] copy failed', error)
+    showToast(t('feedback.toast.copyFailed'), 'error')
   }
 }
 
 const copyLink = async () => {
-  await copyText(feedbackUrl, '反馈链接已复制', '反馈链接为空')
+  await copyText(feedbackUrl, t('feedback.toast.linkCopied'), t('feedback.toast.linkEmpty'))
 }
 
 const copyRecentErrors = async () => {
-  await copyText(recentErrorText.value, '最近 error 已复制', '当前没有最近 error')
+  await copyText(recentErrorText.value, t('feedback.toast.errorsCopied'), t('feedback.toast.errorsEmpty'))
 }
 
 const copySingleError = async (item) => {
-  await copyText(formatErrorItem(item), 'error 已复制', '当前 error 为空')
+  await copyText(formatErrorItem(item), t('feedback.toast.errorCopied'), t('feedback.toast.errorEmpty'))
 }
 
 onMounted(() => {
@@ -102,9 +106,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="feedback-view">
-    <TPageHeader title="问题反馈" @back="emit('back')">
+    <TPageHeader :title="t('feedback.title')" @back="emit('back')">
       <template #actions>
-        <button class="header-btn" type="button" @click="copyLink">复制链接</button>
+        <button class="header-btn" type="button" @click="copyLink">{{ t('feedback.copyLink') }}</button>
       </template>
     </TPageHeader>
 
@@ -112,11 +116,11 @@ onBeforeUnmount(() => {
       <section class="feedback-card feedback-card--actions">
         <div class="feedback-actions">
           <button class="primary-btn" type="button" :disabled="browserOpening" @click="openInBrowser">
-            {{ browserOpening ? '打开中...' : '打开反馈表单' }}
+            {{ browserOpening ? t('feedback.opening') : t('feedback.openForm') }}
           </button>
-          <button class="ghost-btn" type="button" @click="copyLink">复制反馈链接</button>
+          <button class="ghost-btn" type="button" @click="copyLink">{{ t('feedback.copyLinkBtn') }}</button>
           <button class="ghost-btn" type="button" :disabled="!recentErrorLogs.length" @click="copyRecentErrors">
-            复制最近 error
+            {{ t('feedback.copyErrors') }}
           </button>
         </div>
         <p v-if="browserOpenError" class="status-line status-line--error">{{ browserOpenError }}</p>
@@ -124,11 +128,11 @@ onBeforeUnmount(() => {
 
       <section class="feedback-card">
         <div class="section-head">
-          <h3>最近 error</h3>
+          <h3>{{ t('feedback.recentErrors') }}</h3>
           <span class="section-count">{{ recentErrorLogs.length }}</span>
         </div>
 
-        <TEmptyState v-if="!recentErrorLogs.length" type="empty" message="当前没有最近 error。" />
+        <TEmptyState v-if="!recentErrorLogs.length" type="empty" :message="t('feedback.noErrors')" />
 
         <div v-else class="error-list">
           <article v-for="item in recentErrorLogs" :key="item.id" class="error-item">
@@ -137,7 +141,7 @@ onBeforeUnmount(() => {
                 <strong>{{ item.scope || 'APP' }}</strong>
                 <time>{{ formatDebugTime(item.ts) }}</time>
               </div>
-              <button class="inline-copy-btn" type="button" @click="copySingleError(item)">复制</button>
+              <button class="inline-copy-btn" type="button" @click="copySingleError(item)">{{ t('feedback.copy') }}</button>
             </div>
             <pre class="error-details">{{ formatErrorItem(item) }}</pre>
           </article>

@@ -96,3 +96,31 @@ export const campusStatusLabel = (status: CampusNetworkStatus | ''): string => {
       return '未知'
   }
 }
+
+/**
+ * i18n（#791）：状态 → campusnet.status.* 字典 key 映射。
+ * 与 campusStatusLabel 语义一一对应；UI 侧用 useI18n 的 t(key) 按当前语言取词。
+ * 本文件保留中文返回值 API（campus_network_contract.spec.ts 契约依赖），不纳入白名单。
+ */
+export const campusStatusLabelKey = (status: CampusNetworkStatus | ''): string => {
+  switch (status) {
+    case 'authenticated':
+      return 'campusnet.status.authenticated'
+    case 'needs_auth':
+      return 'campusnet.status.needs_auth'
+    case 'checking':
+      return 'campusnet.status.check'
+    case 'error':
+      return 'campusnet.status.error'
+    default:
+      return 'campusnet.status.unknown'
+  }
+}
+
+/** i18n（#791）：运营商 id → campusnet.carrier.<id>.label 字典 key 映射 */
+export const campusCarrierLabelKey = (carrier: CampusCarrier): string =>
+  `campusnet.carrier.${carrier}.label`
+
+/** i18n（#791）：运营商 id → campusnet.carrier.<id>.hint 字典 key 映射 */
+export const campusCarrierHintKey = (carrier: CampusCarrier): string =>
+  `campusnet.carrier.${carrier}.hint`

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import axios from 'axios'
 import { qrToDataURL } from '../utils/qrcode.js'
+import { t, tf, useI18n } from '../utils/app_i18n'
 import { TPageHeader } from './templates'
 
 const props = defineProps({
@@ -32,12 +33,17 @@ let refreshTimer = null
 let orderTimer = null
 let orderPolling = false
 
+// #791：响应式 t —— 语言切换后模板即时生效
+const { t: tLocale } = useI18n()
+
 const normalizeMode = (value) => {
   const raw = String(value || '').trim().toLowerCase()
   return raw === 'offline' ? 'offline' : 'online'
 }
 
-const currentModeLabel = computed(() => (mode.value === 'offline' ? '高能模式' : '在线模式'))
+const currentModeLabel = computed(() =>
+  tLocale(mode.value === 'offline' ? 'campuscode.mode.offline' : 'campuscode.mode.online')
+)
 const canOnline = computed(() => configData.value?.disableOnline !== true)
 const canOffline = computed(() => configData.value?.enableOffline === true)
 const refreshSecond = computed(() => {
@@ -47,7 +53,9 @@ const refreshSecond = computed(() => {
 })
 const isOfflineMode = computed(() => mode.value === 'offline')
 const autoRefreshHint = computed(() =>
-  isOfflineMode.value ? '高能模式下为手动刷新' : `在线模式每 ${refreshSecond.value} 秒自动刷新`
+  isOfflineMode.value
+    ? tLocale('campuscode.mode.offlineHint')
+    : tf('campuscode.mode.onlineHint', { n: refreshSecond.value })
 )
 
 const ensureDevCode = () => {
@@ -124,7 +132,7 @@ const fetchCampusCodeConfig = async () => {
       student_id: props.studentId
     })
     if (!data?.success) {
-      throw new Error(data?.message || data?.error || '校园码配置请求失败')
+      throw new Error(data?.message || data?.error || t('campuscode.error.configRequest'))
     }
     configData.value = data.resultData || {}
   } finally {
@@ -146,18 +154,18 @@ const mapOrderStatus = (code) => {
   const statusCode = String(code || '')
   switch (statusCode) {
     case '1':
-      return { type: 'success', text: '检测到支付成功，已自动刷新新二维码。' }
+      return { type: 'success', text: t('campuscode.status.paid') }
     case '2':
-      return { type: 'warn', text: '当前二维码已被使用，请刷新后继续。' }
+      return { type: 'warn', text: t('campuscode.status.used') }
     case '4':
-      return { type: 'warn', text: '二维码状态异常（非法码），请刷新。' }
+      return { type: 'warn', text: t('campuscode.status.illegal') }
     case '6':
-      return { type: 'warn', text: '校园卡余额不足，请充值后重试。' }
+      return { type: 'warn', text: t('campuscode.status.lowBalance') }
     case '7':
-      return { type: 'warn', text: '支付异常，请稍后重试或联系管理员。' }
+      return { type: 'warn', text: t('campuscode.status.payError') }
     case '5':
     default:
-      return { type: 'idle', text: '等待扫码中…' }
+      return { type: 'idle', text: t('campuscode.status.waiting') }
   }
 }
 
@@ -234,7 +242,7 @@ const refreshCampusCode = async ({ silent = false } = {}) => {
       student_id: props.studentId
     })
     if (!data?.success) {
-      throw new Error(data?.message || data?.error || '校园码请求失败')
+      throw new Error(data?.message || data?.error || t('campuscode.error.qrRequest'))
     }
     const result = data.resultData || {}
     qrcodeText.value = String(result.qrcode || '').trim()
@@ -254,7 +262,7 @@ const refreshCampusCode = async ({ silent = false } = {}) => {
     qrcodeText.value = ''
     qrImageDataUrl.value = ''
     if (!silent) {
-      errorMsg.value = error?.message || '校园码加载失败'
+      errorMsg.value = error?.message || t('campuscode.error.loadFailed')
     }
   } finally {
     loadingCode.value = false
@@ -279,7 +287,7 @@ onMounted(async () => {
     await fetchCampusCodeConfig()
     applyModeAvailability()
   } catch (error) {
-    errorMsg.value = error?.message || '校园码配置加载失败'
+    errorMsg.value = error?.message || t('campuscode.error.configFailed')
   }
   await refreshCampusCode({ silent: false })
 })
@@ -291,7 +299,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="campus-code-view">
-    <TPageHeader icon="qr_code" title="校园码" @back="handleBack" />
+    <TPageHeader icon="qr_code" :title="tLocale('campuscode.title')" @back="handleBack" />
 
     <section class="mode-panel">
       <button
@@ -300,7 +308,7 @@ onBeforeUnmount(() => {
         :disabled="!canOnline || loadingCode"
         @click="handleSwitchMode('online')"
       >
-        在线模式
+        {{ tLocale('campuscode.mode.online') }}
       </button>
       <button
         class="mode-chip"
@@ -308,21 +316,21 @@ onBeforeUnmount(() => {
         :disabled="!canOffline || loadingCode"
         @click="handleSwitchMode('offline')"
       >
-        高能模式
+        {{ tLocale('campuscode.mode.offline') }}
       </button>
     </section>
 
     <section class="status-panel">
       <div class="line">
-        <span class="label">当前模式</span>
+        <span class="label">{{ tLocale('campuscode.mode.current') }}</span>
         <span class="value">{{ currentModeLabel }}</span>
       </div>
       <div class="line">
-        <span class="label">刷新策略</span>
+        <span class="label">{{ tLocale('campuscode.mode.refreshPolicy') }}</span>
         <span class="value">{{ autoRefreshHint }}</span>
       </div>
       <div class="line">
-        <span class="label">最后刷新</span>
+        <span class="label">{{ tLocale('campuscode.mode.lastRefresh') }}</span>
         <span class="value">{{ lastRefreshAt || '--:--:--' }}</span>
       </div>
     </section>
@@ -330,12 +338,12 @@ onBeforeUnmount(() => {
     <section class="qr-panel">
       <div v-if="loadingConfig || loadingCode" class="loading-block">
         <div class="spinner"></div>
-        <p>{{ loadingConfig ? '加载校园码配置中...' : '正在生成校园码...' }}</p>
+        <p>{{ loadingConfig ? tLocale('campuscode.loading.config') : tLocale('campuscode.loading.qr') }}</p>
       </div>
 
       <div v-else class="qr-body">
-        <img v-if="qrImageDataUrl" :src="qrImageDataUrl" class="qr-fallback-image" alt="校园码二维码" />
-        <p v-if="!qrcodeText" class="qr-empty">暂无可用二维码，请点击刷新</p>
+        <img v-if="qrImageDataUrl" :src="qrImageDataUrl" class="qr-fallback-image" :alt="tLocale('campuscode.qr.alt')" />
+        <p v-if="!qrcodeText" class="qr-empty">{{ tLocale('campuscode.qr.empty') }}</p>
       </div>
 
       <div v-if="errorMsg" class="banner error">{{ errorMsg }}</div>
@@ -343,33 +351,33 @@ onBeforeUnmount(() => {
 
       <div class="meta-grid">
         <div class="meta-item">
-          <span>学号</span>
-          <strong>{{ idSerial || '未知' }}</strong>
+          <span>{{ tLocale('campuscode.meta.studentId') }}</span>
+          <strong>{{ idSerial || tLocale('campuscode.meta.unknown') }}</strong>
         </div>
         <div class="meta-item">
-          <span>姓名</span>
-          <strong>{{ userName || '未知' }}</strong>
+          <span>{{ tLocale('campuscode.meta.name') }}</span>
+          <strong>{{ userName || tLocale('campuscode.meta.unknown') }}</strong>
         </div>
         <div class="meta-item">
-          <span>余额</span>
+          <span>{{ tLocale('campuscode.meta.balance') }}</span>
           <strong>¥ {{ balance }}</strong>
         </div>
         <div class="meta-item">
-          <span>模式</span>
+          <span>{{ tLocale('campuscode.meta.mode') }}</span>
           <strong>{{ currentModeLabel }}</strong>
         </div>
       </div>
 
       <button class="refresh-btn" :disabled="loadingCode" @click="refreshCampusCode()">
-        {{ loadingCode ? '刷新中...' : '手动刷新二维码' }}
+        {{ loadingCode ? tLocale('campuscode.refresh.working') : tLocale('campuscode.refresh.idle') }}
       </button>
     </section>
 
     <section v-if="orderSnapshot" class="order-panel">
-      <h3>最近状态</h3>
-      <p>状态码：{{ orderSnapshot.status || '-' }}</p>
-      <p>交易金额：{{ orderSnapshot.txAmt || '0.00' }}</p>
-      <p>支付方式：{{ orderSnapshot.paymentName || '虚拟卡被扫支付' }}</p>
+      <h3>{{ tLocale('campuscode.order.title') }}</h3>
+      <p>{{ tf('campuscode.order.statusCode', { code: orderSnapshot.status || '-' }) }}</p>
+      <p>{{ tf('campuscode.order.txAmt', { amount: orderSnapshot.txAmt || '0.00' }) }}</p>
+      <p>{{ tf('campuscode.order.payment', { name: orderSnapshot.paymentName || tLocale('campuscode.order.defaultPayment') }) }}</p>
     </section>
   </div>
 </template>

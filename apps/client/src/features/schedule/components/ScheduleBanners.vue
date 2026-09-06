@@ -3,7 +3,10 @@
  * 课表横幅区：离线/假期/错误提示 + 回到当前周按钮。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
  * #750：新增学期切换提示横幅（提前窗口内新学期课表未发布时展示）。
+ * #788 i18n：文案经 useI18n 响应式取词。
  */
+import { useI18n } from '../../../utils/app_i18n'
+
 defineProps({
   offline: { type: Boolean, default: false },
   initialFetchDone: { type: Boolean, default: false },
@@ -16,6 +19,9 @@ defineProps({
   termStartNotice: { type: String, default: '' },
 })
 const emit = defineEmits(['jump-current'])
+
+// 响应式 t：语言切换后横幅按钮文案即时生效
+const { t } = useI18n()
 </script>
 
 <template>
@@ -41,9 +47,9 @@ const emit = defineEmits(['jump-current'])
     v-if="currentWeek && selectedWeek && selectedWeek !== currentWeek"
     class="jump-current-btn"
     @click="emit('jump-current')"
-    title="跳转到当前周"
+    :title="t('schedule.banners.jumpToCurrentWeekTitle')"
   >
-    回到当前周
+    {{ t('schedule.banners.jumpToCurrentWeek') }}
   </button>
 </template>
 

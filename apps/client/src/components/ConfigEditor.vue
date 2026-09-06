@@ -3,8 +3,12 @@ import { computed, onMounted, ref } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import { showToast } from '../utils/toast'
+import { useI18n } from '../utils/app_i18n'
 
 const emit = defineEmits(['back'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 
 const defaultConfig = {
   announcements: {
@@ -54,20 +58,21 @@ const activeTab = ref('ticker')
 const rawJson = ref('')
 const jsonError = ref('')
 
-const tabs = [
-  { key: 'ticker', label: '滚动公告' },
-  { key: 'pinned', label: '置顶公告' },
-  { key: 'list', label: '公告列表' },
-  { key: 'confirm', label: '确认公告' }
-]
+// tabs 文案 getter 化：保证语言切换即时生效
+const tabs = computed(() => [
+  { key: 'ticker', label: t('config.tab.ticker') },
+  { key: 'pinned', label: t('config.tab.pinned') },
+  { key: 'list', label: t('config.tab.list') },
+  { key: 'confirm', label: t('config.tab.confirm') }
+])
 
 const currentList = computed(() => config.value.announcements[activeTab.value] || [])
 
 const newNotice = () => ({
   id: `notice-${Date.now()}`,
-  title: '新公告',
+  title: t('config.notice.newTitle'),
   summary: '',
-  content: '在这里填写 Markdown 正文',
+  content: t('config.notice.newContent'),
   image: '',
   updated_at: new Date().toISOString().slice(0, 10),
   pinned: activeTab.value === 'pinned',
@@ -137,7 +142,7 @@ const loadRemoteConfig = async () => {
     ensureStruct()
     rawJson.value = JSON.stringify(config.value, null, 2)
   } catch {
-    jsonError.value = '加载远程配置失败'
+    jsonError.value = t('config.error.loadFailed')
   }
 }
 
@@ -145,8 +150,8 @@ const exportJson = async () => {
   ensureStruct()
   const invite = String(config.value.chaoxing_class?.invite_code || '').trim()
   if (!invite) {
-    jsonError.value = '学习通邀请码不能为空'
-    showToast('请填写学习通邀请码后再导出', 'error')
+    jsonError.value = t('config.error.inviteCodeEmpty')
+    showToast(t('config.toast.inviteCodeRequired'), 'error')
     return
   }
   jsonError.value = ''
@@ -160,16 +165,16 @@ const exportJson = async () => {
     a.download = 'remote_config.json'
     a.click()
     URL.revokeObjectURL(url)
-    showToast('已导出 remote_config.json', 'success')
+    showToast(t('config.toast.exported'), 'success')
     return
   } catch {
     // ignore
   }
   try {
     await navigator.clipboard.writeText(data)
-    showToast('导出失败，已复制 JSON 到剪贴板', 'warning')
+    showToast(t('config.toast.exportFailedCopied'), 'warning')
   } catch {
-    showToast('导出失败，请手动复制下方 JSON', 'error')
+    showToast(t('config.toast.exportFailedManual'), 'error')
   }
 }
 
@@ -181,24 +186,24 @@ onMounted(() => {
 <template>
   <div class="config-editor">
     <header class="editor-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h2>配置工具</h2>
-      <p>编辑远程配置并导出为 JSON 文件。</p>
+      <button class="back-btn" @click="emit('back')">{{ t('config.back') }}</button>
+      <h2>{{ t('config.title') }}</h2>
+      <p>{{ t('config.subtitle') }}</p>
     </header>
 
     <section class="editor-card">
-      <h3>基础服务配置</h3>
+      <h3>{{ t('config.section.basic') }}</h3>
       <div class="form-grid">
         <label>
-          OCR 服务地址
+          {{ t('config.label.ocrEndpoint') }}
           <input v-model="config.ocr.endpoint" placeholder="https://mini-hbut-testocr1.hf.space/api/ocr/recognize" />
         </label>
         <label class="toggle">
           <input v-model="config.ocr.enabled" type="checkbox" />
-          启用 OCR
+          {{ t('config.label.enableOcr') }}
         </label>
         <label>
-          临时文件上传地址
+          {{ t('config.label.tempUpload') }}
           <input
             v-model="config.temp_file_server.schedule_upload_endpoint"
             placeholder="https://mini-hbut-testocr1.hf.space/api/temp/upload"
@@ -206,39 +211,39 @@ onMounted(() => {
         </label>
         <label class="toggle">
           <input v-model="config.temp_file_server.enabled" type="checkbox" />
-          启用临时文件服务
+          {{ t('config.label.enableTempServer') }}
         </label>
       </div>
     </section>
 
     <section class="editor-card">
-      <h3>资料分享（WebDAV）</h3>
+      <h3>{{ t('config.section.webdav') }}</h3>
       <div class="form-grid">
         <label class="toggle">
           <input v-model="config.resource_share.enabled" type="checkbox" />
-          启用资料分享
+          {{ t('config.label.enableShare') }}
         </label>
         <label>
-          WebDAV 服务地址
+          {{ t('config.label.webdavEndpoint') }}
           <input v-model="config.resource_share.endpoint" placeholder="https://mini-hbut-chaoxing-webdav.hf.space" />
         </label>
         <label>
-          WebDAV 用户名
+          {{ t('config.label.webdavUser') }}
           <input v-model="config.resource_share.username" placeholder="mini-hbut" />
         </label>
         <label>
-          WebDAV 密码
+          {{ t('config.label.webdavPassword') }}
           <input v-model="config.resource_share.password" placeholder="mini-hbut" />
         </label>
         <label>
-          Office 在线预览代理
+          {{ t('config.label.officeProxy') }}
           <input
             v-model="config.resource_share.office_preview_proxy"
             placeholder="https://view.officeapps.live.com/op/view.aspx?src="
           />
         </label>
         <label>
-          Office 预览临时上传地址
+          {{ t('config.label.officeTempUpload') }}
           <input
             v-model="config.resource_share.temp_upload_endpoint"
             placeholder="https://mini-hbut-testocr1.hf.space/api/temp/upload"
@@ -248,69 +253,68 @@ onMounted(() => {
     </section>
 
     <section class="editor-card">
-      <h3>云同步（OCR 中转）</h3>
+      <h3>{{ t('config.section.cloudSync') }}</h3>
       <div class="form-grid">
         <label class="toggle">
           <input v-model="config.cloud_sync.enabled" type="checkbox" />
-          启用云同步
+          {{ t('config.label.enableCloudSync') }}
         </label>
         <label>
-          模式
+          {{ t('config.label.mode') }}
           <input v-model="config.cloud_sync.mode" placeholder="proxy" />
         </label>
         <label>
-          云同步中转地址
+          {{ t('config.label.cloudSyncEndpoint') }}
           <input
             v-model="config.cloud_sync.proxy_endpoint"
             placeholder="https://mini-hbut-testocr1.hf.space/api/cloud-sync"
           />
         </label>
         <label>
-          秘钥引用（secret_ref）
+          {{ t('config.label.secretRef') }}
           <input v-model="config.cloud_sync.secret_ref" placeholder="kv1-main" />
         </label>
         <label>
-          请求超时（ms）
+          {{ t('config.label.timeout') }}
           <input v-model.number="config.cloud_sync.timeout_ms" type="number" min="3000" max="45000" step="500" />
         </label>
         <label>
-          同步冷却（秒）
+          {{ t('config.label.cooldown') }}
           <input v-model.number="config.cloud_sync.cooldown_seconds" type="number" min="30" max="3600" step="10" />
         </label>
       </div>
     </section>
 
     <section class="editor-card">
-      <h3>学习通资料库</h3>
+      <h3>{{ t('config.section.chaoxing') }}</h3>
       <p class="hint">
-        只需填写邀请码。导出并推送到远程配置后，客户端会下载并缓存该邀请码；课程名、教师、封面等由 App
-        根据邀请码在线解析。远程不可达时使用本地缓存/内置默认邀请码。
+        {{ t('config.chaoxing.hint') }}
       </p>
       <div class="form-grid">
         <label class="toggle">
           <input v-model="config.chaoxing_class.enabled" type="checkbox" />
-          启用学习通资料库
+          {{ t('config.label.enableChaoxing') }}
         </label>
         <label>
-          邀请码（必填）
+          {{ t('config.label.inviteCode') }}
           <input v-model="config.chaoxing_class.invite_code" placeholder="18853572" />
         </label>
       </div>
     </section>
 
     <section class="editor-card">
-      <h3>强制更新</h3>
+      <h3>{{ t('config.section.forceUpdate') }}</h3>
       <div class="form-grid">
         <label>
-          最低版本
+          {{ t('config.label.minVersion') }}
           <input v-model="config.force_update.min_version" placeholder="1.1.0" />
         </label>
         <label>
-          更新说明
-          <input v-model="config.force_update.message" placeholder="当前版本过低，请更新后继续使用。" />
+          {{ t('config.label.updateMessage') }}
+          <input v-model="config.force_update.message" :placeholder="t('config.placeholder.forceUpdateMessage')" />
         </label>
         <label>
-          下载地址
+          {{ t('config.label.downloadUrl') }}
           <input v-model="config.force_update.download_url" placeholder="https://github.com/superdaobo/mini-hbut/releases" />
         </label>
       </div>
@@ -327,14 +331,14 @@ onMounted(() => {
         >
           {{ tab.label }}
         </button>
-        <button class="add-btn" @click="addNotice">+ 新增公告</button>
+        <button class="add-btn" @click="addNotice">{{ t('config.action.addNotice') }}</button>
       </div>
 
-      <div v-if="!currentList.length" class="empty">暂无公告</div>
+      <div v-if="!currentList.length" class="empty">{{ t('config.notice.empty') }}</div>
       <div v-for="(notice, index) in currentList" :key="notice.id" class="notice-editor">
         <div class="notice-header">
-          <h4>{{ notice.title || '未命名公告' }}</h4>
-          <button class="remove-btn" @click="removeNotice(index)">删除</button>
+          <h4>{{ notice.title || t('config.notice.unnamed') }}</h4>
+          <button class="remove-btn" @click="removeNotice(index)">{{ t('config.notice.delete') }}</button>
         </div>
         <div class="form-grid">
           <label>
@@ -342,29 +346,29 @@ onMounted(() => {
             <input v-model="notice.id" />
           </label>
           <label>
-            标题
+            {{ t('config.label.title') }}
             <input v-model="notice.title" />
           </label>
           <label>
-            更新时间
+            {{ t('config.label.updatedAt') }}
             <input v-model="notice.updated_at" />
           </label>
           <label>
-            图片地址
+            {{ t('config.label.image') }}
             <input v-model="notice.image" placeholder="https://..." />
           </label>
           <label>
-            摘要
+            {{ t('config.label.summary') }}
             <input v-model="notice.summary" />
           </label>
         </div>
         <div class="markdown-editor">
           <div>
-            <h5>正文（Markdown）</h5>
+            <h5>{{ t('config.label.content') }}</h5>
             <textarea v-model="notice.content" rows="6"></textarea>
           </div>
           <div>
-            <h5>预览</h5>
+            <h5>{{ t('config.label.preview') }}</h5>
             <div class="markdown-preview" v-html="renderMarkdown(notice.content || '')"></div>
           </div>
         </div>
@@ -372,11 +376,11 @@ onMounted(() => {
     </section>
 
     <section class="editor-card">
-      <h3>导出 JSON</h3>
-      <textarea v-model="rawJson" rows="10" readonly placeholder="导出的 JSON 会显示在这里"></textarea>
+      <h3>{{ t('config.section.export') }}</h3>
+      <textarea v-model="rawJson" rows="10" readonly :placeholder="t('config.export.placeholder')"></textarea>
       <div class="actions">
-        <button class="btn-primary" @click="exportJson">导出 JSON</button>
-        <button class="btn-secondary" @click="loadRemoteConfig">重新加载</button>
+        <button class="btn-primary" @click="exportJson">{{ t('config.action.exportJson') }}</button>
+        <button class="btn-secondary" @click="loadRemoteConfig">{{ t('config.action.reload') }}</button>
       </div>
       <p v-if="jsonError" class="error">{{ jsonError }}</p>
     </section>

@@ -10,9 +10,20 @@
 import { onMounted, onUnmounted, watch } from 'vue'
 import { TPageHeader, TEmptyState, TStatusBadge } from './templates'
 import { formatDuration } from '../features/chaoxing/utils/normalize'
+// #792：学习通域文案英文化（t() 响应式取词）
+import { useLocale } from '../utils/app_i18n'
 import { createChaoxingHubCore } from '../features/chaoxing/composables/useChaoxingHubCore'
 import { useChaoxingCourseList } from '../features/chaoxing/composables/useChaoxingCourseList'
 import { useChaoxingCourseNav } from '../features/chaoxing/composables/useChaoxingCourseNav'
+
+const { t } = useLocale()
+
+/** 带占位符的插值：{n}/{a}/{b} 等按序替换，供 i18n 字典参数化文案使用 */
+const tFmt = (key, params = {}) =>
+  Object.entries(params).reduce(
+    (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
+    t(key)
+  )
 
 /**
  * 契约锚点（iOS 崩溃防护 #528，见 chaoxing_hub_ios_contract.spec.ts）：
@@ -128,14 +139,14 @@ onUnmounted(() => {
           :disabled="refreshing || loading"
           @click="loadList({ silent: true, force: true })"
         >
-          {{ refreshing ? '…' : '刷新' }}
+          {{ refreshing ? '…' : t('chaoxing.hub.refresh') }}
         </button>
       </template>
     </TPageHeader>
 
     <div class="cx-hub__body">
       <!-- 面包屑：多级导航 -->
-      <nav v-if="stack.length > 1" class="crumbs" aria-label="路径">
+      <nav v-if="stack.length > 1" class="crumbs" :aria-label="t('chaoxing.hub.pathAria')">
         <template v-for="(bc, i) in breadcrumbs" :key="bc.key + i">
           <button
             type="button"
@@ -152,7 +163,7 @@ onUnmounted(() => {
 
       <div v-if="pageLoading" class="page-loading">
         <span class="material-symbols-outlined spin">progress_activity</span>
-        <span>加载中…</span>
+        <span>{{ t('chaoxing.hub.loading') }}</span>
       </div>
 
       <!-- 1. 课程列表 -->
@@ -160,30 +171,30 @@ onUnmounted(() => {
         <section class="panel hero">
           <div class="hero-row">
             <div>
-              <strong>我的课程</strong>
+              <strong>{{ t('chaoxing.hub.myCourses') }}</strong>
               <p>
-                {{ courses.length }} 门 ·
+                {{ tFmt('chaoxing.hub.courseCount', { n: courses.length }) }} ·
                 {{
                   semesterTabs.length > 2
-                    ? semesterTabs.length - 1 + ' 个学期'
+                    ? tFmt('chaoxing.hub.semestersCount', { n: semesterTabs.length - 1 })
                     : semesterTabs.length === 2
                       ? semesterTabs[1]
-                      : '学期待同步'
+                      : t('chaoxing.hub.semestersPending')
                 }}
               </p>
             </div>
             <TStatusBadge :type="badgeType" :text="badgeText" />
           </div>
           <div class="stat-row">
-            <div class="stat"><span>课程</span><b>{{ filteredCourses.length }}</b></div>
-            <div class="stat"><span>待办</span><b>{{ totalPending }}</b></div>
+            <div class="stat"><span>{{ t('chaoxing.hub.statCourses') }}</span><b>{{ filteredCourses.length }}</b></div>
+            <div class="stat"><span>{{ t('chaoxing.hub.statPending') }}</span><b>{{ totalPending }}</b></div>
           </div>
           <p v-if="error" class="err">{{ error }}</p>
           <p
             v-if="filteredCourses.length > visibleCourses.length"
             class="hint"
           >
-            已显示 {{ visibleCourses.length }} / {{ filteredCourses.length }} 门课程，下滑自动加载更多。
+            {{ tFmt('chaoxing.hub.shownProgress', { a: visibleCourses.length, b: filteredCourses.length }) }}
           </p>
         </section>
 
@@ -204,14 +215,14 @@ onUnmounted(() => {
 
         <div class="search-wrap">
           <span class="material-symbols-outlined">search</span>
-          <input v-model="searchQuery" type="search" placeholder="搜索课程 / 教师" />
+          <input v-model="searchQuery" type="search" :placeholder="t('chaoxing.hub.searchPlaceholder')" />
         </div>
 
-        <TEmptyState v-if="loading" type="loading" message="正在读取课程…" />
+        <TEmptyState v-if="loading" type="loading" :message="t('chaoxing.hub.readingCourses')" />
         <TEmptyState
           v-else-if="!filteredCourses.length"
           type="empty"
-          :message="error || '暂无课程'"
+          :message="error || t('chaoxing.hub.noCourses')"
         />
 
         <button
@@ -241,7 +252,7 @@ onUnmounted(() => {
             <strong>{{ c.title }}</strong>
             <p>
               <span v-if="c.semester" class="sem-tag">{{ c.semester }}</span>
-              {{ c.teacher || '教师暂缺' }}
+              {{ c.teacher || t('chaoxing.hub.teacherMissing') }}
             </p>
             <div class="mini-bar">
               <i :style="{ width: Math.min(100, c.progressRate || 0) + '%' }" />
@@ -256,8 +267,8 @@ onUnmounted(() => {
           @click="loadMoreCourses"
         >
           <div class="row-main">
-            <strong>继续加载更多课程</strong>
-            <p>剩余 {{ filteredCourses.length - visibleCourses.length }} 门未展示</p>
+            <strong>{{ t('chaoxing.hub.loadMore') }}</strong>
+            <p>{{ tFmt('chaoxing.hub.loadMoreRemaining', { n: filteredCourses.length - visibleCourses.length }) }}</p>
           </div>
           <span class="material-symbols-outlined chev">expand_more</span>
         </button>
@@ -270,15 +281,15 @@ onUnmounted(() => {
         <section class="panel course-head">
           <div class="course-head__top">
             <div class="course-head__meta">
-              <span class="pill">章节目录</span>
+              <span class="pill">{{ t('chaoxing.hub.chaptersTitle') }}</span>
               <strong>{{ current.course.title }}</strong>
-              <p>{{ current.course.teacher || '教师暂缺' }}</p>
+              <p>{{ current.course.teacher || t('chaoxing.hub.teacherMissing') }}</p>
             </div>
           </div>
           <div class="btn-row">
             <button type="button" class="chip-btn" @click="openScore(current.course)">
               <span class="material-symbols-outlined">grade</span>
-              成绩组成
+              {{ t('chaoxing.hub.scoreComposition') }}
             </button>
             <button
               type="button"
@@ -286,7 +297,7 @@ onUnmounted(() => {
               @click="openCourse(current.course, { force: true })"
             >
               <span class="material-symbols-outlined">refresh</span>
-              刷新
+              {{ t('chaoxing.hub.refresh') }}
             </button>
           </div>
           <p v-if="current.progress?.progress_text" class="hint">
@@ -295,14 +306,14 @@ onUnmounted(() => {
         </section>
 
         <div class="section-head">
-          <span class="section-head__title">全部章节</span>
-          <span class="section-head__count">{{ current.sections?.length || 0 }} 章</span>
+          <span class="section-head__title">{{ t('chaoxing.hub.allChapters') }}</span>
+          <span class="section-head__count">{{ tFmt('chaoxing.hub.chaptersCount', { n: current.sections?.length || 0 }) }}</span>
         </div>
 
         <TEmptyState
           v-if="!current.sections?.length"
           type="empty"
-          message="暂无章节，请点刷新或检查学习通会话"
+          :message="t('chaoxing.hub.noChapters')"
         />
 
         <div class="menu-list">
@@ -320,8 +331,8 @@ onUnmounted(() => {
             <div class="menu-item__body">
               <strong>{{ sec.title }}</strong>
               <div class="menu-item__meta">
-                <span class="dot">{{ sec.knowledges.length }} 个小节</span>
-                <span class="dot soft">继续学习</span>
+                <span class="dot">{{ tFmt('chaoxing.hub.knowledgeCount', { n: sec.knowledges.length }) }}</span>
+                <span class="dot soft">{{ t('chaoxing.hub.continueLearning') }}</span>
               </div>
             </div>
             <span class="material-symbols-outlined menu-item__chev">chevron_right</span>
@@ -332,19 +343,19 @@ onUnmounted(() => {
       <!-- 3. 章 → 小节列表 -->
       <template v-else-if="current.level === 'section'">
         <section class="panel soft-panel">
-          <span class="pill slate">当前章节</span>
+          <span class="pill slate">{{ t('chaoxing.hub.currentChapter') }}</span>
           <strong class="soft-panel__title">{{ current.section?.title }}</strong>
         </section>
 
         <div class="section-head">
-          <span class="section-head__title">小节列表</span>
+          <span class="section-head__title">{{ t('chaoxing.hub.sectionsTitle') }}</span>
           <span class="section-head__count">{{ current.section?.knowledges?.length || 0 }}</span>
         </div>
 
         <TEmptyState
           v-if="!current.section.knowledges?.length"
           type="empty"
-          message="该章暂无小节"
+          :message="t('chaoxing.hub.noSections')"
         />
 
         <div class="menu-list">
@@ -365,7 +376,7 @@ onUnmounted(() => {
               <strong>{{ k.title }}</strong>
               <div class="menu-item__meta">
                 <span class="dot" :class="k.completed ? 'ok' : ''">
-                  {{ k.completed ? '已完成' : '未完成' }}
+                  {{ k.completed ? t('chaoxing.hub.done') : t('chaoxing.hub.undone') }}
                 </span>
               </div>
             </div>
@@ -377,20 +388,20 @@ onUnmounted(() => {
       <!-- 4. 小节 → 任务点 -->
       <template v-else-if="current.level === 'knowledge'">
         <section class="panel soft-panel">
-          <span class="pill violet">任务点</span>
+          <span class="pill violet">{{ t('chaoxing.hub.taskPoints') }}</span>
           <strong class="soft-panel__title">{{ current.knowledge?.title }}</strong>
           <p class="hint">{{ current.section?.title }}</p>
         </section>
 
         <div class="section-head">
-          <span class="section-head__title">本页内容</span>
-          <span class="section-head__count">{{ current.tasks?.length || 0 }} 项</span>
+          <span class="section-head__title">{{ t('chaoxing.hub.pageContent') }}</span>
+          <span class="section-head__count">{{ tFmt('chaoxing.hub.itemsUnit', { n: current.tasks?.length || 0 }) }}</span>
         </div>
 
         <TEmptyState
           v-if="!current.tasks?.length"
           type="empty"
-          message="暂无任务"
+          :message="t('chaoxing.hub.noTasks')"
         />
 
         <div class="menu-list">
@@ -434,7 +445,7 @@ onUnmounted(() => {
         <section class="panel score-panel">
           <div class="score-total">
             <div>
-              <span>综合成绩</span>
+              <span>{{ t('chaoxing.hub.totalScore') }}</span>
               <p v-if="current.score?.user_name" class="hint">{{ current.score.user_name }}</p>
             </div>
             <strong>{{ current.score?.total_score ?? current.score?.score?.score ?? '—' }}</strong>
@@ -443,7 +454,7 @@ onUnmounted(() => {
           <div v-if="scoreSlices.length" class="pie-wrap">
             <div class="pie" :style="{ background: pieGradient }" aria-hidden="true">
               <div class="pie-hole">
-                <span>权重</span>
+                <span>{{ t('chaoxing.hub.weight') }}</span>
               </div>
             </div>
             <ul class="pie-legend">
@@ -460,21 +471,21 @@ onUnmounted(() => {
               v-for="(w, i) in current.score.weight_list"
               :key="i"
             >
-              <span>{{ w.name || w.key || '项目' }}</span>
+              <span>{{ w.name || w.key || t('chaoxing.hub.itemFallback') }}</span>
               <b>{{ w.value ?? w.score ?? '—' }}{{ typeof w.value === 'number' ? '%' : '' }}</b>
             </li>
           </ul>
           <div v-else-if="current.score?.weight" class="weight-grid">
-            <div class="wchip"><span>作业</span><b>{{ current.score.weight.work ?? 0 }}%</b></div>
-            <div class="wchip"><span>考试</span><b>{{ current.score.weight.test ?? 0 }}%</b></div>
-            <div class="wchip"><span>视频</span><b>{{ current.score.weight.video ?? 0 }}%</b></div>
-            <div class="wchip"><span>签到</span><b>{{ current.score.weight.attend ?? 0 }}%</b></div>
+            <div class="wchip"><span>{{ t('chaoxing.hub.weightWork') }}</span><b>{{ current.score.weight.work ?? 0 }}%</b></div>
+            <div class="wchip"><span>{{ t('chaoxing.hub.weightTest') }}</span><b>{{ current.score.weight.test ?? 0 }}%</b></div>
+            <div class="wchip"><span>{{ t('chaoxing.hub.weightVideo') }}</span><b>{{ current.score.weight.video ?? 0 }}%</b></div>
+            <div class="wchip"><span>{{ t('chaoxing.hub.weightAttend') }}</span><b>{{ current.score.weight.attend ?? 0 }}%</b></div>
           </div>
           <p v-if="current.score?.job" class="hint">
-            任务点完成率 {{ current.score.job.jobFinishRate ?? '—' }}%
+            {{ tFmt('chaoxing.hub.jobFinishRate', { n: current.score.job.jobFinishRate ?? '—' }) }}
           </p>
           <button type="button" class="chip-btn" @click="openScore(current.course)">
-            重新同步
+            {{ t('chaoxing.hub.resync') }}
           </button>
         </section>
       </template>
@@ -484,7 +495,7 @@ onUnmounted(() => {
         <section class="panel video-panel">
           <p class="crumb">{{ current.knowledge?.title }}</p>
           <h3 class="video-title">{{ current.filename || current.task?.title }}</h3>
-          <p v-if="current.duration" class="hint">时长 {{ formatDuration(current.duration) }}</p>
+          <p v-if="current.duration" class="hint">{{ tFmt('chaoxing.hub.duration', { d: formatDuration(current.duration) }) }}</p>
           <video
             :key="activeVideoSrc"
             class="video-el"
@@ -500,7 +511,7 @@ onUnmounted(() => {
           <div class="btn-row video-actions">
             <button type="button" class="chip-btn ghost light" @click="retryVideo">
               <span class="material-symbols-outlined">refresh</span>
-              重新加载
+              {{ t('chaoxing.hub.reload') }}
             </button>
             <button
               v-if="(current.playUrls || []).length > 1"
@@ -511,10 +522,10 @@ onUnmounted(() => {
                 videoError = ''
               "
             >
-              切换线路 {{ videoSrcIndex + 1 }}/{{ current.playUrls.length }}
+              {{ tFmt('chaoxing.hub.switchLine', { a: videoSrcIndex + 1, b: current.playUrls.length }) }}
             </button>
           </div>
-          <p class="hint">直链经本地代理播放，失败可切换线路或重新加载</p>
+          <p class="hint">{{ t('chaoxing.hub.directLinkHint') }}</p>
         </section>
       </template>
 
@@ -523,16 +534,16 @@ onUnmounted(() => {
         <section class="panel video-panel">
           <p class="crumb">{{ current.knowledge?.title }}</p>
           <h3 class="video-title">{{ current.filename || current.task?.title }}</h3>
-          <p class="hint">类型：{{ current.fileType || '文档' }}</p>
+          <p class="hint">{{ tFmt('chaoxing.hub.typeLabel', { t: current.fileType || t('chaoxing.hub.docFallback') }) }}</p>
           <iframe
             v-if="current.src"
             :key="current.src"
             class="video-el doc-frame"
             :src="current.src"
-            title="文档预览"
+            :title="t('chaoxing.hub.docFallback')"
             referrerpolicy="no-referrer-when-downgrade"
           />
-          <p v-else class="video-err">暂无预览地址</p>
+          <p v-else class="video-err">{{ t('chaoxing.hub.noPreviewUrl') }}</p>
           <div class="btn-row video-actions">
             <button
               v-if="(current.candidates || []).length > 1"
@@ -546,10 +557,10 @@ onUnmounted(() => {
                 })()
               "
             >
-              切换预览源
+              {{ t('chaoxing.hub.switchPreviewSource') }}
             </button>
           </div>
-          <p class="hint">文档在应用内预览；若空白请确认学习通会话有效</p>
+          <p class="hint">{{ t('chaoxing.hub.docPreviewHint') }}</p>
         </section>
       </template>
     </div>

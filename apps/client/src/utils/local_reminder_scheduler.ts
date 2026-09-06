@@ -32,6 +32,7 @@ import {
   toSafeText,
   writeJSON
 } from './notify_center_util.js'
+import { t, tf } from './app_i18n'
 
 /** 默认滚动窗口天数（产品验收窗口 7~14 天，取 14 天兼顾两端课程量） */
 export const REMINDER_WINDOW_DAYS = 14
@@ -211,9 +212,9 @@ export const mergeCoursesForDay = (
         startPeriod: range.startPeriod,
         endPeriod: range.endPeriod,
         signature: getCourseMergeSignature(raw),
-        room: toSafeText(raw?.room_code || raw?.room || '待定教室'),
+        room: toSafeText(raw?.room_code || raw?.room || t('reminder.class.roomFallback')),
         teacher: toSafeText(raw?.teacher || ''),
-        name: toSafeText(raw?.name || '未命名课程')
+        name: toSafeText(raw?.name || t('reminder.class.courseFallback'))
       } as MergedDayCourse
     })
     .filter((course): course is MergedDayCourse => course !== null)
@@ -312,9 +313,14 @@ export const buildClassReminderPlan = (input: CoursePlanInput): ReminderSpec[] =
         occurrence: dateKey,
         leadMinutes
       })
-      const teacherText = course.teacher ? `，授课教师 ${course.teacher}` : ''
-      const title = '上课提醒'
-      const body = `将于 ${course.startClock} 开始：${course.name}（${course.room}${teacherText}）`
+      const teacherText = course.teacher ? tf('reminder.class.withTeacher', { teacher: course.teacher }) : ''
+      const title = t('reminder.class.title')
+      const body = tf('reminder.class.body', {
+        clock: course.startClock,
+        course: course.name,
+        room: course.room,
+        teacher: teacherText
+      })
       specs.push({
         id,
         type: 'class',
@@ -357,7 +363,7 @@ export const buildExamReminderPlan = (input: ExamPlanInput): ReminderSpec[] => {
     const exam = raw && typeof raw === 'object' ? raw : {}
     const date = parseDay(exam.exam_date || exam.date)
     if (!date) continue // 无明确日期无法生成确定性提醒
-    const courseName = toSafeText(exam.course_name) || '未命名考试'
+    const courseName = toSafeText(exam.course_name) || t('reminder.exam.courseFallback')
     const timeText = toSafeText(exam.exam_time || exam.start_time)
     const clock = timeText.split('-')[0].trim() || '09:00' // 无时间默认 09:00
     const [h, m] = clock.split(':').map((item) => Number(item))
@@ -376,10 +382,10 @@ export const buildExamReminderPlan = (input: ExamPlanInput): ReminderSpec[] => {
       occurrence: dateKey,
       leadMinutes: leadDays * 24 * 60
     })
-    const title = '考试提醒'
+    const title = t('reminder.exam.title')
     const body = leadDays > 0
-      ? `${courseName} 将于 ${leadDays} 天后（${dateKey}${timeText ? ` ${timeText}` : ''}）进行，请提前做好准备。`
-      : `${courseName} 将于 ${dateKey}${timeText ? ` ${timeText}` : ''} 进行，请提前做好准备。`
+      ? tf('reminder.exam.bodyWithLead', { course: courseName, days: leadDays, date: dateKey, time: timeText ? ` ${timeText}` : '' })
+      : tf('reminder.exam.body', { course: courseName, date: dateKey, time: timeText ? ` ${timeText}` : '' })
     specs.push({
       id,
       type: 'exam',
@@ -613,7 +619,7 @@ export const reconcileLocalReminders = async (input: ReconcileInput): Promise<Re
     if (activeScope && activeScope !== sid) {
       const cancelResult = await cancelLocalRemindersForScope(activeScope, platform)
       if (!cancelResult.success) {
-        errors.push(`取消旧账号(${activeScope})提醒失败`)
+        errors.push(`cancel old scope(${activeScope}) reminders failed`)
       }
     }
     writeActiveScope(sid)
@@ -736,11 +742,11 @@ export const reconcileLocalReminders = async (input: ReconcileInput): Promise<Re
           scheduledIds.push(spec.id)
         } else {
           failedIds.push(spec.id)
-          errors.push(`登记提醒失败 id=${spec.id}`)
+          errors.push(`schedule reminder failed id=${spec.id}`)
         }
       } catch {
         failedIds.push(spec.id)
-        errors.push(`登记提醒异常 id=${spec.id}`)
+        errors.push(`schedule reminder error id=${spec.id}`)
       }
     }
 
@@ -749,9 +755,9 @@ export const reconcileLocalReminders = async (input: ReconcileInput): Promise<Re
       try {
         const ok = await platform.cancel(diff.toCancel)
         if (ok) canceledIds = diff.toCancel
-        else errors.push(`取消提醒失败 ids=${diff.toCancel.join(',')}`)
+        else errors.push(`cancel reminders failed ids=${diff.toCancel.join(',')}`)
       } catch {
-        errors.push(`取消提醒异常 ids=${diff.toCancel.join(',')}`)
+        errors.push(`cancel reminders error ids=${diff.toCancel.join(',')}`)
       }
     }
 

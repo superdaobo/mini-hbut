@@ -2,9 +2,13 @@
 import { ref, onMounted } from 'vue'
 import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
+import { useI18n } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 
 const emit = defineEmits(['back'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 
 const loading = ref(true)
 const iframeRef = ref(null)
@@ -27,10 +31,10 @@ const copyLink = async () => {
   try {
     await navigator.clipboard.writeText(officialUrl)
     console.log('Link copied to clipboard')
-    showToast('链接已复制到剪贴板！', 'success')
+    showToast(t('official.toast.linkCopied'), 'success')
   } catch (err) {
-    console.error('复制失败:', err)
-    showToast('复制失败，请手动复制', 'error')
+    console.error('copy failed:', err)
+    showToast(t('official.toast.copyFailed'), 'error')
   }
 }
 
@@ -44,9 +48,9 @@ onMounted(() => {
 
 <template>
   <div class="official-view">
-    <TPageHeader title="官方发布" @back="emit('back')">
+    <TPageHeader :title="t('official.title')" @back="emit('back')">
       <template #actions>
-        <button class="back-btn" @click="copyLink" aria-label="复制发布链接">↗</button>
+        <button class="back-btn" @click="copyLink" :aria-label="t('official.copyAria')">↗</button>
       </template>
     </TPageHeader>
 

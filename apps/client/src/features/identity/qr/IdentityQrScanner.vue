@@ -23,6 +23,10 @@ import {
   type IdentityQrScanPhase
 } from './identityQrScanState'
 import { identityUiState } from '../identityStore'
+// #795：响应式 t（locale 变化后模板即时重渲染）
+import { useI18n } from '../../../utils/app_i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   visible: boolean
@@ -139,12 +143,12 @@ const handleClose = (): void => {
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="identity-qr-scanner" role="dialog" aria-modal="true" aria-label="扫一扫登录">
+    <div v-if="visible" class="identity-qr-scanner" role="dialog" aria-modal="true" :aria-label="t('identity.qr.scanner.dialog.aria')">
       <div class="identity-qr-scanner-card">
         <header class="identity-qr-scanner-head">
           <span class="material-symbols-outlined identity-qr-scanner-head-icon" aria-hidden="true">qr_code_scanner</span>
-          <h2>扫一扫登录</h2>
-          <button class="identity-qr-scanner-close" type="button" aria-label="关闭扫一扫" @click="handleClose">
+          <h2>{{ t('identity.qr.scanner.title') }}</h2>
+          <button class="identity-qr-scanner-close" type="button" :aria-label="t('identity.qr.scanner.close.aria')" @click="handleClose">
             <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </header>
@@ -155,12 +159,12 @@ const handleClose = (): void => {
           class="identity-qr-scanner-body"
         >
           <p v-if="phase === 'permission_needed'" class="identity-qr-scanner-notice">
-            相机不可用，可以使用相册图片或手动粘贴链接继续。
+            {{ t('identity.qr.scanner.permission_needed') }}
           </p>
           <div class="identity-qr-scanner-entries">
             <label class="identity-qr-scanner-entry identity-qr-scanner-entry--primary">
               <span class="material-symbols-outlined" aria-hidden="true">{{ isMobile ? 'photo_camera' : 'image' }}</span>
-              <span>{{ isMobile ? '拍摄二维码' : '选择二维码图片' }}</span>
+              <span>{{ isMobile ? t('identity.qr.scanner.action.capture') : t('identity.qr.scanner.action.pick_image') }}</span>
               <input
                 class="identity-qr-scanner-file"
                 type="file"
@@ -175,7 +179,7 @@ const handleClose = (): void => {
               v-model="pasteText"
               class="identity-qr-scanner-paste-input"
               rows="3"
-              placeholder="粘贴电脑网页上复制的扫码链接…"
+              :placeholder="t('identity.qr.scanner.paste.placeholder')"
               :disabled="parsing"
               spellcheck="false"
             ></textarea>
@@ -185,50 +189,50 @@ const handleClose = (): void => {
               :disabled="parsing || !pasteText.trim()"
               @click="handlePasteSubmit"
             >
-              解析链接
+              {{ t('identity.qr.scanner.action.parse') }}
             </button>
           </div>
           <p class="identity-qr-scanner-hint">
-            图片与链接只在本地识别，不会上传服务器；扫码后仍需在弹窗中确认授权。
+            {{ t('identity.qr.scanner.privacy_hint') }}
           </p>
         </div>
 
         <!-- 解析中 -->
         <div v-else-if="phase === 'parsing'" class="identity-qr-scanner-body identity-qr-scanner-status" role="status">
           <span class="material-symbols-outlined identity-qr-scanner-spin" aria-hidden="true">sync</span>
-          <h3>正在识别二维码…</h3>
+          <h3>{{ t('identity.qr.scanner.parsing') }}</h3>
         </div>
 
         <!-- 无效码 -->
         <div v-else-if="phase === 'invalid_code'" class="identity-qr-scanner-body identity-qr-scanner-status">
           <span class="material-symbols-outlined identity-qr-scanner-status-error" aria-hidden="true">error</span>
-          <h3>这不是有效的 Mini-HBUT 登录二维码</h3>
+          <h3>{{ t('identity.qr.scanner.invalid.title') }}</h3>
           <button class="identity-qr-scanner-action" type="button" @click="dispatch({ type: 'OPEN' })">
-            重新扫描
+            {{ t('identity.qr.scanner.action.rescan') }}
           </button>
         </div>
 
         <!-- 已过期 -->
         <div v-else-if="phase === 'expired_request'" class="identity-qr-scanner-body identity-qr-scanner-status">
           <span class="material-symbols-outlined identity-qr-scanner-status-error" aria-hidden="true">timer_off</span>
-          <h3>二维码已过期，请在电脑网页重新发起登录</h3>
-          <button class="identity-qr-scanner-action" type="button" @click="handleClose">关闭</button>
+          <h3>{{ t('identity.qr.scanner.expired.title') }}</h3>
+          <button class="identity-qr-scanner-action" type="button" @click="handleClose">{{ t('identity.qr.scanner.action.close') }}</button>
         </div>
 
         <!-- 已提交，等待详情 -->
         <div v-else-if="phase === 'loading_request'" class="identity-qr-scanner-body identity-qr-scanner-status" role="status">
           <span class="material-symbols-outlined identity-qr-scanner-spin" aria-hidden="true">sync</span>
-          <h3>已提交授权请求，正在获取信息…</h3>
+          <h3>{{ t('identity.qr.scanner.submitted.title') }}</h3>
         </div>
 
         <!-- 审批 Overlay 接管 -->
         <div v-else-if="phase === 'approval_opened'" class="identity-qr-scanner-body identity-qr-scanner-status">
           <span class="material-symbols-outlined identity-qr-scanner-status-ok" aria-hidden="true">verified_user</span>
-          <h3>已转交授权确认</h3>
+          <h3>{{ t('identity.qr.scanner.approval_opened.title') }}</h3>
           <p class="identity-qr-scanner-status-desc">
-            请在授权弹窗中核对应用与权限后确认；你无需在电脑上做任何操作。
+            {{ t('identity.qr.scanner.approval_opened.desc') }}
           </p>
-          <button class="identity-qr-scanner-action" type="button" @click="handleClose">关闭</button>
+          <button class="identity-qr-scanner-action" type="button" @click="handleClose">{{ t('identity.qr.scanner.action.close') }}</button>
         </div>
       </div>
     </div>

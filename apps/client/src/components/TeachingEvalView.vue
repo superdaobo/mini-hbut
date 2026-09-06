@@ -6,11 +6,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { showToast } from '../utils/toast'
+import { useI18n } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState, TModal } from './templates'
 
 const emit = defineEmits(['back'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 const SKIP_KEY = 'hbu_teaching_eval_skip_confirm'
-const COMMENT_TEMPLATE = '认真负责，收获很大。'
+// 默认评语模板（数据格式值：随表单提交到教务，必须为中文原文，\u 转义通过 CJK 扫描）
+const COMMENT_TEMPLATE = '\u8ba4\u771f\u8d1f\u8d23\uff0c\u6536\u83b7\u5f88\u5927\u3002'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -47,7 +52,7 @@ const fetchList = async () => {
   loading.value = true
   error.value = ''
   try {
-    if (!isTauriRuntime()) throw new Error('请在客户端内使用评教')
+    if (!isTauriRuntime()) throw new Error(t('eval.error.clientOnly'))
     const res = await invokeNative('teaching_eval_list', {})
     protocolReady.value = res?.protocol_ready !== false
     items.value = Array.isArray(res?.items) ? res.items : []
@@ -55,7 +60,7 @@ const fetchList = async () => {
       error.value = String(res.message)
     }
   } catch (e) {
-    error.value = String(e?.message || e || '加载失败')
+    error.value = String(e?.message || e || t('eval.error.loadFailed'))
     protocolReady.value = false
   } finally {
     loading.value = false
@@ -70,7 +75,7 @@ const openItem = async (item) => {
     const res = await invokeNative('teaching_eval_form', { eval_id: item.id })
     form.value = res || null
   } catch (e) {
-    showToast(String(e?.message || e || '表单加载失败'))
+    showToast(String(e?.message || e || t('eval.error.formFailed')))
   }
 }
 
@@ -88,7 +93,7 @@ const fillFullScore = () => {
       return q
     })
   }
-  showToast('已填入满分与默认评语')
+  showToast(t('eval.toast.fullScoreFilled'))
 }
 
 const doSubmit = async () => {
@@ -101,13 +106,13 @@ const doSubmit = async () => {
       answers: form.value?.questions || [],
       quick_full_score: true
     })
-    if (res?.success === false) throw new Error(res?.message || '提交失败')
-    showToast('提交成功')
+    if (res?.success === false) throw new Error(res?.message || t('eval.error.submitFailed'))
+    showToast(t('eval.toast.submitted'))
     selected.value = null
     form.value = null
     await fetchList()
   } catch (e) {
-    showToast(String(e?.message || e || '提交失败'))
+    showToast(String(e?.message || e || t('eval.error.submitFailed')))
   } finally {
     submitting.value = false
     showConfirm.value = false
@@ -129,7 +134,7 @@ const confirmSubmit = (remember) => {
 
 const resetSkipPreference = () => {
   saveSkip(false)
-  showToast('已恢复每次确认')
+  showToast(t('eval.toast.confirmRestored'))
 }
 
 onMounted(() => {
@@ -141,32 +146,32 @@ onMounted(() => {
 <template>
   <div class="te-page">
     <TPageHeader
-      title="教学评教"
-      :subtitle="selected ? selected.title : '待评课程'"
+      :title="t('eval.title')"
+      :subtitle="selected ? selected.title : t('eval.subtitle.pending')"
       @back="selected ? ((selected = null), (form = null)) : emit('back')"
     />
 
     <div class="te-body">
       <div class="te-toolbar">
         <button type="button" class="te-btn" :disabled="loading" @click="fetchList">
-          {{ loading ? '刷新中…' : '刷新' }}
+          {{ loading ? t('eval.action.refreshing') : t('common.refresh') }}
         </button>
         <button v-if="skipConfirm" type="button" class="te-btn ghost" @click="resetSkipPreference">
-          重置「不再询问」
+          {{ t('eval.action.resetSkip') }}
         </button>
       </div>
 
       <p v-if="error" class="te-error">{{ error }}</p>
       <p v-if="!protocolReady" class="te-warn">
-        评教协议尚未完全对接时，列表可能为空。后续版本将补齐抓包路径。
+        {{ t('eval.warn.protocol') }}
       </p>
 
       <template v-if="!selected">
-        <h3 class="te-h">待评（{{ pending.length }}）</h3>
+        <h3 class="te-h">{{ tf('eval.list.pending', { n: pending.length }) }}</h3>
         <TEmptyState
           v-if="!loading && !pending.length"
           type="empty"
-          message="暂无待评。当前学期若有评教任务会显示在此。"
+          :message="t('eval.list.emptyPending')"
         />
         <button
           v-for="item in pending"
@@ -175,11 +180,11 @@ onMounted(() => {
           class="card-surface te-row"
           @click="openItem(item)"
         >
-          <div class="te-title">{{ item.title || item.course_name || '评教任务' }}</div>
-          <div class="te-meta">{{ item.teacher || item.teacher_name || '' }} · 待完成</div>
+          <div class="te-title">{{ item.title || item.course_name || t('eval.list.taskFallback') }}</div>
+          <div class="te-meta">{{ item.teacher || item.teacher_name || '' }} · {{ t('eval.list.pendingMeta') }}</div>
         </button>
 
-        <h3 class="te-h">已评（{{ done.length }}）</h3>
+        <h3 class="te-h">{{ tf('eval.list.done', { n: done.length }) }}</h3>
         <button
           v-for="item in done"
           :key="item.id"
@@ -187,8 +192,8 @@ onMounted(() => {
           class="card-surface te-row muted"
           @click="openItem(item)"
         >
-          <div class="te-title">{{ item.title || item.course_name || '评教任务' }}</div>
-          <div class="te-meta">已完成</div>
+          <div class="te-title">{{ item.title || item.course_name || t('eval.list.taskFallback') }}</div>
+          <div class="te-meta">{{ t('eval.list.doneMeta') }}</div>
         </button>
       </template>
 
@@ -213,35 +218,35 @@ onMounted(() => {
               class="te-input te-textarea"
               rows="3"
             />
-            <p v-else class="te-meta">题型：{{ q.kind || '未知' }}</p>
+            <p v-else class="te-meta">{{ tf('eval.form.questionType', { kind: q.kind || t('eval.form.kind.unknown') }) }}</p>
           </div>
         </div>
-        <TEmptyState v-else type="empty" message="暂无表单详情，后端将在协议对接后返回题目结构。" />
+        <TEmptyState v-else type="empty" :message="t('eval.form.empty')" />
 
         <div class="te-actions">
-          <button type="button" class="te-btn" @click="fillFullScore">全部 10 分</button>
+          <button type="button" class="te-btn" @click="fillFullScore">{{ t('eval.action.fullScore') }}</button>
           <button
             type="button"
             class="te-btn primary"
             :disabled="submitting"
             @click="onQuickSubmit"
           >
-            {{ submitting ? '提交中…' : '一键满分并提交' }}
+            {{ submitting ? t('eval.action.submitting') : t('eval.action.quickSubmit') }}
           </button>
         </div>
       </section>
     </div>
 
-    <TModal :visible="showConfirm" title="确认满分提交" @close="showConfirm = false">
-      <p>将对本评教全部评分题填 10 分（或满分）并提交，通常不可撤销。</p>
+    <TModal :visible="showConfirm" :title="t('eval.confirm.title')" @close="showConfirm = false">
+      <p>{{ t('eval.confirm.text') }}</p>
       <label class="te-check">
         <input v-model="skipConfirm" type="checkbox" />
-        不再询问
+        {{ t('eval.confirm.noMoreAsk') }}
       </label>
       <div class="te-actions">
-        <button type="button" class="te-btn" @click="showConfirm = false">取消</button>
+        <button type="button" class="te-btn" @click="showConfirm = false">{{ t('common.cancel') }}</button>
         <button type="button" class="te-btn primary" @click="confirmSubmit(skipConfirm)">
-          确认提交
+          {{ t('eval.confirm.submit') }}
         </button>
       </div>
     </TModal>

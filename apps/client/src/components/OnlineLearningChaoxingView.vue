@@ -2,7 +2,25 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { useAutoLearning, SPEED_MODES } from '../utils/auto_learning'
+// #792：学习通域文案英文化（t() 响应式取词；SPEED_MODES 文案经 onlinelearning.speed.* 映射）
+import { useLocale } from '../utils/app_i18n'
 import { TCard, TEmptyState, TModal, TPageHeader, TSection, TStatusBadge } from './templates'
+
+const { t } = useLocale()
+
+/** 带占位符的插值：{n}/{i} 等按序替换，供 i18n 字典参数化文案使用 */
+const tFmt = (key, params = {}) =>
+  Object.entries(params).reduce(
+    (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
+    t(key)
+  )
+
+/** SPEED_MODES 的展示文案映射（label/desc 来自 i18n 字典，icon/risk 保留原始数据） */
+const speedModeView = (mode, key) => ({
+  ...mode,
+  label: t(`onlinelearning.speed.${key}.label`),
+  desc: t(`onlinelearning.speed.${key}.desc`)
+})
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -15,9 +33,9 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 /* ── Tab 系统 ── */
 const activeTab = ref('overview')
 const TABS = [
-  { key: 'overview', label: '概览', icon: '📊' },
-  { key: 'auto',     label: '自动学习', icon: '🤖' },
-  { key: 'settings', label: '设置', icon: '⚙️' }
+  { key: 'overview', label: t('onlinelearning.tab.overview'), icon: '📊' },
+  { key: 'auto',     label: t('onlinelearning.tab.auto'), icon: '🤖' },
+  { key: 'settings', label: t('onlinelearning.tab.settings'), icon: '⚙️' }
 ]
 
 /* ── 原有状态 ── */
@@ -59,11 +77,11 @@ const resolveBadgeType = (status) => {
 
 const resolveTaskType = (value) => {
   const text = safeText(value).toLowerCase()
-  if (/(video|视频)/.test(text)) return { text: '视频', type: 'info' }
-  if (/(audio|音频)/.test(text)) return { text: '音频', type: 'primary' }
-  if (/(ppt|book|阅读|文档|章节)/.test(text)) return { text: '阅读', type: 'warning' }
-  if (/(link|链接)/.test(text)) return { text: '链接', type: 'muted' }
-  return { text: safeText(value) || '任务', type: 'muted' }
+  if (/(video|视频)/.test(text)) return { text: t('onlinelearning.taskVideo'), type: 'info' }
+  if (/(audio|音频)/.test(text)) return { text: t('onlinelearning.taskAudio'), type: 'primary' }
+  if (/(ppt|book|阅读|文档|章节)/.test(text)) return { text: t('onlinelearning.taskReading'), type: 'warning' }
+  if (/(link|链接)/.test(text)) return { text: t('onlinelearning.taskLink'), type: 'muted' }
+  return { text: safeText(value) || t('onlinelearning.taskFallback'), type: 'muted' }
 }
 
 const normalizeCourse = (item = {}) => {
@@ -73,7 +91,7 @@ const normalizeCourse = (item = {}) => {
     courseId: safeText(raw.course_id || raw.courseId || raw.courseid || ''),
     clazzId: safeText(raw.clazz_id || raw.clazzId || raw.clazzid || ''),
     cpi: safeText(raw.cpi || ''),
-    title: safeText(raw.title || raw.name || raw.course_name || raw.courseName || '未命名课程'),
+    title: safeText(raw.title || raw.name || raw.course_name || raw.courseName || t('onlinelearning.unnamedCourse')),
     teacher: safeText(raw.teacher || raw.teacher_name || raw.teacherName || raw.instructor || ''),
     progressText: safeText(raw.progress_text || raw.progressText || raw.progress || raw.schedule_text || raw.progress_summary || ''),
     progressRate: safeNumber(raw.progress_rate ?? raw.progressRate ?? raw.progress_percent ?? raw.progressPercent ?? raw.percent),
@@ -94,12 +112,12 @@ const normalizeSection = (item = {}) => {
         : []
   return {
     id: safeText(raw.id || raw.section_id || raw.sectionId || raw.chapter_id || raw.chapterId),
-    title: safeText(raw.title || raw.name || raw.label || '未命名章节'),
+    title: safeText(raw.title || raw.name || raw.label || t('onlinelearning.unnamedChapter')),
     tasks: taskList.map((task) => {
       const node = task && typeof task === 'object' ? task : {}
       return {
         id: safeText(node.id || node.task_id || node.taskId || node.knowledge_id || node.knowledgeId),
-        title: safeText(node.title || node.name || node.label || '未命名任务'),
+        title: safeText(node.title || node.name || node.label || t('onlinelearning.unnamedTask')),
         typeMeta: resolveTaskType(node.type || node.task_type || node.job_type || node.label_type),
         status: safeText(node.status || node.state || node.progress_text || node.progressText || ''),
         progress: safeText(node.progress || node.progress_text || node.progressText || ''),
@@ -111,7 +129,7 @@ const normalizeSection = (item = {}) => {
 
 const selectedCourse = computed(() => courses.value.find((item) => item.id === selectedCourseId.value) || null)
 const emptySessionMessage = computed(() => {
-  return safeText(statusMeta.value?.message) || '当前没有可用的学习通会话，请先在登录页完成融合门户登录后自动同步。'
+  return safeText(statusMeta.value?.message) || t('onlinelearning.noSessionChaoxing')
 })
 const sessionConnected = computed(() => {
   if (statusMeta.value?.connected === true) return true
@@ -136,10 +154,10 @@ const loadStatusAndCourses = async ({ silent = false } = {}) => {
     const coursePayload = courseRes?.data || {}
 
     if (statusPayload?.success === false) {
-      throw new Error(statusPayload?.error || '学习通状态获取失败')
+      throw new Error(statusPayload?.error || t('onlinelearning.errChaoxingStatus'))
     }
     if (coursePayload?.success === false) {
-      throw new Error(coursePayload?.error || '学习通课程获取失败')
+      throw new Error(coursePayload?.error || t('onlinelearning.errChaoxingCourses'))
     }
 
     statusMeta.value = unwrapPayload(statusPayload) || {}
@@ -158,7 +176,7 @@ const loadStatusAndCourses = async ({ silent = false } = {}) => {
       await loadCourseDetail(selectedCourseId.value)
     }
   } catch (err) {
-    error.value = safeText(err?.message || err) || '学习通数据获取失败'
+    error.value = safeText(err?.message || err) || t('onlinelearning.errChaoxingData')
   } finally {
     loading.value = false
     refreshing.value = false
@@ -204,7 +222,7 @@ const loadCourseDetail = async (courseId) => {
     outline.value = sectionList.map(normalizeSection).filter((item) => item.title)
     progress.value = unwrapPayload(progressPayload) || {}
   } catch (err) {
-    error.value = safeText(err?.message || err) || '课程详情获取失败'
+    error.value = safeText(err?.message || err) || t('onlinelearning.errCourseDetail')
   } finally {
     detailLoading.value = false
   }
@@ -263,13 +281,13 @@ const resolveLogMeta = (log) => {
   const parts = []
   const courseName = safeText(log?.courseName)
   if (courseName) parts.push(courseName)
-  if (safeNumber(log?.totalCourses) > 0) parts.push(`课程 ${safeNumber(log?.courseIndex)}/${safeNumber(log?.totalCourses)}`)
-  if (safeNumber(log?.totalVideos) > 0) parts.push(`视频 ${safeNumber(log?.videoIndex)}/${safeNumber(log?.totalVideos)}`)
-  return parts.join(' · ') || '执行进度'
+  if (safeNumber(log?.totalCourses) > 0) parts.push(tFmt('onlinelearning.logCourse', { i: safeNumber(log?.courseIndex), n: safeNumber(log?.totalCourses) }))
+  if (safeNumber(log?.totalVideos) > 0) parts.push(tFmt('onlinelearning.logVideo', { i: safeNumber(log?.videoIndex), n: safeNumber(log?.totalVideos) }))
+  return parts.join(' · ') || t('onlinelearning.execProgress')
 }
 const resolveLogVideoLabel = (log, idx) => {
   const liveVideoName = idx === 0 && auto.running.value ? safeText(auto.progress.currentVideoName) : ''
-  return liveVideoName || safeText(log?.videoName) || '当前视频'
+  return liveVideoName || safeText(log?.videoName) || t('onlinelearning.currentVideo')
 }
 </script>
 
@@ -279,7 +297,7 @@ const resolveLogVideoLabel = (log, idx) => {
       <template #actions>
         <div class="header-actions">
           <button class="ghost-btn" :disabled="refreshing" @click="refreshAll">
-            {{ refreshing ? '刷新中' : '刷新' }}
+            {{ refreshing ? t('onlinelearning.refreshing') : t('onlinelearning.refresh') }}
           </button>
         </div>
       </template>
@@ -308,28 +326,28 @@ const resolveLogVideoLabel = (log, idx) => {
         <template #header>
           <div class="status-head">
             <div>
-              <strong>平台状态</strong>
-              <p>登录融合门户后自动桥接学习通会话，读取课程、章节和进度。</p>
+              <strong>{{ t('onlinelearning.status') }}</strong>
+              <p>{{ t('onlinelearning.statusChaoxingDesc') }}</p>
             </div>
             <TStatusBadge
               :type="resolveBadgeType(statusMeta.status || statusMeta.connection_status || statusMeta.state)"
-              :text="statusMeta.status || statusMeta.connection_status || statusMeta.state || '未连接'"
+              :text="statusMeta.status || statusMeta.connection_status || statusMeta.state || t('onlinelearning.notConnected')"
             />
           </div>
         </template>
 
         <div class="status-grid">
           <div class="status-chip">
-            <span>课程数</span>
+            <span>{{ t('onlinelearning.courseCount') }}</span>
             <strong>{{ courses.length }}</strong>
           </div>
           <div class="status-chip">
-            <span>最近同步</span>
-            <strong>{{ statusMeta.last_sync || statusMeta.sync_time || '未同步' }}</strong>
+            <span>{{ t('onlinelearning.lastSync') }}</span>
+            <strong>{{ statusMeta.last_sync || statusMeta.sync_time || t('onlinelearning.notSynced') }}</strong>
           </div>
           <div class="status-chip">
-            <span>数据来源</span>
-            <strong>{{ statusMeta.offline ? '缓存数据' : '实时数据' }}</strong>
+            <span>{{ t('onlinelearning.dataSource') }}</span>
+            <strong>{{ statusMeta.offline ? t('onlinelearning.cachedData') : t('onlinelearning.liveData') }}</strong>
           </div>
         </div>
 
@@ -337,7 +355,7 @@ const resolveLogVideoLabel = (log, idx) => {
         <p v-if="error" class="error-text">{{ error }}</p>
       </TCard>
 
-      <TEmptyState v-if="loading" type="loading" message="正在读取学习通课程..." />
+      <TEmptyState v-if="loading" type="loading" :message="t('onlinelearning.loadingChaoxingCourses')" />
 
       <template v-else>
         <TEmptyState
@@ -347,7 +365,7 @@ const resolveLogVideoLabel = (log, idx) => {
         />
 
         <template v-else>
-          <TSection title="课程列表" icon="📚">
+          <TSection :title="t('onlinelearning.courseList')" icon="📚">
             <div class="course-list">
               <TCard
                 v-for="course in courses"
@@ -362,57 +380,57 @@ const resolveLogVideoLabel = (log, idx) => {
                   <div class="course-card__head">
                     <div>
                       <strong>{{ course.title }}</strong>
-                      <p>{{ course.teacher || '教师信息暂缺' }}</p>
+                      <p>{{ course.teacher || t('onlinelearning.teacherMissing') }}</p>
                     </div>
                     <TStatusBadge
                       :type="course.pendingCount > 0 ? 'warning' : 'success'"
-                      :text="course.pendingCount > 0 ? `待完成 ${course.pendingCount}` : '已跟踪'"
+                      :text="course.pendingCount > 0 ? tFmt('onlinelearning.pendingN', { n: course.pendingCount }) : t('onlinelearning.tracked')"
                     />
                   </div>
                 </template>
 
                 <div class="course-meta">
-                  <span>{{ course.progressText || '暂无官方进度文本' }}</span>
+                  <span>{{ course.progressText || t('onlinelearning.noOfficialProgress') }}</span>
                   <strong v-if="course.progressRate > 0">{{ course.progressRate }}%</strong>
                 </div>
               </TCard>
             </div>
           </TSection>
 
-          <TSection title="章节任务" icon="🧩">
+          <TSection :title="t('onlinelearning.chapterTasks')" icon="🧩">
             <TCard compact>
               <template v-if="selectedCourse">
                 <div class="detail-head">
                   <div>
                     <strong>{{ selectedCourse.title }}</strong>
-                    <p>{{ selectedCourse.teacher || '教师信息暂缺' }}</p>
+                    <p>{{ selectedCourse.teacher || t('onlinelearning.teacherMissing') }}</p>
                   </div>
                   <div class="detail-badges">
                     <TStatusBadge
                       type="info"
-                      :text="progress.progress_text || progress.summary || selectedCourse.progressText || '官方进度'"
+                      :text="progress.progress_text || progress.summary || selectedCourse.progressText || t('onlinelearning.officialProgress')"
                     />
                     <TStatusBadge
                       :type="progress.offline || statusMeta.offline ? 'warning' : 'success'"
-                      :text="progress.offline || statusMeta.offline ? '缓存数据' : '实时数据'"
+                      :text="progress.offline || statusMeta.offline ? t('onlinelearning.cachedData') : t('onlinelearning.liveData')"
                     />
                   </div>
                 </div>
 
                 <div v-if="detailLoading" class="detail-loading">
-                  <TEmptyState type="loading" message="正在加载课程大纲..." />
+                  <TEmptyState type="loading" :message="t('onlinelearning.loadingOutline')" />
                 </div>
 
                 <div v-else-if="outline.length" class="outline-list">
                   <section v-for="section in outline" :key="section.id || section.title" class="outline-section">
                     <header class="outline-section__head">
                       <strong>{{ section.title }}</strong>
-                      <span>{{ section.tasks.length }} 个任务</span>
+                      <span>{{ tFmt('onlinelearning.taskCount', { n: section.tasks.length }) }}</span>
                     </header>
                     <article v-for="task in section.tasks" :key="task.id || task.title" class="task-row">
                       <div class="task-row__main">
                         <strong>{{ task.title }}</strong>
-                        <p>{{ task.status || task.progress || '等待在官方页面完成或同步' }}</p>
+                        <p>{{ task.status || task.progress || t('onlinelearning.taskWaitSync') }}</p>
                       </div>
                       <div class="task-row__side">
                         <TStatusBadge :type="task.typeMeta.type" :text="task.typeMeta.text" />
@@ -424,10 +442,10 @@ const resolveLogVideoLabel = (log, idx) => {
                 <TEmptyState
                   v-else
                   type="empty"
-                  message="当前课程暂未返回章节任务，可能需要先在官方页面进入课程。"
+                  :message="t('onlinelearning.noOutlineChaoxing')"
                 />
               </template>
-              <TEmptyState v-else type="empty" message="请选择一门课程查看章节任务。" />
+              <TEmptyState v-else type="empty" :message="t('onlinelearning.pickCourse')" />
             </TCard>
           </TSection>
         </template>
@@ -440,19 +458,19 @@ const resolveLogVideoLabel = (log, idx) => {
           <template #header>
             <div class="status-head">
               <div>
-                <strong>自动刷课</strong>
-                <p>自动上报视频播放进度，模拟学习通客户端播放行为。</p>
+                <strong>{{ t('onlinelearning.autoTitle') }}</strong>
+                <p>{{ t('onlinelearning.autoChaoxingDesc') }}</p>
               </div>
               <TStatusBadge
                 :type="auto.running.value ? 'info' : auto.progress.phase === 'done' ? 'success' : auto.progress.phase === 'error' ? 'danger' : 'muted'"
-                :text="auto.running.value ? (auto.paused.value ? '已暂停' : '运行中') : auto.progress.phase === 'done' ? '已完成' : auto.progress.phase === 'error' ? '出错' : '就绪'"
+                :text="auto.running.value ? (auto.paused.value ? t('onlinelearning.statePaused') : t('onlinelearning.stateRunning')) : auto.progress.phase === 'done' ? t('onlinelearning.stateDone') : auto.progress.phase === 'error' ? t('onlinelearning.stateError') : t('onlinelearning.stateReady')"
               />
             </div>
           </template>
         </TCard>
 
         <!-- 速度模式选择 -->
-        <TSection title="速度模式" icon="⚡">
+        <TSection :title="t('onlinelearning.speedMode')" icon="⚡">
           <div class="speed-grid">
             <button
               v-for="(mode, key) in SPEED_MODES"
@@ -463,22 +481,22 @@ const resolveLogVideoLabel = (log, idx) => {
               @click="auto.config.speedMode = key"
             >
               <span class="speed-icon">{{ mode.icon }}</span>
-              <strong>{{ mode.label }}</strong>
-              <p>{{ mode.desc }}</p>
+              <strong>{{ speedModeView(mode, key).label }}</strong>
+              <p>{{ speedModeView(mode, key).desc }}</p>
               <span class="speed-risk" :style="{ color: riskColor(mode.risk) }">
-                {{ mode.risk === 'high' ? '⚠ 高风险' : mode.risk === 'medium' ? '● 中风险' : '✓ 低风险' }}
+                {{ mode.risk === 'high' ? t('onlinelearning.riskHigh') : mode.risk === 'medium' ? t('onlinelearning.riskMedium') : t('onlinelearning.riskLow') }}
               </span>
             </button>
           </div>
         </TSection>
 
         <!-- 课程选择 -->
-        <TSection title="课程选择" icon="📚">
+        <TSection :title="t('onlinelearning.courseSelect')" icon="📚">
           <TCard compact>
             <div class="select-all-row">
               <label class="checkbox-label">
                 <input type="checkbox" v-model="auto.config.allCourses" :disabled="auto.running.value" />
-                <span>全部课程 ({{ courses.length }} 门)</span>
+                <span>{{ tFmt('onlinelearning.allCoursesN', { n: courses.length }) }}</span>
               </label>
             </div>
             <div v-if="!auto.config.allCourses" class="course-select-list">
@@ -496,11 +514,11 @@ const resolveLogVideoLabel = (log, idx) => {
                 />
                 <div class="course-select-info">
                   <strong>{{ course.title }}</strong>
-                  <span>{{ course.teacher || '教师暂缺' }} · {{ course.progressText || '暂无进度' }}</span>
+                  <span>{{ course.teacher || t('onlinelearning.teacherMissingShort') }} · {{ course.progressText || t('onlinelearning.noProgress') }}</span>
                 </div>
               </label>
             </div>
-            <TEmptyState v-if="!courses.length" type="empty" message="请先在概览页获取课程列表" />
+            <TEmptyState v-if="!courses.length" type="empty" :message="t('onlinelearning.pickCoursesFirst')" />
           </TCard>
         </TSection>
 
@@ -512,36 +530,36 @@ const resolveLogVideoLabel = (log, idx) => {
             :disabled="!courses.length || (!auto.config.allCourses && !auto.config.selectedCourseIds.length)"
             @click="handleStartAuto"
           >
-            🚀 开始刷课
+            {{ t('onlinelearning.startAuto') }}
           </button>
           <template v-else>
             <button class="warning-btn auto-btn" @click="auto.togglePause()">
-              {{ auto.paused.value ? '▶️ 恢复' : '⏸️ 暂停' }}
+              {{ auto.paused.value ? t('onlinelearning.resume') : t('onlinelearning.pause') }}
             </button>
             <button class="danger-btn auto-btn" @click="auto.stopAuto()">
-              ⏹️ 停止
+              {{ t('onlinelearning.stop') }}
             </button>
           </template>
         </div>
 
         <!-- 进度面板 -->
-        <TSection v-if="auto.progress.phase" title="执行进度" icon="📈">
+        <TSection v-if="auto.progress.phase" :title="t('onlinelearning.execProgress')" icon="📈">
           <TCard compact>
             <div class="progress-summary">
               <div class="progress-stat">
-                <span>课程</span>
+                <span>{{ t('onlinelearning.statCourses') }}</span>
                 <strong>{{ auto.progress.currentCourseIndex }} / {{ auto.progress.totalCourses }}</strong>
               </div>
               <div class="progress-stat">
-                <span>视频</span>
+                <span>{{ t('onlinelearning.statVideos') }}</span>
                 <strong>{{ auto.progress.currentVideoIndex }} / {{ auto.progress.totalVideos }}</strong>
               </div>
               <div class="progress-stat">
-                <span>完成</span>
+                <span>{{ t('onlinelearning.statDone') }}</span>
                 <strong class="text-success">{{ auto.stats.videosCompleted }}</strong>
               </div>
               <div class="progress-stat">
-                <span>失败</span>
+                <span>{{ t('onlinelearning.statFailed') }}</span>
                 <strong class="text-danger">{{ auto.stats.videosFailed }}</strong>
               </div>
             </div>
@@ -556,13 +574,13 @@ const resolveLogVideoLabel = (log, idx) => {
               <span class="progress-percent">{{ auto.overallPercent.value }}%</span>
             </div>
             <div v-if="auto.stats.totalTime && !auto.running.value" class="progress-done">
-              <p>⏱️ 总耗时 {{ auto.formatDuration(auto.stats.totalTime) }}</p>
+              <p>{{ tFmt('onlinelearning.totalTime', { d: auto.formatDuration(auto.stats.totalTime) }) }}</p>
             </div>
           </TCard>
         </TSection>
 
         <!-- 日志面板 -->
-        <TSection v-if="auto.progress.logs.length" title="执行日志" icon="📋">
+        <TSection v-if="auto.progress.logs.length" :title="t('onlinelearning.execLog')" icon="📋">
           <TCard compact>
             <div class="log-panel">
               <div
@@ -593,38 +611,38 @@ const resolveLogVideoLabel = (log, idx) => {
 
       <!-- ═══════════ TAB: 设置 ═══════════ -->
       <template v-if="activeTab === 'settings'">
-        <TSection title="速度默认值" icon="⚡">
+        <TSection :title="t('onlinelearning.speedDefaults')" icon="⚡">
           <TCard compact>
             <div class="setting-row">
               <div class="setting-label">
-                <strong>默认速度模式</strong>
-                <p>每次打开自动学习时使用的速度</p>
+                <strong>{{ t('onlinelearning.defaultSpeedMode') }}</strong>
+                <p>{{ t('onlinelearning.defaultSpeedDesc') }}</p>
               </div>
               <select class="setting-select" v-model="auto.config.speedMode">
                 <option v-for="(mode, key) in SPEED_MODES" :key="key" :value="key">
-                  {{ mode.icon }} {{ mode.label }}
+                  {{ mode.icon }} {{ speedModeView(mode, key).label }}
                 </option>
               </select>
             </div>
           </TCard>
         </TSection>
 
-        <TSection title="进度上报参数" icon="🔧">
+        <TSection :title="t('onlinelearning.reportParams')" icon="🔧">
           <TCard compact>
             <div class="setting-row">
               <div class="setting-label">
-                <strong>上报间隔</strong>
-                <p>模拟播放时每次上报的时间间隔(秒)</p>
+                <strong>{{ t('onlinelearning.reportInterval') }}</strong>
+                <p>{{ t('onlinelearning.reportIntervalDesc') }}</p>
               </div>
               <div class="setting-input-wrap">
                 <input type="number" class="setting-input" v-model.number="auto.config.cx_reportInterval" min="10" max="300" step="5" />
-                <span class="setting-unit">秒</span>
+                <span class="setting-unit">{{ t('onlinelearning.secondsUnit') }}</span>
               </div>
             </div>
             <div class="setting-row">
               <div class="setting-label">
-                <strong>随机抖动</strong>
-                <p>延时随机浮动范围 (0.0~1.0)</p>
+                <strong>{{ t('onlinelearning.jitter') }}</strong>
+                <p>{{ t('onlinelearning.jitterDesc') }}</p>
               </div>
               <div class="setting-input-wrap">
                 <input type="number" class="setting-input" v-model.number="auto.config.cx_jitterFactor" min="0" max="1" step="0.05" />
@@ -633,12 +651,12 @@ const resolveLogVideoLabel = (log, idx) => {
           </TCard>
         </TSection>
 
-        <TSection title="关于" icon="ℹ️">
+        <TSection :title="t('onlinelearning.about')" icon="ℹ️">
           <TCard compact>
             <div class="about-text">
-              <p>本功能通过模拟超星学习通客户端的视频进度上报接口, 将视频标记为已观看。</p>
-              <p><strong>原理</strong>: 定时调用 report_progress 接口, 按 enc 加密算法生成签名, 逐帧递增播放时间。</p>
-              <p><strong>参数对照</strong>: 与 chaoxing_auto.py 脚本完全一致 — rush(3s)/fast(10s,默认)/normal(30s), 进度上报间隔60秒, 抖动系数0.2。</p>
+              <p>{{ t('onlinelearning.aboutCx1') }}</p>
+              <p><strong>{{ t('onlinelearning.aboutCx2Label') }}</strong>: {{ t('onlinelearning.aboutCx2Text') }}</p>
+              <p><strong>{{ t('onlinelearning.aboutCx3Label') }}</strong>: {{ t('onlinelearning.aboutCx3Text') }}</p>
             </div>
           </TCard>
         </TSection>

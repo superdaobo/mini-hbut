@@ -2,9 +2,54 @@
 import { ref, computed, watch } from 'vue'
 import { formatRelativeTime } from '../utils/time.js'
 import { compareSemesterDesc, normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { t, useLocale } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 import GradeDistributionView from './GradeDistributionView.vue'
 import { normalizeGradeRecords } from '../domain/grades.ts'
+
+// i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
+const { locale } = useLocale()
+
+/** 按语言取定性成绩等级文案：未知等级回落原始文本（数据驱动枚举渲染） */
+const resolveLevelText = (raw) => {
+  const text = String(raw ?? '').trim()
+  if (!text) return text
+  const LEVEL_KEY_MAP = [
+    [/优秀/, 'grade.level.excellent'],
+    [/良好/, 'grade.level.good'],
+    [/中等/, 'grade.level.medium'],
+    [/不合格/, 'grade.level.unqualified'],
+    [/未通过|不及格|挂科/, 'grade.level.fail'],
+    [/合格|及格/, 'grade.level.pass'],
+    [/通过/, 'grade.level.passed'],
+    [/缺考/, 'grade.level.absent'],
+    [/缓考/, 'grade.level.deferred'],
+    [/免修|免听/, 'grade.level.exempt'],
+    [/免考/, 'grade.level.exemptedExam'],
+    [/待录入|未录入/, 'grade.level.pending'],
+    [/重修/, 'grade.level.retake']
+  ]
+  for (const [pattern, key] of LEVEL_KEY_MAP) {
+    if (pattern.test(text)) return t(key)
+  }
+  return text
+}
+
+/** 课程性质展示：代码优先映射 i18n key，非代码文本按等级文案处理 */
+const resolveNatureText = (raw) => {
+  const text = String(raw ?? '').trim()
+  if (!text) return text
+  if (/^\d+$/.test(text)) {
+    const key = `grade.nature.${text}`
+    const translated = t(key)
+    if (translated !== key) return translated
+    return text
+  }
+  return resolveLevelText(text)
+}
+
+/** 状态标签渲染：按 tag.key 取词（key 由 domain 派生） */
+const statusTagText = (tag) => t(`grade.tag.${tag.key}`)
 
 const props = defineProps({
   grades: { type: Array, default: () => [] },
@@ -92,13 +137,13 @@ const sortedGrades = computed(() => sortGradeList(filteredGrades.value))
 const groupedGrades = computed(() => {
   const groups = {}
   filteredGrades.value.forEach(grade => {
-    const term = grade.term || '未知学期'
+    const term = grade.term || t('grade.term.unknown')
     if (!groups[term]) {
       groups[term] = []
     }
     groups[term].push(grade)
   })
-  
+
   return Object.entries(groups)
     .sort((a, b) => compareSemesterDesc(a[0], b[0]))
     .map(([term, items]) => ({ term, items: sortGradeList(items) }))
@@ -112,7 +157,7 @@ const stats = computed(() => {
   return { total, credits: credits.toFixed(2), failed }
 })
 
-const lastUpdatedAt = computed(() => props.syncTime ? formatRelativeTime(props.syncTime) : '暂未更新')
+const lastUpdatedAt = computed(() => props.syncTime ? formatRelativeTime(props.syncTime) : t('grade.notUpdated'))
 
 // 获取分数等级样式
 const getScoreClass = (score) => {
@@ -186,16 +231,16 @@ watch(
 <template>
   <div class="grade-view">
     <header class="grade-stitch-header">
-      <button class="grade-stitch-back" type="button" aria-label="返回" @click="handleBack">
+      <button class="grade-stitch-back" type="button" :aria-label="t('grade.back')" @click="handleBack">
         <span class="material-symbols-outlined">chevron_left</span>
       </button>
-      <h1>成绩查询</h1>
+      <h1>{{ t('grade.title') }}</h1>
       <button
         class="grade-stitch-refresh grade-refresh-btn"
         type="button"
         :disabled="refreshing"
-        aria-label="刷新成绩"
-        title="刷新成绩"
+        :aria-label="t('grade.refresh')"
+        :title="t('grade.refresh')"
         @click="handleRefresh"
       >
         <span class="material-symbols-outlined" :class="{ spinning: refreshing || offline }">refresh</span>
@@ -209,14 +254,14 @@ watch(
           :class="{ active: activeGradeTab === 'grades' }"
           @click="activeGradeTab = 'grades'"
         >
-          成绩查询
+          {{ t('grade.tab.grades') }}
         </button>
         <button
           class="grade-tab-btn"
           :class="{ active: activeGradeTab === 'distribution' }"
           @click="activeGradeTab = 'distribution'"
         >
-          给分记录<span class="beta-tag">Beta</span>
+          {{ t('grade.tab.distribution') }}<span class="beta-tag">Beta</span>
         </button>
       </div>
 
@@ -224,7 +269,7 @@ watch(
 
       <template v-if="activeGradeTab === 'grades'">
         <div v-if="offline" class="offline-banner">
-          当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+          {{ t('common.offline.prefix') }}{{ formatRelativeTime(syncTime) }}
         </div>
 
         <div class="grade-filter-card">
@@ -233,84 +278,84 @@ watch(
             <input
               v-model="searchName"
               type="text"
-              placeholder="搜索课程名称..."
+              :placeholder="t('grade.search.placeholder')"
               class="search-input"
             />
           </div>
 
           <div class="select-wrap">
             <IOSSelect v-model="filterTerm" class="filter-select">
-              <option value="">全部学期</option>
+              <option value="">{{ t('grade.term.all') }}</option>
               <option v-for="term in terms" :key="term" :value="term">{{ term }}</option>
             </IOSSelect>
           </div>
 
           <div class="filter-divider">
             <button class="ghost-btn" type="button" @click="showAdvancedFilters = !showAdvancedFilters">
-              {{ showAdvancedFilters ? '收起筛选' : '展开筛选' }}
+              {{ showAdvancedFilters ? t('grade.filter.collapse') : t('grade.filter.expand') }}
               <span class="material-symbols-outlined">expand_more</span>
             </button>
           </div>
 
           <div v-if="showAdvancedFilters" class="filter-advanced">
             <div class="filter-group">
-              <label>成绩状态</label>
+              <label>{{ t('grade.filter.status') }}</label>
               <div class="radio-group">
                 <label class="radio-label" :class="{ active: filterPass === 'all' }">
                   <input type="radio" v-model="filterPass" value="all" />
-                  <span>全部</span>
+                  <span>{{ t('grade.filter.all') }}</span>
                 </label>
                 <label class="radio-label" :class="{ active: filterPass === 'pass' }">
                   <input type="radio" v-model="filterPass" value="pass" />
-                  <span>合格</span>
+                  <span>{{ t('grade.filter.pass') }}</span>
                 </label>
                 <label class="radio-label" :class="{ active: filterPass === 'fail' }">
                   <input type="radio" v-model="filterPass" value="fail" />
-                  <span>不合格</span>
+                  <span>{{ t('grade.filter.fail') }}</span>
                 </label>
               </div>
             </div>
 
             <div class="filter-group">
-              <label>补考</label>
+              <label>{{ t('grade.filter.makeup') }}</label>
               <div class="radio-group">
                 <label class="radio-label" :class="{ active: filterMakeup === 'all' }">
                   <input type="radio" v-model="filterMakeup" value="all" />
-                  <span>全部</span>
+                  <span>{{ t('grade.filter.all') }}</span>
                 </label>
                 <label class="radio-label" :class="{ active: filterMakeup === 'no' }">
                   <input type="radio" v-model="filterMakeup" value="no" />
-                  <span>正常</span>
+                  <span>{{ t('grade.filter.normal') }}</span>
                 </label>
                 <label class="radio-label" :class="{ active: filterMakeup === 'yes' }">
                   <input type="radio" v-model="filterMakeup" value="yes" />
-                  <span>补考</span>
+                  <span>{{ t('grade.filter.makeup') }}</span>
                 </label>
               </div>
             </div>
 
             <div class="filter-group">
-              <label>展示方式</label>
+              <label>{{ t('grade.filter.view') }}</label>
               <div class="radio-group">
                 <label class="radio-label" :class="{ active: viewMode === 'grouped' }">
                   <input type="radio" v-model="viewMode" value="grouped" />
-                  <span>分组</span>
+                  <span>{{ t('grade.filter.grouped') }}</span>
                 </label>
                 <label class="radio-label" :class="{ active: viewMode === 'all' }">
                   <input type="radio" v-model="viewMode" value="all" />
-                  <span>全部</span>
+                  <span>{{ t('grade.filter.all') }}</span>
                 </label>
               </div>
             </div>
 
             <div class="filter-group filter-sort-row">
-              <label>排序</label>
+              <label>{{ t('grade.filter.sort') }}</label>
               <IOSSelect v-model="sortMode" class="filter-select sort-select">
-                <option value="origin">成绩公布先后</option>
-                <option value="score_desc">成绩高到低</option>
-                <option value="score_asc">成绩低到高</option>
+                <option value="origin">{{ t('grade.sort.origin') }}</option>
+                <option value="score_desc">{{ t('grade.sort.desc') }}</option>
+                <option value="score_asc">{{ t('grade.sort.asc') }}</option>
               </IOSSelect>
-              <button class="reset-btn" type="button" @click="resetFilters">重置</button>
+              <button class="reset-btn" type="button" @click="resetFilters">{{ t('grade.reset') }}</button>
             </div>
           </div>
         </div>
@@ -318,15 +363,15 @@ watch(
         <div class="grade-stats-grid">
           <div class="stat-card">
             <span class="stat-value">{{ stats.total }}</span>
-            <span class="stat-label">筛选结果</span>
+            <span class="stat-label">{{ t('grade.stats.count') }}</span>
           </div>
           <div class="stat-card">
             <span class="stat-value">{{ stats.credits }}</span>
-            <span class="stat-label">总学分</span>
+            <span class="stat-label">{{ t('grade.stats.credits') }}</span>
           </div>
           <div class="stat-card">
             <span class="stat-value stat-value-dark">{{ stats.failed }}</span>
-            <span class="stat-label">挂科数</span>
+            <span class="stat-label">{{ t('grade.stats.failed') }}</span>
           </div>
         </div>
 
@@ -335,7 +380,7 @@ watch(
             <div v-for="group in groupedGrades" :key="group.term" class="term-group">
               <div class="term-header">
                 <span class="term-icon"><i class="fa-regular fa-calendar"></i></span>
-                <h2>{{ group.term }} ({{ group.items.length }}门)</h2>
+                <h2>{{ group.term }} ({{ group.items.length }}{{ t('grade.courseUnit') }})</h2>
               </div>
               <div class="grade-grid">
                 <div
@@ -348,8 +393,8 @@ watch(
                   <div class="card-score">{{ grade.final_score }}</div>
                   <h3 class="card-name">{{ grade.course_name }}</h3>
                   <div class="card-meta">
-                    <span class="credit">{{ grade.course_credit }}分</span>
-                    <span class="nature">{{ grade.course_nature }}</span>
+                    <span class="credit">{{ grade.course_credit }}{{ t('grade.creditUnit') }}</span>
+                    <span class="nature">{{ resolveNatureText(grade.course_nature) }}</span>
                   </div>
                   <div v-if="grade.statusTags?.length" class="card-status">
                     <span
@@ -358,7 +403,7 @@ watch(
                       class="status-chip"
                       :class="`status-${tag.key}`"
                     >
-                      {{ tag.label }}
+                      {{ statusTagText(tag) }}
                     </span>
                   </div>
                   <div class="card-teacher" v-if="grade.teacher">
@@ -382,8 +427,8 @@ watch(
                 <div class="card-score">{{ grade.final_score }}</div>
                 <h3 class="card-name">{{ grade.course_name }}</h3>
                 <div class="card-meta">
-                  <span class="credit">{{ grade.course_credit }}分</span>
-                  <span class="nature">{{ grade.course_nature }}</span>
+                  <span class="credit">{{ grade.course_credit }}{{ t('grade.creditUnit') }}</span>
+                  <span class="nature">{{ resolveNatureText(grade.course_nature) }}</span>
                   <span class="nature">{{ grade.term }}</span>
                 </div>
                 <div v-if="grade.statusTags?.length" class="card-status">
@@ -393,7 +438,7 @@ watch(
                     class="status-chip"
                     :class="`status-${tag.key}`"
                   >
-                    {{ tag.label }}
+                    {{ statusTagText(tag) }}
                   </span>
                 </div>
                 <div class="card-teacher" v-if="grade.teacher">
@@ -404,13 +449,13 @@ watch(
             </div>
           </template>
 
-          <TEmptyState v-if="refreshing && props.grades.length === 0" type="loading" message="正在获取成绩数据..." />
-          <TEmptyState v-else-if="sortedGrades.length === 0" message="没有找到符合条件的成绩">
-            <button @click="resetFilters">清除筛选</button>
+          <TEmptyState v-if="refreshing && props.grades.length === 0" type="loading" :message="t('grade.loading')" />
+          <TEmptyState v-else-if="sortedGrades.length === 0" :message="t('grade.empty')">
+            <button @click="resetFilters">{{ t('grade.clearFilters') }}</button>
           </TEmptyState>
         </div>
 
-        <p class="grade-updated-at">最新更新时间：{{ lastUpdatedAt }}</p>
+        <p class="grade-updated-at">{{ t('grade.updatedAt') }}：{{ lastUpdatedAt }}</p>
 
     <!-- 详情弹窗 -->
     <Teleport to="body">
@@ -428,58 +473,58 @@ watch(
           
           <div class="detail-grid">
             <div class="detail-item">
-              <span class="detail-label">学期</span>
+              <span class="detail-label">{{ t('grade.detail.term') }}</span>
               <span class="detail-value">{{ selectedGrade.term }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">学分</span>
+              <span class="detail-label">{{ t('grade.detail.credit') }}</span>
               <span class="detail-value">{{ selectedGrade.course_credit }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">获得学分</span>
+              <span class="detail-label">{{ t('grade.detail.earnedCredit') }}</span>
               <span class="detail-value">{{ selectedGrade.earned_credit || '-' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">绩点</span>
+              <span class="detail-label">{{ t('grade.detail.gradePoint') }}</span>
               <span class="detail-value">
                 {{ selectedGrade.gradePointText || '-' }}
-                <span v-if="selectedGrade.gradePointEstimated" class="point-estimated">估算</span>
+                <span v-if="selectedGrade.gradePointEstimated" class="point-estimated">{{ t('grade.estimated') }}</span>
               </span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">学分绩点</span>
+              <span class="detail-label">{{ t('grade.detail.gpa') }}</span>
               <span class="detail-value">{{ selectedGrade.creditGradePoint || '-' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">课程性质</span>
-              <span class="detail-value">{{ selectedGrade.course_nature || '-' }}</span>
+              <span class="detail-label">{{ t('grade.detail.nature') }}</span>
+              <span class="detail-value">{{ resolveNatureText(selectedGrade.course_nature) || '-' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">录入教师</span>
+              <span class="detail-label">{{ t('grade.detail.entryTeacher') }}</span>
               <span class="detail-value">{{ selectedGrade.entryTeacher || '-' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">课程教师</span>
+              <span class="detail-label">{{ t('grade.detail.courseTeacher') }}</span>
               <span class="detail-value">{{ selectedGrade.courseTeacher || '-' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">是否挂科</span>
-              <span class="detail-value">{{ selectedGrade.isFailed ? '是' : '否' }}</span>
+              <span class="detail-label">{{ t('grade.detail.failed') }}</span>
+              <span class="detail-value">{{ selectedGrade.isFailed ? t('common.yes') : t('common.no') }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">是否补考</span>
-              <span class="detail-value">{{ selectedGrade.isMakeup ? '是' : '否' }}</span>
+              <span class="detail-label">{{ t('grade.detail.makeup') }}</span>
+              <span class="detail-value">{{ selectedGrade.isMakeup ? t('common.yes') : t('common.no') }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">是否缓考</span>
-              <span class="detail-value">{{ selectedGrade.isDeferred ? '是' : '否' }}</span>
+              <span class="detail-label">{{ t('grade.detail.deferred') }}</span>
+              <span class="detail-value">{{ selectedGrade.isDeferred ? t('common.yes') : t('common.no') }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">是否免修</span>
-              <span class="detail-value">{{ selectedGrade.isExempt ? '是' : '否' }}</span>
+              <span class="detail-label">{{ t('grade.detail.exempt') }}</span>
+              <span class="detail-value">{{ selectedGrade.isExempt ? t('common.yes') : t('common.no') }}</span>
             </div>
             <div class="detail-item full-width" v-if="selectedGrade.statusTags?.length">
-              <span class="detail-label">关键状态</span>
+              <span class="detail-label">{{ t('grade.detail.keyStatus') }}</span>
               <div class="detail-tags">
                 <span
                   v-for="tag in selectedGrade.statusTags"
@@ -487,15 +532,15 @@ watch(
                   class="status-chip"
                   :class="`status-${tag.key}`"
                 >
-                  {{ tag.label }}
+                  {{ statusTagText(tag) }}
                 </span>
               </div>
             </div>
             <div class="detail-item full-width detail-formula-note">
-              <span class="detail-label">绩点说明</span>
+              <span class="detail-label">{{ t('grade.detail.formulaTitle') }}</span>
               <div class="detail-note-lines">
-                <span>绩点 = 分数 / 10 - 5</span>
-                <span>学分绩点 = 学分 × 绩点</span>
+                <span>{{ t('grade.detail.formula1') }}</span>
+                <span>{{ t('grade.detail.formula2') }}</span>
               </div>
             </div>
           </div>

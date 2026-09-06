@@ -14,10 +14,14 @@ import { useForumComposer } from '../features/forum/composables/useForumComposer
 import { useForumNotice } from '../features/forum/composables/useForumNotice'
 import { useForumUserProfile } from '../features/forum/composables/useForumUserProfile'
 import { authorName, formatTime, initials } from '../features/forum/utils/format'
+import { useI18n } from '../utils/app_i18n'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
 })
+
+// i18n（#794 批次 I）：响应式取词用于模板（含外链 ForumView.html）
+const { t } = useI18n()
 
 const emit = defineEmits(['back', 'require-login'])
 
@@ -49,16 +53,17 @@ const notice = useForumNotice(session, { notifications: me.notifications, messag
 const userProfile = useForumUserProfile(session, { displayThreads: feed.displayThreads })
 
 // ---- 页面级状态与局部交互（组合壳职责） ----
-const tabs = [
-  { key: 'feed', label: '广场', icon: 'forum' },
-  { key: 'compose', label: '发帖', icon: 'edit_square' },
-  { key: 'polls', label: '投票', icon: 'how_to_vote' },
-  { key: 'notice', label: '通知', icon: 'notifications' },
-  { key: 'me', label: '我的', icon: 'person' },
-  { key: 'admin', label: '管理', icon: 'admin_panel_settings' }
-]
+// tabs 文案 getter 化：保证语言切换后标签即时生效
+const tabs = computed(() => [
+  { key: 'feed', label: t('forum.tab.feed'), icon: 'forum' },
+  { key: 'compose', label: t('forum.tab.compose'), icon: 'edit_square' },
+  { key: 'polls', label: t('forum.tab.polls'), icon: 'how_to_vote' },
+  { key: 'notice', label: t('forum.tab.notice'), icon: 'notifications' },
+  { key: 'me', label: t('forum.tab.me'), icon: 'person' },
+  { key: 'admin', label: t('forum.tab.admin'), icon: 'admin_panel_settings' }
+])
 const activeTab = ref('feed')
-const visibleTabs = computed(() => tabs.filter((tab) => tab.key !== 'admin' || me.isAdmin.value))
+const visibleTabs = computed(() => tabs.value.filter((tab) => tab.key !== 'admin' || me.isAdmin.value))
 
 // 会话共享能力暴露（模板直接绑定）
 const { profile, forumEnabled, errorMessage, isLoggedIn, isPending } = session

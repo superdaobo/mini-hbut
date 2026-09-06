@@ -4,9 +4,11 @@
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
  */
 import { computed } from 'vue'
-import { periodOptions, weekDayLabels } from '../constants'
+import { periodOptions, getWeekDayLabels } from '../constants'
 // #772：恢复组件拆分时丢失的颜色选择器（script setup 中 import 即自动注册）
 import CourseColorPicker from '../../../components/CourseColorPicker.vue'
+// #788 i18n：文案经 useI18n 响应式取词
+import { useI18n } from '../../../utils/app_i18n'
 
 const props = defineProps({
   showAddCourse: { type: Boolean, default: false },
@@ -27,6 +29,12 @@ const emit = defineEmits(['close', 'submit', 'open-week-picker'])
 // 「课程名称不能为空」。改用 computed 始终解引用最新表单对象，模板中 v-model
 // 的读取与写回都落在当前 props 指向的对象上。
 const form = computed(() => props.addCourseForm)
+
+// 响应式 t：语言切换后弹窗文案即时生效
+const { t } = useI18n()
+
+// #788：星期标签随语言切换取最新词（getter 函数在渲染时调用）
+const weekDayLabels = computed(() => getWeekDayLabels())
 </script>
 
 <template>
@@ -34,45 +42,45 @@ const form = computed(() => props.addCourseForm)
     <div v-if="showAddCourse" class="modal-overlay" @click="emit('close')">
       <div class="modal-content glass add-course-modal" @click.stop>
         <div class="modal-header">
-          <h3>{{ courseDialogMode === 'edit' ? '修改课程' : '添加课程' }}</h3>
+          <h3>{{ courseDialogMode === 'edit' ? t('schedule.addCourse.titleEdit') : t('schedule.addCourse.titleAdd') }}</h3>
           <button class="close-btn" @click="emit('close')">×</button>
         </div>
         <div class="modal-body add-course-body">
-          <div class="add-course-semester">学期：{{ courseDialogSemester }}</div>
+          <div class="add-course-semester">{{ t('schedule.addCourse.semesterLabel').replace('{t}', courseDialogSemester) }}</div>
           <label class="add-field">
-            <span>课程名称 *</span>
-            <input v-model.trim="form.name" type="text" placeholder="请输入课程名称" />
+            <span>{{ t('schedule.addCourse.nameLabel') }}</span>
+            <input v-model.trim="form.name" type="text" :placeholder="t('schedule.addCourse.namePlaceholder')" />
           </label>
           <label class="add-field">
-            <span>教师</span>
-            <input v-model.trim="form.teacher" type="text" placeholder="可选" />
+            <span>{{ t('schedule.addCourse.teacherLabel') }}</span>
+            <input v-model.trim="form.teacher" type="text" :placeholder="t('schedule.addCourse.teacherPlaceholder')" />
           </label>
           <label class="add-field">
-            <span>上课地点</span>
-            <input v-model.trim="form.room" type="text" placeholder="可选" />
+            <span>{{ t('schedule.addCourse.roomLabel') }}</span>
+            <input v-model.trim="form.room" type="text" :placeholder="t('schedule.addCourse.roomPlaceholder')" />
           </label>
           <div class="add-field">
-            <span>上课时间 *</span>
+            <span>{{ t('schedule.addCourse.timeLabel') }}</span>
             <IOSSelect v-model.number="form.weekday">
               <option v-for="(label, idx) in weekDayLabels" :key="label" :value="idx + 1">{{ label }}</option>
             </IOSSelect>
           </div>
           <div class="add-row">
             <label class="add-field">
-              <span>开始节次 *</span>
+              <span>{{ t('schedule.addCourse.startPeriodLabel') }}</span>
               <IOSSelect v-model.number="form.period">
-                <option v-for="p in periodOptions" :key="p" :value="p">第{{ p }}节</option>
+                <option v-for="p in periodOptions" :key="p" :value="p">{{ t('schedule.addCourse.periodOption').replace('{n}', String(p)) }}</option>
               </IOSSelect>
             </label>
             <label class="add-field">
-              <span>上课节数 *</span>
+              <span>{{ t('schedule.addCourse.spanLabel') }}</span>
               <IOSSelect v-model.number="form.djs">
-                <option v-for="s in courseSpanOptions" :key="s" :value="s">{{ s }}节</option>
+                <option v-for="s in courseSpanOptions" :key="s" :value="s">{{ t('schedule.addCourse.spanOption').replace('{n}', String(s)) }}</option>
               </IOSSelect>
             </label>
           </div>
           <div class="add-field">
-            <span>上课周次 *</span>
+            <span>{{ t('schedule.addCourse.weeksLabel') }}</span>
             <button class="week-picker-trigger" @click="emit('open-week-picker')">
               {{ addWeeksCountText }}
             </button>
@@ -83,9 +91,11 @@ const form = computed(() => props.addCourseForm)
           <div v-if="addCourseError" class="drawer-error add-course-error">{{ addCourseError }}</div>
         </div>
         <div class="add-actions">
-          <button class="drawer-action ghost" :disabled="addingCourse" @click="emit('close')">取消</button>
+          <button class="drawer-action ghost" :disabled="addingCourse" @click="emit('close')">{{ t('schedule.addCourse.cancel') }}</button>
           <button class="drawer-action" :disabled="addingCourse" @click="emit('submit')">
-            {{ addingCourse ? `正在${courseDialogMode === 'edit' ? '修改' : '添加'}...` : `${courseDialogMode === 'edit' ? '修改' : '添加'}并确认` }}
+            {{ addingCourse
+              ? (courseDialogMode === 'edit' ? t('schedule.addCourse.submittingEdit') : t('schedule.addCourse.submittingAdd'))
+              : (courseDialogMode === 'edit' ? t('schedule.addCourse.submitEdit') : t('schedule.addCourse.submitAdd')) }}
           </button>
         </div>
       </div>

@@ -15,7 +15,18 @@ import { fetchRemoteConfig, getChaoxingClassConfig } from '../utils/remote_confi
 import { loadPortalRememberedPassword } from '../utils/credential_storage'
 import { pushDebugLog } from '../utils/debug_logger'
 import { showToast } from '../utils/toast'
+// #792：学习通域文案英文化（t() 响应式取词，useLocale 解构）
+import { useLocale } from '../utils/app_i18n'
 import { TPageHeader } from './templates'
+
+const { t } = useLocale()
+
+/** 带占位符的插值：{i}/{n}/{name} 等按序替换，供 i18n 字典参数化文案使用 */
+const tFmt = (key, params = {}) =>
+  Object.entries(params).reduce(
+    (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
+    t(key)
+  )
 
 const LAST_CLASS_KEY = 'hbu_chaoxing_class_last_v1'
 const JOIN_DECLINED_KEY = 'hbu_chaoxing_class_declined_v1'
@@ -105,7 +116,7 @@ const hasTauri = isTauriRuntime()
 
 const courseTitle = computed(() => {
   const p = activeClass.value || preview.value
-  return String(p?.course_name || p?.courseName || '班级资料').trim()
+  return String(p?.course_name || p?.courseName || t('chaoxing.class.fallbackTitle')).trim()
 })
 
 const teacherName = computed(() => {
@@ -127,11 +138,11 @@ const resourceCount = computed(() => resources.value.length)
 const isJoined = computed(() => !!(activeClass.value?.course_id && activeClass.value?.clazz_id))
 
 const formatErr = (e) => {
-  if (!e) return '未知错误'
+  if (!e) return t('chaoxing.class.unknownError')
   if (typeof e === 'string') return e
   const msg = e?.message || e?.error || String(e)
   // 邀请码/SSO 详细诊断日志较长，原样保留便于设置→调试信息与截图反馈
-  return String(msg || '未知错误')
+  return String(msg || t('chaoxing.class.unknownError'))
 }
 
 const studentPayload = () => {
@@ -232,7 +243,7 @@ const enterNotJoinedState = async ({ openDialog = false, reason = '', rejoin = f
   clearLastClass()
   needsRejoin.value = !!rejoin
   error.value = ''
-  statusMsg.value = rejoin ? reason || '你已不在该班级，请重新加入' : ''
+  statusMsg.value = rejoin ? reason || t('chaoxing.class.rejoinMsg') : ''
   preview.value = { ...classMeta.value }
   bootPhase.value = 'ready'
   loadingBoot.value = false
@@ -271,10 +282,10 @@ const ensureSso = async () => {
   if (bootPhase.value === 'init' || bootPhase.value === 'sso') {
     bootPhase.value = 'sso'
   }
-  ssoHint.value = '正在通过门户会话接入学习通…'
+  ssoHint.value = t('chaoxing.class.ssoConnecting')
   try {
     if (!hasTauri) {
-      throw new Error('请在客户端内使用本功能')
+      throw new Error(t('chaoxing.class.clientOnly'))
     }
     // #367：把 Web 加密备份的门户密码注入 native，供静默重登
     const req = await ssoPayload()
@@ -282,13 +293,13 @@ const ensureSso = async () => {
     ssoReady.value = !!(res?.success ?? res?.sso)
     ssoHint.value = ssoReady.value
       ? res?.partial
-        ? '门户会话部分可用（已可访问固定班级）'
+        ? t('chaoxing.class.ssoPartial')
         : res?.from_cache || res?.cookie_reuse
-          ? '学习通会话已复用'
+          ? t('chaoxing.class.ssoReused')
           : res?.silent_relogin
-            ? '已静默续期并接入学习通'
-            : '门户 SSO 已连接'
-      : '会话未就绪，请重新登录门户'
+            ? t('chaoxing.class.ssoRelogin')
+            : t('chaoxing.class.ssoOk')
+      : t('chaoxing.class.ssoNotReady')
     return ssoReady.value
   } catch (e) {
     ssoReady.value = false
@@ -297,7 +308,7 @@ const ensureSso = async () => {
     // 绿灯教务可用 ≠ 学习通可用：文案区分，避免用户以为“断网”
     error.value =
       msg.includes('过期') || msg.includes('登录') || msg.includes('密码')
-        ? `${msg}（教务会话可能仍可用；学习通需门户 CAS 票据或记住密码以静默续期）`
+        ? `${msg}${t('chaoxing.class.ssoErrorPortalOk')}`
         : msg
     return false
   } finally {
@@ -308,7 +319,7 @@ const ensureSso = async () => {
 const fetchPreview = async () => {
   bootPhase.value = 'preview'
   const code = inviteCode.value
-  if (!code) throw new Error('未配置学习通邀请码')
+  if (!code) throw new Error(t('chaoxing.class.inviteNotConfigured'))
   // #375：邀请码接口可能因假 SSO 复用失败，附带门户密码供静默重桥接
   const ssoReq = await ssoPayload()
   try {
@@ -323,7 +334,7 @@ const fetchPreview = async () => {
       invite_code: code,
       course_id: String(res.course_id || classMeta.value.course_id || ''),
       clazz_id: String(res.clazz_id || classMeta.value.clazz_id || ''),
-      course_name: String(res.course_name || classMeta.value.course_name || '班级'),
+      course_name: String(res.course_name || classMeta.value.course_name || t('chaoxing.class.fallbackShort')),
       teacher_name: String(res.teacher_name || classMeta.value.teacher_name || ''),
       cover_url: String(res.cover_url || ''),
       cpi: String(res.cpi || defaultCpi())
@@ -347,7 +358,8 @@ const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms))
  * 入班/重加成功后：强制回到已入班态，并多次自动刷新资料
  * （学习通侧入班后 backclazzdata/资料列表常有 1～数秒延迟，一次拉取易仍为空）
  */
-const refreshAfterJoin = async (cls, statusText = '加入成功') => {
+const refreshAfterJoin = async (cls, statusText = '') => {
+  const joinedText = statusText || t('chaoxing.class.joinSuccess')
   joinDeclined.value = false
   needsRejoin.value = false
   showJoinDialog.value = false
@@ -360,7 +372,7 @@ const refreshAfterJoin = async (cls, statusText = '加入成功') => {
   saveLastClass(cls)
   bootPhase.value = 'ready'
   loadingBoot.value = false
-  statusMsg.value = '正在同步班级资料…'
+  statusMsg.value = t('chaoxing.class.syncMaterials')
   // 入班后短时忽略 not_joined，避免延迟接口把 UI 打回欢迎页
   suppressNotJoinedUntil = Date.now() + 20_000
 
@@ -368,7 +380,7 @@ const refreshAfterJoin = async (cls, statusText = '加入成功') => {
   const gapsMs = [0, 500, 1000, 1600, 2500, 3500]
   for (let i = 0; i < gapsMs.length; i++) {
     if (gapsMs[i] > 0) {
-      statusMsg.value = `正在刷新资料…（${i}/${gapsMs.length - 1}）`
+      statusMsg.value = tFmt('chaoxing.class.refreshingMaterials', { i, n: gapsMs.length - 1 })
       await sleepMs(gapsMs[i])
     }
     // 防止重试过程中被误清
@@ -407,8 +419,8 @@ const refreshAfterJoin = async (cls, statusText = '加入成功') => {
     needsRejoin.value = false
     error.value = ''
     statusMsg.value = resources.value.length
-      ? `共 ${resources.value.length} 项`
-      : statusText || '已在班级'
+      ? tFmt('chaoxing.class.itemsTotal', { n: resources.value.length })
+      : joinedText || t('chaoxing.class.alreadyInClassMsg')
   }
 }
 
@@ -418,7 +430,7 @@ const handleJoinConfirm = async () => {
   statusMsg.value = ''
   try {
     const code = inviteCode.value
-    if (!code) throw new Error('未配置学习通邀请码')
+    if (!code) throw new Error(t('chaoxing.class.inviteNotConfigured'))
     const ssoReq = await ssoPayload()
     const res = await invokeNative('chaoxing_class_accept_invite', {
       req: {
@@ -440,9 +452,12 @@ const handleJoinConfirm = async () => {
       cpi: String(p.cpi || preview.value?.cpi || defaultCpi())
     }
     if (!cls.course_id || !cls.clazz_id) {
-      throw new Error('入班成功但未返回课程信息')
+      throw new Error(t('chaoxing.class.joinNoCourseInfo'))
     }
-    await refreshAfterJoin(cls, res?.already_joined ? '你已在该班级' : '加入成功')
+    await refreshAfterJoin(
+      cls,
+      res?.already_joined ? t('chaoxing.class.alreadyInClass') : t('chaoxing.class.joinSuccess')
+    )
   } catch (e) {
     const msg = formatErr(e)
     if (msg.includes('已') && (msg.includes('加入') || msg.includes('在'))) {
@@ -456,7 +471,7 @@ const handleJoinConfirm = async () => {
           ? { ...classMeta.value }
           : null
       if (fallback?.course_id && fallback?.clazz_id) {
-        await refreshAfterJoin(fallback, '你已在该班级')
+        await refreshAfterJoin(fallback, t('chaoxing.class.alreadyInClass'))
         return
       }
     }
@@ -492,12 +507,12 @@ const currentFolder = computed(() =>
 )
 
 const breadcrumbLabels = computed(() => {
-  const base = ['班级资料']
-  return base.concat(folderStack.value.map((f) => f.name || '文件夹'))
+  const base = [t('chaoxing.class.breadcrumbRoot')]
+  return base.concat(folderStack.value.map((f) => f.name || t('chaoxing.class.folder')))
 })
 
 const mapResourceItem = (item) => {
-  const name = String(item.name || '未命名')
+  const name = String(item.name || t('chaoxing.class.unnamed'))
   const file_type = String(item.file_type || item.fileType || '')
   const object_id = String(item.object_id || item.objectId || '')
   let thumbnail_url = String(item.thumbnail_url || item.thumbnailUrl || '')
@@ -554,7 +569,7 @@ const loadResources = async (opts = {}) => {
   const rejoinOnNotJoined = opts.rejoinOnNotJoined === true
   const cls = activeClass.value || preview.value
   if (!cls?.course_id || !cls?.clazz_id) {
-    error.value = '尚未加入班级'
+    error.value = t('chaoxing.class.notJoinedYet')
     return
   }
   const seq = ++loadSeq
@@ -582,7 +597,7 @@ const loadResources = async (opts = {}) => {
     await enterNotJoinedState({
       openDialog: rejoinOnNotJoined || !joinDeclined.value,
       rejoin: rejoinOnNotJoined,
-      reason: rejoinOnNotJoined ? '你已不在该班级，请重新加入' : ''
+      reason: rejoinOnNotJoined ? t('chaoxing.class.rejoinMsg') : ''
     })
     return true
   }
@@ -615,14 +630,16 @@ const loadResources = async (opts = {}) => {
     const list = Array.isArray(res?.resources) ? res.resources : []
     resources.value = list.map(mapResourceItem)
     bootPhase.value = 'ready'
-    statusMsg.value = resources.value.length ? `共 ${resources.value.length} 项` : '暂无资料'
+    statusMsg.value = resources.value.length
+      ? tFmt('chaoxing.class.itemsTotal', { n: resources.value.length })
+      : t('chaoxing.class.noResources')
     error.value = ''
   } catch (e) {
     if (seq !== loadSeq) return
     const msg = formatErr(e)
     if (isNotJoinedSignal(msg) && (await handleNotJoined())) return
     error.value = isTransientListError(msg)
-      ? `${msg}（快速进出目录时可能瞬时失败，可点重试）`
+      ? `${msg}${t('chaoxing.class.transientListHint')}`
       : msg
   } finally {
     if (seq === loadSeq) {
@@ -634,19 +651,19 @@ const loadResources = async (opts = {}) => {
 const openUrl = async (url) => {
   const href = String(url || '').trim()
   if (!href) {
-    error.value = '链接为空'
+    error.value = t('chaoxing.class.emptyLink')
     return
   }
   // downloadData 依赖学习通 cookie，系统浏览器会 403（#358）
   if (/coursedata\/downloadData/i.test(href) || /mooc1\.chaoxing\.com\/coursedata\/download/i.test(href)) {
-    throw new Error('该下载链接需登录会话，请使用应用内「下载」而非浏览器打开')
+    throw new Error(t('chaoxing.class.downloadNeedsSession'))
   }
   await openExternal(href)
 }
 
 const resolveAccess = async (item) => {
   const cls = activeClass.value || preview.value
-  if (!cls) throw new Error('尚未加入班级')
+  if (!cls) throw new Error(t('chaoxing.class.notJoinedYet'))
   return invokeNative('chaoxing_class_resolve_resource', {
     req: {
       course_id: cls.course_id,
@@ -676,9 +693,9 @@ const isMobileClient = () => {
 /** 应用内鉴权下载（重试/续传在 Rust）；移动端成功后弹系统分享（#359 方案 A） */
 const downloadWithSession = async (item, { retries = 2 } = {}) => {
   const cls = activeClass.value || preview.value
-  if (!cls) throw new Error('尚未加入班级')
+  if (!cls) throw new Error(t('chaoxing.class.notJoinedYet'))
   if (!hasTauri) {
-    throw new Error('请在客户端内下载（浏览器环境无法携带学习通会话）')
+    throw new Error(t('chaoxing.class.downloadClientOnly'))
   }
 
   let lastErr = null
@@ -697,27 +714,27 @@ const downloadWithSession = async (item, { retries = 2 } = {}) => {
       })
       const path = String(res?.path || '').trim()
       const fileUri = String(res?.file_uri || '').trim()
-      const name = String(res?.file_name || item.name || '文件').trim()
-      if (!path) throw new Error('下载完成但未返回保存路径')
+      const name = String(res?.file_name || item.name || t('chaoxing.class.fileFallback')).trim()
+      if (!path) throw new Error(t('chaoxing.class.downloadNoPath'))
 
       const mobile = !!(res?.mobile_share || isMobileClient())
       if (mobile) {
-        showToast('下载完成，请选择保存位置或分享…', 'success', 2400)
+        showToast(t('chaoxing.class.downloadSharePrompt'), 'success', 2400)
         const shareTarget = fileUri || path
         try {
           const ok = await platformBridge.shareLinkOrFile(
             shareTarget,
-            `保存或分享：${name}`
+            tFmt('chaoxing.class.shareOrSave', { name })
           )
           if (!ok) {
-            showToast(`已保存，可到文件管理中查看：${name}`, 'info', 4000)
+            showToast(tFmt('chaoxing.class.savedSeeFiles', { name }), 'info', 4000)
           }
         } catch (shareErr) {
           console.warn('[chaoxing] share failed:', shareErr)
-          showToast(`已下载：${name}（分享面板打开失败时可到文件中查找）`, 'warning', 4200)
+          showToast(tFmt('chaoxing.class.downloadedShareFail', { name }), 'warning', 4200)
         }
       } else {
-        showToast(`已保存：${name}`, 'success', 3600)
+        showToast(tFmt('chaoxing.class.savedFile', { name }), 'success', 3600)
       }
       return res
     } catch (e) {
@@ -725,14 +742,18 @@ const downloadWithSession = async (item, { retries = 2 } = {}) => {
       const msg = formatErr(e)
       // 可恢复错误：前端再点一次；这里自动多试
       if (i < retries) {
-        showToast(`下载失败，正在重试（${i + 1}/${retries}）…`, 'warning', 2000)
+        showToast(
+          tFmt('chaoxing.class.downloadRetry', { i: i + 1, n: retries }),
+          'warning',
+          2000
+        )
         await new Promise((r) => setTimeout(r, 600 * (i + 1)))
         continue
       }
-      throw new Error(msg || '下载失败')
+      throw new Error(msg || t('chaoxing.class.downloadFailed'))
     }
   }
-  throw lastErr || new Error('下载失败')
+  throw lastErr || new Error(t('chaoxing.class.downloadFailed'))
 }
 
 const closePreviewModal = () => {
@@ -794,7 +815,7 @@ const onPreviewImageError = () => {
     return
   }
   previewModalError.value =
-    previewModalError.value || '图片无法加载。可切换打开方式或下载。'
+    previewModalError.value || t('chaoxing.class.imageLoadFail')
 }
 
 const currentOpenMethod = computed(
@@ -814,8 +835,8 @@ const buildOpenMethods = ({ item, mode, cands, officialUrl, downloadUrl }) => {
   if (kind === 'image' && mediaUrls.length) {
     methods.push({
       id: 'embed-image',
-      label: '内嵌图片预览',
-      desc: '在应用内直接查看图片',
+      label: t('chaoxing.class.openImage'),
+      desc: t('chaoxing.class.openImageDesc'),
       icon: 'image',
       kind: 'embed',
       mode: 'image',
@@ -825,8 +846,8 @@ const buildOpenMethods = ({ item, mode, cands, officialUrl, downloadUrl }) => {
   if (kind === 'video' && mediaUrls.length) {
     methods.push({
       id: 'embed-video',
-      label: '内嵌视频播放',
-      desc: '在应用内播放视频',
+      label: t('chaoxing.class.openVideo'),
+      desc: t('chaoxing.class.openVideoDesc'),
       icon: 'movie',
       kind: 'embed',
       mode: 'video',
@@ -836,8 +857,8 @@ const buildOpenMethods = ({ item, mode, cands, officialUrl, downloadUrl }) => {
   if (official) {
     methods.push({
       id: 'embed-official',
-      label: '官方在线预览',
-      desc: '学习通官方预览页（内嵌）',
+      label: t('chaoxing.class.openOfficial'),
+      desc: t('chaoxing.class.openOfficialDesc'),
       icon: 'preview',
       kind: 'embed',
       mode: 'iframe',
@@ -846,8 +867,8 @@ const buildOpenMethods = ({ item, mode, cands, officialUrl, downloadUrl }) => {
   } else if (cands[0] && kind !== 'image' && kind !== 'video') {
     methods.push({
       id: 'embed-default',
-      label: '内嵌预览',
-      desc: '应用内打开',
+      label: t('chaoxing.class.openEmbed'),
+      desc: t('chaoxing.class.openEmbedDesc'),
       icon: 'visibility',
       kind: 'embed',
       mode: 'iframe',
@@ -859,8 +880,8 @@ const buildOpenMethods = ({ item, mode, cands, officialUrl, downloadUrl }) => {
   if (browserTarget && !String(browserTarget).startsWith('data:')) {
     methods.push({
       id: 'browser-preview',
-      label: '浏览器打开',
-      desc: '用系统浏览器打开预览',
+      label: t('chaoxing.class.openBrowser'),
+      desc: t('chaoxing.class.openBrowserDesc'),
       icon: 'open_in_browser',
       kind: 'browser',
       url: browserTarget
@@ -869,8 +890,8 @@ const buildOpenMethods = ({ item, mode, cands, officialUrl, downloadUrl }) => {
   if (downloadUrl) {
     methods.push({
       id: 'download',
-      label: '下载',
-      desc: '下载到本地查看',
+      label: t('chaoxing.class.openDownload'),
+      desc: t('chaoxing.class.openDownloadDesc'),
       icon: 'download',
       kind: 'download',
       url: downloadUrl
@@ -900,7 +921,7 @@ const applyOpenMethod = async (method, { externalOnly = false } = {}) => {
           await openUrl(url)
           return
         }
-        throw new Error('缺少资料信息，无法鉴权下载')
+        throw new Error(t('chaoxing.class.noAuthDownload'))
       }
       await downloadWithSession(previewItem.value)
     } catch (e) {
@@ -914,7 +935,7 @@ const applyOpenMethod = async (method, { externalOnly = false } = {}) => {
   if (method.kind === 'browser' || externalOnly) {
     const url = method.url || previewModalUrl.value
     if (!url || String(url).startsWith('data:')) {
-      previewModalError.value = '当前预览无法用浏览器打开，请改用下载'
+      previewModalError.value = t('chaoxing.class.browserBlocked')
       return
     }
     await openUrl(url)
@@ -941,7 +962,7 @@ const toggleOpenMethodMenu = () => {
 
 const handlePreviewDownload = async () => {
   if (!previewItem.value?.data_id) {
-    previewModalError.value = '暂无下载资料'
+    previewModalError.value = t('chaoxing.class.noDownloadItem')
     return
   }
   previewDownloading.value = true
@@ -965,7 +986,7 @@ const handleBrowserOpenCurrent = async () => {
   if (previewModalUrl.value && !String(previewModalUrl.value).startsWith('data:')) {
     await openUrl(previewModalUrl.value)
   } else {
-    previewModalError.value = '当前无可在浏览器打开的链接'
+    previewModalError.value = t('chaoxing.class.noBrowserLink')
   }
 }
 
@@ -977,7 +998,7 @@ const handleOpenFolder = async (item) => {
   folderStack.value = [
     ...folderStack.value,
     {
-      name: item.name || '文件夹',
+      name: item.name || t('chaoxing.class.folder'),
       parent_data_id: item.data_id || '0',
       folder_kind: kind,
       data_name: item.name || '',
@@ -1063,7 +1084,7 @@ const handlePreviewResource = async (item) => {
     })
     previewOpenMethods.value = methods
 
-    if (!cands.length && !url && !dl) throw new Error('未获取到预览或下载地址')
+    if (!cands.length && !url && !dl) throw new Error(t('chaoxing.class.noPreviewUrl'))
 
     // 默认内嵌方式
     const defaultEmbed =
@@ -1075,12 +1096,11 @@ const handlePreviewResource = async (item) => {
       previewMethodId.value = methods[0]?.id || ''
     } else if (dl) {
       previewMethodId.value = methods.find((m) => m.kind === 'download')?.id || ''
-      previewModalError.value = '暂无法内嵌预览，请下载或切换打开方式'
+      previewModalError.value = t('chaoxing.class.noEmbedPreview')
     }
 
     if (previewModalUrl.value.includes('star3/origin') && mode !== 'image') {
-      previewModalError.value =
-        '未拿到签名预览，CDN 直链可能无权限。可切换打开方式或下载。'
+      previewModalError.value = t('chaoxing.class.unsignedPreviewHint')
     }
   } catch (e) {
     previewModalError.value = formatErr(e)
@@ -1135,26 +1155,26 @@ const fileKind = (item) => {
   return 'file'
 }
 
-const kindMeta = {
-  folder: { icon: 'folder', label: '文件夹', chip: 'folder' },
-  courseware: { icon: 'folder_special', label: '教师课件', chip: 'folder' },
-  video: { icon: 'movie', label: '视频', chip: 'video' },
-  image: { icon: 'image', label: '图片', chip: 'image' },
+const kindMeta = computed(() => ({
+  folder: { icon: 'folder', label: t('chaoxing.class.folder'), chip: 'folder' },
+  courseware: { icon: 'folder_special', label: t('chaoxing.class.courseware'), chip: 'folder' },
+  video: { icon: 'movie', label: t('chaoxing.class.video'), chip: 'video' },
+  image: { icon: 'image', label: t('chaoxing.class.image'), chip: 'image' },
   pdf: { icon: 'picture_as_pdf', label: 'PDF', chip: 'doc' },
-  ppt: { icon: 'slideshow', label: '演示', chip: 'doc' },
-  doc: { icon: 'description', label: '文档', chip: 'doc' },
-  xls: { icon: 'table_chart', label: '表格', chip: 'doc' },
-  zip: { icon: 'folder_zip', label: '压缩包', chip: 'all' },
-  file: { icon: 'draft', label: '文件', chip: 'all' }
-}
+  ppt: { icon: 'slideshow', label: t('chaoxing.class.slides'), chip: 'doc' },
+  doc: { icon: 'description', label: t('chaoxing.class.document'), chip: 'doc' },
+  xls: { icon: 'table_chart', label: t('chaoxing.class.spreadsheet'), chip: 'doc' },
+  zip: { icon: 'folder_zip', label: t('chaoxing.class.archive'), chip: 'all' },
+  file: { icon: 'draft', label: t('chaoxing.class.fileFallback'), chip: 'all' }
+}))
 
-const filterChips = [
-  { id: 'all', label: '全部' },
-  { id: 'folder', label: '文件夹' },
-  { id: 'image', label: '图片' },
-  { id: 'video', label: '视频' },
-  { id: 'doc', label: '文档' }
-]
+const filterChips = computed(() => [
+  { id: 'all', label: t('chaoxing.class.filterAll') },
+  { id: 'folder', label: t('chaoxing.class.filterFolder') },
+  { id: 'image', label: t('chaoxing.class.filterImage') },
+  { id: 'video', label: t('chaoxing.class.filterVideo') },
+  { id: 'doc', label: t('chaoxing.class.filterDoc') }
+])
 
 const filteredResources = computed(() => {
   const list = resources.value
@@ -1162,7 +1182,7 @@ const filteredResources = computed(() => {
   if (chip === 'all') return list
   return list.filter((item) => {
     const k = fileKind(item)
-    const meta = kindMeta[k] || kindMeta.file
+    const meta = kindMeta.value[k] || kindMeta.value.file
     return meta.chip === chip
   })
 })
@@ -1198,8 +1218,8 @@ const boot = async () => {
     activeClass.value = saved
     bootPhase.value = 'ready'
     loadingBoot.value = false
-    ssoHint.value = '正在连接学习通会话…'
-    statusMsg.value = '正在加载资料…'
+    ssoHint.value = t('chaoxing.class.bootSso')
+    statusMsg.value = t('chaoxing.class.syncMaterials')
     // list_resources 后端已 ensure_chaoxing_sso；前端 ensure 只更新顶栏 hint
     const ssoPromise = ensureSso()
     try {
@@ -1210,7 +1230,7 @@ const boot = async () => {
         await enterNotJoinedState({
           openDialog: true,
           rejoin: true,
-          reason: '你已不在该班级，请重新加入'
+          reason: t('chaoxing.class.rejoinMsg')
         })
       } else {
         error.value = msg
@@ -1229,7 +1249,7 @@ const boot = async () => {
 
   // 冷路径：无 last-class，需先 SSO 再解析邀请码
   bootPhase.value = 'sso'
-  ssoHint.value = '正在连接学习通会话…'
+  ssoHint.value = t('chaoxing.class.bootSso')
   const ssoOk = await ensureSso()
   if (!ssoOk) {
     bootPhase.value = 'error'
@@ -1253,8 +1273,8 @@ const boot = async () => {
     if (isJoined.value) {
       saveLastClass(activeClass.value)
       statusMsg.value = resources.value.length
-        ? `共 ${resources.value.length} 项`
-        : '已可访问班级资料'
+        ? tFmt('chaoxing.class.itemsTotal', { n: resources.value.length })
+        : t('chaoxing.class.accessibleClass')
       return
     }
     // 未入班：欢迎/弹层（学生）

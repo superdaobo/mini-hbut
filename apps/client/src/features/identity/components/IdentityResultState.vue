@@ -6,6 +6,10 @@
 
 import { computed } from 'vue'
 import type { IdentityResultInfo } from '../types'
+// #795：响应式 t（locale 变化后模板即时重渲染）
+import { useI18n } from '../../../utils/app_i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{ result: IdentityResultInfo | null }>()
 const emit = defineEmits<{ close: [] }>()
@@ -23,22 +27,37 @@ const view = computed<{
       return {
         icon: 'check_circle',
         tone: 'ok',
-        title: '已允许登录',
-        desc: result.message || '网页将自动完成登录，你可以返回浏览器'
+        title: t('identity.result.approved.title'),
+        desc: result.message || t('identity.result.approved.desc.fallback')
       }
     case 'denied':
-      return { icon: 'cancel', tone: 'warn', title: '已拒绝授权', desc: result.message || '已拒绝此次授权' }
+      return {
+        icon: 'cancel',
+        tone: 'warn',
+        title: t('identity.result.denied.title'),
+        desc: result.message || t('identity.result.denied.desc.fallback')
+      }
     case 'cancelled':
-      return { icon: 'close', tone: 'warn', title: '已取消授权', desc: result.message || '已取消此次授权' }
+      return {
+        icon: 'close',
+        tone: 'warn',
+        title: t('identity.result.cancelled.title'),
+        desc: result.message || t('identity.result.cancelled.desc.fallback')
+      }
     case 'expired':
       return {
         icon: 'schedule',
         tone: 'warn',
-        title: '请求已过期',
-        desc: result.message || '应用请求已过期，请从网页重新发起'
+        title: t('identity.result.expired.title'),
+        desc: result.message || t('identity.result.expired.desc.fallback')
       }
     case 'error':
-      return { icon: 'error', tone: 'err', title: '授权失败', desc: result.message || '授权处理失败，请稍后重试' }
+      return {
+        icon: 'error',
+        tone: 'err',
+        title: t('identity.result.error.title'),
+        desc: result.message || t('identity.result.error.desc.fallback')
+      }
   }
 })
 </script>
@@ -51,7 +70,7 @@ const view = computed<{
     <h3 class="identity-result-title">{{ view.title }}</h3>
     <p class="identity-result-desc">{{ view.desc }}</p>
     <div class="identity-result-actions">
-      <button class="btn-primary btn-ripple" @click="emit('close')">完成</button>
+      <button class="btn-primary btn-ripple" @click="emit('close')">{{ t('identity.result.action.done') }}</button>
     </div>
   </div>
 </template>

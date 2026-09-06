@@ -13,7 +13,8 @@ describe('towergo home integration contract', () => {
     const icon = read('src/components/icons/ThemeModuleIcon.vue')
 
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('towergo')
-    expect(dashboard).toContain("{ id: 'towergo', name: '小塔出行'")
+    // i18n 迁移（#786）：baseModules 的 name 存 i18n key，渲染时经 t() 取词
+    expect(dashboard).toContain("{ id: 'towergo', name: 'home.module.towergo'")
     // 资料分享 (chaoxing_class) 归入「学习通」分类；资源区含网盘 / 小塔 / AI（智慧迎新已并入个人信息页）
     expect(dashboard).toContain(
       "['library', 'campus_map', 'resource_share', 'towergo', 'ai']"

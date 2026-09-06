@@ -5,7 +5,7 @@
         <div class="t-modal__container glass-card" :style="containerStyle">
           <div v-if="title || closable" class="t-modal__header">
             <h3 v-if="title" class="t-modal__title">{{ title }}</h3>
-            <button v-if="closable" class="t-modal__close" @click="$emit('close')" aria-label="关闭">✕</button>
+            <button v-if="closable" class="t-modal__close" @click="$emit('close')" :aria-label="t('common.close')">✕</button>
           </div>
           <div class="t-modal__body">
             <slot />
@@ -21,6 +21,8 @@
 
 <script setup>
 import { computed } from 'vue'
+// #785：无障碍关闭标签接入轻量多语言（title 等 props 文案由调用方批次负责）
+import { useI18n } from '../../utils/app_i18n'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -29,6 +31,9 @@ const props = defineProps({
   closable: { type: Boolean, default: true },
   closeOnOverlay: { type: Boolean, default: true }
 })
+
+// 响应式 t：语言切换后无障碍标签即时生效
+const { t } = useI18n()
 
 const emit = defineEmits(['close'])
 

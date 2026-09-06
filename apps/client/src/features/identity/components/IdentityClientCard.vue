@@ -6,15 +6,19 @@
 
 import { computed } from 'vue'
 import type { IdentityClientInfo } from '../types'
+// #795：响应式 t（locale 变化后模板即时重渲染）
+import { useI18n } from '../../../utils/app_i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{ client: IdentityClientInfo }>()
 
 /** 审核状态展示：active/verified -> 已审核；suspended/revoked -> 已暂停；其余 -> 未审核 */
 const reviewLabel = computed<{ text: string; ok: boolean }>(() => {
   const status = String(props.client?.review_status || '').trim().toLowerCase()
-  if (status === 'active' || status === 'verified') return { text: '已审核', ok: true }
-  if (status === 'suspended' || status === 'revoked') return { text: '已暂停', ok: false }
-  return { text: '未审核', ok: false }
+  if (status === 'active' || status === 'verified') return { text: t('identity.client.review.verified'), ok: true }
+  if (status === 'suspended' || status === 'revoked') return { text: t('identity.client.review.suspended'), ok: false }
+  return { text: t('identity.client.review.unreviewed'), ok: false }
 })
 </script>
 
@@ -25,14 +29,14 @@ const reviewLabel = computed<{ text: string; ok: boolean }>(() => {
         <span class="material-symbols-outlined">apps</span>
       </div>
       <div class="identity-client-main">
-        <h3 class="identity-client-name">{{ client.name || '未知应用' }}</h3>
+        <h3 class="identity-client-name">{{ client.name || t('identity.client.unknown_name') }}</h3>
         <p class="identity-client-host">{{ client.homepage_host || '—' }}</p>
       </div>
       <span class="identity-review-badge" :class="{ ok: reviewLabel.ok }">{{ reviewLabel.text }}</span>
     </div>
     <p class="identity-client-developer">
       <span class="material-symbols-outlined identity-client-developer-icon" aria-hidden="true">badge</span>
-      开发者：{{ client.developer_display_name || '—' }}
+      {{ t('identity.client.developer.label').replace('{name}', client.developer_display_name || '—') }}
     </p>
   </div>
 </template>

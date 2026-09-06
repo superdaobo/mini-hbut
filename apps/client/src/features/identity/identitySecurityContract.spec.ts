@@ -77,7 +77,8 @@ describe('#623 Contract：信任边界与密钥边界', () => {
     const service = serviceSource()
     // enrollment 与 approve 都有 test account 守卫
     expect(service).toContain("if (isTestAccountBlocked()) {")
-    expect(service).toContain('测试账号不能用于正式身份服务')
+    // #795：默认文案经 t() 查 identity.error.* 双语字典，zh 值与迁移前逐字一致
+    expect(service).toContain("t('identity.error.test_account_blocked')")
     // 行为级验证：测试账号标记时拒绝
     try {
       localStorage.clear()

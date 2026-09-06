@@ -141,7 +141,8 @@ describe('P0 multi-module contracts', () => {
     expect(embed).toContain('/health')
     expect(school).toContain('remountAfterResume')
     expect(school).toContain('hbu-embed-resume')
-    expect(school).toContain('重试加载')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(school).toContain("t('web.retry')")
     expect(more).toContain('hbu-embed-resume')
     expect(more).toContain('reloadFrame')
   })
@@ -215,7 +216,7 @@ describe('P0 multi-module contracts', () => {
     expect(school).toContain('recoverSchoolWebsiteBridgeOnResume')
     expect(school).toContain('forceFallback')
     // Android 不误导为 HTTP 桥
-    expect(school).toContain('当前环境无法在应用内嵌学校官网')
+    expect(school).toContain("t('web.error.embedUnavailable')")
     expect(more).toContain('recoverSchoolWebsiteBridgeOnResume')
     expect(more).toContain('tryCapacitorLocalFallback')
     expect(more).toContain('模块本地服务暂时不可用')
