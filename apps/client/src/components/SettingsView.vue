@@ -48,6 +48,8 @@ import {
   resolveNightModeDark,
   setNightModePreference
 } from '../utils/night_mode'
+// #773：轻量多语言（默认简体中文 + English），本期仅覆盖设置页 header/tab 与本 section 文案
+import { setLocale, useLocale } from '../utils/app_i18n'
 
 const emit = defineEmits(['back', 'openWorkspaceLayout'])
 
@@ -76,6 +78,22 @@ const activeTab = ref('appearance')
 const uiSettings = useUiSettings()
 const appSettings = useAppSettings()
 const fontSettings = useFontSettings()
+
+// #773：语言偏好（响应式 locale + t），切换即时生效，无需重启
+const { locale, t } = useLocale()
+// 语言选项定义：key 即 Locale，label 始终以各自语言展示（惯例：语言名不翻译）
+const localeOptions = [
+  { key: 'zh-CN', label: '简体中文' },
+  { key: 'en', label: 'English' }
+]
+// 点击即切：写存储 + 派发事件（useLocale 监听后本页文案即时更新），toast 文案随 locale
+const handleLocaleChange = (next) => {
+  if (locale.value === next) return
+  setLocale(next)
+  showToast(t('settings.language.toast'), 'success')
+}
+// 组件卸载时不再额外清理：useLocale 内部监听挂在 window 上，随页面生命周期存在，
+// 与 night_mode 等模块的全局监听策略一致（单例页面，无重复注册问题）
 
 // #757 深浅色三态：'system' 跟随系统（默认）/ 'light' 白天 / 'dark' 夜间
 const nightModeOptions = [
