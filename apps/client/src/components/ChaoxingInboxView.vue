@@ -10,7 +10,11 @@ import { formatRelativeTime } from '../utils/time.js'
 import { buildSchoolInboxDetailHtml } from '../utils/school_inbox_content.js'
 import { showToast } from '../utils/toast'
 import { pushDebugLog } from '../utils/debug_logger'
+import { t as tf, useI18n } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
+
+// #790：响应式取词（语言切换即时生效）；tf 为整句插值（{n} 占位）
+const { t: tLocale } = useI18n()
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -32,7 +36,7 @@ const detailHtml = computed(() =>
 
 const normalizeItem = (item) => ({
   id: String(item?.id || ''),
-  title: String(item?.title || '无标题'),
+  title: String(item?.title || tLocale('notify.inbox.untitled')),
   summary: String(item?.summary || ''),
   body: String(item?.body || item?.summary || ''),
   createdAt: String(item?.createdAt || item?.created_at || ''),
@@ -43,7 +47,7 @@ const normalizeItem = (item) => ({
 
 const formatItemTime = (value) => {
   const text = String(value || '').trim()
-  if (!text) return '未知时间'
+  if (!text) return tLocale('notify.inbox.unknownTime')
   // 学习通 sendTime 多为 "2026-05-25 17:51:45"
   const parsed = Date.parse(text.replace(/-/g, '/'))
   if (!Number.isFinite(parsed)) return text
@@ -54,10 +58,10 @@ const fetchList = async ({ force = false } = {}) => {
   loading.value = true
   error.value = ''
   const t0 = Date.now()
-  pushDebugLog('ChaoxingInbox', `加载收件箱 force=${force}`, 'info')
+  pushDebugLog('ChaoxingInbox', `load inbox force=${force}`, 'info')
   try {
     if (!isTauriRuntime()) {
-      throw new Error('请在客户端内使用学习通收件箱')
+      throw new Error(tLocale('notify.cx.clientOnly'))
     }
     // 强制 chaoxing：不要用 localStorage 的 portal，否则后端只拉教务通知
     const res = await invokeNative('school_inbox_fetch', {
@@ -74,12 +78,12 @@ const fetchList = async ({ force = false } = {}) => {
     }
     pushDebugLog(
       'ChaoxingInbox',
-      `收件箱完成 count=${items.value.length} (${Date.now() - t0}ms)`,
+      `inbox done count=${items.value.length} (${Date.now() - t0}ms)`,
       'info'
     )
   } catch (e) {
-    error.value = String(e?.message || e || '加载失败')
-    pushDebugLog('ChaoxingInbox', `收件箱失败: ${error.value}`, 'error')
+    error.value = String(e?.message || e || tLocale('notify.cx.loadFailed'))
+    pushDebugLog('ChaoxingInbox', `inbox failed: ${error.value}`, 'error')
   } finally {
     loading.value = false
   }
@@ -101,7 +105,7 @@ const openDetail = async (item) => {
       selected.value = normalizeItem({ ...item, ...res })
     }
   } catch (e) {
-    showToast(String(e?.message || e || '详情加载失败'))
+    showToast(String(e?.message || e || tLocale('notify.inbox.detailLoadFailed')))
   } finally {
     detailLoading.value = false
     nextTick(() => bindLinkClicks())
@@ -122,13 +126,13 @@ const handleChaoxingLink = async (href) => {
     lower.startsWith('vbscript:') ||
     lower.startsWith('file:')
   ) {
-    showToast('已拦截不安全链接')
+    showToast(tLocale('notify.cx.unsafeLinkBlocked'))
     return
   }
   try {
     await openExternal(url)
   } catch (e) {
-    showToast(String(e?.message || e || '无法打开链接'))
+    showToast(String(e?.message || e || tLocale('notify.cx.openLinkFailed')))
   }
 }
 
@@ -161,7 +165,7 @@ const markRead = async () => {
       i.id === selected.value.id ? { ...i, isRead: true } : i
     )
   } catch (e) {
-    showToast(String(e?.message || e || '标记已读失败'))
+    showToast(String(e?.message || e || tLocale('notify.inbox.markReadFailed')))
   }
 }
 
@@ -171,7 +175,7 @@ onMounted(fetchList)
 <template>
   <div class="cx-inbox-page">
     <TPageHeader
-      title="收件箱"
+      :title="tLocale('notify.cx.title')"
       icon="inbox"
       @back="selected ? closeDetail() : emit('back')"
     >
@@ -182,23 +186,23 @@ onMounted(fetchList)
           :disabled="loading"
           @click="fetchList({ force: true })"
         >
-          {{ loading ? '刷新中' : '刷新' }}
+          {{ loading ? tLocale('notify.inbox.refreshing') : tLocale('notify.inbox.refresh') }}
         </button>
       </template>
     </TPageHeader>
 
     <div class="cx-inbox-body">
-      <p v-if="unreadCount" class="cx-inbox-unread">未读 {{ unreadCount }} 条</p>
-      <TEmptyState v-if="loading && !items.length" type="loading" message="正在加载学习通消息…" />
+      <p v-if="unreadCount" class="cx-inbox-unread">{{ tf('notify.inbox.unreadCount', { n: unreadCount }) }}</p>
+      <TEmptyState v-if="loading && !items.length" type="loading" :message="tLocale('notify.cx.loading')" />
       <TEmptyState v-else-if="error && !items.length" type="error" :message="error" />
 
       <template v-if="!selected">
         <TEmptyState
           v-if="!loading && !items.length && !error"
           type="empty"
-          message="暂无学习通消息。点刷新同步历史通知。"
+          :message="tLocale('notify.cx.empty')"
         />
-        <p v-else-if="!loading && items.length" class="cx-inbox-count">共 {{ items.length }} 条</p>
+        <p v-else-if="!loading && items.length" class="cx-inbox-count">{{ tf('notify.inbox.totalCount', { n: items.length }) }}</p>
         <button
           v-for="item in items"
           :key="item.id"
@@ -210,24 +214,24 @@ onMounted(fetchList)
             <span class="cx-inbox-title" :class="{ unread: !item.isRead }">{{ item.title }}</span>
             <span class="cx-inbox-time">{{ formatItemTime(item.createdAt) }}</span>
           </div>
-          <p class="cx-inbox-summary">{{ item.summary || '点击查看详情' }}</p>
+          <p class="cx-inbox-summary">{{ item.summary || tLocale('notify.cx.viewDetail') }}</p>
         </button>
       </template>
 
       <section v-else class="cx-inbox-detail">
         <h3>{{ selected.title }}</h3>
         <p class="cx-inbox-time">{{ formatItemTime(selected.createdAt) }}</p>
-        <TEmptyState v-if="detailLoading" type="loading" message="加载详情…" />
+        <TEmptyState v-if="detailLoading" type="loading" :message="tLocale('notify.inbox.loadingDetail')" />
         <div v-else class="cx-inbox-detail-body" v-html="detailHtml" />
         <div class="cx-inbox-actions">
-          <button type="button" class="cx-inbox-btn" @click="closeDetail">返回列表</button>
+          <button type="button" class="cx-inbox-btn" @click="closeDetail">{{ tLocale('notify.inbox.backToList') }}</button>
           <button
             v-if="!selected.isRead"
             type="button"
             class="cx-inbox-btn primary"
             @click="markRead"
           >
-            标为已读
+            {{ tLocale('notify.inbox.markRead') }}
           </button>
         </div>
       </section>

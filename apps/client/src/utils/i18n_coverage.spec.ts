@@ -56,7 +56,13 @@ const I18N_MIGRATED_FILES: string[] = [
   'features/schedule/composables/useScheduleEditor.ts',
   'features/schedule/composables/useScheduleMenu.ts',
   'features/schedule/composables/useScheduleSemester.ts'
-  'features/schedule/composables/useScheduleSemester.ts'
+  'features/schedule/composables/useScheduleSemester.ts',
+  'components/NotificationView.vue',
+  'components/SchoolInboxView.vue',
+  'components/ChaoxingInboxView.vue',
+  'utils/local_reminder_scheduler.ts',
+  'utils/notify_center_checks.ts',
+  'utils/notify_center_electricity.ts'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */

@@ -13,6 +13,7 @@ import {
   toSafeText,
   writeJSON
 } from './notify_center_util.js'
+import { t, tf } from './app_i18n'
 
 interface NoticeItem {
   title?: unknown
@@ -50,7 +51,7 @@ export const checkElectricity = async (
       success: false,
       configured: false,
       selectedPath: [],
-      error: '未设置宿舍房间，请先在电费模块选择房间。'
+      error: t('notify.electricity.noRoomSelected')
     }
   }
 
@@ -105,7 +106,7 @@ export const checkElectricity = async (
         success: false,
         configured: true,
         selectedPath,
-        error: toSafeText(lightData?.error || '电费检查失败（照明）')
+        error: toSafeText(lightData?.error || t('notify.error.electricityLight'))
       }
     }
 
@@ -157,14 +158,17 @@ export const checkElectricity = async (
       let bodyText
       if (isDual) {
         const parts: string[] = []
-        if (isLightLow) parts.push(`照明 ${Number.isFinite(quantity) ? quantity.toFixed(2) : lightData.quantity} 度`)
-        if (isAcLow) parts.push(`空调 ${acQuantity !== null && Number.isFinite(acQuantity) ? acQuantity.toFixed(2) : '?'} 度`)
-        bodyText = `当前宿舍 ${parts.join('、')} 不足 ${POWER_ALERT_THRESHOLD} 度，请及时充值。`
+        if (isLightLow) parts.push(tf('notify.electricity.lightPart', { quantity: Number.isFinite(quantity) ? quantity.toFixed(2) : String(lightData.quantity) }))
+        if (isAcLow) parts.push(tf('notify.electricity.acPart', { quantity: acQuantity !== null && Number.isFinite(acQuantity) ? acQuantity.toFixed(2) : '?' }))
+        bodyText = tf('notify.electricity.lowDualBody', { parts: parts.join(t('notify.electricity.partsJoin')), threshold: POWER_ALERT_THRESHOLD })
       } else {
-        bodyText = `当前宿舍剩余电量 ${Number.isFinite(quantity) ? quantity.toFixed(2) : lightData.quantity} 度，已低于 ${POWER_ALERT_THRESHOLD} 度，请及时充值。`
+        bodyText = tf('notify.electricity.lowBody', {
+          quantity: Number.isFinite(quantity) ? quantity.toFixed(2) : String(lightData.quantity),
+          threshold: POWER_ALERT_THRESHOLD
+        })
       }
       queue.push({
-        title: '电费不足提醒',
+        title: t('notify.electricity.lowTitle'),
         body: bodyText,
         targetView: 'electricity'
       })
@@ -202,7 +206,7 @@ export const checkElectricity = async (
       success: false,
       configured: true,
       selectedPath,
-      error: toSafeText((error as Error | undefined)?.message || error || '电费检查失败')
+      error: toSafeText((error as Error | undefined)?.message || error || t('notify.error.electricityCheck'))
     }
   }
 }
