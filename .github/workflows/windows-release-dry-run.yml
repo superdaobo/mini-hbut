@@ -136,10 +136,13 @@ jobs:
         run: |
           $nsis = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-          $args = @()
-          if ($nsis) { $args += @('-NsisInstaller', $nsis.FullName) }
-          if ($msi) { $args += @('-MsiInstaller', $msi.FullName) }
-          ./scripts/ci/windows_installer_regression.ps1 @args
+          # 注意：$args 是 PowerShell 自动变量，内联脚本里给它赋值会被引擎重置，
+          # 导致 splatting 变成空参数（CI 实证：-NsisInstaller/-MsiInstaller 丢失）。
+          # 必须使用自定义变量名 + 显式 splatting。
+          $regArgs = @()
+          if ($nsis) { $regArgs += @('-NsisInstaller', $nsis.FullName) }
+          if ($msi) { $regArgs += @('-MsiInstaller', $msi.FullName) }
+          ./scripts/ci/windows_installer_regression.ps1 @regArgs
 
       - name: Report packaged size
         shell: pwsh
