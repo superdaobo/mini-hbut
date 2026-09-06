@@ -1,9 +1,12 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { useI18n } from '../utils/app_i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   status: { type: String, default: 'connecting' },
-  statusText: { type: String, default: '正在连接教务系统…' }
+  statusText: { type: String, default: '' }
 })
 
 const emit = defineEmits(['dismiss'])
@@ -68,7 +71,7 @@ onBeforeUnmount(() => {
       :class="{ 'splash-fade-out': fadeOut }"
       role="button"
       tabindex="0"
-      title="点击跳过"
+      :title="t('splash.skip')"
       @click="dismiss"
       @keydown.enter.prevent="dismiss"
       @keydown.space.prevent="dismiss"
@@ -90,7 +93,7 @@ onBeforeUnmount(() => {
             <img :src="splashLogoSrc" alt="Mini-HBUT" class="splash-logo" @error="handleSplashLogoError" />
           </div>
           <h1 class="splash-title">Mini-HBUT</h1>
-          <p class="splash-subtitle">湖北工业大学智慧校园助手</p>
+          <p class="splash-subtitle">{{ t('splash.subtitle') }}</p>
         </div>
 
         <!-- 建筑插画 -->
@@ -106,7 +109,7 @@ onBeforeUnmount(() => {
             <div class="spinner-ring spinner-ring-3" />
             <div class="spinner-dot" />
           </div>
-          <p class="loader-text">{{ statusText }}{{ statusDots }}</p>
+          <p class="loader-text">{{ statusText || t('splash.status.connecting') }}{{ statusDots }}</p>
         </div>
       </div>
     </div>

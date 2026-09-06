@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { openExternal } from '../utils/external_link'
 import { isAndroidLike } from '../platform/runtime'
+import { useI18n, tf } from '../utils/app_i18n'
 import {
   SCHOOL_WEBSITE_URL,
   forceCloseSchoolWebsiteEmbed,
@@ -11,6 +12,9 @@ import {
 } from '../utils/school_website_embed'
 
 const emit = defineEmits(['back'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 const leaving = ref(false)
 
 const frameShellRef = ref(null)
@@ -44,11 +48,10 @@ const showBridgeUnavailable = (reason = 'bridge') => {
   loadHint.value = ''
   // Android 等不走 loopback 的路径：避免误导为「HTTP 桥」
   if (reason === 'external-only' || reason === 'android') {
-    loadError.value = '当前环境无法在应用内嵌学校官网，请点击下方按钮在系统浏览器中打开。'
+    loadError.value = t('web.error.embedUnavailable')
     return
   }
-  loadError.value =
-    '本地桥接服务暂时不可用，无法在应用内加载学校官网。可点「重试加载」；若仍失败请在浏览器中打开。'
+  loadError.value = t('web.error.bridgeUnavailable')
 }
 
 const resetIframeState = () => {
@@ -61,7 +64,7 @@ const resetIframeState = () => {
   loadingGuardTimer = window.setTimeout(() => {
     if (!loading.value || useNativeEmbed.value || useExternalOnly.value) return
     loading.value = false
-    loadHint.value = '页面加载较慢，若长时间空白可尝试在浏览器中打开。'
+    loadHint.value = t('web.hint.slowLoading')
   }, 4500)
 }
 
@@ -84,7 +87,7 @@ const handleError = () => {
   }
   clearLoadingGuardTimer()
   loading.value = false
-  loadError.value = '官网页面无法在应用内嵌入显示，请点击下方按钮在浏览器中打开。'
+  loadError.value = t('web.error.iframeBlocked')
   loadHint.value = ''
 }
 
@@ -133,7 +136,7 @@ const mountEmbed = async () => {
       return
     } catch {
       loading.value = false
-      loadError.value = '创建学校官网内嵌视图失败，请点击下方按钮在浏览器中打开。'
+      loadError.value = t('web.error.nativeEmbedFailed')
       return
     }
   }
@@ -232,14 +235,14 @@ defineExpose({ remountAfterResume })
 <template>
   <div class="school-website-view">
     <header class="subpage-header">
-      <button class="back-button" type="button" @click="handleBack" aria-label="返回">
+      <button class="back-button" type="button" @click="handleBack" :aria-label="t('web.backAria')">
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
       <div class="header-copy">
-        <span class="header-kicker">我的</span>
-        <h1>学校官网</h1>
+        <span class="header-kicker">{{ t('web.kicker') }}</span>
+        <h1>{{ t('web.title') }}</h1>
       </div>
-      <button class="external-button" type="button" @click="handleOpenExternal" aria-label="在浏览器中打开">
+      <button class="external-button" type="button" @click="handleOpenExternal" :aria-label="t('web.openExternalAria')">
         <span class="material-symbols-outlined">open_in_new</span>
       </button>
     </header>
@@ -247,27 +250,27 @@ defineExpose({ remountAfterResume })
     <div ref="frameShellRef" class="frame-shell">
       <div v-if="loading" class="frame-overlay">
         <span class="material-symbols-outlined spinning">progress_activity</span>
-        <p>正在加载学校官网…</p>
+        <p>{{ t('web.loading') }}</p>
       </div>
 
       <div v-if="loadError" class="frame-message frame-message--error">
         <p>{{ loadError }}</p>
         <div class="frame-message-actions">
-          <button class="external-open-btn" type="button" @click="handleRetryEmbed">重试加载</button>
-          <button class="external-open-btn" type="button" @click="handleOpenExternal">在浏览器中打开</button>
+          <button class="external-open-btn" type="button" @click="handleRetryEmbed">{{ t('web.retry') }}</button>
+          <button class="external-open-btn" type="button" @click="handleOpenExternal">{{ t('web.openInBrowser') }}</button>
         </div>
       </div>
 
       <div v-else-if="loadHint" class="frame-message frame-message--hint">
         <p>{{ loadHint }}</p>
-        <button class="external-open-btn" type="button" @click="handleOpenExternal">在浏览器中打开</button>
+        <button class="external-open-btn" type="button" @click="handleOpenExternal">{{ t('web.openInBrowser') }}</button>
       </div>
 
       <iframe
         v-if="!useNativeEmbed && !useExternalOnly && iframeSrc"
         class="website-frame"
         :src="iframeSrc"
-        title="湖北工业大学官网"
+        :title="t('web.iframeTitle')"
         allowfullscreen
         referrerpolicy="no-referrer-when-downgrade"
         loading="eager"

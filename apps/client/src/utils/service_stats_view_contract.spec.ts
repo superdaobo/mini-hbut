@@ -15,11 +15,12 @@ describe('service stats frontend contract', () => {
 
     expect(source).toContain("const handleOpenServiceStats = () => emit('navigate', 'service_stats')")
     expect(source).toContain('@click="handleOpenServiceStats"')
-    expect(source).toContain('服务统计')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(source).toContain("t('me.grid.serviceStats')")
     // App Store 策略：showServiceStats = isLoggedIn && isViewAllowed('service_stats')
     expect(source).toContain('showServiceStats')
     expect(source).toMatch(
-      /<button\s+v-if="showServiceStats"[\s\S]*?@click="handleOpenServiceStats"[\s\S]*?服务统计[\s\S]*?<\/button>/
+      /<button\s+v-if="showServiceStats"[\s\S]*?@click="handleOpenServiceStats"[\s\S]*?me\.grid\.serviceStats[\s\S]*?<\/button>/
     )
   })
 
@@ -46,9 +47,9 @@ describe('service stats frontend contract', () => {
     expect(source).toContain('normalizeServiceHealth')
     expect(source).toContain('trend?.last_7_days')
     expect(source).toContain('version_user_counts')
-    expect(source).toContain('各版本人数')
-    expect(source).toContain('趋势数据暂不可用')
-    expect(source).toContain('读取服务状态失败')
+    expect(source).toContain("t('stats.section.versionUsers')")
+    expect(source).toContain("t('stats.trend.empty')")
+    expect(source).toContain("t('stats.error.readFailed')")
     expect(source).toContain('setInterval')
     expect(source).toMatch(/60\s*\*\s*1000|60000|60_000/)
   })
@@ -77,14 +78,14 @@ describe('service stats frontend contract', () => {
 
     expect(source).toContain('displayClientVersion')
     expect(source).toContain("health.value.cloud_sync.latest_version || ''")
-    expect(source).toContain("版本 {{ displayClientVersion || '未知' }}")
-    expect(source).not.toContain("版本 {{ health.service.version || '未知' }}")
+    expect(source).toContain("tf('stats.version', { version: displayClientVersion || t('common.unknown') })")
+    expect(source).not.toContain('health.service.version')
   })
 
   it('labels latest-version trend series with version axis instead of date-only labels', () => {
     const source = readSource('src/components/ServiceStatsView.vue')
 
-    expect(source).toContain("label: '最新版本人数'")
+    expect(source).toContain("label: t('stats.metric.latestVersionUsers')")
     expect(source).toContain("axisLabelKey: 'latest_version'")
     expect(source).toContain('formatAxisVersion')
     expect(source).toContain("axisLabelKey === 'latest_version'")
@@ -93,8 +94,8 @@ describe('service stats frontend contract', () => {
   it('shows personal and global client usage sections', () => {
     const source = readSource('src/components/ServiceStatsView.vue')
 
-    expect(source).toContain('我的使用')
-    expect(source).toContain('全站试用概况')
+    expect(source).toContain("t('stats.section.mine')")
+    expect(source).toContain("t('stats.section.global')")
     expect(source).toContain('client_usage')
     expect(source).toContain('fetchPersonalUsageSummary')
     expect(source).toContain('fetchRemotePersonalUsageSummary')

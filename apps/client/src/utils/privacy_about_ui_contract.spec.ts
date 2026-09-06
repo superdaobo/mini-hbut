@@ -100,6 +100,7 @@ describe('privacy & about Mini-HBUT UI contract (#464)', () => {
     expect(me).toContain('NON_OFFICIAL_DISCLAIMER_EN')
 
     // Export meta still excludes password by toast/copy intent
-    expect(privacy).toContain('不含密码')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(privacy).toContain("t('privacy.toast.metaExported')")
   })
 })
