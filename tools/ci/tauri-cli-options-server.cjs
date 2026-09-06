@@ -3,9 +3,11 @@
 const options = {
   dev: false,
   // Ensure production protocol handler is compiled into mobile build.
-  features: ['custom-protocol'],
-  // Keep iOS CI builds in release mode and force custom-protocol feature.
-  args: ['--lib', '--release', '--features', 'custom-protocol'],
+  // #778：xcodebuild → tauri-cli xcode-script 路径的 cargo features 唯一来源是本 WS 服务
+  // （CARGO_BUILD_FEATURES 非Cargo 变量、tauri.conf.json build.features 只影响 tauri build 路径），
+  // 必须与 ios-testflight.yml 的裁剪边界保持一致：mobile-slim（裁刷课/自动化）+ bridge（保留 4399 桥）。
+  features: ['custom-protocol', 'mobile-slim', 'bridge'],
+  args: ['--lib', '--release', '--features', 'custom-protocol,mobile-slim,bridge'],
   noise_level: 'Polite',
   vars: {},
   config: [],
