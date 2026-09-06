@@ -35,7 +35,18 @@ const I18N_MIGRATED_FILES: string[] = [
   'utils/toast.js',
   // #785：本批接入 t() 的公共组件（内置默认文案 / 无障碍标签已全部 t() 化）
   'components/templates/TEmptyState.vue',
-  'components/templates/TModal.vue'
+  'components/templates/TModal.vue',
+  // #795 批次 J：identity 域（授权确认 / 设备管理 / 授权记录 / 扫码登录）
+  'features/identity/components/IdentityApprovalOverlay.vue',
+  'features/identity/components/IdentityDeviceSettings.vue',
+  'features/identity/components/IdentityClientCard.vue',
+  'features/identity/components/IdentityScopeList.vue',
+  'features/identity/components/IdentityResultState.vue',
+  'features/identity/views/IdentityAuthHistoryView.vue',
+  'features/identity/qr/IdentityQrLoginEntry.vue',
+  'features/identity/qr/IdentityQrScanner.vue',
+  // #795：identity 服务层（错误码默认文案经 t() 查 identity.error.* 字典）
+  'features/identity/identityService.ts'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */
