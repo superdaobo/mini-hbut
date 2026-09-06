@@ -174,11 +174,16 @@
             </Component>
             {{/if}}
             {{resources}}
+            <!-- #798：安装目录内卸载启动器（MSI 卸载走 msiexec，目录本身无 uninstall.exe）。
+                 该文件由 CI 预编译并复制到 candle 工作目录（见 scripts/ci/build_msi_uninstall_launcher.ps1）。 -->
+            <Component Id="CMP_UninstallLauncher" Guid="415554E5-2EF2-4F68-8AA9-176232B00D88" Win64="$(var.Win64)">
+                <File Id="UninstallLauncherExe" Source="uninstall.exe" KeyPath="yes" Checksum="yes"/>
+            </Component>
             <Component Id="CMP_UninstallShortcut" Guid="*">
 
                 <Shortcut Id="UninstallShortcut"
-						  Name="Uninstall {{product_name}}"
-						  Description="Uninstalls {{product_name}}"
+						  Name="卸载 {{product_name}}"
+						  Description="卸载 {{product_name}}"
 						  Target="[System64Folder]msiexec.exe"
 						  Arguments="/x [ProductCode]" />
 
@@ -245,6 +250,7 @@
                 Title="Shortcuts"
                 Level="1">
                 <ComponentRef Id="Path"/>
+                <ComponentRef Id="CMP_UninstallLauncher" />
                 <ComponentRef Id="CMP_UninstallShortcut" />
                 <ComponentRef Id="ApplicationShortcut" />
                 <ComponentRef Id="ApplicationShortcutDesktop" />
