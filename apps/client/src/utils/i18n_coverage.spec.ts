@@ -26,16 +26,19 @@ import { messages } from './app_i18n'
  * 已迁移文件白名单（相对 apps/client/src 的 POSIX 路径，正斜杠分隔）。
  * 初始仅含 #785 基建本批完成迁移的文件；#784 各批次迁移完成后逐批追加。
  *
- * ⚠️ 注意：SettingsView.vue / SettingsView.html / App.vue 的 #773 批次只迁移了
- * header/tab/语言 section/底部 TabBar 等部分文案，页面主体仍有大量硬编码中文，
- * 故本批暂不纳入白名单（待后续批次全量迁移后追加），避免契约测试误报。
+ * #787：SettingsView.vue / SettingsView.html 已完成设置中心全量 sections 文案迁移
+ * （header/tab/语言 section 之外的主题、个性化、套装、字体、后端、安全、调试全部接入 t()），
+ * 纳入白名单由契约测试看守，防止硬编码中文回写。
  */
 const I18N_MIGRATED_FILES: string[] = [
   // #785：toast.js 无内置中文文案（文案由调用方传入），纳入白名单防止回退
   'utils/toast.js',
   // #785：本批接入 t() 的公共组件（内置默认文案 / 无障碍标签已全部 t() 化）
   'components/templates/TEmptyState.vue',
-  'components/templates/TModal.vue'
+  'components/templates/TModal.vue',
+  // #787：设置中心全量 sections 文案英文化（含外置模板与全部数据驱动文案）
+  'components/SettingsView.vue',
+  'templates/views/SettingsView.html'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */

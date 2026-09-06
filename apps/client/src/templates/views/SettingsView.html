@@ -27,44 +27,44 @@
     <template v-if="activeTab === 'appearance'">
       <section class="settings-section glass-card startup-page-section">
         <div class="startup-page-row">
-          <span class="startup-page-label">启动页面</span>
+          <span class="startup-page-label">{{ t('settings.startup.page.label') }}</span>
           <div class="startup-page-toggle">
             <button
               class="toggle-btn btn-ripple"
               :class="{ active: uiSettings.startupPage === 'home' }"
-              @click="uiSettings.startupPage = 'home'; showToast('启动页面：首页', 'success')"
-            >首页</button>
+              @click="uiSettings.startupPage = 'home'; showToast(t('settings.startup.page.toastHome'), 'success')"
+            >{{ t('settings.startup.page.home') }}</button>
             <button
               class="toggle-btn btn-ripple"
               :class="{ active: uiSettings.startupPage === 'schedule' }"
-              @click="uiSettings.startupPage = 'schedule'; showToast('启动页面：课表', 'success')"
-            >课表</button>
+              @click="uiSettings.startupPage = 'schedule'; showToast(t('settings.startup.page.toastSchedule'), 'success')"
+            >{{ t('settings.startup.page.schedule') }}</button>
           </div>
         </div>
         <div class="startup-page-row">
-          <span class="startup-page-label">开屏动画</span>
+          <span class="startup-page-label">{{ t('settings.startup.splash.label') }}</span>
           <div class="startup-page-toggle">
             <button
               class="toggle-btn btn-ripple"
               :class="{ active: uiSettings.splashEnabled }"
-              @click="uiSettings.splashEnabled = true; showToast('开屏动画：已开启', 'success')"
-            >开启</button>
+              @click="uiSettings.splashEnabled = true; showToast(t('settings.startup.splash.toastOn'), 'success')"
+            >{{ t('settings.startup.splash.on') }}</button>
             <button
               class="toggle-btn btn-ripple"
               :class="{ active: !uiSettings.splashEnabled }"
-              @click="uiSettings.splashEnabled = false; showToast('开屏动画：已关闭', 'success')"
-            >关闭</button>
+              @click="uiSettings.splashEnabled = false; showToast(t('settings.startup.splash.toastOff'), 'success')"
+            >{{ t('settings.startup.splash.off') }}</button>
           </div>
         </div>
       </section>
 
       <section class="settings-section glass-card">
         <div class="section-head">
-          <h3>主题模式</h3>
+          <h3>{{ t('settings.theme.title') }}</h3>
         </div>
         <!-- #757 三态外观：跟随系统 / 白天 / 夜间（沿用界面个性化的 chip 视觉） -->
         <div class="option-group">
-          <label>外观模式</label>
+          <label>{{ t('settings.theme.modeLabel') }}</label>
           <div class="chip-row">
             <button
               v-for="item in nightModeOptions"
@@ -73,8 +73,8 @@
               :class="{ active: nightModePreference === item.key }"
               @click="setNightMode(item.key)"
             >
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
+              <strong>{{ t(item.labelKey) }}</strong>
+              <small>{{ t(item.descKey) }}</small>
             </button>
           </div>
           <p class="theme-hint">{{ nightModeHint }}</p>
@@ -82,7 +82,7 @@
       </section>
 
       <!-- #773 语言选择：独立 section（置于主题模式之后、界面个性化之前，避免与 #771 主题卡片改动冲突） -->
-      <!-- 本期仅设置页 header/tab 与本 section 文案接入多语言，其余 section 保持中文 -->
+      <!-- #787：本页全部用户可见文案已接入 t()，语言名按惯例保留原文 -->
       <section class="settings-section glass-card language-section">
         <div class="language-row">
           <span class="language-label">{{ t('settings.language.label') }}</span>
@@ -100,58 +100,58 @@
       </section>
 
       <section class="settings-section glass-card">
-        <h3>界面个性化</h3>
+        <h3>{{ t('settings.personalize.title') }}</h3>
         <div class="option-group">
-          <label>卡片风格</label>
+          <label>{{ t('settings.personalize.card.label') }}</label>
           <div class="chip-row">
             <button
               v-for="item in cardStyleOptions"
               :key="item.key"
               class="option-chip"
               :class="{ active: uiSettings.profile.cardStyle === item.key }"
-              @click="setProfileOption('cardStyle', item.key, `卡片风格：${item.label}`)"
+              @click="setProfileOption('cardStyle', item.key, t(item.labelKey))"
             >
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
+              <strong>{{ t(item.labelKey) }}</strong>
+              <small>{{ t(item.descKey) }}</small>
             </button>
           </div>
         </div>
 
         <div class="option-group">
-          <label>导航样式</label>
+          <label>{{ t('settings.personalize.nav.label') }}</label>
           <div class="chip-row">
             <button
               v-for="item in navStyleOptions"
               :key="item.key"
               class="option-chip"
               :class="{ active: uiSettings.profile.navStyle === item.key }"
-              @click="setProfileOption('navStyle', item.key, `导航样式：${item.label}`)"
+              @click="setProfileOption('navStyle', item.key, t(item.labelKey))"
             >
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
+              <strong>{{ t(item.labelKey) }}</strong>
+              <small>{{ t(item.descKey) }}</small>
             </button>
           </div>
         </div>
 
         <div class="option-group">
-          <label>界面密度</label>
+          <label>{{ t('settings.personalize.density.label') }}</label>
           <div class="chip-row">
             <button
               v-for="item in densityOptions"
               :key="item.key"
               class="option-chip"
               :class="{ active: uiSettings.profile.density === item.key }"
-              @click="setProfileOption('density', item.key, `界面密度：${item.label}`)"
+              @click="setProfileOption('density', item.key, t(item.labelKey))"
             >
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
+              <strong>{{ t(item.labelKey) }}</strong>
+              <small>{{ t(item.descKey) }}</small>
             </button>
           </div>
         </div>
       </section>
 
       <section class="settings-section glass-card">
-        <h3>风格套装</h3>
+        <h3>{{ t('settings.profile.title') }}</h3>
         <div class="profile-grid">
           <button
             v-for="profile in interactionProfiles"
@@ -159,36 +159,36 @@
             class="profile-card"
             @click="handleApplyProfile(profile)"
           >
-            <strong>{{ profile.label }}</strong>
-            <span>{{ profile.desc }}</span>
+            <strong>{{ t(profile.labelKey) }}</strong>
+            <span>{{ t(profile.descKey) }}</span>
           </button>
         </div>
       </section>
 
       <section class="settings-section glass-card">
-        <h3>字体</h3>
+        <h3>{{ t('settings.font.title') }}</h3>
         <div class="font-actions">
           <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'default' }" @click="handleSelectFont('default')">
-            默认字体
+            {{ t('settings.font.name.default') }}
           </button>
           <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'heiti' }" @click="handleSelectFont('heiti')">
-            黑体
+            {{ t('settings.font.name.heiti') }}
           </button>
           <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'songti' }" @click="handleSelectFont('songti')">
-            宋体
+            {{ t('settings.font.name.songti') }}
           </button>
           <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'kaiti' }" @click="handleSelectFont('kaiti')">
-            楷体
+            {{ t('settings.font.name.kaiti') }}
           </button>
           <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'fangsong' }" @click="handleSelectFont('fangsong')">
-            仿宋
+            {{ t('settings.font.name.fangsong') }}
           </button>
           <button class="font-btn btn-ripple" :class="{ active: fontSettings.font === 'deyihei' }" @click="handleSelectFont('deyihei')">
-            得意黑（需下载）
+            {{ t('settings.font.name.deyiheiNeedsDownload') }}
           </button>
         </div>
         <div class="font-cdn">
-          <label>字体 CDN 节点</label>
+          <label>{{ t('settings.font.cdn.label') }}</label>
           <div class="font-cdn-row">
             <button
               v-for="option in fontCdnOptions"
@@ -197,81 +197,81 @@
               :class="{ active: fontSettings.cdnProvider === option.key }"
               @click="handleSelectCdnProvider(option.key)"
             >
-              <strong>{{ option.label }}</strong>
-              <small>{{ option.desc }}</small>
+              <strong>{{ t(`settings.font.cdn.${option.key}.label`) }}</strong>
+              <small>{{ t(`settings.font.cdn.${option.key}.desc`) }}</small>
             </button>
           </div>
         </div>
         <div class="font-availability">
-          <label>本地字体可用性说明</label>
+          <label>{{ t('settings.font.availability.title') }}</label>
           <ul>
             <li v-for="item in fontLocalAvailability" :key="item">{{ item }}</li>
           </ul>
         </div>
         <div class="font-download-row">
           <button class="mini-btn btn-ripple" :disabled="downloadingFont" @click="handleDownloadFont(fontSettings.loaded)">
-            {{ downloadingFont ? '下载中...' : fontSettings.loaded ? '重新下载得意黑' : '下载得意黑' }}
+            {{ downloadingFont ? t('settings.font.btn.downloading') : fontSettings.loaded ? t('settings.font.btn.reDownload') : t('settings.font.btn.download') }}
           </button>
           <button class="mini-btn btn-ripple" :disabled="cdnPrefetching" @click="handlePrefetchFonts(false)">
-            {{ cdnPrefetching ? '缓存中...' : prefetchButtonText }}
+            {{ cdnPrefetching ? t('settings.font.btn.caching') : prefetchButtonText }}
           </button>
           <button class="mini-btn btn-ripple" :disabled="cdnPrefetching" @click="handlePrefetchFonts(false, true)">
-            {{ cdnPrefetching ? '缓存中...' : '缓存全部字体' }}
+            {{ cdnPrefetching ? t('settings.font.btn.caching') : t('settings.font.btn.cacheAll') }}
           </button>
-          <span class="hint">字体选择会自动保存；下次打开应用会自动恢复上次字体。</span>
+          <span class="hint">{{ t('settings.font.hint.autoSave') }}</span>
         </div>
       </section>
     </template>
 
     <section v-else-if="activeTab === 'backend'" class="settings-section glass-card backend-shell">
       <div class="section-head">
-        <h3>后端与模块参数</h3>
-        <button class="mini-btn btn-ripple" @click="handleResetBackend">恢复默认</button>
+        <h3>{{ t('settings.backend.title') }}</h3>
+        <button class="mini-btn btn-ripple" @click="handleResetBackend">{{ t('settings.backend.resetBtn') }}</button>
       </div>
 
       <div class="backend-summary">
-        <span class="status-pill">配置源：{{ backendSourceLabel }}</span>
-        <span class="status-pill">运行时：{{ runtimeLabel }}</span>
-        <span class="status-pill">预览线程：{{ activePreviewThreads }}</span>
-        <span class="status-pill">下载线程：{{ activeDownloadThreads }}</span>
-        <span class="status-pill">设备：{{ activeDeviceLabel }}</span>
+        <span class="status-pill">{{ t('settings.backend.summary.source') }}{{ backendSourceLabel }}</span>
+        <span class="status-pill">{{ t('settings.backend.summary.runtime') }}{{ runtimeLabel }}</span>
+        <span class="status-pill">{{ t('settings.backend.summary.previewThreads') }}{{ activePreviewThreads }}</span>
+        <span class="status-pill">{{ t('settings.backend.summary.downloadThreads') }}{{ activeDownloadThreads }}</span>
+        <span class="status-pill">{{ t('settings.backend.summary.device') }}{{ activeDeviceLabel }}</span>
       </div>
 
       <div class="backend-block">
         <div class="section-head section-head-compact">
-          <h4>云同步状态</h4>
-          <button class="mini-btn btn-ripple" @click="refreshCloudSyncStatus">刷新状态</button>
+          <h4>{{ t('settings.backend.cloudSync.title') }}</h4>
+          <button class="mini-btn btn-ripple" @click="refreshCloudSyncStatus">{{ t('settings.backend.cloudSync.refreshBtn') }}</button>
         </div>
-        <p class="hint">用于确认本机云同步上传/下载是否执行成功。</p>
+        <p class="hint">{{ t('settings.backend.cloudSync.hint') }}</p>
         <div class="cloud-sync-status-grid">
           <article class="cloud-sync-status-item">
-            <small>服务状态</small>
+            <small>{{ t('settings.backend.cloudSync.statusLabel') }}</small>
             <strong :class="{ ok: cloudSyncRuntime.enabled, error: !cloudSyncRuntime.enabled }">
               {{ cloudSyncEnabledText }}
             </strong>
           </article>
           <article class="cloud-sync-status-item">
-            <small>上次上传</small>
+            <small>{{ t('settings.backend.cloudSync.lastUpload') }}</small>
             <strong :class="{ ok: cloudSyncStatus?.lastUploadOk, error: cloudSyncStatus?.lastUploadAt && !cloudSyncStatus?.lastUploadOk }">
               {{ cloudSyncUploadStatusText }}
             </strong>
             <span>{{ formatStatusTime(cloudSyncStatus?.lastUploadAt) }}</span>
           </article>
           <article class="cloud-sync-status-item">
-            <small>上次下载</small>
+            <small>{{ t('settings.backend.cloudSync.lastDownload') }}</small>
             <strong :class="{ ok: cloudSyncStatus?.lastDownloadOk, error: cloudSyncStatus?.lastDownloadAt && !cloudSyncStatus?.lastDownloadOk }">
               {{ cloudSyncDownloadStatusText }}
             </strong>
             <span>{{ formatStatusTime(cloudSyncStatus?.lastDownloadAt) }}</span>
           </article>
           <article class="cloud-sync-status-item">
-            <small>最近更新</small>
+            <small>{{ t('settings.backend.cloudSync.lastUpdated') }}</small>
             <strong>{{ cloudSyncStatusUpdatedAt || '—' }}</strong>
-            <span>学号：{{ cloudSyncStatus?.studentId || currentStudentId }}</span>
+            <span>{{ t('settings.backend.cloudSync.studentId') }}{{ cloudSyncStatus?.studentId || currentStudentId }}</span>
           </article>
         </div>
-        <p v-if="cloudSyncLastUploadError" class="hint cloud-sync-error">上传错误：{{ cloudSyncLastUploadError }}</p>
-        <p v-if="cloudSyncLastDownloadError" class="hint cloud-sync-error">下载错误：{{ cloudSyncLastDownloadError }}</p>
+        <p v-if="cloudSyncLastUploadError" class="hint cloud-sync-error">{{ t('settings.backend.cloudSync.uploadError') }}{{ cloudSyncLastUploadError }}</p>
+        <p v-if="cloudSyncLastDownloadError" class="hint cloud-sync-error">{{ t('settings.backend.cloudSync.downloadError') }}{{ cloudSyncLastDownloadError }}</p>
       </div>
 
       <div class="backend-block">
@@ -283,8 +283,8 @@
           }"
         >
           <div class="toggle-text">
-            <strong>不使用远程配置（仅本地）</strong>
-            <small>开启后只应用本地设置，远程配置将不再覆盖 OCR/上传地址。</small>
+            <strong>{{ t('settings.backend.localOnly.title') }}</strong>
+            <small>{{ t('settings.backend.localOnly.desc') }}</small>
           </div>
           <div class="toggle-meta">
             <span
@@ -294,7 +294,7 @@
                 inactive: !localOnlyModeEnabled
               }"
             >
-              {{ localOnlyModeEnabled ? '仅本地' : '远程配置' }}
+              {{ localOnlyModeEnabled ? t('settings.backend.localOnly.badgeLocal') : t('settings.backend.localOnly.badgeRemote') }}
             </span>
             <button
               type="button"
@@ -311,15 +311,15 @@
       </div>
 
       <div class="backend-block">
-        <h4>本地服务设置</h4>
-        <p class="hint">仅支持手动填写地址，不展示本地预设列表。</p>
-        <p class="hint">修改后会自动保存到本地并自动应用到当前运行实例。</p>
+        <h4>{{ t('settings.backend.local.title') }}</h4>
+        <p class="hint">{{ t('settings.backend.local.hint1') }}</p>
+        <p class="hint">{{ t('settings.backend.local.hint2') }}</p>
         <p v-if="appSettings.backend.useRemoteConfig" class="hint">
-          当前启用远程配置，远程刷新后 OCR/上传/云同步中转地址可能被覆盖；若需固定使用本地地址，请开启“仅本地”。
+          {{ t('settings.backend.local.remoteHint') }}
         </p>
         <div class="backend-grid">
           <label class="field">
-            <span>OCR 服务器</span>
+            <span>{{ t('settings.backend.field.ocr') }}</span>
             <input
               type="text"
               placeholder="https://your-ocr.example/api/ocr/recognize"
@@ -327,7 +327,7 @@
             />
           </label>
           <label class="field">
-            <span>临时文件上传服务器</span>
+            <span>{{ t('settings.backend.field.upload') }}</span>
             <input
               type="text"
               placeholder="https://your-upload.example/api/temp/upload"
@@ -335,18 +335,18 @@
             />
           </label>
           <label class="field">
-            <span>云同步中转地址</span>
+            <span>{{ t('settings.backend.field.cloudSyncEndpoint') }}</span>
             <input
               type="text"
-              :placeholder="`默认：${DEFAULT_CLOUD_SYNC_ENDPOINT}`"
+              :placeholder="t('settings.backend.field.cloudSyncEndpointPlaceholder', { url: DEFAULT_CLOUD_SYNC_ENDPOINT })"
               v-model.trim="appSettings.backend.cloudSyncEndpoint"
             />
           </label>
           <label class="field">
-            <span>云同步秘钥引用（secret_ref）</span>
+            <span>{{ t('settings.backend.field.cloudSyncSecretRef') }}</span>
             <input
               type="text"
-              placeholder="默认：kv1-main（仅引用，不是明文秘钥）"
+              :placeholder="t('settings.backend.field.cloudSyncSecretRefPlaceholder')"
               v-model.trim="appSettings.backend.cloudSyncSecretRef"
             />
           </label>
@@ -354,22 +354,22 @@
       </div>
 
       <div class="backend-block">
-        <h4>模块参数</h4>
+        <h4>{{ t('settings.backend.moduleParams.title') }}</h4>
         <div class="backend-grid">
           <label class="field">
-            <span>电费查询重试次数</span>
+            <span>{{ t('settings.backend.field.electricityRetries') }}</span>
             <input type="number" min="0" max="5" v-model.number="appSettings.retry.electricity" />
           </label>
           <label class="field">
-            <span>空教室查询重试次数</span>
+            <span>{{ t('settings.backend.field.classroomRetries') }}</span>
             <input type="number" min="0" max="5" v-model.number="appSettings.retry.classroom" />
           </label>
           <label class="field">
-            <span>重试间隔（ms）</span>
+            <span>{{ t('settings.backend.field.retryDelay') }}</span>
             <input type="number" min="500" max="10000" step="100" v-model.number="appSettings.retryDelayMs" />
           </label>
           <label class="field">
-            <span>通知检查请求超时（ms）</span>
+            <span>{{ t('settings.backend.field.notifyTimeout') }}</span>
             <input
               type="number"
               min="5000"
@@ -379,7 +379,7 @@
             />
           </label>
           <label class="field">
-            <span>功能测速超时（ms）</span>
+            <span>{{ t('settings.backend.field.probeTimeout') }}</span>
             <input
               type="number"
               min="3000"
@@ -389,7 +389,7 @@
             />
           </label>
           <label class="field">
-            <span>云同步上传冷却（秒，至少120）</span>
+            <span>{{ t('settings.backend.field.uploadCooldown') }}</span>
             <input
               type="number"
               min="120"
@@ -399,7 +399,7 @@
             />
           </label>
           <label class="field">
-            <span>云同步下载冷却（秒，至少10）</span>
+            <span>{{ t('settings.backend.field.downloadCooldown') }}</span>
             <input
               type="number"
               min="10"
@@ -409,52 +409,52 @@
             />
           </label>
           <label class="field">
-            <span>移动端预览线程</span>
+            <span>{{ t('settings.backend.field.previewThreadsMobile') }}</span>
             <input type="number" min="1" max="8" step="1" v-model.number="appSettings.resourceShare.previewThreadsMobile" />
           </label>
           <label class="field">
-            <span>桌面端预览线程</span>
+            <span>{{ t('settings.backend.field.previewThreadsDesktop') }}</span>
             <input type="number" min="1" max="12" step="1" v-model.number="appSettings.resourceShare.previewThreadsDesktop" />
           </label>
           <label class="field">
-            <span>移动端下载线程</span>
+            <span>{{ t('settings.backend.field.downloadThreadsMobile') }}</span>
             <input type="number" min="1" max="8" step="1" v-model.number="appSettings.resourceShare.downloadThreadsMobile" />
           </label>
           <label class="field">
-            <span>桌面端下载线程</span>
+            <span>{{ t('settings.backend.field.downloadThreadsDesktop') }}</span>
             <input type="number" min="1" max="12" step="1" v-model.number="appSettings.resourceShare.downloadThreadsDesktop" />
           </label>
         </div>
-        <p class="hint">并发越高速度通常越快，但会提高设备与网络占用。</p>
+        <p class="hint">{{ t('settings.backend.threads.hint') }}</p>
       </div>
 
       <div class="backend-block">
         <div class="section-head section-head-compact">
-          <h4>功能测试</h4>
+          <h4>{{ t('settings.probe.title') }}</h4>
           <button class="mini-btn btn-ripple" :disabled="probeRunning" @click="handleRunConnectivityTest">
-            {{ probeRunning ? '测速中...' : '开始测速' }}
+            {{ probeRunning ? t('settings.probe.testingBtn') : t('settings.probe.startBtn') }}
           </button>
         </div>
-        <p class="hint">并发测试当前 OCR、上传、云同步、新融合门户、教务系统、超星渠道、一卡通与图书馆地址。</p>
+        <p class="hint">{{ t('settings.probe.hint') }}</p>
         <div class="probe-list">
           <article v-for="item in probeRows" :key="item.id" class="probe-item">
             <div class="probe-main">
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
-              <code class="probe-url">{{ item.url || '未设置地址' }}</code>
+              <strong>{{ t(item.labelKey) }}</strong>
+              <small>{{ t(item.descKey) }}</small>
+              <code class="probe-url">{{ item.url || t('settings.probe.unsetUrl') }}</code>
             </div>
             <span class="probe-state" :class="probeStateClass(item.id)">
               {{ probeStateText(item.id) }}
             </span>
           </article>
         </div>
-        <p v-if="probeFinishedAt" class="hint">最近测速：{{ probeFinishedAt }}</p>
+        <p v-if="probeFinishedAt" class="hint">{{ t('settings.probe.lastRun') }}{{ probeFinishedAt }}</p>
       </div>
     </section>
 
     <section v-else-if="activeTab === 'security'" class="settings-section identity-security-tab">
       <div class="section-head">
-        <h3>登录与安全</h3>
+        <h3>{{ t('settings.security.title') }}</h3>
       </div>
       <!-- #627：跨设备扫码登录入口（与同设备 Deep Link 共用同一 AuthRequest） -->
       <IdentityQrLoginEntry :identity="identity" />
@@ -463,18 +463,18 @@
 
     <section v-else class="settings-section glass-card debug-shell">
       <div class="section-head">
-        <h3>调试日志</h3>
+        <h3>{{ t('settings.debug.title') }}</h3>
         <div class="debug-head-actions">
-          <button class="mini-btn btn-ripple" @click="refreshDebugPanel">刷新</button>
-          <button class="mini-btn btn-ripple" @click="handleCopyDebugLogs">复制</button>
-          <button class="mini-btn btn-ripple danger" @click="handleClearDebugPanel">清空</button>
+          <button class="mini-btn btn-ripple" @click="refreshDebugPanel">{{ t('settings.debug.btn.refresh') }}</button>
+          <button class="mini-btn btn-ripple" @click="handleCopyDebugLogs">{{ t('settings.debug.btn.copy') }}</button>
+          <button class="mini-btn btn-ripple danger" @click="handleClearDebugPanel">{{ t('settings.debug.btn.clear') }}</button>
         </div>
       </div>
 
       <div class="backend-summary">
-        <span class="status-pill">总日志：{{ debugStats.total }}</span>
-        <span class="status-pill">告警：{{ debugStats.warns }}</span>
-        <span class="status-pill">错误：{{ debugStats.errors }}</span>
+        <span class="status-pill">{{ t('settings.debug.stats.total') }}{{ debugStats.total }}</span>
+        <span class="status-pill">{{ t('settings.debug.stats.warns') }}{{ debugStats.warns }}</span>
+        <span class="status-pill">{{ t('settings.debug.stats.errors') }}{{ debugStats.errors }}</span>
       </div>
 
       <div class="debug-filter-row">
@@ -485,7 +485,7 @@
           :class="{ active: debugFilter === option.key }"
           @click="debugFilter = option.key"
         >
-          {{ option.label }}
+          {{ t(option.labelKey) }}
         </button>
       </div>
 
@@ -498,7 +498,7 @@
           </header>
           <p class="debug-message">{{ item.message }}</p>
         </article>
-        <p v-if="!filteredDebugLogs.length" class="hint">暂无日志，执行一次功能后会自动出现。</p>
+        <p v-if="!filteredDebugLogs.length" class="hint">{{ t('settings.debug.empty') }}</p>
       </div>
     </section>
 
@@ -510,10 +510,10 @@
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: `${fontDownloadProgress}%` }"></div>
           </div>
-          <span v-if="fontDownloadStatus === 'downloading'">下载中...</span>
-          <span v-else-if="fontDownloadStatus === 'success'">下载完成</span>
-          <span v-else-if="fontDownloadStatus === 'failed'">下载失败</span>
-          <span v-else>等待开始</span>
+          <span v-if="fontDownloadStatus === 'downloading'">{{ t('settings.font.modal.downloading') }}</span>
+          <span v-else-if="fontDownloadStatus === 'success'">{{ t('settings.font.modal.success') }}</span>
+          <span v-else-if="fontDownloadStatus === 'failed'">{{ t('settings.font.modal.failed') }}</span>
+          <span v-else>{{ t('settings.font.modal.waiting') }}</span>
         </div>
         <p v-if="fontDownloadStep" class="font-step">{{ fontDownloadStep }}</p>
         <p v-if="fontDownloadError" class="font-error">{{ fontDownloadError }}</p>
@@ -523,16 +523,16 @@
             class="btn-secondary btn-ripple"
             @click="handleDownloadFont(true)"
           >
-            重试下载
+            {{ t('settings.font.modal.retryDownload') }}
           </button>
           <button
             v-if="fontDownloadStatus === 'failed' && fontModalRetryMode === 'prefetch'"
             class="btn-secondary btn-ripple"
             @click="handlePrefetchFonts(true)"
           >
-            重试缓存
+            {{ t('settings.font.modal.retryPrefetch') }}
           </button>
-          <button class="btn-primary btn-ripple" @click="showFontModal = false">关闭</button>
+          <button class="btn-primary btn-ripple" @click="showFontModal = false">{{ t('settings.font.modal.close') }}</button>
         </div>
       </div>
     </div>
@@ -577,7 +577,7 @@
         </template>
         <!-- Text -->
         <div class="theme-transition-text">
-          {{ themeTransitionType === 'to-dark' ? '夜间模式' : '白天模式' }}
+          {{ themeTransitionType === 'to-dark' ? t('settings.theme.overlay.dark') : t('settings.theme.overlay.light') }}
         </div>
       </div>
     </div>
