@@ -458,7 +458,14 @@ try {
   $script:Evidence.nsis.uninstall_keep_data.registry_key_absent = $keepRegistryAbsent
   $script:Evidence.nsis.uninstall_keep_data.canary_present = $keepCanaryPresent
   Assert-True $keepMainBinaryAbsent 'NSIS uninstall (keep data): main binary still present' -InstallDir $nsisInstallDir
-  Assert-True $keepUninstallerAbsent 'NSIS uninstall (keep data): uninstall.exe still present' -InstallDir $nsisInstallDir
+  # uninstall.exe 自删限制（NSIS 官方行为）：_?= 模式下卸载器运行中无法删除自身
+  # （模板 Section Uninstall 的 Delete "$INSTDIR\uninstall.exe" 对运行中的自己失败，
+  # NSIS 官方建议 _?= 模式由调用方清理残留）。故此断言降级为软断言：
+  # 记录 evidence + 警告即可，不代表产品缺陷；普通双击卸载（无 _?=）会自复制
+  # 到 %TEMP% 运行并完成自删。finally 的目录清理会移除该残留。
+  if (-not $keepUninstallerAbsent) {
+    Write-Warning 'NSIS uninstall (_?= mode): uninstall.exe remains in install dir — expected NSIS self-delete limitation, not a product bug'
+  }
   Assert-True $keepRegistryAbsent 'NSIS uninstall (keep data): HKCU uninstall registry key still present' -InstallDir $nsisInstallDir
   Assert-True $keepCanaryPresent 'NSIS uninstall (keep data): user data canary was deleted (silent uninstall must keep app data)' -InstallDir $nsisInstallDir
   if (Test-Path $startMenuShortcut -PathType Leaf) {
