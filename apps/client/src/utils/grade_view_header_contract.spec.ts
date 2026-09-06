@@ -29,7 +29,7 @@ describe('grade view header contract', () => {
     expect(gradeSource).toContain('class="grade-updated-at"')
     // i18n 批次 D（#789）：文案接入 t()，契约改为断言 key 存在于字典且组件内引用
     expect(gradeSource).toContain("t('grade.updatedAt')")
-    const i18nSource = readText('src/utils/app_i18n.ts')
+    const i18nSource = readText('src/utils/i18n/messages/zh-CN.ts')
     expect(i18nSource).toMatch(/'grade\.updatedAt': '最新更新时间'/)
     expect(appSource).toContain('const resolveGradeSyncTime = (data: GradePayload) =>')
     expect(appSource).toContain('getStaleCachedData')

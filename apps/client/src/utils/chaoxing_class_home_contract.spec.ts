@@ -68,7 +68,7 @@ describe('chaoxing_class home integration contract', () => {
     expect(view).toContain('html.dark')
     // #792 i18n：门户 SSO 文案迁移至 t('chaoxing.class.bootFirstSso')（zh-CN 字典保留「门户 SSO」原文）
     expect(view).toContain('bootFirstSso')
-    expect(read('src/utils/app_i18n.ts')).toContain('门户 SSO')
+    expect(read('src/utils/i18n/messages/zh-CN.ts')).toContain('门户 SSO')
     expect(view).toContain('handleOpenFolder')
     expect(view).toContain('showPreviewModal')
     expect(view).not.toContain('get-preview-url') // 前端不直连
@@ -137,7 +137,7 @@ describe('chaoxing_class home integration contract', () => {
     expect(view).toContain('portal_password')
     // #792 i18n：教务会话提示文案迁移至 t('chaoxing.class.ssoErrorPortalOk')（zh-CN 字典保留原中文）
     expect(view).toContain('ssoErrorPortalOk')
-    expect(read('src/utils/app_i18n.ts')).toContain('教务会话可能仍可用')
+    expect(read('src/utils/i18n/messages/zh-CN.ts')).toContain('教务会话可能仍可用')
     expect(rustLib).toContain('portal_password')
     expect(classRs).toContain('portal_password')
     expect(ssoRs).toContain('portal_password')

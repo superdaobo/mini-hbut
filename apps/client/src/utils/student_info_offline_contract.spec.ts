@@ -34,7 +34,7 @@ describe('student info offline banner contract (#516)', () => {
     expect(source).toContain('formatRelativeTime(accessSyncTime)')
     // 离线横幅保持原语义（仅整页离线时出现）
     expect(source).toContain('{{ t(\'common.offline.prefix\') }} {{ formatRelativeTime(syncTime) }}')
-    const i18nSource = readText('src/utils/app_i18n.ts')
+    const i18nSource = readText('src/utils/i18n/messages/zh-CN.ts')
     expect(i18nSource).toMatch(/'studentinfo\.error\.cacheHintPrefix': '登录记录暂不可用，当前显示缓存数据/)
   })
 })
