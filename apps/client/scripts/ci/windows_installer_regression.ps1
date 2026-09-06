@@ -127,9 +127,15 @@ function Get-InstallDiagnostics {
   foreach ($keyPath in @($script:NsisUninstallKeyPath, 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')) {
     if (Test-Path $keyPath) {
       $lines += "=== registry: $keyPath ==="
-      $entries = @(Get-ChildItem $keyPath -ErrorAction SilentlyContinue | Get-ItemProperty -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $script:ProductName })
+      # StrictMode 下直接访问不存在的属性会抛错（部分 ARP 子键没有 DisplayName 等），
+      # 一律经 PSObject.Properties 安全读取。
+      $entries = @(Get-ChildItem $keyPath -ErrorAction SilentlyContinue | Get-ItemProperty -ErrorAction SilentlyContinue | Where-Object {
+        $p = $_.PSObject.Properties['DisplayName']
+        $p -and ([string]$p.Value -eq $script:ProductName)
+      })
       foreach ($entry in $entries) {
-        $lines += "$($entry.PSPath) | DisplayName=$($entry.DisplayName) | DisplayVersion=$($entry.DisplayVersion) | UninstallString=$($entry.UninstallString)"
+        $prop = { param($Name) $v = $entry.PSObject.Properties[$Name]; if ($v) { [string]$v.Value } else { '<absent>' } }
+        $lines += "$($entry.PSPath) | DisplayName=$(& $prop 'DisplayName') | DisplayVersion=$(& $prop 'DisplayVersion') | UninstallString=$(& $prop 'UninstallString')"
       }
     }
   }
@@ -151,7 +157,11 @@ function Get-ArpEntryByDisplayName {
   )
   foreach ($root in $roots) {
     if (-not (Test-Path $root)) { continue }
-    $entry = @(Get-ChildItem $root -ErrorAction SilentlyContinue | Get-ItemProperty -ErrorAction SilentlyContinue | Where-Object { [string]$_.DisplayName -eq $DisplayName })
+    # StrictMode 安全：部分 ARP 子键没有 DisplayName 属性
+    $entry = @(Get-ChildItem $root -ErrorAction SilentlyContinue | Get-ItemProperty -ErrorAction SilentlyContinue | Where-Object {
+      $p = $_.PSObject.Properties['DisplayName']
+      $p -and ([string]$p.Value -eq $DisplayName)
+    })
     if ($entry.Count -gt 0) { return $entry[0] }
   }
   return $null
@@ -518,7 +528,9 @@ try {
 
     $arp = Get-ArpEntryByDisplayName -DisplayName $script:ProductName
     Assert-True ($null -ne $arp) 'MSI install: ARP entry with DisplayName Mini-HBUT not found' -InstallDir $msiInstallDir -MsiLog $msiLog
-    $arpVersion = [string]$arp.DisplayVersion
+    # StrictMode 安全：DisplayVersion 属性可能缺失
+    $arpVersionProp = $arp.PSObject.Properties['DisplayVersion']
+    $arpVersion = if ($arpVersionProp) { [string]$arpVersionProp.Value } else { '' }
     $script:Evidence.msi.install.arp_display_version = $arpVersion
     Assert-True ($arpVersion -eq $frozenVersion) "MSI install: ARP DisplayVersion '$arpVersion' does not match frozen '$frozenVersion'" -InstallDir $msiInstallDir -MsiLog $msiLog
     $script:Evidence.msi.install.status = 'pass'
