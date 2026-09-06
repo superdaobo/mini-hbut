@@ -4,6 +4,7 @@ export default { name: 'AcademicTreeNode' }
 
 <script setup>
 import { computed } from 'vue'
+import { t } from '../utils/app_i18n'
 
 const props = defineProps({
   node: { type: Object, required: true }
@@ -14,10 +15,10 @@ const hasCourses = computed(() => Array.isArray(props.node.kcList) && props.node
 
 const requirementText = computed(() => {
   const parts = []
-  if (props.node.yqzdxf) parts.push(`最低学分 ${props.node.yqzdxf}`)
-  if (props.node.yqzgxf) parts.push(`最高学分 ${props.node.yqzgxf}`)
-  if (props.node.yqzdms) parts.push(`最低门数 ${props.node.yqzdms}`)
-  if (props.node.yqzgms) parts.push(`最高门数 ${props.node.yqzgms}`)
+  if (props.node.yqzdxf) parts.push(`${t('academic.req.minCredits')} ${props.node.yqzdxf}`)
+  if (props.node.yqzgxf) parts.push(`${t('academic.req.maxCredits')} ${props.node.yqzgxf}`)
+  if (props.node.yqzdms) parts.push(`${t('academic.req.minCourses')} ${props.node.yqzdms}`)
+  if (props.node.yqzgms) parts.push(`${t('academic.req.maxCourses')} ${props.node.yqzgms}`)
   return parts.join(' / ')
 })
 </script>
@@ -28,7 +29,7 @@ const requirementText = computed(() => {
       <summary>
         <div class="node-title">
           <span class="name">{{ node.nodeName || '-' }}</span>
-          <span class="meta" v-if="node.hdxf">已获学分 {{ node.hdxf }}</span>
+          <span class="meta" v-if="node.hdxf">{{ t('academic.earnedPrefix') }} {{ node.hdxf }}</span>
         </div>
         <div class="node-require" v-if="requirementText">{{ requirementText }}</div>
       </summary>
@@ -40,7 +41,7 @@ const requirementText = computed(() => {
             <div class="course-meta">
               <span>{{ c.kclb }}</span>
               <span>{{ c.kcxz }}</span>
-              <span>学分 {{ c.xf }}</span>
+              <span>{{ t('academic.creditPrefix') }} {{ c.xf }}</span>
               <span v-if="c.wczt">{{ c.wczt }}</span>
             </div>
           </div>
