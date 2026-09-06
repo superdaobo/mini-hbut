@@ -26,9 +26,10 @@ describe('MSI installer contract (zh-CN + uninstall launcher)', () => {
   })
 
   it('keeps the zh-CN uninstall launcher component in the WiX template', () => {
-    // #798：安装目录内卸载启动器组件（File Source 由 CI 复制的 uninstall.exe 提供）
+    // #798：安装目录内卸载启动器组件（uninstall.exe 由 CI 放到 target/release/ 根目录，
+    // bundler 会清空 wix/x64 工作目录，故模板用 ..\..\uninstall.exe 相对引用）
     expect(wixTemplate).toContain('CMP_UninstallLauncher')
-    expect(wixTemplate).toContain('Source="uninstall.exe"')
+    expect(wixTemplate).toContain('Source="..\\..\\uninstall.exe"')
     expect(wixTemplate).toContain('<ComponentRef Id="CMP_UninstallLauncher" />')
     // 开始菜单卸载快捷方式已中文化（handlebars 变量原文）
     expect(wixTemplate).toContain('Name="卸载 {{product_name}}"')

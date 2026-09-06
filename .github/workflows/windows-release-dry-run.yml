@@ -113,9 +113,10 @@ jobs:
       - name: Prepare MSI uninstall launcher (#798)
         shell: pwsh
         working-directory: apps/client
-        # 兄弟分支提供的脚本：mkdir wix 输出目录 + cargo build 启动器 + 拷贝 uninstall.exe
-        # 必须在 tauri build 之前执行，否则 bundler 链接 MSI 时 wix 输出目录里没有 uninstall.exe
-        run: ./scripts/ci/build_msi_uninstall_launcher.ps1 -WixOutputDir src-tauri/target/release/wix/x64
+        # 兄弟脚本负责 cargo build 启动器并放到 target/release/ 根目录；
+        # bundler 会在 MSI 打包开始时清空 wix/x64 工作目录，所以 uninstall.exe
+        # 必须放在不被清理的位置，由 main.wxs 以 ..\..\uninstall.exe 相对引用
+        run: ./scripts/ci/build_msi_uninstall_launcher.ps1
 
       - name: Build release-profile NSIS and MSI installers
         working-directory: apps/client

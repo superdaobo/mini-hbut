@@ -175,9 +175,12 @@
             {{/if}}
             {{resources}}
             <!-- #798：安装目录内卸载启动器（MSI 卸载走 msiexec，目录本身无 uninstall.exe）。
-                 该文件由 CI 预编译并复制到 candle 工作目录（见 scripts/ci/build_msi_uninstall_launcher.ps1）。 -->
+                 注意：bundler 在 MSI 打包开始时会清空 wix 工作目录（target/release/wix/x64），
+                 因此 uninstall.exe 由 CI 预编译后放到 target/release/ 根目录（不会被清理），
+                 这里以 wix 工作目录为基准用 ..\..\uninstall.exe 相对引用
+                 （build_msi_uninstall_launcher.ps1 负责预编译与放置）。 -->
             <Component Id="CMP_UninstallLauncher" Guid="415554E5-2EF2-4F68-8AA9-176232B00D88" Win64="$(var.Win64)">
-                <File Id="UninstallLauncherExe" Source="uninstall.exe" KeyPath="yes" Checksum="yes"/>
+                <File Id="UninstallLauncherExe" Source="..\..\uninstall.exe" KeyPath="yes" Checksum="yes"/>
             </Component>
             <Component Id="CMP_UninstallShortcut" Guid="*">
 
