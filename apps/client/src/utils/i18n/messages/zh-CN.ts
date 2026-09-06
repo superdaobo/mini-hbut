@@ -11,24 +11,9 @@
 
 export const messages: Record<string, string> = {
   // —— 通用 ——
-  'app.name': '校园小助手',
   // —— 底部公共导航（App.vue TabBar）——
-  'tab.home': '首页',
-  'tab.schedule': '课表',
-  'tab.notifications': '通知',
-  'tab.me': '我的',
   // —— 设置中心 header / tab 栏 ——
-  'settings.title': '设置中心',
-  'settings.tab.appearance': '外观',
-  'settings.tab.backend': '后端',
-  'settings.tab.security': '安全',
-  'settings.tab.debug': '调试',
   // —— 设置中心：语言 section ——
-  'settings.language.label': '语言 / Language',
-  'settings.language.option.zh-CN': '简体中文',
-  'settings.language.option.en': 'English',
-  'settings.language.toast': '语言：简体中文',
-  'settings.language.hint': '更多界面语言支持将逐步开放',
   // —— 公共组件内置默认文案（#785：TEmptyState / TModal）——
   'common.close': '关闭',
   'common.empty.loading': '加载中...',
@@ -838,7 +823,6 @@ export const messages: Record<string, string> = {
   'common.error.network': '网络错误',
   'common.no': '否',
   'common.offline.prefix': '当前显示为离线数据，更新于',
-  'common.unknown': '未知',
   'common.yes': '是',
   'grade.back': '返回',
   'grade.clearFilters': '清除筛选',
@@ -948,7 +932,6 @@ export const messages: Record<string, string> = {
   'grade.tag.makeup': '补考',
   'grade.tag.pending': '待录入',
   'grade.term.all': '全部学期',
-  'grade.term.unknown': '未知学期',
   'grade.title': '成绩查询',
   'grade.updatedAt': '最新更新时间',
   'home.cat.academic': '教务服务',
@@ -1638,7 +1621,6 @@ export const messages: Record<string, string> = {
   'venue.user.fallbackName': '同学',
   // —— 通用操作（#790：通知消息域）——
   'common.reset': '重置',
-  'common.cancel': '取消',
   'common.save': '保存',
   // —— 复用批次 D（#789）成绩域 key ——
   'grade.term.unknown': '未知学期',
@@ -1999,7 +1981,6 @@ export const messages: Record<string, string> = {
   'campuscode.error.qrRequest': '校园码请求失败',
   'campuscode.error.loadFailed': '校园码加载失败',
   'campuscode.error.configFailed': '校园码配置加载失败',
-=======
 
   // —— identity 域（#795 批次 J：授权确认 / 设备管理 / 授权记录 / 扫码登录）——
   // ⚠️ 安全语义文案：翻译不得弱化警告强度；zh 值与迁移前硬编码文案逐字一致
@@ -2158,7 +2139,6 @@ export const messages: Record<string, string> = {
   'identity.error.device_not_enrolled': '本机尚未注册为身份签名设备，请先在设置中完成设备注册',
   'identity.error.desktop_only': '授权记录仅支持在桌面端查看',
   'identity.error.connect_failed': '无法连接身份服务，请检查网络后重试',
-=======
   'common.back': '返回',
   'common.retry': '重试',
   'common.confirm': '确认',

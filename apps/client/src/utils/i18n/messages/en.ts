@@ -10,24 +10,9 @@
 
 export const messages: Record<string, string> = {
   // —— Common ——
-  'app.name': 'Campus Assistant',
   // —— Bottom tab bar (App.vue) ——
-  'tab.home': 'Home',
-  'tab.schedule': 'Schedule',
-  'tab.notifications': 'Alerts',
-  'tab.me': 'Me',
   // —— Settings header / tab bar ——
-  'settings.title': 'Settings',
-  'settings.tab.appearance': 'Appearance',
-  'settings.tab.backend': 'Backend',
-  'settings.tab.security': 'Security',
-  'settings.tab.debug': 'Debug',
   // —— Settings: language section ——
-  'settings.language.label': 'Language / 语言',
-  'settings.language.option.zh-CN': '简体中文',
-  'settings.language.option.en': 'English',
-  'settings.language.toast': 'Language: English',
-  'settings.language.hint': 'More interface languages coming soon',
   // —— Shared component built-in defaults (#785: TEmptyState / TModal) ——
   'common.close': 'Close',
   'common.empty.loading': 'Loading...',
@@ -837,7 +822,6 @@ export const messages: Record<string, string> = {
   'common.error.network': 'Network error',
   'common.no': 'No',
   'common.offline.prefix': 'Currently showing offline data, updated',
-  'common.unknown': 'Unknown',
   'common.yes': 'Yes',
   'grade.back': 'Back',
   'grade.clearFilters': 'Clear filters',
@@ -947,7 +931,6 @@ export const messages: Record<string, string> = {
   'grade.tag.makeup': 'Retake',
   'grade.tag.pending': 'Pending',
   'grade.term.all': 'All terms',
-  'grade.term.unknown': 'Unknown term',
   'grade.title': 'Grades',
   'grade.updatedAt': 'Last updated',
   'home.cat.academic': 'Academics',
@@ -1637,7 +1620,6 @@ export const messages: Record<string, string> = {
   'venue.user.fallbackName': 'Student',
   // —— Common actions (#790: notification domain) ——
   'common.reset': 'Reset',
-  'common.cancel': 'Cancel',
   'common.save': 'Save',
   // —— Reused from batch D (#789) grade domain ——
   'grade.term.unknown': 'Unknown term',
@@ -1998,7 +1980,6 @@ export const messages: Record<string, string> = {
   'campuscode.error.qrRequest': 'Campus code request failed',
   'campuscode.error.loadFailed': 'Failed to load campus code',
   'campuscode.error.configFailed': 'Failed to load campus code config',
-=======
 
   // —— identity domain (#795 batch J: approval / device management / auth history / QR login) ——
   // ⚠️ Security-sensitive wording: warning strength and fail-closed semantics must not be
@@ -2159,7 +2140,6 @@ export const messages: Record<string, string> = {
   'identity.error.device_not_enrolled': 'This device is not registered as a signing device yet. Please complete device registration in Settings first',
   'identity.error.desktop_only': 'Authorization history is only available on the desktop app',
   'identity.error.connect_failed': 'Cannot reach the identity service. Check your network and try again',
-=======
   'common.back': 'Back',
   'common.retry': 'Retry',
   'common.confirm': 'Confirm',
