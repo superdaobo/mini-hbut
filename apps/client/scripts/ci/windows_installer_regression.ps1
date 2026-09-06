@@ -515,10 +515,14 @@ try {
     $script:Evidence.msi.installer_name_contains_zh_cn = $msiFile.Name.Contains('zh-CN')
     Assert-True $script:Evidence.msi.installer_name_contains_zh_cn "MSI artifact name lacks zh-CN marker: $($msiFile.Name)"
 
-    Write-Step "MSI silent install: $($msiFile.Name) -> $msiInstallDir"
-    $proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', "`"$($msiFile.FullName)`"", '/qn', '/norestart', "INSTALLDIR=`"$msiInstallDir`"", '/L*v', "`"$msiLog`"") -PassThru
+    Write-Step "MSI silent install: $($msiFile.Name) (default perMachine location)"
+    # 不覆盖 INSTALLDIR：实测 CI 上带 RegistrySearch 的 INSTALLDIR 属性覆盖不生效
+    # （第六次 run：status 0 但自定义目录未被创建，MSI 装到默认位置）。
+    # 改为默认安装后从注册表读取真实位置——与用户实际路径一致，还能顺带
+    # 验证 #799 模板的 RegistryEntries(HKCU InstallDir) 写入逻辑。
+    $proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', "`"$($msiFile.FullName)`"", '/qn', '/norestart', '/L*v', "`"$msiLog`"") -PassThru
     $exitCode = Wait-InstallerProcess -Process $proc -Description 'MSI install'
-    Assert-True (($exitCode -eq 0) -or ($exitCode -eq 3010)) "MSI install failed with exit code $exitCode" -InstallDir $msiInstallDir -MsiLog $msiLog
+    Assert-True (($exitCode -eq 0) -or ($exitCode -eq 3010)) "MSI install failed with exit code $exitCode" -InstallDir $msiInstallDirResolved -MsiLog $msiLog
 
     $script:Evidence.msi.msi_log = $msiLog
     $logContent = Get-Content $msiLog -Raw
@@ -526,15 +530,36 @@ try {
     $script:Evidence.msi.product_language_2052 = $productLanguageOk
     Assert-True $productLanguageOk 'MSI install log does not confirm ProductLanguage = 2052 (zh-CN)' -MsiLog $msiLog
 
-    $msiExe = Join-Path $msiInstallDir $script:MainBinary
-    $msiUninstallLauncher = Join-Path $msiInstallDir 'uninstall.exe'
+    # 从注册表定位真实安装目录：优先 HKCU\Software\hbut\Mini-HBUT 的 InstallDir
+    # （模板 RegistryEntries 组件写入），回退 ARP 项 InstallLocation。
+    $msiInstallDirResolved = ''
+    $registryInstallDir = 'HKCU:\Software\hbut\Mini-HBUT'
+    if (Test-Path $registryInstallDir) {
+      $v = (Get-ItemProperty $registryInstallDir -ErrorAction SilentlyContinue).PSObject.Properties['InstallDir']
+      if ($v) { $msiInstallDirResolved = [string]$v.Value.Trim('"') }
+    }
+    if (-not $msiInstallDirResolved) {
+      $arpEarly = Get-ArpEntryByDisplayName -DisplayName $script:ProductName
+      if ($null -ne $arpEarly) {
+        $locProp = $arpEarly.PSObject.Properties['InstallLocation']
+        if ($locProp) { $msiInstallDirResolved = [string]$locProp.Value.Trim('"') }
+      }
+    }
+    Assert-True (-not [string]::IsNullOrWhiteSpace($msiInstallDirResolved)) 'MSI install: cannot resolve real install dir from registry (HKCU InstallDir / ARP InstallLocation both absent)' -InstallDir $msiInstallDirResolved -MsiLog $msiLog
+    $msiInstallDirResolved = $msiInstallDirResolved.TrimEnd('\')
+    $script:Evidence.msi.install.install_dir_resolved = $msiInstallDirResolved
+    $script:Evidence.msi.install.install_dir = $msiInstallDirResolved
+    Write-Step "MSI install dir (from registry): $msiInstallDirResolved"
+
+    $msiExe = Join-Path $msiInstallDirResolved $script:MainBinary
+    $msiUninstallLauncher = Join-Path $msiInstallDirResolved 'uninstall.exe'
     $script:Evidence.msi.install.main_binary_exists = (Test-Path $msiExe -PathType Leaf)
     $script:Evidence.msi.install.uninstall_launcher_exists = (Test-Path $msiUninstallLauncher -PathType Leaf)
-    Assert-True (Test-Path $msiExe -PathType Leaf) 'MSI install: main binary missing in install dir' -InstallDir $msiInstallDir -MsiLog $msiLog
-    Assert-True (Test-Path $msiUninstallLauncher -PathType Leaf) 'MSI install: uninstall.exe launcher missing in install dir (see #798)' -InstallDir $msiInstallDir -MsiLog $msiLog
+    Assert-True (Test-Path $msiExe -PathType Leaf) 'MSI install: main binary missing in install dir' -InstallDir $msiInstallDirResolved -MsiLog $msiLog
+    Assert-True (Test-Path $msiUninstallLauncher -PathType Leaf) 'MSI install: uninstall.exe launcher missing in install dir (see #798)' -InstallDir $msiInstallDirResolved -MsiLog $msiLog
 
     $arp = Get-ArpEntryByDisplayName -DisplayName $script:ProductName
-    Assert-True ($null -ne $arp) 'MSI install: ARP entry with DisplayName Mini-HBUT not found' -InstallDir $msiInstallDir -MsiLog $msiLog
+    Assert-True ($null -ne $arp) 'MSI install: ARP entry with DisplayName Mini-HBUT not found' -InstallDir $msiInstallDirResolved -MsiLog $msiLog
     # StrictMode 安全：DisplayVersion 属性可能缺失
     $arpVersionProp = $arp.PSObject.Properties['DisplayVersion']
     $arpVersion = if ($arpVersionProp) { [string]$arpVersionProp.Value } else { '' }
@@ -601,8 +626,13 @@ try {
 
   try {
     # 安装目录清理
-    foreach ($dir in @($nsisInstallDir, $msiInstallDir)) {
-      if ((Test-Path $dir) -and ($dir.StartsWith($workRoot, [StringComparison]::OrdinalIgnoreCase))) {
+    foreach ($dir in @($nsisInstallDir, $msiInstallDir, $msiInstallDirResolved, (Join-Path $env:ProgramFiles 'Mini-HBUT'))) {
+      $safeToDelete = $dir.StartsWith($workRoot, [StringComparison]::OrdinalIgnoreCase)
+      if (($dir -like "$env:ProgramFiles\Mini-HBUT") -or ($dir -eq $msiInstallDirResolved)) {
+        # MSI 默认位置/注册表解析目录：仅在 ARP 项已卸载干净时才允许清理
+        $safeToDelete = $null -eq (Get-ArpEntryByDisplayName -DisplayName $script:ProductName)
+      }
+      if ((Test-Path $dir) -and $safeToDelete) {
         Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
       }
     }
