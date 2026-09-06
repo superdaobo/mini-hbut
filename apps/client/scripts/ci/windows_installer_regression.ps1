@@ -148,13 +148,26 @@ function Get-InstallDiagnostics {
 }
 
 function Get-ArpEntryByDisplayName {
-  # 在 HKCU / HKLM / WOW6432Node 的 ARP 键里按 DisplayName 定位卸载项
-  param([Parameter(Mandatory = $true)][string]$DisplayName)
-  $roots = @(
-    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+  # 在 ARP 键里按 DisplayName 定位卸载项。
+  # -MachineScope：只查 HKLM（MSI perMachine 用）；默认 HKCU 优先（NSIS currentUser 用）。
+  # 注意：NSIS 与 MSI 同时在装时两者都有同名 DisplayName 项，scope 必须区分，
+  # 否则 msiexec /x 会拿到 NSIS 的非 GUID 键名（1619 ERROR_INSTALL_PACKAGE_OPEN_FAILED）。
+  param(
+    [Parameter(Mandatory = $true)][string]$DisplayName,
+    [switch]$MachineScope
   )
+  $roots = if ($MachineScope) {
+    @(
+      'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+  } else {
+    @(
+      'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+      'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+  }
   foreach ($root in $roots) {
     if (-not (Test-Path $root)) { continue }
     # StrictMode 安全：部分 ARP 子键没有 DisplayName 属性
@@ -531,18 +544,19 @@ try {
     $script:Evidence.msi.product_language_2052 = $productLanguageOk
     Assert-True $productLanguageOk 'MSI install log does not confirm ProductLanguage = 2052 (zh-CN)' -MsiLog $msiLog
 
-    # 从注册表定位真实安装目录：优先 HKCU\Software\hbut\Mini-HBUT 的 InstallDir
-    # （模板 RegistryEntries 组件写入），回退 ARP 项 InstallLocation。
-    $registryInstallDir = 'HKCU:\Software\hbut\Mini-HBUT'
-    if (Test-Path $registryInstallDir) {
-      $v = (Get-ItemProperty $registryInstallDir -ErrorAction SilentlyContinue).PSObject.Properties['InstallDir']
-      if ($v) { $msiInstallDirResolved = [string]$v.Value.Trim('"') }
+    # 从注册表定位真实安装目录：优先 MSI（HKLM MachineScope）ARP 项的 InstallLocation
+    # （模板 SetProperty ARPINSTALLLOCATION=[INSTALLDIR]），回退 HKCU InstallDir。
+    # 注意不能用 HKCU\Software\hbut\Mini-HBUT 默认值——那是 NSIS 写的（测试里两者共存）。
+    $arpEarly = Get-ArpEntryByDisplayName -DisplayName $script:ProductName -MachineScope
+    if ($null -ne $arpEarly) {
+      $locProp = $arpEarly.PSObject.Properties['InstallLocation']
+      if ($locProp) { $msiInstallDirResolved = [string]$locProp.Value.Trim('"') }
     }
     if (-not $msiInstallDirResolved) {
-      $arpEarly = Get-ArpEntryByDisplayName -DisplayName $script:ProductName
-      if ($null -ne $arpEarly) {
-        $locProp = $arpEarly.PSObject.Properties['InstallLocation']
-        if ($locProp) { $msiInstallDirResolved = [string]$locProp.Value.Trim('"') }
+      $registryInstallDir = 'HKCU:\Software\hbut\Mini-HBUT'
+      if (Test-Path $registryInstallDir) {
+        $v = (Get-ItemProperty $registryInstallDir -ErrorAction SilentlyContinue).PSObject.Properties['InstallDir']
+        if ($v) { $msiInstallDirResolved = [string]$v.Value.Trim('"') }
       }
     }
     Assert-True (-not [string]::IsNullOrWhiteSpace($msiInstallDirResolved)) 'MSI install: cannot resolve real install dir from registry (HKCU InstallDir / ARP InstallLocation both absent)' -InstallDir $msiInstallDirResolved -MsiLog $msiLog
@@ -558,23 +572,27 @@ try {
     Assert-True (Test-Path $msiExe -PathType Leaf) 'MSI install: main binary missing in install dir' -InstallDir $msiInstallDirResolved -MsiLog $msiLog
     Assert-True (Test-Path $msiUninstallLauncher -PathType Leaf) 'MSI install: uninstall.exe launcher missing in install dir (see #798)' -InstallDir $msiInstallDirResolved -MsiLog $msiLog
 
-    $arp = Get-ArpEntryByDisplayName -DisplayName $script:ProductName
+    $arp = Get-ArpEntryByDisplayName -DisplayName $script:ProductName -MachineScope
     Assert-True ($null -ne $arp) 'MSI install: ARP entry with DisplayName Mini-HBUT not found' -InstallDir $msiInstallDirResolved -MsiLog $msiLog
     # StrictMode 安全：DisplayVersion 属性可能缺失
     $arpVersionProp = $arp.PSObject.Properties['DisplayVersion']
     $arpVersion = if ($arpVersionProp) { [string]$arpVersionProp.Value } else { '' }
     $script:Evidence.msi.install.arp_display_version = $arpVersion
-    Assert-True ($arpVersion -eq $frozenVersion) "MSI install: ARP DisplayVersion '$arpVersion' does not match frozen '$frozenVersion'" -InstallDir $msiInstallDir -MsiLog $msiLog
+    Assert-True ($arpVersion -eq $frozenVersion) "MSI install: ARP DisplayVersion '$arpVersion' does not match frozen '$frozenVersion'" -InstallDir $msiInstallDirResolved -MsiLog $msiLog
     $script:Evidence.msi.install.status = 'pass'
     Write-Step 'Scenario 7a (MSI clean install) passed'
 
+    # MSI 卸载必须用 MachineScope 项的 ProductCode（{GUID} 形态）。
+    # 不加 scope 会拿到 NSIS 的 HKCU 键名 'Mini-HBUT' → msiexec /x 报 1619。
     $productCode = $arp.PSChildName
+    Assert-True ($productCode -match '^\{[0-9A-Fa-f\-]{36}\}$') "MSI ProductCode '$productCode' is not a GUID (wrong ARP scope?)" -InstallDir $msiInstallDirResolved -MsiLog $msiLog
     Write-Step "MSI silent uninstall by ProductCode: $productCode"
     $proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/x', $productCode, '/qn', '/norestart') -PassThru
     $exitCode = Wait-InstallerProcess -Process $proc -Description 'MSI uninstall'
-    Assert-True (($exitCode -eq 0) -or ($exitCode -eq 3010)) "MSI uninstall failed with exit code $exitCode" -InstallDir $msiInstallDir -MsiLog $msiLog
+    Assert-True (($exitCode -eq 0) -or ($exitCode -eq 3010)) "MSI uninstall failed with exit code $exitCode" -InstallDir $msiInstallDirResolved -MsiLog $msiLog
 
-    $uninstallArpAbsent = ($null -eq (Get-ArpEntryByDisplayName -DisplayName $script:ProductName))
+    # 卸载干净断言同样只看 MachineScope（HKCU 的 NSIS 项与 MSI 无关）
+    $uninstallArpAbsent = ($null -eq (Get-ArpEntryByDisplayName -DisplayName $script:ProductName -MachineScope))
     $uninstallExeAbsent = -not (Test-Path $msiExe -PathType Leaf)
     $uninstallCanaryPresent = (Test-Path $msiCanaryPath -PathType Leaf)
     $script:Evidence.msi.uninstall.arp_entry_absent = $uninstallArpAbsent
@@ -614,9 +632,9 @@ try {
   }
 
   try {
-    # MSI 残留卸载
-    $leftoverArp = Get-ArpEntryByDisplayName -DisplayName $script:ProductName
-    if (($null -ne $leftoverArp) -and ($leftoverArp.PSPath -like '*HKLM*')) {
+    # MSI 残留卸载（MachineScope：只认 MSI 的 HKLM 项，键名必须是 GUID 形态）
+    $leftoverArp = Get-ArpEntryByDisplayName -DisplayName $script:ProductName -MachineScope
+    if (($null -ne $leftoverArp) -and ($leftoverArp.PSChildName -match '^\{[0-9A-Fa-f\-]{36}\}$')) {
       $proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/x', $leftoverArp.PSChildName, '/qn', '/norestart') -PassThru
       if (-not $proc.WaitForExit(180000)) { & taskkill.exe /PID $proc.Id /T /F 2>$null | Out-Null }
     }
@@ -629,8 +647,8 @@ try {
     foreach ($dir in @($nsisInstallDir, $msiInstallDir, $msiInstallDirResolved, (Join-Path $env:ProgramFiles 'Mini-HBUT'))) {
       $safeToDelete = $dir.StartsWith($workRoot, [StringComparison]::OrdinalIgnoreCase)
       if (($dir -like "$env:ProgramFiles\Mini-HBUT") -or ($dir -eq $msiInstallDirResolved)) {
-        # MSI 默认位置/注册表解析目录：仅在 ARP 项已卸载干净时才允许清理
-        $safeToDelete = $null -eq (Get-ArpEntryByDisplayName -DisplayName $script:ProductName)
+        # MSI 默认位置/解析目录：仅在 MSI ARP 项已卸载干净时才允许清理
+        $safeToDelete = $null -eq (Get-ArpEntryByDisplayName -DisplayName $script:ProductName -MachineScope)
       }
       if ((Test-Path $dir) -and $safeToDelete) {
         Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
