@@ -24,6 +24,7 @@ import { computed, reactive, ref } from 'vue'
 import { readFileSync } from 'node:fs'
 import { useScheduleEditor } from '../composables/useScheduleEditor'
 import { LOGIN_SESSION_TOKEN_KEY } from '../constants'
+import { t } from '../../../utils/app_i18n'
 
 const readDialogSource = () =>
   readFileSync(new URL('./ScheduleAddCourseDialog.vue', import.meta.url), 'utf8')
@@ -151,6 +152,7 @@ describe('useScheduleEditor 表单替换与弹窗绑定联动（#760）', () => 
     form.value.djs = 2
 
     // 校验读取的是同一（新）对象：不再误报「课程名称不能为空」
+    // #788：校验文案已 t() 化，key 回落链保证 zh-CN 下文本仍为「课程名称不能为空」
     expect(editor.validateAddCourse()).toBe('')
     expect(editor.addCourseForm.value.name).toBe('高等数学')
   })
@@ -200,7 +202,8 @@ describe('useScheduleEditor 表单替换与弹窗绑定联动（#760）', () => 
     staleForm.weeks = [1, 2, 3]
 
     // 校验读新对象 → 必然误报
+    // #788：文案 t() 化后断言改用字典值（zh-CN 回落链下与原中文一致）
     expect(editor.addCourseForm.value.name).toBe('')
-    expect(editor.validateAddCourse()).toBe('课程名称不能为空')
+    expect(editor.validateAddCourse()).toBe(t('schedule.editor.nameRequired'))
   })
 })

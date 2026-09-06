@@ -38,7 +38,25 @@ const I18N_MIGRATED_FILES: string[] = [
   'components/templates/TModal.vue',
   // #787：设置中心全量 sections 文案英文化（含外置模板与全部数据驱动文案）
   'components/SettingsView.vue',
-  'templates/views/SettingsView.html'
+  'templates/views/SettingsView.html',
+  // #788 批次 C：课表域（ScheduleView 入口 + Schedule 系列组件 + 组合函数/常量/工具）
+  'components/ScheduleView.vue',
+  'components/GlobalScheduleView.vue',
+  'features/schedule/constants.ts',
+  'features/schedule/utils/i18n_text.ts',
+  'features/schedule/components/ScheduleTopbar.vue',
+  'features/schedule/components/ScheduleGrid.vue',
+  'features/schedule/components/ScheduleDrawer.vue',
+  'features/schedule/components/ScheduleBanners.vue',
+  'features/schedule/components/ScheduleConfirmDialog.vue',
+  'features/schedule/components/ScheduleCourseDetail.vue',
+  'features/schedule/components/ScheduleAddCourseDialog.vue',
+  'features/schedule/components/ScheduleManageCoursesDialog.vue',
+  'features/schedule/components/ScheduleWeekPicker.vue',
+  'features/schedule/composables/useScheduleEditor.ts',
+  'features/schedule/composables/useScheduleMenu.ts',
+  'features/schedule/composables/useScheduleSemester.ts'
+  'features/schedule/composables/useScheduleSemester.ts'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */

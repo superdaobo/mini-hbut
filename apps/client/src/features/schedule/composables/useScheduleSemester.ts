@@ -6,7 +6,7 @@
 import { computed, ref, watch } from 'vue'
 import { isTestAccountSession } from '../../../utils/test_account.js'
 import { recordSemesterStartDate } from '../../../utils/schedule_prefetch.js'
-import { SCHEDULE_META_KEY, weekDays } from '../constants'
+import { SCHEDULE_META_KEY, getWeekDays } from '../constants'
 import { readStoredSemester } from '../utils/semester'
 
 export interface ScheduleSemesterOptions {
@@ -54,7 +54,7 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
         month: d.getMonth() + 1,
         date: d.getDate(),
         iso: `${yyyy}-${mm}-${dd}`,
-        dayLabel: weekDays[i],
+        dayLabel: getWeekDays()[i],
         isToday: d.toDateString() === today.toDateString()
       })
     }

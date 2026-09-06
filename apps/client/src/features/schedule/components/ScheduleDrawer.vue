@@ -4,6 +4,8 @@
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
  */
 import { computed } from 'vue'
+// #788 i18n：文案经 useI18n 响应式取词
+import { useI18n } from '../../../utils/app_i18n'
 
 const props = defineProps({
   showMenu: { type: Boolean, default: false },
@@ -50,6 +52,9 @@ const semesterDraftModel = computed({
   get: () => props.semesterDraft,
   set: (value) => emit('update:semesterDraft', value),
 })
+
+// 响应式 t：语言切换后抽屉文案即时生效
+const { t } = useI18n()
 </script>
 
 <template>
@@ -60,10 +65,10 @@ const semesterDraftModel = computed({
     <aside v-if="showMenu" class="drawer-panel" @click.stop>
       <div class="drawer-title">
         <span class="material-symbols-outlined drawer-title-icon">calendar_month</span>
-        课表工具
+        {{ t('schedule.drawer.title') }}
       </div>
       <div class="drawer-section">
-        <div class="drawer-subtitle" data-step="1">选择学期</div>
+        <div class="drawer-subtitle" data-step="1">{{ t('schedule.drawer.section.semester') }}</div>
         <div class="drawer-semester-row">
           <IOSSelect
             class="drawer-select"
@@ -71,7 +76,7 @@ const semesterDraftModel = computed({
             :disabled="semesterLoading || loading"
             @change="emit('semester-change')"
           >
-            <option disabled value="">请选择学期</option>
+            <option disabled value="">{{ t('schedule.drawer.semesterPlaceholder') }}</option>
             <option v-for="sem in semesterOptions" :key="sem" :value="sem">{{ sem }}</option>
           </IOSSelect>
         </div>
@@ -79,8 +84,8 @@ const semesterDraftModel = computed({
       </div>
 
       <div class="drawer-section">
-        <div class="drawer-subtitle" data-step="2">课程样式</div>
-        <div class="drawer-style-switch" role="tablist" aria-label="课程样式切换">
+        <div class="drawer-subtitle" data-step="2">{{ t('schedule.drawer.section.style') }}</div>
+        <div class="drawer-style-switch" role="tablist" :aria-label="t('schedule.drawer.styleSwitchAria')">
           <button
             v-for="item in styleOptions"
             :key="item.key"
@@ -99,20 +104,20 @@ const semesterDraftModel = computed({
 
       <div class="drawer-actions">
         <div class="drawer-course-group">
-          <div class="drawer-subtitle" data-step="3">自定义课程管理</div>
+          <div class="drawer-subtitle" data-step="3">{{ t('schedule.drawer.section.manage') }}</div>
           <div class="drawer-course-actions">
             <button class="drawer-action add-course" :disabled="addingCourse" @click="emit('open-add-course')">
               <span class="material-symbols-outlined">add_circle</span>
-              添加课程
+              {{ t('schedule.drawer.addCourse') }}
             </button>
             <button class="drawer-action manage-course" :disabled="loadingManageCourses" @click="emit('open-manage-courses')">
               <span class="material-symbols-outlined">folder_copy</span>
-              {{ loadingManageCourses ? '加载中...' : '管理课程' }}
+              {{ loadingManageCourses ? t('schedule.topbar.loading') : t('schedule.drawer.manageCourses') }}
             </button>
           </div>
         </div>
         <div class="drawer-sync-group">
-          <div class="drawer-subtitle" data-step="4">自定义课程同步</div>
+          <div class="drawer-subtitle" data-step="4">{{ t('schedule.drawer.section.sync') }}</div>
           <div class="drawer-sync-actions">
             <button
               class="drawer-action sync-upload"
@@ -120,7 +125,7 @@ const semesterDraftModel = computed({
               @click="emit('sync-upload')"
             >
               <span class="material-symbols-outlined">cloud_upload</span>
-              {{ syncUploading ? '云上传中...' : '云上传' }}
+              {{ syncUploading ? t('schedule.drawer.syncUploading') : t('schedule.drawer.syncUpload') }}
             </button>
             <button
               class="drawer-action sync-download"
@@ -128,7 +133,7 @@ const semesterDraftModel = computed({
               @click="emit('sync-download')"
             >
               <span class="material-symbols-outlined">cloud_download</span>
-              {{ syncDownloading ? '云下载中...' : '云下载' }}
+              {{ syncDownloading ? t('schedule.drawer.syncDownloading') : t('schedule.drawer.syncDownload') }}
             </button>
           </div>
           <div class="drawer-sync-actions drawer-sync-actions--json">
@@ -138,7 +143,7 @@ const semesterDraftModel = computed({
               @click="emit('export-json')"
             >
               <span class="material-symbols-outlined">data_object</span>
-              {{ customCourseExporting ? '导出中...' : '导出 JSON' }}
+              {{ customCourseExporting ? t('schedule.drawer.exporting') : t('schedule.drawer.exportJson') }}
             </button>
             <button
               class="drawer-action sync-json-import"
@@ -146,7 +151,7 @@ const semesterDraftModel = computed({
               @click="emit('import-json')"
             >
               <span class="material-symbols-outlined">file_upload</span>
-              {{ customCourseImporting ? '导入中...' : '导入 JSON' }}
+              {{ customCourseImporting ? t('schedule.drawer.importing') : t('schedule.drawer.importJson') }}
             </button>
           </div>
           <input
@@ -157,35 +162,35 @@ const semesterDraftModel = computed({
             @change="emit('import-file', $event)"
           >
           <div class="drawer-sync-status">
-            <span class="drawer-sync-cooldown">上传：{{ syncUploadCooldownText }}</span>
-            <span class="drawer-sync-cooldown">下载：{{ syncDownloadCooldownText }}</span>
+            <span class="drawer-sync-cooldown">{{ t('schedule.drawer.uploadCooldown').replace('{t}', syncUploadCooldownText) }}</span>
+            <span class="drawer-sync-cooldown">{{ t('schedule.drawer.downloadCooldown').replace('{t}', syncDownloadCooldownText) }}</span>
             <span v-if="syncStatusText" class="drawer-sync-running">{{ syncStatusText }}</span>
-            <span v-if="customCourseExportLocation" class="drawer-sync-export-path">导出位置：{{ customCourseExportLocation }}</span>
+            <span v-if="customCourseExportLocation" class="drawer-sync-export-path">{{ t('schedule.drawer.exportLocation').replace('{t}', customCourseExportLocation) }}</span>
           </div>
         </div>
-        <div class="drawer-subtitle" data-step="5">导出数据</div>
+        <div class="drawer-subtitle" data-step="5">{{ t('schedule.drawer.section.export') }}</div>
         <button
           class="drawer-action"
           :disabled="exporting"
           @click="emit('export-calendar', 'week')"
         >
           <span class="material-symbols-outlined">calendar_today</span>
-          {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
+          {{ exporting && exportingMode === 'week' ? t('schedule.drawer.generating') : t('schedule.drawer.exportWeek') }}
         </button>
         <button class="drawer-action ghost" :disabled="exporting" @click="emit('export-calendar', 'semester')">
           <span class="material-symbols-outlined">school</span>
-          {{ exporting && exportingMode === 'semester' ? '正在生成...' : '导出本学期' }}
+          {{ exporting && exportingMode === 'semester' ? t('schedule.drawer.generating') : t('schedule.drawer.exportSemester') }}
         </button>
       </div>
-      <div class="drawer-tip">生成后复制链接，用浏览器打开即可导入手机日历</div>
+      <div class="drawer-tip">{{ t('schedule.drawer.exportTip') }}</div>
 
       <div v-if="exportUrl" class="export-result">
-        <div class="export-label">本地导入链接</div>
+        <div class="export-label">{{ t('schedule.drawer.exportResultLabel') }}</div>
         <div class="export-row">
           <input class="export-input" type="text" :value="exportUrl" readonly />
-          <button class="export-copy" @click="emit('copy-export-url')">复制</button>
+          <button class="export-copy" @click="emit('copy-export-url')">{{ t('schedule.drawer.copy') }}</button>
         </div>
-        <div v-if="exportCopied" class="export-copied">已复制链接</div>
+        <div v-if="exportCopied" class="export-copied">{{ t('schedule.drawer.copied') }}</div>
       </div>
 
       <div v-if="exportError" class="export-error">{{ exportError }}</div>

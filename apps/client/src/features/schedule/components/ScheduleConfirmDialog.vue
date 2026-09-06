@@ -2,16 +2,22 @@
 /**
  * 课表确认对话框。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * #788 i18n：默认按钮文案经 useI18n 响应式取词（标题/行文由调用方传入已翻译文本）。
  */
+import { useI18n } from '../../../utils/app_i18n'
+
 defineProps({
   showConfirmDialog: { type: Boolean, default: false },
   confirmDialogTitle: { type: String, default: '' },
   confirmDialogLines: { type: Array, default: () => [] },
-  confirmDialogConfirmText: { type: String, default: '确认' },
-  confirmDialogCancelText: { type: String, default: '取消' },
+  confirmDialogConfirmText: { type: String, default: '' },
+  confirmDialogCancelText: { type: String, default: '' },
   confirmDialogDanger: { type: Boolean, default: false },
 })
 const emit = defineEmits(['confirm'])
+
+// 响应式 t：语言切换后默认按钮文案即时生效
+const { t } = useI18n()
 </script>
 
 <template>
@@ -23,13 +29,13 @@ const emit = defineEmits(['confirm'])
           <p v-for="(line, idx) in confirmDialogLines" :key="`confirm-${idx}`">{{ line }}</p>
         </div>
         <div class="confirm-actions">
-          <button class="confirm-btn cancel" @click="emit('confirm', false)">{{ confirmDialogCancelText }}</button>
+          <button class="confirm-btn cancel" @click="emit('confirm', false)">{{ confirmDialogCancelText || t('schedule.confirm.cancel') }}</button>
           <button
             class="confirm-btn"
             :class="{ danger: confirmDialogDanger }"
             @click="emit('confirm', true)"
           >
-            {{ confirmDialogConfirmText }}
+            {{ confirmDialogConfirmText || t('schedule.confirm.confirm') }}
           </button>
         </div>
       </div>
