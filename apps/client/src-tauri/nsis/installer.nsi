@@ -185,7 +185,31 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ;    only if a previous installation was detected
 Var ReinstallPageCheck
 Page custom PageReinstall PageLeaveReinstall
+; ---------------------------------------------------------------------------
+; #800 覆盖升级改动说明（基于 Tauri bundler 2.9.4 原版模板修改）：
+; 背景：原模板只要检测到既有安装就会弹出"安装前卸载 / 请勿卸载"选择页，
+;       而普通用户双击新安装包不会携带 /UPDATE 参数（$UpdateMode 恒为 0），
+;       导致每次升级都被强制打断，体验差（issue #800 根因）。
+; 改动：在 PageReinstall 开头先检测本产品既有 NSIS 安装
+;       （SHCTX 下 ${UNINSTKEY} 的默认值或 UninstallString 任一存在），
+;       且非 WiX(MSI) 迁移场景时，视同更新模式：置 $UpdateMode = 1，
+;       并在页面创建前 Abort 跳过重装选择页，直接覆盖安装。
+; 兼容性：
+;   - WiX(MSI) 迁移路径不变：$WixMode = 1 时仍走 wix_loop 检测 + 原有卸载迁移；
+;   - 命令行显式 /UPDATE 语义不变：原本即覆盖安装、不卸载、保留数据；
+;   - NSIS 页面机制：Abort 位于页面创建函数（PRE/SHOW）中 = 跳过此页直接进入下一页，
+;     此时 PageLeaveReinstall 不会执行，覆盖效果由 Install section 落实
+;     （覆盖文件、WriteUninstaller 重写卸载器、不删快捷方式、不删用户数据）。
+; ---------------------------------------------------------------------------
 Function PageReinstall
+  ; #800: 检测既有 NSIS 安装（此时尚未进入 wix_loop；$WixMode 只会由 wix_loop 置 1，
+  ;       用户点"上一步"重返本页时因 $UpdateMode 已置位而幂等，不会重复误判）
+  ${If} $WixMode <> 1
+    ReadRegStr $R0 SHCTX "${UNINSTKEY}" ""
+    ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
+    ${IfThen} "$R0$R1" != "" ${|} StrCpy $UpdateMode 1 ${|}
+  ${EndIf}
+
   ; Uninstall previous WiX installation if exists.
   ;
   ; A WiX installer stores the installation info in registry
@@ -215,6 +239,12 @@ Function PageReinstall
   wix_loop_done:
 
   ; Check if there is an existing installation, if not, abort the reinstall page
+  ; (#800: 若上方已置 $UpdateMode = 1，则 $PassiveMode=0 的普通双击路径
+  ;  会走到 nsDialogs::Create 创建页面控件。为彻底跳过重装页，这里在
+  ;  创建控件前再按 UpdateMode 拦截一次：Abort 在页面创建函数中 = 跳过此页)
+  ${If} $UpdateMode = 1
+    Abort
+  ${EndIf}
   ReadRegStr $R0 SHCTX "${UNINSTKEY}" ""
   ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
   ${IfThen} "$R0$R1" == "" ${|} Abort ${|}
@@ -426,7 +456,22 @@ Var DeleteAppDataCheckbox
 Var DeleteAppDataCheckboxState
 !define /ifndef WS_EX_LAYOUTRTL         0x00400000
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.ConfirmShow
-Function un.ConfirmShow ; Add add a `Delete app data` check box
+; ---------------------------------------------------------------------------
+; #798 卸载确认页文案强化（基于 Tauri bundler 2.9.4 原版模板修改）：
+; 背景：原模板仅在确认页创建一个 "$(deleteAppData)" 复选框，文案含糊，
+;       用户无法确定"不勾选"时成绩/课表/账号等用户数据是否会被删除。
+; 改动：
+;   1. 在复选框上方（y=64 的 DPI 换算位置）新增一行只读 Static 标签，
+;      明确提示"卸载程序不会删除您的用户数据，除非勾选下方选项"；
+;   2. 复选框文案由 "$(deleteAppData)" 替换为内联简中文案
+;      "删除用户数据（成绩/课表/账号等）——不勾选则保留"。
+; 说明：模板语言表固定只装 SimpChinese（tauri.conf.json languages 数组），
+;       因此此处内联简中字符串是安全的；控件样式/字体沿用现有
+;       CreateWindowEx + WM_GETFONT 逻辑，坐标按窗口 DPI 换算，与原复选框一致。
+; 数据删除范围不变：仅当勾选复选框且非更新模式时，才清理
+; $APPDATA\${BUNDLEID} 与 $LOCALAPPDATA\${BUNDLEID}（见 Section Uninstall）。
+; ---------------------------------------------------------------------------
+Function un.ConfirmShow ; Add a `Delete app data` check box and a hint label
   ; $1 inner dialog HWND
   ; $2 window DPI
   ; $3 style
@@ -443,14 +488,27 @@ Function un.ConfirmShow ; Add add a `Delete app data` check box
     StrCpy $3 "${__NSD_CheckBox_EXSTYLE}"
     IntOp $4 0 * $2
   ${EndIf}
-  IntOp $5 100 * $2
+
+  ; #798: 先创建复选框上方的只读提示标签（y=64，高度 18，宽度 400，均为物理像素按 DPI 换算）
+  IntOp $5 64 * $2
   IntOp $6 400 * $2
-  IntOp $7 25 * $2
-  IntOp $4 $4 / 96
+  IntOp $7 18 * $2
   IntOp $5 $5 / 96
   IntOp $6 $6 / 96
   IntOp $7 $7 / 96
-  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "$(deleteAppData)", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
+  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_Label_CLASS}", w "卸载程序不会删除您的用户数据，除非勾选下方选项", i ${__NSD_Label_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
+  Pop $0
+  SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
+  SendMessage $0 ${WM_SETFONT} $1 1
+
+  ; #798: 再创建原有复选框（y=100），文案改为更明确的简中内联提示
+  IntOp $5 100 * $2
+  IntOp $6 400 * $2
+  IntOp $7 25 * $2
+  IntOp $5 $5 / 96
+  IntOp $6 $6 / 96
+  IntOp $7 $7 / 96
+  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "删除用户数据（成绩/课表/账号等）——不勾选则保留", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
   Pop $DeleteAppDataCheckbox
   SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
   SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1
