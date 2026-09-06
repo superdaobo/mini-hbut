@@ -4,23 +4,23 @@
       <button class="header-icon-btn" @click="emit('back')">
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
-      <h1 class="header-title">设置中心</h1>
+      <h1 class="header-title">{{ t('settings.title') }}</h1>
       <div class="header-spacer"></div>
     </header>
 
     <!-- Tabs -->
     <div class="settings-tab-bar">
       <button class="settings-tab-item" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
-        外观
+        {{ t('settings.tab.appearance') }}
       </button>
       <button class="settings-tab-item" :class="{ active: activeTab === 'backend' }" @click="activeTab = 'backend'">
-        后端
+        {{ t('settings.tab.backend') }}
       </button>
       <button class="settings-tab-item" :class="{ active: activeTab === 'security' }" @click="activeTab = 'security'">
-        安全
+        {{ t('settings.tab.security') }}
       </button>
       <button class="settings-tab-item" :class="{ active: activeTab === 'debug' }" @click="activeTab = 'debug'">
-        调试
+        {{ t('settings.tab.debug') }}
       </button>
     </div>
 
@@ -79,6 +79,24 @@
           </div>
           <p class="theme-hint">{{ nightModeHint }}</p>
         </div>
+      </section>
+
+      <!-- #773 语言选择：独立 section（置于主题模式之后、界面个性化之前，避免与 #771 主题卡片改动冲突） -->
+      <!-- 本期仅设置页 header/tab 与本 section 文案接入多语言，其余 section 保持中文 -->
+      <section class="settings-section glass-card language-section">
+        <div class="language-row">
+          <span class="language-label">{{ t('settings.language.label') }}</span>
+          <div class="language-toggle">
+            <button
+              v-for="item in localeOptions"
+              :key="item.key"
+              class="toggle-btn btn-ripple"
+              :class="{ active: locale === item.key }"
+              @click="handleLocaleChange(item.key)"
+            >{{ item.label }}</button>
+          </div>
+        </div>
+        <p class="language-hint">{{ t('settings.language.hint') }}</p>
       </section>
 
       <section class="settings-section glass-card">

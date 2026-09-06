@@ -40,6 +40,37 @@ describe('ScheduleAddCourseDialog #760 源码契约', () => {
   })
 })
 
+describe('ScheduleAddCourseDialog #772 源码契约（颜色选择器与动作按钮样式）', () => {
+  it('必须 import 并注册 CourseColorPicker（组件拆分时曾丢失声明）', () => {
+    const source = readDialogSource()
+    expect(source).toContain(
+      "import CourseColorPicker from '../../../components/CourseColorPicker.vue'"
+    )
+  })
+
+  it('模板必须保留 CourseColorPicker 且双向绑定 form.color', () => {
+    const source = readDialogSource()
+    expect(source).toContain('<CourseColorPicker v-model="form.color" />')
+  })
+
+  it('取消/确认按钮必须保留 drawer-action class（ghost 变体 + 主按钮）', () => {
+    const source = readDialogSource()
+    expect(source).toContain('class="drawer-action ghost"')
+    expect(source).toMatch(/class="drawer-action"(?! ghost)/)
+  })
+
+  it('scoped 样式必须自带 drawer-action 规则（原定义在 ScheduleDrawer.vue，跨组件 scoped 不生效）', () => {
+    const source = readDialogSource()
+    // 基础规则
+    expect(source).toMatch(/\.drawer-action\s*\{[^}]*linear-gradient\(135deg,\s*#3b82f6,\s*#06b6d4\)/)
+    // ghost 变体（浅色模式深色底）
+    expect(source).toMatch(/\.drawer-action\.ghost\s*\{[^}]*background:\s*#111827/)
+    // 按压反馈与 disabled 态
+    expect(source).toContain('.drawer-action:active')
+    expect(source).toContain('.drawer-action:disabled')
+  })
+})
+
 // ─── useScheduleEditor 测试基建 ────────────────────────────────────────────
 
 const storageMap = new Map<string, string>()
