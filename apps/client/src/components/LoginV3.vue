@@ -31,6 +31,21 @@ import {
 import { saveRememberedUsername } from '../utils/remembered_username.js'
 import { runExclusiveLogin } from '../app/coordinators/sessionGate'
 import { useAuthStore } from '../stores'
+import { useLocale } from '../utils/app_i18n'
+
+const { t } = useLocale()
+
+/**
+ * i18n 占位符插值：将 key 字典中的 {name} 占位替换为实际值。
+ * 仅用于字典内模板文案（如「二维码剩余 {n} 秒」）。
+ */
+const tr = (key, params = {}) => {
+  let text = t(key)
+  for (const [name, value] of Object.entries(params)) {
+    text = text.split(`{${name}}`).join(String(value))
+  }
+  return text
+}
 
 const props = defineProps({
   loginMode: { type: String, default: 'portal' }
@@ -56,13 +71,13 @@ const CHAOXING_REMEMBER_KEY = 'hbu_cx_remember'
 const LOGIN_MODES = [
   {
     key: 'portal',
-    title: '新融合门户',
-    desc: '账号密码 + 扫码临时登录'
+    titleKey: 'login.mode.portalTitle',
+    descKey: 'login.mode.portalDesc'
   },
   {
     key: 'chaoxing',
-    title: '学习通（功能受限）',
-    desc: '账号密码 + 扫码临时登录'
+    titleKey: 'login.mode.chaoxingTitle',
+    descKey: 'login.mode.chaoxingDesc'
   }
 ]
 
@@ -84,6 +99,15 @@ const resolveInitialMode = () => {
 }
 
 const activeMode = ref(resolveInitialMode())
+// 登录入口元信息（t() 化，模板里经 currentModeMeta 展示）
+const currentModeMeta = computed(() => {
+  const meta = LOGIN_MODES.find((item) => item.key === activeMode.value) || LOGIN_MODES[0]
+  return {
+    key: meta.key,
+    title: t(meta.titleKey),
+    desc: t(meta.descKey)
+  }
+})
 const username = ref('')
 const password = ref('')
 const chaoxingAccount = ref('')
@@ -92,7 +116,7 @@ const rememberMe = ref(true)
 const agreePolicy = ref(true)
 const loading = ref(false)
 const statusMsg = ref('')
-const ocrConfigMode = ref('本地')
+const ocrConfigMode = ref(t('login.ocr.local'))
 const debugLogs = ref([])
 const portalQrVisible = ref(false)
 const chaoxingQrVisible = ref(false)
@@ -130,10 +154,9 @@ let chaoxingQrInitSeq = 0
 
 const isPortalMode = computed(() => activeMode.value === 'portal')
 const isChaoxingMode = computed(() => activeMode.value === 'chaoxing')
-const currentModeMeta = computed(() => LOGIN_MODES.find((item) => item.key === activeMode.value) || LOGIN_MODES[0])
 const canSubmitPasswordLogin = computed(() => {
   // 仅提交中禁用；账号/密码/协议未满足时保持可点击，由 handlePasswordLogin
-  // 给出明确中文提示（否则按钮灰置时用户看不到任何原因说明）。
+  // 给出明确提示（否则按钮灰置时用户看不到任何原因说明）。
   return !loading.value
 })
 const canSubmitChaoxingPasswordLogin = computed(() => {
@@ -221,6 +244,10 @@ const clearDebugLogs = () => {
   debugLogs.value = []
 }
 
+/**
+ * 判断后端门户 pending 错误：匹配 Rust 侧下发的中文错误 message 原文。
+ * 注意：这里匹配的是后端数据值（不可翻译），与界面文案无关。
+ */
 const isPortalPendingError = (err) => {
   const msg = String(err?.message || err || '').toLowerCase()
   return msg.includes('未完成') || msg.includes('not complete') || msg.includes('等待')
@@ -228,13 +255,13 @@ const isPortalPendingError = (err) => {
 
 const resolveOcrModeLabel = (status, endpoint) => {
   const activeSource = String(status?.active_source || '').trim()
-  if (activeSource.includes('fallback') || activeSource.includes('local')) return '本地'
-  if (activeSource && activeSource !== 'unknown') return '远程'
+  if (activeSource.includes('fallback') || activeSource.includes('local')) return t('login.ocr.local')
+  if (activeSource && activeSource !== 'unknown') return t('login.ocr.remote')
 
   const configured = String(status?.configured_endpoint || '').trim()
-  if (configured || endpoint) return '远程'
-  if (status?.fallback_used) return '本地'
-  return '本地'
+  if (configured || endpoint) return t('login.ocr.remote')
+  if (status?.fallback_used) return t('login.ocr.local')
+  return t('login.ocr.local')
 }
 
 const refreshOcrMode = async (endpointHint = '') => {
@@ -248,7 +275,7 @@ const refreshOcrMode = async (endpointHint = '') => {
       'debug'
     )
   } catch {
-    ocrConfigMode.value = endpointHint ? '远程' : '本地'
+    ocrConfigMode.value = endpointHint ? t('login.ocr.remote') : t('login.ocr.local')
     pushDebugLog('Login', '获取 OCR 运行态失败，使用本地模式显示', 'warn')
   }
 }
@@ -403,7 +430,7 @@ const updateQrCountdown = () => {
   qrRemainingSeconds.value = remain
   if (remain === 0 && qrState.value !== 'success') {
     qrState.value = 'expired'
-    qrStateMessage.value = '二维码已失效，请点击刷新二维码。'
+    qrStateMessage.value = t('login.qr.expired')
     clearQrTimer()
   }
 }
@@ -417,7 +444,7 @@ const updateCxQrCountdown = () => {
   cxQrRemainingSeconds.value = remain
   if (remain === 0 && cxQrState.value !== 'success') {
     cxQrState.value = 'expired'
-    cxQrStateMessage.value = '学习通二维码已失效，请点击刷新。'
+    cxQrStateMessage.value = t('login.cx.qr.expired')
     clearCxQrTimer()
   }
 }
@@ -452,11 +479,13 @@ const emitSuccessWithGrades = async (sid) => {
       emit('success', gradesData.data || [])
       return
     }
-    statusMsg.value = `⚠️ 登录成功，但成绩同步失败：${gradesData?.error || '未知错误'}`
+    statusMsg.value = tr('login.status.gradesSyncFailed', {
+      err: gradesData?.error || t('login.error.unknown')
+    })
     emit('success', [])
   } catch (e) {
-    const errMsg = e.response?.data?.error || e.message || '未知错误'
-    statusMsg.value = `⚠️ 登录成功，但成绩同步失败：${errMsg}`
+    const errMsg = e.response?.data?.error || e.message || t('login.error.unknown')
+    statusMsg.value = tr('login.status.gradesSyncFailed', { err: errMsg })
     emit('success', [])
   }
 }
@@ -495,7 +524,7 @@ const saveChaoxingCredentials = async () => {
 
 const handleTestAccountLogin = async () => {
   loading.value = true
-  statusMsg.value = '正在进入 TestFlight 演示账号...'
+  statusMsg.value = t('login.status.enteringDemo')
   try {
     markTestAccountSession()
     username.value = TEST_ACCOUNT.studentId
@@ -507,7 +536,7 @@ const handleTestAccountLogin = async () => {
     localStorage.removeItem(LOGOUT_REASON_KEY)
     seedTestAccountCaches(setCachedData, TEST_ACCOUNT.studentId)
     markLoginOnline()
-    statusMsg.value = '登录成功，已加载演示数据'
+    statusMsg.value = t('login.status.demoLoaded')
     emit('success', getTestAccountGrades())
   } finally {
     loading.value = false
@@ -516,11 +545,11 @@ const handleTestAccountLogin = async () => {
 
 const handlePasswordLogin = async () => {
   if (!username.value || !password.value) {
-    statusMsg.value = '请输入完整的账号和密码'
+    statusMsg.value = t('login.error.enterCredentials')
     return
   }
   if (!agreePolicy.value) {
-    statusMsg.value = '请先阅读并同意免责声明与隐私政策'
+    statusMsg.value = t('login.error.agreePolicy')
     return
   }
 
@@ -530,7 +559,7 @@ const handlePasswordLogin = async () => {
   }
 
   loading.value = true
-  statusMsg.value = '🔒 正在登录...'
+  statusMsg.value = t('login.status.signingIn')
   void ensureOcrEndpointReady().catch((e) => {
     pushDebugLog('Login', '登录前 OCR 配置刷新失败（已忽略）', 'warn', e)
   })
@@ -567,10 +596,10 @@ const handlePasswordLogin = async () => {
     applyLoginMethodStorage('portal_password')
     localStorage.removeItem(LOGOUT_REASON_KEY)
     markLoginOnline()
-    statusMsg.value = '✅ 登录成功，正在同步数据...'
+    statusMsg.value = t('login.status.signInSuccessSyncing')
     await emitSuccessWithGrades(sid || username.value)
   } catch (e) {
-    const errMsg = e.response?.data?.error || e.message || '未知错误'
+    const errMsg = e.response?.data?.error || e.message || t('login.error.unknown')
     statusMsg.value = `⚠️ ${friendlyLoginError(errMsg)}`
   } finally {
     loading.value = false
@@ -592,27 +621,27 @@ const pollPortalQrStatus = async () => {
 
     if (code === '1') {
       qrState.value = 'confirming'
-      qrStateMessage.value = '扫码确认成功，正在提交登录...'
+      qrStateMessage.value = t('login.qr.confirming')
       await confirmPortalQrLogin()
       return
     }
     if (code === '2') {
       qrState.value = 'scanned'
-      qrStateMessage.value = '已扫码，正在确认登录状态...'
+      qrStateMessage.value = t('login.qr.scanned')
       const submitted = await confirmPortalQrLogin({ allowPending: true })
       if (submitted) return
     } else if (code === '3') {
       qrState.value = 'expired'
-      qrStateMessage.value = '二维码已失效，请点击刷新二维码。'
+      qrStateMessage.value = t('login.qr.expired')
       clearQrTimer()
       return
     } else {
       qrState.value = 'waiting'
-      qrStateMessage.value = '等待扫码中...'
+      qrStateMessage.value = t('login.qr.waiting')
     }
   } catch (e) {
     qrState.value = 'error'
-    qrStateMessage.value = `二维码状态查询失败：${e.message || e}`
+    qrStateMessage.value = tr('login.qr.statusFailed', { err: e.message || e })
   } finally {
     qrPollingBusy = false
   }
@@ -625,11 +654,11 @@ const pollPortalQrStatus = async () => {
 
 const initPortalQrLogin = async () => {
   if (!agreePolicy.value) {
-    statusMsg.value = '请先阅读并同意免责声明与隐私政策'
+    statusMsg.value = t('login.error.agreePolicy')
     return
   }
   if (!isTauriRuntime()) {
-    statusMsg.value = '当前运行时暂不支持原生扫码登录，请使用账号密码登录。'
+    statusMsg.value = t('login.qr.notSupported')
     return
   }
 
@@ -637,14 +666,14 @@ const initPortalQrLogin = async () => {
   statusMsg.value = ''
   qrSubmitting.value = false
   qrState.value = 'loading'
-  qrStateMessage.value = '正在生成二维码...'
+  qrStateMessage.value = t('login.qr.generating')
   clearQrTimer()
   const currentSeq = ++portalQrInitSeq
 
   try {
     const rawPayload = await withTimeout(invoke('portal_qr_init_login', {
       service: 'https://e.hbut.edu.cn/login#/'
-    }), 20000, '二维码生成超时，请检查网络后重试')
+    }), 20000, t('login.qr.initTimeout'))
     if (currentSeq !== portalQrInitSeq) return
     const payload = normalizeInvokePayload(rawPayload)
     const uuid = pickText(payload, ['uuid', 'qr_uuid'])
@@ -661,19 +690,19 @@ const initPortalQrLogin = async () => {
     )
 
     if (!uuid || !qrImg) {
-      throw new Error('二维码数据不完整，请重试')
+      throw new Error(t('login.qr.dataIncomplete'))
     }
 
     qrUuid.value = uuid
     qrImageBase64.value = qrImg
     qrExpiresAt.value = Date.now() + 180 * 1000
     qrState.value = 'waiting'
-    qrStateMessage.value = '请使用新融合门户 App 扫码登录。'
+    qrStateMessage.value = t('login.qr.defaultHint')
     updateQrCountdown()
     scheduleQrPoll()
   } catch (e) {
     qrState.value = 'error'
-    qrStateMessage.value = `二维码生成失败：${e.message || e}`
+    qrStateMessage.value = tr('login.qr.generateFailed', { err: e.message || e })
   }
 }
 
@@ -703,7 +732,7 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
     )
     const sid = String(userInfo?.student_id || '').trim()
     if (!sid) {
-      throw new Error('扫码成功但未获取到学号')
+      throw new Error(t('login.qr.noStudentId'))
     }
 
     username.value = sid
@@ -714,17 +743,17 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
     markLoginOnline()
 
     qrState.value = 'success'
-    qrStateMessage.value = '✅ 扫码登录成功，正在同步数据...'
+    qrStateMessage.value = t('login.qr.successSyncing')
     await emitSuccessWithGrades(sid)
     return true
   } catch (e) {
     if (allowPending && isPortalPendingError(e)) {
       qrState.value = 'scanned'
-      qrStateMessage.value = '已扫码，请在手机端完成确认...'
+      qrStateMessage.value = t('login.qr.scannedConfirmOnPhone')
       return false
     }
     qrState.value = 'error'
-    qrStateMessage.value = `扫码登录失败：${e.message || e}`
+    qrStateMessage.value = tr('login.qr.signInFailed', { err: e.message || e })
     return false
   } finally {
     qrSubmitting.value = false
@@ -734,7 +763,7 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
 const handleChaoxingLoginSuccess = async (payload, modeKey) => {
   const sid = await resolveChaoxingStudentId(payload)
   if (!sid) {
-    throw new Error('学习通登录成功，但未解析到 10 位学号，请先检查账号绑定信息')
+    throw new Error(t('login.error.cx.noStudentId'))
   }
   username.value = sid
   saveRememberedUsername(sid)
@@ -743,27 +772,27 @@ const handleChaoxingLoginSuccess = async (payload, modeKey) => {
   localStorage.removeItem('hbu_manual_logout')
   localStorage.removeItem(LOGOUT_REASON_KEY)
   markLoginOnline()
-  statusMsg.value = '✅ 学习通登录成功，正在进入首页...'
+  statusMsg.value = t('login.cx.qr.successSyncing')
   pushDebugList(payload?.debug)
   emit('success', [])
 }
 
 const handleChaoxingPasswordLogin = async () => {
   if (!chaoxingAccount.value || !chaoxingPassword.value) {
-    statusMsg.value = '请输入完整的学习通账号和密码'
+    statusMsg.value = t('login.error.cx.enterCredentials')
     return
   }
   if (!agreePolicy.value) {
-    statusMsg.value = '请先阅读并同意免责声明与隐私政策'
+    statusMsg.value = t('login.error.agreePolicy')
     return
   }
   if (!isTauriRuntime()) {
-    statusMsg.value = '当前运行时暂不支持学习通原生登录，请在桌面端/原生容器使用。'
+    statusMsg.value = t('login.error.cx.notSupportedNative')
     return
   }
 
   loading.value = true
-  statusMsg.value = '🔒 正在登录学习通...'
+  statusMsg.value = t('login.error.cx.signingIn')
   try {
     const payload = await runExclusiveLogin(() =>
       invoke('chaoxing_password_login', {
@@ -773,7 +802,7 @@ const handleChaoxingPasswordLogin = async () => {
     )
     await handleChaoxingLoginSuccess(payload, 'chaoxing_password')
   } catch (e) {
-    statusMsg.value = `⚠️ 学习通登录失败：${friendlyLoginError(e.message || e)}`
+    statusMsg.value = tr('login.error.cx.signInFailed', { err: friendlyLoginError(e.message || e) })
     pushDebug(`学习通密码登录失败: ${e.message || e}`)
   } finally {
     loading.value = false
@@ -799,35 +828,35 @@ const pollChaoxingQrStatus = async () => {
     const typeCode = String(payload?.type_code || '').trim()
     if (payload?.should_finish_login) {
       cxQrState.value = 'confirming'
-      cxQrStateMessage.value = '扫码确认成功，正在提交学习通登录...'
+      cxQrStateMessage.value = t('login.cx.qr.confirming')
       await confirmChaoxingQrLogin()
       return
     }
     if (typeCode === '4') {
       cxQrState.value = 'scanned'
       cxQrStateMessage.value = payload?.nickname
-        ? `已扫码：${payload.nickname}，请在学习通确认登录。`
-        : '已扫码，请在学习通确认登录。'
+        ? tr('login.cx.qr.scannedWithNickname', { nickname: payload.nickname })
+        : t('login.cx.qr.scanned')
     } else if (typeCode === '6') {
       cxQrState.value = 'expired'
-      cxQrStateMessage.value = '客户端取消登录，二维码已失效。'
+      cxQrStateMessage.value = t('login.cx.qr.cancelled')
       clearCxQrTimer()
       return
     } else if (typeCode === '7') {
       cxQrState.value = 'expired'
-      cxQrStateMessage.value = payload?.message || '二维码异常，请刷新。'
+      cxQrStateMessage.value = payload?.message || t('login.cx.qr.abnormal')
       clearCxQrTimer()
       return
     } else if (typeCode === '3') {
       cxQrState.value = 'waiting'
-      cxQrStateMessage.value = payload?.message || '等待扫码中...'
+      cxQrStateMessage.value = payload?.message || t('login.cx.qr.waiting')
     } else {
       cxQrState.value = 'waiting'
-      cxQrStateMessage.value = payload?.message || '等待扫码中...'
+      cxQrStateMessage.value = payload?.message || t('login.cx.qr.waiting')
     }
   } catch (e) {
     cxQrState.value = 'error'
-    cxQrStateMessage.value = `学习通二维码状态查询失败：${e.message || e}`
+    cxQrStateMessage.value = tr('login.cx.qr.statusFailed', { err: e.message || e })
     pushDebug(`学习通二维码状态失败: ${e.message || e}`)
   } finally {
     cxQrPollingBusy = false
@@ -841,11 +870,11 @@ const pollChaoxingQrStatus = async () => {
 
 const initChaoxingQrLogin = async (preferRefresh = false) => {
   if (!agreePolicy.value) {
-    statusMsg.value = '请先阅读并同意免责声明与隐私政策'
+    statusMsg.value = t('login.error.agreePolicy')
     return
   }
   if (!isTauriRuntime()) {
-    statusMsg.value = '当前运行时暂不支持学习通扫码登录。'
+    statusMsg.value = t('login.cx.qr.notSupported')
     return
   }
 
@@ -853,13 +882,13 @@ const initChaoxingQrLogin = async (preferRefresh = false) => {
   statusMsg.value = ''
   cxQrSubmitting.value = false
   cxQrState.value = 'loading'
-  cxQrStateMessage.value = '正在生成学习通二维码...'
+  cxQrStateMessage.value = t('login.cx.qr.generating')
   clearCxQrTimer()
   const currentSeq = ++chaoxingQrInitSeq
 
   try {
     const command = preferRefresh && cxQrUuid.value ? 'chaoxing_qr_refresh_login' : 'chaoxing_qr_init_login'
-    const rawPayload = await withTimeout(invoke(command), 20000, '学习通二维码生成超时，请检查网络后重试')
+    const rawPayload = await withTimeout(invoke(command), 20000, t('login.cx.qr.initTimeout'))
     if (currentSeq !== chaoxingQrInitSeq) return
     const payload = normalizeInvokePayload(rawPayload)
     const uuid = pickText(payload, ['uuid', 'qr_uuid'])
@@ -876,7 +905,7 @@ const initChaoxingQrLogin = async (preferRefresh = false) => {
       ])
     )
     if (!uuid || !enc || !qrImg) {
-      throw new Error('学习通二维码数据不完整')
+      throw new Error(t('login.cx.qr.dataIncomplete'))
     }
 
     cxQrUuid.value = uuid
@@ -886,13 +915,13 @@ const initChaoxingQrLogin = async (preferRefresh = false) => {
     const ttl = Number(payload?.expires_in_seconds || 150)
     cxQrExpiresAt.value = Date.now() + Math.max(60, ttl) * 1000
     cxQrState.value = 'waiting'
-    cxQrStateMessage.value = '请使用学习通 App 扫码登录。'
+    cxQrStateMessage.value = t('login.cx.qr.defaultHint')
     updateCxQrCountdown()
     scheduleCxQrPoll()
     pushDebugList(payload?.debug)
   } catch (e) {
     cxQrState.value = 'error'
-    cxQrStateMessage.value = `学习通二维码生成失败：${e.message || e}`
+    cxQrStateMessage.value = tr('login.cx.qr.generateFailed', { err: e.message || e })
     pushDebug(`学习通二维码生成失败: ${e.message || e}`)
   }
 }
@@ -923,11 +952,11 @@ const confirmChaoxingQrLogin = async () => {
       })
     )
     cxQrState.value = 'success'
-    cxQrStateMessage.value = '✅ 学习通扫码登录成功，正在进入首页...'
+    cxQrStateMessage.value = t('login.cx.qr.successSyncing')
     await handleChaoxingLoginSuccess(payload, 'chaoxing_qr_temp')
   } catch (e) {
     cxQrState.value = 'error'
-    cxQrStateMessage.value = `学习通扫码登录失败：${e.message || e}`
+    cxQrStateMessage.value = tr('login.cx.qr.signInFailed', { err: e.message || e })
     pushDebug(`学习通扫码登录失败: ${e.message || e}`)
   } finally {
     cxQrSubmitting.value = false
@@ -1001,7 +1030,7 @@ onMounted(async () => {
 
   const reason = String(localStorage.getItem(LOGOUT_REASON_KEY) || '').trim()
   if (reason === TEMP_SESSION_EXPIRED_REASON) {
-    statusMsg.value = '扫码临时登录已失效，请重新登录。'
+    statusMsg.value = t('login.status.tempSessionExpired')
     localStorage.removeItem(LOGOUT_REASON_KEY)
   }
 
@@ -1025,24 +1054,24 @@ onBeforeUnmount(() => {
     <div class="logo">
       <img class="logo-img" src="/splash/app_icon.png" alt="Mini-HBUT" />
     </div>
-    <h2>账号登录</h2>
-    <p class="subtitle">选择入口后继续</p>
+    <h2>{{ t('login.title') }}</h2>
+    <p class="subtitle">{{ t('login.subtitle') }}</p>
 
-    <div class="entry-switch" role="tablist" aria-label="登录入口切换">
+    <div class="entry-switch" role="tablist" :aria-label="t('login.entry.switchAria')">
       <span class="entry-slider" :class="{ 'is-chaoxing': isChaoxingMode }"></span>
       <button
         class="entry-btn"
         :class="{ active: isPortalMode }"
         @click="switchMode('portal')"
       >
-        新融合门户
+        {{ t('login.mode.portal') }}
       </button>
       <button
         class="entry-btn"
         :class="{ active: isChaoxingMode }"
         @click="switchMode('chaoxing')"
       >
-        学习通
+        {{ t('login.mode.chaoxing') }}
       </button>
     </div>
     <p class="mode-capsule">{{ currentModeMeta.title }}</p>
@@ -1057,22 +1086,22 @@ onBeforeUnmount(() => {
     <div v-else class="form-container">
       <template v-if="isPortalMode">
         <div class="input-group">
-          <label>学号</label>
+          <label>{{ t('login.label.studentId') }}</label>
           <input
             v-model="username"
             type="text"
-            placeholder="学号（10位数字）"
+            :placeholder="t('login.placeholder.studentId')"
             maxlength="10"
             @keypress="handleKeyPress"
           />
         </div>
 
         <div class="input-group">
-          <label>密码</label>
+          <label>{{ t('login.label.password') }}</label>
           <input
             v-model="password"
             type="password"
-            placeholder="密码"
+            :placeholder="t('login.placeholder.password')"
             @keypress="handleKeyPress"
           />
         </div>
@@ -1081,7 +1110,7 @@ onBeforeUnmount(() => {
           <label class="checkbox-label">
             <input type="checkbox" v-model="rememberMe" class="real-checkbox" />
             <span class="custom-checkbox"></span>
-            记住密码
+            {{ t('login.rememberPassword') }}
           </label>
         </div>
 
@@ -1090,7 +1119,7 @@ onBeforeUnmount(() => {
           :disabled="!canSubmitPasswordLogin"
           @click="handlePasswordLogin"
         >
-          登录
+          {{ t('login.btn.signIn') }}
         </button>
 
         <div class="action-pills">
@@ -1100,56 +1129,56 @@ onBeforeUnmount(() => {
             target="_blank"
             rel="noopener noreferrer"
           >
-            忘记密码
+            {{ t('login.btn.forgotPassword') }}
           </a>
           <button class="action-pill action-pill-btn" @click="openPortalQrPanel()">
-            扫码登录
+            {{ t('login.btn.qrSignIn') }}
           </button>
         </div>
 
         <transition name="fade-slide">
           <div v-if="portalQrVisible" class="qr-panel">
             <div class="qr-panel-head">
-              <span class="qr-panel-title">扫码登录（临时）</span>
-              <button class="qr-close-btn" type="button" @click="closePortalQrPanel">收起</button>
+              <span class="qr-panel-title">{{ t('login.qr.panelTitle') }}</span>
+              <button class="qr-close-btn" type="button" @click="closePortalQrPanel">{{ t('login.qr.collapse') }}</button>
             </div>
             <div class="qr-image-box">
-              <img v-if="qrImageBase64" :src="qrImageBase64" alt="扫码登录二维码" class="qr-image" />
+              <img v-if="qrImageBase64" :src="qrImageBase64" :alt="t('login.qr.imageAlt')" class="qr-image" />
               <div v-else class="qr-placeholder">
-                {{ qrState === 'error' ? (qrStateMessage || '二维码加载失败') : '正在生成二维码...' }}
+                {{ qrState === 'error' ? (qrStateMessage || t('login.qr.loadFailed')) : t('login.qr.generating') }}
               </div>
             </div>
-            <p class="qr-status">{{ qrStateMessage || '请使用新融合门户 App 扫码登录。' }}</p>
-            <p v-if="qrRemainingSeconds > 0" class="qr-countdown">二维码剩余 {{ qrRemainingSeconds }} 秒</p>
+            <p class="qr-status">{{ qrStateMessage || t('login.qr.defaultHint') }}</p>
+            <p v-if="qrRemainingSeconds > 0" class="qr-countdown">{{ tr('login.qr.remaining', { n: qrRemainingSeconds }) }}</p>
             <button class="login-btn" :disabled="qrSubmitting" @click="openPortalQrPanel(true)">
-              {{ qrImageBase64 ? '刷新二维码' : '生成二维码' }}
+              {{ qrImageBase64 ? t('login.qr.refresh') : t('login.qr.generate') }}
             </button>
           </div>
         </transition>
 
         <div class="mode-info">
-          <span class="info-text">OCR 配置：{{ ocrConfigMode }}</span>
+          <span class="info-text">{{ t('login.ocr.configPrefix') }}{{ ocrConfigMode }}</span>
         </div>
       </template>
 
       <template v-else-if="isChaoxingMode">
         <div class="input-group">
-          <label>学习通账号</label>
+          <label>{{ t('login.label.cxAccount') }}</label>
           <input
             v-model="chaoxingAccount"
             type="text"
-            placeholder="手机号 / 超星号 / 学号"
+            :placeholder="t('login.placeholder.cxAccount')"
             maxlength="40"
             @keypress="handleKeyPress"
           />
         </div>
 
         <div class="input-group">
-          <label>学习通密码</label>
+          <label>{{ t('login.label.cxPassword') }}</label>
           <input
             v-model="chaoxingPassword"
             type="password"
-            placeholder="密码"
+            :placeholder="t('login.placeholder.password')"
             maxlength="40"
             @keypress="handleKeyPress"
           />
@@ -1159,7 +1188,7 @@ onBeforeUnmount(() => {
           <label class="checkbox-label">
             <input type="checkbox" v-model="rememberMe" class="real-checkbox" />
             <span class="custom-checkbox"></span>
-            记住密码
+            {{ t('login.rememberPassword') }}
           </label>
         </div>
 
@@ -1168,7 +1197,7 @@ onBeforeUnmount(() => {
           :disabled="!canSubmitChaoxingPasswordLogin"
           @click="handleChaoxingPasswordLogin"
         >
-          登录
+          {{ t('login.btn.signIn') }}
         </button>
 
         <div class="action-pills">
@@ -1178,36 +1207,36 @@ onBeforeUnmount(() => {
             target="_blank"
             rel="noopener noreferrer"
           >
-            忘记密码
+            {{ t('login.btn.forgotPassword') }}
           </a>
           <button class="action-pill action-pill-btn" @click="openChaoxingQrPanel()">
-            扫码登录
+            {{ t('login.btn.qrSignIn') }}
           </button>
-          <span class="action-pill action-pill-note">功能受限</span>
+          <span class="action-pill action-pill-note">{{ t('login.cx.limitedBadge') }}</span>
         </div>
 
         <transition name="fade-slide">
           <div v-if="chaoxingQrVisible" class="qr-panel">
             <div class="qr-panel-head">
-              <span class="qr-panel-title">学习通扫码登录（临时）</span>
-              <button class="qr-close-btn" type="button" @click="closeChaoxingQrPanel">收起</button>
+              <span class="qr-panel-title">{{ t('login.cx.qr.panelTitle') }}</span>
+              <button class="qr-close-btn" type="button" @click="closeChaoxingQrPanel">{{ t('login.qr.collapse') }}</button>
             </div>
             <div class="qr-image-box">
-              <img v-if="cxQrImageBase64" :src="cxQrImageBase64" alt="学习通扫码二维码" class="qr-image" />
+              <img v-if="cxQrImageBase64" :src="cxQrImageBase64" :alt="t('login.cx.qr.imageAlt')" class="qr-image" />
               <div v-else class="qr-placeholder">
-                {{ cxQrState === 'error' ? (cxQrStateMessage || '二维码加载失败') : '正在生成学习通二维码...' }}
+                {{ cxQrState === 'error' ? (cxQrStateMessage || t('login.cx.qr.loadFailed')) : t('login.cx.qr.generating') }}
               </div>
             </div>
-            <p class="qr-status">{{ cxQrStateMessage || '请使用学习通 App 扫码登录。' }}</p>
-            <p v-if="cxQrRemainingSeconds > 0" class="qr-countdown">二维码剩余 {{ cxQrRemainingSeconds }} 秒</p>
+            <p class="qr-status">{{ cxQrStateMessage || t('login.cx.qr.defaultHint') }}</p>
+            <p v-if="cxQrRemainingSeconds > 0" class="qr-countdown">{{ tr('login.qr.remaining', { n: cxQrRemainingSeconds }) }}</p>
             <button class="login-btn" :disabled="cxQrSubmitting" @click="openChaoxingQrPanel(true)">
-              {{ cxQrImageBase64 ? '刷新学习通二维码' : '生成学习通二维码' }}
+              {{ cxQrImageBase64 ? t('login.cx.qr.refresh') : t('login.cx.qr.generate') }}
             </button>
           </div>
         </transition>
 
         <div class="mode-info mode-info-warn">
-          <span class="info-text">学习通登录后首页仅显示教务相关模块。</span>
+          <span class="info-text">{{ t('login.cx.restrictedNote') }}</span>
         </div>
       </template>
 
@@ -1215,10 +1244,10 @@ onBeforeUnmount(() => {
         <label class="checkbox-label checkbox-label--agreement">
           <input type="checkbox" v-model="agreePolicy" class="real-checkbox" />
           <span class="custom-checkbox"></span>
-          <span class="agreement-text">我已阅读并同意</span>
-          <button type="button" class="link-btn" @click="emit('showLegal', 'disclaimer')">《免责声明》</button>
-          <span class="agreement-text">与</span>
-          <button type="button" class="link-btn" @click="emit('showLegal', 'privacy')">《隐私政策》</button>
+          <span class="agreement-text">{{ t('login.agreement.prefix') }}</span>
+          <button type="button" class="link-btn" @click="emit('showLegal', 'disclaimer')">{{ t('login.agreement.disclaimer') }}</button>
+          <span class="agreement-text">{{ t('login.agreement.and') }}</span>
+          <button type="button" class="link-btn" @click="emit('showLegal', 'privacy')">{{ t('login.agreement.privacy') }}</button>
         </label>
       </div>
 
@@ -1228,7 +1257,7 @@ onBeforeUnmount(() => {
       <p
         v-if="statusMsg"
         class="status-msg"
-        :class="{ error: statusMsg.includes('失败') || statusMsg.includes('⚠️') || statusMsg.includes('❌') }"
+        :class="{ error: statusMsg.includes('⚠️') || statusMsg.includes('❌') }"
       >
         {{ statusMsg }}
       </p>

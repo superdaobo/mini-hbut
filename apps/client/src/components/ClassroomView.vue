@@ -5,6 +5,20 @@ import { fetchWithCache, LONG_TTL, SHORT_TTL, DEFAULT_TTL } from '../utils/api.j
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
 import { TPageHeader, TEmptyState } from './templates'
+import { useLocale } from '../utils/app_i18n'
+
+const { t } = useLocale()
+
+/**
+ * i18n 占位符插值：将 key 字典中的 {name} 占位替换为实际值。
+ */
+const tr = (key, params = {}) => {
+  let text = t(key)
+  for (const [name, value] of Object.entries(params)) {
+    text = text.split(`{${name}}`).join(String(value))
+  }
+  return text
+}
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -57,7 +71,8 @@ const queryCalendarLabel = computed(() => {
   const week = String(currentMeta.value?.week || '').trim()
   const weekday = String(currentMeta.value?.weekday_name || '').trim()
   const parts = []
-  if (week) parts.push(week === '?' || /^第.+周$/.test(week) ? week : `第${week}周`)
+  // 周次显示经 t() 取词；后端已带「第N周」原文的数据值原样保留
+  if (week) parts.push(week === '?' || /^第.+周$|^Week\s?\d+$/i.test(week) ? week : tr('classroom.week.nth', { n: week }))
   if (weekday) parts.push(weekday)
   return parts.join(' · ')
 })
@@ -297,32 +312,28 @@ const filters = ref({
 
 // 选项数据
 const weekOptions = Array.from({ length: 25 }, (_, i) => i + 1)
-const weekdayOptions = [
-  { value: 1, label: '周一' },
-  { value: 2, label: '周二' },
-  { value: 3, label: '周三' },
-  { value: 4, label: '周四' },
-  { value: 5, label: '周五' },
-  { value: 6, label: '周六' },
-  { value: 7, label: '周日' }
-]
+// 星期标签经 t() 取词（key 形如 classroom.weekday.1~7），保证语言切换即时生效
+const weekdayOptions = [1, 2, 3, 4, 5, 6, 7].map((value) => ({
+  value,
+  label: t(`classroom.weekday.${value}`)
+}))
 const periodOptions = [
-  { value: 1, label: '第1节 (08:00-08:45)' },
-  { value: 2, label: '第2节 (08:55-09:40)' },
-  { value: 3, label: '第3节 (10:10-10:55)' },
-  { value: 4, label: '第4节 (11:05-11:50)' },
-  { value: 5, label: '第5节 (14:00-14:45)' },
-  { value: 6, label: '第6节 (14:55-15:40)' },
-  { value: 7, label: '第7节 (16:10-16:55)' },
-  { value: 8, label: '第8节 (17:05-17:50)' },
-  { value: 9, label: '第9节 (19:00-19:45)' },
-  { value: 10, label: '第10节 (19:55-20:40)' },
-  { value: 11, label: '第11节 (20:50-21:35)' }
+  { value: 1, label: '08:00-08:45' },
+  { value: 2, label: '08:55-09:40' },
+  { value: 3, label: '10:10-10:55' },
+  { value: 4, label: '11:05-11:50' },
+  { value: 5, label: '14:00-14:45' },
+  { value: 6, label: '14:55-15:40' },
+  { value: 7, label: '16:10-16:55' },
+  { value: 8, label: '17:05-17:50' },
+  { value: 9, label: '19:00-19:45' },
+  { value: 10, label: '19:55-20:40' },
+  { value: 11, label: '20:50-21:35' }
 ]
 const periodGroups = [
-  { key: 'morning', label: '上午', periods: periodOptions.slice(0, 4) },
-  { key: 'afternoon', label: '下午', periods: periodOptions.slice(4, 8) },
-  { key: 'evening', label: '晚上', periods: periodOptions.slice(8, 11) }
+  { key: 'morning', label: t('classroom.time.morning'), periods: periodOptions.slice(0, 4) },
+  { key: 'afternoon', label: t('classroom.time.afternoon'), periods: periodOptions.slice(4, 8) },
+  { key: 'evening', label: t('classroom.time.evening'), periods: periodOptions.slice(8, 11) }
 ]
 
 // 获取教学楼列表
@@ -517,22 +528,23 @@ const getCurrentClassPeriods = () => {
 // 获取本地时间作为默认值 (防止接口慢导致 UI 空白)
 const initLocalMeta = () => {
   const now = new Date()
-  const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  // 本地星期名经 t() 取词（key 形如 classroom.weekday.1~7，7 对应周日）
   const dayIndex = now.getDay()
+  const weekdayKeyValue = dayIndex === 0 ? 7 : dayIndex
   const preferredWeek = getPreferredCurrentWeek()
   
   // 课表页维护的 hbu_schedule_meta 才是本机当前校历周次来源，避免空教室旧快照覆盖成历史周次。
   currentMeta.value = {
     date_str: now.toLocaleDateString(),
     week: preferredWeek || '?',
-    weekday_name: days[dayIndex],
-    semester: '加载中...'
+    weekday_name: t(`classroom.weekday.${weekdayKeyValue}`),
+    semester: t('classroom.meta.loading')
   }
-
+  
   // 默认选中今天
   if (!filters.value.weekday) {
     // 转换为 API 格式 (1-7, 7是周日)
-    filters.value.weekday = dayIndex === 0 ? 7 : dayIndex
+    filters.value.weekday = weekdayKeyValue
   }
   
   // 根据当前时间自动选择节次
@@ -540,6 +552,9 @@ const initLocalMeta = () => {
     filters.value.periods = getCurrentClassPeriods()
   }
 }
+
+// 自动重试期间保持 loading（错误文案以 classroom.error.warmupRetry key 标记）
+const WARMUP_RETRY_KEY = 'classroom.error.warmupRetry'
 
 // 查询空教室。保留上一屏结果，避免 iOS 返回/恢复时出现白屏或黑屏。
 const queryClassrooms = async (retryCount = 0, options = {}) => {
@@ -556,8 +571,8 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
 
   if (!sid) {
     errorMsg.value = hasSuccessfulQuery.value
-      ? '当前显示上次查询结果，请登录后刷新空教室。'
-      : '未检测到登录状态，请先登录后再查询空教室'
+      ? t('classroom.error.loginRequiredCached')
+      : t('classroom.error.loginRequired')
     loading.value = false
     return
   }
@@ -605,14 +620,14 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
       if (data?.need_login) {
         offline.value = true
         errorMsg.value = hasSuccessfulQuery.value
-          ? '会话已过期，当前显示上次查询结果，请重新登录后刷新。'
-          : '会话已过期，请重新登录后再查询空教室。'
+          ? t('classroom.error.sessionExpiredCached')
+          : t('classroom.error.sessionExpired')
         return
       }
       if (!preserveResults || !hasSuccessfulQuery.value) {
         classrooms.value = []
       }
-      errorMsg.value = data?.error || '查询失败'
+      errorMsg.value = data?.error || t('classroom.error.queryFailed')
     }
   } catch (e) {
     if (disposed || requestId !== latestRequestId) return
@@ -627,7 +642,10 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
         // 使用本地数据填充部分 UI，避免完全空白
         if (retryCount === 0 && !currentMeta.value.date_str) initLocalMeta()
         
-        errorMsg.value = `系统预热中，自动重试 (${retryCount + 1}/${maxRetry.value})...`
+        errorMsg.value = tr(WARMUP_RETRY_KEY, {
+          cur: retryCount + 1,
+          max: maxRetry.value
+        })
         retryTimer = setTimeout(() => {
           retryTimer = null
           if (disposed) return
@@ -640,18 +658,18 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
         return
       } else {
         errorMsg.value = hasSuccessfulQuery.value
-          ? '服务器响应超时，当前显示上次查询结果，请稍后重试。'
-          : '服务器响应超时，请手动刷新'
+          ? t('classroom.error.serverTimeoutCached')
+          : t('classroom.error.serverTimeout')
       }
     } else {
       errorMsg.value = hasSuccessfulQuery.value
-        ? '连接服务器失败，当前显示上次查询结果。'
-        : '连接服务器失败'
+        ? t('classroom.error.connectionFailedCached')
+        : t('classroom.error.connectionFailed')
     }
   } finally {
     clearAbortController('query', signal)
     if (disposed || requestId !== latestRequestId) return
-    if (!errorMsg.value.includes('自动重试')) {
+    if (!errorMsg.value.includes(t(WARMUP_RETRY_KEY))) {
       loading.value = false
     }
   }
@@ -749,11 +767,11 @@ onBeforeUnmount(() => {
 <template>
   <div class="classroom-page min-h-screen bg-surface text-on-surface flex flex-col mx-auto max-w-[448px] relative">
     <!-- Header -->
-    <TPageHeader icon="school" title="空教室" @back="$emit('back')" />
+    <TPageHeader icon="school" :title="t('classroom.title')" @back="$emit('back')" />
 
     <!-- Offline Banner -->
     <div v-if="offline" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      {{ t('classroom.offline.updatedPrefix') }}{{ formatRelativeTime(syncTime) }}
     </div>
 
     <!-- Main Content -->
@@ -772,7 +790,7 @@ onBeforeUnmount(() => {
             ]"
           >
             <span class="material-symbols-outlined text-[16px]">wb_sunny</span>
-            上午
+            {{ t('classroom.time.morning') }}
           </button>
           <button
             @click="selectTimeRange('afternoon')"
@@ -784,7 +802,7 @@ onBeforeUnmount(() => {
             ]"
           >
             <span class="material-symbols-outlined text-[16px]">routine</span>
-            下午
+            {{ t('classroom.time.afternoon') }}
           </button>
           <button
             @click="selectTimeRange('evening')"
@@ -796,7 +814,7 @@ onBeforeUnmount(() => {
             ]"
           >
             <span class="material-symbols-outlined text-[16px]">bedtime</span>
-            晚上
+            {{ t('classroom.time.evening') }}
           </button>
         </div>
 
@@ -804,7 +822,7 @@ onBeforeUnmount(() => {
         <div class="flex flex-col gap-3 bg-surface-container-lowest p-4 rounded-[24px] shadow-[0_4px_15px_rgba(0,0,0,0.03)] mt-2">
           <!-- Building -->
           <div class="flex items-center">
-            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">楼栋</span>
+            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">{{ t('classroom.filter.building') }}</span>
             <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
               <button
                 @click="filters.building = ''"
@@ -812,7 +830,7 @@ onBeforeUnmount(() => {
                   'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
                   !filters.building ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
                 ]"
-              >全部</button>
+              >{{ t('classroom.filter.all') }}</button>
               <button
                 v-for="b in buildings.filter(b => b.code)"
                 :key="b.code"
@@ -827,7 +845,7 @@ onBeforeUnmount(() => {
 
           <!-- Week -->
           <div class="flex items-center">
-            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">周次</span>
+            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">{{ t('classroom.filter.week') }}</span>
             <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
               <button
                 @click="selectCurrentWeek"
@@ -835,7 +853,7 @@ onBeforeUnmount(() => {
                   'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
                   !filters.week ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
                 ]"
-              >本周{{ currentMeta.week ? `(第${currentMeta.week}周)` : '' }}</button>
+              >{{ currentMeta.week ? tr('classroom.week.currentWithRange', { n: currentMeta.week }) : t('classroom.week.current') }}</button>
               <button
                 v-for="w in weekOptions"
                 :key="w"
@@ -844,13 +862,13 @@ onBeforeUnmount(() => {
                   'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
                   Number(filters.week) === w ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
                 ]"
-              >第{{ w }}周</button>
+              >{{ tr('classroom.week.nth', { n: w }) }}</button>
             </div>
           </div>
 
           <!-- Day -->
           <div class="flex items-center">
-            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">星期</span>
+            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">{{ t('classroom.filter.weekday') }}</span>
             <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
               <button
                 v-for="w in weekdayOptions"
@@ -866,7 +884,7 @@ onBeforeUnmount(() => {
 
           <!-- Periods (multi-select) -->
           <div class="flex items-start">
-            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0 pt-2">节次</span>
+            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0 pt-2">{{ t('classroom.filter.period') }}</span>
             <div class="classroom-period-groups">
               <div
                 v-for="group in periodGroups"
@@ -879,8 +897,8 @@ onBeforeUnmount(() => {
                     v-for="p in group.periods"
                     :key="p.value"
                     @click="togglePeriod(p.value)"
-                    :aria-label="`第${p.value}节`"
-                    :title="p.label"
+                    :aria-label="tr('classroom.period.aria', { n: p.value })"
+                    :title="tr('classroom.period.title', { n: p.value })"
                     :class="[
                       'classroom-period-button px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1',
                       filters.periods.includes(p.value)
@@ -899,11 +917,11 @@ onBeforeUnmount(() => {
           <!-- Footer: count + reset + query -->
           <div class="mt-2 flex justify-between items-center pt-3 border-t border-surface-variant">
             <span class="text-on-surface-variant text-sm">
-              找到 <strong>{{ classrooms.length }}</strong> 个空教室
+              {{ t('classroom.result.foundPrefix') }}<strong>{{ classrooms.length }}</strong>{{ t('classroom.result.foundSuffix') }}
             </span>
             <button class="text-primary text-xs font-medium flex items-center gap-1" @click="selectTimeRange('clear'); filters.building = ''; filters.week = ''">
               <span class="material-symbols-outlined text-[16px]">filter_alt_off</span>
-              重置筛选
+              {{ t('classroom.filter.reset') }}
             </button>
           </div>
 
@@ -913,7 +931,7 @@ onBeforeUnmount(() => {
             @click="handleManualQuery"
             :disabled="loading"
           >
-            {{ loading ? '查询中...' : '查询空教室' }}
+            {{ loading ? t('classroom.query.loading') : t('classroom.query.idle') }}
           </button>
         </div>
       </section>
@@ -926,7 +944,7 @@ onBeforeUnmount(() => {
       <!-- Results List -->
       <section class="px-4 flex flex-col gap-3">
         <div v-if="hasSuccessfulQuery || classrooms.length > 0" class="classroom-result-meta">
-          <span>查询日期：<strong>{{ queryDateLabel || '未知日期' }}</strong></span>
+          <span>{{ t('classroom.meta.datePrefix') }}<strong>{{ queryDateLabel || t('classroom.meta.dateUnknown') }}</strong></span>
           <span v-if="queryCalendarLabel">{{ queryCalendarLabel }}</span>
         </div>
 
@@ -941,13 +959,13 @@ onBeforeUnmount(() => {
             <div class="flex flex-col">
               <h3 class="text-lg font-bold text-on-surface flex items-center gap-2">
                 {{ room.name }}
-                <span class="px-2 py-0.5 rounded-md bg-success-teal/10 text-success-teal text-[10px] font-semibold">空闲</span>
+                <span class="px-2 py-0.5 rounded-md bg-success-teal/10 text-success-teal text-[10px] font-semibold">{{ t('classroom.badge.free') }}</span>
               </h3>
               <span class="text-secondary text-sm mt-1">{{ room.type || room.campus }}</span>
             </div>
             <div class="flex flex-col items-end">
               <span class="text-primary text-xl font-bold">{{ room.seats }}</span>
-              <span class="text-on-surface-variant text-[10px] font-semibold">座位数</span>
+              <span class="text-on-surface-variant text-[10px] font-semibold">{{ t('classroom.card.seats') }}</span>
             </div>
           </div>
           <div class="flex gap-2 mt-1">
@@ -957,7 +975,7 @@ onBeforeUnmount(() => {
             </span>
             <span v-if="room.floor" class="px-2.5 py-1 rounded bg-surface-container flex items-center gap-1 text-on-surface-variant text-[10px] font-semibold">
               <span class="material-symbols-outlined text-[14px]">layers</span>
-              {{ room.floor }}层
+              {{ tr('classroom.card.floor', { n: room.floor }) }}
             </span>
           </div>
         </div>
@@ -968,18 +986,18 @@ onBeforeUnmount(() => {
             class="px-6 py-2.5 rounded-full bg-surface-container-lowest border border-outline-variant/30 text-on-surface-variant text-xs font-medium active:scale-95 transition-transform"
             @click="showMoreClassrooms"
           >
-            加载更多（还有 {{ classrooms.length - displayLimit }} 间）
+            {{ tr('classroom.more.load', { n: classrooms.length - displayLimit }) }}
           </button>
         </div>
 
         <!-- Loading Spinner -->
         <div v-if="loading && classrooms.length > 0" class="py-6 flex flex-col items-center justify-center gap-2 text-on-surface-variant">
           <span class="material-symbols-outlined animate-spin">autorenew</span>
-          <span class="text-xs font-medium">正在加载更多教室...</span>
+          <span class="text-xs font-medium">{{ t('classroom.loading.more') }}</span>
         </div>
 
         <!-- Empty State -->
-        <TEmptyState v-if="!loading && classrooms.length === 0 && !errorMsg" icon="🏢" message="当前条件下没有找到空教室" />
+        <TEmptyState v-if="!loading && classrooms.length === 0 && !errorMsg" icon="🏢" :message="t('classroom.empty')" />
       </section>
     </main>
   </div>

@@ -4,6 +4,20 @@ import { useCampusMap } from '../features/campus-map/composables/useCampusMap'
 import { getBuildingCategoryLabel } from '../features/campus-map/data/search'
 import { showToast } from '../utils/toast'
 import { TPageHeader } from './templates'
+import { useLocale } from '../utils/app_i18n'
+
+const { t } = useLocale()
+
+/**
+ * i18n 占位符插值：将 key 字典中的 {name} 占位替换为实际值。
+ */
+const tr = (key: string, params: Record<string, unknown> = {}) => {
+  let text = t(key)
+  for (const [name, value] of Object.entries(params)) {
+    text = text.split(`{${name}}`).join(String(value))
+  }
+  return text
+}
 
 defineProps({
   studentId: { type: String, default: '' }
@@ -41,7 +55,7 @@ const handleRefresh = async () => {
   if (mapContainerRef.value && bundle.value) {
     await initMap(mapContainerRef.value)
   }
-  showToast('地图数据已刷新')
+  showToast(t('map.toast.refreshed'))
 }
 
 watch(searchQuery, () => applySearch())
@@ -56,10 +70,10 @@ onMounted(async () => {
 
 <template>
   <div class="campus-map-view">
-    <TPageHeader title="校园地图" icon="map" @back="emit('back')">
+    <TPageHeader :title="t('map.title')" icon="map" @back="emit('back')">
       <template #actions>
         <button class="header-action" type="button" :disabled="loading" @click="handleRefresh">
-          {{ loading ? '加载中' : '刷新' }}
+          {{ loading ? t('map.btn.loading') : t('map.btn.refresh') }}
         </button>
       </template>
     </TPageHeader>
@@ -70,7 +84,7 @@ onMounted(async () => {
       v-else-if="mapReady && bundle && !bundle.buildings?.length"
       class="status-banner warn"
     >
-      暂无建筑点位数据，请点击刷新或检查网络
+      {{ t('map.empty.buildings') }}
     </section>
 
     <section class="search-panel">
@@ -78,15 +92,15 @@ onMounted(async () => {
         v-model="searchQuery"
         class="search-input"
         type="search"
-        placeholder="搜索教学楼、食堂、图书馆..."
+        :placeholder="t('map.search.placeholder')"
         autocomplete="off"
       />
-      <button class="locate-btn" type="button" @click="refreshLocation">定位</button>
+      <button class="locate-btn" type="button" @click="refreshLocation">{{ t('map.btn.locate') }}</button>
     </section>
 
     <section class="map-shell">
       <div ref="mapContainerRef" class="map-host" :class="{ ready: mapReady }" />
-      <div v-if="!mapReady && !errorText" class="map-placeholder">地图加载中...</div>
+      <div v-if="!mapReady && !errorText" class="map-placeholder">{{ t('map.loading') }}</div>
     </section>
 
     <section v-if="selectedBuilding" class="detail-card">
@@ -95,27 +109,27 @@ onMounted(async () => {
           <h3>{{ selectedBuilding.name }}</h3>
           <p>{{ getBuildingCategoryLabel(selectedBuilding.category) }}</p>
         </div>
-        <button class="ghost-btn" type="button" @click="clearSelection">关闭</button>
+        <button class="ghost-btn" type="button" @click="clearSelection">{{ t('map.detail.close') }}</button>
       </div>
       <p v-if="selectedBuilding.aliases?.length" class="detail-meta">
-        别名：{{ selectedBuilding.aliases.join('、') }}
+        {{ t('map.detail.aliasesPrefix') }}{{ selectedBuilding.aliases.join('、') }}
       </p>
       <div class="detail-actions">
         <button class="primary-btn" type="button" :disabled="routeLoading" @click="planWalkingRoute">
-          {{ routeLoading ? '规划中...' : '步行导航' }}
+          {{ routeLoading ? t('map.btn.routing') : t('map.btn.walkNav') }}
         </button>
       </div>
       <p v-if="routeError" class="route-error">{{ routeError }}</p>
       <p v-else-if="routeResult" class="route-meta">
-        约 {{ formatWalkingDistance(routeResult.distanceMeters) }} ·
+        {{ t('map.route.approxPrefix') }}{{ formatWalkingDistance(routeResult.distanceMeters) }} ·
         {{ formatWalkingDuration(routeResult.durationSeconds) }}
       </p>
     </section>
 
     <section class="results-panel">
       <div class="results-head">
-        <h2>建筑列表</h2>
-        <span>{{ searchResults.length }} 个结果</span>
+        <h2>{{ t('map.results.title') }}</h2>
+        <span>{{ tr('map.results.count', { n: searchResults.length }) }}</span>
       </div>
       <ul class="results-list">
         <li v-for="item in searchResults" :key="item.id">
