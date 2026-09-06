@@ -10,8 +10,9 @@ describe('Dashboard quick entry defaults', () => {
 
     expect(vue).toContain("const defaultQuickEntries = ['grades', 'exams', 'classroom', 'electricity', 'ranking']")
     expect(vue).not.toContain("const defaultQuickEntries = ['grades', 'schedule', 'classroom', 'electricity', 'ranking']")
-    expect(vue).toContain("exams: { name: '考试安排'")
-    expect(vue).toContain("schedule: { name: '课表'")
+    // i18n 迁移（#786）：quickEntryMeta 的 name 存 i18n key，渲染时经 t() 取词
+    expect(vue).toContain("exams: { name: 'home.module.exams'")
+    expect(vue).toContain("schedule: { name: 'home.module.schedule'")
   })
 
   it('keeps per-module tinted quick-entry icon surfaces in dark mode', () => {

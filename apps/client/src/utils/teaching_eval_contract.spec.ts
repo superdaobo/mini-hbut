@@ -9,7 +9,8 @@ describe('teaching eval (#439) contract', () => {
   it('Dashboard 教务分组含 teaching_eval 入口', () => {
     const dash = read('src/components/Dashboard.vue')
     expect(dash).toMatch(/id:\s*['"]teaching_eval['"]/)
-    expect(dash).toMatch(/教学评教/)
+    // i18n 迁移（#786）：模块名存 i18n key home.module.teaching_eval
+    expect(dash).toMatch(/home\.module\.teaching_eval/)
   })
 
   it('TeachingEvalView 具备一键满分确认与不再询问偏好', () => {

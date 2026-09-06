@@ -17,10 +17,10 @@
           <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"></i>
           <input
             class="w-full bg-white rounded-full py-1.5 pl-8 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-blue-300 border-none shadow-sm text-gray-600 cursor-pointer"
-            placeholder="搜索服务/课程/资讯"
+            :placeholder="t('home.search.placeholder')"
             type="text"
             readonly
-            aria-label="搜索服务"
+            :aria-label="t('home.search.aria')"
             @click="openHomeSearch"
             @focus="openHomeSearch"
           />
@@ -35,7 +35,7 @@
           <h1 class="text-3xl font-bold text-gray-900">
             {{ greetingText }}
           </h1>
-          <p class="text-gray-500 text-sm mt-1">新的一天，元气满满！</p>
+          <p class="text-gray-500 text-sm mt-1">{{ t('home.greet.sub') }}</p>
         </div>
         <div class="flex items-center space-x-4 cursor-pointer" @click="showWeatherDetail = true">
           <div class="flex flex-col items-end">
@@ -56,8 +56,8 @@
           </div>
           <div class="min-w-0">
             <div class="flex items-center space-x-2">
-              <h2 class="font-bold text-lg text-gray-800 truncate">{{ studentId || '未登录' }}</h2>
-              <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-sm shrink-0">本科生</span>
+              <h2 class="font-bold text-lg text-gray-800 truncate">{{ studentId || t('home.profile.notLoggedIn') }}</h2>
+              <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-sm shrink-0">{{ t('home.profile.undergraduate') }}</span>
             </div>
             <p class="text-xs text-gray-500 mt-1 truncate">{{ userCollegeInfo }}</p>
           </div>
@@ -97,30 +97,30 @@
             type="button"
             class="shrink-0 text-[11px] text-orange-500 px-2 py-0.5"
             @click="sessionDetailOpen = false"
-          >收起</button>
+          >{{ t('home.maint.collapse') }}</button>
         </div>
 
         <div class="text-xs text-orange-700 mt-2 leading-relaxed">
           {{ jwxtMaintenanceHint || (onlineSessionState === 'cached_offline' && jwxtRecoveryPhase === 'idle'
-            ? '已恢复本地身份，教务在线会话未恢复，正在后台尝试恢复；成绩与课表缓存可正常查看，无需重新登录。'
+            ? t('home.maint.hint.cachedOffline')
             : (sessionStatusVisual === 'blink'
-              ? '正在后台恢复登录会话，请稍候…'
-              : '当前可能无法同步最新教务数据，可查看下方详情或重试。')) }}
+              ? t('home.maint.hint.recovering')
+              : t('home.maint.hint.generic'))) }}
         </div>
 
         <div
           v-if="jwxtMaintenanceDetail"
           class="mt-2 text-[11px] text-orange-900/80 bg-white/60 border border-orange-100 rounded-xl px-2.5 py-2 break-words"
         >
-          <span class="font-medium text-orange-800">详情：</span>{{ jwxtMaintenanceDetail }}
+          <span class="font-medium text-orange-800">{{ t('home.maint.detailLabel') }}</span>{{ jwxtMaintenanceDetail }}
         </div>
 
         <div v-if="jwxtLastCheckTime" class="mt-2 text-[10px] text-orange-500">
-          最近检查：{{ jwxtLastCheckTime }}
+          {{ t('home.maint.lastCheckPrefix') }}{{ jwxtLastCheckTime }}
         </div>
 
         <div v-if="maintenanceNotices.length" class="mt-3 pt-2 border-t border-orange-100">
-          <div class="text-[11px] font-semibold text-orange-800 mb-1.5">相关通知</div>
+          <div class="text-[11px] font-semibold text-orange-800 mb-1.5">{{ t('home.maint.relatedNotices') }}</div>
           <button
             v-for="(n, idx) in maintenanceNotices"
             :key="n.id || idx"
@@ -141,7 +141,7 @@
             :disabled="jwxtRecoveryPhase === 'recovering'"
             @click="$emit('retry-session-recovery')"
           >
-            {{ jwxtRecoveryPhase === 'recovering' ? '正在恢复…' : '立即重试' }}
+            {{ jwxtRecoveryPhase === 'recovering' ? t('home.maint.retrying') : t('home.maint.retryNow') }}
           </button>
           <button
             v-if="jwxtRecoveryPhase === 'need_login' || jwxtRecoveryPhase === 'failed' || sessionStatusVisual === 'red'"
@@ -149,7 +149,7 @@
             class="text-xs px-3 py-1.5 rounded-full bg-white border border-orange-300 text-orange-800 font-medium"
             @click="$emit('require-login')"
           >
-            去登录
+            {{ t('home.maint.goLogin') }}
           </button>
         </div>
       </div>
@@ -159,19 +159,19 @@
       <!-- Today's Schedule -->
       <div class="bg-white rounded-2xl p-5 card-shadow relative">
         <div class="flex justify-between items-center mb-5">
-          <h3 class="font-bold text-lg text-gray-800">今日安排</h3>
+          <h3 class="font-bold text-lg text-gray-800">{{ t('home.today.panelTitle') }}</h3>
           <a class="text-sm text-blue-500 flex items-center cursor-pointer" @click="$emit('navigate', 'schedule')">
-            查看全部 <i class="fas fa-chevron-right text-xs ml-1"></i>
+            {{ t('home.today.viewAll') }} <i class="fas fa-chevron-right text-xs ml-1"></i>
           </a>
         </div>
 
         <!-- Loading / Error / Empty states -->
-        <div v-if="!isLoggedIn" class="text-center py-8 text-gray-400 text-sm">登录后可查看今日课程</div>
-        <div v-else-if="todayLoading" class="text-center py-8 text-gray-400 text-sm">正在加载今日课程...</div>
+        <div v-if="!isLoggedIn" class="text-center py-8 text-gray-400 text-sm">{{ t('home.today.loginRequired') }}</div>
+        <div v-else-if="todayLoading" class="text-center py-8 text-gray-400 text-sm">{{ t('home.today.loading') }}</div>
         <div v-else-if="todayError" class="text-center py-8 text-red-400 text-sm">{{ todayError }}</div>
         <div v-else-if="todayCourses.length === 0" class="flex flex-col items-center py-8">
           <img src="/splash/course_done_icon.webp" class="today-empty-icon" alt="All done" />
-          <span class="text-gray-400 text-sm">今日无课程安排 🎉</span>
+          <span class="text-gray-400 text-sm">{{ t('home.today.empty') }}</span>
         </div>
 
         <!-- Timeline -->
@@ -193,7 +193,7 @@
                   <h4 class="font-medium text-gray-800 text-base truncate">{{ course.name }}</h4>
                   <p class="text-xs text-gray-500 mt-1 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
                 </div>
-                <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full whitespace-nowrap shrink-0">已结束</span>
+                <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full whitespace-nowrap shrink-0">{{ t('home.status.finished') }}</span>
               </div>
             </template>
 
@@ -211,7 +211,7 @@
                 </div>
                 <div class="flex-1 text-white relative z-10 pl-1 pr-20">
                   <span class="text-[10px] bg-blue-400 bg-opacity-50 px-2 py-0.5 rounded text-white inline-block mb-1">
-                    {{ course.startMinutes <= currentMinutePrecise ? '进行中' : '下一节' }}
+                    {{ course.startMinutes <= currentMinutePrecise ? t('home.status.ongoing') : t('home.status.next') }}
                   </span>
                   <h4 class="font-bold text-xl mb-1">{{ course.name }}</h4>
                   <p class="text-xs opacity-90 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
@@ -223,7 +223,7 @@
                     {{ getCourseCountdown(course) }}
                   </div>
                   <button class="relative z-10 bg-white text-blue-500 text-sm font-medium px-4 py-1.5 rounded-full flex items-center shadow-sm hover:bg-gray-50 mr-3" @click.stop="$emit('navigate', 'schedule')">
-                    去上课 <i class="fas fa-arrow-right ml-1 text-xs"></i>
+                    {{ t('home.today.goToClass') }} <i class="fas fa-arrow-right ml-1 text-xs"></i>
                   </button>
                 </div>
               </div>
@@ -243,7 +243,7 @@
                   <h4 class="font-medium text-gray-800 text-base truncate">{{ course.name }}</h4>
                   <p class="text-xs text-gray-500 mt-1 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
                 </div>
-                <span class="text-xs text-gray-400 whitespace-nowrap shrink-0">未开始</span>
+                <span class="text-xs text-gray-400 whitespace-nowrap shrink-0">{{ t('home.status.upcoming') }}</span>
               </div>
             </template>
           </div>
@@ -256,8 +256,8 @@
               <i class="far fa-calendar-alt text-sm"></i>
             </div>
             <div>
-              <p class="text-[10px] text-gray-400">今日课程</p>
-              <p class="text-sm font-bold text-gray-800">{{ todayCourses.length }} <span class="text-xs font-normal">节</span></p>
+              <p class="text-[10px] text-gray-400">{{ t('home.today.blockTitle') }}</p>
+              <p class="text-sm font-bold text-gray-800">{{ todayCourses.length }} <span class="text-xs font-normal">{{ t('home.today.lessonsSuffix') }}</span></p>
             </div>
           </div>
           <div class="w-px h-8 bg-gray-100"></div>
@@ -266,7 +266,7 @@
               <i class="far fa-check-circle text-sm"></i>
             </div>
             <div>
-              <p class="text-[10px] text-gray-400">已完成</p>
+              <p class="text-[10px] text-gray-400">{{ t('home.today.completed') }}</p>
               <p class="text-sm font-bold text-gray-800">{{ todayCourses.length > 0 ? Math.round((todayCourses.length - timelineCourses.length) / todayCourses.length * 100) : 0 }} <span class="text-xs font-normal">%</span></p>
             </div>
           </div>
@@ -276,8 +276,8 @@
               <i class="far fa-clock text-sm"></i>
             </div>
             <div>
-              <p class="text-[10px] text-gray-400">剩余课程</p>
-              <p class="text-sm font-bold text-gray-800">{{ timelineCourses.length }} <span class="text-xs font-normal">节</span></p>
+              <p class="text-[10px] text-gray-400">{{ t('home.today.remaining') }}</p>
+              <p class="text-sm font-bold text-gray-800">{{ timelineCourses.length }} <span class="text-xs font-normal">{{ t('home.today.lessonsSuffix') }}</span></p>
             </div>
           </div>
         </div>
@@ -289,7 +289,7 @@
       <!-- Quick Entry -->
       <div class="bg-white rounded-2xl p-5 card-shadow">
         <div class="flex justify-between items-center mb-4">
-          <h3 class="font-bold text-lg text-gray-800">快捷入口</h3>
+          <h3 class="font-bold text-lg text-gray-800">{{ t('home.quick.title') }}</h3>
           <i class="fas fa-pencil-alt text-gray-400 cursor-pointer hover:text-blue-500 transition-colors" @click="openQuickEntryEditor"></i>
         </div>
         <div class="grid grid-cols-5 gap-y-4">
@@ -306,17 +306,16 @@
             >
               <i class="fas text-xl" :class="[item.icon, item.iconColor]"></i>
             </div>
-            <span class="text-[11px] text-gray-600">{{ item.name }}</span>
-          </div>
+            <span class="text-[11px] text-gray-600">{{ item.name }}</span>          </div>
         </div>
       </div>
 
       <!-- All Features -->
       <div class="bg-white rounded-2xl p-5 card-shadow home-all-features">
         <div class="home-all-features__head">
-          <h3 class="font-bold text-lg text-gray-800">所有功能</h3>
+          <h3 class="font-bold text-lg text-gray-800">{{ t('home.features.title') }}</h3>
         </div>
-        <div class="home-feature-tabs" role="tablist" aria-label="功能分类">
+        <div class="home-feature-tabs" role="tablist" :aria-label="t('home.features.tabsAria')">
           <button
             v-for="cat in moduleCategories"
             :key="cat.title"
@@ -327,7 +326,7 @@
             :class="activeFeatureTab === cat.title ? 'is-active' : ''"
             @click="setActiveFeatureTab(cat.title)"
           >
-            {{ cat.title }}
+            {{ categoryLabel(cat) }}
           </button>
         </div>
         <div
@@ -343,7 +342,7 @@
             <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white mb-2 shadow-sm" :class="featureIconColors[mod.id] || 'bg-gray-400'">
               <i class="fas text-xl" :class="featureIcons[mod.id] || 'fa-cube'"></i>
             </div>
-            <span class="text-xs text-gray-700 text-center">{{ mod.name }}</span>
+            <span class="text-xs text-gray-700 text-center">{{ moduleLabel(mod) }}</span>
           </div>
         </div>
       </div>
@@ -367,7 +366,7 @@
                   ref="homeSearchInputRef"
                   v-model="homeSearchQuery"
                   class="w-full bg-gray-50 rounded-2xl py-3 pl-9 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 text-gray-800"
-                  placeholder="搜索服务、课程、资讯"
+                  :placeholder="t('home.search.modalPlaceholder')"
                   type="search"
                   @keydown="handleHomeSearchKeydown"
                 />
@@ -385,14 +384,14 @@
                 type="button"
                 @click="closeHomeSearch"
               >
-                取消
+                {{ t('home.common.cancel') }}
               </button>
             </div>
           </div>
 
           <div class="max-h-[68vh] overflow-y-auto px-4 py-4">
             <div v-if="!homeSearchHasQuery" class="space-y-3">
-              <p class="text-xs font-semibold text-gray-400 px-1">常用</p>
+              <p class="text-xs font-semibold text-gray-400 px-1">{{ t('home.search.frequent') }}</p>
               <div class="grid grid-cols-2 gap-2">
                 <button
                   v-for="item in homeSearchSuggestions"
@@ -438,7 +437,7 @@
               <div class="w-12 h-12 mx-auto rounded-2xl bg-gray-50 flex items-center justify-center text-gray-300">
                 <i class="fas fa-search"></i>
               </div>
-              <p class="mt-3 text-sm text-gray-400">没有匹配结果</p>
+              <p class="mt-3 text-sm text-gray-400">{{ t('home.search.noResults') }}</p>
             </div>
           </div>
         </div>
@@ -454,7 +453,7 @@
             <div class="absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl -mr-12 -mt-12 pointer-events-none" :class="weatherGlowClass"></div>
             <div class="flex justify-between items-start relative z-10">
               <div>
-                <p class="text-sm opacity-70" :class="weatherPillTextClass">洪山区</p>
+                <p class="text-sm opacity-70" :class="weatherPillTextClass">{{ t('home.weather.district') }}</p>
                 <h3 class="font-bold text-2xl mt-1" :class="weatherTextClass">{{ weatherData.condition }}</h3>
               </div>
               <button class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center" @click="showWeatherDetail = false">
@@ -482,7 +481,7 @@
           </div>
           <!-- Hourly forecast (24h horizontal scroll) -->
           <div class="bg-white px-5 pt-5 pb-4">
-            <h4 class="font-semibold text-sm text-gray-700 mb-3">逐时预报</h4>
+            <h4 class="font-semibold text-sm text-gray-700 mb-3">{{ t('home.weather.hourly') }}</h4>
             <div class="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
               <div v-for="h in hourlyForecast" :key="h.time" class="flex flex-col items-center shrink-0 min-w-[48px]">
                 <span class="text-[11px] text-gray-500 mb-1.5">{{ h.time }}</span>
@@ -493,7 +492,7 @@
           </div>
           <!-- Daily forecast -->
           <div class="bg-white px-5 pt-3 pb-5 border-t border-gray-100/80">
-            <h4 class="font-semibold text-sm text-gray-700 mb-3">未来天气</h4>
+            <h4 class="font-semibold text-sm text-gray-700 mb-3">{{ t('home.weather.daily') }}</h4>
             <div class="space-y-3">
               <div v-for="f in weatherData.forecast" :key="f.day" class="flex items-center">
                 <span class="text-sm text-gray-600 w-10 font-medium">{{ f.day }}</span>
@@ -517,12 +516,12 @@
         <div v-if="showQuickEntryEditor" class="quick-entry-editor-overlay fixed inset-0 z-[200] flex items-end justify-center bg-black/40" @click.self="showQuickEntryEditor = false">
           <div class="quick-entry-editor-panel modal-pop-card w-full max-w-md bg-white rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-lg text-gray-800">编辑快捷入口</h3>
+            <h3 class="font-bold text-lg text-gray-800">{{ t('home.quick.editorTitle') }}</h3>
             <button class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center" @click="showQuickEntryEditor = false">
               <i class="fas fa-times text-gray-500"></i>
             </button>
           </div>
-          <p class="text-xs text-gray-500 mb-4">选择 5 个模块作为快捷入口（已选 {{ draftQuickEntries.length }}/5）</p>
+          <p class="text-xs text-gray-500 mb-4">{{ t('home.quick.editorHint').replace('{n}', String(draftQuickEntries.length)) }}</p>
           <div class="grid grid-cols-4 gap-3 mb-6">
             <div
               v-for="(meta, id) in editableQuickEntryMeta"
@@ -538,8 +537,7 @@
               >
                 <i class="fas" :class="[meta.icon, meta.iconColor]"></i>
               </div>
-              <span class="text-[10px] text-gray-600 text-center">{{ meta.name }}</span>
-              <div v-if="draftQuickEntries.includes(id)" class="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center mt-1">
+              <span class="text-[10px] text-gray-600 text-center">{{ meta.name }}</span>              <div v-if="draftQuickEntries.includes(id)" class="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center mt-1">
                 <i class="fas fa-check text-white text-[8px]"></i>
               </div>
             </div>
@@ -550,7 +548,7 @@
             :disabled="draftQuickEntries.length !== 5"
             @click="saveQuickEntries"
           >
-            保存
+            {{ t('home.common.save') }}
           </button>
         </div>
       </div>

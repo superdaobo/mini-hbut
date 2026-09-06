@@ -40,8 +40,9 @@ describe('chaoxing_class home integration contract', () => {
 
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('chaoxing_class')
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('chaoxing_hub')
-    expect(dashboard).toContain("{ id: 'chaoxing_class', name: '资料分享'")
-    expect(dashboard).toContain("title: '学习通'")
+    // i18n 迁移（#786）：baseModules 的 name 与分组 title 均存 i18n key
+    expect(dashboard).toContain("{ id: 'chaoxing_class', name: 'home.module.chaoxing_class'")
+    expect(dashboard).toContain("title: 'home.cat.chaoxing'")
     expect(dashboard).toContain("'chaoxing_class'")
     expect(app).toContain("const loadChaoxingClassView: Loader = () => import('../components/ChaoxingClassView.vue')")
     expect(app).toContain('chaoxing_class: loadChaoxingClassView')

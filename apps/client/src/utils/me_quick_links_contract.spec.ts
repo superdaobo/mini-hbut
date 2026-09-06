@@ -88,8 +88,9 @@ describe('me quick links frontend contract', () => {
     expect(existsSync(sourcePath(viewPath))).toBe(true)
     expect(source).toContain('https://e.hbut.edu.cn/')
     expect(source).toContain('https://i.chaoxing.com/')
-    expect(source).toContain('新融合门户')
-    expect(source).toContain('学习通')
+    // i18n 迁移（#786）：门户名存 i18n key（专名 zh/en 同值），渲染时经 t() 取词
+    expect(source).toContain('home.quick_links.portal.title')
+    expect(source).toContain('home.quick_links.chaoxing.title')
     expect(source).toContain('openExternal')
     expect(source).toContain('showToast')
   })
