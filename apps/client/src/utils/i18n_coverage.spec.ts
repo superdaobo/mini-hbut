@@ -55,7 +55,6 @@ const I18N_MIGRATED_FILES: string[] = [
   'features/schedule/components/ScheduleWeekPicker.vue',
   'features/schedule/composables/useScheduleEditor.ts',
   'features/schedule/composables/useScheduleMenu.ts',
-  'features/schedule/composables/useScheduleSemester.ts'
   'features/schedule/composables/useScheduleSemester.ts',
   'components/NotificationView.vue',
   'components/SchoolInboxView.vue',
