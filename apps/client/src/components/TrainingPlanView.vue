@@ -3,8 +3,12 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { t, useLocale } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 import { isTestAccountSession } from '../utils/test_account.js'
+
+// i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
+const { locale } = useLocale()
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -31,29 +35,11 @@ const options = ref({
   kkjys: []
 })
 
-const COURSE_NATURE_FALLBACK_MAP = {
-  '11': '通识教育必修课',
-  '12': '通识教育选修课',
-  '16': '限定性选修课',
-  '31': '学科基础课',
-  '32': '工程基础课',
-  '40': '专业核心课',
-  '41': '专业方向组选课',
-  '42': '专业任选课',
-  '43': '专业基础课',
-  '44': '专业必修课',
-  '45': '专业选修课',
-  '50': '基础实践',
-  '51': '专业实践',
-  '52': '综合实践',
-  '53': '其他实践',
-  '54': '短学期实践',
-  '70': '辅修双学位理论',
-  '71': '辅修双学位实践',
-  '90': '必修',
-  '98': '重修课',
-  '99': '公共选修课'
-}
+/** 课程性质代码回退表：key 对应 i18n grade.nature.*，渲染时按语言取词 */
+const COURSE_NATURE_FALLBACK_CODES = [
+  '11', '12', '16', '31', '32', '40', '41', '42', '43', '44',
+  '45', '50', '51', '52', '53', '54', '70', '71', '90', '98', '99'
+]
 
 const defaults = ref({
   grade: '',
@@ -185,10 +171,10 @@ const fetchCourses = async (page = pagination.value.page) => {
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
     } else {
-      error.value = data?.error || '获取培养方案失败'
+      error.value = data?.error || t('trainingplan.error.fetch')
     }
   } catch (e) {
-    error.value = e.response?.data?.error || '网络错误'
+    error.value = e.response?.data?.error || t('common.error.network')
     console.error('[TrainingPlan] fetchCourses error:', e)
   } finally {
     loading.value = false
@@ -230,11 +216,54 @@ const resolveCourseNature = (value) => {
   const raw = String(value ?? '').trim()
   if (!raw) return '-'
   if (/[^\d]/.test(raw)) return raw
+  // 选项 label 由服务端返回，中文选项按等级文案映射为英文
   const fromOptions = (options.value.kcxz || []).find(
     item => String(item?.value ?? '').trim() === raw
   )
-  if (fromOptions?.label) return String(fromOptions.label).trim()
-  return COURSE_NATURE_FALLBACK_MAP[raw] || raw
+  if (fromOptions?.label) return translateNatureText(String(fromOptions.label).trim())
+  if (COURSE_NATURE_FALLBACK_CODES.includes(raw)) return t(`grade.nature.${raw}`)
+  return raw
+}
+
+/** 服务端返回的中文性质/必修文本 → 当前语言文案（数据驱动枚举渲染） */
+const translateNatureText = (text) => {
+  if (!text) return text
+  const NATURE_KEY_MAP = [
+    [/通识教育必修|通识必修/, 'grade.nature.11'],
+    [/通识教育选修|通识选修|公共选修/, 'grade.nature.99'],
+    [/限定性选修|限定选修/, 'grade.nature.16'],
+    [/学科基础/, 'grade.nature.31'],
+    [/工程基础/, 'grade.nature.32'],
+    [/专业核心/, 'grade.nature.40'],
+    [/专业方向组/, 'grade.nature.41'],
+    [/专业任选/, 'grade.nature.42'],
+    [/专业基础/, 'grade.nature.43'],
+    [/专业必修/, 'grade.nature.44'],
+    [/专业选修/, 'grade.nature.45'],
+    [/基础实践/, 'grade.nature.50'],
+    [/专业实践/, 'grade.nature.51'],
+    [/综合实践/, 'grade.nature.52'],
+    [/其他实践/, 'grade.nature.53'],
+    [/短学期实践/, 'grade.nature.54'],
+    [/辅修双学位理论|辅修理论/, 'grade.nature.70'],
+    [/辅修双学位实践|辅修实践/, 'grade.nature.71'],
+    [/重修/, 'grade.nature.98'],
+    [/必修/, 'trainingplan.sfbx.compulsory'],
+    [/选修/, 'trainingplan.sfbx.elective']
+  ]
+  for (const [pattern, key] of NATURE_KEY_MAP) {
+    if (pattern.test(text)) return t(key)
+  }
+  return text
+}
+
+/** 选/必修（sfbx）展示：映射 Compulsory/Elective，其余文本回落原文 */
+const resolveSfbxText = (value) => {
+  const text = String(value ?? '').trim()
+  if (!text) return text
+  if (/必修/.test(text)) return t('trainingplan.sfbx.compulsory')
+  if (/选修/.test(text)) return t('trainingplan.sfbx.elective')
+  return text
 }
 
 const openDetail = (course) => {
@@ -258,73 +287,73 @@ onMounted(async () => {
 
 <template>
   <div class="training-plan-view">
-    <TPageHeader title="培养方案" @back="emit('back')" />
+    <TPageHeader :title="t('trainingplan.title')" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      {{ t('common.offline.prefix') }}{{ formatRelativeTime(syncTime) }}
     </div>
 
     <section class="filters">
       <div class="filter-grid compact-main">
         <label>
-          <span>开设学年</span>
+          <span>{{ t('trainingplan.year.label') }}</span>
           <IOSSelect v-model="filters.grade">
-            <option value="">请选择</option>
+            <option value="">{{ t('trainingplan.option.please') }}</option>
             <option v-for="opt in options.grade" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </IOSSelect>
         </label>
         <label>
-          <span>开设学期</span>
+          <span>{{ t('trainingplan.term.label') }}</span>
           <IOSSelect v-model="filters.kkxq">
-            <option value="">请选择</option>
+            <option value="">{{ t('trainingplan.option.please') }}</option>
             <option v-for="opt in options.kkxq" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </IOSSelect>
         </label>
       </div>
       <div class="filter-actions">
-        <button class="primary" @click="handleSearch">搜索</button>
-        <button class="ghost" @click="resetFilters">重置</button>
+        <button class="primary" @click="handleSearch">{{ t('trainingplan.search') }}</button>
+        <button class="ghost" @click="resetFilters">{{ t('trainingplan.reset') }}</button>
         <button class="ghost" @click="showAdvanced = !showAdvanced">
-          {{ showAdvanced ? '收起高级' : '展开高级' }}
+          {{ showAdvanced ? t('trainingplan.advanced.collapse') : t('trainingplan.advanced.expand') }}
         </button>
       </div>
       <div v-if="showAdvanced" class="advanced-section">
         <div class="filter-grid">
         <label>
-          <span>开课院系</span>
+          <span>{{ t('trainingplan.dept.label') }}</span>
           <IOSSelect v-model="filters.kkyx" @change="fetchJys">
-            <option value="">请选择</option>
+            <option value="">{{ t('trainingplan.option.please') }}</option>
             <option v-for="opt in options.kkyx" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </IOSSelect>
         </label>
         <label>
-          <span>开课教研室</span>
+          <span>{{ t('trainingplan.jys.label') }}</span>
           <IOSSelect v-model="filters.kkjys">
-            <option value="">请选择</option>
+            <option value="">{{ t('trainingplan.option.please') }}</option>
             <option v-for="opt in options.kkjys" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </IOSSelect>
         </label>
         <label>
-          <span>课程性质</span>
+          <span>{{ t('trainingplan.nature.label') }}</span>
           <IOSSelect v-model="filters.kcxz">
-            <option value="">请选择</option>
+            <option value="">{{ t('trainingplan.option.please') }}</option>
             <option v-for="opt in options.kcxz" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </IOSSelect>
         </label>
         <label>
-          <span>课程归属</span>
+          <span>{{ t('trainingplan.attribution.label') }}</span>
           <IOSSelect v-model="filters.kcgs">
-            <option value="">请选择</option>
+            <option value="">{{ t('trainingplan.option.please') }}</option>
             <option v-for="opt in options.kcgs" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </IOSSelect>
         </label>
         <label>
-          <span>课程编号</span>
-          <input v-model="filters.kcbh" placeholder="输入编号" />
+          <span>{{ t('trainingplan.code.label') }}</span>
+          <input v-model="filters.kcbh" :placeholder="t('trainingplan.code.placeholder')" />
         </label>
         <label>
-          <span>课程名称</span>
-          <input v-model="filters.kcmc" placeholder="输入名称" />
+          <span>{{ t('trainingplan.name.label') }}</span>
+          <input v-model="filters.kcmc" :placeholder="t('trainingplan.name.placeholder')" />
         </label>
       </div>
       </div>
@@ -335,16 +364,16 @@ onMounted(async () => {
     <TEmptyState v-else-if="error" type="error" :message="error" />
 
       <div v-else class="course-grid">
-        <div 
-          v-for="row in courses" 
-          :key="row.id" 
+        <div
+          v-for="row in courses"
+          :key="row.id"
           class="course-card"
           @click="openDetail(row)"
         >
           <div class="course-title">{{ row.kcmc || '-' }}</div>
             <div class="course-tags">
-              <span class="tag primary">{{ row.sfbx || '未知' }}</span>
-              <span class="tag">学分 {{ row.xf || '-' }}</span>
+              <span class="tag primary">{{ resolveSfbxText(row.sfbx) || t('common.unknown') }}</span>
+              <span class="tag">{{ t('trainingplan.creditPrefix') }} {{ row.xf || '-' }}</span>
               <span class="tag ghost">{{ resolveCourseNature(row.kcxz) }}</span>
             </div>
           <div class="course-sub">
@@ -352,13 +381,13 @@ onMounted(async () => {
             <span>{{ row.kkxq || '-' }}</span>
           </div>
         </div>
-        <div v-if="courses.length === 0" class="empty">暂无数据</div>
+        <div v-if="courses.length === 0" class="empty">{{ t('trainingplan.empty') }}</div>
       </div>
 
       <div class="pagination" v-if="pagination.totalPages > 1">
-        <button @click="handlePrev" :disabled="pagination.page <= 1">上一页</button>
-        <span>第 {{ pagination.page }} / {{ pagination.totalPages }} 页</span>
-        <button @click="handleNext" :disabled="pagination.page >= pagination.totalPages">下一页</button>
+        <button @click="handlePrev" :disabled="pagination.page <= 1">{{ t('trainingplan.prev') }}</button>
+        <span>{{ t('trainingplan.pagePrefix') }} {{ pagination.page }} / {{ pagination.totalPages }} {{ t('trainingplan.pageSuffix') }}</span>
+        <button @click="handleNext" :disabled="pagination.page >= pagination.totalPages">{{ t('trainingplan.next') }}</button>
       </div>
 
       <!-- Teleport 到 body：.content 的 fill-mode 入场动画会残留 transform，
@@ -367,48 +396,48 @@ onMounted(async () => {
         <div v-if="showDetail" class="modal-overlay" @click="closeDetail">
           <div class="modal-content" @click.stop>
             <div class="modal-header">
-              <h3>{{ selectedCourse?.kcmc || '课程详情' }}</h3>
+              <h3>{{ selectedCourse?.kcmc || t('trainingplan.detail.default') }}</h3>
               <button class="close-btn" @click="closeDetail">×</button>
             </div>
             <div class="modal-body">
               <div class="detail-item">
-                <span class="label">课程编号</span>
+                <span class="label">{{ t('trainingplan.detail.code') }}</span>
                 <span class="value">{{ selectedCourse?.kcbh || '-' }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">课程性质</span>
+                <span class="label">{{ t('trainingplan.detail.nature') }}</span>
                 <span class="value">{{ resolveCourseNature(selectedCourse?.kcxz) }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">选/必修</span>
-                <span class="value">{{ selectedCourse?.sfbx || '-' }}</span>
+                <span class="label">{{ t('trainingplan.detail.sfbx') }}</span>
+                <span class="value">{{ resolveSfbxText(selectedCourse?.sfbx) || '-' }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">课程归属</span>
+                <span class="label">{{ t('trainingplan.detail.attribution') }}</span>
                 <span class="value">{{ selectedCourse?.kcgs || '-' }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">开设学年</span>
+                <span class="label">{{ t('trainingplan.detail.year') }}</span>
                 <span class="value">{{ selectedCourse?.gradename || '-' }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">开设学期</span>
+                <span class="label">{{ t('trainingplan.detail.term') }}</span>
                 <span class="value">{{ selectedCourse?.kkxq || '-' }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">学分</span>
+                <span class="label">{{ t('trainingplan.detail.credit') }}</span>
                 <span class="value">{{ selectedCourse?.xf || '-' }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">开课院系</span>
+                <span class="label">{{ t('trainingplan.detail.dept') }}</span>
                 <span class="value">{{ selectedCourse?.kkyxmc || '-' }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">开课教研室</span>
+                <span class="label">{{ t('trainingplan.detail.jys') }}</span>
                 <span class="value">{{ selectedCourse?.kkjysmc || '-' }}</span>
               </div>
               <div class="detail-item">
-                <span class="label">考试形式</span>
+                <span class="label">{{ t('trainingplan.detail.examForm') }}</span>
                 <span class="value">{{ selectedCourse?.ksxs || '-' }}</span>
               </div>
             </div>

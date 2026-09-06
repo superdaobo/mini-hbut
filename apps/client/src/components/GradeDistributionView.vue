@@ -1,6 +1,10 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { fetchGradeDistribution } from '../utils/grade_distribution.js'
+import { t, useLocale } from '../utils/app_i18n'
+
+// i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
+const { locale } = useLocale()
 
 const loading = ref(false)
 const error = ref('')
@@ -36,7 +40,7 @@ const loadData = async () => {
     items.value = [...result.items].sort((a, b) => (b.sample_count || 0) - (a.sample_count || 0))
     total.value = result.total
   } catch (e) {
-    error.value = `查询失败：${e.message}`
+    error.value = `${t('grade.dist.errorPrefix')}${e.message}`
     items.value = []
     total.value = 0
   } finally {
@@ -120,7 +124,7 @@ watch(page, () => {
       <div v-if="selectedItem" key="detail" class="gd-detail">
         <div class="gd-detail-header" @click="closeDetail">
           <span class="gd-back-icon">‹</span>
-          <span>返回列表</span>
+          <span>{{ t('grade.dist.back') }}</span>
         </div>
 
         <div class="gd-detail-card">
@@ -134,29 +138,29 @@ watch(page, () => {
           <div class="gd-detail-stats">
             <div class="gd-dstat">
               <div class="gd-dstat-value" style="color:#22c55e">{{ selectedItem.max_score ?? '-' }}</div>
-              <div class="gd-dstat-label">最高分</div>
+              <div class="gd-dstat-label">{{ t('grade.dist.stat.max') }}</div>
             </div>
             <div class="gd-dstat">
               <div class="gd-dstat-value" style="color:#ef4444">{{ selectedItem.min_score ?? '-' }}</div>
-              <div class="gd-dstat-label">最低分</div>
+              <div class="gd-dstat-label">{{ t('grade.dist.stat.min') }}</div>
             </div>
             <div class="gd-dstat">
               <div class="gd-dstat-value" style="color:#3b82f6">{{ selectedItem.avg_score ?? '-' }}</div>
-              <div class="gd-dstat-label">平均分</div>
+              <div class="gd-dstat-label">{{ t('grade.dist.stat.avg') }}</div>
             </div>
             <div class="gd-dstat">
               <div class="gd-dstat-value" style="color:#8b5cf6">{{ selectedItem.median_score ?? '-' }}</div>
-              <div class="gd-dstat-label">中位数</div>
+              <div class="gd-dstat-label">{{ t('grade.dist.stat.median') }}</div>
             </div>
             <div class="gd-dstat">
               <div class="gd-dstat-value" style="color:var(--color-primary,#6366f1)">{{ selectedItem.sample_count ?? 0 }}</div>
-              <div class="gd-dstat-label">样本数</div>
+              <div class="gd-dstat-label">{{ t('grade.dist.stat.samples') }}</div>
             </div>
           </div>
 
           <!-- 分段分布 -->
           <div class="gd-detail-segments">
-            <div class="gd-seg-title">分数段分布</div>
+            <div class="gd-seg-title">{{ t('grade.dist.segTitle') }}</div>
             <div
               v-for="seg in SEGMENT_KEYS"
               :key="seg"
@@ -172,7 +176,7 @@ watch(page, () => {
                   }"
                 />
               </div>
-              <span class="gd-seg-info">{{ segmentCount(selectedItem, seg) }}人 · {{ segmentPercent(selectedItem, seg) }}%</span>
+              <span class="gd-seg-info">{{ segmentCount(selectedItem, seg) }}{{ t('grade.dist.segSuffix') }} · {{ segmentPercent(selectedItem, seg) }}%</span>
             </div>
           </div>
         </div>
@@ -187,7 +191,7 @@ watch(page, () => {
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="搜索教师姓名..."
+              :placeholder="t('grade.dist.search.placeholder')"
               class="gd-search-input"
               @input="onSearchInput"
             />
@@ -197,25 +201,25 @@ watch(page, () => {
         <!-- 错误 -->
         <div v-if="error" class="gd-error">
           {{ error }}
-          <button type="button" class="gd-retry" @click="retrySearch">重试</button>
+          <button type="button" class="gd-retry" @click="retrySearch">{{ t('grade.dist.retry') }}</button>
         </div>
 
         <!-- 加载中 -->
         <div v-if="loading" class="gd-loading">
           <div class="gd-spinner" />
-          <span>查询中，请稍候…（数据较多时可能较慢）</span>
+          <span>{{ t('grade.dist.loading') }}</span>
         </div>
 
         <!-- 未搜索提示 -->
         <div v-else-if="!hasQuery" class="gd-empty">
           <span class="gd-empty-icon">🔍</span>
-          <p>请输入教师姓名搜索给分记录</p>
+          <p>{{ t('grade.dist.empty.searchHint') }}</p>
         </div>
 
         <!-- 空状态 -->
         <div v-else-if="items.length === 0 && !error" class="gd-empty">
           <span class="gd-empty-icon">📭</span>
-          <p>暂无给分记录数据</p>
+          <p>{{ t('grade.dist.empty.none') }}</p>
         </div>
 
         <!-- 课程列表 -->
@@ -233,12 +237,12 @@ watch(page, () => {
                 <span class="gd-dot">·</span>
                 <span>{{ item.semester }}</span>
                 <span class="gd-dot">·</span>
-                <span>样本 {{ item.sample_count ?? 0 }}</span>
+                <span>{{ t('grade.dist.samplesPrefix') }} {{ item.sample_count ?? 0 }}</span>
               </div>
             </div>
             <div class="gd-item-right">
               <div class="gd-item-avg" :style="{ color: '#ef4444' }">{{ failRate(item) }}</div>
-              <div class="gd-item-avg-label">挂科率</div>
+              <div class="gd-item-avg-label">{{ t('grade.dist.failRate') }}</div>
             </div>
             <span class="gd-item-arrow">›</span>
           </div>
@@ -246,9 +250,9 @@ watch(page, () => {
 
         <!-- 分页 -->
         <div v-if="total > pageSize" class="gd-pagination">
-          <button class="gd-page-btn" :disabled="page <= 1" @click="page--">‹ 上一页</button>
+          <button class="gd-page-btn" :disabled="page <= 1" @click="page--">{{ t('grade.dist.prev') }}</button>
           <span class="gd-page-info">{{ page }} / {{ totalPages }}</span>
-          <button class="gd-page-btn" :disabled="page >= totalPages" @click="page++">下一页 ›</button>
+          <button class="gd-page-btn" :disabled="page >= totalPages" @click="page++">{{ t('grade.dist.next') }}</button>
         </div>
       </div>
 

@@ -4,7 +4,20 @@ import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
+import { t, useLocale } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
+
+// i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
+const { locale } = useLocale()
+
+/** i18n 插值：把 {{n}} 占位符替换为参数 */
+const tParams = (key, params) => {
+  const text = t(key)
+  return Object.entries(params ?? {}).reduce(
+    (acc, [name, value]) => acc.replaceAll(`{{${name}}}`, String(value)),
+    text
+  )
+}
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -57,19 +70,20 @@ const loginAccess = ref({
   }
 })
 
+/** 学籍字段标签：数据驱动枚举，label 为 i18n key，渲染时取词 */
 const fieldLabels = [
-  { key: 'student_id', label: '学号' },
-  { key: 'name', label: '姓名' },
-  { key: 'gender', label: '性别' },
-  { key: 'grade', label: '年级' },
-  { key: 'college', label: '学院' },
-  { key: 'major', label: '专业' },
-  { key: 'class_name', label: '班级' },
-  { key: 'id_number', label: '身份证号' },
-  { key: 'ethnicity', label: '民族' },
-  { key: 'birth_date', label: '出生日期' },
-  { key: 'phone', label: '手机号' },
-  { key: 'email', label: '邮箱' }
+  { key: 'student_id', labelKey: 'studentinfo.field.studentId' },
+  { key: 'name', labelKey: 'studentinfo.field.name' },
+  { key: 'gender', labelKey: 'studentinfo.field.gender' },
+  { key: 'grade', labelKey: 'studentinfo.field.grade' },
+  { key: 'college', labelKey: 'studentinfo.field.college' },
+  { key: 'major', labelKey: 'studentinfo.field.major' },
+  { key: 'class_name', labelKey: 'studentinfo.field.class' },
+  { key: 'id_number', labelKey: 'studentinfo.field.idNumber' },
+  { key: 'ethnicity', labelKey: 'studentinfo.field.ethnicity' },
+  { key: 'birth_date', labelKey: 'studentinfo.field.birthDate' },
+  { key: 'phone', labelKey: 'studentinfo.field.phone' },
+  { key: 'email', labelKey: 'studentinfo.field.email' }
 ]
 
 const normalizeString = (value, fallback = '-') => {
@@ -82,18 +96,18 @@ const normalizeAuthResult = (value) => {
   const text = normalizeString(value, 'unknown')
   const lower = text.toLowerCase()
   if (lower.includes('success') || lower.includes('pass') || lower === 'ok' || text.includes('成功')) {
-    return '成功'
+    return t('studentinfo.auth.success')
   }
   if (lower.includes('fail') || lower.includes('deny') || lower.includes('reject') || text.includes('失败')) {
-    return '失败'
+    return t('studentinfo.auth.fail')
   }
-  if (lower === 'unknown') return '未知'
+  if (lower === 'unknown') return t('studentinfo.auth.unknown')
   return text
 }
 
 const normalizeLoginItem = (item) => ({
   client_ip: normalizeString(item.client_ip ?? item.clientIp ?? item.ip),
-  ip_location: normalizeString(item.ip_location ?? item.ipLocation ?? item.location, '未知'),
+  ip_location: normalizeString(item.ip_location ?? item.ipLocation ?? item.location, t('common.unknown')),
   login_time: normalizeString(item.login_time ?? item.loginTime ?? item.last_login_time),
   browser: normalizeString(item.browser ?? item.browser_name ?? item.client_browser)
 })
@@ -188,10 +202,10 @@ const fetchStudentInfo = async (force = false) => {
       return { ...data, _fromCache: !!result?.fromCache, _stale: !!result?.stale }
     }
 
-    infoError.value = data?.error || '获取基本信息失败'
+    infoError.value = data?.error || t('studentinfo.error.basic')
     return null
   } catch (e) {
-    infoError.value = e.response?.data?.error || '获取基本信息失败'
+    infoError.value = e.response?.data?.error || t('studentinfo.error.basic')
     return null
   }
 }
@@ -224,13 +238,13 @@ const fetchLoginAccess = async (page = accessPage.value, pageSize = accessPageSi
       return data
     }
 
-    accessError.value = data?.error || '获取登录访问信息失败'
+    accessError.value = data?.error || t('studentinfo.error.access')
     return null
   } catch (e) {
     accessError.value =
       e?.response?.data?.error ||
       (typeof e === 'string' ? e : e?.message) ||
-      '获取登录访问信息失败'
+      t('studentinfo.error.access')
     return null
   } finally {
     if (showLoading) {
@@ -247,7 +261,7 @@ const fetchOrientationBlocks = async () => {
   try {
     if (!isTauriRuntime()) {
       // Web/HTTP 桥可选：不阻断个人信息
-      orientationNotice.value = '客户端内可同步班导师/辅导员/宿舍'
+      orientationNotice.value = t('studentinfo.orientation.webHint')
       return null
     }
     const res = await invokeNative('smart_orientation_profile_blocks', {})
@@ -264,35 +278,36 @@ const fetchOrientationBlocks = async () => {
     mentor.value = null
     counselor.value = null
     dorm.value = null
-    orientationError.value = String(e?.message || e || '迎新附属信息暂不可用')
+    orientationError.value = String(e?.message || e || t('studentinfo.error.orientation'))
     return null
   } finally {
     orientationLoading.value = false
   }
 }
 
+/** 班导师 / 辅导员 KV 行：label 为 i18n key，渲染时取词 */
 const personKvRows = (person) => {
   if (!person) return []
   return [
-    { label: '姓名', value: person.name },
-    { label: '工号', value: person.staffId || person.staff_id },
-    { label: '学院', value: person.college },
-    { label: '电话', value: person.phone },
-    { label: '邮箱', value: person.email },
-    { label: '办公室', value: person.office },
-    { label: '备注', value: person.remark }
+    { labelKey: 'studentinfo.person.name', value: person.name },
+    { labelKey: 'studentinfo.person.staffId', value: person.staffId || person.staff_id },
+    { labelKey: 'studentinfo.person.college', value: person.college },
+    { labelKey: 'studentinfo.person.phone', value: person.phone },
+    { labelKey: 'studentinfo.person.email', value: person.email },
+    { labelKey: 'studentinfo.person.office', value: person.office },
+    { labelKey: 'studentinfo.person.remark', value: person.remark }
   ].filter((x) => x.value && String(x.value).trim() && String(x.value).trim() !== '-')
 }
 
 const dormKvRows = computed(() => {
   const d = dorm.value || {}
   return [
-    { label: '校区', value: d.campus },
-    { label: '楼栋', value: d.building },
-    { label: '房间', value: d.room },
-    { label: '床位', value: d.bed },
-    { label: '状态', value: d.status },
-    { label: '备注', value: d.remark }
+    { labelKey: 'studentinfo.dorm.campus', value: d.campus },
+    { labelKey: 'studentinfo.dorm.building', value: d.building },
+    { labelKey: 'studentinfo.dorm.room', value: d.room },
+    { labelKey: 'studentinfo.dorm.bed', value: d.bed },
+    { labelKey: 'studentinfo.dorm.status', value: d.status },
+    { labelKey: 'studentinfo.dorm.remark', value: d.remark }
   ].filter((x) => x.value && String(x.value).trim() && String(x.value).trim() !== '-')
 })
 
@@ -344,7 +359,7 @@ const refreshData = async (options = {}) => {
   }
 
   if (!basicRes && !accessRes) {
-    error.value = '个人信息与登录记录均获取失败'
+    error.value = t('studentinfo.error.all')
   }
 
   loading.value = false
@@ -363,7 +378,7 @@ const handleManualRefresh = async () => {
 
 const basicRows = computed(() => {
   return fieldLabels.map((item) => ({
-    label: item.label,
+    labelKey: item.labelKey,
     value: normalizeString(info.value?.[item.key])
   }))
 })
@@ -422,54 +437,53 @@ const canShowContent = computed(() => {
 
 const authResultClass = (text) => {
   const value = String(text || '').toLowerCase()
-  if (value.includes('成功') || value.includes('success') || value.includes('pass') || value === 'ok') return 'success'
-  if (value.includes('失败') || value.includes('fail') || value.includes('deny') || value.includes('reject')) return 'fail'
+  if (value.includes('成功') || value.includes('success') || value.includes('pass') || value === 'ok' || value === t('studentinfo.auth.success').toLowerCase()) return 'success'
+  if (value.includes('失败') || value.includes('fail') || value.includes('deny') || value.includes('reject') || value === t('studentinfo.auth.fail').toLowerCase()) return 'fail'
   return 'neutral'
 }
 
 const authStatusClass = (status) => (status ? 'ok' : 'warn')
 
-const getFieldIcon = (label) => {
-  const iconMap = {
-    '学号': 'badge',
-    '姓名': 'person',
-    '性别': 'person',
-    '年级': 'calendar_month',
-    '学院': 'school',
-    '专业': 'book',
-    '班级': 'groups',
-    '身份证号': 'credit_card',
-    '民族': 'diversity_3',
-    '出生日期': 'cake',
-    '手机号': 'smartphone',
-    '邮箱': 'mail'
-  }
-  return iconMap[label] || 'info'
+/** 字段图标映射：与 fieldLabels 的 key 对应（icon 与语言无关） */
+const fieldIconMap = {
+  student_id: 'badge',
+  name: 'person',
+  gender: 'person',
+  grade: 'calendar_month',
+  college: 'school',
+  major: 'book',
+  class_name: 'groups',
+  id_number: 'credit_card',
+  ethnicity: 'diversity_3',
+  birth_date: 'cake',
+  phone: 'smartphone',
+  email: 'mail'
 }
+const getFieldIcon = (key) => fieldIconMap[key] || 'info'
 
-// 学工附属信息（班导师/辅导员）字段图标：与基本信息同语义字段保持一致
+// 学工附属信息（班导师/辅导员）字段图标：与 personKvRows 的 labelKey 对应
 const personFieldIcons = {
-  '姓名': 'person',
-  '工号': 'badge',
-  '学院': 'school',
-  '电话': 'call',
-  '邮箱': 'mail',
-  '办公室': 'meeting_room',
-  '备注': 'notes'
+  studentinfo_person_name: 'person',
+  studentinfo_person_staffId: 'badge',
+  studentinfo_person_college: 'school',
+  studentinfo_person_phone: 'call',
+  studentinfo_person_email: 'mail',
+  studentinfo_person_office: 'meeting_room',
+  studentinfo_person_remark: 'notes'
 }
 
-// 学工附属信息（宿舍）字段图标
+// 学工附属信息（宿舍）字段图标：与 dormKvRows 的 labelKey 对应
 const dormFieldIcons = {
-  '校区': 'map',
-  '楼栋': 'apartment',
-  '房间': 'door_front',
-  '床位': 'bed',
-  '状态': 'verified_user',
-  '备注': 'notes'
+  studentinfo_dorm_campus: 'map',
+  studentinfo_dorm_building: 'apartment',
+  studentinfo_dorm_room: 'door_front',
+  studentinfo_dorm_bed: 'bed',
+  studentinfo_dorm_status: 'verified_user',
+  studentinfo_dorm_remark: 'notes'
 }
 
-const getPersonFieldIcon = (label) => personFieldIcons[label] || 'info'
-const getDormFieldIcon = (label) => dormFieldIcons[label] || 'info'
+const getPersonFieldIcon = (labelKey) => personFieldIcons[labelKey] || 'info'
+const getDormFieldIcon = (labelKey) => dormFieldIcons[labelKey] || 'info'
 
 const setAccessPage = async (page) => {
   const total = accessTotalPages.value
@@ -502,21 +516,21 @@ onMounted(() => {
       <button class="header-icon-btn" @click="emit('back')">
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
-      <h1 class="header-title">个人信息</h1>
-      <button class="header-icon-btn" type="button" aria-label="刷新" :disabled="refreshing" @click="handleManualRefresh">
+      <h1 class="header-title">{{ t('studentinfo.title') }}</h1>
+      <button class="header-icon-btn" type="button" :aria-label="t('studentinfo.refresh')" :disabled="refreshing" @click="handleManualRefresh">
         <span class="material-symbols-outlined" :class="{ spinning: refreshing }">refresh</span>
       </button>
     </header>
 
     <div v-if="offline" class="offline-banner">
-      当前显示离线数据，更新于 {{ formatRelativeTime(syncTime) }}
+      {{ t('common.offline.prefix') }} {{ formatRelativeTime(syncTime) }}
     </div>
 
     <main class="view-content">
-      <TEmptyState v-if="loading" type="loading" message="正在加载个人信息与访问记录..." />
+      <TEmptyState v-if="loading" type="loading" :message="t('studentinfo.loading')" />
 
       <TEmptyState v-else-if="error && !canShowContent" type="error" :message="error">
-        <button class="btn-primary" style="margin-top: 12px" @click="refreshData">重试</button>
+        <button class="btn-primary" style="margin-top: 12px" @click="refreshData">{{ t('studentinfo.retry') }}</button>
       </TEmptyState>
 
       <div v-else class="panel-stack">
@@ -529,26 +543,26 @@ onMounted(() => {
             </div>
             <h2 class="profile-name">{{ normalizeString(info?.name) }}</h2>
             <p class="profile-id">{{ normalizeString(info?.student_id) }}</p>
-            <span class="profile-badge">本科生</span>
+            <span class="profile-badge">{{ t('studentinfo.badge.undergrad') }}</span>
           </div>
         </section>
 
         <!-- Tabs -->
         <div class="tab-bar">
-          <button class="tab-item" :class="{ active: activeTab === 'basic' }" @click="activeTab = 'basic'">基本信息</button>
-          <button class="tab-item" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">当前登录</button>
-          <button class="tab-item" :class="{ active: activeTab === 'access' }" @click="activeTab = 'access'">登录信息</button>
+          <button class="tab-item" :class="{ active: activeTab === 'basic' }" @click="activeTab = 'basic'">{{ t('studentinfo.tab.basic') }}</button>
+          <button class="tab-item" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">{{ t('studentinfo.tab.login') }}</button>
+          <button class="tab-item" :class="{ active: activeTab === 'access' }" @click="activeTab = 'access'">{{ t('studentinfo.tab.access') }}</button>
         </div>
 
         <!-- Basic Info Tab -->
         <section v-show="activeTab === 'basic'" class="info-card">
-          <h3 class="card-section-title">详细信息</h3>
+          <h3 class="card-section-title">{{ t('studentinfo.section.details') }}</h3>
           <div v-if="infoError" class="inline-error">{{ infoError }}</div>
           <div class="info-grid">
-            <article v-for="row in basicRows" :key="row.label" class="info-field" :class="{ 'full-width': row.label === '学院' }">
+            <article v-for="row in basicRows" :key="row.labelKey" class="info-field" :class="{ 'full-width': row.labelKey === 'studentinfo.field.college' }">
               <span class="field-label">
-                <span class="material-symbols-outlined field-icon">{{ getFieldIcon(row.label) }}</span>
-                {{ row.label }}
+                <span class="material-symbols-outlined field-icon">{{ getFieldIcon(row.labelKey) }}</span>
+                {{ t(row.labelKey) }}
               </span>
               <span class="field-value">{{ row.value }}</span>
             </article>
@@ -557,20 +571,20 @@ onMounted(() => {
           <!-- #485 班导师 / 辅导员 / 宿舍（智慧迎新只读，非阻断） -->
           <div class="orientation-blocks">
             <div class="orientation-head">
-              <h3 class="card-section-title orientation-title">学工附属信息</h3>
+              <h3 class="card-section-title orientation-title">{{ t('studentinfo.orientation.title') }}</h3>
               <span v-if="orientationSource" class="orientation-pill">{{ orientationSource }}</span>
-              <span v-if="orientationLoading" class="orientation-pill muted">同步中</span>
+              <span v-if="orientationLoading" class="orientation-pill muted">{{ t('studentinfo.orientation.syncing') }}</span>
             </div>
             <p v-if="orientationNotice" class="orientation-hint">{{ orientationNotice }}</p>
             <p v-if="orientationError && !hasOrientationBlocks" class="inline-error">{{ orientationError }}</p>
 
             <template v-if="mentor && personKvRows(mentor).length">
-              <h4 class="orientation-sub">班导师</h4>
+              <h4 class="orientation-sub">{{ t('studentinfo.orientation.mentor') }}</h4>
               <div class="info-grid">
                 <article v-for="(row, i) in personKvRows(mentor)" :key="'mt-' + i" class="info-field">
                   <span class="field-label">
-                    <span class="material-symbols-outlined field-icon">{{ getPersonFieldIcon(row.label) }}</span>
-                    {{ row.label }}
+                    <span class="material-symbols-outlined field-icon">{{ getPersonFieldIcon(row.labelKey) }}</span>
+                    {{ t(row.labelKey) }}
                   </span>
                   <span class="field-value">{{ row.value }}</span>
                 </article>
@@ -578,12 +592,12 @@ onMounted(() => {
             </template>
 
             <template v-if="counselor && personKvRows(counselor).length">
-              <h4 class="orientation-sub">辅导员</h4>
+              <h4 class="orientation-sub">{{ t('studentinfo.orientation.counselor') }}</h4>
               <div class="info-grid">
                 <article v-for="(row, i) in personKvRows(counselor)" :key="'cs-' + i" class="info-field">
                   <span class="field-label">
-                    <span class="material-symbols-outlined field-icon">{{ getPersonFieldIcon(row.label) }}</span>
-                    {{ row.label }}
+                    <span class="material-symbols-outlined field-icon">{{ getPersonFieldIcon(row.labelKey) }}</span>
+                    {{ t(row.labelKey) }}
                   </span>
                   <span class="field-value">{{ row.value }}</span>
                 </article>
@@ -591,12 +605,12 @@ onMounted(() => {
             </template>
 
             <template v-if="dormKvRows.length">
-              <h4 class="orientation-sub">宿舍信息</h4>
+              <h4 class="orientation-sub">{{ t('studentinfo.orientation.dorm') }}</h4>
               <div class="info-grid">
                 <article v-for="(row, i) in dormKvRows" :key="'dm-' + i" class="info-field">
                   <span class="field-label">
-                    <span class="material-symbols-outlined field-icon">{{ getDormFieldIcon(row.label) }}</span>
-                    {{ row.label }}
+                    <span class="material-symbols-outlined field-icon">{{ getDormFieldIcon(row.labelKey) }}</span>
+                    {{ t(row.labelKey) }}
                   </span>
                   <span class="field-value">{{ row.value }}</span>
                 </article>
@@ -607,54 +621,54 @@ onMounted(() => {
               v-if="!orientationLoading && !hasOrientationBlocks && !orientationError"
               class="orientation-hint"
             >
-              暂无班导师/辅导员/宿舍信息（可能不在迎新开放时段）
+              {{ t('studentinfo.orientation.empty') }}
             </p>
           </div>
         </section>
 
         <!-- Login Tab -->
         <section v-show="activeTab === 'login'" class="info-card">
-          <h3 class="card-section-title">联系方式 & 认证</h3>
+          <h3 class="card-section-title">{{ t('studentinfo.tab.login') }} & {{ t('studentinfo.tab.access') }}</h3>
           <div v-if="accessError" class="inline-error">{{ accessError }}</div>
           <div v-if="accessOffline && !accessError" class="cache-hint">
-            登录记录暂不可用，当前显示缓存数据（更新于 {{ formatRelativeTime(accessSyncTime) }}）
+            {{ t('studentinfo.error.cacheHintPrefix') }} {{ formatRelativeTime(accessSyncTime) }}{{ t('studentinfo.error.cacheHintSuffix') }}
           </div>
 
           <div class="contact-list">
             <div class="contact-row">
               <div class="contact-info">
                 <span class="field-label">
-                  <span class="material-symbols-outlined field-icon">smartphone</span> 手机号码
+                  <span class="material-symbols-outlined field-icon">smartphone</span> {{ t('studentinfo.contact.phone') }}
                 </span>
                 <span class="field-value">{{ authInfo.phone }}</span>
               </div>
               <span class="auth-pill" :class="authInfo.phone_verified ? 'verified' : 'unverified'">
-                {{ authInfo.phone_verified ? '已认证' : '未认证' }}
+                {{ authInfo.phone_verified ? t('studentinfo.contact.verified') : t('studentinfo.contact.unverified') }}
               </span>
             </div>
             <div class="contact-row">
               <div class="contact-info">
                 <span class="field-label">
-                  <span class="material-symbols-outlined field-icon">mail</span> 电子邮箱
+                  <span class="material-symbols-outlined field-icon">mail</span> {{ t('studentinfo.contact.email') }}
                 </span>
                 <span class="field-value">{{ authInfo.email }}</span>
               </div>
               <span class="auth-pill" :class="authInfo.email_verified ? 'verified' : 'unverified'">
-                {{ authInfo.email_verified ? '已认证' : '未认证' }}
+                {{ authInfo.email_verified ? t('studentinfo.contact.verified') : t('studentinfo.contact.unverified') }}
               </span>
             </div>
           </div>
 
-          <TEmptyState v-if="currentLogins.length === 0" type="empty" message="暂无当前登录记录" />
+          <TEmptyState v-if="currentLogins.length === 0" type="empty" :message="t('studentinfo.login.empty')" />
 
           <template v-else>
-            <h3 class="card-section-title" style="margin-top: 1rem;">当前登录设备</h3>
+            <h3 class="card-section-title" style="margin-top: 1rem;">{{ t('studentinfo.login.devices') }}</h3>
             <div class="login-list">
               <article v-for="(item, index) in currentLogins" :key="`login-${index}`" class="login-card">
-                <div class="login-row"><span class="login-label">客户端IP</span><span class="login-value">{{ item.client_ip }}</span></div>
-                <div class="login-row"><span class="login-label">IP归属地</span><span class="login-value">{{ item.ip_location }}</span></div>
-                <div class="login-row"><span class="login-label">登录时间</span><span class="login-value">{{ item.login_time }}</span></div>
-                <div class="login-row"><span class="login-label">浏览器</span><span class="login-value">{{ item.browser }}</span></div>
+                <div class="login-row"><span class="login-label">{{ t('studentinfo.login.clientIp') }}</span><span class="login-value">{{ item.client_ip }}</span></div>
+                <div class="login-row"><span class="login-label">{{ t('studentinfo.login.ipLocation') }}</span><span class="login-value">{{ item.ip_location }}</span></div>
+                <div class="login-row"><span class="login-label">{{ t('studentinfo.login.time') }}</span><span class="login-value">{{ item.login_time }}</span></div>
+                <div class="login-row"><span class="login-label">{{ t('studentinfo.login.browser') }}</span><span class="login-value">{{ item.browser }}</span></div>
               </article>
             </div>
           </template>
@@ -663,14 +677,14 @@ onMounted(() => {
         <!-- Access Tab -->
         <section v-show="activeTab === 'access'" class="info-card">
           <div v-if="accessOffline && !accessLoading" class="cache-hint">
-            登录记录暂不可用，当前显示缓存数据（更新于 {{ formatRelativeTime(accessSyncTime) }}）
+            {{ t('studentinfo.error.cacheHintPrefix') }} {{ formatRelativeTime(accessSyncTime) }}{{ t('studentinfo.error.cacheHintSuffix') }}
           </div>
           <div v-if="accessLoading" class="inline-loading">
             <div class="mini-spinner"></div>
-            <span>正在加载访问记录...</span>
+            <span>{{ t('studentinfo.access.loading') }}</span>
           </div>
 
-          <TEmptyState v-if="!accessLoading && appAccessRecords.length === 0" type="empty" message="暂无应用访问记录" />
+          <TEmptyState v-if="!accessLoading && appAccessRecords.length === 0" type="empty" :message="t('studentinfo.access.empty')" />
 
           <template v-else-if="appAccessRecords.length > 0">
             <div class="access-list">
@@ -686,9 +700,9 @@ onMounted(() => {
             </div>
 
             <div class="pagination-bar">
-              <span class="total-text">共 {{ accessTotal }} 条</span>
+              <span class="total-text">{{ tParams('studentinfo.access.total', { n: accessTotal }) }}</span>
               <div class="pager-controls">
-                <button class="pager-btn" :disabled="accessPage <= 1 || accessLoading" @click="setAccessPage(accessPage - 1)">上一页</button>
+                <button class="pager-btn" :disabled="accessPage <= 1 || accessLoading" @click="setAccessPage(accessPage - 1)">{{ t('studentinfo.access.prev') }}</button>
                 <button
                   v-for="page in visiblePageNumbers"
                   :key="page"
@@ -697,7 +711,7 @@ onMounted(() => {
                   :class="{ active: page === accessPage }"
                   @click="setAccessPage(page)"
                 >{{ page }}</button>
-                <button class="pager-btn" :disabled="accessPage >= accessTotalPages || accessLoading" @click="setAccessPage(accessPage + 1)">下一页</button>
+                <button class="pager-btn" :disabled="accessPage >= accessTotalPages || accessLoading" @click="setAccessPage(accessPage + 1)">{{ t('studentinfo.access.next') }}</button>
               </div>
             </div>
           </template>
