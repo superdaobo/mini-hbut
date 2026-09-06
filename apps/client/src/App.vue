@@ -8,6 +8,11 @@ import AppShell from './shell/AppShell.vue'
 import IdentityApprovalOverlay from './features/identity/components/IdentityApprovalOverlay.vue'
 import { VIEW_COMPONENTS } from './app/viewRegistry'
 import { useAppRuntime } from './app/useAppRuntime'
+// #773：底部公共导航文案接入轻量多语言（默认简体中文 + English）
+import { useLocale } from './utils/app_i18n'
+
+// #773：响应式 locale + t，供底部 TabBar 标签使用（语言切换即时生效）
+const { t: tLocale } = useLocale()
 
 // #623：App.vue 只负责挂载 IdentityApprovalOverlay；fetch/crypto/状态机全部在
 // IdentityCoordinator 内完成（防止 App.vue 退化为上帝文件）。
@@ -575,7 +580,7 @@ const {
             <path d="M3 10.8L12 3l9 7.8V21a1 1 0 0 1-1 1h-5.3a1 1 0 0 1-1-1v-5h-3.4v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10.8z" />
           </svg>
         </span>
-        <span class="tab-label">首页</span>
+        <span class="tab-label">{{ tLocale('tab.home') }}</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'schedule' }" @click="handleTabChange('schedule')">
         <span class="tab-icon" aria-hidden="true">
@@ -584,7 +589,7 @@ const {
             <path d="M7 2.8v3.5M17 2.8v3.5M3.2 9.3h17.6" />
           </svg>
         </span>
-        <span class="tab-label">课表</span>
+        <span class="tab-label">{{ tLocale('tab.schedule') }}</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'notifications' }" @click="handleTabChange('notifications')">
         <span class="tab-icon" aria-hidden="true">
@@ -593,7 +598,7 @@ const {
             <path d="M9.3 19a2.7 2.7 0 0 0 5.4 0" />
           </svg>
         </span>
-        <span class="tab-label">通知</span>
+        <span class="tab-label">{{ tLocale('tab.notifications') }}</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'me' }" @click="handleTabChange('me')">
         <span class="tab-icon" aria-hidden="true">
@@ -602,7 +607,7 @@ const {
             <path d="M4 20c1.8-3.6 4.7-5.5 8-5.5s6.2 1.9 8 5.5" />
           </svg>
         </span>
-        <span class="tab-label">我的</span>
+        <span class="tab-label">{{ tLocale('tab.me') }}</span>
       </button>
   </nav>
 

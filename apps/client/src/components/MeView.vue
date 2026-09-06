@@ -582,7 +582,8 @@ const removeAccount = async (acc) => {
         @click="showAccountSwitchModal = false"
       >
         <div class="modal-card account-switch-modal modal-pop-card" @click.stop>
-          <h3><span class="material-symbols-outlined account-switch-title-icon">swap_account</span> 切换账号</h3>
+          <!-- #770 swap_account 不在 Material Symbols 图标集内，ligature 无法解析会显示为文本；换用子集字体已收录的 switch_account -->
+          <h3><span class="material-symbols-outlined account-switch-title-icon">switch_account</span> 切换账号</h3>
           <p class="intro">在本机已登录账号间快速切换（免重新登录，不会发起网络登录）。切换后自动刷新成绩与课表。</p>
           <ul v-if="savedAccounts.length" class="account-list">
             <li

@@ -5,6 +5,8 @@
  */
 import { computed } from 'vue'
 import { periodOptions, weekDayLabels } from '../constants'
+// #772：恢复组件拆分时丢失的颜色选择器（script setup 中 import 即自动注册）
+import CourseColorPicker from '../../../components/CourseColorPicker.vue'
 
 const props = defineProps({
   showAddCourse: { type: Boolean, default: false },
@@ -180,6 +182,41 @@ const form = computed(() => props.addCourseForm)
 .drawer-error {
   font-size: 12px;
   color: #dc2626;
+}
+
+/* #772：组件拆分时 drawer-action 样式遗留在了 ScheduleDrawer.vue 的 scoped 作用域，
+   弹窗内取消/确认按钮因此丢失视觉。此处按 ScheduleDrawer.vue 原规则等值复制
+   （含 ghost 变体、按压反馈、disabled 态）；暗色模式由全局 dark-mode.css 的
+   html.dark .schedule-view .drawer-action 规则接管，与本组件无需重复。 */
+.drawer-action {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: none;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s ease;
+}
+
+.drawer-action:active {
+  transform: scale(0.98);
+}
+
+.drawer-action.ghost {
+  background: #111827;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
+}
+
+.drawer-action:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 @media (max-width: 768px) {

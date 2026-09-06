@@ -239,6 +239,50 @@
   color: #fff;
 }
 
+/* #773 语言选择 section：复用启动页面 toggle 行的视觉，独立类名避免耦合 */
+.language-section {
+  padding: 12px 16px;
+}
+.language-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.language-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ui-text);
+}
+.language-toggle {
+  display: flex;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--ui-surface-border);
+}
+.language-toggle .toggle-btn {
+  padding: 6px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  background: var(--ui-surface);
+  color: var(--ui-muted);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.language-toggle .toggle-btn + .toggle-btn {
+  border-left: 1px solid var(--ui-surface-border);
+}
+.language-toggle .toggle-btn.active {
+  background: var(--ui-primary);
+  color: #fff;
+}
+.language-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
 .section-head {
   display: flex;
   align-items: center;

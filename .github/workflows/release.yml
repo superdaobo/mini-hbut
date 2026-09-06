@@ -638,7 +638,9 @@ jobs:
 
       - name: Build iOS app bundle
         env:
-          # 移动端发布构建边界（#591/#594/#595）：前端排除隐藏视图；Rust 裁刷课/自动化、保留 Bridge（xcodebuild 直调 cargo，用 CARGO_BUILD_FEATURES 注入）
+          # 移动端发布构建边界（#591/#594/#595）：前端排除隐藏视图；Rust 裁刷课/自动化、保留 Bridge。
+          # ⚠️ #778：CARGO_BUILD_FEATURES 并非 Cargo 支持的变量，xcodebuild 路径的 feature
+          # 唯一来源是 tools/ci/tauri-cli-options-server.cjs（已同步为同集），此处仅为文档化意图保留。
           VITE_EXCLUDE_HIDDEN_VIEWS: "1"
           CARGO_BUILD_FEATURES: "mobile-slim,bridge"
         run: |
@@ -657,6 +659,9 @@ jobs:
           delete conf.build.beforeDevCommand;
           conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
+          // #778：build.features 仅影响 tauri build/桌面路径（xcodebuild 路径不读取），
+          // 与 ios-testflight.yml/dev-build.yml 及 options-server 保持同集，覆盖未来 tauri build 路径。
+          conf.build.features = ['mobile-slim', 'bridge'];
           fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
           console.log('Patched tauri.conf.json for iOS CI:', {
             frontendDist: conf.build.frontendDist,
