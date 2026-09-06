@@ -1,5 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+// #792：学习通域文案英文化（t() 响应式取词）
+import { useLocale } from '../utils/app_i18n'
 import { TEmptyState, TPageHeader, TSection } from './templates'
 import SessionStatusBanner from './chaoxing_checkin/SessionStatusBanner.vue'
 import CheckinActivityCard from './chaoxing_checkin/CheckinActivityCard.vue'
@@ -9,6 +11,8 @@ import PhotoCheckinModal from './chaoxing_checkin/PhotoCheckinModal.vue'
 import GestureCheckinModal from './chaoxing_checkin/GestureCheckinModal.vue'
 import QrCheckinModal from './chaoxing_checkin/QrCheckinModal.vue'
 import { useChaoxingCheckin } from '../composables/useChaoxingCheckin'
+
+const { t } = useLocale()
 
 defineProps({
   studentId: { type: String, default: '' }
@@ -68,10 +72,10 @@ const handleAction = async (activity) => {
   if (type === 'normal') {
     try {
       const res = await submitCommon(activeId)
-      toast.value = res.message || '签到成功'
+      toast.value = res.message || t('chaoxing.checkin.success')
       await refresh()
     } catch (err) {
-      toast.value = err instanceof Error ? err.message : '签到失败'
+      toast.value = err instanceof Error ? err.message : t('chaoxing.checkin.fail')
     }
     return
   }
@@ -102,11 +106,11 @@ const handleLocationSubmit = async (payload) => {
       payload.longitude,
       payload.address
     )
-    toast.value = res.message || '位置签到成功'
+    toast.value = res.message || t('chaoxing.checkin.locationSuccess')
     locationModal.value.visible = false
     await refresh()
   } catch (err) {
-    toast.value = err instanceof Error ? err.message : '位置签到失败'
+    toast.value = err instanceof Error ? err.message : t('chaoxing.checkin.locationFail')
   }
 }
 
@@ -114,33 +118,33 @@ const handlePhotoSubmit = async (payload) => {
   try {
     const uploaded = await uploadPhoto(payload.bytes, payload.mime, payload.name)
     const res = await submitPhoto(photoModal.value.activeId, uploaded.object_id)
-    toast.value = res.message || '拍照签到成功'
+    toast.value = res.message || t('chaoxing.checkin.photoSuccess')
     photoModal.value.visible = false
     await refresh()
   } catch (err) {
-    toast.value = err instanceof Error ? err.message : '拍照签到失败'
+    toast.value = err instanceof Error ? err.message : t('chaoxing.checkin.photoFail')
   }
 }
 
 const handleGestureSubmit = async (pattern) => {
   try {
     const res = await submitGesture(gestureModal.value.activeId, pattern)
-    toast.value = res.message || '手势签到成功'
+    toast.value = res.message || t('chaoxing.checkin.gestureSuccess')
     gestureModal.value.visible = false
     await refresh()
   } catch (err) {
-    toast.value = err instanceof Error ? err.message : '手势签到失败'
+    toast.value = err instanceof Error ? err.message : t('chaoxing.checkin.gestureFail')
   }
 }
 
 const handleQrSubmit = async (enc) => {
   try {
     const res = await submitQrcode(qrModal.value.activeId, enc)
-    toast.value = res.message || '二维码签到成功'
+    toast.value = res.message || t('chaoxing.checkin.qrSuccess')
     qrModal.value.visible = false
     await refresh()
   } catch (err) {
-    toast.value = err instanceof Error ? err.message : '二维码签到失败'
+    toast.value = err instanceof Error ? err.message : t('chaoxing.checkin.qrFail')
   }
 }
 
@@ -164,7 +168,7 @@ onMounted(async () => {
 
 <template>
   <div class="more-chaoxing-checkin-view">
-    <TPageHeader title="学习通签到" @back="emit('back')">
+    <TPageHeader :title="t('chaoxing.checkin.title')" @back="emit('back')">
       <template #actions>
         <button class="icon-btn" :disabled="refreshing" @click="handleRefresh">↻</button>
       </template>
@@ -187,22 +191,22 @@ onMounted(async () => {
           :class="['checkin-tab', { 'checkin-tab--active': showTab === 'active' }]"
           @click="showTab = 'active'"
         >
-          签到活动
+          {{ t('chaoxing.checkin.tabActive') }}
         </button>
         <button
           :class="['checkin-tab', { 'checkin-tab--active': showTab === 'history' }]"
           @click="handleShowHistory"
         >
-          签到记录
+          {{ t('chaoxing.checkin.tabHistory') }}
         </button>
       </div>
 
       <!-- 活动列表 -->
       <template v-if="showTab === 'active'">
-        <TEmptyState v-if="loading" type="loading" message="正在获取签到活动..." />
+        <TEmptyState v-if="loading" type="loading" :message="t('chaoxing.checkin.loading')" />
         <TEmptyState v-else-if="error" type="error" :message="error" />
         <template v-else>
-          <TSection v-if="activeActivities.length" title="进行中" icon="🟢">
+          <TSection v-if="activeActivities.length" :title="t('chaoxing.checkin.ongoing')" icon="🟢">
             <div class="checkin-activity-list">
               <CheckinActivityCard
                 v-for="item in activeActivities"
@@ -214,7 +218,7 @@ onMounted(async () => {
             </div>
           </TSection>
 
-          <TSection v-if="pendingOrExpired.length" title="已结束 / 已签" icon="📋">
+          <TSection v-if="pendingOrExpired.length" :title="t('chaoxing.checkin.ended')" icon="📋">
             <div class="checkin-activity-list">
               <CheckinActivityCard
                 v-for="item in pendingOrExpired"
@@ -229,7 +233,7 @@ onMounted(async () => {
           <TEmptyState
             v-if="!activities.length"
             type="empty"
-            message="暂无签到活动"
+            :message="t('chaoxing.checkin.none')"
             icon="📭"
           />
         </template>
