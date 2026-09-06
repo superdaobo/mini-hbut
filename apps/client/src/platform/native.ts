@@ -201,11 +201,25 @@ export const identityRevokeCurrentDeviceLocal = <T = Record<string, unknown>>(ar
   device_id?: string | null
 }) => invokeNative<T>('identity_revoke_current_device_local', args)
 
+/**
+ * identity_fetch_auth_history 输出（#777 结构化错误分类）：
+ * - status=0：原生层失败（未到达 HTTP），error_kind/error_message 携带失败分类与脱敏文案；
+ * - status>0：Core HTTP 状态码（200 成功，body 为响应体；非 2xx 见 #776 错误体透传）。
+ * 安全约定：error_message 只含已脱敏的 IdentityError Display 文本，绝无私钥/签名/token。
+ */
+export interface IdentityAuthHistoryNativeOutput {
+  status: number
+  body: string
+  error_kind: string | null
+  error_message: string | null
+}
+
 /** 拉取本机授权历史（设备签名认证；「授权记录」页数据源） */
-export const identityFetchAuthHistory = <T = Record<string, unknown>>(args: {
+export const identityFetchAuthHistory = (args: {
   base_url?: string
   device_id: string
-}) => invokeNative<T>('identity_fetch_auth_history', args)
+}): Promise<IdentityAuthHistoryNativeOutput> =>
+  invokeNative<IdentityAuthHistoryNativeOutput>('identity_fetch_auth_history', args)
 
 /** 设备展示名（enrollment device_name 用；不包含任何敏感信息） */
 export const getIdentityDeviceDisplayName = (): string => {
