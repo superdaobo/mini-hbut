@@ -35,7 +35,30 @@ const I18N_MIGRATED_FILES: string[] = [
   'utils/toast.js',
   // #785：本批接入 t() 的公共组件（内置默认文案 / 无障碍标签已全部 t() 化）
   'components/templates/TEmptyState.vue',
-  'components/templates/TModal.vue'
+  'components/templates/TModal.vue',
+  // #794 批次 I：杂项收尾英文化（22 个文件，含外链 HTML 模板）
+  'components/ExportCenterView.vue',
+  'components/CourseSelectionView.vue',
+  'templates/views/CourseSelectionView.html',
+  'components/ForumView.vue',
+  'templates/views/ForumView.html',
+  'templates/views/AiChatView.html',
+  'components/AiChatView.vue',
+  'templates/views/ResourceShareView.html',
+  'components/ResourceShareView.vue',
+  'components/MeView.vue',
+  'components/UpdateDialog.vue',
+  'components/SplashScreen.vue',
+  'components/FeedbackView.vue',
+  'components/ServiceStatsView.vue',
+  'components/ExamView.vue',
+  'components/TransactionHistory.vue',
+  'components/RankingView.vue',
+  'components/OfficialView.vue',
+  'components/SchoolWebsiteView.vue',
+  'components/PrivacyDataView.vue',
+  'components/TeachingEvalView.vue',
+  'components/ConfigEditor.vue'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */

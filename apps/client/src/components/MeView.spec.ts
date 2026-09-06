@@ -24,8 +24,8 @@ describe('MeView account switch contract (#755)', () => {
 
     expect(vue).toContain("invokeNative('switch_active_account', {")
     expect(vue).toContain("emit('account-switched', sid)")
-    // 会话失效的账号禁止秒切，给出可读提示
-    expect(vue).toContain('该账号会话已失效，请先登录该账号后再切换')
+    // 会话失效的账号禁止秒切，给出可读提示（#794 文案 t() 化后锚点同步更新）
+    expect(vue).toContain("t('me.toast.sessionInvalid')")
   })
 
   it('offers per-account delete but never for the current account', () => {
@@ -53,6 +53,7 @@ describe('MeView account switch modal title icon contract (#770)', () => {
     // 只断言模板用法（带 class 前缀），避免误伤注释中的图标名说明
     expect(vue).not.toContain('account-switch-title-icon">swap_account<')
     // 标题图标必须是子集字体中已收录且语义匹配的 switch_account
-    expect(vue).toContain('material-symbols-outlined account-switch-title-icon">switch_account</span> 切换账号')
+    // （#794 文案 t() 化后标题文本改为插值，图标 ligature 锚点保持不变）
+    expect(vue).toContain('material-symbols-outlined account-switch-title-icon">switch_account</span>')
   })
 })

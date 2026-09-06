@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { formatRelativeTime } from '../utils/time.js'
 import { invokeNative as invoke } from '../platform/native'
+import { useI18n, tf } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
@@ -9,6 +10,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['back'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 
 // State
 const loading = ref(false)
@@ -138,7 +142,7 @@ const initLoad = async () => {
         selectedMonth.value = availableMonths.value[0]
       }
     } else {
-      errorMsg.value = res.message || res.msg || '获取数据失败'
+      errorMsg.value = res.message || res.msg || t('tx.error.fetchFailed')
       
       // If valid cache exists (from backend logic), rawTransactions might still be empty if error occurred on refresh?
       // Our backend implementation tailored cached returns on failure, so if we are here with success=false, 
@@ -146,7 +150,7 @@ const initLoad = async () => {
     }
   } catch (e) {
     console.error('Failed to fetch transactions:', e)
-    errorMsg.value = '网络请求异常: ' + e.toString()
+    errorMsg.value = tf('tx.error.network', { msg: e.toString() })
   } finally {
     loading.value = false
   }
@@ -166,9 +170,9 @@ const navigateMonth = (direction) => {
 
 // 格式化月份显示
 const selectedMonthLabel = computed(() => {
-  if (!selectedMonth.value) return '暂无数据'
+  if (!selectedMonth.value) return t('tx.noData')
   const [year, month] = selectedMonth.value.split('-')
-  return `${year}年 ${parseInt(month)}月`
+  return tf('tx.monthLabel', { year, month: parseInt(month) })
 })
 
 // 按日期分组交易
@@ -177,7 +181,7 @@ const groupedTransactions = computed(() => {
   const dateMap = new Map()
   
   currentMonthTransactions.value.forEach(item => {
-    const dateKey = item.date ? item.date.substring(0, 10) : '未知日期'
+    const dateKey = item.date ? item.date.substring(0, 10) : t('tx.unknownDate')
     if (!dateMap.has(dateKey)) {
       dateMap.set(dateKey, [])
     }
@@ -186,9 +190,9 @@ const groupedTransactions = computed(() => {
   
   for (const [dateKey, items] of dateMap) {
     const d = new Date(dateKey)
-    const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+    const weekdays = [t('tx.weekday.0'), t('tx.weekday.1'), t('tx.weekday.2'), t('tx.weekday.3'), t('tx.weekday.4'), t('tx.weekday.5'), t('tx.weekday.6')]
     const dateLabel = !isNaN(d.getTime())
-      ? `${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}`
+      ? tf('tx.dateLabel', { m: d.getMonth() + 1, d: d.getDate(), weekday: weekdays[d.getDay()] })
       : dateKey
     groups.push({ dateLabel, items })
   }
@@ -199,11 +203,11 @@ const groupedTransactions = computed(() => {
 // 获取交易图标
 const getIconName = (item) => {
   const name = (item.merchantName || item.summary || '').toLowerCase()
-  if (name.includes('食堂') || name.includes('餐')) return 'restaurant'
-  if (name.includes('超市') || name.includes('商店')) return 'local_convenience_store'
-  if (name.includes('充值') || name.includes('转入')) return 'account_balance_wallet'
-  if (name.includes('图书') || name.includes('打印')) return 'menu_book'
-  if (name.includes('车') || name.includes('交通')) return 'directions_bus'
+  if (name.includes('\u98df\u5802') || name.includes('\u9910')) return 'restaurant'
+  if (name.includes('\u8d85\u5e02') || name.includes('\u5546\u5e97')) return 'local_convenience_store'
+  if (name.includes('\u5145\u503c') || name.includes('\u8f6c\u5165')) return 'account_balance_wallet'
+  if (name.includes('\u56fe\u4e66') || name.includes('\u6253\u5370')) return 'menu_book'
+  if (name.includes('\u8f66') || name.includes('\u4ea4\u901a')) return 'directions_bus'
   if (!item.amt.startsWith('-')) return 'account_balance_wallet'
   return 'payments'
 }
@@ -211,11 +215,11 @@ const getIconName = (item) => {
 // 获取图标颜色类
 const getIconClass = (item) => {
   const name = (item.merchantName || item.summary || '').toLowerCase()
-  if (name.includes('食堂') || name.includes('餐')) return 'icon-orange'
-  if (name.includes('超市') || name.includes('商店')) return 'icon-sky'
-  if (name.includes('充值') || name.includes('转入') || !item.amt.startsWith('-')) return 'icon-teal'
-  if (name.includes('图书') || name.includes('打印')) return 'icon-primary'
-  if (name.includes('车') || name.includes('交通')) return 'icon-secondary'
+  if (name.includes('\u98df\u5802') || name.includes('\u9910')) return 'icon-orange'
+  if (name.includes('\u8d85\u5e02') || name.includes('\u5546\u5e97')) return 'icon-sky'
+  if (name.includes('\u5145\u503c') || name.includes('\u8f6c\u5165') || !item.amt.startsWith('-')) return 'icon-teal'
+  if (name.includes('\u56fe\u4e66') || name.includes('\u6253\u5370')) return 'icon-primary'
+  if (name.includes('\u8f66') || name.includes('\u4ea4\u901a')) return 'icon-secondary'
   return 'icon-primary'
 }
 
@@ -240,13 +244,13 @@ onMounted(() => {
         <button class="header-icon-btn" @click="handleBack">
           <span class="material-symbols-outlined">arrow_back</span>
         </button>
-        <h1 class="header-title">💳 交易记录</h1>
+        <h1 class="header-title">{{ t('tx.title') }}</h1>
       </div>
     </header>
 
     <!-- Offline Banner -->
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      {{ tf('tx.offlineBanner', { time: formatRelativeTime(syncTime) }) }}
     </div>
 
     <main class="trans-content">
@@ -259,7 +263,7 @@ onMounted(() => {
           </button>
           <div class="month-center">
             <span class="month-title">{{ selectedMonthLabel }}</span>
-            <span class="month-subtitle">本月共 {{ currentMonthTransactions.length }} 笔交易</span>
+            <span class="month-subtitle">{{ tf('tx.monthCount', { n: currentMonthTransactions.length }) }}</span>
           </div>
           <button class="month-nav-btn" @click="navigateMonth(1)">
             <span class="material-symbols-outlined">chevron_right</span>
@@ -272,7 +276,7 @@ onMounted(() => {
             <div class="stat-bg-icon">
               <span class="material-symbols-outlined fill">outbox</span>
             </div>
-            <span class="stat-label">本月支出</span>
+            <span class="stat-label">{{ t('tx.expense') }}</span>
             <div class="stat-value-row">
               <span class="stat-currency expense">¥</span>
               <span class="stat-amount expense">{{ monthStats.expense }}</span>
@@ -282,7 +286,7 @@ onMounted(() => {
             <div class="stat-bg-icon">
               <span class="material-symbols-outlined fill">move_to_inbox</span>
             </div>
-            <span class="stat-label">本月存入</span>
+            <span class="stat-label">{{ t('tx.income') }}</span>
             <div class="stat-value-row">
               <span class="stat-currency income">¥</span>
               <span class="stat-amount income">{{ monthStats.income }}</span>
@@ -294,14 +298,14 @@ onMounted(() => {
       <!-- Disclaimer -->
       <div class="disclaimer-card">
         <span class="material-symbols-outlined disclaimer-icon">info</span>
-        <span>此功能仅在首次登录后有效，长期未登录可能导致查询失败。若无法加载，请尝试退出后重新登录。</span>
+        <span>{{ t('tx.disclaimer') }}</span>
       </div>
 
       <!-- Transaction List -->
       <section class="list-section">
-        <h2 class="section-title">账单明细</h2>
+        <h2 class="section-title">{{ t('tx.detail') }}</h2>
 
-        <TEmptyState v-if="loading" type="loading" message="正在同步近一年数据..." />
+        <TEmptyState v-if="loading" type="loading" :message="t('tx.syncingYear')" />
 
         <div v-else-if="currentMonthTransactions.length > 0" class="glass-list-card">
           <template v-for="(group, gIdx) in groupedTransactions" :key="gIdx">
@@ -315,8 +319,8 @@ onMounted(() => {
                 <span class="material-symbols-outlined fill">{{ getIconName(item) }}</span>
               </div>
               <div class="trans-info">
-                <span class="trans-name">{{ item.merchantName || item.summary || '未知交易' }}</span>
-                <span class="trans-meta">{{ formatTime(item.date) }} · 校园卡消费</span>
+                <span class="trans-name">{{ item.merchantName || item.summary || t('tx.unknownMerchant') }}</span>
+                <span class="trans-meta">{{ formatTime(item.date) }} · {{ t('tx.campusCardMeta') }}</span>
               </div>
               <div class="trans-amount" :class="{ 'is-expense': item.amt.startsWith('-'), 'is-income': !item.amt.startsWith('-') }">
                 {{ item.amt.startsWith('-') ? item.amt : `+${item.amt}` }}
@@ -326,15 +330,15 @@ onMounted(() => {
         </div>
 
         <TEmptyState v-else-if="errorMsg" type="error" :message="errorMsg">
-          <button @click="initLoad" class="retry-btn">重试</button>
+          <button @click="initLoad" class="retry-btn">{{ t('common.retry') }}</button>
         </TEmptyState>
 
-        <TEmptyState v-else message="该月份暂无交易记录">
-          <button @click="initLoad" class="retry-btn">刷新数据</button>
+        <TEmptyState v-else :message="t('tx.empty')">
+          <button @click="initLoad" class="retry-btn">{{ t('tx.refreshData') }}</button>
         </TEmptyState>
 
         <div v-if="!loading && currentMonthTransactions.length > 0" class="list-end-hint">
-          没有更多记录了
+          {{ t('tx.listEnd') }}
         </div>
       </section>
     </main>

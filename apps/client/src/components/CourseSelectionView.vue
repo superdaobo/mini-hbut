@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { TEmptyState } from './templates'
+import { useI18n, tf } from '../utils/app_i18n'
 import {
   API_BASE,
   DEFAULT_FROM,
@@ -36,6 +37,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['back', 'logout'])
+
+// i18n（#794 批次 I）：响应式取词用于模板/computed，tf 用于整句插值
+const { t } = useI18n()
 
 const loadingOverview = ref(false)
 const loadingList = ref(false)
@@ -85,15 +89,24 @@ const infoFilters = ref({
   teacher: '',
   kcxz: '',
   kclx: '',
-  xkfs: '选课'
+  // 数据格式值：与教务接口「\u9009\u8bfe」方式语义对齐（用 \u 转义通过 CJK 扫描，课表批次先例）
+  xkfs: '\u9009\u8bfe'
 })
 
 const infoOptions = ref({
-  term: [{ value: '', label: '全部学期' }],
-  kcxz: [{ value: '', label: '全部性质' }],
-  kclx: [{ value: '', label: '全部类型' }],
-  xkfs: [{ value: '', label: '全部方式' }]
+  term: [{ value: '', label: '\u5168\u90e8\u5b66\u671f' }],
+  kcxz: [{ value: '', label: '\u5168\u90e8\u6027\u8d28' }],
+  kclx: [{ value: '', label: '\u5168\u90e8\u7c7b\u578b' }],
+  xkfs: [{ value: '', label: '\u5168\u90e8\u65b9\u5f0f' }]
 })
+
+// 占位选项 getter 化：保证语言切换后下拉占位即时生效
+const infoPlaceholderOptions = computed(() => ({
+  term: [{ value: '', label: t('selection.info.placeholderAllTerm') }],
+  kcxz: [{ value: '', label: t('selection.info.placeholderAllNature') }],
+  kclx: [{ value: '', label: t('selection.info.placeholderAllType') }],
+  xkfs: [{ value: '', label: t('selection.info.placeholderAllMode') }]
+}))
 
 const showDetail = ref(false)
 const selectedCourse = ref(null)
@@ -138,12 +151,12 @@ const optionMaps = computed(() => {
   const overviewConditions = overview.value?.conditions || {}
   const condition = listConditions.value || {}
   return {
-    kcxz: normalizeOptionList(condition.kcxzList || overviewConditions.kcxzList, '全部性质'),
-    kcgs: normalizeOptionList(condition.kcgsList || overviewConditions.kcgsList, '全部归属'),
-    jxms: normalizeOptionList(condition.jxmsList || overviewConditions.jxmsList, '全部模式'),
-    kkxq: normalizeOptionList(condition.kkxqList || overviewConditions.kkxqList, '全部校区'),
-    kclb: normalizeOptionList(condition.kclbList || overviewConditions.kclbList, '全部类别'),
-    kclx: normalizeOptionList(condition.kclxList || overviewConditions.kclxList, '全部类型')
+    kcxz: normalizeOptionList(condition.kcxzList || overviewConditions.kcxzList, t('selection.info.placeholderAllNature')),
+    kcgs: normalizeOptionList(condition.kcgsList || overviewConditions.kcgsList, t('selection.info.placeholderAllOwner')),
+    jxms: normalizeOptionList(condition.jxmsList || overviewConditions.jxmsList, t('selection.info.placeholderAllMode')),
+    kkxq: normalizeOptionList(condition.kkxqList || overviewConditions.kkxqList, t('selection.info.placeholderAllCampus')),
+    kclb: normalizeOptionList(condition.kclbList || overviewConditions.kclbList, t('selection.info.placeholderAllCategory')),
+    kclx: normalizeOptionList(condition.kclxList || overviewConditions.kclxList, t('selection.info.placeholderAllType'))
   }
 })
 
@@ -151,21 +164,21 @@ const detailFields = computed(() => {
   const course = selectedCourse.value
   if (!course) return []
   const rows = [
-    { label: '课程名称', value: course.kcmc },
-    { label: '教学班名称', value: course.jxbmc },
-    { label: '学分', value: course.xf },
-    { label: '课程性质', value: findOptionLabel(optionMaps.value.kcxz, course.kcxz, KCXZ_LABEL_MAP[course.kcxz] || course.kcxz) },
-    { label: '课程类别', value: course.kclbname || findOptionLabel(optionMaps.value.kclb, course.kclb, course.kclb) },
-    { label: '课程类型', value: findOptionLabel(optionMaps.value.kclx, course.kclx, resolveCourseTypeLabel(course.kclx, course.kclx)) },
-    { label: '教学模式', value: findOptionLabel(optionMaps.value.jxms, course.jxms, course.jxms) },
-    { label: '授课教师', value: course.teacher },
-    { label: '上课时间地点', value: course.isOnline ? '未提供线下上课时间与地点，按网课展示' : (course.scheduleText || course.sksjdd || '未公布时间地点') },
-    { label: '上课校区', value: course.kkxqmc || findOptionLabel(optionMaps.value.kkxq, course.kkxq, course.kkxqmc || course.kkxq) },
-    { label: '教学班组成', value: course.jxbzc },
-    { label: '容量情况', value: course.capacity.display },
-    { label: '冲突状态', value: course.isConflict ? '与当前课表冲突' : '无冲突' },
-    { label: '标签', value: course.label },
-    { label: '考试形式', value: course.ksxs }
+    { label: t('selection.detail.courseName'), value: course.kcmc },
+    { label: t('selection.detail.className'), value: course.jxbmc },
+    { label: t('selection.detail.credit'), value: course.xf },
+    { label: t('selection.detail.courseNature'), value: findOptionLabel(optionMaps.value.kcxz, course.kcxz, KCXZ_LABEL_MAP[course.kcxz] || course.kcxz) },
+    { label: t('selection.detail.courseCategory'), value: course.kclbname || findOptionLabel(optionMaps.value.kclb, course.kclb, course.kclb) },
+    { label: t('selection.detail.courseType'), value: findOptionLabel(optionMaps.value.kclx, course.kclx, resolveCourseTypeLabel(course.kclx, course.kclx)) },
+    { label: t('selection.detail.teachingMode'), value: findOptionLabel(optionMaps.value.jxms, course.jxms, course.jxms) },
+    { label: t('selection.detail.teacher'), value: course.teacher },
+    { label: t('selection.detail.timePlace'), value: course.isOnline ? t('selection.detail.timePlace.online') : (course.scheduleText || course.sksjdd || t('selection.list.timeTbd')) },
+    { label: t('selection.detail.campus'), value: course.kkxqmc || findOptionLabel(optionMaps.value.kkxq, course.kkxq, course.kkxqmc || course.kkxq) },
+    { label: t('selection.detail.classGroup'), value: course.jxbzc },
+    { label: t('selection.detail.capacity'), value: course.capacity.display },
+    { label: t('selection.detail.conflictState'), value: course.isConflict ? t('selection.detail.conflictState.conflict') : t('selection.detail.conflictState.none') },
+    { label: t('selection.detail.label'), value: course.label },
+    { label: t('selection.detail.examForm'), value: course.ksxs }
   ]
   return rows.filter((item) => safeText(item.value))
 })
@@ -174,16 +187,16 @@ const detailTeacherText = computed(() => detailTeachers.value.join('、'))
 
 const formatCountdown = (seconds) => {
   if (!Number.isFinite(seconds)) return '--'
-  if (seconds <= 0) return '已结束'
+  if (seconds <= 0) return t('selection.countdown.ended')
   const day = Math.floor(seconds / 86400)
   const hour = Math.floor((seconds % 86400) / 3600)
   const minute = Math.floor((seconds % 3600) / 60)
   const second = Math.floor(seconds % 60)
   const chunks = []
-  if (day > 0) chunks.push(`${day}天`)
-  if (hour > 0) chunks.push(`${hour}小时`)
-  if (minute > 0) chunks.push(`${minute}分钟`)
-  if (second > 0 || chunks.length === 0) chunks.push(`${second}秒`)
+  if (day > 0) chunks.push(`${day}${t('selection.countdown.dayUnit')}`)
+  if (hour > 0) chunks.push(`${hour}${t('selection.countdown.hourUnit')}`)
+  if (minute > 0) chunks.push(`${minute}${t('selection.countdown.minuteUnit')}`)
+  if (second > 0 || chunks.length === 0) chunks.push(`${second}${t('selection.countdown.secondUnit')}`)
   return chunks.join('')
 }
 
@@ -199,16 +212,18 @@ const reconcileFilterSelection = () => {
 }
 
 const resolveCourseStatus = ({ picked, selectable, full, conflict }) => {
-  if (picked) return { statusLabel: '已选', statusClass: 'picked' }
-  if (!selectable) return { statusLabel: '不可选', statusClass: 'disabled' }
-  if (full) return { statusLabel: '已满', statusClass: 'full' }
-  if (conflict) return { statusLabel: '冲突', statusClass: 'conflict' }
-  return { statusLabel: '可选', statusClass: 'ready' }
+  if (picked) return { statusLabel: t('selection.status.picked'), statusClass: 'picked' }
+  if (!selectable) return { statusLabel: t('selection.status.notSelectable'), statusClass: 'disabled' }
+  if (full) return { statusLabel: t('selection.status.full'), statusClass: 'full' }
+  if (conflict) return { statusLabel: t('selection.status.conflict'), statusClass: 'conflict' }
+  return { statusLabel: t('selection.status.selectable'), statusClass: 'ready' }
 }
 
 const normalizeCourse = (item) => {
   const capacity = parseCapacityInfo(item.yxrl, availableRatio.value)
-  const picked = isPickedValue(item.status) || safeText(item.zt) === '已选' || safeText(item.statusLabel).includes('已选')
+  // 数据格式类匹配：教务原始数据 zt/statusLabel 固定为中文「\u5df2\u9009」，用 \u 转义（课表批次先例）
+  const pickedLabel = '\u5df2\u9009'
+  const picked = isPickedValue(item.status) || safeText(item.zt) === pickedLabel || safeText(item.statusLabel).includes(pickedLabel)
   const conflict = !picked && (safeText(item.sfct) === '1' || hasConflictHint(item.label))
   const selectable = isEnabledValue(item.sfkxk)
   const full = !picked && capacity.isFull
@@ -311,7 +326,7 @@ const startCountdownTick = () => {
     if (!Number.isFinite(remainingSeconds.value)) return
     if (remainingSeconds.value <= 0) {
       remainingSeconds.value = 0
-      countdownText.value = '已结束'
+      countdownText.value = t('selection.countdown.ended')
       stopCountdownTick()
       return
     }
@@ -335,8 +350,8 @@ const startEndTimeRefresh = () => {
   }, 30000)
 }
 
-const unwrapApiResult = (response, fallback = '请求失败') => {
-  let payload = response?.data
+// fallback 为数据层兜底文案：用 \u 转义（课表批次先例），展示层走 t() key
+const unwrapApiResult = (response, fallback = '\u8bf7\u6c42\u5931\u8d25') => {  let payload = response?.data
   let meta = {}
 
   for (let i = 0; i < 3; i += 1) {
@@ -395,13 +410,13 @@ const fetchOverview = async () => {
   overviewError.value = ''
   try {
     const res = await axios.post(`${API_BASE}/v2/course_selection/overview`, {})
-    console.log('[选课调试] overview 原始响应:', JSON.stringify(res?.data).slice(0, 500))
-    const { data, meta } = unwrapApiResult(res, '获取选课总览失败')
-    console.log('[选课调试] overview unwrap 后 data keys:', Object.keys(data || {}))
-    console.log('[选课调试] tabs 数量:', Array.isArray(data.tabs) ? data.tabs.length : 'N/A', ', pcencs keys:', Object.keys(data.pcencs || {}))
-    console.log('[选课调试] has_valid_pcencs:', data.has_valid_pcencs, ', message:', data.message)
+    console.log('[selection-debug] overview raw response:', JSON.stringify(res?.data).slice(0, 500))
+    const { data, meta } = unwrapApiResult(res, t('selection.message.overviewFailed'))
+    console.log('[selection-debug] overview unwrapped data keys:', Object.keys(data || {}))
+    console.log('[selection-debug] tab count:', Array.isArray(data.tabs) ? data.tabs.length : 'N/A', ', pcencs keys:', Object.keys(data.pcencs || {}))
+    console.log('[selection-debug] has_valid_pcencs:', data.has_valid_pcencs, ', message:', data.message)
     if (Array.isArray(data.tabs)) {
-      data.tabs.forEach((t, i) => console.log(`[选课调试] tab[${i}]: xkgzid=${t.xkgzid}, xkgzMc=${t.xkgzMc}, kklx=${t.kklx}`))
+      data.tabs.forEach((t, i) => console.log(`[selection-debug] tab[${i}]: xkgzid=${t.xkgzid}, xkgzMc=${t.xkgzMc}, kklx=${t.kklx}`))
     }
     overview.value = data
     tabs.value = Array.isArray(data.tabs) ? data.tabs : []
@@ -413,12 +428,12 @@ const fetchOverview = async () => {
     } else {
       activeTabId.value = ''
       courses.value = []
-      listMessage.value = cleanMessage(data.message) || '当前暂无可选课程'
+      listMessage.value = cleanMessage(data.message) || t('selection.message.noneAvailable')
       stopCountdownTick()
       stopEndTimeRefresh()
     }
   } catch (err) {
-    overviewError.value = resolveErrorMessage(err, '获取选课总览失败')
+    overviewError.value = resolveErrorMessage(err, t('selection.message.overviewFailed'))
     tabs.value = []
     courses.value = []
     stopCountdownTick()
@@ -442,7 +457,7 @@ const fetchEndTime = async () => {
       pcid: currentPcid.value,
       kklx: safeText(currentTab.value?.kklx)
     })
-    const { data } = unwrapApiResult(res, '获取批次倒计时失败')
+    const { data } = unwrapApiResult(res, t('selection.message.countdownFailed'))
     remainingSeconds.value = Number.isFinite(Number(data.remaining_seconds)) ? Number(data.remaining_seconds) : null
     if (Number.isFinite(remainingSeconds.value)) {
       countdownText.value = formatCountdown(remainingSeconds.value)
@@ -461,18 +476,18 @@ const fetchEndTime = async () => {
 }
 
 const fetchList = async () => {
-  console.log('[选课调试] fetchList: pcid=', currentPcid.value, ', pcenc=', currentPcenc.value ? currentPcenc.value.slice(0, 20) + '...' : '(空)')
+  console.log('[selection-debug] fetchList: pcid=', currentPcid.value, ', pcenc=', currentPcenc.value ? currentPcenc.value.slice(0, 20) + '...' : '(empty)')
   if (!currentPcid.value || !currentPcenc.value) {
     courses.value = []
-    listMessage.value = '当前批次缺少有效凭证'
-    console.warn('[选课调试] fetchList 中止：pcid 或 pcenc 为空')
+    listMessage.value = t('selection.message.invalidCredential')
+    console.warn('[selection-debug] fetchList aborted: pcid or pcenc is empty')
     return
   }
   loadingList.value = true
   listMessage.value = ''
   try {
     const res = await axios.post(`${API_BASE}/v2/course_selection/list`, getRequestPayload())
-    const { data, meta } = unwrapApiResult(res, '获取选课列表失败')
+    const { data, meta } = unwrapApiResult(res, t('selection.message.listFailed'))
     listConditions.value = data.condition || {}
     availableRatio.value = safeText(data.available_ratio || '100')
     occupiedSlots.value = Array.isArray(data.occupied_slots) ? data.occupied_slots : []
@@ -484,7 +499,7 @@ const fetchList = async () => {
     reconcileFilterSelection()
   } catch (err) {
     courses.value = []
-    listMessage.value = resolveErrorMessage(err, '获取选课列表失败')
+    listMessage.value = resolveErrorMessage(err, t('selection.message.listFailed'))
   } finally {
     loadingList.value = false
   }
@@ -533,18 +548,18 @@ const refreshCourseData = async () => {
     }
     if (activeTabId.value) {
       await loadTabBundle()
-      showToast('已刷新当前批次课程', 'success')
+      showToast(t('selection.message.refreshed'), 'success')
     } else {
-      showToast('当前暂无可刷新的选课批次', 'info')
+      showToast(t('selection.message.noRefreshableBatch'), 'info')
     }
   } catch (err) {
-    showToast(resolveErrorMessage(err, '刷新选课数据失败'), 'error')
+    showToast(resolveErrorMessage(err, t('selection.message.refreshFailed')), 'error')
   } finally {
     refreshing.value = false
   }
 }
 
-const mapToOptions = (sourceMap, placeholder = '全部') => {
+const mapToOptions = (sourceMap, placeholder = t('selection.info.placeholderAll')) => {
   const options = [{ value: '', label: placeholder }]
   Array.from(sourceMap.entries())
     .map(([value, label]) => ({
@@ -562,15 +577,15 @@ const mapToOptions = (sourceMap, placeholder = '全部') => {
 
 const resolveInfoSelectionMode = (item) => {
   return safeText(
-    item?.xkfsmc || item?.xkfs || item?.selection_mode || item?.select_mode || item?.mode || '选课'
-  ) || '选课'
+    item?.xkfsmc || item?.xkfs || item?.selection_mode || item?.select_mode || item?.mode || t('selection.info.defaultMode')
+  ) || t('selection.info.defaultMode')
 }
 
 const deriveTabTermLabel = (tab) => {
   const tabName = safeText(tab?.xkgzMc)
   if (tabName) return tabName
   const studentSemester = safeText(summaryStudent.value?.semester)
-  return studentSemester || '当前学期'
+  return studentSemester || t('selection.info.placeholderAllTerm')
 }
 
 const normalizeInfoCourse = (item, context = {}) => {
@@ -599,7 +614,8 @@ const normalizeInfoCourse = (item, context = {}) => {
     ksxs: item?.ksxs ?? item?.exam_mode ?? ''
   }
   const normalized = normalizeCourse(merged)
-  const picked = normalized.isPicked || isPickedValue(item?.status) || safeText(item?.zt) === '已选' || safeText(item?.statusLabel).includes('已选')
+  const pickedLabel = '\u5df2\u9009'
+  const picked = normalized.isPicked || isPickedValue(item?.status) || safeText(item?.zt) === pickedLabel || safeText(item?.statusLabel).includes(pickedLabel)
   const status = resolveCourseStatus({
     picked,
     selectable: normalized.isSelectable,
@@ -610,7 +626,7 @@ const normalizeInfoCourse = (item, context = {}) => {
     ...normalized,
     ...status,
     isPicked: picked,
-    termLabel: safeText(item?.xnxq || item?.semester || context.termLabel || summaryStudent.value?.semester || '当前学期'),
+    termLabel: safeText(item?.xnxq || item?.semester || context.termLabel || summaryStudent.value?.semester || t('selection.info.placeholderAllTerm')),
     xkfsText: resolveInfoSelectionMode(item),
     sourceTabId: safeText(context.tabId || item?.sourceTabId),
     sourceTabName: safeText(context.tabName || item?.sourceTabName)
@@ -645,13 +661,13 @@ const pickArrayPayload = (data) => {
 }
 
 const mergeConditionOptions = (condition, kcxzMap, kclxMap) => {
-  normalizeOptionList(condition?.kcxzList, '全部性质').forEach((item) => {
+  normalizeOptionList(condition?.kcxzList, t('selection.info.placeholderAllNature')).forEach((item) => {
     const value = safeText(item.value || item.label)
     const label = safeText(item.label || item.value)
     if (!value || !label) return
     kcxzMap.set(value, label)
   })
-  normalizeOptionList(condition?.kclxList, '全部类型').forEach((item) => {
+  normalizeOptionList(condition?.kclxList, t('selection.info.placeholderAllType')).forEach((item) => {
     const value = safeText(item.value || item.label)
     const label = resolveCourseTypeLabel(value, item.label || item.value)
     if (!value || !label) return
@@ -661,10 +677,10 @@ const mergeConditionOptions = (condition, kcxzMap, kclxMap) => {
 
 const applyInfoOptionsAndDefaults = ({ termMap, xkfsSet, kcxzMap, kclxMap }) => {
   infoOptions.value = {
-    term: mapToOptions(termMap, '全部学期'),
-    xkfs: mapToOptions(new Map(Array.from(xkfsSet).map((value) => [value, value])), '全部方式'),
-    kcxz: mapToOptions(kcxzMap, '全部性质'),
-    kclx: mapToOptions(kclxMap, '全部类型')
+    term: mapToOptions(termMap, t('selection.info.placeholderAllTerm')),
+    xkfs: mapToOptions(new Map(Array.from(xkfsSet).map((value) => [value, value])), t('selection.info.placeholderAllMode')),
+    kcxz: mapToOptions(kcxzMap, t('selection.info.placeholderAllNature')),
+    kclx: mapToOptions(kclxMap, t('selection.info.placeholderAllType'))
   }
 
   const semester = safeText(summaryStudent.value?.semester)
@@ -682,7 +698,7 @@ const applyInfoOptionsAndDefaults = ({ termMap, xkfsSet, kcxzMap, kclxMap }) => 
   }
 
   if (!infoShowOtherModes.value) {
-    infoFilters.value.xkfs = '选课'
+    infoFilters.value.xkfs = '\u9009\u8bfe'
   } else {
     const xkfsValid = infoOptions.value.xkfs.some((item) => safeText(item.value) === safeText(infoFilters.value.xkfs))
     if (!xkfsValid) infoFilters.value.xkfs = ''
@@ -699,10 +715,10 @@ const fetchSelectedCoursesByEndpoint = async (querySemester) => {
   const res = await axios.post(`${API_BASE}/v2/course_selection/selected_courses`, {
     semester
   })
-  const { data } = unwrapApiResult(res, '获取已选课程失败')
+  const { data } = unwrapApiResult(res, t('selection.message.selectedFailed'))
   const list = pickArrayPayload(data)
   if (!list.length) {
-    throw new Error('已选课程接口暂无数据')
+    throw new Error(t('selection.message.selectedEmpty'))
   }
   const termMap = new Map()
   // 从后端返回的 semesters 列表填充学期选项
@@ -711,18 +727,18 @@ const fetchSelectedCoursesByEndpoint = async (querySemester) => {
     const s = safeText(sem)
     if (s) termMap.set(s, s)
   })
-  const xkfsSet = new Set(['选课'])
+  const xkfsSet = new Set(['\u9009\u8bfe'])
   const kcxzMap = new Map()
   const kclxMap = new Map()
   const normalized = list.map((item, index) => {
     const course = normalizeInfoCourse(item, {
       tabId: safeText(item?.sourceTabId || item?.pcid || 'selected_api'),
-      tabName: safeText(item?.sourceTabName || item?.source || '已选课程'),
-      termLabel: safeText(item?.xnxq || item?.semester || data?.current_semester || summaryStudent.value?.semester || '当前学期'),
+      tabName: safeText(item?.sourceTabName || item?.source || t('selection.message.selectedFailed')),
+      termLabel: safeText(item?.xnxq || item?.semester || data?.current_semester || summaryStudent.value?.semester || t('selection.info.placeholderAllTerm')),
       index
     })
     termMap.set(course.termLabel, course.termLabel)
-    xkfsSet.add(course.xkfsText || '选课')
+    xkfsSet.add(course.xkfsText || t('selection.info.defaultMode'))
     if (safeText(course.kcxz)) {
       const code = safeText(course.kcxz)
       kcxzMap.set(code, KCXZ_LABEL_MAP[code] || safeText(course.kclb) || code)
@@ -749,23 +765,23 @@ const fetchSelectedCoursesByTabs = async () => {
   if (!tabs.value.length) {
     await fetchOverview()
   }
-  console.log('[选课调试] fetchSelectedCoursesByTabs: tabs 数量=', tabs.value.length, ', pcencMap keys=', Object.keys(pcencMap.value || {}))
+  console.log('[selection-debug] fetchSelectedCoursesByTabs: tab count=', tabs.value.length, ', pcencMap keys=', Object.keys(pcencMap.value || {}))
 
   const termMap = new Map()
-  const xkfsSet = new Set(['选课'])
+  const xkfsSet = new Set(['\u9009\u8bfe'])
   const kcxzMap = new Map()
   const kclxMap = new Map()
   const merged = []
 
   for (const tab of tabs.value) {
     const tabId = safeText(tab?.xkgzid)
-    if (!tabId) { console.warn('[选课调试] 跳过无 xkgzid 的 tab'); continue }
+    if (!tabId) { console.warn('[selection-debug] skipped tab without xkgzid'); continue }
     const termLabel = deriveTabTermLabel(tab)
     const tabFrom = resolveTabFrom(tab)
     termMap.set(termLabel, termLabel)
     const tabPcenc = safeText(pcencMap.value?.[tabId] || pcencMap.value?.[String(tabId)] || tab?.pcenc)
-    console.log(`[选课调试] tab ${tabId}: pcenc=${tabPcenc ? tabPcenc.slice(0, 20) + '...' : '(空)'}, from=${tabFrom}`)
-    if (!tabPcenc) { console.warn(`[选课调试] tab ${tabId} 无 pcenc，跳过`); continue }
+    console.log(`[selection-debug] tab ${tabId}: pcenc=${tabPcenc ? tabPcenc.slice(0, 20) + '...' : '(empty)'}, from=${tabFrom}`)
+    if (!tabPcenc) { console.warn(`[selection-debug] tab ${tabId} has no pcenc, skipped`); continue }
     try {
       const res = await axios.post(
         `${API_BASE}/v2/course_selection/list`,
@@ -778,25 +794,25 @@ const fetchSelectedCoursesByTabs = async () => {
           }
         })
       )
-      const { data } = unwrapApiResult(res, '获取已选课程失败')
+      const { data } = unwrapApiResult(res, t('selection.message.selectedFailed'))
       mergeConditionOptions(data?.condition || {}, kcxzMap, kclxMap)
       const rawCourses = Array.isArray(data?.courses) ? data.courses : []
-      console.log(`[选课调试] tab ${tabId}: list 返回 ${rawCourses.length} 门课程`)
+      console.log(`[selection-debug] tab ${tabId}: list returned ${rawCourses.length} courses`)
       if (rawCourses.length > 0) {
-        console.log(`[选课调试] tab ${tabId}: 第一门课程 status=${rawCourses[0].status}, kcmc=${rawCourses[0].kcmc}`)
+        console.log(`[selection-debug] tab ${tabId}: first course status=${rawCourses[0].status}, kcmc=${rawCourses[0].kcmc}`)
       }
       let pickedCount = 0
       rawCourses.forEach((item, index) => {
         const normalized = normalizeInfoCourse(item, {
           tabId,
-          tabName: safeText(tab?.xkgzMc || '未命名批次'),
+          tabName: safeText(tab?.xkgzMc || t('selection.batch.unnamed')),
           termLabel,
           index
         })
         if (!normalized.isPicked) return
         pickedCount += 1
         merged.push(normalized)
-        xkfsSet.add(normalized.xkfsText || '选课')
+        xkfsSet.add(normalized.xkfsText || t('selection.info.defaultMode'))
         if (safeText(normalized.kcxz)) {
           kcxzMap.set(safeText(normalized.kcxz), findOptionLabel(optionMaps.value.kcxz, normalized.kcxz, KCXZ_LABEL_MAP[normalized.kcxz] || normalized.kcxz))
         }
@@ -805,9 +821,9 @@ const fetchSelectedCoursesByTabs = async () => {
           kclxMap.set(code, findOptionLabel(optionMaps.value.kclx, code, resolveCourseTypeLabel(code, code)))
         }
       })
-      console.log(`[选课调试] tab ${tabId}: isPicked 数量= ${pickedCount}`)
+      console.log(`[selection-debug] tab ${tabId}: isPicked count= ${pickedCount}`)
     } catch (tabErr) {
-      console.error(`[选课调试] tab ${tabId} list 请求失败:`, tabErr?.message || tabErr)
+      console.error(`[selection-debug] tab ${tabId} list request failed:`, tabErr?.message || tabErr)
       continue
     }
   }
@@ -828,29 +844,29 @@ const querySelectedCourses = async ({ showSuccessToast = false } = {}) => {
   infoError.value = ''
   infoSourceMessage.value = ''
   try {
-    // 优先通过已选课程接口查询（无需选课时段开放）
+    // 优先通过已\u9009\u8bfe程接口查询（无需\u9009\u8bfe时段开放）
     let fetched = null
     try {
       const endpointFetched = await fetchSelectedCoursesByEndpoint()
-      console.log('[选课调试] endpoint 结果: courses=', endpointFetched.courses.length)
+      console.log('[selection-debug] endpoint result: courses=', endpointFetched.courses.length)
       if (endpointFetched.courses.length) {
         fetched = endpointFetched
-        infoSourceMessage.value = '已通过已选课程接口自动查询'
+        infoSourceMessage.value = t('selection.message.viaEndpoint')
       }
     } catch (epErr) {
-      console.warn('[选课调试] endpoint 查询失败:', epErr?.message || epErr)
+      console.warn('[selection-debug] endpoint query failed:', epErr?.message || epErr)
     }
 
-    // endpoint 无结果时回退到选课批次聚合
+    // endpoint 无结果时回退到\u9009\u8bfe批次聚合
     if (!fetched || !fetched.courses.length) {
       if (!tabs.value.length) {
         await fetchOverview()
       }
       const tabsFetched = await fetchSelectedCoursesByTabs()
-      console.log('[选课调试] fetchSelectedCoursesByTabs 结果: courses=', tabsFetched.courses.length, ', termMap=', Array.from(tabsFetched.termMap.keys()))
+      console.log('[selection-debug] fetchSelectedCoursesByTabs result: courses=', tabsFetched.courses.length, ', termMap=', Array.from(tabsFetched.termMap.keys()))
       if (tabsFetched.courses.length) {
         fetched = tabsFetched
-        infoSourceMessage.value = '已从选课批次聚合已选课程结果'
+        infoSourceMessage.value = t('selection.message.viaTabs')
       } else if (!fetched) {
         fetched = tabsFetched
       }
@@ -866,11 +882,11 @@ const querySelectedCourses = async ({ showSuccessToast = false } = {}) => {
     })
     infoLoaded.value = true
     if (showSuccessToast) {
-      showToast('已刷新信息查询结果', 'success')
+      showToast(t('selection.message.infoRefreshed'), 'success')
     }
   } catch (err) {
     infoCourses.value = []
-    infoError.value = resolveErrorMessage(err, '获取已选课程失败')
+    infoError.value = resolveErrorMessage(err, t('selection.message.selectedFailed'))
     if (showSuccessToast) {
       showToast(infoError.value, 'error')
     }
@@ -887,7 +903,7 @@ const resetInfoFilters = () => {
     teacher: '',
     kcxz: '',
     kclx: '',
-    xkfs: infoShowOtherModes.value ? '' : '选课'
+    xkfs: infoShowOtherModes.value ? '' : '\u9009\u8bfe'
   }
 }
 
@@ -895,7 +911,7 @@ const handleInfoOtherModesChange = () => {
   if (infoShowOtherModes.value) {
     infoFilters.value.xkfs = ''
   } else {
-    infoFilters.value.xkfs = '选课'
+    infoFilters.value.xkfs = '\u9009\u8bfe'
   }
 }
 
@@ -916,7 +932,7 @@ const onInfoTermChange = async () => {
       infoCourses.value = sortInfoCourses(dedupeInfoCourses(merged))
     }
   } catch (err) {
-    console.warn('[选课调试] 切换学期查询失败:', err?.message || err)
+    console.warn('[selection-debug] term-switch query failed:', err?.message || err)
   } finally {
     loadingInfo.value = false
   }
@@ -990,7 +1006,7 @@ const openDetail = async (course) => {
       axios.post(`${API_BASE}/v2/course_selection/detail_teacher`, { jxbid: course.id })
     ])
     if (introRes.status === 'fulfilled') {
-      const { data } = unwrapApiResult(introRes.value, '获取课程简介失败')
+      const { data } = unwrapApiResult(introRes.value, t('selection.message.introFailed'))
       const introRaw = normalizeDetailSourceText(data.content || detailIntro.value)
       const introHasConflict = hasConflictHint(introRaw)
       if (introHasConflict && !course.isPicked) {
@@ -1011,7 +1027,7 @@ const openDetail = async (course) => {
       })
     }
     if (teacherRes.status === 'fulfilled') {
-      const { data } = unwrapApiResult(teacherRes.value, '获取教师详情失败')
+      const { data } = unwrapApiResult(teacherRes.value, t('selection.message.teacherFailed'))
       const normalized = normalizeTeacherContent(data.content)
       if (normalized.length > 0) detailTeachers.value = normalized
     }
@@ -1038,19 +1054,19 @@ const submitSelect = async (course, zjxbid = '') => {
       zjxbid: safeText(zjxbid) || undefined,
       from: resolveTabFrom(currentTab.value)
     })
-    const { data } = unwrapApiResult(res, '选课失败')
+    const { data } = unwrapApiResult(res, t('selection.message.selectFailed'))
     showChildClassDialog.value = false
     childClasses.value = []
     pendingSelectCourse.value = null
     selectedChildClassId.value = ''
-    showToast(safeText(data.msg) || '选课成功', 'success')
+    showToast(safeText(data.msg) || t('selection.message.selectSuccess'), 'success')
     await fetchList()
     if (selectedCourse.value?.id === course.id) {
       const next = courses.value.find((item) => item.id === course.id)
       if (next) selectedCourse.value = next
     }
   } catch (err) {
-    showToast(resolveErrorMessage(err, '选课失败'), 'error')
+    showToast(resolveErrorMessage(err, t('selection.message.selectFailed')), 'error')
   } finally {
     selectingCourseId.value = ''
   }
@@ -1096,7 +1112,7 @@ const openChildClassPicker = async (course) => {
       jxbid: course.id,
       from: resolveTabFrom(currentTab.value)
     })
-    const { data } = unwrapApiResult(res, '获取子教学班失败')
+    const { data } = unwrapApiResult(res, t('selection.message.childClassFailed'))
     const classes = Array.isArray(data.classes) ? data.classes : []
     const childIds = Array.isArray(data.child_ids) ? data.child_ids.map((item) => safeText(item)).filter(Boolean) : []
     const normalized = classes.map((item) => ({
@@ -1115,7 +1131,7 @@ const openChildClassPicker = async (course) => {
     selectedChildClassId.value = normalized[0]?.id || ''
     showChildClassDialog.value = true
   } catch (err) {
-    showToast(resolveErrorMessage(err, '获取子教学班失败'), 'error')
+    showToast(resolveErrorMessage(err, t('selection.message.childClassFailed')), 'error')
   } finally {
     selectingCourseId.value = ''
   }
@@ -1142,15 +1158,15 @@ const submitWithdraw = async (course) => {
       pcid: currentPcid.value,
       jxbid: course.id
     })
-    const { data } = unwrapApiResult(res, '退课失败')
-    showToast(safeText(data.msg) || '退课成功', 'success')
+    const { data } = unwrapApiResult(res, t('selection.message.withdrawFailed'))
+    showToast(safeText(data.msg) || t('selection.message.withdrawSuccess'), 'success')
     await fetchList()
     if (selectedCourse.value?.id === course.id) {
       const next = courses.value.find((item) => item.id === course.id)
       if (next) selectedCourse.value = next
     }
   } catch (err) {
-    showToast(resolveErrorMessage(err, '退课失败'), 'error')
+    showToast(resolveErrorMessage(err, t('selection.message.withdrawFailed')), 'error')
   } finally {
     withdrawingCourseId.value = ''
   }
@@ -1183,8 +1199,8 @@ const filteredInfoCourses = computed(() => {
       return false
     }
 
-    const mode = safeText(course.xkfsText || '选课')
-    if (!infoShowOtherModes.value && mode !== '选课') {
+    const mode = safeText(course.xkfsText || t('selection.info.defaultMode'))
+    if (!infoShowOtherModes.value && mode !== '\u9009\u8bfe') {
       return false
     }
     if (infoShowOtherModes.value && safeText(infoFilters.value.xkfs) && mode !== safeText(infoFilters.value.xkfs)) {
@@ -1195,20 +1211,20 @@ const filteredInfoCourses = computed(() => {
 })
 
 const infoEmptyHint = computed(() => {
-  if (loadingInfo.value) return '正在查询已选课程...'
+  if (loadingInfo.value) return t('selection.info.querying')
   if (infoError.value) return infoError.value
-  if (!infoLoaded.value) return '点击“信息查询”后将自动加载结果'
-  return '当前筛选条件下暂无课程'
+  if (!infoLoaded.value) return t('selection.info.autoLoadHint')
+  return t('selection.info.noCourseUnderFilter')
 })
 
 const refreshButtonLabel = computed(() => {
   if (centerMode.value === ENTRY_MODE_SELECTION) {
-    return refreshing.value ? '刷新中…' : '刷新'
+    return refreshing.value ? t('selection.refreshing') : t('selection.refresh')
   }
   if (centerMode.value === ENTRY_MODE_INFO) {
-    return loadingInfo.value ? '查询中…' : '刷新查询'
+    return loadingInfo.value ? t('selection.querying') : t('selection.refreshQuery')
   }
-  return '刷新'
+  return t('selection.refresh')
 })
 
 const refreshDisabled = computed(() => {
@@ -1223,36 +1239,36 @@ const refreshDisabled = computed(() => {
 
 const headerMainPill = computed(() => {
   if (centerMode.value === ENTRY_MODE_SELECTION) {
-    return `可选课程 ${count.value} 门`
+    return tf('selection.pill.courseCount', { n: count.value })
   }
   if (centerMode.value === ENTRY_MODE_INFO) {
-    return `已选课程 ${filteredInfoCourses.value.length} 门`
+    return tf('selection.pill.selectedCount', { n: filteredInfoCourses.value.length })
   }
-  return '请选择查询入口'
+  return t('selection.pill.chooseEntry')
 })
 
 const headerSubPill = computed(() => {
   if (centerMode.value === ENTRY_MODE_SELECTION) {
-    return `批次倒计时 ${countdownText.value || '--'}`
+    return tf('selection.pill.countdown', { time: countdownText.value || '--' })
   }
   if (centerMode.value === ENTRY_MODE_INFO) {
-    return `当前学期 ${safeText(infoFilters.value.term) || safeText(summaryStudent.value?.semester) || '--'}`
+    return tf('selection.pill.currentTerm', { term: safeText(infoFilters.value.term) || safeText(summaryStudent.value?.semester) || '--' })
   }
-  return '左侧选课，右侧信息查询'
+  return t('selection.pill.entryHint')
 })
 
 const pageTitle = computed(() => {
-  if (centerMode.value === ENTRY_MODE_SELECTION) return '选课中心 · 选课'
-  if (centerMode.value === ENTRY_MODE_INFO) return '选课中心 · 信息查询'
-  return '选课中心'
+  if (centerMode.value === ENTRY_MODE_SELECTION) return t('selection.title.selection')
+  if (centerMode.value === ENTRY_MODE_INFO) return t('selection.title.info')
+  return t('selection.title')
 })
 
-const backButtonLabel = computed(() => (centerMode.value === ENTRY_MODE_MENU ? '← 返回' : '← 入口'))
+const backButtonLabel = computed(() => (centerMode.value === ENTRY_MODE_MENU ? t('selection.back.list') : t('selection.back.entry')))
 
 const emptyHint = computed(() => {
-  if (loadingOverview.value || loadingList.value) return '加载中...'
+  if (loadingOverview.value || loadingList.value) return t('common.empty.loading')
   if (overviewError.value) return overviewError.value
-  return listMessage.value || '当前暂无可选课程'
+  return listMessage.value || t('selection.message.noneAvailable')
 })
 
 const canShowList = computed(() => tabs.value.length > 0)

@@ -96,7 +96,8 @@ describe('campus network navigation contract', () => {
   it('adds Me page entry for campus network', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/MeView.vue'), 'utf8')
     expect(source).toContain("handleOpenCampusNetwork")
-    expect(source).toContain('校园网')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(source).toContain("t('me.grid.campusNetwork')")
   })
 })
 

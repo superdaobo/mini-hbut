@@ -67,14 +67,16 @@ describe('TestFlight 演示账号接入契约', () => {
     expect(resourceShareSource).toContain('const buildPreviewUrlCandidates = (path, signed) => {')
     expect(resourceShareSource).toContain('if (isTestAccountSession()) return [String(signed?.url || \'\').trim()].filter(Boolean)')
     expect(resourceShareSource).toContain('const openDownload = async () => {')
-    expect(resourceShareSource).toContain('演示账号不下载真实资料')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(resourceShareSource).toContain("t('resource.hint.demoDisabled')")
     expect(aiChatSource).toContain("from '../utils/test_account.js'")
     expect(aiChatSource).toContain('buildTestAccountAiReply')
     expect(aiChatSource).toContain('if (isTestAccountSession())')
     expect(aiChatSource).toContain('token.value = \'test-account-token\'')
     expect(aiChatSource).toMatch(/const postJson = async[\s\S]*if \(isTestAccountSession\(\)\)/)
     expect(aiChatSource).toContain('const syncRemoteHistory = async () => {')
-    expect(aiChatSource).toContain('演示账号不会调用外部 AI 服务')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(aiChatSource).toContain("t('ai.error.demoDisabled')")
     expect(forumApiSource).toContain("from './test_account.js'")
     expect(forumApiSource).toContain("from './test_account_fixtures.js'")
     expect(forumApiSource).toContain('resolveTestAccountForumResponse')

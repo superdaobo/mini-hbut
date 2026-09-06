@@ -17,9 +17,13 @@ import {
   isTestAccountSession
 } from '../utils/test_account.js'
 import { showToast } from '../utils/toast'
+import { useI18n, tf } from '../utils/app_i18n'
 import { TPageHeader } from './templates'
 
 const emit = defineEmits(['back', 'logout', 'cleared'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 
 const busy = ref('')
 const message = ref('')
@@ -40,7 +44,7 @@ const clearLocalCaches = () => {
       }
     }
     keys.forEach((k) => localStorage.removeItem(k))
-    message.value = `已清除 ${keys.length} 项离线缓存键`
+    message.value = tf('privacy.toast.clearedCache', { n: keys.length })
     showToast(message.value)
   } catch (e) {
     message.value = String(e?.message || e)
@@ -59,7 +63,7 @@ const clearSession = () => {
       'hbu_logout_reason'
     ].forEach((k) => localStorage.removeItem(k))
     if (isTestAccountSession()) clearTestAccountSession()
-    message.value = '已请求清除登录会话标记；请再点退出登录以清理内存态'
+    message.value = t('privacy.toast.sessionCleared')
     showToast(message.value)
     emit('logout')
   } catch (e) {
@@ -70,7 +74,7 @@ const clearSession = () => {
 }
 
 const clearAllLocal = () => {
-  if (!confirm('将清除本应用在本设备保存的本地数据（缓存、设置快照、演示标记等）。不会删除学校账号。是否继续？')) {
+  if (!confirm(t('privacy.confirm.clearAll'))) {
     return
   }
   busy.value = 'all'
@@ -88,7 +92,7 @@ const clearAllLocal = () => {
       /* ignore */
     }
     clearTestAccountSession()
-    message.value = '已清除全部本地 Web 存储。建议完全退出应用后重新打开。'
+    message.value = t('privacy.toast.allCleared')
     showToast(message.value)
     emit('cleared')
     emit('logout')
@@ -103,7 +107,7 @@ const disableCloudAndStats = () => {
   try {
     localStorage.setItem('hbu_cloud_sync_user_disabled', '1')
     localStorage.setItem('hbu_usage_stats_user_disabled', '1')
-    message.value = '已标记关闭云同步与使用统计上传（本地偏好）'
+    message.value = t('privacy.toast.cloudDisabled')
     showToast(message.value)
   } catch (e) {
     message.value = String(e?.message || e)
@@ -125,7 +129,7 @@ const exportLocalMeta = () => {
     a.download = 'mini-hbut-local-data-export.json'
     a.click()
     URL.revokeObjectURL(url)
-    showToast('已导出本地键名清单（不含密码）')
+    showToast(t('privacy.toast.metaExported'))
   } catch (e) {
     message.value = String(e?.message || e)
   }
@@ -134,7 +138,7 @@ const exportLocalMeta = () => {
 
 <template>
   <div class="privacy-data-view">
-    <TPageHeader title="隐私与数据" icon="shield" @back="emit('back')" />
+    <TPageHeader :title="t('privacy.title')" icon="shield" @back="emit('back')" />
 
     <main class="privacy-data-view__main">
       <section class="privacy-card privacy-card--enter" style="--enter-delay: 0ms">
@@ -142,7 +146,7 @@ const exportLocalMeta = () => {
           <span class="privacy-card__icon" aria-hidden="true">
             <span class="material-symbols-outlined">info</span>
           </span>
-          <h2>非官方声明</h2>
+          <h2>{{ t('privacy.section.disclaimer') }}</h2>
         </div>
         <p>{{ NON_OFFICIAL_DISCLAIMER_ZH }}</p>
         <p class="muted">{{ NON_OFFICIAL_DISCLAIMER_EN }}</p>
@@ -153,37 +157,37 @@ const exportLocalMeta = () => {
           <span class="privacy-card__icon privacy-card__icon--policy" aria-hidden="true">
             <span class="material-symbols-outlined">policy</span>
           </span>
-          <h2>政策与支持</h2>
+          <h2>{{ t('privacy.section.policy') }}</h2>
         </div>
         <div class="privacy-link-list">
           <button type="button" class="link-btn" @click="openUrl(PRIVACY_POLICY_URL)">
             <span class="link-btn__icon material-symbols-outlined">privacy_tip</span>
-            <span class="link-btn__label">查看隐私政策</span>
+            <span class="link-btn__label">{{ t('privacy.link.privacyPolicy') }}</span>
             <span class="link-btn__chev material-symbols-outlined">open_in_new</span>
           </button>
           <button type="button" class="link-btn" @click="openUrl(SECURITY_DOCS_URL)">
             <span class="link-btn__icon material-symbols-outlined">security</span>
-            <span class="link-btn__label">数据与安全说明</span>
+            <span class="link-btn__label">{{ t('privacy.link.security') }}</span>
             <span class="link-btn__chev material-symbols-outlined">open_in_new</span>
           </button>
           <button type="button" class="link-btn" @click="openUrl(SUPPORT_DOCS_URL)">
             <span class="link-btn__icon material-symbols-outlined">menu_book</span>
-            <span class="link-btn__label">用户文档</span>
+            <span class="link-btn__label">{{ t('privacy.link.userDocs') }}</span>
             <span class="link-btn__chev material-symbols-outlined">open_in_new</span>
           </button>
           <button type="button" class="link-btn" @click="openUrl(PROJECT_HOME_URL)">
             <span class="link-btn__icon material-symbols-outlined">public</span>
-            <span class="link-btn__label">项目官网</span>
+            <span class="link-btn__label">{{ t('privacy.link.projectHome') }}</span>
             <span class="link-btn__chev material-symbols-outlined">open_in_new</span>
           </button>
           <button type="button" class="link-btn" @click="openUrl(GITHUB_URL)">
             <span class="link-btn__icon material-symbols-outlined">code</span>
-            <span class="link-btn__label">开源仓库</span>
+            <span class="link-btn__label">{{ t('privacy.link.github') }}</span>
             <span class="link-btn__chev material-symbols-outlined">open_in_new</span>
           </button>
           <button type="button" class="link-btn" @click="openUrl(FEEDBACK_URL)">
             <span class="link-btn__icon material-symbols-outlined">support_agent</span>
-            <span class="link-btn__label">联系支持 / 反馈</span>
+            <span class="link-btn__label">{{ t('privacy.link.support') }}</span>
             <span class="link-btn__chev material-symbols-outlined">open_in_new</span>
           </button>
         </div>
@@ -194,35 +198,35 @@ const exportLocalMeta = () => {
           <span class="privacy-card__icon privacy-card__icon--control" aria-hidden="true">
             <span class="material-symbols-outlined">database</span>
           </span>
-          <h2>本应用数据控制</h2>
+          <h2>{{ t('privacy.section.control') }}</h2>
         </div>
         <p class="muted">
-          Mini-HBUT 使用你已有的校园登录凭据查询你本人有权访问的信息，不创建独立的校园机构账号，因此无法删除学校侧账号。
+          {{ t('privacy.control.intro') }}
         </p>
         <div class="privacy-action-list">
           <button type="button" class="action-btn" :disabled="!!busy" @click="clearLocalCaches">
             <span class="action-btn__icon material-symbols-outlined">cached</span>
-            <span>清除离线缓存</span>
+            <span>{{ t('privacy.action.clearCache') }}</span>
           </button>
           <button type="button" class="action-btn" :disabled="!!busy" @click="clearSession">
             <span class="action-btn__icon material-symbols-outlined">logout</span>
-            <span>清除登录会话</span>
+            <span>{{ t('privacy.action.clearSession') }}</span>
           </button>
           <button type="button" class="action-btn danger" :disabled="!!busy" @click="clearAllLocal">
             <span class="action-btn__icon material-symbols-outlined">delete_forever</span>
-            <span>清除全部本地数据</span>
+            <span>{{ t('privacy.action.clearAll') }}</span>
           </button>
           <button type="button" class="action-btn" @click="disableCloudAndStats">
             <span class="action-btn__icon material-symbols-outlined">cloud_off</span>
-            <span>关闭云同步与使用统计</span>
+            <span>{{ t('privacy.action.disableCloud') }}</span>
           </button>
           <button type="button" class="action-btn" @click="exportLocalMeta">
             <span class="action-btn__icon material-symbols-outlined">download</span>
-            <span>导出个人数据元信息</span>
+            <span>{{ t('privacy.action.exportMeta') }}</span>
           </button>
         </div>
         <p class="muted">
-          删除 Mini-HBUT 云端数据：若你曾开启云同步，请在关闭同步后通过反馈渠道申请删除服务端关联记录（学号哈希/设备标识）。本页不会删除学校系统中的成绩或账号。
+          {{ t('privacy.control.cloudDeletion') }}
         </p>
       </section>
 

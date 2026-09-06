@@ -6,9 +6,13 @@ import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { importModuleFromCdn, loadScriptFromCdn, loadStyleFromCdn } from '../utils/cdn_loader'
 import { isTestAccountSession } from '../utils/test_account.js'
+import { useI18n, tf } from '../utils/app_i18n'
 import { TPageHeader } from './templates'
 
 const emit = defineEmits(['back'])
+
+// i18n（#794 批次 I）：响应式取词用于模板与 JS 逻辑（tf 整句插值）
+const { t } = useI18n()
 
 const DIR_CACHE_TTL_MS = 15 * 60 * 1000
 const DIR_CACHE_STORAGE_KEY = 'hbut_resource_dir_cache_v4'
@@ -216,17 +220,17 @@ const getItemIcon = (item) => {
 }
 
 const getItemTypeLabel = (item) => {
-  if (item?.isDir) return '文件夹'
+  if (item?.isDir) return t('resource.type.dir')
   const ext = getExt(item?.name)
-  if (videoExts.has(ext)) return '视频'
-  if (audioExts.has(ext)) return '音频'
-  if (imageExts.has(ext)) return '图片'
+  if (videoExts.has(ext)) return t('resource.type.video')
+  if (audioExts.has(ext)) return t('resource.type.audio')
+  if (imageExts.has(ext)) return t('resource.type.image')
   if (ext === 'pdf') return 'PDF'
-  if (wordExts.has(ext)) return '文档'
-  if (sheetExts.has(ext)) return '表格'
+  if (wordExts.has(ext)) return t('resource.type.doc')
+  if (sheetExts.has(ext)) return t('resource.type.sheet')
   if (slideExts.has(ext)) return 'PPT'
-  if (textExts.has(ext)) return '文本'
-  return ext ? ext.toUpperCase() : '文件'
+  if (textExts.has(ext)) return t('resource.type.text')
+  return ext ? ext.toUpperCase() : t('resource.type.file')
 }
 
 const getTypeClass = (item) => {
@@ -243,21 +247,28 @@ const getTypeClass = (item) => {
   return 'other'
 }
 
+// TestFlight 演示目录固定名（与 test_account_fixtures.js 的 WebDAV XML 路径一致，属数据格式值，用 \u 转义通过 CJK 扫描）
+const DEMO_DIR_NAME = 'TestFlight\u6f14\u793a\u8d44\u6599'
+const DEMO_DIR_PATH = '/TestFlight\u6f14\u793a\u8d44\u6599'
+const DEMO_NOTE_NAME = '\u6f14\u793a\u8bf4\u660e.txt'
+const DEMO_NOTE_PATH = '/\u6f14\u793a\u8bf4\u660e.txt'
+const DEMO_PREVIEW_NAME = '\u8bfe\u7a0b\u8d44\u6599\u9884\u89c8.txt'
+const DEMO_PREVIEW_PATH = '/TestFlight\u6f14\u793a\u8d44\u6599/\u8bfe\u7a0b\u8d44\u6599\u9884\u89c8.txt'
 const buildTestAccountResourceShareItems = (path = '/') => {
   const targetPath = normalizePath(path)
   if (targetPath === '/') {
     return [
       {
-        name: 'TestFlight演示资料',
-        path: '/TestFlight演示资料',
+        name: DEMO_DIR_NAME,
+        path: DEMO_DIR_PATH,
         isDir: true,
         size: 0,
         modified: '2026-07-06T08:00:00+08:00',
         contentType: ''
       },
       {
-        name: '演示说明.txt',
-        path: '/演示说明.txt',
+        name: DEMO_NOTE_NAME,
+        path: DEMO_NOTE_PATH,
         isDir: false,
         size: 128,
         modified: '2026-07-06T08:00:00+08:00',
@@ -265,11 +276,11 @@ const buildTestAccountResourceShareItems = (path = '/') => {
       }
     ]
   }
-  if (targetPath === '/TestFlight演示资料') {
+  if (targetPath === DEMO_DIR_PATH) {
     return [
       {
-        name: '课程资料预览.txt',
-        path: '/TestFlight演示资料/课程资料预览.txt',
+        name: DEMO_PREVIEW_NAME,
+        path: DEMO_PREVIEW_PATH,
         isDir: false,
         size: 96,
         modified: '2026-07-06T08:00:00+08:00',
@@ -349,7 +360,7 @@ const parsePropfindXml = (xmlText, targetPath) => {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlText, 'application/xml')
   if (doc.getElementsByTagName('parsererror').length > 0) {
-    throw new Error('目录响应解析失败')
+    throw new Error(t('resource.error.parseFailed'))
   }
   const responses = [...doc.getElementsByTagNameNS('*', 'response')]
   const normalizedTarget = normalizePath(targetPath)
@@ -366,7 +377,7 @@ const parsePropfindXml = (xmlText, targetPath) => {
     const modified = textByLocalName(prop || node, 'getlastmodified')
     const isDir = !!(prop && prop.getElementsByTagNameNS('*', 'collection').length > 0)
     const fallbackName = decodeURIComponent(path.split('/').filter(Boolean).pop() || '')
-    const name = display || fallbackName || (isDir ? '未命名文件夹' : '未命名文件')
+    const name = display || fallbackName || (isDir ? t('resource.type.unnamedDir') : t('resource.type.unnamedFile'))
     parsed.push({
       name,
       path,
@@ -386,7 +397,7 @@ const parsePropfindXml = (xmlText, targetPath) => {
 const breadcrumbItems = computed(() => {
   const full = normalizePath(currentPath.value)
   const parts = full.split('/').filter(Boolean)
-  const result = [{ label: '根目录', path: '/' }]
+  const result = [{ label: t('resource.error.root'), path: '/' }]
   let running = ''
   for (const part of parts) {
     running = joinPath(running || '/', part)
@@ -417,7 +428,7 @@ const fetchDirectoryViaNative = async (path) => {
   })
   const xml = String(payload?.xml || '')
   if (!xml) {
-    throw new Error('原生目录接口返回空响应')
+    throw new Error(t('resource.error.nativeEmpty'))
   }
   return xml
 }
@@ -471,7 +482,7 @@ const listDirectory = async (path, force = false) => {
     )
 
     if (!res.ok) {
-      throw new Error(`目录加载失败（HTTP ${res.status}）`)
+      throw new Error(tf('resource.error.loadFailed', { status: res.status }))
     }
 
     const parsed = parsePropfindXml(await res.text(), targetPath)
@@ -482,9 +493,9 @@ const listDirectory = async (path, force = false) => {
     saveJsonStorage(DIR_CACHE_STORAGE_KEY, dirCache.value)
   } catch (error) {
     if (error?.name === 'AbortError') {
-      errorMessage.value = '目录加载超时，请重试'
+      errorMessage.value = t('resource.error.loadTimeout')
     } else {
-      errorMessage.value = error?.message || '目录加载失败'
+      errorMessage.value = error?.message || t('resource.error.loadGeneric')
     }
   } finally {
     loadingList.value = false
@@ -605,7 +616,7 @@ const fetchDirectUrlFromBridge = async (params) => {
     try {
       const response = await fetchWithTimeout(`${base}/resource_share/direct_url?${query}`, {}, 20000)
       if (!response.ok) {
-        throw new Error(`获取直链失败（HTTP ${response.status}）`)
+        throw new Error(tf('resource.error.directUrlFailed', { status: response.status }))
       }
       const payload = await response.json().catch(() => ({}))
       return payload
@@ -613,7 +624,7 @@ const fetchDirectUrlFromBridge = async (params) => {
       lastError = error
     }
   }
-  throw lastError || new Error('获取直链失败')
+  throw lastError || new Error(t('resource.error.directUrlGeneric'))
 }
 
 const getSignedDirectUrl = async (path) => {
@@ -635,7 +646,7 @@ const getSignedDirectUrl = async (path) => {
         directUrlCache.set(cacheKey, { url: nativeDirect, expireAt, needAuth: nativeNeedAuth })
         return { url: nativeDirect, needAuth: nativeNeedAuth }
       }
-      throw new Error('未获取到可用直链')
+      throw new Error(t('resource.error.noDirectUrl'))
     } catch (nativeError) {
       console.warn('[ResourceShare] invoke direct_url failed, fallback to auth url:', nativeError?.message || nativeError)
       const direct = getDavAuthUrl(normalized)
@@ -715,7 +726,7 @@ const fetchTextWithAuth = async (path) => {
     35000
   )
   if (!response.ok) {
-    throw new Error(`文本读取失败（HTTP ${response.status}）`)
+    throw new Error(tf('resource.error.fileReadFailed', { status: response.status }))
   }
   return response.text()
 }
@@ -769,10 +780,10 @@ const onPreviewFrameError = () => {
   const next = officePreviewCandidates.value.shift()
   if (next) {
     setPreviewUrl(next)
-    previewHint.value = 'Office 预览线路已自动切换，正在重试...'
+    previewHint.value = t('resource.hint.officeRetrying')
     return
   }
-  previewHint.value = 'Office 在线预览失败，请点击下载后查看'
+  previewHint.value = t('resource.hint.officeFailed')
 }
 
 const ensurePdfRuntime = async () => {
@@ -857,7 +868,7 @@ const openPdfWithCandidates = async (urls) => {
     try {
       const response = await fetchWithTimeout(candidate, {}, 60000)
       if (!response.ok) {
-        throw new Error(`PDF 获取失败（HTTP ${response.status}）`)
+        throw new Error(tf('resource.error.pdfFetchFailed', { status: response.status }))
       }
       const bytes = new Uint8Array(await response.arrayBuffer())
       const loadingTask = runtime.getDocument({
@@ -874,10 +885,10 @@ const openPdfWithCandidates = async (urls) => {
       pdfPreviewCandidates.value = urls.slice(i + 1)
       return
     } catch (error) {
-      lastErr = error?.message || '未知错误'
+      lastErr = error?.message || t('resource.error.unknown')
     }
   }
-  throw new Error(lastErr || 'PDF 预览失败')
+  throw new Error(lastErr || t('resource.error.pdfPreviewFailed'))
 }
 
 const prevPdfPage = async () => {
@@ -983,7 +994,7 @@ const initPreviewPlayer = async () => {
 
   const PlayerCtor = await ensureXgplayerRuntime()
   if (!PlayerCtor) {
-    previewHint.value = '播放器运行时加载失败，请稍后重试'
+    previewHint.value = t('resource.hint.playerLoadFailed')
     return
   }
 
@@ -1027,52 +1038,52 @@ const onPreviewMediaError = () => {
   const next = shiftNextPreviewCandidate()
   if (next) {
     previewProxyFallbackUsed.value = true
-    previewHint.value = '当前线路不可用，已切换备用线路重试播放'
+    previewHint.value = t('resource.hint.mediaLineSwitched')
     return
   }
   if (runtimeIsTauri && !nativeBlobFallbackTried.value) {
     nativeBlobFallbackTried.value = true
-    previewHint.value = '正在切换本地安全通道加载媒体...'
+    previewHint.value = t('resource.hint.mediaSwitchingSecure')
     void applyNativeBlobPreview(previewKind.value)
       .then((ok) => {
         if (ok) {
-          previewHint.value = '已切换本地安全通道播放'
+          previewHint.value = t('resource.hint.mediaSecureSwitched')
           return
         }
-        previewHint.value = '当前文件无法在线播放，请点击下载后用系统播放器打开'
+        previewHint.value = t('resource.hint.mediaUnsupported')
       })
       .catch((error) => {
-        previewHint.value = `媒体预览失败：${error?.message || '未知错误'}`
+        previewHint.value = tf('resource.hint.mediaPreviewFailed', { msg: error?.message || t('resource.error.unknown') })
       })
     return
   }
-  previewHint.value = '当前文件无法在线播放，请点击下载后用系统播放器打开'
+  previewHint.value = t('resource.hint.mediaUnsupported')
 }
 
 const onPreviewImageError = () => {
   if (previewKind.value !== 'image') return
   const next = shiftNextPreviewCandidate()
   if (next) {
-    previewHint.value = '图片加载失败，已自动切换备用线路'
+    previewHint.value = t('resource.hint.imageLineSwitched')
     return
   }
   if (runtimeIsTauri && !nativeBlobFallbackTried.value) {
     nativeBlobFallbackTried.value = true
-    previewHint.value = '正在切换本地安全通道加载图片...'
+    previewHint.value = t('resource.hint.imageSwitchingSecure')
     void applyNativeBlobPreview('image')
       .then((ok) => {
         if (ok) {
-          previewHint.value = '已切换本地安全通道预览图片'
+          previewHint.value = t('resource.hint.imageSecureSwitched')
           return
         }
-        previewHint.value = '图片预览失败，请点击下载后查看'
+        previewHint.value = t('resource.hint.imagePreviewFailed')
       })
       .catch((error) => {
-        previewHint.value = `图片预览失败：${error?.message || '未知错误'}`
+        previewHint.value = tf('resource.hint.mediaPreviewFailed', { msg: error?.message || t('resource.error.unknown') })
       })
     return
   }
-  previewHint.value = '图片预览失败，请点击下载后查看'
+  previewHint.value = t('resource.hint.imagePreviewFailed')
 }
 
 const preparePreview = async (item) => {
@@ -1117,7 +1128,7 @@ const preparePreview = async (item) => {
       const candidates = buildPreviewUrlCandidates(item.path, signed)
       previewUrlCandidates.value = candidates.slice(1)
       setPreviewUrl(candidates[0] || resolvePreviewPlayableUrl(item.path, signed))
-      previewHint.value = signed.needAuth ? '已切换受鉴权资源预览通道' : '已使用直链流式播放'
+      previewHint.value = signed.needAuth ? t('resource.hint.authChannelSwitched') : t('resource.hint.directStreamPlaying')
       return
     }
     if (audioExts.has(ext)) {
@@ -1125,7 +1136,7 @@ const preparePreview = async (item) => {
       const candidates = buildPreviewUrlCandidates(item.path, signed)
       previewUrlCandidates.value = candidates.slice(1)
       setPreviewUrl(candidates[0] || resolvePreviewPlayableUrl(item.path, signed))
-      previewHint.value = signed.needAuth ? '已切换受鉴权资源预览通道' : '已使用直链流式播放'
+      previewHint.value = signed.needAuth ? t('resource.hint.authChannelSwitched') : t('resource.hint.directStreamPlaying')
       return
     }
     if (imageExts.has(ext)) {
@@ -1140,7 +1151,7 @@ const preparePreview = async (item) => {
       const urls = buildPreviewUrlCandidates(item.path, signed)
       const uniqueUrls = [...new Set(urls.filter(Boolean))]
       if (!uniqueUrls.length) {
-        throw new Error('PDF 预览地址为空')
+        throw new Error(t('resource.error.pdfUrlEmpty'))
       }
       try {
         await openPdfWithCandidates(uniqueUrls)
@@ -1164,30 +1175,30 @@ const preparePreview = async (item) => {
         setPreviewUrl('native://pdf-inline')
       }
       previewHint.value = runtimeIsCapacitor
-        ? 'PDF 已使用移动端兼容线路预览'
-        : 'PDF 已建立预览通道，失败会自动切换备用线路'
+        ? t('resource.hint.pdfMobileCompatible')
+        : t('resource.hint.pdfChannelReady')
       return
     }
     if (officeExts.has(ext)) {
       if (signed.needAuth) {
-        throw new Error('当前文件未生成可公开直链，无法直接在线预览 Office')
+        throw new Error(t('resource.error.officeNoDirectLink'))
       }
       const officeUrls = buildOfficePreviewCandidates(signed.url)
       if (!officeUrls.length) {
-        throw new Error('未配置 Office 在线预览地址')
+        throw new Error(t('resource.error.officeNotConfigured'))
       }
       previewKind.value = 'office'
       setPreviewUrl(officeUrls[0])
       officePreviewCandidates.value = officeUrls.slice(1)
-      previewHint.value = '已通过 OneDrive 直链拼接 Office 在线预览'
+      previewHint.value = t('resource.hint.officeViaOneDrive')
       return
     }
 
     previewKind.value = 'unknown'
-    previewHint.value = '该文件类型暂不支持在线预览，请使用下载'
+    previewHint.value = t('resource.hint.typeUnsupported')
   } catch (error) {
     previewKind.value = 'unknown'
-    previewHint.value = error?.message || '预览失败'
+    previewHint.value = error?.message || t('resource.hint.previewFailed')
   } finally {
     loadingPreview.value = false
     if (previewKind.value === 'pdf') {
@@ -1195,7 +1206,7 @@ const preparePreview = async (item) => {
       try {
         await renderPdfPage()
       } catch (error) {
-        previewHint.value = `PDF 渲染失败：${error?.message || '未知错误'}`
+        previewHint.value = tf('resource.hint.pdfRenderFailed', { msg: error?.message || t('resource.error.unknown') })
         previewKind.value = 'unknown'
       }
     }
@@ -1227,7 +1238,7 @@ const openBreadcrumb = async (path) => {
 const openDownload = async () => {
   if (!previewPath.value) return
   if (isTestAccountSession()) {
-    previewHint.value = '演示账号不下载真实资料'
+    previewHint.value = t('resource.hint.demoDisabled')
     return
   }
   try {
@@ -1262,16 +1273,16 @@ const openDownload = async () => {
           document.body.appendChild(anchor)
           anchor.click()
           document.body.removeChild(anchor)
-          previewHint.value = '已触发浏览器下载，请检查系统浏览器'
+          previewHint.value = t('resource.hint.browserDownloadStarted')
           return
         } catch {
           // ignore
         }
       }
     }
-    previewHint.value = '无法打开外部下载链接，请稍后重试'
+    previewHint.value = t('resource.hint.externalOpenFailed')
   } catch (error) {
-    previewHint.value = error?.message || '无法打开下载链接'
+    previewHint.value = error?.message || t('resource.hint.openDownloadFailed')
   }
 }
 
@@ -1296,7 +1307,7 @@ const loadConfig = async () => {
       String(share.office_preview_proxy || 'https://view.officeapps.live.com/op/embed.aspx?src=').trim() ||
       'https://view.officeapps.live.com/op/embed.aspx?src='
   } catch (error) {
-    errorMessage.value = error?.message || '远程配置加载失败，已使用默认配置'
+    errorMessage.value = error?.message || t('resource.error.remoteConfigFallback')
   } finally {
     loadingConfig.value = false
   }
@@ -1341,7 +1352,7 @@ onMounted(async () => {
   if (enabled.value) {
     await listDirectory('/', false)
   } else {
-    errorMessage.value = '资料分享模块已禁用'
+    errorMessage.value = t('resource.error.moduleDisabled')
   }
 })
 

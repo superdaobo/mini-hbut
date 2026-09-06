@@ -22,8 +22,9 @@ describe('me quick links frontend contract', () => {
     expect(source).toContain('v-if="showQuickLinks"')
     expect(source).toContain('@click="handleOpenSchoolWebsite"')
     expect(source).toContain('@click="handleOpenQuickLinks"')
-    expect(source).toContain('学校官网')
-    expect(source).toContain('快捷链接')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(source).toContain("t('me.grid.schoolWebsite')")
+    expect(source).toContain("t('me.grid.quickLinks')")
   })
 
   it('requires login before entering school_website or quick_links', () => {
@@ -77,7 +78,8 @@ describe('me quick links frontend contract', () => {
     expect(source).toContain('resolveSchoolWebsiteEmbedMode')
     expect(source).toContain('mountSchoolWebsiteEmbed')
     expect(source).toContain('<iframe')
-    expect(source).toContain('在浏览器中打开')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(source).toContain("t('web.openInBrowser')")
     expect(source).toContain('openExternal')
   })
 

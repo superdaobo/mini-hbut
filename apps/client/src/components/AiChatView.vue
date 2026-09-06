@@ -4,6 +4,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { initMarkdownRuntime } from '../utils/markdown.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { isTestAccountSession } from '../utils/test_account.js'
+import { useI18n, tf } from '../utils/app_i18n'
 import {
   DEFAULT_WELCOME,
   AI_BRIDGE_CANDIDATES,
@@ -52,6 +53,9 @@ const props = defineProps({
     default: () => []
   }
 })
+
+// i18n（#794 批次 I）：响应式取词用于模板与 JS 逻辑（tf 整句插值）
+const { t } = useI18n()
 
 defineEmits(['back'])
 
@@ -248,7 +252,7 @@ const buildModelCandidates = (selected) => {
 
 const isIllegalModelError = (err) => {
   const text = String(err || '').toLowerCase()
-  return text.includes('模型名非法') || text.includes('illegal model') || text.includes('model非法') || (text.includes('模型') && text.includes('非法'))
+  return text.includes(t('ai.error.illegalModel')) || text.includes('illegal model') || text.includes('model' + t('ai.error.illegal')) || (text.includes(t('ai.error.model')) && text.includes(t('ai.error.illegal')))
 }
 
 const unwrapApiData = (resp) => {
@@ -324,7 +328,7 @@ const ensureBridgeAvailable = async (forceProbe = false) => {
       lastError = error
     }
   }
-  throw new Error(`本地 AI 服务不可用：${String(lastError || 'bridge unavailable')}`)
+  throw new Error(tf('ai.error.serviceUnavailable', { msg: String(lastError || 'bridge unavailable') }))
 }
 
 const parsePostResponse = async (res) => {
@@ -333,7 +337,7 @@ const parsePostResponse = async (res) => {
   try {
     json = JSON.parse(text)
   } catch {
-    throw new Error(text || `请求失败(${res.status})`)
+    throw new Error(text || tf('ai.error.requestFailed', { status: res.status }))
   }
   const extractErrorMessage = (payload) => {
     if (!payload || typeof payload !== 'object') return ''
@@ -347,10 +351,10 @@ const parsePostResponse = async (res) => {
   }
   const errorMessage = extractErrorMessage(json)
   if (!res.ok) {
-    throw new Error(errorMessage || `请求失败(${res.status})`)
+    throw new Error(errorMessage || tf('ai.error.requestFailed', { status: res.status }))
   }
   if (json?.success === false) {
-    throw new Error(errorMessage || '请求失败')
+    throw new Error(errorMessage || t('ai.error.requestFailedGeneric'))
   }
   return json
 }
@@ -360,7 +364,7 @@ const postJson = async (path, body, options = {}) => {
     return {
       success: false,
       demo_disabled: true,
-      error: '演示账号不会调用外部 AI 服务'
+      error: t('ai.error.demoDisabled')
     }
   }
   const retries = Number.isFinite(options?.retries) ? Math.max(0, Number(options.retries)) : 2
@@ -392,7 +396,7 @@ const postJson = async (path, body, options = {}) => {
       rotateBridgeCandidate()
     }
   }
-  throw lastError || new Error('请求失败')
+  throw lastError || new Error(t('ai.error.requestFailedGeneric'))
 }
 
 const invokeAiCommand = async (command, camelArgs = undefined, snakeArgs = undefined) => {
@@ -460,7 +464,7 @@ const applyInitPayload = (payload) => {
   token.value = data?.token || ''
   bladeAuth.value = data?.blade_auth || data?.bladeAuth || ''
   if (!token.value || !bladeAuth.value) {
-    throw new Error('AI 凭证缺失')
+    throw new Error(t('ai.error.credentialMissing'))
   }
   if (Array.isArray(data?.models) && data.models.length) {
     dynamicModelOptions.value = data.models
@@ -511,7 +515,7 @@ const loadLocalHistory = () => {
     activeSessionId.value = parsed.activeSessionId || sessions.value[0].id
     const active = findSession(activeSessionId.value) || sessions.value[0]
     activeSessionId.value = active.id
-    messages.value = active.messages || [makeMessage('assistant', DEFAULT_WELCOME)]
+    messages.value = active.messages || [makeMessage('assistant', t('ai.welcome'))]
     return
   }
   const session = makeSession()
@@ -648,7 +652,7 @@ const initAiSession = async () => {
     initStatus.value = 'success'
   } catch (error) {
     if (AI_DEBUG) {
-      console.debug('[AI] bridge 初始化失败，尝试 invoke 兜底:', error)
+      console.debug('[AI] bridge init failed, fallback to invoke:', error)
     }
     try {
       const payload = await tryInvokeAiInit()
@@ -670,7 +674,7 @@ const ensureInitReady = async () => {
   if (initStatus.value === 'success' && token.value && bladeAuth.value) return
   await initAiSession()
   if (initStatus.value !== 'success' || !token.value || !bladeAuth.value) {
-    throw new Error(initError.value || 'AI 初始化失败')
+    throw new Error(initError.value || t('ai.error.initFailed'))
   }
 }
 
@@ -684,7 +688,7 @@ const createRemoteSession = async () => {
   const data = unwrapApiData(resp)
   const sessionId = data?.session_id || resp?.session_id
   if (!sessionId) {
-    throw new Error('远端未返回 session_id')
+    throw new Error(t('ai.error.noSessionId'))
   }
   return sessionId
 }
@@ -722,7 +726,7 @@ const loadSessionMessagesFromRemote = async (session, force = false) => {
     saveLocalHistory()
   } catch (error) {
     if (AI_DEBUG) {
-      console.debug('[AI] 加载会话消息失败:', error)
+      console.debug('[AI] failed to load session messages:', error)
     }
   }
 }
@@ -745,7 +749,7 @@ const syncRemoteHistory = async () => {
     return makeSession({
       id: existing?.id || `remote_${remoteItem.session_id}`,
       remoteSessionId: remoteItem.session_id,
-      title: remoteItem.title || existing?.title || '新对话',
+      title: remoteItem.title || existing?.title || t('ai.default.title'),
       preview: remoteItem.preview || existing?.preview || '',
       updatedAt: Number(remoteItem.updated_at || existing?.updatedAt || Date.now()),
       messages: existing?.messages,
@@ -792,7 +796,7 @@ const startNewSession = async () => {
   } catch {
     // 允许离线新建本地会话
   }
-  const session = makeSession({ remoteSessionId, messages: [makeMessage('assistant', DEFAULT_WELCOME)] })
+  const session = makeSession({ remoteSessionId, messages: [makeMessage('assistant', t('ai.welcome'))] })
   sessions.value.unshift(session)
   activeSessionId.value = session.id
   messages.value = session.messages
@@ -836,7 +840,7 @@ const deleteSessionConfirmed = async () => {
       })
     }
   } catch (error) {
-    deleteConfirmError.value = `远端删除失败：${String(error)}`
+    deleteConfirmError.value = tf('ai.error.remoteDeleteFailed', { msg: String(error) })
     deleteConfirmLoading.value = false
     return
   }
@@ -926,7 +930,7 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
         signal: controller.signal,
         async onopen(response) {
           if (!response.ok) {
-            throw new Error(`流式连接失败(${response.status})`)
+            throw new Error(tf('ai.error.streamFailed', { status: response.status }))
           }
         },
         onmessage(event) {
@@ -1006,7 +1010,7 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
             }
             if (parsed.event === 'error') {
               streamStats.value.lastEvent = 'error'
-              throw new Error(String(parsed.message || '流式返回错误'))
+              throw new Error(String(parsed.message || t('ai.error.streamError')))
             }
           }
         },
@@ -1017,7 +1021,7 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
             return
           }
           if (!doneReceived) {
-            throw new Error('流式连接被提前关闭')
+            throw new Error(t('ai.error.streamClosed'))
           }
         },
         onerror(error) {
@@ -1079,7 +1083,7 @@ const fallbackChatRequest = async (payload) => {
     return parsed
   } catch (error) {
     if (AI_DEBUG) {
-      console.debug('[AI] bridge fallbackChat 失败，尝试 invoke 兜底:', error)
+      console.debug('[AI] bridge fallbackChat failed, fallback to invoke:', error)
     }
     const invokeText = await tryInvokeAiChat(normalizedPayload).catch(() => '')
     const parsedInvoke = normalizeMathText(parseAiResponseText(invokeText))
@@ -1132,7 +1136,7 @@ const sendMessage = async () => {
   attachment.value = null
   isLoading.value = true
 
-  const userMessage = makeMessage('user', userText || '请分析上传内容', {
+  const userMessage = makeMessage('user', userText || t('ai.default.analyzeContent'), {
     file: userAttachment || null
   })
   messages.value.push(userMessage)
@@ -1163,7 +1167,7 @@ const sendMessage = async () => {
     const payload = {
       token: token.value,
       blade_auth: bladeAuth.value,
-      question: userText || (userAttachment ? '请分析上传的文件' : '你好'),
+      question: userText || (userAttachment ? t('ai.default.analyzeFile') : t('ai.default.question')),
       model: effectiveModel,
       session_id: active.remoteSessionId || '',
       user_attachment: userAttachment?.url || ''
@@ -1195,9 +1199,9 @@ const sendMessage = async () => {
     }
     if (!streamOk) {
       if (isIllegalModelError(streamError)) {
-        throw new Error('当前账号不支持该模型，请切换其他模型后重试。')
+        throw new Error(t('ai.error.modelUnsupported'))
       }
-      throw streamError || new Error('流式请求失败')
+      throw streamError || new Error(t('ai.error.streamRequestFailed'))
     }
     if (selectedModel.value !== effectiveModel) {
       selectedModel.value = effectiveModel
@@ -1218,7 +1222,7 @@ const sendMessage = async () => {
         }
       })
       if (isAiUnauthorizedText(assistantMsg.content) || isAiUnauthorizedText(assistantMsg.progress)) {
-        throw new Error('AI 服务鉴权失败，请重新登录后重试')
+        throw new Error(t('ai.error.authFailed'))
       }
     }
     if (!assistantMsg.content.trim()) {
@@ -1235,7 +1239,7 @@ const sendMessage = async () => {
       if (fallback) {
         await appendTextWithTyping(assistantMsg, fallback)
       } else {
-        assistantMsg.content = '未获取到有效回答，请重试。'
+        assistantMsg.content = t('ai.error.noValidAnswer')
       }
     }
   } catch (error) {
@@ -1251,7 +1255,7 @@ const sendMessage = async () => {
       const fallback = await fallbackChatRequest({
         token: token.value,
         bladeAuth: bladeAuth.value,
-        question: userText || '你好',
+        question: userText || t('ai.default.question'),
         model: fallbackModel,
         session_id: active?.remoteSessionId || '',
         user_attachment: userAttachment?.url || ''
@@ -1261,10 +1265,10 @@ const sendMessage = async () => {
       if (fallback) {
         await appendTextWithTyping(assistantMsg, fallback)
       } else {
-        assistantMsg.content = `发送失败：${String(error)}`
+        assistantMsg.content = tf('ai.error.sendFailed', { msg: String(error) })
       }
     } catch (fallbackError) {
-      assistantMsg.content = `发送失败：${String(fallbackError)}`
+      assistantMsg.content = tf('ai.error.sendFailed', { msg: String(fallbackError) })
     }
   } finally {
     streamStats.value.active = false
@@ -1298,14 +1302,14 @@ const handleFileChange = async (event) => {
   try {
     const ext = extractFileExtension(file.name)
     if (!AI_ALLOWED_FILE_EXTENSIONS.includes(ext)) {
-      throw new Error(`仅支持上传 ${AI_UPLOAD_ACCEPT} 格式文件`)
+      throw new Error(tf('ai.error.uploadAccept', { accept: AI_UPLOAD_ACCEPT }))
     }
     if (file.size > AI_MAX_UPLOAD_BYTES) {
-      throw new Error('文件大小不能超过 20MB')
+      throw new Error(t('ai.error.fileTooLarge'))
     }
     const fileBase64 = await readFileAsBase64(file)
     if (!fileBase64) {
-      throw new Error('文件内容为空或读取失败')
+      throw new Error(t('ai.error.fileEmpty'))
     }
     const mime = file.type || AI_MIME_BY_EXT[ext] || 'application/octet-stream'
     let link = ''
@@ -1322,7 +1326,7 @@ const handleFileChange = async (event) => {
       link = data?.link || data?.data?.link || ''
     } catch (error) {
       if (AI_DEBUG) {
-        console.debug('[AI] bridge 上传失败，尝试 invoke 兜底:', error)
+        console.debug('[AI] bridge upload failed, fallback to invoke:', error)
       }
       const invokeRes = await tryInvokeAiUpload({
         token: token.value,
@@ -1335,11 +1339,11 @@ const handleFileChange = async (event) => {
       link = data?.link || data?.data?.link || ''
     }
     if (!link) {
-      throw new Error('上传失败')
+      throw new Error(t('ai.error.uploadFailed'))
     }
     attachment.value = { name: file.name, url: link }
   } catch (error) {
-    window.alert(`文件上传失败：${String(error)}`)
+    window.alert(tf('ai.error.fileUploadFailed', { msg: String(error) }))
   } finally {
     event.target.value = ''
   }
@@ -1373,7 +1377,7 @@ onMounted(async () => {
       await syncRemoteHistory()
     } catch (error) {
       if (AI_DEBUG) {
-        console.debug('[AI] 同步远端历史失败，已回退本地缓存:', error)
+        console.debug('[AI] remote history sync failed, fell back to local cache:', error)
       }
     }
   }

@@ -6,12 +6,12 @@
             <span>{{ initials(profile.nickname || studentId) }}</span>
           </button>
           <h1>HBUT Forum</h1>
-          <button class="icon-button" type="button" :disabled="refreshing" title="刷新" @click="loadForumData({ force: true })">
+          <button class="icon-button" type="button" :disabled="refreshing" :title="t('forum.title.refresh')" @click="loadForumData({ force: true })">
             <span class="material-symbols-outlined">refresh</span>
           </button>
         </header>
 
-        <nav class="category-nav" aria-label="论坛版块">
+        <nav class="category-nav" :aria-label="t('forum.nav.categories')">
           <button
             v-for="category in visibleCategories"
             :key="category.slug || category.id"
@@ -29,7 +29,7 @@
           <span>{{ errorMessage }}</span>
         </section>
 
-        <section class="quick-tabs" aria-label="论坛页面">
+        <section class="quick-tabs" :aria-label="t('forum.nav.pages')">
           <button
             v-for="tab in visibleTabs"
             :key="tab.key"
@@ -47,45 +47,45 @@
           <div class="forum-hero-card">
             <div>
               <span class="eyebrow">Mini-HBUT Community</span>
-              <h2>湖工大校园广场</h2>
-              <p>{{ isLoggedIn ? `${profile.nickname || studentId}，欢迎回来` : '登录后可发帖、收藏、关注和私信' }}</p>
+              <h2>{{ t('forum.hero.title') }}</h2>
+              <p>{{ isLoggedIn ? tf('forum.hero.welcome', { name: profile.nickname || studentId }) : t('forum.hero.loginHint') }}</p>
             </div>
             <button class="primary-pill" type="button" :disabled="!isLoggedIn" @click="switchTab('compose')">
               <span class="material-symbols-outlined">edit_square</span>
-              发布
+              {{ t('forum.hero.publish') }}
             </button>
           </div>
 
           <div class="search-card">
             <label>
               <span class="material-symbols-outlined">search</span>
-              <input id="forum-search" v-model="searchQuery" name="forum-search" placeholder="搜索帖子、课程、反馈" @keyup.enter="runSearch" />
+              <input id="forum-search" v-model="searchQuery" name="forum-search" :placeholder="t('forum.search.placeholder')" @keyup.enter="runSearch" />
             </label>
             <button class="icon-button tinted" type="button" @click="runSearch">
               <span class="material-symbols-outlined">travel_explore</span>
             </button>
           </div>
 
-          <div class="feed-meta-strip" aria-label="广场概览">
+          <div class="feed-meta-strip" :aria-label="t('forum.meta.overview')">
             <div>
               <strong>{{ displayThreads.length }}</strong>
-              <span>讨论</span>
+              <span>{{ t('forum.meta.threads') }}</span>
             </div>
             <div>
               <strong>{{ pollAdminSummary.active }}</strong>
-              <span>投票</span>
+              <span>{{ t('forum.meta.polls') }}</span>
             </div>
             <div>
               <strong>{{ feedReplyCount }}</strong>
-              <span>回复</span>
+              <span>{{ t('forum.meta.replies') }}</span>
             </div>
             <div>
               <strong>{{ feedAttachmentCount }}</strong>
-              <span>附件</span>
+              <span>{{ t('forum.meta.attachments') }}</span>
             </div>
           </div>
 
-          <div v-if="hotThreads.length" class="hot-thread-strip" aria-label="热帖">
+          <div v-if="hotThreads.length" class="hot-thread-strip" :aria-label="t('forum.meta.hotThreads')">
             <button
               v-for="hotThread in hotThreads.slice(0, 4)"
               :key="hotThread.id"
@@ -99,13 +99,13 @@
 
           <div class="section-heading">
             <div>
-              <span class="eyebrow">{{ searchQuery.trim() ? 'Search Results' : selectedCategory?.name || 'Hot' }}</span>
-              <h3>{{ searchQuery.trim() || selectedCategory?.description || '校园实时讨论' }}</h3>
+              <span class="eyebrow">{{ searchQuery.trim() ? 'Search Results' : selectedCategory?.name || t('forum.feed.hot') }}</span>
+              <h3>{{ searchQuery.trim() || selectedCategory?.description || t('forum.feed.defaultDescription') }}</h3>
             </div>
-            <span>{{ displayThreads.length }} 条</span>
+            <span>{{ tf('forum.feed.countSuffix', { n: displayThreads.length }) }}</span>
           </div>
 
-          <div v-if="loading" class="forum-skeleton-list" aria-label="论坛内容加载中">
+          <div v-if="loading" class="forum-skeleton-list" :aria-label="t('forum.feed.loading')">
             <article v-for="item in 3" :key="item" class="skeleton-card" aria-hidden="true">
               <span class="skeleton-pill"></span>
               <span class="skeleton-line wide"></span>
@@ -115,8 +115,8 @@
           </div>
           <div v-else-if="!displayThreads.length" class="empty-card">
             <span class="material-symbols-outlined">forum</span>
-            <strong>还没有帖子</strong>
-            <p>发第一条校园讨论，或者刷新看看热帖。</p>
+            <strong>{{ t('forum.feed.emptyTitle') }}</strong>
+            <p>{{ t('forum.feed.emptyDesc') }}</p>
           </div>
           <article
             v-for="thread in displayThreads"
@@ -140,12 +140,12 @@
             <p>{{ thread.content_md }}</p>
             <div v-if="thread.attachment_ids?.length" class="media-preview">
               <span class="material-symbols-outlined">image</span>
-              {{ thread.attachment_ids.length }} 个附件
+              {{ tf('forum.compose.attachmentCount', { n: thread.attachment_ids.length }) }}
             </div>
-            <div class="thread-stat-grid" aria-label="帖子状态">
-              <span><strong>{{ Number(thread.reply_count || 0) + Number(thread.attachment_ids?.length || 0) }}</strong>热度</span>
-              <span><strong>{{ thread.reply_count || 0 }}</strong>回复</span>
-              <span><strong>{{ thread.attachment_ids?.length || 0 }}</strong>附件</span>
+            <div class="thread-stat-grid" :aria-label="t('forum.feed.heat')">
+              <span><strong>{{ Number(thread.reply_count || 0) + Number(thread.attachment_ids?.length || 0) }}</strong>{{ t('forum.feed.heat') }}</span>
+              <span><strong>{{ thread.reply_count || 0 }}</strong>{{ t('forum.meta.replies') }}</span>
+              <span><strong>{{ thread.attachment_ids?.length || 0 }}</strong>{{ t('forum.meta.attachments') }}</span>
             </div>
             <div class="post-actions" @click.stop>
               <button class="thread-action-button" type="button" @click="openThread(thread)">
@@ -159,7 +159,7 @@
                 @click="toggleBookmark(thread)"
               >
                 <span class="material-symbols-outlined">{{ bookmarkedIds.has(Number(thread.id)) ? 'bookmark' : 'bookmark_add' }}</span>
-                {{ isPending(threadActionKey(thread, 'bookmark')) ? '收藏中' : (bookmarkedIds.has(Number(thread.id)) ? '已收藏' : '收藏') }}
+                {{ isPending(threadActionKey(thread, 'bookmark')) ? t('forum.feed.bookmarking') : (bookmarkedIds.has(Number(thread.id)) ? t('forum.feed.bookmarked') : t('forum.feed.bookmark')) }}
               </button>
             </div>
           </article>
@@ -167,14 +167,14 @@
 
         <section v-if="activeTab === 'detail'" class="page-stack" data-forum-page="detail">
           <div class="detail-topbar">
-            <button class="icon-button" type="button" title="返回列表" @click="closeThread">
+            <button class="icon-button" type="button" :title="t('forum.detail.backToList')" @click="closeThread">
               <span class="material-symbols-outlined">arrow_back</span>
             </button>
-            <h2>{{ currentThread?.title || '帖子详情' }}</h2>
+            <h2>{{ currentThread?.title || t('forum.detail.defaultTitle') }}</h2>
             <button
               class="icon-button"
               type="button"
-              title="举报"
+              :title="t('forum.detail.report')"
               :disabled="!currentThread || isPending(threadActionKey(currentThread, 'report'))"
               @click="reportThread(currentThread)"
             >
@@ -182,7 +182,7 @@
             </button>
           </div>
 
-          <div v-if="detailLoading" class="forum-skeleton-list" aria-label="帖子详情加载中">
+          <div v-if="detailLoading" class="forum-skeleton-list" :aria-label="t('forum.detail.loading')">
             <article class="skeleton-card detail" aria-hidden="true">
               <span class="skeleton-pill"></span>
               <span class="skeleton-line wide"></span>
@@ -200,7 +200,7 @@
                 <strong>{{ authorName(currentThread.author_student_id) }}</strong>
                 <small>{{ formatTime(currentThread.created_at) }} · {{ categoryName(currentThread.category_id) }}</small>
               </div>
-              <span class="category-badge">{{ threadAttachments.length || 0 }} 附件</span>
+              <span class="category-badge">{{ threadAttachments.length || 0 }} {{ t('forum.meta.attachments') }}</span>
             </div>
             <h2>{{ currentThread.title }}</h2>
             <p class="detail-content">{{ currentThread.content_md }}</p>
@@ -212,7 +212,7 @@
                 @click="followAuthor(currentThread.author_student_id)"
               >
                 <span class="material-symbols-outlined">person_add</span>
-                {{ isPending(threadActionKey(currentThread, 'follow')) ? '关注中' : '关注作者' }}
+                {{ isPending(threadActionKey(currentThread, 'follow')) ? t('forum.detail.following') : t('forum.detail.followAuthor') }}
               </button>
               <button
                 class="ghost-pill"
@@ -221,7 +221,7 @@
                 @click="toggleBookmark(currentThread)"
               >
                 <span class="material-symbols-outlined">bookmark</span>
-                {{ isPending(threadActionKey(currentThread, 'bookmark')) ? '收藏中' : '收藏' }}
+                {{ isPending(threadActionKey(currentThread, 'bookmark')) ? t('forum.feed.bookmarking') : t('forum.feed.bookmark') }}
               </button>
               <button
                 class="danger-pill"
@@ -230,7 +230,7 @@
                 @click="reportThread(currentThread)"
               >
                 <span class="material-symbols-outlined">flag</span>
-                {{ isPending(threadActionKey(currentThread, 'report')) ? '举报中' : '举报' }}
+                {{ isPending(threadActionKey(currentThread, 'report')) ? t('forum.detail.reporting') : t('forum.detail.report') }}
               </button>
             </div>
             <div v-if="threadAttachments.length" class="image-grid attachment-preview-list">
@@ -241,8 +241,8 @@
                 target="_blank"
                 rel="noreferrer"
               >
-                <img :src="attachmentUrl(attachment)" alt="帖子附件" @error="$event.target.classList.add('broken')" />
-                <span>查看附件</span>
+                <img :src="attachmentUrl(attachment)" :alt="t('forum.detail.attachmentAlt')" @error="$event.target.classList.add('broken')" />
+                <span>{{ t('forum.detail.viewAttachment') }}</span>
               </a>
             </div>
           </article>
@@ -259,7 +259,7 @@
               </label>
               <button class="primary-icon reply-send-button" type="button" :disabled="!currentThread || isPending(replyPendingKey)" @click="submitReply">
                 <span class="material-symbols-outlined">send</span>
-                <span class="send-label">{{ isPending(replyPendingKey) ? '回复中' : '发送' }}</span>
+                <span class="send-label">{{ isPending(replyPendingKey) ? t('forum.detail.replying') : t('forum.detail.send') }}</span>
               </button>
             </div>
             <div v-if="replyFiles.length" class="reply-attachment-list">
@@ -270,7 +270,7 @@
                     <strong>{{ fileLabel(file) }}</strong>
                     <small>{{ fileSizeLabel(file) }}</small>
                   </div>
-                  <button type="button" title="移除回复附件" @click="removeReplyFile(index)">
+                  <button type="button" :title="t('forum.detail.removeReplyAttachment')" @click="removeReplyFile(index)">
                     <span class="material-symbols-outlined">close</span>
                   </button>
                 </article>
@@ -286,7 +286,7 @@
                   <small>{{ formatTime(reply.created_at) }}</small>
                   <p>{{ reply.content_md }}</p>
                   <div v-if="reply.attachment_ids?.length" class="inline-links">
-                    <a v-for="attachment in reply.attachment_ids" :key="attachment" :href="attachmentUrl(attachment)" target="_blank" rel="noreferrer">附件</a>
+                    <a v-for="attachment in reply.attachment_ids" :key="attachment" :href="attachmentUrl(attachment)" target="_blank" rel="noreferrer">{{ t('forum.detail.viewAttachment') }}</a>
                   </div>
                 </div>
                 <div class="comment-actions">
@@ -301,7 +301,7 @@
                 </div>
               </div>
             </article>
-            <div v-if="threadDetail && !threadDetail.replies?.length" class="empty-card compact">暂无回复</div>
+            <div v-if="threadDetail && !threadDetail.replies?.length" class="empty-card compact">{{ t('forum.detail.noReplies') }}</div>
           </section>
         </section>
 
@@ -310,14 +310,14 @@
             <button class="ghost-pill" type="button" @click="switchTab('feed')">Cancel</button>
             <h2>Create Post</h2>
             <button class="primary-pill" type="button" :disabled="!canPublishThread || isPending(threadPendingKey)" @click="submitThread">
-              {{ isPending(threadPendingKey) ? '发布中' : 'Publish' }}
+              {{ isPending(threadPendingKey) ? t('forum.compose.publishing') : 'Publish' }}
             </button>
           </div>
           <div class="compose-guidance">
             <span class="material-symbols-outlined">cloud_upload</span>
             <div>
-              <strong>上传附件会先进入后端图床</strong>
-              <p>发布成功后自动刷新广场和个人帖子，重复点击会被拦截并提示。</p>
+              <strong>{{ t('forum.compose.attachmentHint') }}</strong>
+              <p>{{ t('forum.compose.attachmentDesc') }}</p>
             </div>
           </div>
           <div class="editor-card">
@@ -328,11 +328,11 @@
             <textarea id="forum-thread-content" v-model="newThread.content_md" name="forum-thread-content" maxlength="20000" placeholder="What do you want to share with the campus?"></textarea>
           </div>
           <div class="attachment-bar">
-            <button class="tool-button" type="button" title="上传附件" @click="openThreadFilePicker">
+            <button class="tool-button" type="button" :title="t('forum.compose.uploadTitle')" @click="openThreadFilePicker">
               <span class="material-symbols-outlined">image</span>
             </button>
             <input ref="threadUploadInput" class="visually-hidden-file" type="file" multiple accept="image/*,.pdf,.txt,.zip" aria-hidden="true" tabindex="-1" @change="setThreadFiles" />
-            <span class="attachment-copy">图片、PDF、TXT 和 ZIP 会上传到论坛图床</span>
+            <span class="attachment-copy">{{ t('forum.compose.attachmentCopy') }}</span>
             <span class="char-count">{{ newThread.content_md.length }}/20000</span>
           </div>
           <div v-if="threadFiles.length" class="attachment-preview-list">
@@ -342,12 +342,12 @@
                 <strong>{{ fileLabel(file) }}</strong>
                 <small>{{ fileSizeLabel(file) }}</small>
               </div>
-              <button type="button" title="移除发帖附件" @click="removeThreadFile(index)">
+              <button type="button" :title="t('forum.compose.removeThreadAttachment')" @click="removeThreadFile(index)">
                 <span class="material-symbols-outlined">close</span>
               </button>
             </article>
           </div>
-          <p v-if="threadFiles.length" class="form-hint">{{ threadFiles.length }} 个附件会通过后端图床接口上传</p>
+          <p v-if="threadFiles.length" class="form-hint">{{ tf('forum.compose.attachmentCount', { n: threadFiles.length }) }}</p>
           <p v-if="composerHint" class="form-hint warning">{{ composerHint }}</p>
         </section>
 
@@ -355,19 +355,19 @@
           <div class="poll-score-hero">
             <div>
               <span class="eyebrow">Managed Vote</span>
-              <h2>投票打分</h2>
-              <p>投票由管理员创建和关闭，帖子本身不再要求逐条打分。</p>
+              <h2>{{ t('forum.tab.polls') }}</h2>
+              <p>{{ t('forum.polls.voteHint') }}</p>
             </div>
             <div class="poll-score-summary">
               <strong>{{ pollAdminSummary.votes }}</strong>
-              <span>累计投票</span>
+              <span>{{ t('forum.polls.totalVotes') }}</span>
             </div>
           </div>
           <div class="poll-score-grid">
             <aside class="poll-score-card poll-list-card">
               <div class="section-heading compact">
-                <h3>投票列表</h3>
-                <span>{{ pollAdminSummary.active }} 进行中</span>
+                <h3>{{ t('forum.polls.list') }}</h3>
+                <span>{{ tf('forum.polls.active', { n: pollAdminSummary.active }) }}</span>
               </div>
               <button
                 v-for="poll in adminPolls"
@@ -378,15 +378,15 @@
                 @click="selectPoll(poll)"
               >
                 <strong>{{ poll.title }}</strong>
-                <span>{{ poll.status === 'closed' ? '已关闭' : '进行中' }} · {{ pollOptionTotal(poll) }} 票</span>
+                <span>{{ poll.status === 'closed' ? t('forum.polls.closed') : t('forum.polls.ongoing') }} · {{ tf('forum.polls.voteCount', { n: pollOptionTotal(poll) }) }}</span>
               </button>
             </aside>
             <article v-if="selectedPoll" class="poll-score-card">
               <div class="section-heading compact">
                 <h3>{{ selectedPoll.title }}</h3>
-                <span>{{ selectedPoll.status === 'closed' ? '已关闭' : '进行中' }}</span>
+                <span>{{ selectedPoll.status === 'closed' ? t('forum.polls.closed') : t('forum.polls.ongoing') }}</span>
               </div>
-              <p>{{ selectedPoll.description || '管理员暂未填写说明' }}</p>
+              <p>{{ selectedPoll.description || t('forum.polls.noDescription') }}</p>
               <div class="poll-option-list">
                 <button
                   v-for="option in selectedPoll.options"
@@ -398,17 +398,17 @@
                 >
                   <span>
                     <strong>{{ option.label }}</strong>
-                    <small>{{ option.score }} 分 · {{ option.votes || 0 }} 票</small>
+                    <small>{{ tf('forum.polls.scoreUnit', { n: option.score }) }} · {{ tf('forum.polls.voteCount', { n: option.votes || 0 }) }}</small>
                   </span>
                   <em>{{ pollOptionPercent(selectedPoll, option) }}%</em>
                   <i :style="{ width: `${pollOptionPercent(selectedPoll, option)}%` }"></i>
                 </button>
               </div>
               <p class="form-hint">
-                {{ hasVotedInPoll(selectedPoll) ? '你已经参与过这个投票' : '选择一个选项后会立即记录，防重复提交会自动拦截。' }}
+                {{ hasVotedInPoll(selectedPoll) ? t('forum.polls.voted') : t('forum.polls.voteHint') }}
               </p>
             </article>
-            <div v-else class="empty-card compact">暂无投票</div>
+            <div v-else class="empty-card compact">{{ t('forum.polls.none') }}</div>
           </div>
         </section>
 
@@ -416,14 +416,14 @@
           <div class="section-heading tall">
             <div>
               <span class="eyebrow">Forum Activity</span>
-              <h2>通知中心</h2>
+              <h2>{{ t('forum.notice.title') }}</h2>
             </div>
-            <span>{{ unreadCount }} 未读</span>
+            <span>{{ tf('forum.notice.unreadCount', { n: unreadCount }) }}</span>
           </div>
           <div class="notice-summary-strip">
-            <div><strong>{{ unreadCount }}</strong><span>未读</span></div>
-            <div><strong>{{ notifications.length }}</strong><span>通知</span></div>
-            <div><strong>{{ messages.length }}</strong><span>私信</span></div>
+            <div><strong>{{ unreadCount }}</strong><span>{{ t('forum.notice.unread') }}</span></div>
+            <div><strong>{{ notifications.length }}</strong><span>{{ t('forum.notice.notification') }}</span></div>
+            <div><strong>{{ messages.length }}</strong><span>{{ t('forum.notice.message') }}</span></div>
           </div>
           <div class="filter-pills">
             <button type="button" class="active">All Activity</button>
@@ -440,20 +440,20 @@
                 <small>{{ formatTime(notice.created_at) }}</small>
               </div>
             </article>
-            <div v-if="!notifications.length" class="empty-card compact">暂无通知</div>
+            <div v-if="!notifications.length" class="empty-card compact">{{ t('forum.notice.noNotifications') }}</div>
           </div>
 
           <div class="section-heading compact">
-            <h3>私信</h3>
+            <h3>{{ t('forum.notice.message') }}</h3>
             <span>{{ messages.length }}</span>
           </div>
           <div class="message-composer-card">
             <div class="message-form">
-              <input v-model="messageDraft.receiver_student_id" placeholder="收件人学号" />
-              <textarea v-model="messageDraft.content" rows="3" placeholder="私信内容" />
+              <input v-model="messageDraft.receiver_student_id" :placeholder="t('forum.notice.receiverPlaceholder')" />
+              <textarea v-model="messageDraft.content" rows="3" :placeholder="t('forum.notice.messagePlaceholder')" />
               <button class="primary-pill wide" type="button" :disabled="isPending(messagePendingKey)" @click="sendMessage">
                 <span class="material-symbols-outlined">send</span>
-                {{ isPending(messagePendingKey) ? '发送中' : '发送私信' }}
+                {{ isPending(messagePendingKey) ? t('forum.notice.sending') : t('forum.notice.sendMessage') }}
               </button>
             </div>
           </div>
@@ -466,7 +466,7 @@
                 <small>{{ formatTime(message.created_at) }}</small>
               </div>
             </article>
-            <div v-if="!messages.length" class="empty-card compact">暂无私信</div>
+            <div v-if="!messages.length" class="empty-card compact">{{ t('forum.notice.noMessages') }}</div>
           </div>
         </section>
 
@@ -478,27 +478,27 @@
                 class="profile-avatar uploadable-avatar"
                 type="button"
                 :disabled="isPending('profile:avatar-upload')"
-                title="更换头像"
+                :title="t('forum.me.changeAvatar')"
                 @click="openAvatarFilePicker"
                 @keydown.enter.prevent="openAvatarFilePicker"
                 @keydown.space.prevent="openAvatarFilePicker"
               >
-                <img v-if="profile.avatar_url" :src="profile.avatar_url" alt="社区头像" />
+                <img v-if="profile.avatar_url" :src="profile.avatar_url" :alt="t('forum.me.avatarAlt')" />
                 <span v-else>{{ initials(profile.nickname || studentId) }}</span>
                 <span class="avatar-upload-overlay">
                   <span class="material-symbols-outlined">photo_camera</span>
-                  更换头像
+                  {{ t('forum.me.changeAvatar') }}
                 </span>
               </button>
               <button class="primary-pill" type="button" :disabled="isPending('checkin')" @click="checkIn">
-                {{ isPending('checkin') ? '签到中' : '签到' }}
+                {{ isPending('checkin') ? t('forum.me.checkingIn') : t('forum.me.checkIn') }}
               </button>
-              <h2>{{ profile.nickname || studentId || '游客' }}</h2>
-              <p>{{ meSummary?.profile?.bio || profile.bio || '还没有填写社区简介' }}</p>
+              <h2>{{ profile.nickname || studentId || t('forum.me.guest') }}</h2>
+              <p>{{ meSummary?.profile?.bio || profile.bio || t('forum.me.bioEmpty') }}</p>
               <div class="tag-row">
                 <span>HBUT Student</span>
                 <span>Lv. {{ meStats.checkin_count || 0 }}</span>
-                <span>资料完整度 {{ profileCompletion }}%</span>
+                <span>{{ tf('forum.me.profileCompletion', { n: profileCompletion }) }}</span>
               </div>
               <div class="profile-stat-strip">
                 <div><strong>{{ meStats.thread_count || 0 }}</strong><span>Posts</span></div>
@@ -510,18 +510,18 @@
           </div>
           <div class="edit-card">
             <label>
-              <span>昵称</span>
+              <span>{{ t('forum.me.nickname') }}</span>
               <input id="forum-profile-nickname" v-model="profile.nickname" name="forum-profile-nickname" maxlength="80" />
             </label>
             <div class="avatar-setting-card">
-              <div class="avatar-setting-preview" aria-label="当前社区头像预览">
-                <img v-if="profile.avatar_url" :src="profile.avatar_url" alt="当前社区头像" />
+              <div class="avatar-setting-preview" :aria-label="t('forum.me.avatarPreview')">
+                <img v-if="profile.avatar_url" :src="profile.avatar_url" :alt="t('forum.me.avatarPreviewAlt')" />
                 <span v-else>{{ initials(profile.nickname || studentId) }}</span>
               </div>
               <div class="avatar-setting-actions">
-                <strong>设置头像</strong>
-                <span class="avatar-upload-title">头像上传（推荐）</span>
-                <p class="form-hint">从本地选择图片上传到论坛图床，成功后会自动回填到头像地址。</p>
+                <strong>{{ t('forum.me.setAvatar') }}</strong>
+                <span class="avatar-upload-title">{{ t('forum.me.avatarUploadTitle') }}</span>
+                <p class="form-hint">{{ t('forum.me.avatarUploadHint') }}</p>
                 <div class="avatar-upload-field">
                   <input id="forum-profile-avatar-file" ref="profileAvatarInput" type="file" accept="image/*" :disabled="isPending('profile:avatar-upload')" @change="uploadAvatarImage" />
                   <label
@@ -532,23 +532,23 @@
                     @keydown.space.prevent="openAvatarFilePicker"
                   >
                     <span class="material-symbols-outlined">upload</span>
-                    <span>{{ isPending('profile:avatar-upload') ? '头像图床上传中' : '上传头像到图床' }}</span>
+                    <span>{{ isPending('profile:avatar-upload') ? t('forum.me.avatarUploading') : t('forum.me.avatarUpload') }}</span>
                   </label>
                 </div>
                 <p v-if="avatarUploadStatus" class="avatar-upload-status">{{ avatarUploadStatus }}</p>
-                <p class="form-hint">自动上传失败时，仍可使用下方备用 URL。</p>
+                <p class="form-hint">{{ t('forum.me.avatarFallbackHint') }}</p>
               </div>
             </div>
             <label class="avatar-manual-fallback">
-              <span>手动 URL（备用）</span>
-              <input id="forum-profile-avatar" v-model="profile.avatar_url" name="forum-profile-avatar" maxlength="500" placeholder="自动上传失败时，可粘贴后端图床或外部图片 URL" />
+              <span>{{ t('forum.me.manualUrl') }}</span>
+              <input id="forum-profile-avatar" v-model="profile.avatar_url" name="forum-profile-avatar" maxlength="500" :placeholder="t('forum.me.manualUrlPlaceholder')" />
             </label>
             <label>
-              <span>简介</span>
-              <input v-model="profile.bio" maxlength="300" placeholder="社区简介" />
+              <span>{{ t('forum.me.bio') }}</span>
+              <input v-model="profile.bio" maxlength="300" :placeholder="t('forum.me.bioPlaceholder')" />
             </label>
             <label class="admin-secret-field">
-              <span>管理员口令</span>
+              <span>{{ t('forum.me.adminSecret') }}</span>
               <input
                 id="forum-profile-admin-secret"
                 v-model="profile.admin_secret"
@@ -556,10 +556,10 @@
                 type="password"
                 maxlength="300"
                 autocomplete="current-password"
-                placeholder="仅管理员填写"
+                :placeholder="t('forum.me.adminSecretPlaceholder')"
               />
             </label>
-            <button class="primary-pill wide" type="button" @click="saveProfile">保存资料</button>
+            <button class="primary-pill wide" type="button" @click="saveProfile">{{ t('forum.me.saveProfile') }}</button>
           </div>
           <div class="profile-content-tabs">
             <button type="button" class="active">Posts</button>
@@ -568,26 +568,26 @@
           </div>
           <div class="profile-list-grid">
             <div class="profile-list-card">
-              <h3>我的帖子</h3>
+              <h3>{{ t('forum.me.myThreads') }}</h3>
               <button v-for="thread in myThreads" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
-              <div v-if="!myThreads.length" class="empty-card compact">暂无帖子</div>
+              <div v-if="!myThreads.length" class="empty-card compact">{{ t('forum.me.noThreads') }}</div>
             </div>
             <div class="profile-list-card">
-              <h3>我的回复</h3>
+              <h3>{{ t('forum.me.myReplies') }}</h3>
               <button v-for="reply in myReplies" :key="reply.id" type="button" @click="openThread({ id: reply.thread_id, title: reply.thread_title })">
-                {{ reply.thread_title || reply.content_md || `回复 #${reply.id}` }}
+                {{ reply.thread_title || reply.content_md || tf('forum.me.replyPrefix', { id: reply.id }) }}
               </button>
-              <div v-if="!myReplies.length" class="empty-card compact">暂无回复</div>
+              <div v-if="!myReplies.length" class="empty-card compact">{{ t('forum.me.noReplies') }}</div>
             </div>
             <div class="profile-list-card">
-              <h3>我的收藏</h3>
+              <h3>{{ t('forum.me.myBookmarks') }}</h3>
               <button v-for="thread in myBookmarks" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
-              <div v-if="!myBookmarks.length" class="empty-card compact">暂无收藏</div>
+              <div v-if="!myBookmarks.length" class="empty-card compact">{{ t('forum.me.noBookmarks') }}</div>
             </div>
           </div>
           <div class="badge-cloud">
             <span v-for="badge in badges" :key="badge.badge_key">{{ badge.display_name }}</span>
-            <span v-if="!badges.length">暂无徽章</span>
+            <span v-if="!badges.length">{{ t('forum.me.noBadges') }}</span>
           </div>
         </section>
 
@@ -596,9 +596,9 @@
             <button class="icon-button" type="button" @click="switchTab('feed')">
               <span class="material-symbols-outlined">arrow_back</span>
             </button>
-            <h2>用户主页</h2>
+            <h2>{{ t('forum.user.title') }}</h2>
           </div>
-          <div v-if="viewedProfileLoading" class="forum-skeleton-list" aria-label="用户主页加载中">
+          <div v-if="viewedProfileLoading" class="forum-skeleton-list" :aria-label="t('forum.user.loading')">
             <article class="skeleton-card profile" aria-hidden="true">
               <span class="skeleton-pill avatar"></span>
               <span class="skeleton-line wide"></span>
@@ -609,16 +609,16 @@
             <div class="cover-gradient"></div>
             <div class="profile-body">
               <div class="profile-avatar">
-                <img v-if="viewedProfileInfo.avatar_url" :src="viewedProfileInfo.avatar_url" alt="用户头像" />
+                <img v-if="viewedProfileInfo.avatar_url" :src="viewedProfileInfo.avatar_url" :alt="t('forum.user.avatarAlt')" />
                 <span v-else>{{ initials(viewedProfileInfo.nickname || viewedProfileInfo.student_id) }}</span>
               </div>
               <div class="user-profile-actions">
                 <button class="primary-pill" type="button" :disabled="!viewedProfileInfo.student_id || isPending(`follow:${viewedProfileInfo.student_id}`)" @click="followAuthor(viewedProfileInfo.student_id)">
-                  {{ isPending(`follow:${viewedProfileInfo.student_id}`) ? '关注中' : '关注' }}
+                  {{ isPending(`follow:${viewedProfileInfo.student_id}`) ? t('forum.user.following') : t('forum.user.follow') }}
                 </button>
               </div>
-              <h2>{{ viewedProfileInfo.nickname || viewedProfileInfo.student_id || '同学' }}</h2>
-              <p>{{ viewedProfileInfo.bio || '这个同学还没有填写社区简介' }}</p>
+              <h2>{{ viewedProfileInfo.nickname || viewedProfileInfo.student_id || t('forum.user.defaultName') }}</h2>
+              <p>{{ viewedProfileInfo.bio || t('forum.user.bioEmpty') }}</p>
               <div class="user-profile-stat-strip">
                 <div><strong>{{ viewedProfileStats.thread_count || 0 }}</strong><span>Posts</span></div>
                 <div><strong>{{ viewedProfileStats.reply_count || 0 }}</strong><span>Replies</span></div>
@@ -626,15 +626,15 @@
               </div>
               <div class="user-profile-badges">
                 <span v-for="badge in userProfileBadges" :key="badge.badge_key">{{ badge.display_name }}</span>
-                <span v-if="!userProfileBadges.length">暂无公开徽章</span>
+                <span v-if="!userProfileBadges.length">{{ t('forum.user.noBadges') }}</span>
               </div>
             </div>
           </div>
           <div class="user-profile-content-grid">
             <div class="profile-list-card">
-              <h3>公开动态</h3>
+              <h3>{{ t('forum.user.activities') }}</h3>
               <button v-for="thread in userProfileThreads" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
-              <div v-if="!userProfileThreads.length" class="empty-card compact">这个同学还没有发帖</div>
+              <div v-if="!userProfileThreads.length" class="empty-card compact">{{ t('forum.user.noThreads') }}</div>
             </div>
           </div>
         </section>
@@ -643,25 +643,25 @@
           <div class="admin-hero-card">
             <div>
               <span class="eyebrow">Admin Center</span>
-              <h2>社区管理中心</h2>
-              <p>面向举报、用户、徽章和备份的轻量运营台，所有操作都会走后端权限校验。</p>
+              <h2>{{ t('forum.admin.title') }}</h2>
+              <p>{{ t('forum.admin.desc') }}</p>
             </div>
             <button class="primary-pill" type="button" :disabled="isPending('admin:backup')" @click="runBackup">
               <span class="material-symbols-outlined">backup</span>
-              {{ isPending('admin:backup') ? '备份中' : '触发备份' }}
+              {{ isPending('admin:backup') ? t('forum.admin.backuping') : t('forum.admin.triggerBackup') }}
             </button>
           </div>
           <div class="admin-summary-strip">
-            <div><strong>{{ adminSummary.reportCount }}</strong><span>举报队列</span></div>
-            <div><strong>{{ adminSummary.userCount }}</strong><span>用户治理</span></div>
-            <div><strong>{{ adminSummary.bannedCount }}</strong><span>已封禁</span></div>
-            <div><strong>{{ adminSummary.pollCount }}</strong><span>投票打分</span></div>
-            <div><strong>{{ adminSummary.backupCount }}</strong><span>备份记录</span></div>
+            <div><strong>{{ adminSummary.reportCount }}</strong><span>{{ t('forum.admin.reportQueue') }}</span></div>
+            <div><strong>{{ adminSummary.userCount }}</strong><span>{{ t('forum.admin.userGovernance') }}</span></div>
+            <div><strong>{{ adminSummary.bannedCount }}</strong><span>{{ t('forum.admin.banned') }}</span></div>
+            <div><strong>{{ adminSummary.pollCount }}</strong><span>{{ t('forum.admin.pollSummary') }}</span></div>
+            <div><strong>{{ adminSummary.backupCount }}</strong><span>{{ t('forum.admin.backupRecords') }}</span></div>
           </div>
           <div class="admin-grid">
             <div class="admin-card admin-section-card reports">
               <div class="section-heading compact">
-                <h3>举报队列</h3>
+                <h3>{{ t('forum.admin.reportQueue') }}</h3>
                 <span>{{ adminReports.length }}</span>
               </div>
               <article v-for="report in adminReports" :key="report.id" class="admin-row">
@@ -672,64 +672,64 @@
                   <small>{{ report.reporter_student_id }} · {{ formatTime(report.created_at) }}</small>
                 </div>
                 <div class="admin-report-actions">
-                  <button class="ghost-pill" type="button">查看目标</button>
+                  <button class="ghost-pill" type="button">{{ t('forum.admin.viewTarget') }}</button>
                 </div>
               </article>
-              <div v-if="!adminReports.length" class="empty-card compact">暂无举报</div>
+              <div v-if="!adminReports.length" class="empty-card compact">{{ t('forum.admin.noReports') }}</div>
             </div>
             <div class="admin-card admin-section-card users">
               <div class="section-heading compact">
-                <h3>用户治理</h3>
+                <h3>{{ t('forum.admin.userGovernance') }}</h3>
                 <span>{{ adminUsers.length }}</span>
               </div>
               <div class="inline-form">
-                <input v-model="adminSearch" placeholder="搜索学号/昵称" @keyup.enter="searchAdminUsers" />
-                <button class="ghost-pill" type="button" @click="searchAdminUsers">搜索</button>
+                <input v-model="adminSearch" :placeholder="t('forum.admin.searchPlaceholder')" @keyup.enter="searchAdminUsers" />
+                <button class="ghost-pill" type="button" @click="searchAdminUsers">{{ t('forum.admin.search') }}</button>
               </div>
               <article v-for="user in adminUsers" :key="user.student_id" class="admin-row">
                 <span class="material-symbols-outlined">person</span>
                 <div>
                   <strong>{{ user.nickname || user.student_id }}</strong>
-                  <p>{{ user.student_id }} · {{ Number(user.is_banned || 0) ? '已封禁' : '正常' }}</p>
+                  <p>{{ user.student_id }} · {{ Number(user.is_banned || 0) ? t('forum.admin.banned') : t('forum.admin.normal') }}</p>
                 </div>
                 <div class="admin-user-actions">
-                  <button class="ghost-pill" type="button" @click="banDraft.student_id = user.student_id">填入</button>
+                  <button class="ghost-pill" type="button" @click="banDraft.student_id = user.student_id">{{ t('forum.admin.fillIn') }}</button>
                 </div>
               </article>
             </div>
             <div class="admin-card admin-section-card moderation">
-              <h3>封禁 / 解封</h3>
-              <input v-model="banDraft.student_id" placeholder="目标学号" />
-              <input v-model="banDraft.reason" placeholder="原因，可选" />
+              <h3>{{ t('forum.admin.banSection') }}</h3>
+              <input v-model="banDraft.student_id" :placeholder="t('forum.admin.banTargetPlaceholder')" />
+              <input v-model="banDraft.reason" :placeholder="t('forum.admin.banReasonPlaceholder')" />
               <div class="button-row">
                 <button class="danger-pill" type="button" :disabled="isPending(`admin:ban:${banDraft.student_id.trim()}:true`)" @click="setUserBan(true)">
-                  {{ isPending(`admin:ban:${banDraft.student_id.trim()}:true`) ? '封禁中' : '封禁' }}
+                  {{ isPending(`admin:ban:${banDraft.student_id.trim()}:true`) ? t('forum.admin.banning') : t('forum.admin.ban') }}
                 </button>
                 <button class="ghost-pill" type="button" :disabled="isPending(`admin:ban:${banDraft.student_id.trim()}:false`)" @click="setUserBan(false)">
-                  {{ isPending(`admin:ban:${banDraft.student_id.trim()}:false`) ? '解封中' : '解封' }}
+                  {{ isPending(`admin:ban:${banDraft.student_id.trim()}:false`) ? t('forum.admin.unbanning') : t('forum.admin.unban') }}
                 </button>
               </div>
             </div>
             <div class="admin-card admin-section-card badge-issuer">
-              <h3>徽章发放</h3>
-              <input v-model="badgeDraft.student_id" placeholder="目标学号" />
+              <h3>{{ t('forum.admin.badgeSection') }}</h3>
+              <input v-model="badgeDraft.student_id" :placeholder="t('forum.admin.banTargetPlaceholder')" />
               <input v-model="badgeDraft.badge_key" placeholder="badge_key" />
-              <input v-model="badgeDraft.display_name" placeholder="展示名" />
+              <input v-model="badgeDraft.display_name" :placeholder="t('forum.admin.badgeDisplayNamePlaceholder')" />
               <button class="primary-pill wide" type="button" :disabled="isPending(`admin:badge:${badgeDraft.student_id.trim()}:${badgeDraft.badge_key.trim()}`)" @click="grantBadge">
-                {{ isPending(`admin:badge:${badgeDraft.student_id.trim()}:${badgeDraft.badge_key.trim()}`) ? '发放中' : '发放徽章' }}
+                {{ isPending(`admin:badge:${badgeDraft.student_id.trim()}:${badgeDraft.badge_key.trim()}`) ? t('forum.admin.granting') : t('forum.admin.grantBadge') }}
               </button>
             </div>
             <div class="admin-card admin-section-card poll-admin span-2">
               <div class="section-heading compact">
-                <h3>管理员创建投票</h3>
-                <span>{{ pollAdminSummary.total }} 个</span>
+                <h3>{{ t('forum.admin.createPoll') }}</h3>
+                <span>{{ tf('forum.admin.pollCount', { n: pollAdminSummary.total }) }}</span>
               </div>
               <div class="poll-admin-form">
-                <input v-model="pollDraft.title" placeholder="投票标题" />
-                <input v-model="pollDraft.description" placeholder="说明，可选" />
-                <textarea v-model="pollDraft.options" rows="4" placeholder="每行一个选项，如：很满意|10"></textarea>
+                <input v-model="pollDraft.title" :placeholder="t('forum.admin.pollTitlePlaceholder')" />
+                <input v-model="pollDraft.description" :placeholder="t('forum.admin.pollDescPlaceholder')" />
+                <textarea v-model="pollDraft.options" rows="4" :placeholder="t('forum.admin.pollOptionsPlaceholder')"></textarea>
                 <button class="primary-pill wide" type="button" :disabled="isPending('poll:create')" @click="createAdminPoll">
-                  {{ isPending('poll:create') ? '发布中' : '发布投票' }}
+                  {{ isPending('poll:create') ? t('forum.compose.publishing') : t('forum.admin.publishPoll') }}
                 </button>
               </div>
               <div class="backup-record-list">
@@ -737,26 +737,26 @@
                   <span class="material-symbols-outlined">how_to_vote</span>
                   <div>
                     <strong>{{ poll.title }}</strong>
-                    <p>{{ poll.status === 'closed' ? '已关闭' : '进行中' }} · {{ pollOptionTotal(poll) }} 票</p>
+                    <p>{{ poll.status === 'closed' ? t('forum.polls.closed') : t('forum.polls.ongoing') }} · {{ tf('forum.polls.voteCount', { n: pollOptionTotal(poll) }) }}</p>
                     <small>{{ formatTime(poll.created_at) }}</small>
                   </div>
                   <button class="ghost-pill" type="button" :disabled="poll.status === 'closed' || isPending(`poll:close:${poll.id}`)" @click="closeAdminPoll(poll)">
-                    {{ poll.status === 'closed' ? '已关闭' : '关闭投票' }}
+                    {{ poll.status === 'closed' ? t('forum.polls.closed') : t('forum.admin.closePoll') }}
                   </button>
                 </article>
               </div>
             </div>
             <div class="admin-card admin-section-card backup-panel span-2">
               <div class="section-heading compact">
-                <h3>备份记录</h3>
+                <h3>{{ t('forum.admin.backupRecords') }}</h3>
                 <span>{{ adminBackups.length }}</span>
               </div>
               <div class="backup-status-card">
                 <span class="material-symbols-outlined">cloud_sync</span>
                 <div>
-                  <strong>{{ latestBackup ? `最近备份 ${formatTime(latestBackup.created_at)}` : '等待首次备份' }}</strong>
-                  <p>HF Bucket：{{ latestBackup?.hf_path || '未返回路径' }}</p>
-                  <p>OneDrive：{{ latestBackup?.onedrive_path || latestBackup?.onedrive_status || '未同步' }}</p>
+                  <strong>{{ latestBackup ? tf('forum.admin.lastBackup', { time: formatTime(latestBackup.created_at) }) : t('forum.admin.waitingFirstBackup') }}</strong>
+                  <p>HF Bucket：{{ latestBackup?.hf_path || t('forum.admin.noPathReturned') }}</p>
+                  <p>OneDrive：{{ latestBackup?.onedrive_path || latestBackup?.onedrive_status || t('forum.admin.notSynced') }}</p>
                 </div>
               </div>
               <div class="backup-record-list">
@@ -764,23 +764,23 @@
                   <span class="material-symbols-outlined">database</span>
                   <div>
                     <strong>{{ backup.kind }} · {{ formatTime(backup.created_at) }}</strong>
-                    <p class="admin-path-chip">HF Bucket {{ backup.hf_path || '未返回路径' }}</p>
-                    <p class="admin-path-chip">OneDrive {{ backup.onedrive_path || backup.onedrive_status || '未同步' }}</p>
-                    <small>{{ backup.sqlite_path || '本地归档路径待返回' }}</small>
+                    <p class="admin-path-chip">HF Bucket {{ backup.hf_path || t('forum.admin.noPathReturned') }}</p>
+                    <p class="admin-path-chip">OneDrive {{ backup.onedrive_path || backup.onedrive_status || t('forum.admin.notSynced') }}</p>
+                    <small>{{ backup.sqlite_path || t('forum.admin.localArchivePending') }}</small>
                   </div>
                 </article>
               </div>
-              <div v-if="!adminBackups.length" class="empty-card compact">暂无备份</div>
+              <div v-if="!adminBackups.length" class="empty-card compact">{{ t('forum.admin.noBackups') }}</div>
             </div>
           </div>
         </section>
 
-        <section v-if="uploadQueue.length" class="upload-experience-panel" aria-label="图床上传队列">
+        <section v-if="uploadQueue.length" class="upload-experience-panel" :aria-label="t('forum.upload.queue')">
           <div class="upload-drop-card">
             <span class="material-symbols-outlined">cloud_upload</span>
             <div>
-              <strong>上传到后端图床</strong>
-              <p>发帖、回复和头像上传都会在这里显示状态，成功后可复制代理 URL。</p>
+              <strong>{{ t('forum.upload.title') }}</strong>
+              <p>{{ t('forum.upload.desc') }}</p>
             </div>
           </div>
           <div class="upload-progress-list">
@@ -793,14 +793,14 @@
                   <span :style="{ width: `${item.progress || 0}%` }"></span>
                 </div>
                 <button v-if="item.proxyUrl" class="attachment-url-chip" type="button" @click="copyAttachmentUrl(item.proxyUrl)">
-                  复制代理 URL
+                  {{ t('forum.upload.copyProxyUrl') }}
                 </button>
-                <p v-if="item.status === 'failed'" class="form-hint warning">{{ item.error || '上传失败，点击重试' }}</p>
+                <p v-if="item.status === 'failed'" class="form-hint warning">{{ item.error || t('forum.upload.failed') }}</p>
               </div>
               <div class="upload-progress-actions">
                 <span class="upload-status-pill">{{ uploadStatusText(item.status) }}</span>
                 <button v-if="item.status === 'failed'" class="upload-retry-button" type="button" :disabled="isPending(`upload:retry:${item.key}`)" @click="retryUploadFile(item)">
-                  {{ isPending(`upload:retry:${item.key}`) ? '重试中' : '上传失败，点击重试' }}
+                  {{ isPending(`upload:retry:${item.key}`) ? t('forum.upload.retrying') : t('forum.upload.failed') }}
                 </button>
               </div>
             </article>
