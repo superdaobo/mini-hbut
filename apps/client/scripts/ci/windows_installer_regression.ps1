@@ -677,3 +677,8 @@ try {
     Write-Warning "App data restore failed: $($_.Exception.Message)"
   }
 }
+
+# 显式成功退出：GitHub Actions 以 pwsh -command 点源执行本脚本，
+# 进程退出码取最后执行的原生命令的 $LASTEXITCODE（如 taskkill 找不到
+# 进程返回 128）。不显式 exit 0 会让全绿的运行被误判失败（第九次 run 实证）。
+exit 0
