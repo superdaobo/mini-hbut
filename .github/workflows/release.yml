@@ -465,6 +465,15 @@ jobs:
           python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
+      - name: Prepare MSI uninstall launcher (#798)
+        shell: pwsh
+        working-directory: apps/client
+        # 兄弟脚本负责 cargo build 启动器并放到 target/release/ 根目录；
+        # bundler 会在 MSI 打包开始时清空 wix/x64 工作目录，所以 uninstall.exe
+        # 必须放在不被清理的位置，由 main.wxs 以 ..\..\uninstall.exe 相对引用。
+        # 必须在 `tauri build --bundles msi` 之前执行，否则 light.exe 打包失败。
+        run: ./scripts/ci/build_msi_uninstall_launcher.ps1
+
       - name: Build Windows App
         working-directory: apps/client
         run: npm run tauri build -- --bundles nsis,msi
