@@ -101,7 +101,7 @@ describe('forum view identity contract', () => {
       expect(forumSource).toContain(marker)
     }
 
-    for (const stateText of ['加载中', '暂无', '还没有帖子', '论坛暂未开放', '登录后可以发帖', '帖子列表加载失败', '用户主页加载失败']) {
+    for (const stateText of ["t('forum.feed.emptyTitle')", "t('forum.feed.emptyDesc')", "t('forum.detail.loading')", "t('forum.user.loading')", '论坛暂未开放', '登录后可以发帖']) {
       expect(forumSource).toContain(stateText)
     }
 
@@ -151,7 +151,7 @@ describe('forum view identity contract', () => {
     expect(forumSource).not.toContain('letter-spacing: -')
     expect(forumSource).not.toContain('padding: 0 0 var(--stitch-bottom-nav-clearance)')
     expect(forumSource).toMatch(/<div class="forum-shell-inner">[\s\S]*<header class="forum-topbar">[\s\S]*<main class="forum-canvas">[\s\S]*<div class="forum-bottom-safe-spacer" aria-hidden="true"><\/div>/)
-    expect(forumSource).toMatch(/<div v-if="loading" class="forum-skeleton-list" aria-label="论坛内容加载中">[\s\S]*class="skeleton-card"[\s\S]*class="skeleton-line wide"/)
+    expect(forumSource).toMatch(/<div v-if="loading" class="forum-skeleton-list" :aria-label="t\('forum\.feed\.loading'\)">[\s\S]*class="skeleton-card"[\s\S]*class="skeleton-line wide"/)
     expect(forumSource).toContain('.post-card p {\n  display: -webkit-box;')
   })
 
@@ -181,7 +181,7 @@ describe('forum view identity contract', () => {
       'class="hot-thread-strip"',
       'class="thread-action-button"',
       'isPending(threadActionKey(thread, \'bookmark\'))',
-      '收藏中'
+      "t('forum.feed.bookmarking')"
     ]) {
       expect(forumSource).toContain(feedMarker)
     }
@@ -193,9 +193,9 @@ describe('forum view identity contract', () => {
       'isPending(threadActionKey(currentThread, \'report\'))',
       'isPending(threadActionKey(currentThread, \'follow\'))',
       'isPending(replyPendingKey)',
-      '举报中',
-      '关注作者',
-      '回复中'
+      "t('forum.detail.reporting')",
+      "t('forum.detail.followAuthor')",
+      "t('forum.detail.replying')"
     ]) {
       expect(forumSource).toContain(detailMarker)
     }
@@ -206,8 +206,8 @@ describe('forum view identity contract', () => {
       '@click="removeThreadFile(index)"',
       '@click="removeReplyFile(index)"',
       'isPending(threadPendingKey)',
-      '发布中',
-      '上传附件会先进入后端图床',
+      "t('forum.compose.publishing')",
+      "t('forum.compose.attachmentHint')",
       '@click="openThreadFilePicker"',
       'ref="threadUploadInput"',
       'aria-hidden="true" tabindex="-1"'
@@ -255,11 +255,11 @@ describe('forum view identity contract', () => {
       'class="notification-list"',
       'class="message-composer-card"',
       'class="message-thread-list"',
-      '发送私信',
+      "t('forum.notice.sendMessage')",
       '私信已发送',
-      '通知中心',
-      '未读',
-      '暂无私信'
+      "t('forum.notice.title')",
+      "t('forum.notice.unread')",
+      "t('forum.notice.noMessages')"
     ]) {
       expect(forumSource).toContain(noticeMarker)
     }
@@ -271,13 +271,13 @@ describe('forum view identity contract', () => {
       'class="profile-list-grid"',
       'class="profile-list-card"',
       'class="badge-cloud"',
-      '我的帖子',
-      '我的回复',
-      '我的收藏',
-      '资料完整度',
-      '签到中',
-      '头像上传（推荐）',
-      '管理员口令'
+      "t('forum.me.myThreads')",
+      "t('forum.me.myReplies')",
+      "t('forum.me.myBookmarks')",
+      "tf('forum.me.profileCompletion'",
+      "t('forum.me.checkingIn')",
+      "t('forum.me.avatarUploadTitle')",
+      "t('forum.me.adminSecret')"
     ]) {
       expect(forumSource).toContain(meMarker)
     }
@@ -288,10 +288,10 @@ describe('forum view identity contract', () => {
       'class="user-profile-actions"',
       'class="user-profile-badges"',
       'class="user-profile-content-grid"',
-      '用户主页加载中',
-      '关注',
-      '这个同学还没有发帖',
-      '暂无公开徽章'
+      "t('forum.user.loading')",
+      "t('forum.user.follow')",
+      "t('forum.user.noThreads')",
+      "t('forum.user.noBadges')"
     ]) {
       expect(forumSource).toContain(profileMarker)
     }
@@ -334,19 +334,19 @@ describe('forum view identity contract', () => {
     expect(forumSource).toContain('id="forum-profile-admin-secret"')
     expect(forumSource).toContain('v-model="profile.admin_secret"')
     expect(forumSource).toContain('type="password"')
-    expect(forumSource).toContain('仅管理员填写')
+    expect(forumSource).toContain("t('forum.me.adminSecretPlaceholder')")
     expect(forumSource).toContain('avatarUploadStatus.value =')
     expect(forumSource).toContain('class="profile-avatar uploadable-avatar"')
     expect(forumSource).toContain('class="avatar-setting-card"')
     expect(forumSource).toContain('class="avatar-setting-preview"')
     expect(forumSource).toContain('class="avatar-setting-actions"')
-    expect(forumSource).toContain('设置头像')
-    expect(forumSource).toContain('从本地选择图片上传到论坛图床')
-    expect(forumSource).toContain('自动回填到头像地址')
+    expect(forumSource).toContain("t('forum.me.setAvatar')")
+    expect(forumSource).toContain("t('forum.me.avatarUploadHint')")
+    expect(forumSource).toContain("t('forum.me.avatarUploadHint')")
     expect(forumSource).toContain('@click="openAvatarFilePicker"')
     expect(forumSource).toContain('@keydown.enter.prevent="openAvatarFilePicker"')
-    expect(forumSource).toContain('更换头像')
-    expect(forumSource).toContain('已回填图床地址')
+    expect(forumSource).toContain("t('forum.me.changeAvatar')")
+    expect(forumSource).toContain("t('forum.me.avatarUpload')")
     expect(forumSource).toContain('v-if="avatarUploadStatus"')
     expect(forumSource).toContain('id="forum-profile-avatar-file"')
     expect(forumSource).toContain('@change="uploadAvatarImage"')
@@ -358,11 +358,11 @@ describe('forum view identity contract', () => {
     expect(forumSource).toContain('.avatar-setting-card')
     expect(forumSource).toContain('.avatar-setting-preview')
     expect(forumSource).toContain('.avatar-manual-fallback')
-    expect(forumSource).toContain('头像图床上传中')
-    expect(forumSource).toContain('头像上传（推荐）')
-    expect(forumSource).toContain('手动 URL（备用）')
-    expect(forumSource.indexOf('头像上传（推荐）')).toBeLessThan(forumSource.indexOf('手动 URL（备用）'))
-    expect(forumSource.indexOf('上传头像到图床')).toBeLessThan(forumSource.indexOf('手动 URL（备用）'))
+    expect(forumSource).toContain("t('forum.me.avatarUploading')")
+    expect(forumSource).toContain("t('forum.me.avatarUploadTitle')")
+    expect(forumSource).toContain("t('forum.me.manualUrl')")
+    expect(forumSource.indexOf("t('forum.me.avatarUploadTitle')")).toBeLessThan(forumSource.indexOf("t('forum.me.manualUrl')"))
+    expect(forumSource.indexOf("t('forum.me.avatarUpload')")).toBeLessThan(forumSource.indexOf("t('forum.me.manualUrl')"))
   })
 
   it('keeps admin, backup, and image-host experiences feature-complete for Task 11', () => {
@@ -416,19 +416,19 @@ describe('forum view identity contract', () => {
       'class="backup-status-card"',
       'class="backup-record-list"',
       'class="admin-path-chip"',
-      '社区管理中心',
-      '举报队列',
-      '用户治理',
-      '封禁 / 解封',
-      '徽章发放',
-      '投票打分',
-      '管理员创建投票',
-      '发布投票',
-      '关闭投票',
+      "t('forum.admin.title')",
+      "t('forum.admin.reportQueue')",
+      "t('forum.admin.userGovernance')",
+      "t('forum.admin.banSection')",
+      "t('forum.admin.badgeSection')",
+      "t('forum.admin.pollSummary')",
+      "t('forum.admin.createPoll')",
+      "t('forum.admin.publishPoll')",
+      "t('forum.admin.closePoll')",
       '投票已记录',
-      '备份记录',
-      '备份中',
-      '触发备份',
+      "t('forum.admin.backupRecords')",
+      "t('forum.admin.backuping')",
+      "t('forum.admin.triggerBackup')",
       'HF Bucket',
       'OneDrive'
     ]) {
@@ -443,9 +443,9 @@ describe('forum view identity contract', () => {
       'class="upload-status-pill"',
       'class="attachment-url-chip"',
       'class="upload-retry-button"',
-      '上传到后端图床',
-      '复制代理 URL',
-      '上传失败，点击重试',
+      "t('forum.upload.title')",
+      "t('forum.upload.copyProxyUrl')",
+      "t('forum.upload.failed')",
       '@click="retryUploadFile(item)"',
       '@click="copyAttachmentUrl(item.proxyUrl)"',
       'class="visually-hidden-file"',

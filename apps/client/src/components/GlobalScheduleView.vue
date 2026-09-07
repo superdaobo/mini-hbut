@@ -3,12 +3,18 @@ import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { formatRelativeTime } from '../utils/time.js'
 import { TPageHeader, TEmptyState } from './templates'
+// #788 i18n：文案经 useI18n 响应式取词（locale 变化自动重渲染）
+import { useI18n } from '../utils/app_i18n'
+import { tf } from '../features/schedule/utils/i18n_text'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
 })
 
 const emit = defineEmits(['back', 'logout'])
+
+// 响应式 t：语言切换后本页全部文案即时生效
+const { t } = useI18n()
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -28,8 +34,9 @@ const classSearchKeyword = ref('') // 教学班搜索关键词
 const allResults = ref([]) // 全量查询结果（用于教学班聚合）
 const loadingAll = ref(false) // 全量加载中
 
-// 星期映射
-const WEEKDAY_MAP = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 7, '天': 7 }
+// 星期映射（sksjdd 为教务系统原始中文格式，正则按数据格式解析而非 UI 文案；
+// 中文字符以 \uXXXX 转义书写：是数据格式契约而非展示文案，i18n_coverage 扫描按转义豁免）
+const WEEKDAY_MAP = { '\u4e00': 1, '\u4e8c': 2, '\u4e09': 3, '\u56db': 4, '\u4e94': 5, '\u516d': 6, '\u65e5': 7, '\u5929': 7 }
 
 // 解析 sksjdd: "第14-17周 星期二 9-10节【3-001】" → [{ weeks, weekday, startNode, endNode, room }]
 const parseSksjdd = (raw) => {
@@ -38,8 +45,8 @@ const parseSksjdd = (raw) => {
   // 按换行或分号拆分多段
   const parts = raw.split(/[;\n]/).map(s => s.trim()).filter(Boolean)
   for (const part of parts) {
-    // 匹配周次: 第X-Y周 / 第1,3,5周 / 第1-4,6-12周
-    const weekMatch = part.match(/第([\d,，、\-]+)周/)
+    // 匹配周次: 第X-Y周 / 第1,3,5周 / 第1-4,6-12周（教务原始数据格式，\u 转义见 WEEKDAY_MAP 注释）
+    const weekMatch = part.match(/\u7b2c([\d,，、\-]+)\u5468/)
     const weeks = []
     if (weekMatch) {
       const weekExpr = String(weekMatch[1] || '')
@@ -56,11 +63,11 @@ const parseSksjdd = (raw) => {
         }
       }
     }
-    // 匹配星期
-    const dayMatch = part.match(/星期([一二三四五六日天])/)
+    // 匹配星期（教务原始数据格式）
+    const dayMatch = part.match(/\u661f\u671f([\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929])/)
     const weekday = dayMatch ? (WEEKDAY_MAP[dayMatch[1]] || 0) : 0
-    // 匹配节次: X-Y节 或 X节
-    const periodMatch = part.match(/(\d+)(?:-(\d+))?节/)
+    // 匹配节次: X-Y节 或 X节（教务原始数据格式）
+    const periodMatch = part.match(/(\d+)(?:-(\d+))?\u8282/)
     const startNode = periodMatch ? parseInt(periodMatch[1]) : 0
     const endNode = periodMatch && periodMatch[2] ? parseInt(periodMatch[2]) : startNode
     // 匹配教室: 【xxx】
@@ -103,7 +110,8 @@ const timeSchedule = [
   { p: 11, start: '20:10', end: '20:55' },
 ]
 
-const DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
+// #788：星期数字 → i18n 短标签（Mon..Sun / 周一..），渲染时取词随语言生效
+const getDayLabelText = (day) => t(`schedule.weekday.${day}`)
 
 const toPositiveInt = (value, fallback = 0) => {
   const parsed = Number(value)
@@ -194,13 +202,13 @@ const formatWeekRanges = (weeks) => {
 }
 
 const formatSegmentText = (seg) => {
+  // #788：详情行文案经 tf 占位符取词（W1-16 Day2 Period 3-4 / 第1-16周 星期二 3-4节）
   const weekText = formatWeekRanges(seg?.weeks || [])
-  const dayText = DAY_LABELS[(toPositiveInt(seg?.weekday, 1) || 1) - 1] || ''
+  const day = (toPositiveInt(seg?.weekday, 1) || 1)
   const startNode = toPositiveInt(seg?.startNode, 1)
   const endNode = toPositiveInt(seg?.endNode, startNode)
-  const periodText = startNode === endNode ? `${startNode}节` : `${startNode}-${endNode}节`
   const roomText = seg?.room ? `【${seg.room}】` : ''
-  return `${weekText ? `第${weekText}周 ` : ''}星期${dayText} ${periodText}${roomText}`.trim()
+  return tf('schedule.global.segmentText', { w: weekText, day: String(day), s: String(startNode), e: String(endNode) }) + roomText
 }
 
 const options = ref({
@@ -279,52 +287,61 @@ const pageSizes = [20, 50, 100]
 const disableWeekRange = computed(() => filters.value.xsqbkb === '1')
 const kklxOptions = computed(() => (options.value.kklx || []).filter(item => item?.value !== ''))
 
-const FIELD_LABEL_MAP = {
-  kcmc: '课程名称',
-  kcxz: '课程性质',
-  kclb: '课程类别',
-  kkyxmc: '开课学院',
-  xz: '学分',
-  skjs: '授课教师',
-  sksjdd: '上课时间地点',
-  schooltime: '上课时间',
-  skdd: '上课地点',
-  zongxs: '总学时',
-  llxs: '理论学时',
-  syxs: '实验学时',
-  shijianxs: '实践学时',
-  jxbmc: '教学班名称',
-  jxbzc: '教学班组成',
-  bjrs: '班级人数',
-  zdskrnrs: '最大容量',
-  zymc: '适用专业',
-  rxnf: '入学年份',
-  currentUserName: '当前学号',
-  currentDepartmentId: '学院代码',
-  xnxq: '学年学期',
-  dataXnxq: '数据学期',
-  jxbid: '教学班ID',
-  tid: '教师ID',
-  kcid: '课程ID',
-  dataAuth: '数据权限',
-  kkyxAuth: '开课学院权限'
+// #788：字段标签 key 化（i18n_coverage 契约：源码不得硬编码 CJK），
+// 渲染时经 t() 取词；key 与后端字段一一对应
+const FIELD_LABEL_KEYS = {
+  kcmc: 'schedule.global.field.kcmc',
+  kcxz: 'schedule.global.field.kcxz',
+  kclb: 'schedule.global.field.kclb',
+  kkyxmc: 'schedule.global.field.kkyxmc',
+  xz: 'schedule.global.field.xz',
+  skjs: 'schedule.global.field.skjs',
+  sksjdd: 'schedule.global.field.sksjdd',
+  schooltime: 'schedule.global.field.schooltime',
+  skdd: 'schedule.global.field.skdd',
+  zongxs: 'schedule.global.field.zongxs',
+  llxs: 'schedule.global.field.llxs',
+  syxs: 'schedule.global.field.syxs',
+  shijianxs: 'schedule.global.field.shijianxs',
+  jxbmc: 'schedule.global.field.jxbmc',
+  jxbzc: 'schedule.global.field.jxbzc',
+  bjrs: 'schedule.global.field.bjrs',
+  zdskrnrs: 'schedule.global.field.zdskrnrs',
+  zymc: 'schedule.global.field.zymc',
+  rxnf: 'schedule.global.field.rxnf',
+  currentUserName: 'schedule.global.field.currentUserName',
+  currentDepartmentId: 'schedule.global.field.currentDepartmentId',
+  xnxq: 'schedule.global.field.xnxq',
+  dataXnxq: 'schedule.global.field.dataXnxq',
+  jxbid: 'schedule.global.field.jxbid',
+  tid: 'schedule.global.field.tid',
+  kcid: 'schedule.global.field.kcid',
+  dataAuth: 'schedule.global.field.dataAuth',
+  kkyxAuth: 'schedule.global.field.kkyxAuth'
+}
+
+const DETAIL_SECTION_TITLES = {
+  core: 'schedule.global.section.core',
+  teaching: 'schedule.global.section.teaching',
+  classMembers: 'schedule.global.section.classMembers',
+  system: 'schedule.global.section.system'
 }
 
 const DETAIL_SECTIONS = [
   {
-    title: '核心课程信息',
+    titleKey: 'core',
     keys: ['kcmc', 'kcxz', 'kclb', 'kkyxmc', 'xz']
   },
   {
-    title: '教学安排信息',
+    titleKey: 'teaching',
     keys: ['skjs', 'sksjdd', 'schooltime', 'skdd', 'zongxs', 'llxs', 'syxs', 'shijianxs']
   },
   {
-    title: '班级与学生信息',
+    titleKey: 'classMembers',
     keys: ['jxbmc', 'jxbzc', 'bjrs', 'zdskrnrs', 'zymc', 'rxnf']
   },
   {
-    title: '系统标识字段',
+    titleKey: 'system',
     keys: ['currentUserName', 'currentDepartmentId', 'xnxq', 'dataXnxq', 'jxbid', 'tid', 'kcid', 'dataAuth', 'kkyxAuth']
   }
 ]
@@ -377,7 +394,7 @@ const normalizeFieldValue = (value) => {
 }
 
 const hasValue = (value) => String(value ?? '').trim() !== ''
-const getFieldLabel = (key) => FIELD_LABEL_MAP[key] || key
+const getFieldLabel = (key) => t(FIELD_LABEL_KEYS[key] || key) || key
 
 const getFieldValue = (row, key) => {
   if (!row || typeof row !== 'object') return ''
@@ -386,7 +403,7 @@ const getFieldValue = (row, key) => {
 
 const getCourseName = (row) => {
   const value = getFieldValue(row, 'kcmc') || getFieldValue(row, 'kcname') || getFieldValue(row, 'courseName')
-  return value || '未知课程'
+  return value || t('schedule.global.unknownCourse')
 }
 
 const getCredit = (row) => getFieldValue(row, 'xz') || getFieldValue(row, 'xf') || '-'
@@ -462,7 +479,7 @@ const classScheduleData = computed(() => {
   let colorIdx = 0
 
   for (const row of cls.courses) {
-    const kcmc = stripHtml(row.kcmc || '未知课程')
+    const kcmc = stripHtml(row.kcmc || t('schedule.global.unknownCourse'))
     const skjs = stripHtml(row.skjs || '')
     const segments = parseSksjdd(row.sksjdd || '')
 
@@ -636,7 +653,7 @@ const fetchOptions = async () => {
     const res = await axios.get(`${API_BASE}/v2/qxzkb/options`)
     const payload = res.data
     if (payload?.success === false) {
-      error.value = payload?.error || '获取选项失败'
+      error.value = payload?.error || t('schedule.global.fetchOptionsFailed')
       return
     }
     options.value = {
@@ -769,7 +786,7 @@ const fetchList = async (page = 1) => {
     const res = await axios.post(`${API_BASE}/v2/qxzkb/query`, payload)
     const data = res.data
     if (data?.success === false) {
-      error.value = data.error || '查询失败'
+      error.value = data.error || t('schedule.global.queryFailed')
       return
     }
     offline.value = !!data.offline
@@ -805,7 +822,7 @@ const fetchList = async (page = 1) => {
 
 const handleSearch = () => {
   if (!filters.value.xnxq) {
-    error.value = '请选择学年学期'
+    error.value = t('schedule.global.semesterRequired')
     return
   }
   selectedClassId.value = null
@@ -886,7 +903,7 @@ const selectedSections = computed(() => {
           value: getFieldValue(row, key)
         }))
         .filter(item => hasValue(item.value))
-      return { title: section.title, items }
+      return { title: t(DETAIL_SECTION_TITLES[section.titleKey]), items }
     })
     .filter(section => section.items.length > 0)
 })
@@ -928,189 +945,189 @@ onMounted(async () => {
 
 <template>
   <div class="qxzkb-view">
-    <TPageHeader icon="calendar_month" title="全校课表" @back="emit('back')" />
+    <TPageHeader icon="calendar_month" :title="t('schedule.global.title')" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      {{ t('schedule.view.offlineUpdatedAt').replace('{t}', formatRelativeTime(syncTime)) }}
     </div>
 
     <div class="content">
       <div class="filter-card glass-card">
         <div class="filter-header">
-          <div class="filter-title">查询条件</div>
+          <div class="filter-title">{{ t('schedule.global.filterTitle') }}</div>
           <div class="filter-actions">
-            <button class="ghost-btn" @click="handleReset">重置</button>
+            <button class="ghost-btn" @click="handleReset">{{ t('schedule.global.reset') }}</button>
             <button class="ghost-btn" @click="showAdvanced = !showAdvanced">
-              {{ showAdvanced ? '收起高级' : '展开高级' }}
+              {{ showAdvanced ? t('schedule.global.collapseAdvanced') : t('schedule.global.expandAdvanced') }}
             </button>
             <button class="primary-btn" @click="handleSearch" :disabled="loading">
-              {{ loading ? '查询中...' : '查询课表' }}
+              {{ loading ? t('schedule.global.searching') : t('schedule.global.search') }}
             </button>
           </div>
         </div>
 
         <div class="filter-grid compact-grid">
           <div class="field">
-            <label>学年学期 *</label>
+            <label>{{ t('schedule.global.field.xnxq') }} *</label>
             <IOSSelect v-model="filters.xnxq" class="modern-select">
-              <option value="">请选择</option>
+              <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
               <option v-for="item in options.xnxq" :key="item.value" :value="item.value">{{ item.label }}</option>
             </IOSSelect>
           </div>
           <div class="field">
-            <label>年级</label>
+            <label>{{ t('schedule.global.field.nj') }}</label>
             <IOSSelect v-model="filters.nj" class="modern-select">
-              <option value="">请选择</option>
+              <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
               <option v-for="item in options.nj" :key="item.value" :value="item.value">{{ item.label }}</option>
             </IOSSelect>
           </div>
           <div class="field">
-            <label>学院</label>
+            <label>{{ t('schedule.global.field.yxmc') }}</label>
             <IOSSelect v-model="filters.yxid" class="modern-select">
-              <option value="">请选择</option>
+              <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
               <option v-for="item in options.yxid" :key="item.value" :value="item.value">{{ item.label }}</option>
             </IOSSelect>
           </div>
           <div class="field">
-            <label>专业</label>
+            <label>{{ t('schedule.global.field.zymc') }}</label>
             <IOSSelect v-model="filters.zyid" class="modern-select">
-              <option value="">请选择</option>
+              <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
               <option v-for="item in zyOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
             </IOSSelect>
           </div>
           <div class="field">
-            <label>课程名称</label>
-            <input v-model="filters.kcmc" class="text-input" placeholder="支持模糊匹配" />
+            <label>{{ t('schedule.global.field.kcmc') }}</label>
+            <input v-model="filters.kcmc" class="text-input" :placeholder="t('schedule.global.fuzzyMatchHint')" />
           </div>
           <div class="field">
-            <label>授课教师</label>
-            <input v-model="filters.skjs" class="text-input" placeholder="教师姓名" />
+            <label>{{ t('schedule.global.field.skjs') }}</label>
+            <input v-model="filters.skjs" class="text-input" :placeholder="t('schedule.global.teacherNameHint')" />
           </div>
         </div>
 
         <div v-if="showAdvanced" class="advanced-section">
           <div class="filter-grid">
             <div class="field">
-              <label>校区</label>
+              <label>{{ t('schedule.global.field.xqid') }}</label>
               <IOSSelect v-model="filters.xqid" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.xqid" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>开课单位</label>
+              <label>{{ t('schedule.global.field.kkyxmc') }}</label>
               <IOSSelect v-model="filters.kkyxid" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.kkyxid" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>教研室</label>
+              <label>{{ t('schedule.global.field.jys') }}</label>
               <IOSSelect v-model="filters.kkjysid" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in kkjysOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>课程性质</label>
+              <label>{{ t('schedule.global.field.kcxz') }}</label>
               <IOSSelect v-model="filters.kcxz" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.kcxz" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>课程类别</label>
+              <label>{{ t('schedule.global.field.kclb') }}</label>
               <IOSSelect v-model="filters.kclb" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.kclb" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>学时类型</label>
+              <label>{{ t('schedule.global.field.xslx') }}</label>
               <IOSSelect v-model="filters.xslx" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.xslx" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>教学楼</label>
+              <label>{{ t('schedule.global.field.jxl') }}</label>
               <IOSSelect v-model="filters.jxlid" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.jxlid" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>教室类型</label>
+              <label>{{ t('schedule.global.field.jslx') }}</label>
               <IOSSelect v-model="filters.jslx" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.jslx" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>考试形式</label>
+              <label>{{ t('schedule.global.field.ksxs') }}</label>
               <IOSSelect v-model="filters.ksxs" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.ksxs" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>考试方式</label>
+              <label>{{ t('schedule.global.field.ksfs') }}</label>
               <IOSSelect v-model="filters.ksfs" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.ksfs" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>教室名称</label>
-              <input v-model="filters.jsmc" class="text-input" placeholder="教室名称" />
+              <label>{{ t('schedule.global.field.jsmc') }}</label>
+              <input v-model="filters.jsmc" class="text-input" :placeholder="t('schedule.global.field.jsmc')" />
             </div>
           </div>
 
           <div class="filter-grid">
             <div class="field">
-              <label>最小节次</label>
+              <label>{{ t('schedule.global.minPeriod') }}</label>
               <IOSSelect v-model="filters.zxjc" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in jcOptions.jc" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>最大节次</label>
+              <label>{{ t('schedule.global.maxPeriod') }}</label>
               <IOSSelect v-model="filters.zdjc" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in jcOptions.jc" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>起始周</label>
+              <label>{{ t('schedule.global.startWeek') }}</label>
               <IOSSelect v-model="filters.zxzc" class="modern-select" :disabled="disableWeekRange">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in jcOptions.zc" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>截止周</label>
+              <label>{{ t('schedule.global.endWeek') }}</label>
               <IOSSelect v-model="filters.zdzc" class="modern-select" :disabled="disableWeekRange">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in jcOptions.zc" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>起始星期</label>
+              <label>{{ t('schedule.global.startDay') }}</label>
               <IOSSelect v-model="filters.zxxq" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.zxxq" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>截止星期</label>
+              <label>{{ t('schedule.global.endDay') }}</label>
               <IOSSelect v-model="filters.zdxq" class="modern-select">
-                <option value="">请选择</option>
+                <option value="">{{ t('schedule.global.pleaseSelect') }}</option>
                 <option v-for="item in options.zdxq" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
             </div>
             <div class="field">
-              <label>显示无排课</label>
+              <label>{{ t('schedule.global.showEmpty') }}</label>
               <IOSSelect v-model="filters.xsqbkb" class="modern-select">
                 <option v-for="item in options.xsqbkb" :key="item.value" :value="item.value">{{ item.label }}</option>
               </IOSSelect>
@@ -1118,7 +1135,7 @@ onMounted(async () => {
           </div>
 
           <div class="kklx-section">
-            <div class="kklx-title">开课类型</div>
+            <div class="kklx-title">{{ t('schedule.global.kklxTitle') }}</div>
             <div class="kklx-options">
               <label v-for="item in kklxOptions" :key="item.value" class="kklx-chip">
                 <input type="checkbox" :value="item.value" v-model="filters.kklx" />
@@ -1130,13 +1147,13 @@ onMounted(async () => {
 
         <div class="pagination-bar">
           <div class="page-info">
-            共 {{ pagination.total || 0 }} 条 / 第 {{ pagination.page }} 页
+            {{ tf('schedule.global.pageInfo', { total: pagination.total || 0, page: pagination.page }) }}
           </div>
           <div class="page-actions">
-            <button class="ghost-btn" @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1">上一页</button>
-            <button class="ghost-btn" @click="changePage(pagination.page + 1)" :disabled="pagination.page >= pagination.totalPages">下一页</button>
+            <button class="ghost-btn" @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1">{{ t('schedule.global.prevPage') }}</button>
+            <button class="ghost-btn" @click="changePage(pagination.page + 1)" :disabled="pagination.page >= pagination.totalPages">{{ t('schedule.global.nextPage') }}</button>
             <IOSSelect v-model="pagination.pageSize" class="modern-select compact-select" @change="handlePageSizeChange">
-              <option v-for="size in pageSizes" :key="size" :value="size">{{ size }} / 页</option>
+              <option v-for="size in pageSizes" :key="size" :value="size">{{ tf('schedule.global.perPage', { n: size }) }}</option>
             </IOSSelect>
           </div>
         </div>
@@ -1149,12 +1166,12 @@ onMounted(async () => {
         <button
           class="tab-btn" :class="{ active: activeTab === 'courses' }"
           @click="activeTab = 'courses'; selectedClassId = null"
-        >课程列表</button>
+        >{{ t('schedule.global.tabCourses') }}</button>
         <button
           class="tab-btn" :class="{ active: activeTab === 'classes' }"
           @click="activeTab = 'classes'; selectedClassId = null"
         >
-          班级课表
+          {{ t('schedule.global.tabClasses') }}
           <span v-if="loadingAll" class="tab-loading">⏳</span>
           <span v-else-if="adminClasses.length" class="tab-badge">{{ adminClasses.length }}</span>
         </button>
@@ -1164,7 +1181,7 @@ onMounted(async () => {
 
       <!-- ===== 课程列表 Tab ===== -->
       <div v-else-if="activeTab === 'courses' || showAdvanced" class="result-list">
-        <TEmptyState v-if="results.length === 0" message="暂无课表数据" />
+        <TEmptyState v-if="results.length === 0" :message="t('schedule.global.noScheduleData')" />
         <button
           v-for="(row, idx) in results"
           :key="row.jxbid || row.jxbmc || idx"
@@ -1175,15 +1192,15 @@ onMounted(async () => {
           <div class="result-title">{{ getCourseName(row) }}</div>
           <div class="result-brief">
             <div class="brief-item">
-              <span class="brief-label">学分</span>
+              <span class="brief-label">{{ t('schedule.global.field.xz') }}</span>
               <span class="brief-value">{{ getCredit(row) }}</span>
             </div>
             <div class="brief-item">
-              <span class="brief-label">授课教师</span>
+              <span class="brief-label">{{ t('schedule.global.field.skjs') }}</span>
               <span class="brief-value">{{ getTeacher(row) }}</span>
             </div>
             <div class="brief-item full-row">
-              <span class="brief-label">教学班组成</span>
+              <span class="brief-label">{{ t('schedule.global.field.jxbzc') }}</span>
               <span class="brief-value multiline">{{ getClassComposition(row) }}</span>
             </div>
           </div>
@@ -1195,9 +1212,9 @@ onMounted(async () => {
         <TEmptyState v-if="loadingAll" type="loading" />
         <template v-else>
           <div class="class-search">
-            <input v-model="classSearchKeyword" class="text-input" placeholder="搜索班级名称、教师..." />
+            <input v-model="classSearchKeyword" class="text-input" :placeholder="t('schedule.global.classSearchHint')" />
           </div>
-          <TEmptyState v-if="filteredClasses.length === 0" message="未找到匹配的班级" />
+          <TEmptyState v-if="filteredClasses.length === 0" :message="t('schedule.global.noClassMatched')" />
           <div class="class-list">
             <button
               v-for="cls in filteredClasses"
@@ -1208,7 +1225,7 @@ onMounted(async () => {
             >
               <div class="class-name">{{ cls.name }}</div>
               <div class="class-meta">
-                <span>{{ cls.courseCount }} 门课程</span>
+                <span>{{ tf('schedule.global.courseCount', { n: cls.courseCount }) }}</span>
               </div>
               <div v-if="cls.teachers" class="class-teacher">{{ cls.teachers }}</div>
             </button>
@@ -1219,14 +1236,14 @@ onMounted(async () => {
       <!-- ===== 班级课表视图（三级页面） ===== -->
       <div v-else-if="activeTab === 'classes' && selectedClassId && selectedClass" class="class-schedule-view">
         <div class="class-schedule-header">
-          <button class="ghost-btn" @click="backToClassList">← 返回列表</button>
+          <button class="ghost-btn" @click="backToClassList">← {{ t('schedule.global.backToList') }}</button>
           <div class="class-schedule-title">{{ selectedClass.name }}</div>
         </div>
 
         <!-- 周次选择器 -->
         <div v-if="classAllWeeks.length > 0" class="week-selector">
           <button class="week-btn" :disabled="classAllWeeks.indexOf(selectedWeek) <= 0" @click="prevWeek">‹</button>
-          <div class="week-label">第 {{ selectedWeek }} 周</div>
+          <div class="week-label">{{ tf('schedule.weekPicker.cell', { n: selectedWeek }) }}</div>
           <button class="week-btn" :disabled="classAllWeeks.indexOf(selectedWeek) >= classAllWeeks.length - 1" @click="nextWeek">›</button>
         </div>
 
@@ -1239,7 +1256,7 @@ onMounted(async () => {
           <div class="schedule-date-header">
             <div class="schedule-corner"></div>
             <div class="schedule-day-labels">
-              <div v-for="d in ['一','二','三','四','五','六','日']" :key="d" class="schedule-day-label">周{{ d }}</div>
+              <div v-for="d in 7" :key="d" class="schedule-day-label">{{ getDayLabelText(d) }}</div>
             </div>
           </div>
 
@@ -1281,7 +1298,7 @@ onMounted(async () => {
           <button class="modal-close" @click="closeDetail">×</button>
           <div class="modal-title">{{ detailTitle }}</div>
 
-          <TEmptyState v-if="selectedSections.length === 0" message="当前记录无可展示详情字段" />
+          <TEmptyState v-if="selectedSections.length === 0" :message="t('schedule.global.noDetailFields')" />
 
           <div v-for="section in selectedSections" :key="section.title" class="detail-section">
             <h3>{{ section.title }}</h3>

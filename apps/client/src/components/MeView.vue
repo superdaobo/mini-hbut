@@ -15,6 +15,7 @@ import { isTestAccountSession, clearTestAccountSession } from '../utils/test_acc
 import { showToast } from '../utils/toast'
 import { invokeNative } from '../platform/native'
 import { useCertProbeBanner } from '../composables/certProbe'
+import { useI18n, tf } from '../utils/app_i18n'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -41,6 +42,9 @@ onMounted(() => {
 })
 
 const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig', 'openSettings', 'account-switched'])
+
+// i18n（#794 批次 I）：响应式取词用于模板与 JS 逻辑（tf 整句插值）
+const { t } = useI18n()
 
 const activeLegalTab = ref('disclaimer')
 const legalSectionRef = ref(null)
@@ -157,16 +161,16 @@ const resetDemoData = () => {
       if (k && (k.startsWith('cache:') || k.includes('2026000001'))) drop.push(k)
     }
     drop.forEach((k) => localStorage.removeItem(k))
-    showToast('已重置演示缓存，请重新打开各模块')
+    showToast(t('me.toast.demoReset'))
   } catch {
-    showToast('演示数据重置失败')
+    showToast(t('me.toast.demoResetFailed'))
   }
 }
 
 const exitDemoMode = () => {
   clearTestAccountSession()
   emit('logout')
-  showToast('已退出演示模式')
+  showToast(t('me.toast.demoExited'))
 }
 
 const handleFeedback = () => emit('openFeedback')
@@ -204,7 +208,7 @@ const loadSavedAccounts = async () => {
     const list = await invokeNative('list_saved_accounts')
     savedAccounts.value = Array.isArray(list) ? list : []
   } catch (e) {
-    console.warn('[AccountSwitch] 读取已保存账号失败:', e)
+    console.warn('[AccountSwitch] failed to load saved accounts:', e)
     savedAccounts.value = []
   }
 }
@@ -214,7 +218,7 @@ const openAccountSwitch = async () => {
   switchingAccount.value = ''
   await loadSavedAccounts()
   if (!savedAccounts.value.length) {
-    showToast('暂无其他已保存账号', 'info')
+    showToast(t('me.toast.noSavedAccounts'), 'info')
     showAccountSwitchModal.value = false
   }
 }
@@ -226,7 +230,7 @@ const switchToAccount = async (acc) => {
     return
   }
   if (!acc.has_cookies) {
-    showToast('该账号会话已失效，请先登录该账号后再切换', 'warning')
+    showToast(t('me.toast.sessionInvalid'), 'warning')
     return
   }
   switchingAccount.value = acc.student_id
@@ -240,12 +244,12 @@ const switchToAccount = async (acc) => {
     if (sid) {
       // 交给 App.vue 统一收尾：更新 hbu_username 标记 + 派发全量刷新
       emit('account-switched', sid)
-      showToast(`已切换账号 ${acc.masked_id || sid}`, 'success')
+      showToast(tf('me.toast.switched', { name: acc.masked_id || sid }), 'success')
     } else {
-      showToast('切换账号失败：未识别到目标学号', 'error')
+      showToast(t('me.toast.switchFailedNoId'), 'error')
     }
   } catch (e) {
-    showToast(String(e?.message || e || '切换账号失败，请稍后重试'), 'error')
+    showToast(String(e?.message || e || t('me.toast.switchFailed')), 'error')
   } finally {
     switchingAccount.value = ''
   }
@@ -253,7 +257,7 @@ const switchToAccount = async (acc) => {
 
 const removeAccount = async (acc) => {
   if (switchingAccount.value) return
-  if (!window.confirm(`确定删除账号 ${acc.masked_id || acc.student_id} 的本地登录记录吗？删除后该账号需重新登录才能使用。`)) {
+  if (!window.confirm(tf('me.toast.deleteConfirm', { name: acc.masked_id || acc.student_id }))) {
     return
   }
   switchingAccount.value = acc.student_id
@@ -263,14 +267,14 @@ const removeAccount = async (acc) => {
       student_id: acc.student_id
     })
     savedAccounts.value = savedAccounts.value.filter((a) => a.student_id !== acc.student_id)
-    showToast('已删除该账号的本地记录', 'success')
+    showToast(t('me.toast.deleted'), 'success')
     if (acc.is_current) {
       // 删除的是当前活跃账号：Rust 侧已清登录态，前端走统一退出流程
       showAccountSwitchModal.value = false
       emit('logout')
     }
   } catch (e) {
-    showToast(String(e?.message || e || '删除账号失败，请稍后重试'), 'error')
+    showToast(String(e?.message || e || t('me.toast.deleteFailed')), 'error')
   } finally {
     switchingAccount.value = ''
   }
@@ -285,7 +289,7 @@ const removeAccount = async (acc) => {
         <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
         <span class="header-title">Mini-HBUT</span>
       </div>
-      <span class="header-pill">我的</span>
+      <span class="header-pill">{{ t('me.title') }}</span>
     </header>
 
     <!-- Profile Card -->
@@ -294,17 +298,17 @@ const removeAccount = async (acc) => {
         <span class="material-symbols-outlined avatar-icon">person</span>
       </div>
       <h2 class="profile-student-id">{{ studentId }}</h2>
-      <p class="profile-school">{{ isDemoSession ? '演示会话（虚构数据）' : '学生工具' }}</p>
+      <p class="profile-school">{{ isDemoSession ? t('me.profile.demoSession') : t('me.profile.studentTool') }}</p>
       <div class="profile-actions">
-        <button class="btn-info" @click="goStudentInfo">个人信息</button>
+        <button class="btn-info" @click="goStudentInfo">{{ t('me.profile.studentInfo') }}</button>
         <!-- #755：一键切换账号（多账号并存；演示会话无真实本地会话，不展示） -->
-        <button v-if="!isDemoSession" class="btn-switch" @click="openAccountSwitch">切换账号</button>
-        <button class="btn-logout" @click="handleLogout">退出登录</button>
+        <button v-if="!isDemoSession" class="btn-switch" @click="openAccountSwitch">{{ t('me.profile.switchAccount') }}</button>
+        <button class="btn-logout" @click="handleLogout">{{ t('me.profile.logout') }}</button>
       </div>
       <div v-if="isDemoSession" class="demo-actions">
-        <p class="demo-hint">当前为审核演示模式：页面使用虚构数据，不连接真实校园服务。</p>
-        <button type="button" class="btn-info" @click="resetDemoData">重置演示数据</button>
-        <button type="button" class="btn-logout" @click="exitDemoMode">退出演示模式</button>
+        <p class="demo-hint">{{ t('me.profile.demoHint') }}</p>
+        <button type="button" class="btn-info" @click="resetDemoData">{{ t('me.profile.resetDemoData') }}</button>
+        <button type="button" class="btn-logout" @click="exitDemoMode">{{ t('me.profile.exitDemoMode') }}</button>
       </div>
     </section>
 
@@ -325,8 +329,8 @@ const removeAccount = async (acc) => {
           <span class="material-symbols-outlined status-icon">verified_user</span>
         </div>
         <div class="status-text">
-          <span class="status-title">登录状态</span>
-          <span class="status-subtitle">静默登录已开启</span>
+          <span class="status-title">{{ t('me.status.title') }}</span>
+          <span class="status-subtitle">{{ t('me.status.subtitle') }}</span>
           <!-- #719：冷启动校内证书探测结果。仅 cert-error 的域逐个显示；
                ok / 网络故障不渲染任何内容（v-for 空数组即无节点）。 -->
           <span
@@ -345,79 +349,79 @@ const removeAccount = async (acc) => {
         <div class="grid-icon-box" style="background: #E8F0FE;">
           <span class="material-symbols-outlined" style="color: #1A73E8;">campaign</span>
         </div>
-        <span class="grid-label">公告动态</span>
+        <span class="grid-label">{{ t('me.grid.official') }}</span>
       </button>
       <button class="grid-item" @click="handleOpenSettings">
         <div class="grid-icon-box" style="background: #FCE8E6;">
           <span class="material-symbols-outlined" style="color: #D93025;">settings</span>
         </div>
-        <span class="grid-label">设置中心</span>
+        <span class="grid-label">{{ t('me.grid.settings') }}</span>
       </button>
       <button class="grid-item" @click="handleOpenPrivacyData">
         <div class="grid-icon-box" style="background: #E8F5E9;">
           <span class="material-symbols-outlined" style="color: #2E7D32;">shield</span>
         </div>
-        <span class="grid-label">隐私与数据</span>
+        <span class="grid-label">{{ t('me.grid.privacy') }}</span>
       </button>
       <button class="grid-item" @click="handleOpenAuthHistory">
         <div class="grid-icon-box" style="background: #EDE7F6;">
           <span class="material-symbols-outlined" style="color: #5E35B1;">history</span>
         </div>
-        <span class="grid-label">授权记录</span>
+        <span class="grid-label">{{ t('me.grid.authHistory') }}</span>
       </button>
       <button class="grid-item" @click="handleOpenExport">
         <div class="grid-icon-box" style="background: #E6F4EA;">
           <span class="material-symbols-outlined" style="color: #1E8E3E;">download</span>
         </div>
-        <span class="grid-label">导出中心</span>
+        <span class="grid-label">{{ t('me.grid.export') }}</span>
       </button>
       <button v-if="showCampusNetwork" class="grid-item" @click="handleOpenCampusNetwork">
         <div class="grid-icon-box" style="background: #E3F2FD;">
           <span class="material-symbols-outlined" style="color: #1565C0;">wifi</span>
         </div>
-        <span class="grid-label">校园网</span>
+        <span class="grid-label">{{ t('me.grid.campusNetwork') }}</span>
       </button>
       <button v-if="showSchoolWebsite" class="grid-item" @click="handleOpenSchoolWebsite">
         <div class="grid-icon-box" style="background: #E8EAF6;">
           <span class="material-symbols-outlined" style="color: #3949AB;">language</span>
         </div>
-        <span class="grid-label">学校官网</span>
+        <span class="grid-label">{{ t('me.grid.schoolWebsite') }}</span>
       </button>
       <button v-if="showQuickLinks" class="grid-item" @click="handleOpenQuickLinks">
         <div class="grid-icon-box" style="background: #E0F7FA;">
           <span class="material-symbols-outlined" style="color: #00838F;">link</span>
         </div>
-        <span class="grid-label">快捷链接</span>
+        <span class="grid-label">{{ t('me.grid.quickLinks') }}</span>
       </button>
       <button v-if="showServiceStats" class="grid-item" @click="handleOpenServiceStats">
         <div class="grid-icon-box" style="background: #E0F2F1;">
           <span class="material-symbols-outlined" style="color: #00796B;">monitoring</span>
         </div>
-        <span class="grid-label">服务统计</span>
+        <span class="grid-label">{{ t('me.grid.serviceStats') }}</span>
       </button>
       <button v-if="showConfigTool" class="grid-item" @click="handleOpenConfig">
         <div class="grid-icon-box" style="background: #FEF7E0;">
           <span class="material-symbols-outlined" style="color: #F9AB00;">build</span>
         </div>
-        <span class="grid-label">配置工具</span>
+        <span class="grid-label">{{ t('me.grid.configTool') }}</span>
       </button>
       <button class="grid-item" @click="handleCheckUpdate">
         <div class="grid-icon-box" style="background: #F3E8FD;">
           <span class="material-symbols-outlined" style="color: #9333EA;">update</span>
         </div>
-        <span class="grid-label">检查更新</span>
+        <span class="grid-label">{{ t('me.grid.checkUpdate') }}</span>
       </button>
       <button class="grid-item" @click="handleFeedback">
         <div class="grid-icon-box" style="background: #E1F5FE;">
           <span class="material-symbols-outlined" style="color: #0288D1;">feedback</span>
         </div>
-        <span class="grid-label">意见反馈</span>
+        <span class="grid-label">{{ t('me.grid.feedback') }}</span>
       </button>
       <button class="grid-item" @click="handleOpenSource">
         <div class="grid-icon-box" style="background: #ECEFF1;">
           <span class="material-symbols-outlined" style="color: #455A64;">code</span>
         </div>
-        <span class="grid-label">开源协议</span>
+        <span class="grid-label">{{ t('me.grid.openSource') }}</span>
       </button>
       <button
         v-if="showSponsorEntry"
@@ -427,23 +431,23 @@ const removeAccount = async (acc) => {
         <div class="grid-icon-box" style="background: #FFF3E0;">
           <span class="material-symbols-outlined" style="color: #E65100;">favorite</span>
         </div>
-        <span class="grid-label">赞助</span>
+        <span class="grid-label">{{ t('me.grid.sponsor') }}</span>
       </button>
       <button v-if="showMoreModules" class="grid-item" @click="handleOpenMore">
         <div class="grid-icon-box" style="background: #F3E5F5;">
           <span class="material-symbols-outlined" style="color: #7B1FA2;">apps</span>
         </div>
-        <span class="grid-label">更多</span>
+        <span class="grid-label">{{ t('me.grid.more') }}</span>
       </button>
     </section>
 
     <section class="legal-card about-minihbut-card">
-      <h3 class="legal-title">关于 Mini-HBUT</h3>
+      <h3 class="legal-title">{{ t('me.about.title') }}</h3>
       <div class="legal-content">
         <p>{{ NON_OFFICIAL_DISCLAIMER_ZH }}</p>
         <p class="muted-en">{{ NON_OFFICIAL_DISCLAIMER_EN }}</p>
         <p v-if="isDemoSession">
-          演示模式说明：当前会话使用本地虚构数据，不连接真实校园服务。可在上方重置演示数据或退出演示。
+          {{ t('me.about.demoNotice') }}
         </p>
         <button
           type="button"
@@ -454,8 +458,8 @@ const removeAccount = async (acc) => {
             <span class="material-symbols-outlined">shield</span>
           </span>
           <span class="privacy-policy-entry__body">
-            <span class="privacy-policy-entry__title">隐私政策</span>
-            <span class="privacy-policy-entry__desc">在系统浏览器中打开完整政策</span>
+            <span class="privacy-policy-entry__title">{{ t('me.about.privacyTitle') }}</span>
+            <span class="privacy-policy-entry__desc">{{ t('me.about.privacyDesc') }}</span>
           </span>
           <span class="privacy-policy-entry__chev material-symbols-outlined" aria-hidden="true">open_in_new</span>
         </button>
@@ -464,44 +468,44 @@ const removeAccount = async (acc) => {
 
     <!-- Legal Section -->
     <section ref="legalSectionRef" class="legal-card">
-      <h3 class="legal-title">免责声明与隐私政策</h3>
+      <h3 class="legal-title">{{ t('me.legal.title') }}</h3>
       <div class="legal-tabs">
         <button
           class="legal-tab"
           :class="{ active: activeLegalTab === 'disclaimer' }"
           @click="activeLegalTab = 'disclaimer'"
         >
-          免责声明
+          {{ t('me.legal.tab.disclaimer') }}
         </button>
         <button
           class="legal-tab"
           :class="{ active: activeLegalTab === 'privacy' }"
           @click="activeLegalTab = 'privacy'"
         >
-          隐私政策
+          {{ t('me.legal.tab.privacy') }}
         </button>
       </div>
 
       <div v-if="activeLegalTab === 'disclaimer'" class="legal-content">
-        <p>本应用为独立开发的学习与信息查询工具，非任何学校或教育机构的官方系统、官方网站或官方客户端。</p>
+        <p>{{ t('me.legal.disclaimer.intro') }}</p>
         <ul>
-          <li>数据来源于学校相关系统接口或公开信息，仅用于展示与查询参考。</li>
-          <li>我们会尽力保证展示信息的及时性与准确性，但不对其完整性、准确性、时效性作保证。</li>
-          <li>因网络、系统维护、第三方服务变化等导致的服务中断或信息错误，我们不承担责任。</li>
-          <li>请勿将本应用用于任何违法、违规或侵害他人权益的用途。</li>
+          <li>{{ t('me.legal.disclaimer.item1') }}</li>
+          <li>{{ t('me.legal.disclaimer.item2') }}</li>
+          <li>{{ t('me.legal.disclaimer.item3') }}</li>
+          <li>{{ t('me.legal.disclaimer.item4') }}</li>
         </ul>
       </div>
 
       <div v-else class="legal-content">
-        <p>我们仅收集提供服务所必需的数据，并采取合理措施保护数据安全。</p>
+        <p>{{ t('me.legal.privacy.intro') }}</p>
         <ul>
-          <li><strong>收集内容</strong>：学号、登录会话信息、验证码参数、查询所需的临时授权信息。</li>
-          <li><strong>使用目的</strong>：用于身份验证、成绩/课表/电费等查询与展示。</li>
-          <li><strong>存储方式</strong>：本地会存储加密后的账号凭据与缓存数据；后端仅保存必要的会话与授权信息。</li>
-          <li><strong>数据共享</strong>：不会向无关第三方共享个人信息，除非获得你的明确授权或法律要求。</li>
-          <li><strong>数据保留</strong>：仅在实现功能所需期限内保留，可通过退出登录清理会话。</li>
+          <li><strong>{{ t('me.legal.privacy.collectLabel') }}</strong>：{{ t('me.legal.privacy.collectText') }}</li>
+          <li><strong>{{ t('me.legal.privacy.purposeLabel') }}</strong>：{{ t('me.legal.privacy.purposeText') }}</li>
+          <li><strong>{{ t('me.legal.privacy.storageLabel') }}</strong>：{{ t('me.legal.privacy.storageText') }}</li>
+          <li><strong>{{ t('me.legal.privacy.shareLabel') }}</strong>：{{ t('me.legal.privacy.shareText') }}</li>
+          <li><strong>{{ t('me.legal.privacy.retentionLabel') }}</strong>：{{ t('me.legal.privacy.retentionText') }}</li>
         </ul>
-        <p>继续使用即表示你已阅读并同意本隐私政策。</p>
+        <p>{{ t('me.legal.privacy.agreement') }}</p>
       </div>
     </section>
 
@@ -516,10 +520,10 @@ const removeAccount = async (acc) => {
     <Transition name="modal-pop">
       <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
         <div class="modal-card modal-pop-card" @click.stop>
-          <h3><span class="material-symbols-outlined opensource-title-icon">menu_book</span> 开源说明</h3>
-        <p class="intro">Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
+          <h3><span class="material-symbols-outlined opensource-title-icon">menu_book</span> {{ t('me.opensource.title') }}</h3>
+        <p class="intro">{{ t('me.opensource.intro') }}</p>
         <div class="section">
-          <p class="label">项目地址</p>
+          <p class="label">{{ t('me.opensource.projectAddress') }}</p>
           <a class="github-link" @click="openGithub">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
@@ -528,20 +532,20 @@ const removeAccount = async (acc) => {
           </a>
         </div>
         <div class="section">
-          <p class="label">开源技术</p>
+          <p class="label">{{ t('me.opensource.techStack') }}</p>
           <ul class="opensource-list">
-            <li><span class="tag">前端</span> Tauri / Vue 3 / Vite</li>
-            <li><span class="tag">后端</span> Rust (reqwest / scraper / serde)</li>
-            <li><span class="tag">感谢</span> 所有开源贡献者</li>
+            <li><span class="tag">{{ t('me.opensource.tag.frontend') }}</span> Tauri / Vue 3 / Vite</li>
+            <li><span class="tag">{{ t('me.opensource.tag.backend') }}</span> Rust (reqwest / scraper / serde)</li>
+            <li><span class="tag">{{ t('me.opensource.tag.thanks') }}</span></li>
           </ul>
         </div>
         <div class="section thanks">
-          <p>感谢原 <strong>Mini湖工</strong> 小程序的开发者，为本项目提供了宝贵的灵感</p>
-          <p>感谢开发者的 <strong>朋友们和舍友们</strong>，提供了测试和反馈</p>
-          <p class="highlight">感谢所有为 Mini-HBUT 做出贡献的人！ 🎉</p>
+          <p>{{ t('me.opensource.thanksMiniHuGong') }}</p>
+          <p>{{ t('me.opensource.thanksFriends') }}</p>
+          <p class="highlight">{{ t('me.opensource.thanksAll') }}</p>
         </div>
         <div class="modal-actions">
-          <button class="btn-primary" @click="showOpenSourceModal = false">知道了</button>
+          <button class="btn-primary" @click="showOpenSourceModal = false">{{ t('me.opensource.gotIt') }}</button>
         </div>
       </div>
       </div>
@@ -555,20 +559,20 @@ const removeAccount = async (acc) => {
         @click="showSponsorModal = false"
       >
         <div class="modal-card sponsor-modal modal-pop-card" @click.stop>
-        <h3>❤️ 赞助支持</h3>
-        <p class="intro">如果 Mini-HBUT 对你有帮助，欢迎请作者喝杯咖啡 ☕</p>
+        <h3>{{ t('me.sponsor.title') }}</h3>
+        <p class="intro">{{ t('me.sponsor.intro') }}</p>
         <div class="sponsor-qr-container">
-          <div v-if="sponsorImageLoading" class="sponsor-loading">加载中...</div>
+          <div v-if="sponsorImageLoading" class="sponsor-loading">{{ t('me.sponsor.loading') }}</div>
           <img
             v-else-if="sponsorImageUrl"
             :src="sponsorImageUrl"
-            alt="微信赞赏码"
+            :alt="t('me.sponsor.qrAlt')"
             class="sponsor-qr-image"
           />
         </div>
-        <p class="sponsor-hint">长按或截图扫码 · 微信赞赏</p>
+        <p class="sponsor-hint">{{ t('me.sponsor.hint') }}</p>
         <div class="modal-actions">
-          <button class="btn-primary" @click="showSponsorModal = false">关闭</button>
+          <button class="btn-primary" @click="showSponsorModal = false">{{ t('common.close') }}</button>
         </div>
       </div>
       </div>
@@ -583,8 +587,8 @@ const removeAccount = async (acc) => {
       >
         <div class="modal-card account-switch-modal modal-pop-card" @click.stop>
           <!-- #770 swap_account 不在 Material Symbols 图标集内，ligature 无法解析会显示为文本；换用子集字体已收录的 switch_account -->
-          <h3><span class="material-symbols-outlined account-switch-title-icon">switch_account</span> 切换账号</h3>
-          <p class="intro">在本机已登录账号间快速切换（免重新登录，不会发起网络登录）。切换后自动刷新成绩与课表。</p>
+          <h3><span class="material-symbols-outlined account-switch-title-icon">switch_account</span> {{ t('me.account.title') }}</h3>
+          <p class="intro">{{ t('me.account.intro') }}</p>
           <ul v-if="savedAccounts.length" class="account-list">
             <li
               v-for="acc in savedAccounts"
@@ -597,10 +601,10 @@ const removeAccount = async (acc) => {
                   <span class="account-label">{{ acc.display_name || acc.masked_id }}</span>
                   <span class="account-id">{{ acc.masked_id }}</span>
                 </div>
-                <span v-if="acc.is_current" class="account-badge account-badge--current">当前</span>
-                <span v-else-if="switchingAccount === acc.student_id" class="account-badge account-badge--busy">切换中…</span>
-                <span v-else-if="!acc.has_cookies" class="account-badge account-badge--warn">需重新登录</span>
-                <span v-else class="account-badge account-badge--ready">可切换</span>
+                <span v-if="acc.is_current" class="account-badge account-badge--current">{{ t('me.account.current') }}</span>
+                <span v-else-if="switchingAccount === acc.student_id" class="account-badge account-badge--busy">{{ t('me.account.switching') }}</span>
+                <span v-else-if="!acc.has_cookies" class="account-badge account-badge--warn">{{ t('me.account.needRelogin') }}</span>
+                <span v-else class="account-badge account-badge--ready">{{ t('me.account.ready') }}</span>
               </div>
               <!-- 当前账号不可从弹层删除：需先退出登录（避免误删正在使用的会话） -->
               <button
@@ -609,12 +613,12 @@ const removeAccount = async (acc) => {
                 class="account-delete"
                 :disabled="!!switchingAccount"
                 @click="removeAccount(acc)"
-              >删除</button>
+              >{{ t('me.account.delete') }}</button>
             </li>
           </ul>
-          <p v-else class="empty-hint">暂无其他已保存账号，登录新账号后会出现在这里。</p>
+          <p v-else class="empty-hint">{{ t('me.account.emptyHint') }}</p>
           <div class="modal-actions">
-            <button class="btn-primary" :disabled="!!switchingAccount" @click="showAccountSwitchModal = false">关闭</button>
+            <button class="btn-primary" :disabled="!!switchingAccount" @click="showAccountSwitchModal = false">{{ t('common.close') }}</button>
           </div>
         </div>
       </div>

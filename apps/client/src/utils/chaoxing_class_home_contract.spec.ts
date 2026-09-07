@@ -40,8 +40,9 @@ describe('chaoxing_class home integration contract', () => {
 
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('chaoxing_class')
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('chaoxing_hub')
-    expect(dashboard).toContain("{ id: 'chaoxing_class', name: '资料分享'")
-    expect(dashboard).toContain("title: '学习通'")
+    // i18n 迁移（#786）：baseModules 的 name 与分组 title 均存 i18n key
+    expect(dashboard).toContain("{ id: 'chaoxing_class', name: 'home.module.chaoxing_class'")
+    expect(dashboard).toContain("title: 'home.cat.chaoxing'")
     expect(dashboard).toContain("'chaoxing_class'")
     expect(app).toContain("const loadChaoxingClassView: Loader = () => import('../components/ChaoxingClassView.vue')")
     expect(app).toContain('chaoxing_class: loadChaoxingClassView')
@@ -57,23 +58,28 @@ describe('chaoxing_class home integration contract', () => {
     expect(view).toContain('fetchRemoteConfig')
     expect(view).toContain('enterNotJoinedState')
     expect(view).toContain('needsRejoin')
-    expect(view).toContain('重新加入班级')
-    expect(view).toContain('加入班级并查看资料')
-    expect(view).toContain('是否加入班级')
+    // #792 i18n：欢迎入班文案已迁移至 t('chaoxing.class.rejoin') 等 key，
+    // 断言改为检查 i18n key 引用（字典 zh-CN/en 双侧补齐由 app_i18n.spec 保证）
+    expect(view).toContain("t('chaoxing.class.rejoin')")
+    expect(view).toContain("t('chaoxing.class.joinAndView')")
+    expect(view).toContain("t('chaoxing.class.joinQuestion')")
     expect(view).toContain('rejoinOnNotJoined')
     expect(view).toContain("data-theme='graphite_night'")
     expect(view).toContain('html.dark')
-    expect(view).toContain('门户 SSO')
+    // #792 i18n：门户 SSO 文案迁移至 t('chaoxing.class.bootFirstSso')（zh-CN 字典保留「门户 SSO」原文）
+    expect(view).toContain('bootFirstSso')
+    expect(read('src/utils/i18n/messages/zh-CN.ts')).toContain('门户 SSO')
     expect(view).toContain('handleOpenFolder')
     expect(view).toContain('showPreviewModal')
     expect(view).not.toContain('get-preview-url') // 前端不直连
-    expect(view).toContain('官方预览')
+    // #792 i18n：官方预览文案迁移至 t('chaoxing.class.openOfficial') / previewKickerOfficial
+    expect(view).toContain('openOfficial')
     expect(view).toContain('cx-nimbus-head')
     expect(view).toContain('filterChip')
     expect(view).toContain('thumbnail_url')
     expect(view).toContain('previewModalMode')
     expect(view).toContain('cx-preview-image')
-    expect(view).toContain('切换打开方式')
+    expect(view).toContain('switchMethod')
     expect(view).toContain('previewOpenMethods')
     expect(view).toContain('handlePreviewDownload')
     expect(rustMod).toContain('pub mod chaoxing_class;')
@@ -102,11 +108,11 @@ describe('chaoxing_class home integration contract', () => {
     expect(classRs).toContain('looks_like_not_joined_html')
     expect(classRs).toContain('resolve_membership')
     expect(view).toContain('loadSeq')
-    expect(view).toContain('重试加载')
+    expect(view).toContain('retryLoad')
     // #351：热路径 last-class 秒开壳 + 并行 SSO；冷路径明确 loading；keep-alive 补票
     expect(view).toContain('ssoPromise')
-    expect(view).toContain('正在加载资料')
-    expect(view).toContain('首次进入需完成门户 SSO')
+    expect(view).toContain('syncMaterials')
+    expect(view).toContain('bootFirstSso')
     expect(rustLib).toContain('keep-alive 学习通补票')
     expect(rustLib).toContain('spawn_chaoxing_sso_warmup')
     const remote =
@@ -129,7 +135,9 @@ describe('chaoxing_class home integration contract', () => {
     expect(view).toContain('loadPortalRememberedPassword')
     expect(view).toContain('ssoPayload')
     expect(view).toContain('portal_password')
-    expect(view).toContain('教务会话可能仍可用')
+    // #792 i18n：教务会话提示文案迁移至 t('chaoxing.class.ssoErrorPortalOk')（zh-CN 字典保留原中文）
+    expect(view).toContain('ssoErrorPortalOk')
+    expect(read('src/utils/i18n/messages/zh-CN.ts')).toContain('教务会话可能仍可用')
     expect(rustLib).toContain('portal_password')
     expect(classRs).toContain('portal_password')
     expect(ssoRs).toContain('portal_password')

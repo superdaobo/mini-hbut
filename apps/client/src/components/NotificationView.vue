@@ -25,6 +25,7 @@ import {
 } from '../utils/notify_center.js'
 import { reconcileLocalReminders } from '../utils/local_reminder_scheduler'
 import { formatRelativeTime } from '../utils/time.js'
+import { tf, useLocale } from '../utils/app_i18n'
 
 const props = defineProps({
   studentId: String
@@ -32,6 +33,8 @@ const props = defineProps({
 
 const emit = defineEmits(['back', 'openWorkspaceLayout'])
 const uiSettings = useUiSettings()
+// #790：响应式 locale + 取词函数（语言切换即时生效）
+const { t: tLocale } = useLocale()
 const NOTIFICATION_LAYOUT_LONG_PRESS_MS = 380
 const NOTIFICATION_LAYOUT_LONG_PRESS_DISTANCE = 14
 const NOTIFICATION_LAYOUT_SCROLL_OFFSET_PX = 18
@@ -73,13 +76,13 @@ const runtimeDisplayText = computed(() => {
   // UA 判断收敛到 src/platform/runtime.ts（单一来源）
   const isAndroidUA = isAndroidLike()
   const isIosUA = isIOSLike()
-  const platformText = isAndroidUA ? 'Android' : (isIosUA ? 'iOS' : '未知平台')
+  const platformText = isAndroidUA ? 'Android' : (isIosUA ? 'iOS' : tLocale('notify.platform.unknown'))
   if (currentRuntime.value === 'capacitor') return `${platformText} / Capacitor`
   if (currentRuntime.value === 'tauri') {
     if (isAndroidUA || isIosUA) return `${platformText} / Tauri`
-    return '桌面端 / Tauri'
+    return tLocale('notify.platform.desktop')
   }
-  return '浏览器 / Web'
+  return tLocale('notify.platform.web')
 })
 
 // 平台判断统一收敛到 src/platform/runtime.ts（单一来源）
@@ -176,7 +179,7 @@ const findByValue = (list, value) =>
 
 const selectedRoomLabel = computed(() => {
   const path = selectedPath.value
-  if (!Array.isArray(path) || path.length !== 4) return '未选择房间（请先在电费模块选择）'
+  if (!Array.isArray(path) || path.length !== 4) return tLocale('notify.room.notSelected')
   const [areaId, buildingId, layerId, roomId] = path
   const area = findByValue(dormData.value, areaId)
   const building = findByValue(area?.children, buildingId)
@@ -187,16 +190,16 @@ const selectedRoomLabel = computed(() => {
 })
 
 const permissionLabel = computed(() => {
-  if (permissionState.value === 'granted') return '已授权'
-  if (permissionState.value === 'denied') return '已拒绝'
-  if (permissionState.value === 'default') return '未授权'
-  if (permissionState.value === 'unsupported') return '当前环境不支持'
-  return '未知'
+  if (permissionState.value === 'granted') return tLocale('notify.permission.granted')
+  if (permissionState.value === 'denied') return tLocale('notify.permission.denied')
+  if (permissionState.value === 'default') return tLocale('notify.permission.default')
+  if (permissionState.value === 'unsupported') return tLocale('notify.permission.unsupported')
+  return tLocale('notify.permission.unknown')
 })
 
 const lastCheckText = computed(() => {
   const checkedAt = snapshot.value?.checkedAt
-  return checkedAt ? formatRelativeTime(checkedAt) : '未检测'
+  return checkedAt ? formatRelativeTime(checkedAt) : tLocale('notify.status.notChecked')
 })
 
 const gradeSummary = computed(() => snapshot.value?.grades || {})
@@ -226,50 +229,58 @@ const powerSummary = computed(() => snapshot.value?.electricity || {})
 const powerQuantityText = computed(() => {
   const quantity = Number(powerSummary.value?.quantity)
   if (!Number.isFinite(quantity)) return '--'
-  return `${quantity.toFixed(2)} 度`
+  return tf('notify.unit.kwh', { n: quantity.toFixed(2) })
 })
 
 const acPowerQuantityText = computed(() => {
   const q = Number(powerSummary.value?.acQuantity)
   if (!Number.isFinite(q)) return '--'
-  return `${q.toFixed(2)} 度`
+  return tf('notify.unit.kwh', { n: q.toFixed(2) })
 })
 
 const powerStatusText = computed(() => {
   if (
-    powerSummary.value?.error === '未设置宿舍房间，请先在电费模块选择房间。' &&
+    powerSummary.value?.error === tLocale('notify.electricity.noRoomSelected') &&
     selectedPath.value.length === 4
   ) {
-    return '已配置宿舍房间，等待重新检测'
+    return tLocale('notify.electricity.reconfigured')
   }
   if (powerSummary.value?.error) return powerSummary.value.error
-  return powerSummary.value?.status || '暂无状态'
+  return powerSummary.value?.status || tLocale('notify.electricity.noStatus')
 })
 
 const classReminderText = computed(() => {
-  if (!classSummary.value?.enabled) return '已关闭'
+  if (!classSummary.value?.enabled) return tLocale('notify.common.disabled')
   const total = Number(classSummary.value?.totalToday || 0)
   const trigger = Number(classSummary.value?.triggered || 0)
-  return `今日课程 ${total} 门，本次触发 ${trigger} 条`
+  return tf('notify.class.todaySummary', { total, triggered: trigger })
 })
 
 const nextClassText = computed(() => {
   const next = classSummary.value?.nextCourse
-  if (!next?.name) return '暂无即将开始课程'
+  if (!next?.name) return tLocale('notify.class.noneUpcoming')
   const mins = Number(next?.minsUntilStart || 0)
-  const when = mins > 0 ? `${mins} 分钟后` : '即将'
-  return `${when}：${next.name}（${next.startClock || '--:--'} ${next.room || '教室待定'}）`
+  const when = mins > 0 ? tf('notify.class.inMinutes', { n: mins }) : tLocale('notify.class.soon')
+  return tf('notify.class.nextCourse', {
+    when,
+    course: next.name,
+    clock: next.startClock || '--:--',
+    room: next.room || tLocale('notify.room.tbd')
+  })
 })
 
 // #615：per-feature 后台检测状态（真实来源：#609 BackgroundCheckState + 最近快照）
 const bgFeatureStatusText = computed(() => {
   const state = bgNativeState.value
-  if (!state) return '状态未知'
-  if (!state?.supported) return state?.reason || '当前环境不支持后台检测'
-  if (state?.scheduler?.status === 'unavailable') return '系统调度暂未接入（后台检测不可用）'
+  if (!state) return tLocale('notify.status.statusUnknown')
+  if (!state?.supported) return state?.reason || tLocale('notify.bg.unsupported')
+  if (state?.scheduler?.status === 'unavailable') return tLocale('notify.bg.schedulerUnavailable')
   const lastResult = String(state?.lastResult || 'unknown')
-  const errorText = state?.lastError ? `（${state.lastError}）` : ''
-  return `调度 ${state?.scheduler?.kind || 'unknown'} · 最近结果 ${lastResult}${errorText}`
+  const errorText = state?.lastError ? tf('notify.bg.lastErrorSuffix', { error: state.lastError }) : ''
+  return tf('notify.bg.schedulerStatus', {
+    kind: state?.scheduler?.kind || 'unknown',
+    result: lastResult
+  }) + errorText
 })
 
 // 学校消息：provider 后台不受支持时显示真实 unsupported/foreground-only 状态，
@@ -278,45 +289,47 @@ const bgFeatureStatusText = computed(() => {
 const schoolFeatureStatusText = computed(() => {
   const school = schoolInboxSummary.value
   const enabled = enableSchoolInboxNotices.value
-  if (!enabled) return '已关闭'
-  if (school?.error) return `前台检测：${school.error}`
+  if (!enabled) return tLocale('notify.common.disabled')
+  if (school?.error) return tf('notify.inbox.frontCheckError', { error: school.error })
   if (school?.total != null) {
-    const sourceText = school?.source === 'chaoxing' ? '学习通' : '教务'
-    return `前台检测可用（${sourceText}，共 ${school.total} 条）`
+    const sourceText = school?.source === 'chaoxing' ? tLocale('notify.source.chaoxing') : tLocale('notify.source.academic')
+    return tf('notify.inbox.frontCheckOk', { source: sourceText, total: school.total })
   }
   const state = bgNativeState.value
-  if (state && !state?.supported) return '当前环境不支持后台检测（前台可检测）'
-  return '等待检测'
+  if (state && !state?.supported) return tLocale('notify.inbox.bgUnsupported')
+  return tLocale('notify.status.waiting')
 })
 
 const examsFeatureStatusText = computed(() => {
   const exams = examSummary.value
-  if (!enableExamReminders.value) return '已关闭'
-  if (exams?.total != null) return `共 ${exams.total} 门考试（明日 ${exams.tomorrowCount || 0} 门）`
-  return '等待检测'
+  if (!enableExamReminders.value) return tLocale('notify.common.disabled')
+  if (exams?.total != null) {
+    return tf('notify.exams.summary', { total: exams.total, tomorrow: exams.tomorrowCount || 0 })
+  }
+  return tLocale('notify.status.waiting')
 })
 
 // #616：keep-screen-on / 前台保活仅作为桌面端能力展示（移动端不再把它
 // 描述为后台智能检查成功；移动端调度状态见 bgFeatureStatusText）。
 const keepAliveStatusText = computed(() => {
-  if (!aggressiveKeepAliveSupported.value) return keepAliveReason.value || '未启用'
-  return backgroundLockEnabled.value ? '已运行' : '未运行'
+  if (!aggressiveKeepAliveSupported.value) return keepAliveReason.value || tLocale('notify.keepalive.notEnabled')
+  return backgroundLockEnabled.value ? tLocale('notify.keepalive.running') : tLocale('notify.keepalive.notRunning')
 })
 
 const backgroundLockStatusText = computed(() => {
   if (backgroundLockEnabled.value) {
-    return `已启用（${backgroundLockSource.value || '系统'}）`
+    return tf('notify.keepalive.enabled', { source: backgroundLockSource.value || tLocale('notify.keepalive.system') })
   }
   if (aggressiveKeepAliveSupported.value) {
-    return '未启用（可启用）'
+    return tLocale('notify.keepalive.canEnable')
   }
   if (keepAliveReason.value) {
-    return `未启用（${keepAliveReason.value}）`
+    return tf('notify.keepalive.disabledReason', { reason: keepAliveReason.value })
   }
   if (currentRuntime.value === 'tauri') {
-    return '未启用（桌面端可用）'
+    return tLocale('notify.keepalive.desktopAvailable')
   }
-  return '未启用'
+  return tLocale('notify.keepalive.notEnabled')
 })
 
 const notificationCardsOrder = computed(() =>
@@ -564,14 +577,14 @@ const updatePermissionState = async (requestNow = false) => {
     if (requestNow) {
       statusMessage.value =
         state === 'granted'
-          ? '通知权限已授权。'
-          : '通知权限未授权，请在系统设置中允许通知。'
+          ? tLocale('notify.msg.permissionGranted')
+          : tLocale('notify.msg.permissionDenied')
     }
     return state === 'granted'
   } catch (error) {
     if (currentRuntime.value === 'web') {
       permissionState.value = 'unsupported'
-      statusMessage.value = '当前环境不支持系统通知。'
+      statusMessage.value = tLocale('notify.msg.unsupportedEnv')
       return false
     }
 
@@ -582,21 +595,21 @@ const updatePermissionState = async (requestNow = false) => {
         if (requestNow) {
           statusMessage.value =
             nativeState === 'granted'
-              ? '通知权限已授权。'
-              : '通知权限未授权，请在系统设置中允许通知。'
+              ? tLocale('notify.msg.permissionGranted')
+              : tLocale('notify.msg.permissionDenied')
         }
         return nativeState === 'granted'
       } catch (nativeErr) {
         permissionState.value = 'denied'
         lastError.value = String(nativeErr)
-        statusMessage.value = `查询通知权限失败：${lastError.value}`
+        statusMessage.value = tf('notify.msg.queryFailed', { error: lastError.value })
         return false
       }
     }
 
     permissionState.value = 'denied'
     lastError.value = String(error)
-    statusMessage.value = `查询通知权限失败：${lastError.value}`
+    statusMessage.value = tf('notify.msg.queryFailed', { error: lastError.value })
     return false
   }
 }
@@ -619,8 +632,8 @@ const handleRequestPermission = async () => {
   if (!granted && currentRuntime.value === 'capacitor' && isAndroid()) {
     const opened = await platformBridge.openNotificationSettings().catch(() => false)
     statusMessage.value = opened
-      ? '已打开系统通知设置，请允许 Mini-HBUT 发送通知。'
-      : '通知权限未授权，请在系统设置中允许 Mini-HBUT 发送通知。'
+      ? tLocale('notify.msg.settingsOpened')
+      : tLocale('notify.msg.settingsNotOpened')
   }
 }
 
@@ -641,7 +654,7 @@ const handleSnapshotEvent = (event) => {
 
 const runManualCheck = async () => {
   if (!props.studentId) {
-    statusMessage.value = '未登录状态下无法执行检查。'
+    statusMessage.value = tLocale('notify.msg.notLoggedIn')
     return
   }
 
@@ -661,11 +674,11 @@ const runManualCheck = async () => {
     const sentCount = Number(result?.notifications?.sent || 0)
     statusMessage.value =
       queuedCount > 0 && sentCount === 0
-        ? '已完成检查，但系统通知未发送。请确认通知权限已授权。'
-        : `已完成一次实时检查。通知队列 ${queuedCount} 条，已发送 ${sentCount} 条。`
+        ? tLocale('notify.msg.checkDoneNoSend')
+        : tf('notify.msg.checkDone', { queued: queuedCount, sent: sentCount })
   } catch (error) {
     lastError.value = String(error)
-    statusMessage.value = `检查失败：${lastError.value}`
+    statusMessage.value = tf('notify.msg.checkFailed', { error: lastError.value })
   } finally {
     checking.value = false
   }
@@ -690,7 +703,7 @@ const refreshRuntimeStates = async () => {
     keepAliveReason.value = String(state?.reason || '')
   } catch {
     aggressiveKeepAliveSupported.value = false
-    keepAliveReason.value = '状态读取失败'
+    keepAliveReason.value = tLocale('notify.msg.keepAliveReadFailed')
   }
 }
 
@@ -751,11 +764,11 @@ const confirmBatterySettings = () => {
   void platformBridge.openBatteryOptimizationSettings()
     .then((ok) => {
       statusMessage.value = ok
-        ? '已打开系统设置，请允许通知与后台运行权限。'
-        : '无法自动打开系统设置，请手动授予后台权限。'
+        ? tLocale('notify.msg.batterySettingsOpened')
+        : tLocale('notify.msg.batterySettingsFailed')
     })
     .catch(() => {
-      statusMessage.value = '无法自动打开系统设置，请手动授予后台权限。'
+      statusMessage.value = tLocale('notify.msg.batterySettingsFailed')
     })
 }
 
@@ -766,8 +779,8 @@ const cancelBatterySettings = () => {
 const openSystemPermissionSettings = async () => {
   const ok = await platformBridge.openBatteryOptimizationSettings().catch(() => false)
   statusMessage.value = ok
-    ? '已打开系统设置，请完成后台运行与通知权限授权。'
-    : '无法自动打开系统设置，请在系统设置中手动授权后台运行。'
+    ? tLocale('notify.msg.batteryAllOpened')
+    : tLocale('notify.msg.batteryManual')
 }
 
 const handleTestNotification = async () => {
@@ -778,7 +791,7 @@ const handleTestNotification = async () => {
   try {
     const granted = await updatePermissionState(false)
     if (!granted) {
-      statusMessage.value = '通知权限未授权，测试通知未发送。请点击上方“管理”开启通知权限。'
+      statusMessage.value = tLocale('notify.msg.testNotSent')
       return
     }
 
@@ -790,33 +803,33 @@ const handleTestNotification = async () => {
         id: testId,
         channelId: 'hbut-default',
         title: 'Mini-HBUT',
-        body: '这是一个测试通知，用于验证通知权限和推送能力。'
+        body: tLocale('notify.test.body')
       })
       if (!ok && currentRuntime.value === 'capacitor') {
         const retryOk = await platformBridge.sendLocalNotification({
           id: testId + 1,
           channelId: 'hbut-default',
           title: 'Mini-HBUT',
-          body: '这是一个测试通知（移动端重试通道）。'
+          body: tLocale('notify.test.bodyRetry')
         })
         if (!retryOk) {
-          throw new Error('移动端通知调度失败，请检查系统通知权限与电池优化设置')
+          throw new Error(tLocale('notify.test.mobileFailed'))
         }
       }
       if (!ok && isTauriRuntime()) {
         await invoke('send_test_notification_native', {
           title: 'Mini-HBUT',
-          body: '这是一个测试通知（Rust 兜底通道）。'
+          body: tLocale('notify.test.bodyRust')
         })
       }
     } catch (notifyError) {
       if (!isAclDeniedError(notifyError)) throw notifyError
     }
 
-    statusMessage.value = '测试通知已发送，请查看系统通知栏。'
+    statusMessage.value = tLocale('notify.msg.testSent')
   } catch (error) {
     lastError.value = String(error)
-    statusMessage.value = `发送测试通知失败：${lastError.value}`
+    statusMessage.value = tf('notify.msg.testFailed', { error: lastError.value })
   } finally {
     sending.value = false
   }
@@ -844,7 +857,7 @@ onMounted(async () => {
     const result = await enableBackgroundPowerLock()
     backgroundLockEnabled.value = result.enabled
     backgroundLockSource.value = result.source.join(' + ')
-    keepAliveReason.value = result.enabled ? '' : '窗口保活未生效'
+    keepAliveReason.value = result.enabled ? '' : tLocale('notify.msg.keepAliveInactive')
   }
 
   window.addEventListener(NOTIFY_SNAPSHOT_EVENT, handleSnapshotEvent)
@@ -875,7 +888,7 @@ watch(
         <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
         <span class="header-title">Mini-HBUT</span>
       </div>
-      <span class="header-pill">通知</span>
+      <span class="header-pill">{{ tLocale('tab.notifications') }}</span>
     </header>
 
     <main class="notify-content">
@@ -886,16 +899,16 @@ watch(
             <span class="material-symbols-outlined fill">notifications_active</span>
           </div>
           <div class="permission-info">
-            <h2 class="permission-title">推送通知{{ permissionLabel === '已授权' ? '已开启' : '未开启' }}</h2>
-            <p class="permission-desc">{{ permissionLabel === '已授权' ? '你将准时收到校园提醒' : '请授权通知权限以接收提醒' }}</p>
+            <h2 class="permission-title">{{ permissionLabel === tLocale('notify.permission.granted') ? tLocale('notify.permission.pushOn') : tLocale('notify.permission.pushOff') }}</h2>
+            <p class="permission-desc">{{ permissionLabel === tLocale('notify.permission.granted') ? tLocale('notify.permission.grantedDesc') : tLocale('notify.permission.notGrantedDesc') }}</p>
           </div>
         </div>
-        <button class="permission-manage-btn" @click="handleRequestPermission">管理</button>
+        <button class="permission-manage-btn" @click="handleRequestPermission">{{ tLocale('notify.permission.manage') }}</button>
       </section>
 
       <!-- Notification Types Panel (Bento Grid) -->
       <section class="notify-types-section">
-        <h3 class="section-heading">通知类型设置</h3>
+        <h3 class="section-heading">{{ tLocale('notify.section.types') }}</h3>
         <div class="notify-types-grid" ref="notificationLayoutRef"
           @pointerdown="handleInfoGridPressStart"
           @pointermove="handleInfoGridPressMove"
@@ -925,8 +938,8 @@ watch(
                 </label>
               </div>
               <div class="notify-type-body">
-                <h4 class="notify-type-name">成绩更新</h4>
-                <p class="notify-type-desc">出分第一时间提醒</p>
+                <h4 class="notify-type-name">{{ tLocale('notify.card.grades') }}</h4>
+                <p class="notify-type-desc">{{ tLocale('notify.card.gradesDesc') }}</p>
               </div>
             </div>
 
@@ -942,8 +955,8 @@ watch(
                 </label>
               </div>
               <div class="notify-type-body">
-                <h4 class="notify-type-name">考试安排</h4>
-                <p class="notify-type-desc">考前 3 天提醒</p>
+                <h4 class="notify-type-name">{{ tLocale('notify.card.exams') }}</h4>
+                <p class="notify-type-desc">{{ tLocale('notify.card.examsDesc') }}</p>
               </div>
             </div>
 
@@ -959,8 +972,8 @@ watch(
                 </label>
               </div>
               <div class="notify-type-body">
-                <h4 class="notify-type-name">寝室电费</h4>
-                <p class="notify-type-desc">余额不足自动推送</p>
+                <h4 class="notify-type-name">{{ tLocale('notify.card.electricity') }}</h4>
+                <p class="notify-type-desc">{{ tLocale('notify.card.electricityDesc') }}</p>
               </div>
             </div>
 
@@ -976,8 +989,8 @@ watch(
                 </label>
               </div>
               <div class="notify-type-body">
-                <h4 class="notify-type-name">上课提醒</h4>
-                <p class="notify-type-desc">课前 {{ classLeadMinutes }} 分钟提醒</p>
+                <h4 class="notify-type-name">{{ tLocale('notify.card.classReminder') }}</h4>
+                <p class="notify-type-desc">{{ tf('notify.card.classReminderDesc', { n: classLeadMinutes }) }}</p>
               </div>
             </div>
 
@@ -993,8 +1006,8 @@ watch(
                 </label>
               </div>
               <div class="notify-type-body">
-                <h4 class="notify-type-name">学校消息</h4>
-                <p class="notify-type-desc">教务/学习通消息中心新通知</p>
+                <h4 class="notify-type-name">{{ tLocale('notify.card.schoolInbox') }}</h4>
+                <p class="notify-type-desc">{{ tLocale('notify.card.schoolInboxDesc') }}</p>
               </div>
             </div>
 
@@ -1010,8 +1023,8 @@ watch(
                 </label>
               </div>
               <div class="notify-type-body">
-                <h4 class="notify-type-name">学习通通知</h4>
-                <p class="notify-type-desc">学习通收件箱新消息，与学校消息分开提醒</p>
+                <h4 class="notify-type-name">{{ tLocale('notify.card.chaoxingInbox') }}</h4>
+                <p class="notify-type-desc">{{ tLocale('notify.card.chaoxingInboxDesc') }}</p>
               </div>
             </div>
           </SortableSurface>
@@ -1020,9 +1033,9 @@ watch(
 
         <!-- Layout Edit Controls -->
         <div v-if="isNotificationLayoutEditing" class="layout-edit-bar">
-          <button class="layout-edit-btn" @click="resetNotificationLayoutEdit">重置</button>
-          <button class="layout-edit-btn" @click="cancelNotificationLayoutEdit">取消</button>
-          <button class="layout-edit-btn primary" @click="saveNotificationLayoutEdit">保存</button>
+          <button class="layout-edit-btn" @click="resetNotificationLayoutEdit">{{ tLocale('common.reset') }}</button>
+          <button class="layout-edit-btn" @click="cancelNotificationLayoutEdit">{{ tLocale('common.cancel') }}</button>
+          <button class="layout-edit-btn primary" @click="saveNotificationLayoutEdit">{{ tLocale('common.save') }}</button>
         </div>
       </section>
 
@@ -1031,7 +1044,7 @@ watch(
         <div class="sync-header">
           <div class="sync-header-left">
             <span class="material-symbols-outlined">sync</span>
-            <h3 class="sync-title">后台自动检查</h3>
+            <h3 class="sync-title">{{ tLocale('notify.sync.title') }}</h3>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" v-model="enableBackground" @change="handleBackgroundToggle">
@@ -1039,27 +1052,27 @@ watch(
           </label>
         </div>
         <div class="sync-interval-row">
-          <span class="sync-interval-label">检查间隔</span>
+          <span class="sync-interval-label">{{ tLocale('notify.sync.intervalLabel') }}</span>
           <select class="sync-interval-select" v-model="checkInterval" @change="handleIntervalChange">
-            <option :value="15">每 15 分钟</option>
-            <option :value="30">每 30 分钟</option>
-            <option :value="60">每 1 小时</option>
+            <option :value="15">{{ tf('notify.sync.intervalMinutes', { n: 15 }) }}</option>
+            <option :value="30">{{ tf('notify.sync.intervalMinutes', { n: 30 }) }}</option>
+            <option :value="60">{{ tLocale('notify.sync.intervalHourly') }}</option>
           </select>
         </div>
 
         <!-- #706：后台检测调度状态展示；分项控制已收敛至上方通知类型开关 -->
         <div class="sync-features-block">
-          <p class="sync-feature-hint">后台检测状态：{{ bgFeatureStatusText }}</p>
+          <p class="sync-feature-hint">{{ tf('notify.sync.statusPrefix', { status: bgFeatureStatusText }) }}</p>
         </div>
       </section>
 
       <!-- Action Buttons -->
       <section class="action-buttons">
         <button class="action-btn secondary" :disabled="checking" @click="runManualCheck">
-          {{ checking ? '检查中...' : '立即检查一次' }}
+          {{ checking ? tLocale('notify.action.checking') : tLocale('notify.action.checkNow') }}
         </button>
         <button class="action-btn secondary" :disabled="sending" @click="handleTestNotification">
-          {{ sending ? '发送中...' : '发送测试通知' }}
+          {{ sending ? tLocale('notify.action.sending') : tLocale('notify.action.sendTest') }}
         </button>
       </section>
 
@@ -1067,7 +1080,7 @@ watch(
       <!-- Recent Notifications -->
       <section class="recent-section">
         <div class="recent-header">
-          <h3 class="section-heading">近期消息</h3>
+          <h3 class="section-heading">{{ tLocale('notify.recent.title') }}</h3>
           <span class="recent-time">{{ lastCheckText }}</span>
         </div>
 
@@ -1079,15 +1092,15 @@ watch(
             </div>
             <div class="notify-msg-body">
               <div class="notify-msg-head">
-                <h4 class="notify-msg-title" :class="{ bold: gradeSummary?.changed }">{{ gradeSummary?.changed ? '新成绩发布' : '成绩动态' }}</h4>
+                <h4 class="notify-msg-title" :class="{ bold: gradeSummary?.changed }">{{ gradeSummary?.changed ? tLocale('notify.card.gradesNew') : tLocale('notify.card.grades') }}</h4>
                 <span class="notify-msg-time">{{ lastCheckText }}</span>
               </div>
-              <p class="notify-msg-text">总成绩 {{ gradeSummary?.total || 0 }} 条 · 本次{{ gradeSummary?.changed ? '有变化' : '无变化' }}</p>
+              <p class="notify-msg-text">{{ tf('notify.recent.gradesSummary', { total: gradeSummary?.total || 0, changed: gradeSummary?.changed ? tLocale('notify.recent.changed') : tLocale('notify.recent.unchanged') }) }}</p>
               <ul v-if="gradeItems.length" class="notify-detail-list">
                 <li v-for="(item, idx) in gradeItems.slice(0, 3)" :key="`grade-${idx}`" class="detail-row">
                   <span class="detail-main">{{ item.course_name || '-' }}</span>
                   <span class="detail-sub">
-                    <span>{{ item.term || '未知学期' }}</span>
+                    <span>{{ item.term || tLocale('grade.term.unknown') }}</span>
                     <span class="detail-score">{{ item.final_score || '-' }}</span>
                   </span>
                 </li>
@@ -1104,12 +1117,12 @@ watch(
             </div>
             <div class="notify-msg-body">
               <div class="notify-msg-head">
-                <h4 class="notify-msg-title">上课提醒</h4>
+                <h4 class="notify-msg-title">{{ tLocale('notify.card.classReminder') }}</h4>
                 <span class="notify-msg-time">{{ classReminderText }}</span>
               </div>
               <p class="notify-msg-text">{{ nextClassText }}</p>
               <div class="notify-detail-kv" v-if="classSummary?.nextCourse?.name">
-                <span class="kv-item"><span class="material-symbols-outlined mini-icon">alarm</span> 提前 {{ classLeadMinutes }} 分钟</span>
+                <span class="kv-item"><span class="material-symbols-outlined mini-icon">alarm</span> {{ tf('notify.class.leadMinutes', { n: classLeadMinutes }) }}</span>
               </div>
             </div>
           </div>
@@ -1123,15 +1136,15 @@ watch(
             </div>
             <div class="notify-msg-body">
               <div class="notify-msg-head">
-                <h4 class="notify-msg-title">考试安排</h4>
-                <span class="notify-msg-time">{{ examSummary?.tomorrowCount ? '明日有考试' : '' }}</span>
+                <h4 class="notify-msg-title">{{ tLocale('notify.card.exams') }}</h4>
+                <span class="notify-msg-time">{{ examSummary?.tomorrowCount ? tLocale('notify.exams.tomorrowBadge') : '' }}</span>
               </div>
-              <p class="notify-msg-text">近期 {{ examItems.length }} 门 · 明日 {{ examSummary?.tomorrowCount || 0 }} 门</p>
+              <p class="notify-msg-text">{{ tf('notify.recent.examsSummary', { recent: examItems.length, tomorrow: examSummary?.tomorrowCount || 0 }) }}</p>
               <ul class="notify-detail-list">
                 <li v-for="(item, idx) in examItems.slice(0, 3)" :key="`exam-${idx}`">
                   <span class="detail-main">
                     {{ item.course_name || '-' }}
-                    <small v-if="item.is_tomorrow" class="tag-urgent">明日</small>
+                    <small v-if="item.is_tomorrow" class="tag-urgent">{{ tLocale('notify.exams.tomorrow') }}</small>
                   </span>
                   <span class="detail-sub">
                     <span v-if="item.exam_date">{{ item.exam_date }}</span>
@@ -1152,11 +1165,11 @@ watch(
             </div>
             <div class="notify-msg-body">
               <div class="notify-msg-head">
-                <h4 class="notify-msg-title">电费监控</h4>
+                <h4 class="notify-msg-title">{{ tLocale('notify.card.electricity') }}</h4>
                 <span class="notify-msg-time">{{ powerStatusText }}</span>
               </div>
-              <p class="notify-msg-text">剩余电量：{{ powerQuantityText }}</p>
-              <p v-if="powerSummary?.isDual" class="notify-msg-text">空调电量：{{ acPowerQuantityText }}</p>
+              <p class="notify-msg-text">{{ tf('notify.recent.powerRemaining', { quantity: powerQuantityText }) }}</p>
+              <p v-if="powerSummary?.isDual" class="notify-msg-text">{{ tf('notify.recent.powerAc', { quantity: acPowerQuantityText }) }}</p>
             </div>
           </div>
         </div>
@@ -1170,14 +1183,16 @@ watch(
             <div class="notify-msg-body">
               <div class="notify-msg-head">
                 <h4 class="notify-msg-title" :class="{ bold: schoolInboxSummary?.triggered > 0 }">
-                  {{ schoolInboxSummary?.triggered > 0 ? '新学校消息' : '学校消息' }}
+                  {{ schoolInboxSummary?.triggered > 0 ? tLocale('notify.card.schoolInboxNew') : tLocale('notify.card.schoolInbox') }}
                 </h4>
                 <span class="notify-msg-time">{{ lastCheckText }}</span>
               </div>
               <p class="notify-msg-text">
-                共 {{ schoolInboxSummary?.total || 0 }} 条
-                <template v-if="schoolInboxSummary?.source">（{{ schoolInboxSummary.source === 'chaoxing' ? '学习通' : '教务' }}）</template>
-                · 本次新增 {{ schoolInboxSummary?.triggered || 0 }} 条
+                {{ tf('notify.recent.inboxSummary', {
+                  total: schoolInboxSummary?.total || 0,
+                  source: schoolInboxSummary?.source ? tf('notify.recent.sourceParens', { source: schoolInboxSummary.source === 'chaoxing' ? tLocale('notify.source.chaoxing') : tLocale('notify.source.academic') }) : '',
+                  triggered: schoolInboxSummary?.triggered || 0
+                }) }}
               </p>
               <p v-if="schoolInboxSummary?.error" class="notify-msg-text warn">{{ schoolInboxSummary.error }}</p>
             </div>
@@ -1193,38 +1208,38 @@ watch(
             <div class="notify-msg-body">
               <div class="notify-msg-head">
                 <h4 class="notify-msg-title" :class="{ bold: chaoxingInboxSummary?.triggered > 0 }">
-                  {{ chaoxingInboxSummary?.triggered > 0 ? '新学习通通知' : '学习通通知' }}
+                  {{ chaoxingInboxSummary?.triggered > 0 ? tLocale('notify.card.chaoxingInboxNew') : tLocale('notify.card.chaoxingInbox') }}
                 </h4>
                 <span class="notify-msg-time">{{ lastCheckText }}</span>
               </div>
               <p class="notify-msg-text">
-                共 {{ chaoxingInboxSummary?.total || 0 }} 条 · 本次新增 {{ chaoxingInboxSummary?.triggered || 0 }} 条
+                {{ tf('notify.recent.inboxSummaryPlain', { total: chaoxingInboxSummary?.total || 0, triggered: chaoxingInboxSummary?.triggered || 0 }) }}
               </p>
               <p v-if="chaoxingInboxSummary?.error" class="notify-msg-text warn">{{ chaoxingInboxSummary.error }}</p>
             </div>
           </div>
         </div>
 
-        <div class="notify-end-hint">长按卡片进入管理模式</div>
+        <div class="notify-end-hint">{{ tLocale('notify.recent.longPressHint') }}</div>
       </section>
 
       <!-- 后台状态（#616：保活仅桌面端展示；移动端展示真实调度状态） -->
       <div class="status-row" v-if="enableBackground">
-        <span v-if="currentRuntime === 'tauri' && !isAndroidLike() && !isIOSLike()" class="status-pill soft">保活：{{ backgroundLockStatusText }}</span>
-        <span class="status-pill soft">调度：{{ bgFeatureStatusText }}</span>
+        <span v-if="currentRuntime === 'tauri' && !isAndroidLike() && !isIOSLike()" class="status-pill soft">{{ tf('notify.status.keepAlivePrefix', { status: backgroundLockStatusText }) }}</span>
+        <span class="status-pill soft">{{ tf('notify.status.schedulerPrefix', { status: bgFeatureStatusText }) }}</span>
       </div>
     </main>
 
     <p v-if="statusMessage" class="status-msg">{{ statusMessage }}</p>
-    <p v-if="lastError" class="status-err">错误详情：{{ lastError }}</p>
+    <p v-if="lastError" class="status-err">{{ tf('notify.status.errorDetail', { error: lastError }) }}</p>
 
     <div v-if="showBatteryPrompt" class="modal-mask">
       <div class="modal-card">
-        <h3>电池优化提示</h3>
-        <p>Android 建议将本应用加入后台白名单，避免系统回收后无法按时通知。</p>
+        <h3>{{ tLocale('notify.battery.title') }}</h3>
+        <p>{{ tLocale('notify.battery.desc') }}</p>
         <div class="modal-actions">
-          <button class="btn-text" @click="cancelBatterySettings">稍后</button>
-          <button class="btn-primary" @click="confirmBatterySettings">我知道了</button>
+          <button class="btn-text" @click="cancelBatterySettings">{{ tLocale('notify.battery.later') }}</button>
+          <button class="btn-primary" @click="confirmBatterySettings">{{ tLocale('notify.battery.ack') }}</button>
         </div>
       </div>
     </div>

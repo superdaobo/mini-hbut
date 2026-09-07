@@ -10,16 +10,18 @@ describe('SettingsView emits declaration', () => {
 })
 
 describe('SettingsView 深浅色三态（#757）', () => {
-  it('外置模板提供 跟随系统/白天/夜间 三态选择并绑定三态状态', () => {
+  it('外置模板提供三态选择（labelKey/descKey 经 t() 取词）并绑定三态状态', () => {
     const template = readFileSync(
       new URL('../templates/views/SettingsView.html', import.meta.url),
       'utf8'
     )
 
-    // 三态选项渲染自 nightModeOptions，激活态绑定 nightModePreference
+    // 三态选项渲染自 nightModeOptions（#787 起 label/desc 经 t(item.labelKey)/t(item.descKey) 取词）
     expect(template).toContain('v-for="item in nightModeOptions"')
     expect(template).toContain(':class="{ active: nightModePreference === item.key }"')
     expect(template).toContain('@click="setNightMode(item.key)"')
+    expect(template).toContain('{{ t(item.labelKey) }}')
+    expect(template).toContain('{{ t(item.descKey) }}')
     // 旧版二态 toggle 已移除
     expect(template).not.toContain('toggleDarkMode')
     expect(template).not.toContain('theme-toggle-track')
@@ -77,6 +79,50 @@ describe('SettingsView 语言选择（#773）', () => {
     expect(source).toContain('const handleLocaleChange = (next) => {')
     expect(source).toContain('setLocale(next)')
     expect(source).toContain("t('settings.language.toast')")
+  })
+})
+
+describe('SettingsView 全量文案接入 t()（#787）', () => {
+  it('模板：sections 标题、后端字段、probe/debug/fontModal 全部经 t() 取词（抽样断言）', () => {
+    const template = readFileSync(
+      new URL('../templates/views/SettingsView.html', import.meta.url),
+      'utf8'
+    )
+
+    // sections 标题
+    expect(template).toContain("t('settings.theme.title')")
+    expect(template).toContain("t('settings.personalize.title')")
+    expect(template).toContain("t('settings.profile.title')")
+    expect(template).toContain("t('settings.font.title')")
+    expect(template).toContain("t('settings.backend.title')")
+    expect(template).toContain("t('settings.security.title')")
+    expect(template).toContain("t('settings.debug.title')")
+    // 后端字段标签（抽样）
+    expect(template).toContain("t('settings.backend.field.ocr')")
+    expect(template).toContain("t('settings.backend.field.uploadCooldown')")
+    // 云同步 / probe / 调试 / 字体弹窗（抽样）
+    expect(template).toContain("t('settings.backend.cloudSync.title')")
+    expect(template).toContain("t(item.labelKey)")
+    expect(template).toContain("t(option.labelKey)")
+    expect(template).toContain("t('settings.font.modal.retryDownload')")
+    // 全屏主题过渡文案
+    expect(template).toContain("t('settings.theme.overlay.dark')")
+  })
+
+  it('脚本：数据驱动数组改为 labelKey/descKey，toast/debugLog 经 t()/tr() 取词', () => {
+    const source = readFileSync(new URL('./SettingsView.vue', import.meta.url), 'utf8')
+
+    // 数据驱动选项 key 化（渲染时 t() 取词保证 locale 切换即时重渲染）
+    expect(source).toContain("labelKey: 'settings.theme.system.label'")
+    expect(source).toContain("labelKey: 'settings.probe.ocr.label'")
+    expect(source).toContain("descKey: 'settings.profile.classic.desc'")
+    // 插值工具与 toast 文案
+    expect(source).toContain('const tr = (key, params = {}) => {')
+    expect(source).toContain("t('settings.toast.probeDone')")
+    expect(source).toContain("t('settings.toast.backendApplied')")
+    // 不得再出现硬编码中文 toast/拼接文案
+    expect(source).not.toContain('showToast(`')
+    expect(source).not.toContain("showToast('")
   })
 })
 

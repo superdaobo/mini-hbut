@@ -10,6 +10,10 @@ import { ref } from 'vue'
 import type { IdentityCoordinator } from '../../../app/contracts/runtime'
 import IdentityQrScanner from './IdentityQrScanner.vue'
 import { showToast } from '../../../utils/toast'
+// #795：响应式 t（locale 变化后模板即时重渲染）
+import { useI18n } from '../../../utils/app_i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   /** 由 App.vue 注入的 IdentityCoordinator（web 预览等无身份环境为 null） */
@@ -20,7 +24,7 @@ const scannerVisible = ref(false)
 
 const openScanner = (): void => {
   if (!props.identity) {
-    showToast('当前环境不支持扫码登录，请使用「打开 Mini-HBUT」按钮', 'warning')
+    showToast(t('identity.qr.entry.toast.unsupported'), 'warning')
     return
   }
   scannerVisible.value = true
@@ -42,12 +46,12 @@ const closeScanner = (): void => {
     <div class="identity-qr-entry-main">
       <span class="material-symbols-outlined identity-qr-entry-icon" aria-hidden="true">qr_code_scanner</span>
       <div class="identity-qr-entry-text">
-        <h4>扫一扫登录</h4>
-        <p>用本机相机扫描电脑网页上的登录二维码，即可在手机上完成授权。</p>
+        <h4>{{ t('identity.qr.entry.title') }}</h4>
+        <p>{{ t('identity.qr.entry.desc') }}</p>
       </div>
     </div>
     <button class="mini-btn btn-ripple identity-qr-entry-btn" type="button" @click="openScanner">
-      扫一扫
+      {{ t('identity.qr.entry.action') }}
     </button>
     <IdentityQrScanner :visible="scannerVisible" :submit-intent="submitIntent" @close="closeScanner" />
   </section>

@@ -1,7 +1,18 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
+// #792：学习通域文案英文化（t() 响应式取词）
+import { useLocale } from '../utils/app_i18n'
 import { TEmptyState, TPageHeader, TStatusBadge } from './templates'
+
+const { t } = useLocale()
+
+/** 带占位符的插值：{n} 等按序替换，供 i18n 字典参数化文案使用 */
+const tFmt = (key, params = {}) =>
+  Object.entries(params).reduce(
+    (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
+    t(key)
+  )
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -46,17 +57,17 @@ const normalizePlatform = (key, value = {}) => {
   const pendingCount = safeNumber(raw.pending_count ?? raw.todo_count ?? raw.remaining_count)
   return {
     key,
-    title: key === 'chaoxing' ? '学习通' : '长江雨课堂',
+    title: key === 'chaoxing' ? t('shuake.platformChaoxing') : t('shuake.platformYuketang'),
     desc:
       key === 'chaoxing'
-        ? '复用本地学习通会话，查看课程、章节与官方进度。'
-        : '通过微信扫码连接雨课堂，同步课程与视频任务进度。',
-    status: safeText(raw.status || raw.connection_status || raw.state || '未连接') || '未连接',
+        ? t('shuake.descChaoxing')
+        : t('shuake.descYuketang'),
+    status: safeText(raw.status || raw.connection_status || raw.state) || t('shuake.notConnected'),
     badgeType: resolveBadgeType(raw.status || raw.connection_status || raw.state),
     courseCount,
     pendingCount,
     lastSync: safeText(raw.last_sync || raw.sync_time || raw.updated_at || raw.last_sync_time),
-    cacheState: safeText(raw.cache_status || raw.cache_state || (raw.offline ? '缓存数据' : '实时数据')) || '未知',
+    cacheState: safeText(raw.cache_status || raw.cache_state || (raw.offline ? t('shuake.cachedData') : t('shuake.liveData'))) || t('shuake.unknown'),
     offline: !!raw.offline,
     message: safeText(raw.message || raw.tip || ''),
     raw
@@ -77,16 +88,16 @@ const summaryChips = computed(() => {
   const raw = overview.value || {}
   return [
     {
-      label: '最近同步',
-      value: safeText(raw.last_sync_time || raw.sync_time || '未同步')
+      label: t('shuake.chipLastSync'),
+      value: safeText(raw.last_sync_time || raw.sync_time) || t('shuake.notSynced')
     },
     {
-      label: '运行中任务',
+      label: t('shuake.chipRunning'),
       value: String(safeNumber(raw.running_count ?? raw.active_runs ?? raw.running_tasks))
     },
     {
-      label: '缓存状态',
-      value: safeText(raw.cache_status || raw.cache_state || '正常')
+      label: t('shuake.chipCache'),
+      value: safeText(raw.cache_status || raw.cache_state) || t('shuake.cacheOk')
     }
   ]
 })
@@ -100,7 +111,7 @@ const loadOverview = async ({ silent = false } = {}) => {
     })
     const payload = res?.data || {}
     if (payload?.success === false) {
-      throw new Error(payload?.error || '在线学习概览获取失败')
+      throw new Error(payload?.error || t('shuake.errOverview'))
     }
     const data = unwrapPayload(payload)
     overview.value = data && typeof data === 'object' ? data : {}
@@ -112,7 +123,7 @@ const loadOverview = async ({ silent = false } = {}) => {
           ? payload.sync_runs
           : []
   } catch (err) {
-    error.value = safeText(err?.message || err) || '在线学习概览获取失败'
+    error.value = safeText(err?.message || err) || t('shuake.errOverview')
   } finally {
     loading.value = false
   }
@@ -133,7 +144,7 @@ const handleSyncNow = async (platform = '') => {
     })
     await loadOverview({ silent: true })
   } catch (err) {
-    error.value = safeText(err?.message || err) || '同步失败'
+    error.value = safeText(err?.message || err) || t('shuake.errSync')
   } finally {
     actionKey.value = ''
   }
@@ -147,7 +158,7 @@ const handleClearCache = async () => {
     })
     await loadOverview({ silent: true })
   } catch (err) {
-    error.value = safeText(err?.message || err) || '清理缓存失败'
+    error.value = safeText(err?.message || err) || t('shuake.errClearCache')
   } finally {
     actionKey.value = ''
   }
@@ -164,7 +175,7 @@ onMounted(async () => {
 
 <template>
   <div class="more-shuake-view">
-    <TPageHeader title="学习记录" @back="emit('back')">
+    <TPageHeader :title="t('shuake.title')" @back="emit('back')">
       <template #actions>
         <button class="icon-btn" :disabled="refreshing" @click="refreshAll">↻</button>
       </template>
@@ -174,7 +185,7 @@ onMounted(async () => {
       <section class="menu-section">
         <div class="section-title">
           <span class="section-icon">📚</span>
-          <span>在线学习入口</span>
+          <span>{{ t('shuake.entriesTitle') }}</span>
         </div>
         <div class="menu-group">
           <button
@@ -186,7 +197,7 @@ onMounted(async () => {
             <span class="menu-item__icon">{{ platform.key === 'chaoxing' ? '📖' : '🌧️' }}</span>
             <div class="menu-item__body">
               <strong>{{ platform.title }}</strong>
-              <p>{{ platform.courseCount }} 门课程 · {{ platform.status }}</p>
+              <p>{{ tFmt('shuake.courseCountUnit', { n: platform.courseCount }) }} · {{ platform.status }}</p>
             </div>
             <div class="menu-item__trail">
               <TStatusBadge :type="platform.badgeType" :text="platform.status" />
@@ -199,7 +210,7 @@ onMounted(async () => {
       <section class="menu-section">
         <div class="section-title">
           <span class="section-icon">🔄</span>
-          <span>数据同步</span>
+          <span>{{ t('shuake.syncSection') }}</span>
         </div>
         <div class="menu-group">
           <div class="menu-card">
@@ -215,8 +226,8 @@ onMounted(async () => {
           <button class="menu-item" :disabled="actionKey === 'sync:all'" @click="handleSyncNow('')">
             <span class="menu-item__icon">🚀</span>
             <div class="menu-item__body">
-              <strong>同步全部平台</strong>
-              <p>拉取学习通和雨课堂的最新课程与进度数据</p>
+              <strong>{{ t('shuake.syncAll') }}</strong>
+              <p>{{ t('shuake.syncAllDesc') }}</p>
             </div>
             <div class="menu-item__trail">
               <span v-if="actionKey === 'sync:all'" class="action-spinner">⏳</span>
@@ -227,8 +238,8 @@ onMounted(async () => {
           <button class="menu-item menu-item--danger" :disabled="actionKey === 'clear'" @click="handleClearCache">
             <span class="menu-item__icon">🗑️</span>
             <div class="menu-item__body">
-              <strong>清理缓存</strong>
-              <p>清除在线学习缓存，下次进入自动重拉数据</p>
+              <strong>{{ t('shuake.clearCache') }}</strong>
+              <p>{{ t('shuake.clearCacheDesc') }}</p>
             </div>
             <div class="menu-item__trail">
               <span v-if="actionKey === 'clear'" class="action-spinner">⏳</span>
@@ -241,7 +252,7 @@ onMounted(async () => {
       <section v-if="!loading" class="menu-section">
         <div class="section-title">
           <span class="section-icon">🧾</span>
-          <span>同步记录</span>
+          <span>{{ t('shuake.runsSection') }}</span>
           <span class="section-badge">{{ syncRuns.length }}</span>
         </div>
         <div class="menu-group">
@@ -252,20 +263,20 @@ onMounted(async () => {
               class="run-item"
             >
               <div class="run-item__main">
-                <strong>{{ run.platform_name || run.platform || '在线学习' }}</strong>
-                <p>{{ run.message || run.detail || '已记录最近一次同步结果' }}</p>
+                <strong>{{ run.platform_name || run.platform || t('shuake.onlineLearningFallback') }}</strong>
+                <p>{{ run.message || run.detail || t('shuake.lastRunFallback') }}</p>
               </div>
               <div class="run-item__side">
-                <TStatusBadge :type="resolveBadgeType(run.status)" :text="run.status || '完成'" />
+                <TStatusBadge :type="resolveBadgeType(run.status)" :text="run.status || t('shuake.statusDone')" />
                 <span>{{ run.started_at || run.sync_time || run.created_at || '-' }}</span>
               </div>
             </article>
           </template>
-          <div v-else class="empty-hint">暂无同步记录</div>
+          <div v-else class="empty-hint">{{ t('shuake.noRuns') }}</div>
         </div>
       </section>
 
-      <TEmptyState v-if="loading" type="loading" message="正在加载学习记录..." />
+      <TEmptyState v-if="loading" type="loading" :message="t('shuake.loading')" />
     </div>
   </div>
 </template>

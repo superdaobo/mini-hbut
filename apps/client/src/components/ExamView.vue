@@ -10,6 +10,7 @@ import {
   resolveCurrentSemester
 } from '../utils/semester.js'
 import { writeExamToWidget } from '../utils/widget_bridge'
+import { useI18n, tf } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -20,6 +21,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['back', 'logout'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 
 const loading = ref(false)
 const refreshing = ref(false)
@@ -37,7 +41,7 @@ const resolveExamSyncTime = (data) => {
   if (data?.offline) return syncTime.value || ''
   return new Date().toISOString()
 }
-const lastUpdatedAt = computed(() => syncTime.value ? formatRelativeTime(syncTime.value) : '暂未更新')
+const lastUpdatedAt = computed(() => syncTime.value ? formatRelativeTime(syncTime.value) : t('exam.notUpdated'))
 const isInitialLoading = computed(() => loading.value && exams.value.length === 0)
 let examRequestSeq = 0
 let examRealtimeRetryTimer = null
@@ -126,10 +130,10 @@ const daysUntilExam = (examDate) => {
 const getCountdownLabel = (examDate) => {
   const days = daysUntilExam(examDate)
   if (days === null) return ''
-  if (days === 0) return '今天'
-  if (days === 1) return '明天'
+  if (days === 0) return t('exam.countdown.today')
+  if (days === 1) return t('exam.countdown.tomorrow')
   if (days < 0) return ''
-  if (days <= 7) return `${days}天后`
+  if (days <= 7) return tf('exam.countdown.daysLater', { n: days })
   return ''
 }
 
@@ -179,7 +183,7 @@ const fetchSemesters = async () => {
       }
     }
   } catch (e) {
-    console.error('获取学期列表失败:', e)
+    console.error('failed to load semesters:', e)
   }
 }
 
@@ -236,11 +240,11 @@ const fetchExams = async (options = {}) => {
         }).catch(() => {})
       }
     } else {
-      error.value = data?.error || '获取考试安排失败'
+      error.value = data?.error || t('exam.error.fetchFailed')
     }
   } catch (e) {
     if (requestSeq !== examRequestSeq) return
-    error.value = e.response?.data?.error || '网络错误'
+    error.value = e.response?.data?.error || t('exam.error.network')
   } finally {
     if (requestSeq === examRequestSeq) {
       loading.value = false
@@ -267,9 +271,9 @@ onBeforeUnmount(() => {
 <template>
   <div class="exam-page min-h-screen bg-surface text-on-surface flex flex-col mx-auto max-w-[448px] relative pb-24">
     <!-- Header -->
-    <TPageHeader title="考试安排" icon="edit_document" @back="emit('back')">
+    <TPageHeader :title="t('exam.title')" icon="edit_document" @back="emit('back')">
       <template #actions>
-        <button class="exam-refresh-btn" type="button" :aria-busy="refreshing || loading" aria-label="刷新考试安排" @click="fetchExams">
+        <button class="exam-refresh-btn" type="button" :aria-busy="refreshing || loading" :aria-label="t('exam.refreshAria')" @click="fetchExams">
           <span class="material-symbols-outlined" :class="{ spinning: refreshing || loading || offline }">refresh</span>
         </button>
       </template>
@@ -277,7 +281,7 @@ onBeforeUnmount(() => {
 
     <!-- Offline Banner -->
     <div v-if="offline" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      {{ tf('exam.offlineBanner', { time: formatRelativeTime(syncTime) }) }}
     </div>
 
     <main class="flex-1 flex flex-col gap-5 p-4">
@@ -296,17 +300,17 @@ onBeforeUnmount(() => {
         <!-- Stats Bento Grid -->
         <div v-if="!isInitialLoading && exams.length > 0" class="grid grid-cols-2 gap-3">
           <div class="bg-primary-container rounded-2xl p-4 flex flex-col justify-center items-start shadow-sm">
-            <span class="text-xs font-medium text-on-primary-container/80 mb-1">待考</span>
+            <span class="text-xs font-medium text-on-primary-container/80 mb-1">{{ t('exam.upcoming') }}</span>
             <div class="flex items-baseline gap-1">
               <span class="text-3xl font-bold text-on-primary-container leading-tight">{{ futureCount }}</span>
-              <span class="text-[10px] font-semibold text-on-primary-container/80">科</span>
+              <span class="text-[10px] font-semibold text-on-primary-container/80">{{ t('exam.countUnit') }}</span>
             </div>
           </div>
           <div class="bg-surface-container-lowest rounded-2xl p-4 flex flex-col justify-center items-start border border-surface-container-highest shadow-sm">
-            <span class="text-xs font-medium text-on-surface-variant mb-1">已考</span>
+            <span class="text-xs font-medium text-on-surface-variant mb-1">{{ t('exam.passed') }}</span>
             <div class="flex items-baseline gap-1">
               <span class="text-3xl font-bold text-on-surface leading-tight">{{ passedCount }}</span>
-              <span class="text-[10px] font-semibold text-on-surface-variant">科</span>
+              <span class="text-[10px] font-semibold text-on-surface-variant">{{ t('exam.countUnit') }}</span>
             </div>
           </div>
         </div>
@@ -314,11 +318,11 @@ onBeforeUnmount(() => {
 
       <!-- Content Area -->
       <section class="flex flex-col gap-4">
-        <TEmptyState v-if="isInitialLoading" type="loading" message="正在获取考试安排..." />
+        <TEmptyState v-if="isInitialLoading" type="loading" :message="t('exam.loading')" />
         <TEmptyState v-else-if="error" type="error" :message="error">
-          <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchExams">重试</button>
+          <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchExams">{{ t('common.retry') }}</button>
         </TEmptyState>
-        <TEmptyState v-else-if="exams.length === 0" type="empty" message="本学期暂无考试安排" />
+        <TEmptyState v-else-if="exams.length === 0" type="empty" :message="t('exam.empty')" />
 
         <!-- Exam Cards -->
         <template v-else>
@@ -355,7 +359,7 @@ onBeforeUnmount(() => {
                 <!-- Countdown / Status Badge -->
                 <div v-if="isPassed(exam.exam_date)" class="bg-surface-container-high text-on-surface-variant text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1">
                   <span class="material-symbols-outlined text-[14px]">check_circle</span>
-                  已结束
+                  {{ t('exam.status.finished') }}
                 </div>
                 <div v-else-if="getCountdownLabel(exam.exam_date)" class="bg-error-container text-on-error-container text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1">
                   <span class="material-symbols-outlined text-[14px]">timer</span>
@@ -375,7 +379,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div v-if="exam.seat_no" class="flex items-center gap-2 text-on-surface-variant text-sm">
                   <span class="material-symbols-outlined text-[18px] text-primary">chair_alt</span>
-                  <span>座位号: {{ exam.seat_no }}</span>
+                  <span>{{ tf('exam.seatLabel', { seat: exam.seat_no }) }}</span>
                 </div>
               </div>
             </div>
@@ -383,7 +387,7 @@ onBeforeUnmount(() => {
         </template>
       </section>
 
-      <p class="exam-updated-at">最新更新时间：{{ lastUpdatedAt }}</p>
+      <p class="exam-updated-at">{{ tf('exam.lastUpdated', { time: lastUpdatedAt }) }}</p>
     </main>
   </div>
 </template>

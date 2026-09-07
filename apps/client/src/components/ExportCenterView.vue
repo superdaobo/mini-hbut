@@ -6,7 +6,11 @@ import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 import { invokeNative as invoke, isTauriRuntime, isCapacitorRuntime } from '../platform/native'
 import { blobToDataUrl, waitForCaptureReady, renderElementToCanvas } from '../utils/capture_service'
+import { useI18n, tf } from '../utils/app_i18n'
 import { TPageHeader } from './templates'
+
+// i18n（#794 批次 I）：响应式取词用于模板/computed，tf 用于整句插值
+const { t } = useI18n()
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -32,40 +36,49 @@ const periodTimeMap = {
   11: { start: '20:10', end: '20:55' }
 }
 
-const weekdayText = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const weekdayText = computed(() => [
+  t('common.week.mon'),
+  t('common.week.tue'),
+  t('common.week.wed'),
+  t('common.week.thu'),
+  t('common.week.fri'),
+  t('common.week.sat'),
+  t('common.week.sun')
+])
 
-const moduleGroups = [
+// 模块分组配置：名称走 i18n（getter 保证语言切换即时生效）
+const moduleGroups = computed(() => [
   {
     id: 'academic',
-    title: '学业类',
+    title: t('export.group.academic'),
     modules: [
-      { id: 'grades', name: '成绩查询', icon: '📊', semesterAware: true },
-      { id: 'ranking', name: '绩点排名', icon: '🏆', semesterAware: true },
-      { id: 'schedule', name: '课表', icon: '📅', semesterAware: true },
-      { id: 'exams', name: '考试安排', icon: '📝', semesterAware: true },
-      { id: 'calendar', name: '校历', icon: '📘', semesterAware: true },
-      { id: 'academic_progress', name: '学业完成情况', icon: '🎓', semesterAware: false },
-      { id: 'training_plan', name: '培养方案', icon: '📚', semesterAware: false }
+      { id: 'grades', name: t('export.module.grades'), icon: '📊', semesterAware: true },
+      { id: 'ranking', name: t('export.module.ranking'), icon: '🏆', semesterAware: true },
+      { id: 'schedule', name: t('export.module.schedule'), icon: '📅', semesterAware: true },
+      { id: 'exams', name: t('export.module.exams'), icon: '📝', semesterAware: true },
+      { id: 'calendar', name: t('export.module.calendar'), icon: '📘', semesterAware: true },
+      { id: 'academic_progress', name: t('export.module.academic_progress'), icon: '🎓', semesterAware: false },
+      { id: 'training_plan', name: t('export.module.training_plan'), icon: '📚', semesterAware: false }
     ]
   },
   {
     id: 'basic',
-    title: '基础信息',
+    title: t('export.group.basic'),
     modules: [
-      { id: 'student_info', name: '个人信息', icon: '👤', semesterAware: false }
+      { id: 'student_info', name: t('export.module.student_info'), icon: '👤', semesterAware: false }
     ]
   },
   {
     id: 'life',
-    title: '生活类',
+    title: t('export.group.life'),
     modules: [
-      { id: 'classroom', name: '空教室（缓存）', icon: '🏫', semesterAware: false },
-      { id: 'electricity', name: '电费（缓存）', icon: '⚡', semesterAware: false },
-      { id: 'transactions', name: '交易记录', icon: '💰', semesterAware: false },
-      { id: 'campus_map', name: '校园地图（缓存）', icon: '🗺️', semesterAware: false }
+      { id: 'classroom', name: t('export.module.classroom'), icon: '🏫', semesterAware: false },
+      { id: 'electricity', name: t('export.module.electricity'), icon: '⚡', semesterAware: false },
+      { id: 'transactions', name: t('export.module.transactions'), icon: '💰', semesterAware: false },
+      { id: 'campus_map', name: t('export.module.campus_map'), icon: '🗺️', semesterAware: false }
     ]
   }
-]
+])
 
 const moduleMap = computed(() => {
   const out = new Map()
@@ -113,18 +126,18 @@ const selectedModuleMetas = computed(() =>
     .filter(Boolean)
 )
 
-const studentInfoFieldMap = {
-  name: '姓名',
-  student_id: '学号',
-  class_name: '班级',
-  college: '学院',
-  major: '专业',
-  grade: '年级',
-  gender: '性别',
-  ethnicity: '民族',
-  id_card: '身份证号',
-  id_number: '身份证号'
-}
+const studentInfoFieldMap = computed(() => ({
+  name: t('export.field.name'),
+  student_id: t('export.field.studentId'),
+  class_name: t('export.field.className'),
+  college: t('export.field.college'),
+  major: t('export.field.major'),
+  grade: t('export.field.grade'),
+  gender: t('export.field.gender'),
+  ethnicity: t('export.field.ethnicity'),
+  id_card: t('export.field.idCard'),
+  id_number: t('export.field.idCard')
+}))
 
 const studentInfoFieldOrder = [
   'name',
@@ -233,14 +246,14 @@ const toggleTransactionMonth = (monthValue) => {
 const monthChecked = (monthValue) => selectedTransactionMonths.value.includes(monthValue)
 
 const semesterHint = computed(() => {
-  if (!requiresSemester.value) return '当前已选模块无需学期过滤。'
-  if (!effectiveSemesters.value.length) return '暂无可用学期，请先登录并同步数据。'
-  return `已选择 ${effectiveSemesters.value.length} 个学期`
+  if (!requiresSemester.value) return t('export.semester.notRequired')
+  if (!effectiveSemesters.value.length) return t('export.semester.none')
+  return tf('export.semester.selected', { n: effectiveSemesters.value.length })
 })
 
 const transactionHint = computed(() => {
-  if (!selectedModules.value.includes('transactions')) return '未选择交易记录模块。'
-  return `交易记录将导出 ${selectedTransactionMonths.value.length} 个月份`
+  if (!selectedModules.value.includes('transactions')) return t('export.transactions.noneSelected')
+  return tf('export.transactions.selected', { n: selectedTransactionMonths.value.length })
 })
 
 const formatScore = (value) => {
@@ -270,8 +283,8 @@ const formatPeriod = (course) => {
 
 const formatWeekday = (weekday) => {
   const idx = Number(weekday || 0) - 1
-  if (idx < 0 || idx >= weekdayText.length) return '-'
-  return weekdayText[idx]
+  if (idx < 0 || idx >= weekdayText.value.length) return '-'
+  return weekdayText.value[idx]
 }
 
 const formatTimestampText = (timestamp) => {
@@ -283,12 +296,13 @@ const normalizeStudentInfoEntries = (raw) => {
   const data = raw && typeof raw === 'object' ? raw : {}
   const entries = []
   const used = new Set()
+  const idCardLabel = t('export.field.idCard')
 
   studentInfoFieldOrder.forEach((key) => {
     if (!(key in data)) return
-    const label = studentInfoFieldMap[key] || key
-    if (label === '身份证号' && used.has('身份证号')) return
-    if (label === '身份证号') used.add('身份证号')
+    const label = studentInfoFieldMap.value[key] || key
+    if (label === idCardLabel && used.has(idCardLabel)) return
+    if (label === idCardLabel) used.add(idCardLabel)
     entries.push({ label, value: safeText(data[key]) })
   })
 
@@ -383,7 +397,7 @@ const loadSemesters = async () => {
       }
     }
   } catch (e) {
-    exportError.value = `获取学期失败：${e?.message || e}`
+    exportError.value = tf('export.error.semesters', { msg: e?.message || e })
   } finally {
     loadingSemesters.value = false
   }
@@ -392,7 +406,7 @@ const loadSemesters = async () => {
 const fetchGradesData = async (selected) => {
   const res = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '成绩查询失败')
+  if (!payload.success) throw new Error(payload.error || t('export.error.grades'))
   const allGrades = Array.isArray(payload.data) ? payload.data : []
   const sourceSemesters = normalizeSemesterList(
     allGrades.map((item) => String(item.term || '').trim()).filter(Boolean)
@@ -429,13 +443,13 @@ const fetchRankingData = async (selected) => {
     const payload = res.data || {}
     if (!payload.success) {
       rows.push({
-        semester: sem || '全部（从入学至今）',
-        error: payload.error || '获取失败'
+        semester: sem || t('export.semester.all'),
+        error: payload.error || t('export.error.fetchFailed')
       })
       continue
     }
     rows.push({
-      semester: sem || '全部（从入学至今）',
+      semester: sem || t('export.semester.all'),
       data: payload.data || {},
       offline: !!payload.offline,
       syncTime: payload.sync_time || ''
@@ -447,9 +461,9 @@ const fetchRankingData = async (selected) => {
 const fetchScheduleData = async (selected) => {
   const res = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '课表查询失败')
+  if (!payload.success) throw new Error(payload.error || t('export.error.schedule'))
 
-  const metaSemester = String(payload?.meta?.semester || '').trim() || '当前学期'
+  const metaSemester = String(payload?.meta?.semester || '').trim() || t('export.semester.current')
   const courses = Array.isArray(payload.data) ? payload.data : []
   const groups = new Map()
   courses.forEach((course) => {
@@ -480,14 +494,14 @@ const fetchExamsData = async (selected) => {
     const payload = res.data || {}
     if (!payload.success) {
       grouped.push({
-        semester: sem || '全部学期',
-        error: payload.error || '获取失败',
+        semester: sem || t('export.semester.allSemesters'),
+        error: payload.error || t('export.error.fetchFailed'),
         list: []
       })
       continue
     }
     grouped.push({
-      semester: sem || '全部学期',
+      semester: sem || t('export.semester.allSemesters'),
       list: Array.isArray(payload.data) ? payload.data : [],
       offline: !!payload.offline,
       syncTime: payload.sync_time || ''
@@ -507,15 +521,15 @@ const fetchCalendarData = async (selected) => {
     const payload = res.data || {}
     if (!payload.success) {
       grouped.push({
-        semester: sem || '当前学期',
-        error: payload.error || '获取失败',
+        semester: sem || t('export.semester.current'),
+        error: payload.error || t('export.error.fetchFailed'),
         list: [],
         meta: {}
       })
       continue
     }
     grouped.push({
-      semester: payload?.meta?.semester || sem || '当前学期',
+      semester: payload?.meta?.semester || sem || t('export.semester.current'),
       list: Array.isArray(payload.data) ? payload.data : [],
       meta: payload.meta || {},
       offline: !!payload.offline,
@@ -528,7 +542,7 @@ const fetchCalendarData = async (selected) => {
 const fetchStudentInfoData = async () => {
   const res = await axios.post(`${API_BASE}/v2/student_info`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '个人信息查询失败')
+  if (!payload.success) throw new Error(payload.error || t('export.error.studentInfo'))
   return {
     data: payload.data || {},
     offline: !!payload.offline,
@@ -542,7 +556,7 @@ const fetchAcademicProgressData = async () => {
     fasz: 1
   })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '学业完成情况查询失败')
+  if (!payload.success) throw new Error(payload.error || t('export.error.academicProgress'))
   return {
     data: payload.data || {},
     offline: !!payload.offline,
@@ -580,7 +594,7 @@ const fetchTrainingPlanData = async () => {
 
   const res = await axios.post(`${API_BASE}/v2/training_plan`, payload)
   const data = res.data || {}
-  if (!data.success) throw new Error(data.error || '培养方案查询失败')
+  if (!data.success) throw new Error(data.error || t('export.error.trainingPlan'))
   return {
     list: Array.isArray(data.data) ? data.data : [],
     total: Number(data.total || 0),
@@ -595,25 +609,25 @@ const fetchCachedOnlyData = (id) => {
     const latest = readCacheEntry((key) => key.includes('classroom:'))
     return latest
       ? { found: true, timestamp: latest.timestamp, data: latest.data }
-      : { found: false, message: '未命中空教室缓存，请先进入空教室页面查询一次。' }
+      : { found: false, message: t('export.cache.classroomMiss') }
   }
   if (id === 'electricity') {
     const latest = readCacheEntry((key) => key.includes('electricity:'))
     return latest
       ? { found: true, timestamp: latest.timestamp, data: latest.data }
-      : { found: false, message: '未命中电费缓存，请先进入电费页面查询一次。' }
+      : { found: false, message: t('export.cache.electricityMiss') }
   }
   if (id === 'campus_map') {
     const latest = readCacheEntry((key) => key.includes('campus_map') || key.includes('maps:'))
     return latest
       ? { found: true, timestamp: latest.timestamp, data: latest.data }
-      : { found: false, message: '未命中校园地图缓存。' }
+      : { found: false, message: t('export.cache.campusMapMiss') }
   }
-  return { found: false, message: '暂无缓存数据。' }
+  return { found: false, message: t('export.cache.none') }
 }
 
 const parseTransactionPayload = (payload) => {
-  if (!payload || typeof payload !== 'object') return { ok: false, list: [], message: '返回为空' }
+  if (!payload || typeof payload !== 'object') return { ok: false, list: [], message: t('export.error.emptyResponse') }
   const list = Array.isArray(payload.resultData)
     ? payload.resultData
     : (Array.isArray(payload.data) ? payload.data : [])
@@ -627,7 +641,7 @@ const parseTransactionPayload = (payload) => {
 
 const fetchTransactionsData = async () => {
   if (!isNative) {
-    return { grouped: [], total: 0, error: '浏览器模式不支持交易记录导出。' }
+    return { grouped: [], total: 0, error: t('export.transactions.notSupported') }
   }
 
   const selected = Array.isArray(selectedTransactionMonths.value) && selectedTransactionMonths.value.length
@@ -650,7 +664,7 @@ const fetchTransactionsData = async () => {
         month,
         label: transactionMonthOptions.value.find((item) => item.value === month)?.label || month,
         list: parsed.list,
-        error: parsed.ok ? '' : (parsed.message || '查询失败')
+        error: parsed.ok ? '' : (parsed.message || t('export.error.queryFailed'))
       })
     } catch (e) {
       grouped.push({
@@ -681,7 +695,7 @@ const fetchByModule = async (moduleId, semesterList) => {
   if (moduleId === 'electricity') return fetchCachedOnlyData('electricity')
   if (moduleId === 'transactions') return fetchTransactionsData()
   if (moduleId === 'campus_map') return fetchCachedOnlyData('campus_map')
-  return { error: '未实现的数据模块' }
+  return { error: t('export.error.unimplemented') }
 }
 
 const collectExportData = async () => {
@@ -715,9 +729,9 @@ const collectExportData = async () => {
 
     exportPayload.value = payload
     lastSyncTime.value = newestSync
-    setExportSuccess('导出数据已准备完成，可直接导出 JSON 或长图片。')
+    setExportSuccess(t('export.result.prepared'))
   } catch (e) {
-    exportError.value = `准备导出数据失败：${e?.message || e}`
+    exportError.value = tf('export.error.prepare', { msg: e?.message || e })
   } finally {
     preparing.value = false
   }
@@ -764,9 +778,9 @@ const saveByCapacitor = async (fileName, blob) => {
   const { Share } = await import('@capacitor/share')
   await Share.share({
     title: fileName,
-    text: 'Mini-HBUT 导出图片',
+    text: t('export.result.imageShareText'),
     url: fileUri,
-    dialogTitle: '保存长图到相册'
+    dialogTitle: t('export.result.imageShareTitle')
   })
   return fileUri
 }
@@ -787,28 +801,28 @@ const exportJson = async () => {
     if (isNative) {
       const base64 = btoa(unescape(encodeURIComponent(jsonText)))
       const saved = await saveByTauri(fileName, 'application/json', base64, false)
-      setExportSuccess('JSON 导出成功。', { path: saved.path })
+      setExportSuccess(t('export.result.jsonSaved'), { path: saved.path })
     } else if (isCapacitor) {
       const { Filesystem, Directory } = await import('@capacitor/filesystem')
       const base64 = btoa(unescape(encodeURIComponent(jsonText)))
       await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache })
       const { Share } = await import('@capacitor/share')
       const written = await Filesystem.getUri({ path: fileName, directory: Directory.Cache })
-      await Share.share({ title: fileName, url: written.uri, dialogTitle: '保存 JSON 文件' })
-      setExportSuccess('JSON 已生成，请通过分享面板保存。')
+      await Share.share({ title: fileName, url: written.uri, dialogTitle: t('export.result.jsonShareTitle') })
+      setExportSuccess(t('export.result.jsonShare'))
     } else {
       saveByBrowser(fileName, 'application/json', jsonText)
-      setExportSuccess('JSON 已通过浏览器下载。')
+      setExportSuccess(t('export.result.jsonBrowser'))
     }
   } catch (e) {
-    exportError.value = `JSON 导出失败：${e?.message || e}`
+    exportError.value = tf('export.error.json', { msg: e?.message || e })
   } finally {
     exporting.value = false
   }
 }
 
 const renderWideCanvas = async () => {
-  if (!previewRef.value) throw new Error('导出画布未准备完成')
+  if (!previewRef.value) throw new Error(t('export.error.canvasNotReady'))
 
   const exportWidth = Math.max(1280, Math.ceil(previewRef.value.scrollWidth || 0))
   const wrapper = document.createElement('div')
@@ -859,7 +873,7 @@ const exportImage = async () => {
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob((value) => {
         if (value) resolve(value)
-        else reject(new Error('无法生成图片'))
+        else reject(new Error(t('export.error.imageFailed')))
       }, 'image/png', 0.98)
     })
     const fileName = `Mini-HBUT_Export_${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)}.png`
@@ -868,19 +882,19 @@ const exportImage = async () => {
       const dataUrl = await blobToDataUrl(blob)
       const base64 = dataUrl.split(',')[1] || ''
       const saved = await saveByTauri(fileName, 'image/png', base64, true)
-      setExportSuccess('长图片导出成功。', {
+      setExportSuccess(t('export.result.imageSaved'), {
         path: saved.path,
-        hint: saved.needs_manual_import ? '已写入应用目录，可在系统文件中导入相册。' : ''
+        hint: saved.needs_manual_import ? t('export.result.imageImportHint') : ''
       })
     } else if (isCapacitor) {
       await saveByCapacitor(fileName, blob)
-      setExportSuccess('长图片已生成，请在弹出面板中选择“保存到相册”。')
+      setExportSuccess(t('export.result.imageShare'))
     } else {
       saveByBrowser(fileName, 'image/png', blob)
-      setExportSuccess('长图片已通过浏览器下载。')
+      setExportSuccess(t('export.result.imageBrowser'))
     }
   } catch (e) {
-    exportError.value = `长图片导出失败：${e?.message || e}`
+    exportError.value = tf('export.error.image', { msg: e?.message || e })
   } finally {
     exporting.value = false
   }
@@ -914,7 +928,7 @@ onMounted(async () => {
       <button class="header-icon-btn" @click="emit('back')">
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
-      <h1 class="header-title-center">导出中心</h1>
+      <h1 class="header-title-center">{{ t('export.title') }}</h1>
       <div class="header-spacer"></div>
     </header>
 
@@ -924,22 +938,22 @@ onMounted(async () => {
       <div class="hero-bg-icon">
         <span class="material-symbols-outlined">cloud_download</span>
       </div>
-      <h2 class="hero-title">数据自由导出</h2>
-      <p class="hero-desc">选择你需要的模块和时间范围，生成个性化的数据报告或图表。</p>
+      <h2 class="hero-title">{{ t('export.hero.title') }}</h2>
+      <p class="hero-desc">{{ t('export.hero.desc') }}</p>
     </section>
 
     <section class="intro-card">
-      <h2>导出模块</h2>
-      <p>可按业务分类导出 JSON 或长图片。成绩、课表、排名等模块会按所选学期输出完整明细。</p>
+      <h2>{{ t('export.intro.title') }}</h2>
+      <p>{{ t('export.intro.desc') }}</p>
     </section>
 
     <section class="config-card">
       <div class="card-title-row">
-        <h3>学期选择</h3>
+        <h3>{{ t('export.semester.title') }}</h3>
         <span class="semester-hint">{{ semesterHint }}</span>
       </div>
-      <div v-if="loadingSemesters" class="hint-line">正在加载学期...</div>
-      <div v-else-if="semesters.length === 0" class="hint-line warn">未获取到学期列表，导出时将使用当前缓存学期。</div>
+      <div v-if="loadingSemesters" class="hint-line">{{ t('export.semester.loading') }}</div>
+      <div v-else-if="semesters.length === 0" class="hint-line warn">{{ t('export.semester.missing') }}</div>
       <div v-else class="semester-grid">
         <label
           v-for="sem in semesters"
@@ -959,16 +973,16 @@ onMounted(async () => {
     </section>
 
     <section v-if="selectedModules.includes('ranking')" class="config-card">
-      <h3>绩点排名导出</h3>
+      <h3>{{ t('export.ranking.title') }}</h3>
       <label class="inline-switch">
         <input v-model="rankingIncludeAll" type="checkbox" />
-        <span>包含“全部（从入学至今）”统计</span>
+        <span>{{ t('export.ranking.includeAll') }}</span>
       </label>
     </section>
 
     <section v-if="selectedModules.includes('transactions')" class="config-card">
       <div class="card-title-row">
-        <h3>交易记录月份</h3>
+        <h3>{{ t('export.transactions.title') }}</h3>
         <span class="semester-hint">{{ transactionHint }}</span>
       </div>
       <div class="month-grid">
@@ -1004,7 +1018,7 @@ onMounted(async () => {
           />
           <span class="export-module-icon">{{ mod.icon }}</span>
           <span class="export-module-name">{{ mod.name }}</span>
-          <span v-if="mod.semesterAware" class="export-semester-tag">学期</span>
+          <span v-if="mod.semesterAware" class="export-semester-tag">{{ t('export.tag.semester') }}</span>
         </label>
       </div>
     </section>
@@ -1012,14 +1026,14 @@ onMounted(async () => {
     <section class="actions-card">
       <button class="export-btn outline" :disabled="preparing || exporting" @click="exportJson">
         <span class="material-symbols-outlined">data_object</span>
-        {{ exporting ? '处理中...' : '导出 JSON' }}
+        {{ exporting ? t('export.action.processing') : t('export.action.json') }}
       </button>
       <button class="export-btn primary" :disabled="preparing || exporting" @click="exportImage">
         <span class="material-symbols-outlined">image</span>
-        {{ exporting ? '处理中...' : '生成长图分享' }}
+        {{ exporting ? t('export.action.processing') : t('export.action.image') }}
       </button>
       <button class="export-btn outline" :disabled="preparing || exporting" @click="collectExportData">
-        {{ preparing ? '正在准备数据...' : '预览导出数据' }}
+        {{ preparing ? t('export.action.preparing') : t('export.action.preview') }}
       </button>
     </section>
 
@@ -1029,7 +1043,7 @@ onMounted(async () => {
     <div v-if="exportSuccess" class="export-feedback export-feedback--success">
       <div class="export-feedback__title">{{ exportSuccess }}</div>
       <div v-if="exportSuccessPath" class="export-feedback__path">
-        <span>保存位置</span>
+        <span>{{ t('export.result.saveLocation') }}</span>
         <strong>{{ exportSuccessPath }}</strong>
       </div>
       <div v-if="exportSuccessHint" class="export-feedback__hint">{{ exportSuccessHint }}</div>
@@ -1039,10 +1053,10 @@ onMounted(async () => {
       <div ref="previewRef" class="preview-content">
         <div class="preview-header">
           <div>
-            <h2>Mini-HBUT 导出报表</h2>
-            <p>学号：{{ studentId || '未登录' }}</p>
-            <p>导出时间：{{ exportPayload.generatedAt }}</p>
-            <p v-if="prettySyncText">最近同步：{{ prettySyncText }}</p>
+            <h2>{{ t('export.preview.title') }}</h2>
+            <p>{{ t('export.preview.studentId') }}：{{ studentId || t('export.preview.notLoggedIn') }}</p>
+            <p>{{ t('export.preview.exportedAt') }}：{{ exportPayload.generatedAt }}</p>
+            <p v-if="prettySyncText">{{ t('export.preview.lastSync') }}：{{ prettySyncText }}</p>
           </div>
           <div class="preview-summary">{{ topSummary }}</div>
         </div>
@@ -1052,7 +1066,7 @@ onMounted(async () => {
             <h3>{{ meta.icon }} {{ meta.name }}</h3>
           </header>
 
-          <div v-if="!getModuleResult(meta.id)" class="module-empty">暂无该模块导出数据。</div>
+          <div v-if="!getModuleResult(meta.id)" class="module-empty">{{ t('export.preview.moduleEmpty') }}</div>
           <div v-else-if="!getModuleResult(meta.id).success" class="module-empty error">
             {{ getModuleResult(meta.id).error }}
           </div>
@@ -1060,7 +1074,7 @@ onMounted(async () => {
           <template v-else>
             <div v-if="meta.id === 'grades'" class="module-block">
               <div class="module-kv">
-                <span>总课程数</span>
+                <span>{{ t('export.preview.totalCourses') }}</span>
                 <strong>{{ getModuleResult(meta.id).data.total }}</strong>
               </div>
               <div
@@ -1068,15 +1082,15 @@ onMounted(async () => {
                 :key="`grade-${term.semester}`"
                 class="term-block"
               >
-                <h4>{{ term.semester }}（{{ term.list.length }} 门）</h4>
+                <h4>{{ term.semester }}（{{ term.list.length }} {{ t('export.preview.courseCountUnit') }}）</h4>
                 <table class="detail-table">
                   <thead>
                     <tr>
-                      <th>课程</th>
-                      <th>成绩</th>
-                      <th>学分</th>
-                      <th>课程性质</th>
-                      <th>教师</th>
+                      <th>{{ t('export.preview.table.course') }}</th>
+                      <th>{{ t('export.preview.table.score') }}</th>
+                      <th>{{ t('export.preview.table.credit') }}</th>
+                      <th>{{ t('export.preview.table.nature') }}</th>
+                      <th>{{ t('export.preview.table.teacher') }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1088,7 +1102,7 @@ onMounted(async () => {
                       <td>{{ item.teacher || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="5">该学期无数据</td>
+                      <td colspan="5">{{ t('export.preview.noTermData') }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1101,10 +1115,10 @@ onMounted(async () => {
                 <p v-if="row.error" class="warn-text">{{ row.error }}</p>
                 <template v-else>
                   <div class="module-kv-grid">
-                    <div class="module-kv"><span>平均学分绩点</span><strong>{{ row.data?.gpa || '-' }}</strong></div>
-                    <div class="module-kv"><span>算术平均分</span><strong>{{ row.data?.avg_score || '-' }}</strong></div>
-                    <div class="module-kv"><span>专业绩点排名</span><strong>{{ row.data?.gpa_major_rank || '-' }}/{{ row.data?.gpa_major_total || '-' }}</strong></div>
-                    <div class="module-kv"><span>班级绩点排名</span><strong>{{ row.data?.gpa_class_rank || '-' }}/{{ row.data?.gpa_class_total || '-' }}</strong></div>
+                    <div class="module-kv"><span>{{ t('export.preview.gpa') }}</span><strong>{{ row.data?.gpa || '-' }}</strong></div>
+                    <div class="module-kv"><span>{{ t('export.preview.avgScore') }}</span><strong>{{ row.data?.avg_score || '-' }}</strong></div>
+                    <div class="module-kv"><span>{{ t('export.preview.majorGpaRank') }}</span><strong>{{ row.data?.gpa_major_rank || '-' }}/{{ row.data?.gpa_major_total || '-' }}</strong></div>
+                    <div class="module-kv"><span>{{ t('export.preview.classGpaRank') }}</span><strong>{{ row.data?.gpa_class_rank || '-' }}/{{ row.data?.gpa_class_total || '-' }}</strong></div>
                   </div>
                 </template>
               </div>
@@ -1116,16 +1130,16 @@ onMounted(async () => {
                 :key="`schedule-${term.semester}`"
                 class="term-block"
               >
-                <h4>{{ term.semester }}（{{ term.list.length }} 条）</h4>
+                <h4>{{ term.semester }}（{{ term.list.length }} {{ t('export.preview.itemCountUnit') }}）</h4>
                 <table class="detail-table">
                   <thead>
                     <tr>
-                      <th>星期</th>
-                      <th>节次</th>
-                      <th>课程</th>
-                      <th>地点</th>
-                      <th>教师</th>
-                      <th>周次</th>
+                      <th>{{ t('export.preview.table.weekday') }}</th>
+                      <th>{{ t('export.preview.table.period') }}</th>
+                      <th>{{ t('export.preview.table.course') }}</th>
+                      <th>{{ t('export.preview.table.location') }}</th>
+                      <th>{{ t('export.preview.table.teacher') }}</th>
+                      <th>{{ t('export.preview.table.weeks') }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1138,7 +1152,7 @@ onMounted(async () => {
                       <td>{{ item.weeks || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="6">该学期无课表数据</td>
+                      <td colspan="6">{{ t('export.preview.noScheduleData') }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1147,16 +1161,16 @@ onMounted(async () => {
 
             <div v-else-if="meta.id === 'exams'" class="module-block">
               <div v-for="term in getModuleResult(meta.id).data" :key="`exam-${term.semester}`" class="term-block">
-                <h4>{{ term.semester }}（{{ term.list.length }} 场）</h4>
+                <h4>{{ term.semester }}（{{ term.list.length }} {{ t('export.preview.examCountUnit') }}）</h4>
                 <p v-if="term.error" class="warn-text">{{ term.error }}</p>
                 <table v-else class="detail-table">
                   <thead>
                     <tr>
-                      <th>课程</th>
-                      <th>考试日期</th>
-                      <th>考试时间</th>
-                      <th>地点</th>
-                      <th>座位号</th>
+                      <th>{{ t('export.preview.table.course') }}</th>
+                      <th>{{ t('export.preview.table.examDate') }}</th>
+                      <th>{{ t('export.preview.table.examTime') }}</th>
+                      <th>{{ t('export.preview.table.location') }}</th>
+                      <th>{{ t('export.preview.table.seat') }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1168,7 +1182,7 @@ onMounted(async () => {
                       <td>{{ item.seat_no || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="5">该学期无考试安排</td>
+                      <td colspan="5">{{ t('export.preview.noExamData') }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1177,20 +1191,20 @@ onMounted(async () => {
 
             <div v-else-if="meta.id === 'calendar'" class="module-block">
               <div v-for="term in getModuleResult(meta.id).data" :key="`cal-${term.semester}`" class="term-block">
-                <h4>{{ term.semester }}（{{ term.list.length }} 周）</h4>
+                <h4>{{ term.semester }}（{{ term.list.length }} {{ t('export.preview.weekCountUnit') }}）</h4>
                 <p v-if="term.error" class="warn-text">{{ term.error }}</p>
                 <table v-else class="detail-table">
                   <thead>
                     <tr>
-                      <th>月份</th>
-                      <th>周次</th>
-                      <th>周一</th>
-                      <th>周二</th>
-                      <th>周三</th>
-                      <th>周四</th>
-                      <th>周五</th>
-                      <th>周六</th>
-                      <th>周日</th>
+                      <th>{{ t('export.preview.table.month') }}</th>
+                      <th>{{ t('export.preview.table.weeks') }}</th>
+                      <th>{{ t('common.week.mon') }}</th>
+                      <th>{{ t('common.week.tue') }}</th>
+                      <th>{{ t('common.week.wed') }}</th>
+                      <th>{{ t('common.week.thu') }}</th>
+                      <th>{{ t('common.week.fri') }}</th>
+                      <th>{{ t('common.week.sat') }}</th>
+                      <th>{{ t('common.week.sun') }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1206,7 +1220,7 @@ onMounted(async () => {
                       <td>{{ item.sunday || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="9">该学期无校历数据</td>
+                      <td colspan="9">{{ t('export.preview.noCalendarData') }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1231,18 +1245,18 @@ onMounted(async () => {
                   <strong>{{ value || '-' }}</strong>
                 </div>
               </div>
-              <p class="hint-line">树形节点数量：{{ (getModuleResult(meta.id).data.data.tree || []).length }}</p>
+              <p class="hint-line">{{ t('export.preview.treeNodes') }}：{{ (getModuleResult(meta.id).data.data.tree || []).length }}</p>
             </div>
 
             <div v-else-if="meta.id === 'training_plan'" class="module-block">
-              <div class="module-kv"><span>课程总数</span><strong>{{ getModuleResult(meta.id).data.total || getModuleResult(meta.id).data.list.length }}</strong></div>
+              <div class="module-kv"><span>{{ t('export.preview.totalCoursesPlan') }}</span><strong>{{ getModuleResult(meta.id).data.total || getModuleResult(meta.id).data.list.length }}</strong></div>
               <table class="detail-table">
                 <thead>
                   <tr>
-                    <th>课程编号</th>
-                    <th>课程名称</th>
-                    <th>学分</th>
-                    <th>课程性质</th>
+                    <th>{{ t('export.preview.table.courseCode') }}</th>
+                    <th>{{ t('export.preview.table.courseName') }}</th>
+                    <th>{{ t('export.preview.table.credit') }}</th>
+                    <th>{{ t('export.preview.table.nature') }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1253,7 +1267,7 @@ onMounted(async () => {
                     <td>{{ item.kcxzmc || item.course_nature || '-' }}</td>
                   </tr>
                   <tr v-if="(getModuleResult(meta.id).data.list || []).length === 0">
-                    <td colspan="4">暂无培养方案数据</td>
+                    <td colspan="4">{{ t('export.preview.noPlanData') }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1261,19 +1275,19 @@ onMounted(async () => {
 
             <div v-else-if="meta.id === 'transactions'" class="module-block">
               <div class="module-kv">
-                <span>交易总条数</span>
+                <span>{{ t('export.preview.txTotal') }}</span>
                 <strong>{{ safeText(getModuleResult(meta.id).data.total) }}</strong>
               </div>
               <div v-for="item in getModuleResult(meta.id).data.grouped" :key="`tx-${item.month}`" class="term-block">
-                <h4>{{ item.label }}（{{ item.list.length }} 条）</h4>
+                <h4>{{ item.label }}（{{ item.list.length }} {{ t('export.preview.recordCountUnit') }}）</h4>
                 <p v-if="item.error" class="warn-text">{{ item.error }}</p>
                 <table v-else class="detail-table">
                   <thead>
                     <tr>
-                      <th>时间</th>
-                      <th>商户</th>
-                      <th>金额</th>
-                      <th>备注</th>
+                      <th>{{ t('export.preview.table.time') }}</th>
+                      <th>{{ t('export.preview.table.merchant') }}</th>
+                      <th>{{ t('export.preview.table.amount') }}</th>
+                      <th>{{ t('export.preview.table.remark') }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1287,7 +1301,7 @@ onMounted(async () => {
                       <td>{{ safeText(row.summary || row.remark) }}</td>
                     </tr>
                     <tr v-if="item.list.length === 0">
-                      <td colspan="4">该月份无交易记录</td>
+                      <td colspan="4">{{ t('export.preview.noTxData') }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1295,24 +1309,24 @@ onMounted(async () => {
             </div>
 
             <div v-else-if="meta.id === 'electricity'" class="module-block">
-              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || '暂无电费缓存数据' }}</p>
+              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || t('export.cache.electricityEmpty') }}</p>
               <template v-else>
-                <p class="hint-line">命中缓存时间：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
+                <p class="hint-line">{{ t('export.cache.hitTime') }}：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
                 <div class="module-kv-grid">
                   <div class="module-kv">
-                    <span>宿舍</span>
+                    <span>{{ t('export.preview.dormitory') }}</span>
                     <strong>{{ normalizeElectricityInfo(getModuleResult(meta.id).data).dormitory }}</strong>
                   </div>
                   <div class="module-kv">
-                    <span>剩余电量</span>
+                    <span>{{ t('export.preview.remainQuantity') }}</span>
                     <strong>{{ normalizeElectricityInfo(getModuleResult(meta.id).data).quantity }}</strong>
                   </div>
                   <div class="module-kv">
-                    <span>余额</span>
+                    <span>{{ t('export.preview.balance') }}</span>
                     <strong>{{ normalizeElectricityInfo(getModuleResult(meta.id).data).balance }}</strong>
                   </div>
                   <div class="module-kv">
-                    <span>状态</span>
+                    <span>{{ t('export.preview.status') }}</span>
                     <strong>{{ normalizeElectricityInfo(getModuleResult(meta.id).data).status }}</strong>
                   </div>
                 </div>
@@ -1320,9 +1334,9 @@ onMounted(async () => {
             </div>
 
             <div v-else-if="meta.id === 'classroom'" class="module-block">
-              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || '暂无空教室缓存数据' }}</p>
+              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || t('export.cache.classroomEmpty') }}</p>
               <template v-else>
-                <p class="hint-line">命中缓存时间：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
+                <p class="hint-line">{{ t('export.cache.hitTime') }}：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
                 <div class="classroom-grid">
                   <div
                     v-for="room in normalizeClassroomRows(getModuleResult(meta.id).data).slice(0, 24)"
@@ -1330,29 +1344,29 @@ onMounted(async () => {
                     class="classroom-card"
                   >
                     <h5>{{ room.name }}</h5>
-                    <p>{{ room.campus }} · {{ room.building }} · {{ room.floor }}层</p>
-                    <p>座位：{{ room.seats }} · 状态：{{ room.status }}</p>
+                    <p>{{ room.campus }} · {{ room.building }} · {{ tf('export.field.floorSuffix', { floor: room.floor }) }}</p>
+                    <p>{{ t('export.field.seatsLabel') }}：{{ room.seats }} · {{ t('export.field.statusLabel') }}：{{ room.status }}</p>
                   </div>
                 </div>
               </template>
             </div>
 
             <div v-else-if="meta.id === 'campus_map'" class="module-block">
-              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || '暂无校园地图缓存数据' }}</p>
+              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || t('export.cache.campusMapEmpty') }}</p>
               <template v-else>
-                <p class="hint-line">命中缓存时间：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
+                <p class="hint-line">{{ t('export.cache.hitTime') }}：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
                 <div class="module-kv-grid">
                   <div class="module-kv">
-                    <span>地图数量</span>
+                    <span>{{ t('export.preview.mapCount') }}</span>
                     <strong>{{ normalizeCampusMaps(getModuleResult(meta.id).data).length }}</strong>
                   </div>
                 </div>
                 <table class="detail-table">
                   <thead>
                     <tr>
-                      <th>名称</th>
-                      <th>说明</th>
-                      <th>链接</th>
+                      <th>{{ t('export.preview.table.name') }}</th>
+                      <th>{{ t('export.preview.table.description') }}</th>
+                      <th>{{ t('export.preview.table.link') }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1362,7 +1376,7 @@ onMounted(async () => {
                       <td>{{ safeText(item.url || item.image) }}</td>
                     </tr>
                     <tr v-if="normalizeCampusMaps(getModuleResult(meta.id).data).length === 0">
-                      <td colspan="3">缓存中没有地图详情列表</td>
+                      <td colspan="3">{{ t('export.preview.noMapDetail') }}</td>
                     </tr>
                   </tbody>
                 </table>

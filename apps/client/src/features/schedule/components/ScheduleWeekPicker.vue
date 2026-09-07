@@ -2,25 +2,32 @@
 /**
  * 周次选择器（底部弹层，Teleport 到 body）。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * #788 i18n：文案经 useI18n 响应式取词；周次格子用 tf 占位符插值。
  */
+import { useI18n } from '../../../utils/app_i18n'
+import { tf } from '../utils/i18n_text'
+
 defineProps({
   showWeekPicker: { type: Boolean, default: false },
   semesterWeekOptions: { type: Array, default: () => [] },
   selectedWeeks: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['close', 'toggle-week', 'select-all', 'clear-all'])
+
+// 响应式 t：locale 是 ref，语言切换后弹层文案即时生效
+const { locale, t } = useI18n()
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="sheet-up">
-      <div v-if="showWeekPicker" class="week-picker-mask" @click.self="emit('close')">
+      <div v-if="showWeekPicker" class="week-picker-mask" :data-locale="locale" @click.self="emit('close')">
         <div class="week-picker-sheet">
           <div class="week-picker-header">
-            <div class="week-picker-title">选择周次</div>
+            <div class="week-picker-title">{{ t('schedule.weekPicker.title') }}</div>
             <div class="week-picker-ops">
-              <button @click="emit('select-all')">全选</button>
-              <button @click="emit('clear-all')">清空</button>
+              <button @click="emit('select-all')">{{ t('schedule.weekPicker.selectAll') }}</button>
+              <button @click="emit('clear-all')">{{ t('schedule.weekPicker.clearAll') }}</button>
             </div>
           </div>
           <div class="week-picker-grid">
@@ -31,10 +38,10 @@ const emit = defineEmits(['close', 'toggle-week', 'select-all', 'clear-all'])
               :class="{ active: selectedWeeks.includes(week) }"
               @click="emit('toggle-week', week)"
             >
-              第{{ week }}周
+              {{ tf('schedule.weekPicker.cell', { n: week }) }}
             </button>
           </div>
-          <button class="week-picker-confirm" @click="emit('close')">完成</button>
+          <button class="week-picker-confirm" @click="emit('close')">{{ t('schedule.weekPicker.done') }}</button>
         </div>
       </div>
     </Transition>

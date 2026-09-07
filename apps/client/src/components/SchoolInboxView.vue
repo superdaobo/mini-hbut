@@ -5,7 +5,11 @@ import { openExternal } from '../utils/external_link'
 import { formatRelativeTime } from '../utils/time.js'
 import { buildSchoolInboxDetailHtml } from '../utils/school_inbox_content.js'
 import { markSchoolInboxNotified } from '../utils/notify_center.js'
+import { t as tf, useI18n } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
+
+// #790：响应式取词（语言切换即时生效）；tf 为整句插值（{n} 占位）
+const { t: tLocale } = useI18n()
 
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 
@@ -35,9 +39,9 @@ const selectedItem = ref(null)
 const isInitialLoading = computed(() => loading.value && items.value.length === 0)
 const unreadCount = computed(() => items.value.filter((item) => !item.isRead).length)
 const sourceLabel = computed(() => {
-  if (source.value === 'chaoxing') return '学习通'
-  if (source.value === 'portal') return '教务系统'
-  return '学校消息'
+  if (source.value === 'chaoxing') return tLocale('notify.source.chaoxing')
+  if (source.value === 'portal') return tLocale('notify.source.academicSystem')
+  return tLocale('notify.card.schoolInbox')
 })
 
 const selectedDetailHtml = computed(() =>
@@ -85,7 +89,7 @@ const rememberListScroll = () => {
 
 const formatItemTime = (value) => {
   const text = String(value || '').trim()
-  if (!text) return '未知时间'
+  if (!text) return tLocale('notify.inbox.unknownTime')
   const parsed = Date.parse(text.replace(/-/g, '/'))
   if (!Number.isFinite(parsed)) return text
   return formatRelativeTime(new Date(parsed).toISOString()) || text
@@ -93,7 +97,7 @@ const formatItemTime = (value) => {
 
 const normalizeItem = (item) => ({
   id: String(item?.id || ''),
-  title: String(item?.title || '无标题'),
+  title: String(item?.title || tLocale('notify.inbox.untitled')),
   summary: String(item?.summary || ''),
   body: String(item?.body || item?.summary || ''),
   createdAt: String(item?.createdAt || item?.created_at || ''),
@@ -113,7 +117,7 @@ const syncItemReadState = (itemId, isRead = true) => {
 
 const fetchMessages = async ({ force = false } = {}) => {
   if (!isTauriRuntime()) {
-    error.value = '学校消息浏览仅支持 Tauri 桌面端'
+    error.value = tLocale('notify.inbox.desktopOnly')
     return
   }
 
@@ -136,7 +140,7 @@ const fetchMessages = async ({ force = false } = {}) => {
       error.value = String(response.error)
     }
   } catch (err) {
-    error.value = err?.message || String(err) || '获取消息失败'
+    error.value = err?.message || String(err) || tLocale('notify.inbox.fetchFailed')
   } finally {
     loading.value = false
     refreshing.value = false
@@ -179,7 +183,7 @@ const loadDetail = async (item) => {
       items.value = items.value.map((entry) => (entry.id === next.id ? next : entry))
     }
   } catch (err) {
-    markReadHint.value = err?.message || String(err) || '详情加载失败，已显示列表摘要'
+    markReadHint.value = err?.message || String(err) || tLocale('notify.inbox.detailFallback')
   } finally {
     detailLoading.value = false
   }
@@ -233,10 +237,10 @@ const markSelectedAsRead = async () => {
       itemId
     })
     if (response?.success === false) {
-      markReadHint.value = String(response?.message || '服务端标记已读失败，已在本地更新')
+      markReadHint.value = String(response?.message || tLocale('notify.inbox.markReadServerFailed'))
     }
   } catch (err) {
-    markReadHint.value = err?.message || String(err) || '标记已读失败，已在本地更新'
+    markReadHint.value = err?.message || String(err) || tLocale('notify.inbox.markReadFailed')
   } finally {
     markingRead.value = false
   }
@@ -250,7 +254,7 @@ onMounted(() => {
 <template>
   <div class="school-inbox-page min-h-screen bg-surface text-on-surface flex flex-col mx-auto max-w-[448px] relative pb-24">
     <TPageHeader
-      :title="selectedItem ? '消息详情' : '学校消息'"
+      :title="selectedItem ? tLocale('notify.inbox.detailTitle') : tLocale('notify.card.schoolInbox')"
       icon="mail"
       @back="handleBack"
     >
@@ -264,7 +268,7 @@ onMounted(() => {
           @click="markSelectedAsRead"
         >
           <span class="material-symbols-outlined text-base">done_all</span>
-          <span>{{ markingRead ? '标记中' : '标为已读' }}</span>
+          <span>{{ markingRead ? tLocale('notify.inbox.marking') : tLocale('notify.inbox.markRead') }}</span>
         </button>
         <div v-else class="w-10 h-10" aria-hidden="true" />
       </template>
@@ -273,7 +277,7 @@ onMounted(() => {
           class="inbox-refresh-btn"
           type="button"
           :aria-busy="refreshing || loading"
-          aria-label="刷新消息列表"
+          :aria-label="tLocale('notify.inbox.refreshList')"
           @click="fetchMessages({ force: true })"
         >
           <span class="material-symbols-outlined" :class="{ spinning: refreshing || loading }">refresh</span>
@@ -282,7 +286,7 @@ onMounted(() => {
     </TPageHeader>
 
     <div v-if="!isTauriRuntime()" class="p-4">
-      <TEmptyState type="empty" message="学校消息浏览仅支持 Tauri 桌面端，请在桌面应用中使用。" />
+      <TEmptyState type="empty" :message="tLocale('notify.inbox.desktopOnlyFull')" />
     </div>
 
     <template v-else-if="selectedItem">
@@ -294,15 +298,15 @@ onMounted(() => {
               v-if="!selectedItem.isRead"
               class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary-container text-on-primary-container"
             >
-              未读
+              {{ tLocale('notify.inbox.unread') }}
             </span>
           </div>
           <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">
-            <span class="inbox-source-badge">{{ selectedItem.source === 'chaoxing' ? '学习通' : '教务系统' }}</span>
-            <span>{{ selectedItem.createdAt || '未知时间' }}</span>
+            <span class="inbox-source-badge">{{ selectedItem.source === 'chaoxing' ? tLocale('notify.source.chaoxing') : tLocale('notify.source.academicSystem') }}</span>
+            <span>{{ selectedItem.createdAt || tLocale('notify.inbox.unknownTime') }}</span>
           </div>
 
-          <TEmptyState v-if="detailLoading" type="loading" message="正在加载详情..." />
+          <TEmptyState v-if="detailLoading" type="loading" :message="tLocale('notify.inbox.loadingDetail')" />
 
           <div
             v-else
@@ -318,7 +322,7 @@ onMounted(() => {
 
     <template v-else>
       <div v-if="fetchedAt" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-surface-container-low text-on-surface-variant text-xs">
-        数据来源：{{ sourceLabel }} · 更新于 {{ formatRelativeTime(fetchedAt) || fetchedAt }}
+        {{ tf('notify.inbox.sourceUpdated', { source: sourceLabel, time: formatRelativeTime(fetchedAt) || fetchedAt }) }}
       </div>
 
       <main class="flex-1 flex flex-col gap-3 p-4">
@@ -327,22 +331,22 @@ onMounted(() => {
           class="grid grid-cols-2 gap-3"
         >
           <div class="bg-primary-container rounded-2xl p-4 shadow-sm">
-            <span class="text-xs font-medium text-on-primary-container/80">全部</span>
+            <span class="text-xs font-medium text-on-primary-container/80">{{ tLocale('notify.inbox.all') }}</span>
             <div class="text-3xl font-bold text-on-primary-container leading-tight mt-1">{{ items.length }}</div>
           </div>
           <div class="bg-surface-container-lowest rounded-2xl p-4 border border-outline-variant shadow-sm">
-            <span class="text-xs font-medium text-on-surface-variant">未读</span>
+            <span class="text-xs font-medium text-on-surface-variant">{{ tLocale('notify.inbox.unread') }}</span>
             <div class="text-3xl font-bold text-on-surface leading-tight mt-1">{{ unreadCount }}</div>
           </div>
         </div>
 
-        <TEmptyState v-if="isInitialLoading" type="loading" message="正在获取学校消息..." />
+        <TEmptyState v-if="isInitialLoading" type="loading" :message="tLocale('notify.inbox.loadingList')" />
         <TEmptyState v-else-if="error && items.length === 0" type="error" :message="error">
           <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchMessages({ force: true })">
-            重试
+            {{ tLocale('notify.inbox.retry') }}
           </button>
         </TEmptyState>
-        <TEmptyState v-else-if="items.length === 0" type="empty" message="暂无学校消息" />
+        <TEmptyState v-else-if="items.length === 0" type="empty" :message="tLocale('notify.inbox.empty')" />
 
         <ul v-else class="flex flex-col gap-2">
           <li v-for="item in items" :key="item.id">
@@ -365,7 +369,7 @@ onMounted(() => {
                   </div>
                   <p v-if="item.summary" class="mt-1 text-xs text-on-surface-variant line-clamp-2">{{ item.summary }}</p>
                   <div class="mt-2 flex items-center gap-2 text-[11px] text-outline">
-                    <span>{{ item.source === 'chaoxing' ? '学习通' : '教务' }}</span>
+                    <span>{{ item.source === 'chaoxing' ? tLocale('notify.source.chaoxing') : tLocale('notify.source.academic') }}</span>
                     <span>·</span>
                     <span>{{ formatItemTime(item.createdAt) }}</span>
                   </div>

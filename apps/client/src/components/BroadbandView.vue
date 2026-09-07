@@ -2,11 +2,13 @@
 /**
  * 教育网网费 — 直给官方入口（每次打开重新签发未消费 tid）
  */
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { qrToDataURL } from '../utils/qrcode.js'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
+import { t, tf } from '../utils/app_i18n'
+import { useI18n } from '../utils/app_i18n'
 import { TPageHeader } from './templates'
 
 const emit = defineEmits(['back'])
@@ -15,18 +17,24 @@ const error = ref('')
 const qrDataUrl = ref('')
 const showQr = ref(false)
 
-/** 每次重新 mint：tid 一次性 */
+// #791：响应式 t —— 语言切换后模板即时生效
+const { t: tLocale } = useI18n()
+
+// QR 图 alt 文案（computed 随语言刷新）
+const qrAlt = computed(() => tLocale('broadband.qrAlt'))
+
+/** 每次重新 mint：tid 一次性（appName 为一码通系统专名，字典两侧同值） */
 const mintAndOpen = async () => {
   loading.value = true
   error.value = ''
   try {
     const res = await prepareOneCodeAppOpen({
       appCode: 'broadband',
-      appName: '缴纳教育网网费'
+      appName: t('broadband.oneCode.appName')
     })
     await openExternal(res.openUrl)
   } catch (e) {
-    error.value = String(e?.message || e || '打开失败')
+    error.value = String(e?.message || e || t('broadband.error.openFailed'))
     showToast(error.value)
   } finally {
     loading.value = false
@@ -43,12 +51,12 @@ const mintQr = async () => {
   try {
     const res = await prepareOneCodeAppOpen({
       appCode: 'broadband',
-      appName: '缴纳教育网网费'
+      appName: t('broadband.oneCode.appName')
     })
     qrDataUrl.value = await qrToDataURL(res.openUrl, { width: 180 })
     showQr.value = true
   } catch (e) {
-    error.value = String(e?.message || e || '生成失败')
+    error.value = String(e?.message || e || t('broadband.error.qrFailed'))
     showToast(error.value)
   } finally {
     loading.value = false
@@ -58,7 +66,7 @@ const mintQr = async () => {
 
 <template>
   <div class="page">
-    <TPageHeader title="教育网网费" icon="wifi" @back="emit('back')" />
+    <TPageHeader :title="tLocale('broadband.title')" icon="wifi" @back="emit('back')" />
     <div class="body">
       <section class="card">
         <div v-if="error" class="err">{{ error }}</div>
@@ -66,7 +74,7 @@ const mintQr = async () => {
         <div class="actions">
           <button type="button" class="main" :disabled="loading" @click="mintAndOpen">
             <span class="material-symbols-outlined">payments</span>
-            {{ loading ? '打开中…' : '缴纳网费' }}
+            {{ loading ? tLocale('broadband.opening') : tLocale('broadband.pay') }}
           </button>
           <button
             type="button"
@@ -80,7 +88,7 @@ const mintQr = async () => {
         </div>
 
         <div v-if="showQr && qrDataUrl" class="qr">
-          <img :src="qrDataUrl" alt="网费缴纳" width="180" height="180" />
+          <img :src="qrDataUrl" :alt="qrAlt" width="180" height="180" />
         </div>
       </section>
     </div>

@@ -27,11 +27,14 @@ describe('student info offline banner contract (#516)', () => {
     const source = readText('src/components/StudentInfoView.vue')
 
     expect(source).toContain('const accessOffline = ref(false)')
-    expect(source).toContain('const accessSyncTime = ref(\'\')')
+    expect(source).toContain("const accessSyncTime = ref('')")
     expect(source).toContain('class="cache-hint"')
-    expect(source).toContain('登录记录暂不可用，当前显示缓存数据')
+    // i18n 批次 D（#789）：文案接入 t()，契约改为断言 key 存在于字典且组件内引用
+    expect(source).toContain("t('studentinfo.error.cacheHintPrefix')")
     expect(source).toContain('formatRelativeTime(accessSyncTime)')
     // 离线横幅保持原语义（仅整页离线时出现）
-    expect(source).toContain('当前显示离线数据，更新于 {{ formatRelativeTime(syncTime) }}')
+    expect(source).toContain('{{ t(\'common.offline.prefix\') }} {{ formatRelativeTime(syncTime) }}')
+    const i18nSource = readText('src/utils/i18n/messages/zh-CN.ts')
+    expect(i18nSource).toMatch(/'studentinfo\.error\.cacheHintPrefix': '登录记录暂不可用，当前显示缓存数据/)
   })
 })

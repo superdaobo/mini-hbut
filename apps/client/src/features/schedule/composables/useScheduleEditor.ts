@@ -5,9 +5,10 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import axios from 'axios'
 import { DEFAULT_COURSE_COLOR, normalizeOptionalCourseColor } from '../../../utils/course_color'
+import { t } from '../../../utils/app_i18n'
 import { formatWeeksText, normalizeWeeks } from '../utils/weeks'
 import { normalizeCustomCourse } from '../utils/course'
-import { LOGIN_SESSION_TOKEN_KEY, periodOptions, weekDayLabels } from '../constants'
+import { LOGIN_SESSION_TOKEN_KEY, periodOptions, getWeekDayLabels } from '../constants'
 import type { ScheduleConfirmDialog } from './useConfirmDialog'
 import type { ScheduleData } from './useScheduleData'
 import type { ScheduleDetail } from './useScheduleDetail'
@@ -64,9 +65,12 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     return Array.from({ length: maxSpan }, (_, i) => i + 1)
   })
 
+  // #788：周次计数文案经 t() 取词（computed 内取词，语言切换重算时即时生效）
   const addWeeksCountText = computed(() => {
     const weeks = Array.isArray(addCourseForm.value.weeks) ? addCourseForm.value.weeks.length : 0
-    return weeks > 0 ? `已选 ${weeks} 周` : '未选择周次'
+    return weeks > 0
+      ? t('schedule.weeks.selectedCount').replace('{n}', String(weeks))
+      : t('schedule.weeks.noneSelected')
   })
 
   // 开始节次变化时钳制节数
@@ -122,13 +126,14 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
   }
 
   const promptLoginRequired = async () => {
-    data.errorMsg.value = '请先登录后再管理自定义课程'
+    // #788：错误提示与确认弹窗文案经 t() 取词（事件回调内取词时机天然正确）
+    data.errorMsg.value = t('schedule.editor.loginRequiredError')
     menu.showMenu.value = false
     await askConfirm({
-      title: '需要登录',
-      lines: ['请先登录后再管理自定义课程。'],
-      confirmText: '我知道了',
-      cancelText: '关闭',
+      title: t('schedule.editor.loginRequiredTitle'),
+      lines: [t('schedule.editor.loginRequiredLine')],
+      confirmText: t('schedule.editor.loginRequiredConfirm'),
+      cancelText: t('schedule.editor.loginRequiredCancel'),
       danger: false
     })
   }
@@ -140,7 +145,7 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     }
     const sem = String(semester.semester.value || semester.semesterDraft.value || '').trim()
     if (!sem) {
-      data.semesterError.value = '请先选择学期后再添加课程'
+      data.semesterError.value = t('schedule.editor.semesterRequired')
       return
     }
     courseDialogMode.value = 'add'
@@ -227,17 +232,20 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
   }
 
   const validateAddCourse = (): string => {
+    // #788：校验错误文案经 t() 取词
     const name = String(addCourseForm.value.name || '').trim()
-    if (!name) return '课程名称不能为空'
+    if (!name) return t('schedule.editor.nameRequired')
     const weeks = normalizeWeeks(addCourseForm.value.weeks)
-    if (!weeks.length) return '请至少选择一个周次'
+    if (!weeks.length) return t('schedule.editor.weeksRequired')
     const weekday = Number(addCourseForm.value.weekday)
-    if (!Number.isFinite(weekday) || weekday < 1 || weekday > 7) return '请选择上课时间'
+    if (!Number.isFinite(weekday) || weekday < 1 || weekday > 7) return t('schedule.editor.weekdayRequired')
     const period = Number(addCourseForm.value.period)
-    if (!Number.isFinite(period) || period < 1 || period > 11) return '开始节次必须在 1-11 节'
+    if (!Number.isFinite(period) || period < 1 || period > 11) return t('schedule.editor.periodRange')
     const span = Number(addCourseForm.value.djs)
     const maxSpan = Math.max(1, 12 - period)
-    if (!Number.isFinite(span) || span < 1 || span > maxSpan) return `上课节数必须在 1-${maxSpan} 节`
+    if (!Number.isFinite(span) || span < 1 || span > maxSpan) {
+      return t('schedule.editor.spanRange').replace('{max}', String(maxSpan))
+    }
     return ''
   }
 
@@ -262,12 +270,12 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     }
     const sem = String(courseDialogSemester.value || '').trim()
     if (!sem) {
-      addCourseError.value = '学期无效，请重新选择'
+      addCourseError.value = t('schedule.editor.semesterInvalid')
       return
     }
     const sid = String(props.studentId || '').trim()
     if (!sid) {
-      addCourseError.value = '请先登录后再添加课程'
+      addCourseError.value = t('schedule.editor.loginRequiredToAdd')
       return
     }
     const validationError = validateAddCourse()
@@ -293,17 +301,22 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     }
 
     const isEditing = courseDialogMode.value === 'edit'
+    // #788：确认弹窗标题/行文经 t() 取词（事件回调内取词时机天然正确）
+    const actionWord = isEditing ? t('schedule.editor.actionEdit') : t('schedule.editor.actionAdd')
     const confirmText = [
-      `确认${isEditing ? '修改' : '添加'}到学期：${sem}`,
-      `课程：${payload.name}`,
-      `时间：${weekDayLabels[payload.weekday - 1]} 第${payload.period}-${payload.period + payload.djs - 1}节`,
-      `周次：${formatWeeksText(weeks)}`
+      t('schedule.editor.confirmToSemester').replace('{action}', actionWord).replace('{t}', sem),
+      t('schedule.editor.confirmCourse').replace('{t}', payload.name),
+      t('schedule.editor.confirmTime')
+        .replace('{day}', getWeekDayLabels()[payload.weekday - 1])
+        .replace('{s}', String(payload.period))
+        .replace('{e}', String(payload.period + payload.djs - 1)),
+      t('schedule.editor.confirmWeeks').replace('{t}', formatWeeksText(weeks))
     ]
     const confirmed = await askConfirm({
-      title: isEditing ? '确认修改课程' : '确认添加课程',
+      title: isEditing ? t('schedule.editor.confirmEditTitle') : t('schedule.editor.confirmAddTitle'),
       lines: confirmText,
-      confirmText: isEditing ? '确认修改' : '确认添加',
-      cancelText: '取消',
+      confirmText: isEditing ? t('schedule.editor.confirmEdit') : t('schedule.editor.confirmAdd'),
+      cancelText: t('schedule.confirm.cancel'),
       danger: false
     })
     if (!confirmed) {
@@ -324,7 +337,7 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
         requestPayload
       )
       if (!res.data?.success) {
-        throw new Error(res.data?.error || `${isEditing ? '修改' : '添加'}课程失败`)
+        throw new Error(res.data?.error || t('schedule.editor.submitFailed').replace('{action}', actionWord))
       }
       await refreshCustomCourseViews(sem)
       showAddCourse.value = false
@@ -343,7 +356,7 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
       returnToDetailAfterCourseSubmit.value = false
       returnToManageAfterCourseSubmit.value = false
     } catch (e) {
-      addCourseError.value = String((e as any)?.response?.data?.error || (e as any)?.message || `${isEditing ? '修改' : '添加'}课程失败`)
+      addCourseError.value = String((e as any)?.response?.data?.error || (e as any)?.message || t('schedule.editor.submitFailed').replace('{action}', actionWord))
     } finally {
       addingCourse.value = false
     }
@@ -360,14 +373,15 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
 
     const isCurrentWeek = mode === 'current_week'
     const week = Number(semester.selectedWeek.value || 0)
+    // #788：删除确认文案经 t() 取词（事件回调内取词时机天然正确）
     const message = isCurrentWeek
-      ? `确认删除“${normalized.name}”在第${week}周的课程吗？`
-      : `确认删除“${normalized.name}”的全部已选周次吗？`
+      ? t('schedule.editor.deleteCurrentWeekLine').replace('{name}', normalized.name).replace('{w}', String(week))
+      : t('schedule.editor.deleteAllLine').replace('{name}', normalized.name)
     const confirmed = await askConfirm({
-      title: '确认删除课程',
+      title: t('schedule.editor.deleteConfirmTitle'),
       lines: [message],
-      confirmText: '确认删除',
-      cancelText: '取消',
+      confirmText: t('schedule.editor.confirmDelete'),
+      cancelText: t('schedule.confirm.cancel'),
       danger: true
     })
     if (!confirmed) return false
@@ -382,7 +396,7 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
       }
       const res = await axios.post(`${API_BASE}/v2/schedule/custom/delete`, payload)
       if (!res.data?.success) {
-        throw new Error(res.data?.error || '删除课程失败')
+        throw new Error(res.data?.error || t('schedule.editor.deleteFailed'))
       }
       await refreshCustomCourseViews(sem)
       if (recordOptions.reopenDetail && !isCurrentWeek) {
@@ -395,7 +409,7 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
       detail.detailActionError.value = ''
       return true
     } catch (e) {
-      detail.detailActionError.value = String((e as any)?.response?.data?.error || (e as any)?.message || '删除课程失败')
+      detail.detailActionError.value = String((e as any)?.response?.data?.error || (e as any)?.message || t('schedule.editor.deleteFailed'))
       return false
     }
   }
@@ -429,7 +443,6 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     courseSpanOptions,
     addWeeksCountText,
     periodOptions,
-    weekDayLabels,
     resetAddCourseForm,
     populateCourseForm,
     hasValidLoginSession,

@@ -2,9 +2,12 @@
 /**
  * 自定义课程管理弹窗（按学期分组）。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * #788 i18n：文案经 useI18n 响应式取词；星期标签改 getter 函数随渲染取词。
  */
-import { weekDayLabels } from '../constants'
+import { computed } from 'vue'
+import { getWeekDayLabels } from '../constants'
 import { getCourseEndPeriod } from '../utils/layout'
+import { useI18n } from '../../../utils/app_i18n'
 
 defineProps({
   showManageCourses: { type: Boolean, default: false },
@@ -14,6 +17,12 @@ defineProps({
   manageExpandedSemesters: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['close', 'toggle-semester', 'edit-course', 'delete-course'])
+
+// 响应式 t：语言切换后弹窗文案即时生效
+const { t } = useI18n()
+
+// #788：星期标签随语言切换取最新词（getter 函数在渲染时调用）
+const weekDayLabels = computed(() => getWeekDayLabels())
 </script>
 
 <template>
@@ -21,13 +30,13 @@ const emit = defineEmits(['close', 'toggle-semester', 'edit-course', 'delete-cou
     <div v-if="showManageCourses" class="modal-overlay" @click="emit('close')">
       <div class="modal-content glass manage-course-modal" @click.stop>
         <div class="modal-header">
-          <h3>管理课程</h3>
+          <h3>{{ t('schedule.manageCourses.title') }}</h3>
           <button class="close-btn" @click="emit('close')">×</button>
         </div>
         <div class="modal-body manage-course-body">
-          <div v-if="loadingManageCourses" class="manage-course-empty">正在加载自定义课程...</div>
+          <div v-if="loadingManageCourses" class="manage-course-empty">{{ t('schedule.manageCourses.loading') }}</div>
           <div v-else-if="manageCoursesError" class="manage-course-error">{{ manageCoursesError }}</div>
-          <div v-else-if="!managedCourseGroups.length" class="manage-course-empty">暂未添加自定义课程</div>
+          <div v-else-if="!managedCourseGroups.length" class="manage-course-empty">{{ t('schedule.manageCourses.empty') }}</div>
           <div v-else class="manage-course-groups">
             <section
               v-for="group in managedCourseGroups"
@@ -37,9 +46,9 @@ const emit = defineEmits(['close', 'toggle-semester', 'edit-course', 'delete-cou
               <button class="manage-course-group-header" @click="emit('toggle-semester', group.semester)">
                 <div class="manage-course-group-title">
                   <strong>{{ group.semester }}</strong>
-                  <span>{{ group.courses.length }} 门</span>
+                  <span>{{ t('schedule.manageCourses.courseCount').replace('{n}', String(group.courses.length)) }}</span>
                 </div>
-                <span class="manage-course-group-arrow">{{ manageExpandedSemesters[group.semester] ? '收起' : '展开' }}</span>
+                <span class="manage-course-group-arrow">{{ manageExpandedSemesters[group.semester] ? t('schedule.manageCourses.collapse') : t('schedule.manageCourses.expand') }}</span>
               </button>
               <div v-if="manageExpandedSemesters[group.semester]" class="manage-course-list">
                 <article
@@ -50,16 +59,16 @@ const emit = defineEmits(['close', 'toggle-semester', 'edit-course', 'delete-cou
                   <div class="manage-course-card-main">
                     <div class="manage-course-card-name">{{ course.name }}</div>
                     <div class="manage-course-card-meta">
-                      {{ weekDayLabels[(course.weekday || 1) - 1] }} 第{{ course.period }}-{{ getCourseEndPeriod(course) }}节
+                      {{ t('schedule.manageCourses.timeMeta').replace('{day}', weekDayLabels[(course.weekday || 1) - 1]).replace('{s}', String(course.period)).replace('{e}', String(getCourseEndPeriod(course))) }}
                     </div>
-                    <div class="manage-course-card-meta">周次：{{ course.weeks_text }}</div>
+                    <div class="manage-course-card-meta">{{ t('schedule.manageCourses.weeksMeta').replace('{t}', course.weeks_text) }}</div>
                     <div v-if="course.teacher || course.room" class="manage-course-card-meta">
                       {{ [course.teacher, course.room].filter(Boolean).join(' · ') }}
                     </div>
                   </div>
                   <div class="manage-course-card-actions">
-                    <button class="manage-course-btn edit" @click="emit('edit-course', course)">修改</button>
-                    <button class="manage-course-btn delete" @click="emit('delete-course', course)">删除</button>
+                    <button class="manage-course-btn edit" @click="emit('edit-course', course)">{{ t('schedule.manageCourses.edit') }}</button>
+                    <button class="manage-course-btn delete" @click="emit('delete-course', course)">{{ t('schedule.manageCourses.delete') }}</button>
                   </div>
                 </article>
               </div>

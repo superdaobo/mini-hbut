@@ -2,6 +2,20 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { TPageHeader } from './templates'
+import { useLocale } from '../utils/app_i18n'
+
+const { t } = useLocale()
+
+/**
+ * i18n 占位符插值：将 key 字典中的 {name} 占位替换为实际值。
+ */
+const tr = (key, params = {}) => {
+  let text = t(key)
+  for (const [name, value] of Object.entries(params)) {
+    text = text.split(`{${name}}`).join(String(value))
+  }
+  return text
+}
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -49,15 +63,21 @@ const selectedFilters = ref({
 const selectedBook = ref(null)
 const selectedBookDetail = ref(null)
 
+// 筛选组标题走 t()（key 形如 library.filter.*），语言切换即时生效
 const filterMeta = [
-  { key: 'resourceType', title: '资源类型' },
-  { key: 'publisher', title: '出版社' },
-  { key: 'author', title: '作者' },
-  { key: 'discode1', title: '学科分类' },
-  { key: 'langCode', title: '语种' },
-  { key: 'countryCode', title: '出版地区' },
-  { key: 'locationId', title: '馆藏位置' }
+  { key: 'resourceType', titleKey: 'library.filter.resourceType' },
+  { key: 'publisher', titleKey: 'library.filter.publisher' },
+  { key: 'author', titleKey: 'library.filter.author' },
+  { key: 'discode1', titleKey: 'library.filter.subject' },
+  { key: 'langCode', titleKey: 'library.filter.language' },
+  { key: 'countryCode', titleKey: 'library.filter.region' },
+  { key: 'locationId', titleKey: 'library.filter.location' }
 ]
+
+// 模板渲染用：把 titleKey 解析为当前语言标题
+const filterGroups = computed(() =>
+  filterMeta.map((meta) => ({ ...meta, title: t(meta.titleKey) }))
+)
 
 const totalPages = computed(() => {
   if (rows.value <= 0) return 0
@@ -65,8 +85,8 @@ const totalPages = computed(() => {
 })
 
 const searchSummary = computed(() => {
-  if (!keyword.value.trim()) return '请输入关键词搜索图书'
-  return `“${keyword.value.trim()}” 共检索到 ${total.value} 条记录`
+  if (!keyword.value.trim()) return t('library.summary.enterKeyword')
+  return tr('library.summary.found', { kw: keyword.value.trim(), n: total.value })
 })
 
 const canShowFilters = computed(() => hasSearched.value)
@@ -110,7 +130,7 @@ const detailBook = computed(() => {
       detail.ddAbstract ||
       base.adstract ||
       base.ddAbstract ||
-      '暂无简介'
+      t('library.desc.empty')
   }
 })
 
@@ -120,9 +140,9 @@ const detailBorrowStatus = computed(() => {
   const status = detail.processTypeName || detail.statusName || base.processTypeName || base.statusName
   if (status) return status
   const orderFlag = String(holdingData.value?.orderFlag || '')
-  if (orderFlag === '0') return '可借'
-  if (orderFlag === '1') return '可预约'
-  if (orderFlag === '2') return '不可预约'
+  if (orderFlag === '0') return t('library.status.available')
+  if (orderFlag === '1') return t('library.status.reservable')
+  if (orderFlag === '2') return t('library.status.notReservable')
   return '-'
 })
 
@@ -194,6 +214,7 @@ const formatHoldingValue = (value) => {
 }
 
 const holdingStatusClass = (status) => {
+  // 匹配 OPAC 下发的中文状态数据值（数据值不翻译），仅决定样式类名
   const text = String(status || '').trim()
   if (!text) return 'holding-status-default'
   if (/在架|可借|available|on\s?shelf/i.test(text)) return 'holding-status-available'
@@ -345,7 +366,7 @@ const executeSearch = async (nextPage = 1, skipEmptyValidation = false) => {
   error.value = ''
   const query = keyword.value.trim()
   if (!skipEmptyValidation && !query) {
-    error.value = '请输入图书关键词'
+    error.value = t('library.error.enterKeyword')
     return
   }
 
@@ -355,7 +376,7 @@ const executeSearch = async (nextPage = 1, skipEmptyValidation = false) => {
     const res = await axios.post(`${API_BASE}/v2/library/search`, payload)
     const data = res.data
     if (!data?.success) {
-      error.value = data?.error || '图书检索失败'
+      error.value = data?.error || t('library.error.searchFailed')
       return
     }
 
@@ -367,7 +388,7 @@ const executeSearch = async (nextPage = 1, skipEmptyValidation = false) => {
     hasSearched.value = true
     filterPanelOpen.value = !isMobile.value
   } catch (e) {
-    error.value = e?.response?.data?.error || e?.message || '图书检索失败'
+    error.value = e?.response?.data?.error || e?.message || t('library.error.searchFailed')
   } finally {
     loading.value = false
   }
@@ -414,12 +435,12 @@ const openDetail = async (book) => {
     })
     const payload = res.data
     if (!payload?.success) {
-      detailError.value = payload?.error || '加载图书详情失败'
+      detailError.value = payload?.error || t('library.error.detailFailed')
       return
     }
     selectedBookDetail.value = normalizeDetailNode(payload)
   } catch (e) {
-    detailError.value = e?.response?.data?.error || e?.message || '加载图书详情失败'
+    detailError.value = e?.response?.data?.error || e?.message || t('library.error.detailFailed')
   } finally {
     detailLoading.value = false
   }
@@ -456,7 +477,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="library-view">
-    <TPageHeader icon="local_library" title="图书查询" @back="emit('back')" />
+    <TPageHeader icon="local_library" :title="t('library.title')" @back="emit('back')" />
 
     <section class="search-panel">
       <div class="search-row">
@@ -464,40 +485,40 @@ onBeforeUnmount(() => {
           v-model="keyword"
           class="search-input"
           type="text"
-          placeholder="请输入书名 / 作者 / 关键词"
+          :placeholder="t('library.search.placeholder')"
           @keyup.enter="submitSearch"
         />
         <button class="search-btn" :disabled="loading" @click="submitSearch">
-          {{ loading ? '检索中...' : '搜索图书' }}
+          {{ loading ? t('library.search.searching') : t('library.search.btn') }}
         </button>
       </div>
 
       <div v-if="canShowFilters" class="search-ops">
         <label class="select-line">
-          检索字段
+          {{ t('library.search.fieldLabel') }}
           <IOSSelect v-model="searchField">
-            <option value="keyWord">综合</option>
-            <option value="title">书名</option>
-            <option value="author">作者</option>
+            <option value="keyWord">{{ t('library.search.field.all') }}</option>
+            <option value="title">{{ t('library.search.field.title') }}</option>
+            <option value="author">{{ t('library.search.field.author') }}</option>
             <option value="isbn">ISBN</option>
           </IOSSelect>
         </label>
         <label class="checkbox-line">
           <input v-model="onlyOnShelf" type="checkbox" />
-          仅显示在架馆藏
+          {{ t('library.filter.onShelfOnly') }}
         </label>
-        <button class="ghost-btn" :disabled="!hasActiveFilters" @click="clearFilters">清空筛选</button>
+        <button class="ghost-btn" :disabled="!hasActiveFilters" @click="clearFilters">{{ t('library.filter.clear') }}</button>
         <button
           v-if="isMobile"
           class="filter-toggle"
           @click="filterPanelOpen = !filterPanelOpen"
         >
-          {{ filterPanelOpen ? '收起筛选' : '展开筛选' }}
+          {{ filterPanelOpen ? t('library.filter.collapse') : t('library.filter.expand') }}
         </button>
       </div>
 
       <section v-if="showFilterPanel" class="filter-panel top-filter-panel">
-        <article v-for="group in filterMeta" :key="group.key" class="filter-group">
+        <article v-for="group in filterGroups" :key="group.key" class="filter-group">
           <h3>{{ group.title }}</h3>
           <div class="chips">
             <button
@@ -510,7 +531,7 @@ onBeforeUnmount(() => {
               <span>{{ item.label }}</span>
               <small>{{ item.count }}</small>
             </button>
-            <span v-if="!(facetOptions[group.key] || []).length" class="empty-chip">暂无可筛选项</span>
+            <span v-if="!(facetOptions[group.key] || []).length" class="empty-chip">{{ t('library.filter.noOptions') }}</span>
           </div>
         </article>
       </section>
@@ -521,9 +542,9 @@ onBeforeUnmount(() => {
 
     <section class="content-layout">
       <div class="result-panel">
-        <div v-if="loading" class="loading-box">正在检索图书...</div>
+        <div v-if="loading" class="loading-box">{{ t('library.loading') }}</div>
         <div v-else-if="!results.length" class="empty-box">
-          {{ hasSearched ? '暂无检索结果' : '请输入关键词后点击“搜索图书”开始查询' }}
+          {{ hasSearched ? t('library.empty.noResult') : t('library.empty.initial') }}
         </div>
         <div v-else class="result-list">
           <article
@@ -536,33 +557,33 @@ onBeforeUnmount(() => {
               <img
                 v-if="isCoverAvailable(book)"
                 :src="getBookCover(book)"
-                :alt="book.title || '封面'"
+                :alt="book.title || t('library.cover.alt')"
                 class="book-cover"
                 loading="lazy"
                 referrerpolicy="no-referrer"
                 crossorigin="anonymous"
                 @error="handleCoverError(book)"
               />
-              <div v-else class="book-cover-empty">暂无封面</div>
+              <div v-else class="book-cover-empty">{{ t('library.cover.fallback') }}</div>
             </div>
             <div class="book-info">
               <h3 class="book-title">{{ book.title || '-' }}</h3>
-              <p class="book-meta">作者：{{ book.author || '-' }}</p>
-              <p class="book-meta">出版社：{{ book.publisher || '-' }}</p>
+              <p class="book-meta">{{ t('library.meta.authorPrefix') }}{{ book.author || '-' }}</p>
+              <p class="book-meta">{{ t('library.meta.publisherPrefix') }}{{ book.publisher || '-' }}</p>
               <p class="book-meta">
-                索书号：{{ (book.callNo && book.callNo[0]) || book.callNoOne || '-' }}
+                {{ t('library.meta.callNoPrefix') }}{{ (book.callNo && book.callNo[0]) || book.callNoOne || '-' }}
                 <span class="split">|</span>
-                出版年：{{ book.publishYear || '-' }}
+                {{ t('library.meta.yearPrefix') }}{{ book.publishYear || '-' }}
               </p>
-              <p class="book-badge">在架 {{ book.onShelfCountI ?? 0 }} / 馆藏 {{ book.physicalCount ?? 0 }}</p>
+              <p class="book-badge">{{ t('library.meta.onShelfPrefix') }}{{ book.onShelfCountI ?? 0 }}{{ t('library.meta.collectionMiddle') }}{{ book.physicalCount ?? 0 }}</p>
             </div>
           </article>
         </div>
 
         <div class="pager" v-if="totalPages > 1">
-          <button class="pager-btn" :disabled="page <= 1 || loading" @click="changePage(page - 1)">上一页</button>
-          <span class="pager-info">第 {{ page }} / {{ totalPages }} 页</span>
-          <button class="pager-btn" :disabled="page >= totalPages || loading" @click="changePage(page + 1)">下一页</button>
+          <button class="pager-btn" :disabled="page <= 1 || loading" @click="changePage(page - 1)">{{ t('library.pager.prev') }}</button>
+          <span class="pager-info">{{ tr('library.pager.info', { page, total: totalPages }) }}</span>
+          <button class="pager-btn" :disabled="page >= totalPages || loading" @click="changePage(page + 1)">{{ t('library.pager.next') }}</button>
         </div>
       </div>
     </section>
@@ -571,10 +592,10 @@ onBeforeUnmount(() => {
       <div class="detail-card">
         <header class="detail-head">
           <h2>{{ detailBook.title }}</h2>
-          <button class="close-btn" @click="closeDetail">关闭</button>
+          <button class="close-btn" @click="closeDetail">{{ t('library.detail.close') }}</button>
         </header>
 
-        <div v-if="detailLoading" class="loading-box">正在加载详情...</div>
+        <div v-if="detailLoading" class="loading-box">{{ t('library.detail.loading') }}</div>
         <div v-else>
           <p v-if="detailError" class="error">{{ detailError }}</p>
 
@@ -588,80 +609,80 @@ onBeforeUnmount(() => {
                 referrerpolicy="no-referrer"
                 crossorigin="anonymous"
               />
-              <div v-else class="detail-cover-empty">暂无封面</div>
+              <div v-else class="detail-cover-empty">{{ t('library.cover.fallback') }}</div>
             </div>
             <div class="detail-grid">
               <article class="detail-item">
-                <span class="label">ISBN</span>
+                <span class="label">{{ t('library.detail.isbn') }}</span>
                 <span class="value">{{ detailBook.isbn }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">作者</span>
+                <span class="label">{{ t('library.detail.author') }}</span>
                 <span class="value">{{ detailBook.author }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">出版社</span>
+                <span class="label">{{ t('library.detail.publisher') }}</span>
                 <span class="value">{{ detailBook.publisher }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">出版年</span>
+                <span class="label">{{ t('library.detail.publishYear') }}</span>
                 <span class="value">{{ detailBook.publishYear }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">索书号</span>
+                <span class="label">{{ t('library.detail.callNo') }}</span>
                 <span class="value">{{ detailBook.callNo }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">馆藏地</span>
+                <span class="label">{{ t('library.detail.location') }}</span>
                 <span class="value">{{ detailBook.location }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">借阅状态</span>
+                <span class="label">{{ t('library.detail.borrowStatus') }}</span>
                 <span class="value">{{ detailBorrowStatus }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">馆藏记录号</span>
+                <span class="label">{{ t('library.detail.recordId') }}</span>
                 <span class="value">{{ selectedBook?.recordId || '-' }}</span>
               </article>
             </div>
           </section>
 
           <section class="holding-panel">
-            <h3>馆藏信息</h3>
+            <h3>{{ t('library.holdings.title') }}</h3>
             <div class="holding-grid">
               <article class="detail-item">
-                <span class="label">在架数量</span>
+                <span class="label">{{ t('library.holdings.onShelfCount') }}</span>
                 <span class="value">{{ holdingData.onShelfCount ?? selectedBook?.onShelfCountI ?? 0 }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">实体馆藏</span>
+                <span class="label">{{ t('library.holdings.physicalCount') }}</span>
                 <span class="value">{{ holdingData.pCount ?? selectedBook?.physicalCount ?? 0 }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">元数据数量</span>
+                <span class="label">{{ t('library.holdings.metadataCount') }}</span>
                 <span class="value">{{ holdingData.metadataCount ?? '-' }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">预约标记</span>
+                <span class="label">{{ t('library.holdings.orderFlag') }}</span>
                 <span class="value">{{ holdingData.orderFlag ?? '-' }}</span>
               </article>
             </div>
           </section>
 
           <section class="holding-list-panel" v-if="holdingItems.length">
-            <h3>馆藏明细</h3>
+            <h3>{{ t('library.holdingList.title') }}</h3>
             <div class="holding-table-wrap">
               <table class="holding-table">
                 <thead>
                   <tr>
-                    <th>序号</th>
-                    <th>索书号</th>
-                    <th>条码号</th>
-                    <th>年代</th>
-                    <th>卷期</th>
-                    <th>馆藏地</th>
-                    <th>入藏时间</th>
-                    <th>书刊状态</th>
+                    <th>{{ t('library.holdingList.index') }}</th>
+                    <th>{{ t('library.holdingList.callNo') }}</th>
+                    <th>{{ t('library.holdingList.barcode') }}</th>
+                    <th>{{ t('library.holdingList.year') }}</th>
+                    <th>{{ t('library.holdingList.vol') }}</th>
+                    <th>{{ t('library.holdingList.location') }}</th>
+                    <th>{{ t('library.holdingList.inDate') }}</th>
+                    <th>{{ t('library.holdingList.status') }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -690,7 +711,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section class="detail-desc">
-            <h3>内容简介</h3>
+            <h3>{{ t('library.desc.title') }}</h3>
             <p>{{ detailBook.abstract }}</p>
           </section>
         </div>

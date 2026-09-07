@@ -1,12 +1,12 @@
   <div class="resource-share-view module-page">
-    <TPageHeader icon="folder_shared" title="资源网盘" @back="emit('back')">
+    <TPageHeader icon="folder_shared" :title="t('resource.title')" @back="emit('back')">
       <template #actions>
-        <button class="header-btn" :disabled="loadingList || loadingConfig" @click="refreshCurrent">刷新</button>
+        <button class="header-btn" :disabled="loadingList || loadingConfig" @click="refreshCurrent">{{ t('resource.refresh') }}</button>
       </template>
     </TPageHeader>
 
     <section class="path-card">
-      <button class="path-btn" :disabled="!canGoParent || loadingList" @click="goParent">上一级</button>
+      <button class="path-btn" :disabled="!canGoParent || loadingList" @click="goParent">{{ t('resource.parent') }}</button>
       <div class="breadcrumbs">
         <button
           v-for="(crumb, idx) in breadcrumbItems"
@@ -22,11 +22,11 @@
 
     <section class="list-card">
       <div class="list-meta">
-        <span class="count-chip">共 {{ totalCount }} 项</span>
+        <span class="count-chip">{{ tf('resource.totalCount', { n: totalCount }) }}</span>
         <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
       </div>
 
-      <div v-if="!items.length && !loadingList" class="empty">当前目录为空</div>
+      <div v-if="!items.length && !loadingList" class="empty">{{ t('resource.emptyDir') }}</div>
 
       <div class="items-grid">
         <button v-for="item in items" :key="item.path" class="item-card" @click="openItem(item)">
@@ -51,14 +51,14 @@
         </div>
         <div class="preview-actions">
           <button class="action-btn" @click="toggleFullscreenPreview">
-            {{ isViewerFullscreen ? '退出全屏预览器' : '全屏预览器' }}
+            {{ isViewerFullscreen ? t('resource.exitFullscreen') : t('resource.enterFullscreen') }}
           </button>
-          <button class="action-btn primary" @click="openDownload">下载</button>
-          <button class="action-btn" @click="closePreview">关闭</button>
+          <button class="action-btn primary" @click="openDownload">{{ t('resource.download') }}</button>
+          <button class="action-btn" @click="closePreview">{{ t('resource.close') }}</button>
         </div>
         <div class="preview-body" :class="{ 'viewer-fullscreen': isViewerFullscreen }">
-          <button v-if="isViewerFullscreen" class="viewer-exit-btn" @click="exitViewerFullscreen">← 退出全屏</button>
-          <div v-if="loadingPreview" class="preview-loading">预览加载中...</div>
+          <button v-if="isViewerFullscreen" class="viewer-exit-btn" @click="exitViewerFullscreen">{{ t('resource.viewerExitFullscreen') }}</button>
+          <div v-if="loadingPreview" class="preview-loading">{{ t('resource.previewLoading') }}</div>
           <div v-else-if="previewKind === 'video' || previewKind === 'audio'" class="preview-media-wrap xgplayer-wrap" :class="{ audio: previewKind === 'audio' }">
             <div id="resource-xgplayer-host" ref="previewPlayerHostRef" class="xgplayer-host"></div>
           </div>
@@ -67,12 +67,12 @@
           </div>
           <div v-else-if="previewKind === 'pdf'" class="pdf-viewer">
             <div class="pdf-toolbar">
-              <button class="pdf-tool-btn" :disabled="pdfCurrentPage <= 1" @click="prevPdfPage">上一页</button>
-              <span class="pdf-page-chip">第 {{ pdfCurrentPage }} / {{ pdfPageCount }} 页</span>
-              <button class="pdf-tool-btn" :disabled="pdfCurrentPage >= pdfPageCount" @click="nextPdfPage">下一页</button>
-              <button class="pdf-tool-btn" :disabled="pdfZoom <= PDF_ZOOM_MIN + 0.001" @click="zoomOutPdf">缩小</button>
+              <button class="pdf-tool-btn" :disabled="pdfCurrentPage <= 1" @click="prevPdfPage">{{ t('resource.pdf.prevPage') }}</button>
+              <span class="pdf-page-chip">{{ tf('resource.pdf.pageIndicator', { current: pdfCurrentPage, total: pdfPageCount }) }}</span>
+              <button class="pdf-tool-btn" :disabled="pdfCurrentPage >= pdfPageCount" @click="nextPdfPage">{{ t('resource.pdf.nextPage') }}</button>
+              <button class="pdf-tool-btn" :disabled="pdfZoom <= PDF_ZOOM_MIN + 0.001" @click="zoomOutPdf">{{ t('resource.pdf.zoomOut') }}</button>
               <button class="pdf-page-chip" @click="resetPdfZoom">{{ pdfZoomText }}</button>
-              <button class="pdf-tool-btn" :disabled="pdfZoom >= PDF_ZOOM_MAX - 0.001" @click="zoomInPdf">放大</button>
+              <button class="pdf-tool-btn" :disabled="pdfZoom >= PDF_ZOOM_MAX - 0.001" @click="zoomInPdf">{{ t('resource.pdf.zoomIn') }}</button>
             </div>
             <div
               ref="pdfCanvasWrapRef"
@@ -95,7 +95,7 @@
             @error="onPreviewFrameError"
           />
           <pre v-else-if="previewKind === 'text'" class="preview-text">{{ previewText }}</pre>
-          <div v-else class="preview-empty">{{ previewHint || '暂不支持该类型在线预览' }}</div>
+          <div v-else class="preview-empty">{{ previewHint || t('resource.previewUnsupported') }}</div>
         </div>
         <p v-if="previewHint && previewKind !== 'unknown'" class="preview-hint">{{ previewHint }}</p>
       </div>
@@ -104,7 +104,7 @@
     <div v-if="loadingConfig || loadingList" class="center-loading-overlay">
       <div class="center-loading-card">
         <div class="spinner"></div>
-        <p>{{ loadingConfig ? '加载远程配置中...' : '加载目录中...' }}</p>
+        <p>{{ loadingConfig ? t('resource.configLoading') : t('resource.dirLoading') }}</p>
       </div>
     </div>
   </div>

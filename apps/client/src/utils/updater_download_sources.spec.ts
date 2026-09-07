@@ -147,7 +147,8 @@ describe('update download sources', () => {
     const source = readSource('src/components/UpdateDialog.vue')
 
     expect(source).toContain('currentVersionLabel')
-    expect(source).toContain('当前 ·')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(source).toContain("tf('update.currentLabel'")
     expect(source).toContain('isCurrentInstallDev')
     expect(source).toContain('<span class="arrow">→</span>')
     expect(source).toContain('version-badge new')

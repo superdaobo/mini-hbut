@@ -1,14 +1,19 @@
 <script setup>
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
+import { useLocale } from '../utils/app_i18n'
+
+// 响应式取词：必须经 useLocale() 解构 t（locale 变化触发重渲染），不可直接 import { t }
+const { t } = useLocale()
 
 const emit = defineEmits(['back'])
 
+// title/subtitle 存 i18n key（专名保留中文，en 侧同值），渲染时取词
 const quickLinks = [
   {
     id: 'portal',
-    title: '新融合门户',
-    subtitle: '湖北工业大学统一身份认证与办事入口',
+    title: 'home.quick_links.portal.title',
+    subtitle: 'home.quick_links.portal.subtitle',
     url: 'https://e.hbut.edu.cn/',
     icon: 'account_balance',
     iconBg: '#E8F0FE',
@@ -16,8 +21,8 @@ const quickLinks = [
   },
   {
     id: 'chaoxing',
-    title: '学习通',
-    subtitle: '超星学习通网页版',
+    title: 'home.quick_links.chaoxing.title',
+    subtitle: 'home.quick_links.chaoxing.subtitle',
     url: 'https://i.chaoxing.com/',
     icon: 'school',
     iconBg: '#E6F4EA',
@@ -28,7 +33,7 @@ const quickLinks = [
 const handleOpenLink = async (link) => {
   const ok = await openExternal(link.url)
   if (!ok) {
-    showToast(`无法打开「${link.title}」，请稍后重试`, 'error')
+    showToast(t('home.quick_links.openFailed').replace('{name}', t(link.title)), 'error')
   }
 }
 </script>
@@ -36,19 +41,19 @@ const handleOpenLink = async (link) => {
 <template>
   <div class="quick-links-view">
     <header class="subpage-header">
-      <button class="back-button" type="button" @click="emit('back')" aria-label="返回">
+      <button class="back-button" type="button" @click="emit('back')" :aria-label="t('home.quick_links.back')">
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
       <div class="header-copy">
-        <span class="header-kicker">我的</span>
-        <h1>快捷链接</h1>
+        <span class="header-kicker">{{ t('home.quick_links.kicker') }}</span>
+        <h1>{{ t('home.quick_links.title') }}</h1>
       </div>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
-    <p class="intro">常用校园系统入口，点击后在系统浏览器中打开。</p>
+    <p class="intro">{{ t('home.quick_links.intro') }}</p>
 
-    <section class="links-list" aria-label="快捷链接列表">
+    <section class="links-list" :aria-label="t('home.quick_links.listAria')">
       <button
         v-for="link in quickLinks"
         :key="link.id"
@@ -60,8 +65,8 @@ const handleOpenLink = async (link) => {
           <span class="material-symbols-outlined" :style="{ color: link.iconColor }">{{ link.icon }}</span>
         </div>
         <div class="link-copy">
-          <strong>{{ link.title }}</strong>
-          <span>{{ link.subtitle }}</span>
+          <strong>{{ t(link.title) }}</strong>
+          <span>{{ t(link.subtitle) }}</span>
         </div>
         <span class="material-symbols-outlined link-arrow">open_in_new</span>
       </button>

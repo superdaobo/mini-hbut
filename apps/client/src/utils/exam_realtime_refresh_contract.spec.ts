@@ -47,7 +47,8 @@ describe('exam realtime refresh contract', () => {
     expect(source).not.toContain(':disabled="loading"')
     expect(source).toContain('v-if="isInitialLoading"')
     expect(source).toContain('class="exam-updated-at"')
-    expect(source).toContain('最新更新时间')
+    // #794 文案 t() 化后锚点同步更新为 i18n key
+    expect(source).toContain("tf('exam.lastUpdated'")
     expect(source).toContain('EXAM_CACHE_REFRESH_RETRY_MS')
     expect(source).toContain('scheduleExamRealtimeRetry')
   })

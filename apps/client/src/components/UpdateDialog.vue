@@ -18,8 +18,12 @@ import {
   setUpdateChannel,
   isOfficialDownloadUrl
 } from '../utils/updater.js'
+import { useI18n, tf } from '../utils/app_i18n'
 
 const emit = defineEmits(['close'])
+
+// i18n（#794 批次 I）
+const { t } = useI18n()
 
 const checking = ref(true)
 const updateInfo = ref(null)
@@ -39,12 +43,12 @@ const showSourceTable = ref(false)
 const isAppleMode = computed(() => updateMode.value === 'apple_storefront')
 const isDevChannel = computed(() => updateChannel.value === 'dev')
 /** 接收更新偏好（开关），不是安装身份 */
-const channelBadge = computed(() => (isDevChannel.value ? '开发版' : '正式版'))
+const channelBadge = computed(() => (isDevChannel.value ? t('update.channel.dev') : t('update.channel.stable')))
 /** 当前安装身份：看版本字符串是否 prerelease，与频道开关解耦 */
 const isInstallDev = computed(() => isCurrentInstallDev(currentVersion.value))
-const installBadge = computed(() => (isInstallDev.value ? '开发版' : '正式版'))
+const installBadge = computed(() => (isInstallDev.value ? t('update.channel.dev') : t('update.channel.stable')))
 const currentVersionLabel = computed(
-  () => `当前 · ${installBadge.value} v${currentVersion.value || '--'}`
+  () => tf('update.currentLabel', { badge: installBadge.value, version: currentVersion.value || '--' })
 )
 
 const checkUpdate = async () => {
@@ -64,7 +68,7 @@ const checkUpdate = async () => {
       const result = await checkAppleStoreUpdate(version)
       appleInfo.value = result
       if (result.error) {
-        error.value = result.message || '检查更新失败，请稍后重试'
+        error.value = result.message || t('update.error.checkFailed')
       }
       return
     }
@@ -72,7 +76,7 @@ const checkUpdate = async () => {
     const result = await checkForUpdates(version, { channel: updateChannel.value })
     updateInfo.value = result
   } catch (e) {
-    error.value = '检查更新失败，请稍后重试'
+    error.value = t('update.error.checkFailed')
     console.error(e)
   } finally {
     checking.value = false
@@ -87,7 +91,7 @@ const handleOpenAppStore = async () => {
       trackViewUrl: appleInfo.value?.trackViewUrl
     })
     if (!ok) {
-      error.value = '无法打开 App Store，请手动在商店中搜索 Mini-HBUT'
+      error.value = t('update.error.appStoreOpen')
     }
   } finally {
     openingStore.value = false
@@ -99,7 +103,7 @@ const handleOpenTestFlight = async () => {
   try {
     const ok = await openTestFlightApp(appleInfo.value?.trackId)
     if (!ok) {
-      error.value = '无法打开 TestFlight，请从主屏幕打开 TestFlight App'
+      error.value = t('update.error.testFlightOpen')
     }
   } finally {
     openingStore.value = false
@@ -182,7 +186,7 @@ const getSpeedColor = (status) => {
 const getSpeedText = (result) => {
   if (!result) return '—'
   if (result.status === 'testing') return '...'
-  if (result.status === 'fail') return '超时'
+  if (result.status === 'fail') return t('update.source.timeout')
   return `${result.ms}ms`
 }
 
@@ -209,7 +213,7 @@ const handleDownloadFromSource = async (url) => {
       downloadProgress.value = 100
     }
   } catch (e) {
-    error.value = '下载失败，请尝试其他线路'
+    error.value = t('update.error.downloadFailed')
     console.error(e)
   } finally {
     downloading.value = false
@@ -233,32 +237,32 @@ onMounted(() => {
     <div class="update-dialog">
       <div class="dialog-header">
         <span class="material-symbols-outlined dialog-header-icon">{{ isAppleMode ? 'shop' : 'sync' }}</span>
-        <h3>{{ isAppleMode ? 'App 更新' : '版本更新' }}</h3>
+        <h3>{{ isAppleMode ? t('update.title.app') : t('update.title.version') }}</h3>
       </div>
 
       <div class="dialog-content">
         <!-- 合规包：苹果商店路径（无 GitHub/CDN 频道与下载） -->
         <template v-if="isAppleMode">
           <p class="apple-lead">
-            本安装通过 App Store / TestFlight 分发。版本检查仅对照 App Store 正式版，不会下载 GitHub 安装包。
+            {{ t('update.apple.lead') }}
           </p>
           <div class="channel-badge-row">
-            <span class="channel-pill" data-channel="stable">当前 v{{ currentVersion || '--' }}</span>
+            <span class="channel-pill" data-channel="stable">{{ tf('update.apple.current', { version: currentVersion || '--' }) }}</span>
             <span v-if="appleInfo?.storeVersion" class="channel-pill" data-channel="stable">
-              商店 v{{ appleInfo.storeVersion }}
+              {{ tf('update.apple.storeVersion', { version: appleInfo.storeVersion }) }}
             </span>
           </div>
 
           <div v-if="checking" class="checking">
             <div class="spinner"></div>
-            <p>正在查询 App Store…</p>
+            <p>{{ t('update.apple.checking') }}</p>
           </div>
 
           <template v-else-if="appleInfo?.hasUpdate">
             <div class="version-info">
-              <div class="version-badge current">当前 v{{ appleInfo.currentVersion }}</div>
+              <div class="version-badge current">{{ tf('update.apple.current', { version: appleInfo.currentVersion }) }}</div>
               <span class="arrow">→</span>
-              <div class="version-badge new">商店 v{{ appleInfo.storeVersion }}</div>
+              <div class="version-badge new">{{ tf('update.apple.storeVersion', { version: appleInfo.storeVersion }) }}</div>
             </div>
             <p class="apple-message">{{ appleInfo.message }}</p>
           </template>
@@ -266,19 +270,19 @@ onMounted(() => {
           <template v-else-if="appleInfo && !appleInfo.error">
             <div class="up-to-date">
               <span class="material-symbols-outlined status-icon status-icon--success">check_circle</span>
-              <p>{{ appleInfo.notOnStore ? '商店暂无正式版记录' : '已是 App Store 最新正式版' }}</p>
-              <span class="version">当前 v{{ currentVersion }}</span>
-              <span v-if="appleInfo.storeVersion" class="version muted">商店 v{{ appleInfo.storeVersion }}</span>
+              <p>{{ appleInfo.notOnStore ? t('update.apple.notOnStore') : t('update.apple.upToDate') }}</p>
+              <span class="version">{{ tf('update.apple.current', { version: currentVersion }) }}</span>
+              <span v-if="appleInfo.storeVersion" class="version muted">{{ tf('update.apple.storeVersion', { version: appleInfo.storeVersion }) }}</span>
               <p class="apple-tf-hint">
-                若你安装的是 TestFlight 测试版，请打开 TestFlight 查看是否有新的测试构建。
+                {{ t('update.apple.tfHint') }}
               </p>
             </div>
           </template>
 
           <div v-else-if="error || appleInfo?.error" class="error">
             <span class="material-symbols-outlined status-icon status-icon--warn">error</span>
-            <p>{{ error || appleInfo?.message || '无法查询 App Store' }}</p>
-            <button class="retry-btn" @click="checkUpdate">重试</button>
+            <p>{{ error || appleInfo?.message || t('update.apple.queryFailed') }}</p>
+            <button class="retry-btn" @click="checkUpdate">{{ t('common.retry') }}</button>
           </div>
         </template>
 
@@ -287,8 +291,8 @@ onMounted(() => {
           <!-- 频道选择：用户可选接收开发版推送 -->
           <div class="channel-row">
             <div class="channel-copy">
-              <strong>接收开发版更新（Beta）</strong>
-              <p>开启后从 CDN / GitHub <code>dev-latest</code> 检查预发布构建，可能不稳定。</p>
+              <strong>{{ t('update.channel.betaTitle') }}</strong>
+              <p>{{ t('update.channel.betaDesc') }}</p>
             </div>
             <button
               type="button"
@@ -302,18 +306,18 @@ onMounted(() => {
           </div>
           <div class="channel-badge-row">
             <span class="channel-pill" :data-channel="isInstallDev ? 'dev' : 'stable'">
-              当前安装：{{ installBadge }}
+              {{ tf('update.channel.currentInstall', { badge: installBadge }) }}
             </span>
-            <span class="channel-pill" :data-channel="updateChannel">接收频道：{{ channelBadge }}</span>
+            <span class="channel-pill" :data-channel="updateChannel">{{ tf('update.channel.receiveChannel', { badge: channelBadge }) }}</span>
           </div>
           <p v-if="isInstallDev && !isDevChannel" class="install-hint">
-            当前安装为开发版。若要继续接收 Beta 推送，请打开上方开关。
+            {{ t('update.channel.installHint') }}
           </p>
 
           <!-- 检查中 -->
           <div v-if="checking" class="checking">
             <div class="spinner"></div>
-            <p>正在检查{{ isDevChannel ? '开发版' : '正式版' }}更新...</p>
+            <p>{{ tf('update.checking', { channel: isDevChannel ? t('update.channel.dev') : t('update.channel.stable') }) }}</p>
           </div>
 
           <!-- 有更新 -->
@@ -324,13 +328,13 @@ onMounted(() => {
               </div>
               <span class="arrow">→</span>
               <div class="version-badge new" :data-channel="updateInfo.channel || updateChannel">
-                {{ updateInfo.isPrerelease || isDevChannel ? '开发版' : '新版本' }}
+                {{ updateInfo.isPrerelease || isDevChannel ? t('update.channel.dev') : t('update.badge.newVersion') }}
                 v{{ updateInfo.latestVersion }}
               </div>
             </div>
             
             <div class="release-notes">
-              <h4>更新内容:</h4>
+              <h4>{{ t('update.notes.title') }}</h4>
               <div class="notes-content" v-html="updateInfo.releaseNotes.replace(/\n/g, '<br>')"></div>
             </div>
 
@@ -345,8 +349,8 @@ onMounted(() => {
             <!-- 下载源选择表 -->
             <div v-if="showSourceTable && !downloading" class="source-table">
               <div class="source-table-header">
-                <span>选择下载线路</span>
-                <button class="retest-btn" @click="testAllSources">重新测速</button>
+                <span>{{ t('update.source.title') }}</span>
+                <button class="retest-btn" @click="testAllSources">{{ t('update.source.retest') }}</button>
               </div>
               <div class="source-list">
                 <div
@@ -371,7 +375,7 @@ onMounted(() => {
             </div>
 
             <div class="platform-info">
-              <span class="platform-line"><span class="material-symbols-outlined platform-icon">smartphone</span> 检测到平台: {{ updateInfo.platform }}</span>
+              <span class="platform-line"><span class="material-symbols-outlined platform-icon">smartphone</span> {{ tf('update.platform.detected', { platform: updateInfo.platform }) }}</span>
               <span v-if="updateInfo.assetName" class="platform-line"><span class="material-symbols-outlined platform-icon">inventory_2</span> {{ updateInfo.assetName }}</span>
             </div>
           </template>
@@ -380,7 +384,7 @@ onMounted(() => {
           <template v-else-if="updateInfo?.pending">
             <div class="up-to-date">
               <span class="material-symbols-outlined status-icon">hourglass_top</span>
-              <p>新版本正在构建中，请稍后再试</p>
+              <p>{{ t('update.pending.building') }}</p>
               <span class="version">v{{ updateInfo.latestVersion }}</span>
             </div>
           </template>
@@ -389,30 +393,30 @@ onMounted(() => {
           <template v-else-if="updateInfo && !updateInfo.hasUpdate && !updateInfo.error">
             <div class="up-to-date">
               <span class="material-symbols-outlined status-icon status-icon--success">check_circle</span>
-              <p>{{ isDevChannel ? '已是最新开发版' : '已是最新正式版' }}</p>
+              <p>{{ isDevChannel ? t('update.upToDate.dev') : t('update.upToDate.stable') }}</p>
               <span class="version">{{ currentVersionLabel }}</span>
-              <span v-if="updateInfo.latestVersion" class="version muted">远端 {{ updateInfo.latestVersion }}</span>
+              <span v-if="updateInfo.latestVersion" class="version muted">{{ tf('update.upToDate.remote', { version: updateInfo.latestVersion }) }}</span>
             </div>
           </template>
 
           <!-- 错误 -->
           <div v-else-if="error || updateInfo?.error" class="error">
             <span class="material-symbols-outlined status-icon status-icon--warn">error</span>
-            <p>{{ error || updateInfo?.message || '无法获取更新信息，请检查网络连接' }}</p>
-            <button class="retry-btn" @click="checkUpdate">重试</button>
+            <p>{{ error || updateInfo?.message || t('update.error.networkHint') }}</p>
+            <button class="retry-btn" @click="checkUpdate">{{ t('common.retry') }}</button>
           </div>
         </template>
       </div>
 
       <div class="dialog-actions">
         <template v-if="isAppleMode && appleInfo?.hasUpdate">
-          <button class="btn-secondary update-action-secondary" @click="handleSkipApple">稍后</button>
+          <button class="btn-secondary update-action-secondary" @click="handleSkipApple">{{ t('update.action.later') }}</button>
           <button
             class="btn-primary update-action-primary"
             :disabled="openingStore"
             @click="handleOpenAppStore"
           >
-            {{ openingStore ? '打开中…' : '前往 App Store 更新' }}
+            {{ openingStore ? t('update.action.openingStore') : t('update.action.goAppStore') }}
           </button>
         </template>
         <template v-else-if="isAppleMode">
@@ -422,18 +426,18 @@ onMounted(() => {
             :disabled="openingStore"
             @click="handleOpenTestFlight"
           >
-            打开 TestFlight
+            {{ t('update.action.openTestFlight') }}
           </button>
-          <button class="btn-primary" @click="emit('close')">关闭</button>
+          <button class="btn-primary" @click="emit('close')">{{ t('common.close') }}</button>
         </template>
         <template v-else-if="updateInfo?.hasUpdate">
-          <button class="btn-secondary update-action-secondary" @click="handleSkip">跳过此版本</button>
+          <button class="btn-secondary update-action-secondary" @click="handleSkip">{{ t('update.action.skipVersion') }}</button>
           <button class="btn-primary update-action-primary" @click="handleDownload" :disabled="downloading || showSourceTable">
-            {{ downloading ? '下载中...' : showSourceTable ? '请选择线路' : '立即更新' }}
+            {{ downloading ? t('update.action.downloading') : showSourceTable ? t('update.action.chooseLine') : t('update.action.updateNow') }}
           </button>
         </template>
         <template v-else>
-          <button class="btn-primary" @click="emit('close')">关闭</button>
+          <button class="btn-primary" @click="emit('close')">{{ t('common.close') }}</button>
         </template>
       </div>
     </div>

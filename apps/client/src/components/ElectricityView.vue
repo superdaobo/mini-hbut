@@ -11,11 +11,18 @@ import { invokeNative, isTauriRuntime } from '../platform/native'
 import { openExternal } from '../utils/external_link'
 import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { showToast } from '../utils/toast'
+// #791：t 为 JS 逻辑内取词 / tf 整句插值（模板响应式取词用下方 useI18n 的 t）
+import { t, tf } from '../utils/app_i18n'
 import {
+  containsMisleadingRoomHint,
   isUsageSnapshotOnly,
-  resolveUsageEmptyText
+  matchAcLevelLabel,
+  matchLightLevelLabel,
+  resolveUsageEmptyText,
+  stripRoomSuffix
 } from '../utils/electricity_usage_ui'
 import { TPageHeader, TEmptyState } from './templates'
+import { useI18n } from '../utils/app_i18n'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -36,6 +43,19 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const appSettings = useAppSettings()
 const maxRetry = computed(() => appSettings.retry.electricity)
 const retryDelayMs = computed(() => appSettings.retryDelayMs)
+
+// #791：响应式 t —— 语言切换后模板即时生效
+const { t: tLocale } = useI18n()
+
+// 离线横幅「最后更新」整句插值（computed 保证语言切换 / syncTime 变化即时生效）
+const tfOfflineLastUpdate = computed(() =>
+  tf('electricity.offlineBanner.lastUpdate', { time: formatRelativeTime(syncTime.value) })
+)
+
+// 缴费演示提示：专名「i 湖工」经字典两侧同值保留中文（tf 在 computed 内随语言刷新）
+const tfPayDemoHint = computed(() =>
+  tf('electricity.pay.demoHint', { app: t('electricity.iHubut.name') })
+)
 
 // 是否为双计费楼层（同时有照明和空调）
 const isDualBilling = ref(false)
@@ -88,12 +108,13 @@ const mergeLevels = (rawData) => {
 
       levels.forEach(level => {
         const label = level.label || ''
-        const lightMatch = label.match(/^照明(\d+)层$/)
-        const acMatch = label.match(/^空调(\d+)层$/)
-        if (lightMatch) {
-          lightLevels[lightMatch[1]] = level
-        } else if (acMatch) {
-          acLevels[acMatch[1]] = level
+        // 「照明/空调/房间」为后端数据集固定词汇表，正则外移至 electricity_usage_ui（#791）
+        const lightFloor = matchLightLevelLabel(label)
+        const acFloor = matchAcLevelLabel(label)
+        if (lightFloor) {
+          lightLevels[lightFloor] = level
+        } else if (acFloor) {
+          acLevels[acFloor] = level
         } else {
           plainLevels.push(level)
         }
@@ -126,11 +147,11 @@ const mergeLevels = (rawData) => {
           acRoomMap = {}
           const acByNum = {}
           ;(acLevel.children || []).forEach(r => {
-            const num = (r.label || '').replace(/房间$/, '')
+            const num = stripRoomSuffix(r.label)
             acByNum[num] = r.value
           })
           ;(lightLevel.children || []).forEach(r => {
-            const lightNum = (r.label || '').replace(/房间$/, '')
+            const lightNum = stripRoomSuffix(r.label)
             // 尝试常见前缀映射：1+num, 6+num, 直接匹配
             const candidates = ['1' + lightNum, '6' + lightNum, lightNum]
             for (const c of candidates) {
@@ -150,7 +171,8 @@ const mergeLevels = (rawData) => {
 
         mergedLevels.push({
           value: mergedValue,
-          label: `${floorNum}层`,
+          // 楼层标签按当前语言拼装（t 非响应式，但 mergeLevels 每次加载宿舍数据时重跑）
+          label: tf('electricity.unit.floorN', { n: floorNum }),
           children: mergedChildren,
           _lightLayerId: lightLevel?.value || null,
           _acLayerId: acLevel?.value || null,
@@ -198,8 +220,9 @@ onMounted(async () => {
       }
     }
   } catch (e) {
-    console.error('加载宿舍数据失败:', e)
-    errorMsg.value = '无法加载宿舍列表，请稍后重试'
+    // 诊断日志：console 面向开发者；为满足零 CJK 契约（字符串字面量不豁免）统一英文
+    console.error('[Electricity] failed to load dormitory dataset:', e)
+    errorMsg.value = t('electricity.error.loadDorm')
   }
 })
 
@@ -368,7 +391,7 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
         offline.value = true
         syncTime.value = cached.data?.sync_time || new Date(cached.timestamp).toLocaleString()
       } else {
-        errorMsg.value = lightResult.data?.error || '查询失败'
+        errorMsg.value = lightResult.data?.error || t('electricity.error.queryFailed')
         balanceData.value = null
       }
     }
@@ -420,17 +443,18 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
       acBalanceData.value = null
     }
   } catch (e) {
-    console.error('电费查询错误:', e)
-    
+    // 诊断日志：console 面向开发者；为满足零 CJK 契约（字符串字面量不豁免）统一英文
+    console.error('[Electricity] balance query failed:', e)
+
     if ((e.response && (e.response.status === 502 || e.response.status === 504)) || e.message.includes('Network Error')) {
       if (retryCount < maxRetry.value) {
-        errorMsg.value = `系统预热中，正在重试 (${retryCount + 1}/${maxRetry.value})...`
+        errorMsg.value = tf('electricity.error.retrying', { n: retryCount + 1, max: maxRetry.value })
         setTimeout(() => {
           fetchBalance({ retryCount: retryCount + 1, forceNetwork })
         }, retryDelayMs.value)
         return
       } else {
-        errorMsg.value = '服务器响应超时，请稍后再试'
+        errorMsg.value = t('electricity.error.serverTimeout')
       }
     } else {
       const cacheKey = `electricity:${props.studentId}:${selectedPath.value.join('-')}`
@@ -441,12 +465,13 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
         syncTime.value = cached.data?.sync_time || new Date(cached.timestamp).toLocaleString()
         errorMsg.value = ''
       } else {
-        errorMsg.value = e.message || '网络错误'
+        errorMsg.value = e.message || t('electricity.error.network')
         balanceData.value = null
       }
     }
   } finally {
-    if (!String(errorMsg.value || '').includes('正在重试')) {
+    // 重试等待期间保持 loading：按当前语言的「正在重试」整句判断
+    if (!String(errorMsg.value || '').includes(t('electricity.error.retrying').split('{')[0])) {
       loading.value = false
     }
   }
@@ -498,7 +523,8 @@ const mapPoints = (pts, short = true) => {
       label,
       fullLabel: full,
       value: Number(p?.value ?? p?.dayuse ?? 0) || 0,
-      unit: p?.unit || '度'
+      // 缺省单位按当前语言兜底（后端有 unit 时用后端值）
+      unit: p?.unit || t('electricity.usage.kwh')
     }
   })
 }
@@ -571,8 +597,8 @@ const usageSourceHint = computed(() => {
   const src = usageStats.value?.source || ''
   const hint = usageStats.value?.hint || ''
   if (hint) return hint
-  if (src === 'selected') return '用电趋势：当前所选房间'
-  if (src === 'bound') return '用电趋势：一码通绑定房间'
+  if (src === 'selected') return tLocale('electricity.usage.sourceSelected')
+  if (src === 'bound') return tLocale('electricity.usage.sourceBound')
   return ''
 })
 
@@ -623,8 +649,9 @@ const switchUsageTab = (tab) => {
 const openElectricityPay = async () => {
   payLoading.value = true
   try {
-    // 每次重新签发：浏览器 tid 用一次即失效
-    const res = await prepareOneCodeAppOpen({ appCode: 'electric', appName: '缴电费' })
+    // 每次重新签发：浏览器 tid 用一次即失效。
+    // appName 为一码通系统专名（官方 navbarTitle 固定中文），字典两侧同值
+    const res = await prepareOneCodeAppOpen({ appCode: 'electric', appName: t('electricity.oneCode.appName') })
     if (res.openUrl) {
       await openExternal(res.openUrl)
       // 可选扫码：同样是新鲜链接
@@ -635,7 +662,7 @@ const openElectricityPay = async () => {
       }
     }
   } catch (e) {
-    showToast(String(e?.message || e || '打开失败'))
+    showToast(String(e?.message || e || t('electricity.pay.openFailed')))
   } finally {
     payLoading.value = false
   }
@@ -648,11 +675,11 @@ const togglePayQr = async () => {
   }
   payLoading.value = true
   try {
-    const res = await prepareOneCodeAppOpen({ appCode: 'electric', appName: '缴电费' })
+    const res = await prepareOneCodeAppOpen({ appCode: 'electric', appName: t('electricity.oneCode.appName') })
     payQr.value = await qrToDataURL(res.openUrl, { width: 180 })
     showPayQr.value = true
   } catch (e) {
-    showToast(String(e?.message || e || '生成二维码失败'))
+    showToast(String(e?.message || e || t('electricity.pay.qrFailed')))
   } finally {
     payLoading.value = false
   }
@@ -708,11 +735,12 @@ const loadUsageStats = async () => {
     const hasPts = Array.isArray(pts) && pts.length
     const hasMonth = Array.isArray(monthPts) && monthPts.length
     if (res?.success === false && !hasPts && !hasMonth) {
-      // 已选房时避免后端/兜底文案回落成「请先选择宿舍」
-      const raw = String(res?.message || '暂无用电数据')
+      // 已选房时避免后端/兜底文案回落成「请先选择宿舍」；
+      // 引导语匹配逻辑（后端中文词汇表）外移至 electricity_usage_ui.containsMisleadingRoomHint
+      const raw = String(res?.message || t('electricity.usage.errorNoData'))
       usageError.value =
-        hasSelectedRoom.value && /请先选择宿舍/.test(raw)
-          ? '该房间暂无用电趋势数据，可重试或查看上方电费余额'
+        hasSelectedRoom.value && containsMisleadingRoomHint(raw)
+          ? t('electricity.usage.errorNoTrend')
           : raw
     } else if (hasPts || hasMonth) {
       requestAnimationFrame(() => {
@@ -726,7 +754,7 @@ const loadUsageStats = async () => {
     }
   } catch (e) {
     if (reqId !== usageRequestSeq) return
-    usageError.value = String(e?.message || e || '加载失败')
+    usageError.value = String(e?.message || e || t('electricity.usage.loadFailed'))
     usageStats.value = null
   } finally {
     if (reqId === usageRequestSeq) {
@@ -764,15 +792,15 @@ watch(
 <template>
   <div class="electricity-page text-on-surface min-h-screen flex flex-col font-body-md max-w-[448px] mx-auto relative overflow-x-hidden">
     <!-- Header -->
-    <TPageHeader icon="bolt" title="电费查询" @back="handleBack" />
+    <TPageHeader icon="bolt" :title="tLocale('electricity.title')" @back="handleBack" />
 
     <main class="flex-1 px-container-padding pb-[100px] flex flex-col gap-5 mt-4">
       <!-- Offline Banner -->
       <div v-if="offline" class="bg-surface-container-high rounded-lg p-3 flex items-start gap-3">
         <span class="material-symbols-outlined text-secondary mt-0.5" style="font-variation-settings: 'FILL' 0;">cloud_off</span>
         <div>
-          <p class="font-body-md text-on-surface-variant text-body-md">当前显示为离线缓存数据</p>
-          <p class="font-label-md text-outline text-label-md mt-1">最后更新: {{ formatRelativeTime(syncTime) }}</p>
+          <p class="font-body-md text-on-surface-variant text-body-md">{{ tLocale('electricity.offlineBanner.text') }}</p>
+          <p class="font-label-md text-outline text-label-md mt-1">{{ tfOfflineLastUpdate }}</p>
         </div>
       </div>
 
@@ -780,22 +808,22 @@ watch(
       <section class="glass-card rounded-2xl p-5">
         <h2 class="font-headline-sm text-headline-sm text-on-surface mb-4 flex items-center gap-2">
           <span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 0;">apartment</span>
-          宿舍信息
+          {{ tLocale('electricity.selector.title') }}
         </h2>
         <div class="grid grid-cols-2 gap-3">
           <!-- 校区 -->
           <div class="relative">
-            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">校区</label>
-            <IOSSelect v-model="selectedAreaValue" placeholder="选择校区" class="w-full bg-surface-container-low rounded-xl text-sm">
-              <option value="" disabled>选择校区</option>
+            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">{{ tLocale('electricity.selector.area') }}</label>
+            <IOSSelect v-model="selectedAreaValue" :placeholder="tLocale('electricity.selector.placeholder.area')" class="w-full bg-surface-container-low rounded-xl text-sm">
+              <option value="" disabled>{{ tLocale('electricity.selector.placeholder.area') }}</option>
               <option v-for="area in dormData" :key="area.value" :value="area.value">{{ area.label }}</option>
             </IOSSelect>
           </div>
           <!-- 楼栋 -->
           <div class="relative">
-            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">楼栋</label>
-            <IOSSelect v-model="selectedBuildingValue" :disabled="!selectedPath[0]" placeholder="选择楼栋" class="w-full bg-surface-container-low rounded-xl text-sm">
-              <option value="" disabled>选择楼栋</option>
+            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">{{ tLocale('electricity.selector.building') }}</label>
+            <IOSSelect v-model="selectedBuildingValue" :disabled="!selectedPath[0]" :placeholder="tLocale('electricity.selector.placeholder.building')" class="w-full bg-surface-container-low rounded-xl text-sm">
+              <option value="" disabled>{{ tLocale('electricity.selector.placeholder.building') }}</option>
               <template v-if="currentArea">
                 <option v-for="b in currentArea.children" :key="b.value" :value="b.value">{{ b.label }}</option>
               </template>
@@ -803,9 +831,9 @@ watch(
           </div>
           <!-- 楼层 -->
           <div class="relative">
-            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">楼层</label>
-            <IOSSelect v-model="selectedLevelValue" :disabled="!selectedPath[1]" placeholder="选择楼层" class="w-full bg-surface-container-low rounded-xl text-sm">
-              <option value="" disabled>选择楼层</option>
+            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">{{ tLocale('electricity.selector.level') }}</label>
+            <IOSSelect v-model="selectedLevelValue" :disabled="!selectedPath[1]" :placeholder="tLocale('electricity.selector.placeholder.level')" class="w-full bg-surface-container-low rounded-xl text-sm">
+              <option value="" disabled>{{ tLocale('electricity.selector.placeholder.level') }}</option>
               <template v-if="currentBuilding">
                 <option v-for="l in currentBuilding.children" :key="l.value" :value="l.value">{{ l.label }}</option>
               </template>
@@ -813,9 +841,9 @@ watch(
           </div>
           <!-- 房间 -->
           <div class="relative">
-            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">房间</label>
-            <IOSSelect v-model="selectedRoomValue" :disabled="!selectedPath[2]" placeholder="选择房间" class="w-full bg-surface-container-low rounded-xl text-sm">
-              <option value="" disabled>选择房间</option>
+            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">{{ tLocale('electricity.selector.room') }}</label>
+            <IOSSelect v-model="selectedRoomValue" :disabled="!selectedPath[2]" :placeholder="tLocale('electricity.selector.placeholder.room')" class="w-full bg-surface-container-low rounded-xl text-sm">
+              <option value="" disabled>{{ tLocale('electricity.selector.placeholder.room') }}</option>
               <template v-if="currentLevel">
                 <option v-for="r in currentLevel.children" :key="r.value" :value="r.value">{{ r.label }}</option>
               </template>
@@ -829,7 +857,7 @@ watch(
         <div class="animate-spin">
           <span class="material-symbols-outlined text-primary text-3xl" style="font-variation-settings: 'FILL' 0;">progress_activity</span>
         </div>
-        <p class="font-body-md text-body-md text-on-surface-variant">正在查询电费信息...</p>
+        <p class="font-body-md text-body-md text-on-surface-variant">{{ tLocale('electricity.loading') }}</p>
       </div>
 
       <!-- Results: Dual Billing Mode -->
@@ -858,7 +886,7 @@ watch(
               >
                 <span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
               </div>
-              <h3 class="font-headline-sm text-headline-sm text-on-surface">照明用电</h3>
+              <h3 class="font-headline-sm text-headline-sm text-on-surface">{{ tLocale('electricity.card.lighting') }}</h3>
             </div>
             <div
               :class="[
@@ -869,19 +897,19 @@ watch(
               <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">
                 {{ parseFloat(balanceData.quantity) < 10 ? 'warning' : 'check_circle' }}
               </span>
-              {{ parseFloat(balanceData.quantity) < 10 ? '余额不足' : '运行正常' }}
+              {{ parseFloat(balanceData.quantity) < 10 ? tLocale('electricity.status.low') : tLocale('electricity.status.normal') }}
             </div>
           </div>
           <div class="grid grid-cols-2 gap-4 relative z-10">
             <div>
-              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余电量 (度)</p>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">{{ tLocale('electricity.remainingKwh') }}</p>
               <p
                 class="font-headline-lg text-headline-lg"
                 :class="parseFloat(balanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
               >{{ balanceData.quantity }}</p>
             </div>
             <div>
-              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余金额 (元)</p>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">{{ tLocale('electricity.remainingYuan') }}</p>
               <p class="font-headline-md text-headline-md text-on-surface mt-1">¥ {{ balanceData.balance }}</p>
             </div>
           </div>
@@ -898,7 +926,7 @@ watch(
               @click="openElectricityPay"
             >
               <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
-              {{ payLoading ? '准备中…' : parseFloat(balanceData.quantity) < 10 ? '立即充值' : '去充值' }}
+              {{ payLoading ? tLocale('electricity.pay.preparing') : parseFloat(balanceData.quantity) < 10 ? tLocale('electricity.pay.rechargeNow') : tLocale('electricity.pay.recharge') }}
             </button>
             <button
               class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
@@ -919,7 +947,7 @@ watch(
               <div class="bg-primary-container/20 text-primary rounded-full p-2 flex items-center justify-center">
                 <span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">ac_unit</span>
               </div>
-              <h3 class="font-headline-sm text-headline-sm text-on-surface">空调用电</h3>
+              <h3 class="font-headline-sm text-headline-sm text-on-surface">{{ tLocale('electricity.card.ac') }}</h3>
             </div>
             <div
               :class="[
@@ -930,19 +958,19 @@ watch(
               <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">
                 {{ parseFloat(acBalanceData.quantity) < 10 ? 'warning' : 'check_circle' }}
               </span>
-              {{ parseFloat(acBalanceData.quantity) < 10 ? '余额不足' : '运行正常' }}
+              {{ parseFloat(acBalanceData.quantity) < 10 ? tLocale('electricity.status.low') : tLocale('electricity.status.normal') }}
             </div>
           </div>
           <div class="grid grid-cols-2 gap-4 relative z-10">
             <div>
-              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余电量 (度)</p>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">{{ tLocale('electricity.remainingKwh') }}</p>
               <p
                 class="font-headline-lg text-headline-lg"
                 :class="parseFloat(acBalanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
               >{{ acBalanceData.quantity }}</p>
             </div>
             <div>
-              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余金额 (元)</p>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">{{ tLocale('electricity.remainingYuan') }}</p>
               <p class="font-headline-md text-headline-md text-on-surface mt-1">¥ {{ acBalanceData.balance }}</p>
             </div>
           </div>
@@ -954,7 +982,7 @@ watch(
               @click="openElectricityPay"
             >
               <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
-              {{ payLoading ? '准备中…' : '去充值' }}
+              {{ payLoading ? tLocale('electricity.pay.preparing') : tLocale('electricity.pay.recharge') }}
             </button>
             <button
               class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
@@ -968,7 +996,7 @@ watch(
         <!-- AC query failed fallback -->
         <section v-else class="glass-card rounded-2xl p-5 flex items-center gap-3">
           <span class="material-symbols-outlined text-outline" style="font-variation-settings: 'FILL' 0;">ac_unit</span>
-          <p class="font-body-md text-body-md text-on-surface-variant">空调电费查询失败</p>
+          <p class="font-body-md text-body-md text-on-surface-variant">{{ tLocale('electricity.acQueryFailed') }}</p>
         </section>
       </template>
 
@@ -997,7 +1025,7 @@ watch(
               >
                 <span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
               </div>
-              <h3 class="font-headline-sm text-headline-sm text-on-surface">电费余额</h3>
+              <h3 class="font-headline-sm text-headline-sm text-on-surface">{{ tLocale('electricity.card.balance') }}</h3>
             </div>
             <div
               :class="[
@@ -1013,14 +1041,14 @@ watch(
           </div>
           <div class="grid grid-cols-2 gap-4 relative z-10">
             <div>
-              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余电量 (度)</p>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">{{ tLocale('electricity.remainingKwh') }}</p>
               <p
                 class="font-headline-lg text-headline-lg"
                 :class="parseFloat(balanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
               >{{ balanceData.quantity }}</p>
             </div>
             <div>
-              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余金额 (元)</p>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">{{ tLocale('electricity.remainingYuan') }}</p>
               <p class="font-headline-md text-headline-md text-on-surface mt-1">¥ {{ balanceData.balance }}</p>
             </div>
           </div>
@@ -1037,7 +1065,7 @@ watch(
               @click="openElectricityPay"
             >
               <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
-              {{ payLoading ? '准备中…' : parseFloat(balanceData.quantity) < 10 ? '立即充值' : '去充值' }}
+              {{ payLoading ? tLocale('electricity.pay.preparing') : parseFloat(balanceData.quantity) < 10 ? tLocale('electricity.pay.rechargeNow') : tLocale('electricity.pay.recharge') }}
             </button>
             <button
               class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
@@ -1058,43 +1086,43 @@ watch(
       <!-- Empty State -->
       <div v-else class="glass-card rounded-2xl p-8 flex flex-col items-center justify-center gap-3 text-center">
         <span class="material-symbols-outlined text-4xl text-outline" style="font-variation-settings: 'FILL' 0;">electric_meter</span>
-        <p class="font-body-md text-body-md text-on-surface-variant">请先选择宿舍以查询电费</p>
+        <p class="font-body-md text-body-md text-on-surface-variant">{{ tLocale('electricity.empty') }}</p>
       </div>
 
       <!-- 用电趋势：跟随所选房间 + 日/月动画柱图 -->
       <section class="util-card usage-card">
         <div class="util-card-head">
           <div>
-            <h3>用电趋势</h3>
+            <h3>{{ tLocale('electricity.usage.title') }}</h3>
             <p v-if="displayRoomName" class="bound-tag">{{ displayRoomName }}</p>
             <p v-if="usageSourceHint" class="bound-tag soft">{{ usageSourceHint }}</p>
           </div>
           <div class="seg">
-            <button type="button" :class="{ on: usageTab === 'week' }" @click="switchUsageTab('week')">日</button>
-            <button type="button" :class="{ on: usageTab === 'month' }" @click="switchUsageTab('month')">月</button>
+            <button type="button" :class="{ on: usageTab === 'week' }" @click="switchUsageTab('week')">{{ tLocale('electricity.usage.tabDay') }}</button>
+            <button type="button" :class="{ on: usageTab === 'month' }" @click="switchUsageTab('month')">{{ tLocale('electricity.usage.tabMonth') }}</button>
           </div>
         </div>
 
-        <div v-if="usageLoading" class="util-muted pulse">加载智能水电…</div>
+        <div v-if="usageLoading" class="util-muted pulse">{{ tLocale('electricity.usage.loadingSmart') }}</div>
 
         <div v-else-if="usageError && !activePoints.length" class="util-err-row">
           <span>{{ usageError }}</span>
-          <button type="button" class="link-btn" @click="loadUsageStats">重试</button>
+          <button type="button" class="link-btn" @click="loadUsageStats">{{ tLocale('electricity.usage.retry') }}</button>
         </div>
 
         <template v-else-if="activePoints.length">
           <div class="kpi-row">
             <div class="kpi pop">
-              <span>今日</span>
-              <strong>{{ todayUse ?? '—' }}<small>度</small></strong>
+              <span>{{ tLocale('electricity.usage.today') }}</span>
+              <strong>{{ todayUse ?? '—' }}<small>{{ tLocale('electricity.usage.kwh') }}</small></strong>
             </div>
             <div class="kpi focus pop" v-if="selectedPoint">
               <span>{{ selectedPoint.fullLabel }}</span>
               <strong>{{ selectedPoint.value }}<small>{{ selectedPoint.unit }}</small></strong>
             </div>
             <div class="kpi pop">
-              <span>合计</span>
-              <strong>{{ periodSum.toFixed(1) }}<small>度</small></strong>
+              <span>{{ tLocale('electricity.usage.total') }}</span>
+              <strong>{{ periodSum.toFixed(1) }}<small>{{ tLocale('electricity.usage.kwh') }}</small></strong>
             </div>
           </div>
 
@@ -1102,7 +1130,7 @@ watch(
             class="ibar"
             :class="{ ready: chartReady }"
             role="listbox"
-            aria-label="用电柱图"
+            :aria-label="tLocale('electricity.usage.chartAria')"
             ref="ibarRef"
           >
             <button
@@ -1136,20 +1164,20 @@ watch(
             {{
               usageStats?.message ||
               usageStats?.summary ||
-              '该房间暂无分日/分月用电曲线'
+              tLocale('electricity.usage.snapshotNoCurve')
             }}
           </p>
           <div v-if="usageSnapshotQuantity || usageSnapshotBalance" class="kpi-row snapshot-kpi">
             <div v-if="usageSnapshotQuantity" class="kpi pop">
-              <span>剩余电量</span>
-              <strong>{{ usageSnapshotQuantity }}<small>度</small></strong>
+              <span>{{ tLocale('electricity.usage.snapshotQuantity') }}</span>
+              <strong>{{ usageSnapshotQuantity }}<small>{{ tLocale('electricity.usage.kwh') }}</small></strong>
             </div>
             <div v-if="usageSnapshotBalance" class="kpi pop">
-              <span>余额</span>
-              <strong>{{ usageSnapshotBalance }}<small>元</small></strong>
+              <span>{{ tLocale('electricity.usage.snapshotBalance') }}</span>
+              <strong>{{ usageSnapshotBalance }}<small>{{ tLocale('electricity.usage.snapshotYuan') }}</small></strong>
             </div>
           </div>
-          <button type="button" class="link-btn" @click="loadUsageStats">重新拉取趋势</button>
+          <button type="button" class="link-btn" @click="loadUsageStats">{{ tLocale('electricity.usage.refreshTrend') }}</button>
         </div>
 
         <div v-else class="util-muted">{{ usageEmptyText }}</div>
@@ -1165,7 +1193,7 @@ watch(
             @click="openElectricityPay"
           >
             <span class="material-symbols-outlined">bolt</span>
-            {{ payLoading ? '打开中…' : '缴电费' }}
+            {{ payLoading ? tLocale('electricity.pay.opening') : tLocale('electricity.pay.main') }}
           </button>
           <button
             type="button"
@@ -1178,12 +1206,12 @@ watch(
           </button>
         </div>
         <div v-if="showPayQr && payQr" class="pay-qr">
-          <img :src="payQr" alt="缴电费" width="180" height="180" />
+          <img :src="payQr" :alt="tLocale('electricity.pay.qrAlt')" width="180" height="180" />
         </div>
-        <!-- 提醒：本页仅查询演示，缴费需前往官方 i 湖工 -->
+        <!-- 提醒：本页仅查询演示，缴费需前往官方 i 湖工（专名经字典两侧同值保留） -->
         <p class="pay-demo-hint">
           <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">info</span>
-          <span>应用内缴费入口仅供演示跳转，无法完成实际缴费；请前往 <strong>i 湖工</strong> 自行缴费。</span>
+          <span>{{ tfPayDemoHint }}</span>
         </p>
       </section>
     </main>

@@ -313,7 +313,8 @@ export const createAppState = (stores: AppStores, options: CreateAppStateOptions
         : useUiSettings().splashEnabled !== false && !options.skipSplashForFastScheduleBoot
     ),
     splashStatus: ref('connecting'),
-    splashStatusText: ref('正在启动…'),
+    // 默认空串：SplashScreen 内部按 locale 兜底（避免跨模块硬编码中文）
+    splashStatusText: ref(''),
     splashRef: ref(null),
 
     viewRenderNonce: ref(0),

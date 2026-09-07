@@ -9,6 +9,10 @@ import { TPageHeader, TEmptyState } from '../../../components/templates'
 import { fetchAuthHistory } from '../identityService'
 import { IdentityServiceError, type IdentityAuthHistoryItem } from '../types'
 import { showToast } from '../../../utils/toast'
+// #795：响应式 t（locale 变化后模板即时重渲染）
+import { useI18n } from '../../../utils/app_i18n'
+
+const { t } = useI18n()
 
 const emit = defineEmits(['back'])
 
@@ -23,17 +27,17 @@ const loading = ref(false)
 
 /** 相对时间（刚刚 / N 分钟前 / N 小时前 / N 天前 / 具体日期） */
 const formatRelativeTime = (iso: string): string => {
-  const t = new Date(iso).getTime()
-  if (!Number.isFinite(t)) return ''
-  const diff = Date.now() - t
+  const t0 = new Date(iso).getTime()
+  if (!Number.isFinite(t0)) return ''
+  const diff = Date.now() - t0
   const minute = 60_000
   const hour = 60 * minute
   const day = 24 * hour
-  if (diff < minute) return '刚刚'
-  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
-  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`
-  const d = new Date(t)
+  if (diff < minute) return t('identity.history.time.just_now')
+  if (diff < hour) return t('identity.history.time.minutes_ago').replace('{n}', String(Math.floor(diff / minute)))
+  if (diff < day) return t('identity.history.time.hours_ago').replace('{n}', String(Math.floor(diff / hour)))
+  if (diff < 7 * day) return t('identity.history.time.days_ago').replace('{n}', String(Math.floor(diff / day)))
+  const d = new Date(t0)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
@@ -57,17 +61,17 @@ const lastTime = computed(() => (items.value[0] ? formatRelativeTime(items.value
 const errorHintFor = (code: string): string => {
   switch (code) {
     case 'secure_storage_unavailable':
-      return '这通常是系统凭据存储暂时不可用。可尝试完全退出并重启本应用后重试；若持续出现，请通过「设置 → 关于」反馈版本号。'
+      return t('identity.history.hint.secure_storage_unavailable')
     case 'device_revoked':
-      return '本机设备身份已被撤销。请在「设置 → 登录与安全」重新完成设备注册后再查看授权记录。'
+      return t('identity.history.hint.device_revoked')
     case 'signature_rejected':
-      return '签名校验未通过，可点击重试；若持续失败，请重新完成设备注册。'
+      return t('identity.history.hint.signature_rejected')
     case 'network_unavailable':
-      return '请检查网络连接后点击重试。'
+      return t('identity.history.hint.network_unavailable')
     case 'client_unavailable':
-      return '发起授权的应用已被暂停，历史记录暂时无法查看。'
+      return t('identity.history.hint.client_unavailable')
     case 'unknown':
-      return '身份服务暂时不可用，请稍后重试。'
+      return t('identity.history.hint.unknown')
     default:
       return ''
   }
@@ -87,7 +91,7 @@ const load = async () => {
       errorMessage.value = err.message
     } else {
       loadState.value = 'error'
-      errorMessage.value = err instanceof IdentityServiceError ? err.message : '加载失败，请稍后重试'
+      errorMessage.value = err instanceof IdentityServiceError ? err.message : t('identity.history.fallback.load_failed')
       // #776：按错误码给出「下一步指引」，而非统一「加载失败」
       if (err instanceof IdentityServiceError) {
         errorHint.value = errorHintFor(err.code)
@@ -100,7 +104,7 @@ const load = async () => {
 
 const handleRefresh = async () => {
   await load()
-  if (loadState.value === 'ready') showToast('授权记录已刷新')
+  if (loadState.value === 'ready') showToast(t('identity.history.toast.refreshed'))
 }
 
 onMounted(() => {
@@ -110,9 +114,9 @@ onMounted(() => {
 
 <template>
   <div class="auth-history-view">
-    <TPageHeader title="授权记录" icon="history" show-back @back="emit('back')">
+    <TPageHeader :title="t('identity.history.title')" icon="history" show-back @back="emit('back')">
       <template #actions>
-        <button class="history-refresh-btn" aria-label="刷新" :disabled="loading" @click="handleRefresh">
+        <button class="history-refresh-btn" :aria-label="t('identity.history.refresh.aria')" :disabled="loading" @click="handleRefresh">
           <span class="material-symbols-outlined" :class="{ spinning: loading }">refresh</span>
         </button>
       </template>
@@ -122,40 +126,40 @@ onMounted(() => {
     <section v-if="loadState === 'ready' && items.length > 0" class="history-stats-card">
       <div class="stat-item">
         <span class="stat-value">{{ totalCount }}</span>
-        <span class="stat-label">授权次数</span>
+        <span class="stat-label">{{ t('identity.history.stat.total') }}</span>
       </div>
       <div class="stat-item">
         <span class="stat-value">{{ appCount }}</span>
-        <span class="stat-label">涉及应用</span>
+        <span class="stat-label">{{ t('identity.history.stat.apps') }}</span>
       </div>
       <div class="stat-item">
         <span class="stat-value stat-value--time">{{ lastTime }}</span>
-        <span class="stat-label">最近授权</span>
+        <span class="stat-label">{{ t('identity.history.stat.last') }}</span>
       </div>
     </section>
 
     <!-- 设备未注册引导 -->
     <section v-if="loadState === 'no_device'" class="history-tip-card">
       <span class="material-symbols-outlined tip-icon">devices</span>
-      <p class="tip-title">本机尚未注册为身份签名设备</p>
+      <p class="tip-title">{{ t('identity.history.no_device.title') }}</p>
       <p class="tip-desc">{{ errorMessage }}</p>
-      <p class="tip-desc">授权记录由本机签名设备批准后产生。请先在「设置 → 登录与安全」完成设备注册，再发起一次授权即可看到记录。</p>
+      <p class="tip-desc">{{ t('identity.history.no_device.desc') }}</p>
     </section>
 
     <!-- 错误态 -->
     <section v-if="loadState === 'error'" class="history-tip-card">
       <span class="material-symbols-outlined tip-icon tip-icon--error">error</span>
-      <p class="tip-title">加载失败</p>
+      <p class="tip-title">{{ t('identity.history.error.title') }}</p>
       <p class="tip-desc">{{ errorMessage }}</p>
       <p v-if="errorHint" class="tip-desc tip-hint">{{ errorHint }}</p>
-      <button class="history-retry-btn" @click="load">重试</button>
+      <button class="history-retry-btn" @click="load">{{ t('identity.history.error.retry') }}</button>
     </section>
 
     <!-- 空状态 -->
     <section v-if="loadState === 'ready' && items.length === 0" class="history-empty-wrap">
       <TEmptyState
         icon="🗂️"
-        message="还没有授权记录 —— 从网页发起授权并在此设备确认后，记录会显示在这里。"
+        :message="t('identity.history.empty')"
       />
     </section>
 
@@ -168,8 +172,8 @@ onMounted(() => {
           </div>
           <div class="history-item-body">
             <div class="history-app-line">
-              <span class="history-app-name">{{ item.client.name || '未命名应用' }}</span>
-              <span v-if="item.client.is_test" class="history-test-badge">测试应用</span>
+              <span class="history-app-name">{{ item.client.name || t('identity.history.app.unnamed') }}</span>
+              <span v-if="item.client.is_test" class="history-test-badge">{{ t('identity.history.badge.test') }}</span>
             </div>
             <span v-if="item.client.homepage_host" class="history-app-host">{{ item.client.homepage_host }}</span>
             <div class="history-scope-line">
@@ -183,7 +187,7 @@ onMounted(() => {
               </span>
             </div>
           </div>
-          <span class="history-status-badge">已授权</span>
+          <span class="history-status-badge">{{ t('identity.history.badge.approved') }}</span>
         </div>
         <div class="history-item-time">
           <span class="history-time-relative">{{ formatRelativeTime(item.approved_at) }}</span>
@@ -194,7 +198,7 @@ onMounted(() => {
 
     <!-- 数据说明 -->
     <p class="history-footnote">
-      授权记录由身份服务按本机设备签名统计，仅展示本设备批准过的授权（上限 50 条），不会上传任何凭据。
+      {{ t('identity.history.footnote') }}
     </p>
   </div>
 </template>

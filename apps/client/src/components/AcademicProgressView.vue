@@ -3,7 +3,11 @@ import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { t, useLocale } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
+
+// i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
+const { locale } = useLocale()
 
 const props = defineProps({
   studentId: { type: String, required: true }
@@ -22,45 +26,48 @@ const syncTime = ref('')
 const showDetail = ref(false)
 const selectedCourse = ref(null)
 
+// fasz 完成度类型选项：label 改为 i18n key，渲染时取词
 const faszOptions = [
-  { value: 1, label: '课程性质完成度' },
-  { value: 0, label: '培养方案完成度' },
-  { value: 2, label: '教学计划完成度' },
-  { value: 4, label: '毕业学分完成度' }
+  { value: 1, labelKey: 'academic.fasz.nature' },
+  { value: 0, labelKey: 'academic.fasz.curriculum' },
+  { value: 2, labelKey: 'academic.fasz.teaching' },
+  { value: 4, labelKey: 'academic.fasz.graduation' }
 ]
 const FASZ_ALLOWED = new Set(faszOptions.map(item => item.value))
 
+/** 概览字段标签：数据驱动枚举，label 为 i18n key，渲染时取词 */
 const SUMMARY_FIELD_LABEL = {
-  gpa: 'GPA',
-  pjcj: '平均成绩',
-  hdzxf: '累计获得学分',
-  yxkms: '已选课门数',
-  bjgms: '不及格门数',
-  gpazypm: 'GPA专业排名',
-  xwjdpm: '学位绩点排名'
+  gpa: 'academic.summary.gpa',
+  pjcj: 'academic.summary.avgScore',
+  hdzxf: 'academic.summary.earnedCredits',
+  yxkms: 'academic.summary.selectedCourses',
+  bjgms: 'academic.summary.failedCourses',
+  gpazypm: 'academic.summary.gpaRank',
+  xwjdpm: 'academic.summary.degreeRank'
 }
 const SUMMARY_FIELD_ORDER = ['gpa', 'pjcj', 'hdzxf', 'yxkms', 'bjgms', 'gpazypm', 'xwjdpm']
 
+/** 课程详情字段标签：数据驱动枚举，label 为 i18n key，渲染时取词 */
 const COURSE_FIELD_LABEL = {
-  kcmc: '课程名称',
-  kcbh: '课程编号',
-  xf: '学分',
-  hdxf: '获得学分',
-  xfjd: '绩点',
-  zhcj: '最高成绩',
-  xnxq: '成绩学年学期',
-  cjxq: '允许修读学年学期',
-  kcxz: '课程性质',
-  kclb: '课程类别',
-  kkyxmc: '开课学院',
-  skjs: '授课教师',
-  jxbmc: '教学班名称',
-  jxbzc: '教学班组成',
-  wczt: '完成状态',
-  sfbk: '是否补考',
-  sfsq: '是否缓考',
-  sfmx: '是否免修',
-  bz: '备注'
+  kcmc: 'academic.course.kcmc',
+  kcbh: 'academic.course.kcbh',
+  xf: 'academic.course.xf',
+  hdxf: 'academic.course.hdxf',
+  xfjd: 'academic.course.xfjd',
+  zhcj: 'academic.course.zhcj',
+  xnxq: 'academic.course.xnxq',
+  cjxq: 'academic.course.cjxq',
+  kcxz: 'academic.course.kcxz',
+  kclb: 'academic.course.kclb',
+  kkyxmc: 'academic.course.kkyxmc',
+  skjs: 'academic.course.skjs',
+  jxbmc: 'academic.course.jxbmc',
+  jxbzc: 'academic.course.jxbzc',
+  wczt: 'academic.course.wczt',
+  sfbk: 'academic.course.sfbk',
+  sfsq: 'academic.course.sfsq',
+  sfmx: 'academic.course.sfmx',
+  bz: 'academic.course.bz'
 }
 const COURSE_DETAIL_FIELD_ORDER = [
   'kcbh',
@@ -100,7 +107,7 @@ const normalizeValue = (value) => {
       return ''
     }
   }
-  if (typeof value === 'boolean') return value ? '是' : '否'
+  if (typeof value === 'boolean') return value ? t('common.yes') : t('common.no')
   return String(value).trim()
 }
 
@@ -109,8 +116,8 @@ const hasValue = (value) => normalizeValue(value) !== ''
 const normalizeCourseFieldValue = (key, rawValue) => {
   const value = normalizeValue(rawValue)
   if (!BOOLEAN_TEXT_KEYS.has(key)) return value
-  if (['1', '是', 'Y', 'y', 'true', 'TRUE'].includes(value)) return '是'
-  if (['0', '否', 'N', 'n', 'false', 'FALSE', '-'].includes(value)) return '否'
+  if (['1', '是', 'Y', 'y', 'true', 'TRUE'].includes(value)) return t('common.yes')
+  if (['0', '否', 'N', 'n', 'false', 'FALSE', '-'].includes(value)) return t('common.no')
   return value
 }
 
@@ -132,10 +139,10 @@ const completionPillClass = (raw) => {
 const requirementText = (node) => {
   if (!node || typeof node !== 'object') return ''
   const parts = []
-  if (hasValue(node.yqzdxf)) parts.push(`最低学分 ${normalizeValue(node.yqzdxf)}`)
-  if (hasValue(node.yqzgxf)) parts.push(`最高学分 ${normalizeValue(node.yqzgxf)}`)
-  if (hasValue(node.yqzdms)) parts.push(`最低门数 ${normalizeValue(node.yqzdms)}`)
-  if (hasValue(node.yqzgms)) parts.push(`最高门数 ${normalizeValue(node.yqzgms)}`)
+  if (hasValue(node.yqzdxf)) parts.push(`${t('academic.req.minCredits')} ${normalizeValue(node.yqzdxf)}`)
+  if (hasValue(node.yqzgxf)) parts.push(`${t('academic.req.maxCredits')} ${normalizeValue(node.yqzgxf)}`)
+  if (hasValue(node.yqzdms)) parts.push(`${t('academic.req.minCourses')} ${normalizeValue(node.yqzdms)}`)
+  if (hasValue(node.yqzgms)) parts.push(`${t('academic.req.maxCourses')} ${normalizeValue(node.yqzgms)}`)
   return parts.join(' / ')
 }
 
@@ -145,7 +152,7 @@ const flattenCategorySections = (tree) => {
     if (!Array.isArray(nodes)) return
     nodes.forEach((node, idx) => {
       if (!node || typeof node !== 'object') return
-      const nodeName = normalizeValue(node.nodeName) || normalizeValue(node.name) || `分类${idx + 1}`
+      const nodeName = normalizeValue(node.nodeName) || normalizeValue(node.name) || `${t('academic.category.prefix')}${idx + 1}`
       const path = [...parentPath, nodeName]
       const courses = Array.isArray(node.kcList)
         ? node.kcList.map((course, courseIdx) => ({
@@ -190,15 +197,16 @@ const categorySections = computed(() => {
   }
   const list = progressData.value?.kcList
   if (Array.isArray(list) && list.length) {
+    const allCoursesLabel = t('academic.allCourses')
     return [{
       id: 'all-courses',
-      name: '全部课程',
-      path: '全部课程',
+      name: allCoursesLabel,
+      path: allCoursesLabel,
       requirement: '',
       courses: list.map((course, idx) => ({
         ...course,
-        _categoryPath: '全部课程',
-        _categoryName: '全部课程',
+        _categoryPath: allCoursesLabel,
+        _categoryName: allCoursesLabel,
         _courseId: `${normalizeValue(course.kcbh) || normalizeValue(course.kcmc) || idx}`
       }))
     }]
@@ -219,7 +227,7 @@ const selectedCourseFields = computed(() => {
     .filter(item => hasValue(item.value))
 })
 
-const selectedCourseTitle = computed(() => normalizeValue(selectedCourse.value?.kcmc) || '课程详情')
+const selectedCourseTitle = computed(() => normalizeValue(selectedCourse.value?.kcmc) || t('academic.courseDetail.default'))
 const selectedCourseCategory = computed(() => normalizeValue(selectedCourse.value?._categoryPath) || '-')
 
 const openCourseDetail = (course) => {
@@ -256,10 +264,10 @@ const fetchProgress = async () => {
         emit('logout')
         return
       }
-      error.value = data?.error || '获取学业完成情况失败'
+      error.value = data?.error || t('academic.error.fetch')
     }
   } catch (e) {
-    error.value = e.response?.data?.error || '网络错误'
+    error.value = e.response?.data?.error || t('common.error.network')
   } finally {
     loading.value = false
   }
@@ -277,17 +285,17 @@ onMounted(() => {
 
 <template>
   <div class="progress-view">
-    <TPageHeader title="学业完成情况" @back="emit('back')" />
+    <TPageHeader :title="t('academic.title')" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      {{ t('common.offline.prefix') }}{{ formatRelativeTime(syncTime) }}
     </div>
 
     <div class="controls">
-      <label>完成度类型</label>
+      <label>{{ t('academic.progressType') }}</label>
       <IOSSelect v-model.number="fasz" class="fasz-select" @change="handleFaszChange">
         <option v-for="f in faszOptions" :key="f.value" :value="f.value">
-          {{ f.label }}
+          {{ t(f.labelKey) }}
         </option>
       </IOSSelect>
     </div>
@@ -298,7 +306,7 @@ onMounted(() => {
     <div v-else class="content" v-if="progressData">
       <div class="summary-card" v-if="summaryItems.length">
         <div class="summary-item" v-for="item in summaryItems" :key="item.key">
-          <span class="summary-label">{{ item.label }}</span>
+          <span class="summary-label">{{ t(item.label) }}</span>
           <span class="summary-value">{{ item.value }}</span>
         </div>
       </div>
@@ -311,7 +319,7 @@ onMounted(() => {
               <p class="category-path">{{ section.path }}</p>
               <p v-if="section.requirement" class="category-requirement">{{ section.requirement }}</p>
             </div>
-            <div class="course-count">{{ section.courses.length }} 门</div>
+            <div class="course-count">{{ section.courses.length }} {{ t('academic.unit.courses') }}</div>
           </div>
 
           <div class="course-list">
@@ -324,10 +332,10 @@ onMounted(() => {
             >
               <div class="course-title">{{ normalizeValue(course.kcmc) || '-' }}</div>
               <div class="course-meta">
-                <span>学分 {{ normalizeValue(course.xf) || '-' }}</span>
+                <span>{{ t('academic.creditPrefix') }} {{ normalizeValue(course.xf) || '-' }}</span>
                 <span>{{ normalizeValue(course.kcxz) || normalizeValue(course.kclb) || '-' }}</span>
                 <span class="status-pill" :class="completionPillClass(course.wczt)">
-                  {{ normalizeCompletionText(course.wczt) || '状态未知' }}
+                  {{ normalizeCompletionText(course.wczt) || t('academic.status.unknown') }}
                 </span>
               </div>
             </button>
@@ -335,7 +343,7 @@ onMounted(() => {
         </section>
       </div>
 
-      <div v-else class="empty">暂无学业情况数据</div>
+      <div v-else class="empty">{{ t('academic.empty') }}</div>
     </div>
 
     <Teleport to="body">
@@ -346,17 +354,17 @@ onMounted(() => {
           <div class="modal-top">
             <h2>{{ selectedCourseTitle }}</h2>
             <div class="modal-tags">
-              <span class="modal-tag">学分 {{ normalizeValue(selectedCourse.xf) || '-' }}</span>
+              <span class="modal-tag">{{ t('academic.creditPrefix') }} {{ normalizeValue(selectedCourse.xf) || '-' }}</span>
               <span class="modal-tag status-pill" :class="completionPillClass(selectedCourse.wczt)">
-                {{ normalizeCompletionText(selectedCourse.wczt) || '状态未知' }}
+                {{ normalizeCompletionText(selectedCourse.wczt) || t('academic.status.unknown') }}
               </span>
             </div>
-            <div class="modal-path">所属分类：{{ selectedCourseCategory }}</div>
+            <div class="modal-path">{{ t('academic.belongCategory') }}：{{ selectedCourseCategory }}</div>
           </div>
 
           <div class="detail-grid">
             <div class="detail-item" v-for="item in selectedCourseFields" :key="item.key">
-              <span class="detail-label">{{ item.label }}</span>
+              <span class="detail-label">{{ t(item.label) }}</span>
               <span class="detail-value">{{ item.value }}</span>
             </div>
           </div>

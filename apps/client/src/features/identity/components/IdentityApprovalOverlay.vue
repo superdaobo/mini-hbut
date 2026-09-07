@@ -33,6 +33,10 @@ import {
 import IdentityClientCard from './IdentityClientCard.vue'
 import IdentityScopeList from './IdentityScopeList.vue'
 import IdentityResultState from './IdentityResultState.vue'
+// #795：响应式 t（locale 变化后模板即时重渲染）
+import { useI18n } from '../../../utils/app_i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   /** #621+#623 调度/审批 coordinator（由 useAppRuntime 装配） */
@@ -102,8 +106,8 @@ const stopCountdown = (): void => {
 
 const remainingText = computed(() => {
   const sec = remainingSeconds.value
-  if (sec <= 0) return '即将过期'
-  return `${sec} 秒`
+  if (sec <= 0) return t('identity.overlay.expiry.soon')
+  return t('identity.overlay.expiry.seconds').replace('{n}', String(sec))
 })
 
 const expiryUrgent = computed(() => remainingSeconds.value > 0 && remainingSeconds.value <= 30)
@@ -215,19 +219,19 @@ onBeforeUnmount(() => {
         class="identity-overlay"
         role="dialog"
         aria-modal="true"
-        aria-label="Mini-HBUT 登录授权"
+        :aria-label="t('identity.overlay.dialog.label')"
         @keydown="handleKeydown"
       >
         <div ref="cardRef" class="identity-overlay-card modal-pop-card" tabindex="-1">
           <header class="identity-overlay-header">
             <div class="identity-overlay-title">
               <span class="material-symbols-outlined identity-overlay-title-icon" aria-hidden="true">verified_user</span>
-              <h2>Mini-HBUT 登录授权</h2>
+              <h2>{{ t('identity.overlay.title') }}</h2>
             </div>
             <button
               class="identity-overlay-close"
               type="button"
-              aria-label="取消此次授权"
+              :aria-label="t('identity.overlay.close.aria')"
               :disabled="!closeEnabled"
               @click="handleClose"
             >
@@ -242,42 +246,41 @@ onBeforeUnmount(() => {
             role="status"
           >
             <span class="material-symbols-outlined identity-loading-icon identity-spin" aria-hidden="true">sync</span>
-            <h3>正在获取授权信息…</h3>
+            <h3>{{ t('identity.overlay.loading.title') }}</h3>
           </div>
 
           <div v-else-if="phase === 'validating_session'" class="identity-loading" role="status">
             <span class="material-symbols-outlined identity-loading-icon identity-spin" aria-hidden="true">manage_accounts</span>
-            <h3>正在验证学校登录状态…</h3>
-            <p class="identity-loading-hint">验证通过后即可继续授权</p>
+            <h3>{{ t('identity.overlay.validating.title') }}</h3>
+            <p class="identity-loading-hint">{{ t('identity.overlay.validating.hint') }}</p>
             <button class="btn-secondary btn-ripple identity-loading-cancel" type="button" @click="identity.cancelActive()">
-              取消
+              {{ t('identity.overlay.action.cancel') }}
             </button>
           </div>
 
           <!-- 需要登录：复用现有登录流程 -->
           <div v-else-if="phase === 'needs_login'" class="identity-needs-login">
             <span class="material-symbols-outlined identity-needs-login-icon" aria-hidden="true">login</span>
-            <h3>需要先登录 Mini-HBUT</h3>
-            <p>完成学校登录后，授权请求会自动继续，无需重新点击网页按钮。</p>
+            <h3>{{ t('identity.overlay.needs_login.title') }}</h3>
+            <p>{{ t('identity.overlay.needs_login.desc') }}</p>
             <div class="identity-actions">
-              <button class="btn-secondary btn-ripple" type="button" @click="identity.denyActive()">取消</button>
-              <button class="btn-primary btn-ripple" type="button" @click="handleGoLogin">去登录</button>
+              <button class="btn-secondary btn-ripple" type="button" @click="identity.denyActive()">{{ t('identity.overlay.action.cancel') }}</button>
+              <button class="btn-primary btn-ripple" type="button" @click="handleGoLogin">{{ t('identity.overlay.action.login') }}</button>
             </div>
           </div>
 
           <!-- 提交中：允许/拒绝 -->
           <div v-else-if="busy" class="identity-loading" role="status">
             <span class="material-symbols-outlined identity-loading-icon identity-spin" aria-hidden="true">lock</span>
-            <h3>{{ phase === 'approving' ? '正在提交授权…' : '正在处理…' }}</h3>
-            <p class="identity-loading-hint">请稍候，不要重复点击</p>
+            <h3>{{ phase === 'approving' ? t('identity.overlay.approving.title') : t('identity.overlay.busy.title') }}</h3>
+            <p class="identity-loading-hint">{{ t('identity.overlay.busy.hint') }}</p>
           </div>
 
           <!-- 就绪：展示应用/权限/当前身份 + 允许/拒绝 -->
           <div v-else-if="phase === 'ready' && ui.requestDetail" class="identity-approval-body">
             <!-- 测试应用横幅：仅授权链路测试，不获取真实数据 -->
             <div v-if="ui.requestDetail.client.is_test" class="identity-test-banner" role="note">
-              🧪 <strong>测试应用</strong>：本授权仅用于链路测试，
-              不会获取、保存或使用你的任何真实数据。
+              🧪 <strong>{{ t('identity.overlay.test.badge') }}</strong>：{{ t('identity.overlay.test.desc') }}
             </div>
             <IdentityClientCard :client="ui.requestDetail.client" />
             <!-- 其余 scope：维持现有风险分组展示 -->
@@ -285,7 +288,7 @@ onBeforeUnmount(() => {
 
             <!-- #699 学习数据权限：逐项勾选（默认全选；取消任意一项即不可整体批准） -->
             <fieldset v-if="learningScopes.length" class="identity-learning-group">
-              <legend class="identity-learning-title">学习数据</legend>
+              <legend class="identity-learning-title">{{ t('identity.overlay.learning.title') }}</legend>
               <label
                 v-for="item in learningScopes"
                 :key="item.id"
@@ -321,19 +324,19 @@ onBeforeUnmount(() => {
               {{ NON_OFFICIAL_NOTICE }}
             </p>
 
-            <section class="identity-current" aria-label="当前 Mini-HBUT 身份">
-              <h4>当前 Mini-HBUT 身份</h4>
+            <section class="identity-current" :aria-label="t('identity.overlay.current.label')">
+              <h4>{{ t('identity.overlay.current.label') }}</h4>
               <p class="identity-current-line">
                 <strong>{{ cachedName || maskStudentId(studentId) }}</strong>
                 <span v-if="cachedName" class="identity-current-sid">{{ maskStudentId(studentId) }}</span>
               </p>
-              <p class="identity-current-meta">学校身份验证方式：Mini-HBUT 本地验证</p>
-              <p class="identity-current-meta">最近验证：{{ verifiedAtText }}</p>
+              <p class="identity-current-meta">{{ t('identity.overlay.current.meta_method') }}</p>
+              <p class="identity-current-meta">{{ t('identity.overlay.current.meta_verified_at').replace('{time}', verifiedAtText) }}</p>
             </section>
 
             <p class="identity-expiry" :class="{ urgent: expiryUrgent }">
               <span class="material-symbols-outlined identity-expiry-icon" aria-hidden="true">schedule</span>
-              请求剩余时间：{{ remainingText }}
+              {{ t('identity.overlay.expiry.label').replace('{time}', remainingText) }}
             </p>
 
             <div class="identity-actions">
@@ -343,7 +346,7 @@ onBeforeUnmount(() => {
                 :disabled="busy"
                 @click="identity.denyActive()"
               >
-                拒绝
+                {{ t('identity.overlay.action.deny') }}
               </button>
               <button
                 class="btn-primary btn-ripple identity-allow-btn"
@@ -351,7 +354,7 @@ onBeforeUnmount(() => {
                 :disabled="allowDisabled"
                 @click="handleAllow"
               >
-                允许
+                {{ t('identity.overlay.action.allow') }}
               </button>
             </div>
           </div>

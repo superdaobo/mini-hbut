@@ -12,6 +12,10 @@ import {
   NON_OFFICIAL_NOTICE,
   SENSITIVE_SCOPE_NOTICE
 } from '../identityScopes'
+// #795：响应式 t（locale 变化后模板即时重渲染）
+import { useI18n } from '../../../utils/app_i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{ scopes: IdentityScopeInfo[] }>()
 
@@ -25,7 +29,7 @@ const hasAny = computed(
   <div class="identity-scope-list">
     <template v-if="hasAny">
       <section v-if="grouped.basic.length" class="identity-scope-group">
-        <h4 class="identity-scope-group-title">基础权限</h4>
+        <h4 class="identity-scope-group-title">{{ t('identity.scope.group.basic') }}</h4>
         <ul class="identity-scope-items">
           <li v-for="scope in grouped.basic" :key="scope.id" class="identity-scope-item">
             <span class="material-symbols-outlined identity-scope-icon" aria-hidden="true">info</span>
@@ -40,11 +44,11 @@ const hasAny = computed(
       <section
         v-if="grouped.sensitive.length"
         class="identity-scope-group identity-scope-group--sensitive"
-        aria-label="敏感权限"
+        :aria-label="t('identity.scope.group.sensitive')"
       >
         <h4 class="identity-scope-group-title">
           <span class="material-symbols-outlined identity-scope-group-title-icon" aria-hidden="true">warning</span>
-          敏感权限
+          {{ t('identity.scope.group.sensitive') }}
         </h4>
         <ul class="identity-scope-items">
           <li
@@ -65,7 +69,7 @@ const hasAny = computed(
         </p>
       </section>
     </template>
-    <p v-else class="identity-scope-empty">该应用未请求任何权限</p>
+    <p v-else class="identity-scope-empty">{{ t('identity.scope.empty') }}</p>
 
     <p class="identity-nonofficial" role="note">
       <span class="material-symbols-outlined identity-nonofficial-icon" aria-hidden="true">verified_user</span>
