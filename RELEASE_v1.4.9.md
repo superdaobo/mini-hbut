@@ -1,0 +1,102 @@
+# Mini-HBUT v1.4.9 更新说明
+
+发布日期：2026-09-07
+
+---
+
+## ✨ 版本概览
+
+相对 [v1.4.8](https://github.com/superdaobo/mini-hbut/releases/tag/v1.4.8)，本版本聚焦 Windows 安装体验重构、界面全量国际化和一批授权记录、校园网认证与小组件修复。
+
+本版本主要完成：
+
+1. **Windows 安装包全面升级**：安装与卸载界面全面简体中文化，支持统一覆盖升级，MSI 安装包同步本地化为 zh-CN，卸载体验重做
+2. **界面全量国际化**：全部界面文案支持简体中文（默认）与 English 双语切换，覆盖约 3000 条词条，可在设置中选择语言
+3. **授权记录可靠性修复**：授权记录页不再因接口报错而整页失败，设备密钥与签名错误现在有明确的分类提示
+4. **校园网认证修复**：eportal 认证失败不再被误判为成功，避免"显示已登录实际未联网"的假成功状态
+5. **小组件与课表修复**：修复小组件跨天日期滞后、背景色不跟随应用深浅色模式，以及课表添加课程误报名称为空的问题
+
+完整对比：[v1.4.8...v1.4.9](https://github.com/superdaobo/mini-hbut/compare/v1.4.8...v1.4.9)
+
+---
+
+## 🎯 修复与体验改进
+
+### 🪟 Windows 安装与卸载
+
+- 安装包统一覆盖升级：旧版本可直接安装新版本完成升级，不再需要手动卸载（[#796](https://github.com/superdaobo/mini-hbut/issues/796)、[#801](https://github.com/superdaobo/mini-hbut/pull/801)）
+- NSIS 安装与卸载界面全面简体中文化，安装向导、进度页、完成页均为中文
+- MSI 安装包语言配置为 zh-CN，与 NSIS 体验一致（[#799](https://github.com/superdaobo/mini-hbut/issues/799)）
+- 卸载体验重做：卸载过程更干净，系统"应用与功能"中的条目信息更准确
+
+### 🌐 界面全量国际化
+
+- 全部界面文案接入国际化框架，简体中文为默认语言，English 为可选语言（[#784](https://github.com/superdaobo/mini-hbut/issues/784)、[#802](https://github.com/superdaobo/mini-hbut/pull/802)）
+- 覆盖约 3000 条词条、44 个视图文件，设置页新增语言选择入口
+- 中文为完整翻译，English 同步提供；后续版本新增功能将同步双语
+
+### 🔑 授权记录
+
+- 授权记录接口返回错误时保留错误状态并友好展示，不再表现为一直加载或空白（[#776](https://github.com/superdaobo/mini-hbut/issues/776)、[#782](https://github.com/superdaobo/mini-hbut/pull/782)）
+- 设备密钥缺失与签名错误分类透传，提示更明确（[#777](https://github.com/superdaobo/mini-hbut/issues/777)、[#781](https://github.com/superdaobo/mini-hbut/pull/781)）
+
+### 📶 校园网与认证
+
+- eportal 认证响应不再误判成功：认证失败时如实提示，不再出现"假成功"（[#762](https://github.com/superdaobo/mini-hbut/issues/762)、[#765](https://github.com/superdaobo/mini-hbut/pull/765)）
+
+### 📱 小组件与课表
+
+- 小组件跨天日期滞后修复：日期变更后小组件及时刷新（[#759](https://github.com/superdaobo/mini-hbut/issues/759)、[#764](https://github.com/superdaobo/mini-hbut/pull/764)）
+- 小组件背景半透明并跟随应用深浅色模式（[#761](https://github.com/superdaobo/mini-hbut/issues/761)）
+- 课表添加课程不再误报"名称为空"（[#760](https://github.com/superdaobo/mini-hbut/issues/760)、[#757](https://github.com/superdaobo/mini-hbut/issues/757)）
+- 开屏页设置生效、深浅色跟随系统（[#758](https://github.com/superdaobo/mini-hbut/issues/758)）
+
+### ⚡ 其他改进
+
+- 设置、账号、课表多项体验恢复与打磨（[#769](https://github.com/superdaobo/mini-hbut/issues/769)、[#779](https://github.com/superdaobo/mini-hbut/pull/779)）
+- 缴电费入口下新增「仅演示」提醒：需在 i 湖工自行缴费（[#768](https://github.com/superdaobo/mini-hbut/issues/768)、[#765](https://github.com/superdaobo/mini-hbut/pull/765) 同期上线）
+- iOS 构建修复：xcodebuild 路径补齐 bridge feature 注入，TestFlight 包功能完整（[#778](https://github.com/superdaobo/mini-hbut/issues/778)、[#783](https://github.com/superdaobo/mini-hbut/pull/783)）
+
+---
+
+## 🛡️ 安全与稳定性
+
+- `npm audit fix` 清零 client 与 website 已知安全漏洞（[#646](https://github.com/superdaobo/mini-hbut/issues/646) 收尾、[#763](https://github.com/superdaobo/mini-hbut/pull/763)）
+- website 依赖例行升级（fflate、@radix-ui/react-tooltip、@radix-ui/react-popover 等）
+- 授权失败继续坚持 fail-closed 原则，密钥相关错误分类不变
+
+---
+
+## 🏗️ 工程治理与 CI
+
+- 发布候选继续执行类型检查、前端测试、Rust 测试、依赖审计、CodeQL、Release Readiness 和多平台构建
+- Windows 发布新增 Dry Run 工作流，版本冻结配置（`verify_release_config`）纳入 PR 门禁
+- Release notes 由仓库内版本文件提供，正式 Release 使用本文件作为发布说明
+
+---
+
+## 📦 版本信息
+
+- 版本号：**1.4.9**
+- 标签：[`v1.4.9`](https://github.com/superdaobo/mini-hbut/releases/tag/v1.4.9)
+- 上一版本：[`v1.4.8`](https://github.com/superdaobo/mini-hbut/releases/tag/v1.4.8)
+- 完整变更：[`v1.4.8...v1.4.9`](https://github.com/superdaobo/mini-hbut/compare/v1.4.8...v1.4.9)
+
+---
+
+## 🔗 本版本重点关联
+
+| 类型 | 编号 | 说明 |
+|------|------|------|
+| Epic | [#796](https://github.com/superdaobo/mini-hbut/issues/796) | Windows 安装包统一覆盖升级、简体中文与卸载体验 |
+| PR | [#801](https://github.com/superdaobo/mini-hbut/pull/801) | Windows 安装器升级 + 中文本地化 |
+| Epic | [#784](https://github.com/superdaobo/mini-hbut/issues/784) | 界面文案全量国际化 |
+| PR | [#802](https://github.com/superdaobo/mini-hbut/pull/802) | 11 批次国际化集成（约 3000 词条） |
+| Issue | [#774](https://github.com/superdaobo/mini-hbut/issues/774) | 授权记录无法加载 |
+| PR | [#781](https://github.com/superdaobo/mini-hbut/pull/781) | 设备密钥与签名错误分类透传 |
+| PR | [#782](https://github.com/superdaobo/mini-hbut/pull/782) | 授权记录保留接口错误状态 + 回归测试 |
+| PR | [#779](https://github.com/superdaobo/mini-hbut/pull/779) | 设置/账号/课表体验恢复 + 语言选择 |
+| PR | [#783](https://github.com/superdaobo/mini-hbut/pull/783) | iOS xcodebuild 路径 bridge feature 修复 |
+| PR | [#765](https://github.com/superdaobo/mini-hbut/pull/765) | eportal 认证不再误判成功 |
+| PR | [#764](https://github.com/superdaobo/mini-hbut/pull/764) | 小组件日期/背景修复 + 课表添加课程误报 |
+| PR | [#763](https://github.com/superdaobo/mini-hbut/pull/763) | npm audit fix 清零已知漏洞 |
