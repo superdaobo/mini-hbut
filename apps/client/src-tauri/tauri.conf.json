@@ -48,7 +48,12 @@
         "languages": [
           "SimpChinese"
         ],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "template": "./nsis/installer.nsi"
+      },
+      "wix": {
+        "language": "zh-CN",
+        "template": "./wix/main.wxs"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

@@ -1,0 +1,24 @@
+[package]
+name = "msi-uninstall-launcher"
+version = "1.4.8"
+edition = "2021"
+description = "Mini-HBUT MSI 安装目录内的卸载启动器（双击 uninstall.exe 触发 msiexec 卸载本产品）"
+publish = false
+
+[dependencies]
+# 唯一依赖：成熟稳定的 Windows 注册表读取库（std 无注册表 API）
+winreg = "0.55"
+
+[build-dependencies]
+# 无构建依赖：build.rs 仅输出 MSVC 链接参数（嵌入 requireAdministrator UAC manifest）
+
+[profile.release]
+# 极小化体积 + 快速终止：本 crate 只做"定位卸载串 → 启动 msiexec"一件事
+panic = "abort"
+strip = true
+lto = "fat"
+codegen-units = 1
+opt-level = "z"
+
+# 独立 crate：显式声明为 workspace 根，避免被上层 src-tauri workspace 捕获
+[workspace]

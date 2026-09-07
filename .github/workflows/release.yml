@@ -486,7 +486,8 @@ jobs:
 
           $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if ($msi) {
-            Copy-Item $msi.FullName ("dist-release/Mini-HBUT_{0}_x64_en-US.msi" -f $env:VERSION) -Force
+            # #799：MSI 已配置 zh-CN 语言，产物名由 bundler 生成为 _zh-CN.msi
+            Copy-Item $msi.FullName ("dist-release/Mini-HBUT_{0}_x64_zh-CN.msi" -f $env:VERSION) -Force
           }
 
           Get-ChildItem dist-release | Format-Table Name,Length -AutoSize
