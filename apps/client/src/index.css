@@ -1,5 +1,15 @@
 :root {
   --app-vh: 1vh;
+  /* #810：顶部安全区三层取值（取最大）：
+     - --android-safe-top：Android 原生（MainActivity）注入的 statusBars 高度（WebView 中 env 恒 0）
+     - env(safe-area-inset-top)：iOS WKWebView 真实值
+     - --app-safe-top-fallback：iOS-like 且 env 为 0 时的 44px 兜底（.ios-safe 类注入） */
+  --app-safe-top-fallback: 0px;
+  --app-safe-top: max(
+    var(--android-safe-top, 0px),
+    env(safe-area-inset-top, 0px),
+    var(--app-safe-top-fallback, 0px)
+  );
   --app-safe-bottom-fallback: 0px;
   --app-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-bottom-fallback, 0px));
   --ui-primary: #2563eb;
@@ -72,6 +82,13 @@
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
   }
+}
+
+/* #810：iOS-like 设备（App.vue 给 .app-viewport/.app-shell 挂 ios-safe 类）且
+   env(safe-area-inset-top) 为 0 时，给 --app-safe-top 提供 44px 兜底。
+   不能写在 scoped 样式里：scoped 会给 :root/html 选择器附加 data-v 属性，永远匹配不上。 */
+html.ios-safe {
+  --app-safe-top-fallback: 44px;
 }
 
 /* ============================================================
