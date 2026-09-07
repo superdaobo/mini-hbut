@@ -14,6 +14,8 @@ pub mod commands;
 pub mod credential_store;
 pub mod db;
 pub mod debug_bridge;
+// #809：Windows dev 深链注册守卫（dev 不再劫持 HKCU minihbut 协议关联）。
+pub mod deep_link_register;
 pub mod grade;
 pub mod http_client;
 #[cfg(feature = "bridge")]
@@ -162,13 +164,11 @@ pub fn run() {
 
     builder
         .setup(|app| {
-            // #621：Linux 始终由插件注册 scheme；Windows 仅 debug（dev）注册，生产由安装器注册，
-            // 避免每次启动篡改系统协议关联。
+            // #621：Linux 始终由插件注册 scheme；Windows 仅 debug（dev）注册，生产由安装器注册。
+            // #809：Windows dev 注册前经守卫判断——注册表已指向其他 exe（正式安装版）时
+            // 跳过，不再每次启动劫持 HKCU minihbut 协议关联（详见 deep_link_register.rs）。
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
-            {
-                use tauri_plugin_deep_link::DeepLinkExt;
-                let _ = app.deep_link().register_all();
-            }
+            deep_link_register::register_with_guard(app);
             if let Ok(app_data_path) = app.path().app_data_dir() {
                 let _ = std::fs::create_dir_all(&app_data_path);
                 std::env::set_var(

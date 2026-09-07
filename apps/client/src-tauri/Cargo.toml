@@ -92,6 +92,8 @@ rfd = "0.15"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage", "Win32_Storage_Xps", "Win32_UI_WindowsAndMessaging"] }
 # #669：必须显式启用 windows-native（Credential Manager），否则 keyring v3 静默回退零持久化 mock 存储。
 keyring = { version = "3", features = ["windows-native"] }
+# #809：深链注册守卫读取 HKCU 协议键（与 tauri-plugin-deep-link 的传递依赖同源同版本，无新增编译单元）。
+windows-registry = "0.5"
 
 # #669：Apple 平台启用系统 Keychain 原生后端（macOS Keychain / iOS Keychain）。
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]

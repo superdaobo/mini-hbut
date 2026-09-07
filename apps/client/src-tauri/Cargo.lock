@@ -2616,6 +2616,7 @@ dependencies = [
  "url",
  "urlencoding",
  "windows",
+ "windows-registry",
  "wiremock",
  "xcap",
  "zip",
