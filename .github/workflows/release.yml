@@ -245,6 +245,10 @@ jobs:
         working-directory: apps/client
         run: python scripts/patch_android_background.py
 
+      - name: Patch Android safe-area-top injection (#810)
+        working-directory: apps/client
+        run: python scripts/patch_android_safe_area.py
+
       - name: Patch Android notification permissions
         working-directory: apps/client
         run: |

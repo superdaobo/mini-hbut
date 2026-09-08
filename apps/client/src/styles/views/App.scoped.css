@@ -129,12 +129,30 @@
   }
 }
 
-.app-shell {
-  --safe-top-fallback: 0px;
-  min-height: calc(var(--app-vh, 1vh) * 100);
+/* #810 顶部安全区固定留白：
+   .app-viewport 是「安全区占位（.safe-area-spacer）+ 滚动容器（.app-shell）」的外层包裹。
+   占位条在滚动容器之外，高度 --app-safe-top，滚动内容永远无法进入状态栏区域；
+   背景保持透明，透出 body 的 --ui-bg-gradient（浅色）或 #0f172a（暗色），视觉连续。 */
+.app-viewport {
+  display: flex;
+  flex-direction: column;
   height: calc(var(--app-vh, 1vh) * 100);
+  min-height: calc(var(--app-vh, 1vh) * 100);
+}
+
+.safe-area-spacer {
+  flex: 0 0 auto;
+  height: var(--app-safe-top, 0px);
+  /* 占位条自身透明：浅色模式透出 body 渐变，暗色模式透出 html/body 深色背景 */
+  background: transparent;
+  pointer-events: none;
+}
+
+.app-shell {
+  min-height: calc(var(--app-vh, 1vh) * 100 - var(--app-safe-top, 0px));
+  height: calc(var(--app-vh, 1vh) * 100 - var(--app-safe-top, 0px));
+  flex: 1 1 auto;
   position: relative;
-  padding-top: env(safe-area-inset-top);
   padding-bottom: calc(128px + var(--app-safe-bottom));
   overflow-y: auto;
   overflow-x: hidden;
@@ -152,7 +170,7 @@
 }
 
 .app-shell.no-scroll {
-  height: calc(var(--app-vh, 1vh) * 100);
+  height: calc(var(--app-vh, 1vh) * 100 - var(--app-safe-top, 0px));
   overflow: hidden;
   padding-bottom: var(--app-safe-bottom);
 }
@@ -171,15 +189,19 @@
   width: 100%;
   min-height: 100%;
   height: 100% !important;
+  /* #810：AI 页原按整屏（100vh）设定自身高度并内置 env 安全区，
+     现外壳高度已扣除顶部安全区占位，用 100% 跟随 .app-shell 实际可视高度，
+     否则底部会被 spacer 高度顶出视口 */
+  max-height: 100% !important;
 }
 
-.app-shell.ios-safe {
-  --safe-top-fallback: 44px;
-}
+/* #810：iOS-like 且 env=0 时兜底 44px —— 已迁移到 index.css 的 html.ios-safe 全局规则。
+   （scoped 样式会给 :root/html 选择器附加 data-v 属性导致永远匹配不上 html，故不能放这里） */
 
+/* #810：schedule-full 不再自带顶部 padding（外层 spacer 已留白），
+   --schedule-safe-top 统一走全局 --app-safe-top 三层取值链 */
 .app-shell.schedule-full {
-  --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
-  padding-top: var(--schedule-safe-top);
+  --schedule-safe-top: var(--app-safe-top, 0px);
   padding-bottom: calc(128px + var(--app-safe-bottom));
   overflow: hidden;
 }
@@ -200,17 +222,29 @@
 
 @media (max-width: 900px) {
   .app-shell.schedule-full {
-    --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
+    --schedule-safe-top: var(--app-safe-top, 0px);
   }
 }
 
-/* 统一业务页面高度策略：避免子页面写死 100vh 导致进入后再次缩放 */
+/* 统一业务页面高度策略：避免子页面写死 100vh 导致进入后再次缩放
+   （#810：同步减去外层顶部安全区占位，保证子页高度与 .app-shell 实际可视高度一致） */
 .app-shell > .dashboard,
 .app-shell > [class$='-view']:not(.schedule-view):not(.ai-view),
 .app-shell > .view-transition-root > .dashboard,
 .app-shell > .view-transition-root > [class$='-view']:not(.schedule-view):not(.ai-view) {
-  min-height: calc(var(--app-vh, 1vh) * 100) !important;
+  min-height: calc(
+    var(--app-vh, 1vh) * 100 - var(--app-safe-top, 0px)
+  ) !important;
   height: auto !important;
+}
+
+/* #810：首页模板自带 Tailwind min-h-screen（=100vh），会比扣除安全区后的
+   .app-shell 可视高度多出一个 spacer 高度，造成首页底部可多滚一段；统一压平 */
+.app-shell > .dashboard.min-h-screen,
+.app-shell > .view-transition-root > .dashboard.min-h-screen {
+  min-height: calc(
+    var(--app-vh, 1vh) * 100 - var(--app-safe-top, 0px)
+  ) !important;
 }
 
 /* 宽屏兜底（#714）：未自带限宽的二级页默认限宽居中，避免宽窗口下拉满全屏。
@@ -250,6 +284,8 @@
   width: 100%;
   min-height: 100%;
   height: 100% !important;
+  /* #810：同 ai-view，跟随扣除安全区占位后的 .app-shell 高度，防止底部溢出 */
+  max-height: 100% !important;
 }
 
 .bottom-tab-bar {

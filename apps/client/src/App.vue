@@ -180,17 +180,22 @@ const {
   />
 
   <!-- #681：全应用唯一滚动容器，切页回顶依赖此 ref；缺失会导致滚动位置跨 Tab 串扰 -->
-  <main
-    :ref="bindAppShellRef"
-    class="app-shell"
-    :class="{
-      'no-scroll': currentView === 'ai',
-      'ai-full': currentView === 'ai',
-      'schedule-full': currentView === 'schedule',
-      'module-host-full': currentView === 'more_module_host',
-      'ios-safe': isIOSLike
-    }"
-  >
+  <!-- #810：.app-viewport = 顶部安全区占位条 + .app-shell。
+       占位条在滚动容器之外，滚动内容永远到不了状态栏区域；
+       吸顶 header（sticky; top: 0）吸附基准变为 .app-shell 顶边 = 安全区下沿，自动正确 -->
+  <div class="app-viewport">
+    <div class="safe-area-spacer" aria-hidden="true"></div>
+    <main
+      :ref="bindAppShellRef"
+      class="app-shell"
+      :class="{
+        'no-scroll': currentView === 'ai',
+        'ai-full': currentView === 'ai',
+        'schedule-full': currentView === 'schedule',
+        'module-host-full': currentView === 'more_module_host',
+        'ios-safe': isIOSLike
+      }"
+    >
     <DemoModeBanner v-if="isLoggedIn && isTestAccountSession()" />
     <Transition
       name="module-fade"
@@ -571,7 +576,8 @@ const {
       </div>
       </div>
     </Transition>
-  </main>
+    </main>
+  </div>
 
   <nav v-if="showTabBar" class="bottom-tab-bar glass-card">
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'home' }" @click="handleTabChange('home')">
