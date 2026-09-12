@@ -29,6 +29,7 @@ import { useScheduleGrid } from '../features/schedule/composables/useScheduleGri
 import { useScheduleDetail } from '../features/schedule/composables/useScheduleDetail'
 import { useScheduleEditor } from '../features/schedule/composables/useScheduleEditor'
 import { useScheduleIO } from '../features/schedule/composables/useScheduleIO'
+import { useScheduleImport } from '../features/schedule/composables/useScheduleImport'
 import { useScheduleSync } from '../features/schedule/composables/useScheduleSync'
 import { useScheduleTermStart } from '../features/schedule/composables/useScheduleTermStart'
 import { useI18n } from '../utils/app_i18n'
@@ -41,6 +42,7 @@ import ScheduleBanners from '../features/schedule/components/ScheduleBanners.vue
 import ScheduleGrid from '../features/schedule/components/ScheduleGrid.vue'
 import ScheduleCourseDetail from '../features/schedule/components/ScheduleCourseDetail.vue'
 import ScheduleAddCourseDialog from '../features/schedule/components/ScheduleAddCourseDialog.vue'
+import ScheduleCourseImportDialog from '../features/schedule/components/ScheduleCourseImportDialog.vue'
 import ScheduleManageCoursesDialog from '../features/schedule/components/ScheduleManageCoursesDialog.vue'
 import ScheduleWeekPicker from '../features/schedule/components/ScheduleWeekPicker.vue'
 import ScheduleConfirmDialog from '../features/schedule/components/ScheduleConfirmDialog.vue'
@@ -65,6 +67,8 @@ const grid = useScheduleGrid({ data, semester: semesterApi, menu })
 const detail = useScheduleDetail({ data, semester: semesterApi })
 const editor = useScheduleEditor({ props, data, semester: semesterApi, detail, menu, confirmDialog })
 const io = useScheduleIO({ props, data, semester: semesterApi, editor, confirmDialog })
+// #815：AI 课表导入（Parser / Merge / Conflict / Colors / Commit 编排）
+const importApi = useScheduleImport({ props, data, semester: semesterApi, editor })
 const sync = useScheduleSync({ props, data, semester: semesterApi, editor, confirmDialog })
 // #750：开学日期驱动学期切换（时间应选学期判定/自动切换/横幅/回前台重探）
 const termStart = useScheduleTermStart({ props, data, semester: semesterApi })
@@ -78,6 +82,7 @@ const anyOverlayOpen = computed(() => {
     editor.showAddCourse.value ||
     editor.showManageCourses.value ||
     editor.showWeekPicker.value ||
+    importApi.showImportDialog.value ||
     confirmDialog.showConfirmDialog.value
   )
 })
@@ -479,6 +484,7 @@ onBeforeUnmount(() => {
       @set-style="setScheduleCourseCardStyle"
       @open-add-course="openAddCourseDialog"
       @open-manage-courses="editor.openManageCoursesDialog"
+      @open-ai-import="importApi.openImportDialog"
       @sync-upload="sync.handleCloudSyncUpload"
       @sync-download="sync.handleCloudSyncDownload"
       @export-json="io.exportCustomCoursesJson"
@@ -554,6 +560,50 @@ onBeforeUnmount(() => {
       @toggle-semester="editor.toggleManageSemester"
       @edit-course="handleEditManagedCourse"
       @delete-course="editor.deleteManagedCourse"
+    />
+
+    <!-- AI 课表导入弹窗（#815） -->
+    <ScheduleCourseImportDialog
+      :show-import-dialog="importApi.showImportDialog.value"
+      :stage="importApi.stage.value"
+      :target-semester="importApi.targetSemester.value"
+      :raw-text="importApi.rawText.value"
+      :show-example="importApi.showExample.value"
+      :parsing="importApi.parsing.value"
+      :committing="importApi.committing.value"
+      :parse-error="importApi.parseError.value"
+      :global-diagnostics="importApi.globalDiagnostics.value"
+      :preview-courses="importApi.previewCourses.value"
+      :import-result="importApi.importResult.value"
+      :summary="importApi.summary.value"
+      :has-importable="importApi.hasImportable.value"
+      :semester-options="semesterOptions"
+      :preview-mode="importApi.previewMode.value"
+      :preview-week="importApi.previewWeek.value"
+      :preview-total-weeks="importApi.previewTotalWeeks.value"
+      :preview-week-dates="importApi.previewWeekDates.value"
+      :preview-get-courses-for-day="importApi.previewGetCoursesForDay"
+      :preview-conflicts-of="importApi.previewConflictsOf"
+      :schedule-course-card-style="scheduleCourseCardStyle"
+      @close="importApi.closeImportDialog"
+      @update:target-semester="importApi.targetSemester.value = $event"
+      @update:raw-text="importApi.rawText.value = $event"
+      @toggle-example="importApi.showExample.value = !importApi.showExample.value"
+      @copy-prompt="importApi.copyPrompt"
+      @file-import="importApi.handleFileChange"
+      @parse="importApi.parseText"
+      @back="importApi.backToInput"
+      @toggle-select="importApi.toggleSelected"
+      @select-all="importApi.setAllSelected"
+      @color-change="importApi.changeCourseColor"
+      @ai-colors="importApi.useAiRecommendedColors"
+      @balanced-colors="importApi.useBalancedColors"
+      @reset-colors="importApi.resetColors"
+      @set-preview-mode="importApi.setPreviewMode"
+      @set-preview-week="importApi.setPreviewWeek"
+      @prev-preview-week="importApi.prevPreviewWeek"
+      @next-preview-week="importApi.nextPreviewWeek"
+      @commit="importApi.commitImport"
     />
 
     <!-- 周次选择器 -->

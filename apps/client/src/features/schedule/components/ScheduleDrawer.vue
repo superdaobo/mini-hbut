@@ -39,6 +39,7 @@ const emit = defineEmits([
   'set-style',
   'open-add-course',
   'open-manage-courses',
+  'open-ai-import',
   'sync-upload',
   'sync-download',
   'export-json',
@@ -113,6 +114,10 @@ const { t } = useI18n()
             <button class="drawer-action manage-course" :disabled="loadingManageCourses" @click="emit('open-manage-courses')">
               <span class="material-symbols-outlined">folder_copy</span>
               {{ loadingManageCourses ? t('schedule.topbar.loading') : t('schedule.drawer.manageCourses') }}
+            </button>
+            <button class="drawer-action ai-import-course" @click="emit('open-ai-import')">
+              <span class="material-symbols-outlined">auto_awesome</span>
+              {{ t('schedule.import.entry') }}
             </button>
           </div>
         </div>
@@ -406,6 +411,11 @@ const { t } = useI18n()
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+/* AI 课表导入：普通用户主入口，独占整行 */
+.drawer-course-actions .ai-import-course {
+  grid-column: 1 / -1;
 }
 
 .drawer-course-actions button,
