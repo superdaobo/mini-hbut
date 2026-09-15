@@ -16,6 +16,11 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
  * 3. .app-shell 高度必须扣除 --app-safe-top（外层 spacer 占位）；
  * 4. .app-viewport + .safe-area-spacer wrapper 结构必须存在；
  * 5. Android 原生注入 patch 脚本存在、幂等，且已注册进 dev/release 工作流。
+ *
+ * #826 单位契约（本条为 #810 的回归修复）：
+ * 6. WindowInsets 返回的 raw px 必须先除以 density 换算成 CSS px 才能写进
+ *    --android-safe-top，否则高 DPI 设备上安全区会被放大约 density 倍；
+ * 7. 旧版（raw px 直接注入）补丁产物必须能被就地升级，不能留下两份 listener。
  */
 describe('safe area top contract (#810)', () => {
   const appVue = () => readAppContractSources()
@@ -43,6 +48,67 @@ class MainActivity : TauriActivity() {
       stdio: 'pipe',
     })
   }
+
+  const writeSampleMainActivity = (tempRoot: string, content: string) => {
+    const ktPath = resolve(tempRoot, 'src-tauri/gen/android/app/src/main/java/com/hbut/mini/MainActivity.kt')
+    mkdirSync(dirname(ktPath), { recursive: true })
+    writeFileSync(ktPath, content)
+    return ktPath
+  }
+
+  /**
+   * #810 旧版补丁产物（#826 的回归起点）：statusBars raw px 被直接拼成 CSS px。
+   * 注意 `${statusBarTop}` 在模板字符串里需转义，避免被 TS 插值。
+   */
+  const legacyRawPxPatchedKotlin = `package com.hbut.mini
+
+import android.os.Bundle
+import android.view.View
+import android.webkit.WebView
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+
+class MainActivity : TauriActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    enableEdgeToEdge()
+
+    // Mini-HBUT safe-area-top inset patch (#810) BEGIN
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    val hbutRootView = findViewById<View>(android.R.id.content)
+    ViewCompat.setOnApplyWindowInsetsListener(hbutRootView) { view, insets ->
+      val statusBarTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+      if (statusBarTop > 0) {
+        injectSafeAreaTop(statusBarTop)
+      }
+      insets
+    }
+    // Mini-HBUT safe-area-top inset patch (#810) END
+
+    super.onCreate(savedInstanceState)
+  }
+
+  // Mini-HBUT safe-area-top inset patch (#810) BEGIN
+  private fun injectSafeAreaTop(statusBarTop: Int) {
+    val wv = webView ?: return
+    wv.evaluateJavascript(
+      "document.documentElement.style.setProperty('--android-safe-top','\${statusBarTop}px');",
+      null
+    )
+  }
+  // Mini-HBUT safe-area-top inset patch (#810) END
+
+  // Mini-HBUT safe-area-top inset patch (#810) BEGIN
+  private var webView: android.webkit.WebView? = null
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    this.webView = webView
+  }
+  // Mini-HBUT safe-area-top inset patch (#810) END
+}
+`
 
   it('defines the three-layer --app-safe-top variable chain in the global css', () => {
     const css = indexCss()
@@ -107,12 +173,10 @@ class MainActivity : TauriActivity() {
     expect(patcher).toContain('--android-safe-top')
     expect(patcher).toContain('evaluateJavascript')
 
-    // 幂等：临时目录里对样例 MainActivity 连跑两次，标记只出现固定次数（4 个 BEGIN 块 + 尾部 0）
+    // 幂等：临时目录里对样例 MainActivity 连跑两次，标记只出现固定次数（3 个 BEGIN 块）
     const tempRoot = mkdtempSync(resolve(tmpdir(), 'mini-hbut-safe-area-generated-'))
     try {
-      const ktPath = resolve(tempRoot, 'src-tauri/gen/android/app/src/main/java/com/hbut/mini/MainActivity.kt')
-      mkdirSync(dirname(ktPath), { recursive: true })
-      writeFileSync(ktPath, tauriBridgeLikeKotlin)
+      const ktPath = writeSampleMainActivity(tempRoot, tauriBridgeLikeKotlin)
 
       runSafeAreaPatcherInTempRoot(tempRoot)
       runSafeAreaPatcherInTempRoot(tempRoot)
@@ -122,10 +186,60 @@ class MainActivity : TauriActivity() {
       expect(patched).toContain('injectSafeAreaTop')
       expect(patched.match(/private var webView/g)).toHaveLength(1)
       expect(patched).toContain("setProperty('--android-safe-top'")
+      // #826：patch 产物必须带 density 单位换算，且 raw px 不得直接进入 CSS
+      expect(patched).toContain('resources.displayMetrics.density')
+      expect(patched).toMatch(/statusBarTopCssPx\s*=\s*if\s*\(density\s*>\s*0f\)\s*statusBarTopPx\s*\/\s*density/)
+      expect(patched).toContain("setProperty('--android-safe-top','${statusBarTopCss}px')")
+      expect(patched).not.toMatch(/'--android-safe-top','\$\{statusBarTop(Px)?\}px'/)
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
     }
+    // 生成 patch 产物需要拉起 python 子进程；全量并行跑测试时 5s 默认超时偏紧
+  }, 30_000)
+
+  it('converts android raw inset px to css px before injecting the variable (#826)', () => {
+    const patcher = readSource('scripts/patch_android_safe_area.py')
+
+    // 单位契约：必须存在 density 获取与 raw px -> CSS px 的除法
+    expect(patcher).toContain('resources.displayMetrics.density')
+    expect(patcher).toMatch(
+      /statusBarTopCssPx\s*=\s*if\s*\(density\s*>\s*0f\)\s*statusBarTopPx\s*\/\s*density/
+    )
+    // 进入 CSS 的必须是换算后的值（变量名不强制，但语义必须是换算结果）
+    expect(patcher).toContain("setProperty('--android-safe-top','${statusBarTopCss}px')")
+    // 回归哨兵：禁止 raw px 直接拼成 CSS px（#826 的根因写法）
+    expect(patcher).not.toMatch(/'--android-safe-top','\$\{statusBarTop(Px)?\}px'/)
+    // 小数分隔符必须固定为 '.'：Locale 相关的逗号会写出非法 CSS 长度
+    expect(patcher).toContain('java.util.Locale.US')
+    // 单位换算标记用于区分「旧版补丁」，必须存在
+    expect(patcher).toContain('Mini-HBUT safe-area-top unit conversion (#826)')
   })
+
+  it('upgrades a legacy raw-px patch in place instead of duplicating blocks (#826)', () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), 'mini-hbut-safe-area-legacy-'))
+    try {
+      const ktPath = writeSampleMainActivity(tempRoot, legacyRawPxPatchedKotlin)
+      // 前置断言：样例确实是旧版（raw px 直接注入）
+      expect(readFileSync(ktPath, 'utf8')).toContain("'${statusBarTop}px'")
+
+      runSafeAreaPatcherInTempRoot(tempRoot)
+
+      const upgraded = readFileSync(ktPath, 'utf8')
+      // 旧块被剥离后重新注入，块数仍为 3（没有残留、也没有重复）
+      expect(upgraded.match(/#810\) BEGIN/g)).toHaveLength(3)
+      expect(upgraded.match(/setOnApplyWindowInsetsListener/g)).toHaveLength(1)
+      expect(upgraded.match(/private var webView/g)).toHaveLength(1)
+      expect(upgraded).toContain('resources.displayMetrics.density')
+      expect(upgraded).not.toMatch(/\$\{statusBarTop\}px/)
+
+      // 升级后再跑一次仍是幂等
+      runSafeAreaPatcherInTempRoot(tempRoot)
+      expect(readFileSync(ktPath, 'utf8').match(/#810\) BEGIN/g)).toHaveLength(3)
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true })
+    }
+    // 同前：python 子进程 + 全量并行，放宽超时避免抖动
+  }, 30_000)
 
   it('registers the android safe-area patch in the dev and release workflows', () => {
     const devStep = 'python scripts/patch_android_safe_area.py'
