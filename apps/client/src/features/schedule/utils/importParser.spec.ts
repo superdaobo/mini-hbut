@@ -6,6 +6,9 @@
  *   中文字段 alias / weekday 多写法 / periods 多写法 / weeks 多写法（含单双周）/
  *   非法星期 / 非法节次 / 非法周次 / teacher·room 缺失 / 多个 JSON 主体安全失败 /
  *   semester·source_id 不进入结果。
+ *
+ * #827 追加：Unicode 范围分隔符容错（periods / weeks）+ 越界与模糊输入不得被放宽
+ *   + 字段级 hard error 的定位信息（sourceIndex / field / courseName / rawValue）。
  */
 import { describe, expect, it } from 'vitest'
 import { parseAiCourseImport } from './importParser'
@@ -13,6 +16,32 @@ import type { ImportDiagnostic } from './importTypes'
 
 /** 取诊断 code 列表，便于断言 */
 const codesOf = (diagnostics: ImportDiagnostic[]): string[] => diagnostics.map((d) => d.code)
+
+/**
+ * 视觉上等价于「-」的 Unicode 分隔符（#827 真实回归样本）。
+ * 每项写成 `\uXXXX` 转义：肉眼无法区分码点，测试必须钉死码点本身。
+ */
+const RANGE_SEPARATORS: Array<[string, string]> = [
+  ['\u002D', 'ASCII HYPHEN-MINUS'],
+  ['\u007E', 'TILDE'],
+  ['\u2010', 'HYPHEN'],
+  ['\u2011', 'NON-BREAKING HYPHEN'],
+  ['\u2012', 'FIGURE DASH'],
+  ['\u2013', 'EN DASH'],
+  ['\u2014', 'EM DASH'],
+  ['\u2015', 'HORIZONTAL BAR'],
+  ['\u2212', 'MINUS SIGN'],
+  ['\u223C', 'TILDE OPERATOR'],
+  ['\u301C', 'WAVE DASH'],
+  ['\uFE58', 'SMALL EM DASH'],
+  ['\uFE63', 'SMALL HYPHEN-MINUS'],
+  ['\uFF0D', 'FULLWIDTH HYPHEN-MINUS'],
+  ['\uFF5E', 'FULLWIDTH TILDE']
+]
+
+/** 单条课程解析的便捷入口：只关心 periods 时用它 */
+const parseOnePeriods = (periods: unknown) =>
+  parseAiCourseImport(JSON.stringify([{ name: '课', weekday: 1, periods, weeks: '1-2' }]))
 
 describe('parseAiCourseImport（#816 主入口）', () => {
   it('canonical JSON：顶层 { courses: [...] } + 英文字段', () => {
@@ -325,5 +354,219 @@ describe('安全失败与字段隔离', () => {
     expect(parseAiCourseImport(null).ok).toBe(false)
     expect(parseAiCourseImport(123).ok).toBe(false)
     expect(parseAiCourseImport('这里没有任何 JSON').ok).toBe(false)
+  })
+})
+
+describe('periods 分隔符容错（#827）', () => {
+  // 真实失败案例：外部 AI / 输入法 / 富文本复制产出的「7-8」「9-10」视觉合法，
+  // 但码点不是 ASCII '-'，旧实现直接判 invalid_periods。
+  it.each(RANGE_SEPARATORS)('7%s8（%s）→ period=7 djs=2', (separator) => {
+    const result = parseOnePeriods(`7${separator}8`)
+    expect(result.ok).toBe(true)
+    expect(result.courses).toHaveLength(1)
+    expect(result.courses[0]).toMatchObject({ period: 7, djs: 2 })
+  })
+
+  it.each(RANGE_SEPARATORS)('9%s10（%s）→ period=9 djs=2', (separator) => {
+    const result = parseOnePeriods(`9${separator}10`)
+    expect(result.ok).toBe(true)
+    expect(result.courses[0]).toMatchObject({ period: 9, djs: 2 })
+  })
+
+  it.each(RANGE_SEPARATORS)('第1%s2节（%s）→ 前后缀 + 分隔符同时容错', (separator) => {
+    const result = parseOnePeriods(`第1${separator}2节`)
+    expect(result.ok).toBe(true)
+    expect(result.courses[0]).toMatchObject({ period: 1, djs: 2 })
+  })
+
+  it('全角空格 U+3000 与不换行空格 U+00A0 夹住分隔符 → 仍可解析', () => {
+    expect(parseOnePeriods('第\u30007\uFF0D8\u3000节').courses[0]).toMatchObject({ period: 7, djs: 2 })
+    expect(parseOnePeriods('7\u00A0\u2212\u00A08').courses[0]).toMatchObject({ period: 7, djs: 2 })
+  })
+
+  it('真实场景：一批课程里只有一条用了非 ASCII 分隔符，其余不受影响', () => {
+    const result = parseAiCourseImport(
+      JSON.stringify([
+        { name: '高等数学', weekday: 1, periods: '3-4', weeks: '1-16' },
+        { name: '大学物理', weekday: 3, periods: '7\u20118', weeks: '1-16' },
+        { name: '程序设计', weekday: 5, periods: '9\uFF0D10', weeks: '2-16双' }
+      ])
+    )
+    expect(result.ok).toBe(true)
+    expect(result.rawCount).toBe(3)
+    expect(result.courses.map((c) => [c.name, c.period, c.djs])).toEqual([
+      ['高等数学', 3, 2],
+      ['大学物理', 7, 2],
+      ['程序设计', 9, 2]
+    ])
+    expect(codesOf(result.diagnostics)).not.toContain('invalid_periods')
+  })
+})
+
+describe('容错不得放宽数值约束（#827）', () => {
+  // 容错只针对「字符」，真实越界必须继续被拒
+  it.each([
+    ['12-13', '完全越界'],
+    ['10-12', '末节 12 超过 11'],
+    ['11-12', '末节 12 超过 11'],
+    ['0-1', '起始 0 低于 1'],
+    ['1-0', '起止颠倒后起始 0 低于 1'],
+    ['12\u201113', '越界 + en dash'],
+    ['10\u221212', '越界 + 数学减号'],
+    ['11\uFF0D12', '越界 + 全角减号']
+  ])('%s（%s）→ 仍为 invalid_periods', (input) => {
+    const result = parseOnePeriods(input)
+    expect(result.ok).toBe(false)
+    expect(result.courses).toHaveLength(0)
+    expect(codesOf(result.diagnostics)).toContain('invalid_periods')
+  })
+
+  // 语义不唯一 / 非分隔符的形近字符：绝不猜测性解析
+  it.each([
+    ['7/8', '斜杠'],
+    ['7.8', '句点'],
+    ['7_8', '下划线'],
+    ['7\\8', '反斜杠'],
+    ['7、8', '顿号'],
+    ['七八', '中文数字'],
+    ['7至8', '汉字「至」'],
+    ['7到8', '汉字「到」'],
+    ['约7-8', '带前缀说明'],
+    ['7-8-9', '三段数字'],
+    ['7\u30FC8', 'U+30FC 长音符（字母，非分隔符）'],
+    ['7\uFF5C8', 'U+FF5C 全角竖线（非水平分隔符）']
+  ])('%s（%s）→ 仍为 invalid_periods', (input) => {
+    const result = parseOnePeriods(input)
+    expect(result.ok).toBe(false)
+    expect(codesOf(result.diagnostics)).toContain('invalid_periods')
+  })
+})
+
+describe('weeks 分隔符容错（#827，与 periods 同源）', () => {
+  it.each(RANGE_SEPARATORS)('1%s16（%s）→ 16 周', (separator) => {
+    const result = parseAiCourseImport(
+      JSON.stringify([{ name: '课', weekday: 1, periods: '1-2', weeks: `1${separator}16` }])
+    )
+    expect(result.ok).toBe(true)
+    expect(result.courses[0].weeks).toHaveLength(16)
+  })
+
+  it.each(RANGE_SEPARATORS)('1%s15单（%s）→ 单双周后缀仍生效', (separator) => {
+    const result = parseAiCourseImport(
+      JSON.stringify([{ name: '课', weekday: 1, periods: '1-2', weeks: `1${separator}15单` }])
+    )
+    expect(result.ok).toBe(true)
+    expect(result.courses[0].weeks).toEqual([1, 3, 5, 7, 9, 11, 13, 15])
+  })
+
+  it('容错不放宽周次数值范围：0%s5 仍为 invalid_weeks', () => {
+    const result = parseAiCourseImport(
+      JSON.stringify([{ name: '课', weekday: 1, periods: '1-2', weeks: '0\u22125' }])
+    )
+    expect(result.ok).toBe(false)
+    expect(codesOf(result.diagnostics)).toContain('invalid_weeks')
+  })
+})
+
+describe('hard error 的定位信息（#827）', () => {
+  it('invalid_periods 带 sourceIndex / field / courseName / rawValue', () => {
+    const result = parseAiCourseImport(
+      JSON.stringify([
+        { name: '高等数学', weekday: 1, periods: '1-2', weeks: '1-2' },
+        { name: '大学物理', weekday: 3, periods: '12\u201113', weeks: '1-2' }
+      ])
+    )
+    // 合法条目照常导入，非法条目只丢自己
+    expect(result.ok).toBe(true)
+    expect(result.courses.map((c) => c.name)).toEqual(['高等数学'])
+
+    const diag = result.diagnostics.find((d) => d.code === 'invalid_periods')
+    expect(diag).toMatchObject({
+      level: 'error',
+      field: 'periods',
+      sourceIndex: 1,
+      courseName: '大学物理',
+      rawValue: '12\u201113'
+    })
+  })
+
+  it('无法确定语义的 periods 也会把原始值带出来', () => {
+    const result = parseOnePeriods('约7-8')
+    expect(result.diagnostics[0]).toMatchObject({
+      code: 'invalid_periods',
+      field: 'periods',
+      sourceIndex: 0,
+      courseName: '课',
+      rawValue: '约7-8'
+    })
+  })
+
+  it('invalid_weekday / invalid_weeks 同样带 courseName 与 rawValue', () => {
+    const weekdayResult = parseAiCourseImport(
+      JSON.stringify([{ name: '课', weekday: '周八', periods: '1-2', weeks: '1-2' }])
+    )
+    expect(weekdayResult.diagnostics[0]).toMatchObject({
+      code: 'invalid_weekday',
+      field: 'weekday',
+      courseName: '课',
+      rawValue: '周八'
+    })
+
+    const weeksResult = parseAiCourseImport(
+      JSON.stringify([{ name: '课', weekday: 1, periods: '1-2', weeks: [1, 99] }])
+    )
+    expect(weeksResult.diagnostics[0]).toMatchObject({
+      code: 'invalid_weeks',
+      field: 'weeks',
+      courseName: '课'
+    })
+    expect(weeksResult.diagnostics[0].rawValue).toBe('[1,99]')
+  })
+
+  it('missing_name 带 field，且不编造 courseName', () => {
+    const result = parseAiCourseImport(
+      JSON.stringify([{ weekday: 1, periods: '1-2', weeks: '1-2' }])
+    )
+    const diag = result.diagnostics[0]
+    expect(diag).toMatchObject({ code: 'missing_name', field: 'name', sourceIndex: 0 })
+    expect(diag.courseName).toBeUndefined()
+  })
+
+  it('非对象条目：message 不再重复序号，定位交给 sourceIndex', () => {
+    const result = parseAiCourseImport(JSON.stringify(['不是对象', '也不是']))
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics.map((d) => d.sourceIndex)).toEqual([0, 1])
+    expect(result.diagnostics[0].message).toBe('该条不是合法的课程对象')
+    expect(result.diagnostics[1].rawValue).toBe('也不是')
+  })
+
+  it('超长原始值被截断，不会把 UI 撑爆', () => {
+    const longPeriods = `约${'x'.repeat(200)}`
+    const result = parseOnePeriods(longPeriods)
+    const rawValue = result.diagnostics[0].rawValue ?? ''
+    expect(rawValue.length).toBeLessThanOrEqual(81)
+    expect(rawValue.endsWith('…')).toBe(true)
+  })
+
+  it('periods 字段整体缺失 → 不展示「原始值：{}」这类噪声', () => {
+    const result = parseAiCourseImport(JSON.stringify([{ name: '课', weekday: 1, weeks: '1-2' }]))
+    expect(result.diagnostics[0].code).toBe('invalid_periods')
+    expect(result.diagnostics[0].rawValue).toBeUndefined()
+  })
+
+  it('{period,djs} 兜底形式仍把对象内容带出来', () => {
+    const result = parseAiCourseImport(
+      JSON.stringify([{ name: '课', weekday: 1, period: 9, djs: '两', weeks: '1-2' }])
+    )
+    expect(result.diagnostics[0]).toMatchObject({
+      code: 'invalid_periods',
+      rawValue: '{"period":9,"djs":"两"}'
+    })
+  })
+
+  it('全局诊断（JSON 无法解析）不携带 sourceIndex', () => {
+    const result = parseAiCourseImport('这里没有任何 JSON')
+    expect(result.diagnostics[0].code).toBe('json_body_not_found')
+    expect(result.diagnostics[0].sourceIndex).toBeUndefined()
   })
 })

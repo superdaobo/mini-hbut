@@ -49,6 +49,15 @@ export interface ImportDiagnostic {
   field?: string
   /** 原始输入数组下标，可选 */
   sourceIndex?: number
+  /** 触发该诊断的课程名（解析出 name 之后才可能补充），可选 */
+  courseName?: string
+  /**
+   * 触发该诊断的原始字段值（安全字符串化 + 截断），可选。
+   *
+   * #827：光有 message 只能告诉用户「节次无法解析」，无法定位到具体写错的那条数据；
+   * 携带原始值后，UI 可以展示「第 3 条 · 节次 · 原始值：7-8」，用户据此自查。
+   */
+  rawValue?: string
 }
 
 /**
