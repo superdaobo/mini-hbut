@@ -12,6 +12,11 @@
  *   - teacher / room / color 缺失或异常 = warning，不阻断导入；
  *   - 无法安全确定唯一 JSON 主体时绝不猜测，直接整体失败。
  *
+ * #827 补充：
+ *   - 范围分隔符按白名单归一化（见 RANGE_SEPARATOR_PATTERN），视觉等价但码点不同的
+ *     横杠不再把合法节次/周次误判为越界；
+ *   - 字段级 hard error 额外携带 courseName / rawValue，让 UI 能定位到具体条目与原始值。
+ *
  * 周次归一化复用 ./weeks.ts 的 normalizeWeeks（只读引用，不修改该文件）。
  */
 
@@ -88,6 +93,74 @@ const globalError = (code: string, message: string): ParseImportResult => ({
   diagnostics: [makeDiag('error', code, message)],
   rawCount: 0
 })
+
+/** 原始值展示上限：超出部分截断，避免异常输入把 UI 撑爆 */
+const MAX_RAW_VALUE_LENGTH = 80
+
+/** 把原始字段值安全字符串化为可展示文本（对象走 JSON，不可序列化时返回空串） */
+function stringifyRawValue(value: unknown): string {
+  let text = ''
+  if (typeof value === 'string') {
+    text = value
+  } else if (typeof value === 'number' || typeof value === 'boolean') {
+    text = String(value)
+  } else if (value !== null && value !== undefined) {
+    try {
+      text = JSON.stringify(value) ?? ''
+    } catch {
+      text = ''
+    }
+    // 空容器（{} / []）不含任何可展示信息（如 periods 字段整体缺失时的兜底对象），
+    // 视为「没有原始值」，避免 UI 出现「原始值：{}」这种像 bug 的噪声
+    if (text === '{}' || text === '[]') text = ''
+  }
+  return text.length > MAX_RAW_VALUE_LENGTH ? `${text.slice(0, MAX_RAW_VALUE_LENGTH)}…` : text
+}
+
+/**
+ * 单条课程的字段级 hard error。
+ *
+ * 相比 makeDiag 额外挂上 `courseName` 与 `rawValue`，让 UI 能把错误定位回
+ * 用户可见的具体条目（第 N 条 / 哪门课 / 哪个字段 / 原始值），见 #827。
+ */
+function makeCourseFieldError(
+  code: string,
+  message: string,
+  field: string | undefined,
+  sourceIndex: number,
+  options: { rawValue?: unknown; courseName?: string } = {}
+): ImportDiagnostic {
+  const diag = makeDiag('error', code, message, field, sourceIndex)
+  const rawValue = stringifyRawValue(options.rawValue)
+  if (rawValue) diag.rawValue = rawValue
+  if (options.courseName) diag.courseName = options.courseName
+  return diag
+}
+
+/* ------------------------------------------------------------------ */
+/* 范围分隔符归一化（#827）                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 可安全归一化为 ASCII `-` 的范围分隔符白名单。
+ *
+ * 外部 AI、输入法、网页富文本复制经常产出「视觉上是横杠、码点却不是 U+002D」的字符。
+ * 若不归一化，`7‑8`（U+2011）这种数值完全合法的节次会被整条判成 invalid_periods，
+ * 而错误提示只谈「超出范围」，用户根本看不出问题出在字符上（#827）。
+ *
+ * 只收录「渲染为水平连字符 / 波浪号」的码点，且**仅在 `\d SEP \d` 位置**生效：
+ * 归一化后仍要求整串匹配 `^\d{1,2}\s*-\s*\d{1,2}$`，因此容错不会把
+ * `7/8`、`7..8`、`七八` 这类语义不唯一的输入猜成范围。
+ *
+ * 刻意排除形近但语义不是分隔符的字符（如 U+30FC 长音符、U+FF5C 竖线），
+ * 避免为了「更宽容」而引入猜测性解析。
+ */
+const RANGE_SEPARATOR_PATTERN =
+  /[\u002D\u007E\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u223C\u301C\uFE58\uFE63\uFF0D\uFF5E]/g
+
+/** 把白名单内的 Unicode 范围分隔符统一成 ASCII `-`（白名单外字符原样保留） */
+const normalizeRangeSeparators = (text: string): string =>
+  text.replace(RANGE_SEPARATOR_PATTERN, '-')
 
 /* ------------------------------------------------------------------ */
 /* JSON 主体提取（纯 JSON / code fence / 少量说明文字）                */
@@ -325,6 +398,7 @@ export function parseWeekday(value: unknown): number | null {
 
 /* ------------------------------------------------------------------ */
 /* periods 解析：3-4 / 3-4节 / 第3-4节 / 3~4 / {period,djs}            */
+/* 分隔符容忍 ASCII 与常见 Unicode 横杠/波浪号（#827）                  */
 /* ------------------------------------------------------------------ */
 
 export interface ParsedPeriods {
@@ -357,13 +431,13 @@ export function parsePeriods(value: unknown): ParsedPeriods | null {
 
   if (typeof value !== 'string') return null
 
-  // 归一化："第3-4节" → "3-4"；全角波浪号 → "-"
-  const text = value
-    .trim()
-    .replace(/^第/, '')
-    .replace(/节$/, '')
-    .replace(/[~～—–]/g, '-')
-    .trim()
+  // 归一化："第3-4节" → "3-4"；各类 Unicode 范围分隔符 → ASCII "-"（#827）
+  const text = normalizeRangeSeparators(
+    value
+      .trim()
+      .replace(/^第/, '')
+      .replace(/节$/, '')
+  ).trim()
 
   const range = /^(\d{1,2})\s*-\s*(\d{1,2})$/.exec(text)
   if (range) {
@@ -409,9 +483,12 @@ function parseWeekToken(token: string): number[] | null {
   text = text.replace(/周$/, '').trim()
   if (!text) return null
 
+  // 与节次同源：周次范围同样容忍 Unicode 分隔符（#827），避免同一个坑在两处复现
+  text = normalizeRangeSeparators(text)
+
   let start: number
   let end: number
-  const range = /^(\d{1,3})\s*[-~～—–]\s*(\d{1,3})$/.exec(text)
+  const range = /^(\d{1,3})\s*-\s*(\d{1,3})$/.exec(text)
   if (range) {
     start = Number(range[1])
     end = Number(range[2])
@@ -498,7 +575,10 @@ function parseCourse(rawItem: unknown, sourceIndex: number): CourseParseOutcome 
   if (!isPlainObject(rawItem)) {
     return {
       errors: [
-        makeDiag('error', 'invalid_course_entry', `第 ${sourceIndex + 1} 条不是合法的课程对象`, undefined, sourceIndex)
+        // 条目级错误没有具体字段：定位信息（第 N 条）由诊断结构提供，message 不再重复序号
+        makeCourseFieldError('invalid_course_entry', '该条不是合法的课程对象', undefined, sourceIndex, {
+          rawValue: rawItem
+        })
       ]
     }
   }
@@ -507,20 +587,25 @@ function parseCourse(rawItem: unknown, sourceIndex: number): CourseParseOutcome 
   const nameText = toOptionalText(nameField.value)
   if (!nameField.present || !nameText) {
     return {
-      errors: [makeDiag('error', 'missing_name', '缺少课程名称', nameField.key, sourceIndex)]
+      errors: [
+        makeCourseFieldError('missing_name', '缺少课程名称', nameField.key, sourceIndex, {
+          rawValue: nameField.value
+        })
+      ]
     }
   }
 
-  const weekday = parseWeekday(pickField(rawItem, FIELD_ALIASES.weekday).value)
+  const weekdayValue = pickField(rawItem, FIELD_ALIASES.weekday).value
+  const weekday = parseWeekday(weekdayValue)
   if (weekday === null) {
     return {
       errors: [
-        makeDiag(
-          'error',
+        makeCourseFieldError(
           'invalid_weekday',
           `星期无法解析或超出范围（应为 ${IMPORT_WEEKDAY_MIN}..${IMPORT_WEEKDAY_MAX}）`,
           'weekday',
-          sourceIndex
+          sourceIndex,
+          { rawValue: weekdayValue, courseName: nameText }
         )
       ]
     }
@@ -535,27 +620,28 @@ function parseCourse(rawItem: unknown, sourceIndex: number): CourseParseOutcome 
   if (!periods) {
     return {
       errors: [
-        makeDiag(
-          'error',
+        makeCourseFieldError(
           'invalid_periods',
           `节次无法解析或超出范围（起始 ${IMPORT_PERIOD_MIN}..${IMPORT_PERIOD_MAX}，末节不超过 ${IMPORT_PERIOD_MAX}）`,
           'periods',
-          sourceIndex
+          sourceIndex,
+          { rawValue: periodsValue, courseName: nameText }
         )
       ]
     }
   }
 
-  const weeks = parseWeeks(pickField(rawItem, FIELD_ALIASES.weeks).value)
+  const weeksValue = pickField(rawItem, FIELD_ALIASES.weeks).value
+  const weeks = parseWeeks(weeksValue)
   if (!weeks) {
     return {
       errors: [
-        makeDiag(
-          'error',
+        makeCourseFieldError(
           'invalid_weeks',
           `周次无法解析、为空或超出范围（应为 ${IMPORT_WEEKS_MIN}..${IMPORT_WEEKS_MAX}）`,
           'weeks',
-          sourceIndex
+          sourceIndex,
+          { rawValue: weeksValue, courseName: nameText }
         )
       ]
     }

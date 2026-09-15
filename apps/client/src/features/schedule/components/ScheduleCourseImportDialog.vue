@@ -18,6 +18,7 @@ import { getWeekDayLabels } from '../constants'
 import { getCourseStyle } from '../utils/layout'
 import { formatWeeksText } from '../utils/weeks'
 import { buildAiCourseImportPrompt, buildAiCourseImportExample } from '../utils/importPrompt'
+import { describeImportDiagnostic } from '../utils/importDiagnostics'
 
 const props = defineProps({
   showImportDialog: { type: Boolean, default: false },
@@ -95,6 +96,12 @@ const weeksText = (weeks) => {
 }
 
 const periodText = (course) => `${course.period}-${course.period + course.djs - 1}`
+
+/**
+ * 诊断展示文案（#827）：带定位前缀（第 N 条 / 课程名 / 字段 / 原始值）。
+ * 组件内只做取词，拼接规则统一由 utils/importDiagnostics 提供。
+ */
+const diagText = (diagnostic) => describeImportDiagnostic(diagnostic)
 
 /** 课程名相同即为同一颜色组 */
 const isSameGroup = (item, other) =>
@@ -335,7 +342,7 @@ watch(
             </ul>
 
             <div v-if="globalDiagnostics.length" class="sci-global-diag">
-              <div v-for="(diag, di) in globalDiagnostics" :key="`g-${di}`" class="sci-item-warn">{{ diag.message }}</div>
+              <div v-for="(diag, di) in globalDiagnostics" :key="`g-${di}`" class="sci-item-warn">{{ diagText(diag) }}</div>
             </div>
             </template>
 

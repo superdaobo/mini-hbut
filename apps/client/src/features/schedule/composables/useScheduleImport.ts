@@ -21,6 +21,7 @@ import { buildPreviewGridCourses, buildPreviewWeekDates, isWeekActive } from '..
 import { readTextFromFile } from '../utils/io'
 import { buildAiCourseImportPrompt } from '../utils/importPrompt'
 import { parseAiCourseImport } from '../utils/importParser'
+import { describeImportDiagnostic } from '../utils/importDiagnostics'
 import { mergeImportCourses, detectImportDuplicates } from '../utils/importMerge'
 import { detectImportConflicts } from '../utils/importConflict'
 import {
@@ -324,8 +325,11 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     rawCount.value = parsed.rawCount
 
     if (!parsed.courses.length) {
+      // #827：不再只丢 message，而是带上「第 N 条 / 课程名 / 字段 / 原始值」定位信息
       const firstError = parsed.diagnostics.find((item) => item.level === 'error')
-      parseError.value = firstError?.message || t('schedule.import.error.noCourses')
+      parseError.value = firstError
+        ? describeImportDiagnostic(firstError)
+        : t('schedule.import.error.noCourses')
       stage.value = 'input'
       return
     }
