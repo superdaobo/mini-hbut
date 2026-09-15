@@ -253,6 +253,14 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # 该 action 的 packages 默认值是 'tools platform-tools'，但 Google 已于
+          # 2026-09-15 前后从 SDK 仓库下架遗留的 tools 包，默认值会让 `sdkmanager tools`
+          # 报 Failed to find package 'tools' 并退出码 1，Android job 第一步即中止（#830）。
+          # 本仓库只用 $ANDROID_SDK_ROOT 与 sdkmanager（见 scripts/ci/setup_android_ndk.sh），
+          # 不依赖遗留 tools 目录，故显式覆盖为仍然存在的 platform-tools
+          # （@v4.0.1 的默认值同样含 tools，不能靠升级 action 解决）。
+          packages: 'platform-tools'
 
       - name: Setup Android NDK
         uses: ./.github/actions/setup-android-ndk
