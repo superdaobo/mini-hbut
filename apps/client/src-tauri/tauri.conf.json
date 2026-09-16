@@ -1,14 +1,17 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Mini-HBUT",
-  "version": "1.4.9",
+  "version": "1.4.10",
   "identifier": "com.hbut.mini",
   "build": {
     "beforeDevCommand": "node scripts/ensure_dist.mjs && npm run dev",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "npm run build && node scripts/check_dist_boundary.mjs",
     "frontendDist": "../dist",
-    "features": ["mobile-full", "bridge"]
+    "features": [
+      "mobile-full",
+      "bridge"
+    ]
   },
   "app": {
     "windows": [
@@ -64,11 +67,15 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["minihbut"]
+        "schemes": [
+          "minihbut"
+        ]
       },
       "mobile": [
         {
-          "scheme": ["minihbut"],
+          "scheme": [
+            "minihbut"
+          ],
           "appLink": false
         }
       ]
