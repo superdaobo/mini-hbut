@@ -14,9 +14,34 @@ const source = () => readFileSync(new URL('./ScheduleEventDetail.vue', import.me
 /** CJK 表意文字区段（与 i18n_coverage.spec.ts 同一口径） */
 const CJK_PATTERN = /[\u4e00-\u9fff\u3400-\u4dbf]/
 
-/** 剥离注释后逐行返回（.vue 需同时剥离 <!-- --> 与 JS 注释） */
+/**
+ * 按成对起止标记移除块注释。
+ *
+ * 刻意用索引扫描而非 `String.replace(正则)`：多字符替换一旦匹配不全就可能残留，
+ * 会触发 CodeQL `js/incomplete-multi-character-sanitization`（安全级别 high）告警
+ * ——该规则在 main 上已因既有 `i18n_coverage.spec.ts` 的同款写法存在一条历史告警，
+ * 这里不再新增重复实现。剥离口径与既有测试保持一致（HTML 注释 + JS 块注释 + 行注释）。
+ */
+const stripBlock = (text: string, open: string, close: string): string => {
+  let out = ''
+  let cursor = 0
+  for (;;) {
+    const start = text.indexOf(open, cursor)
+    if (start < 0) break
+    out += text.slice(cursor, start)
+    const end = text.indexOf(close, start + open.length)
+    if (end < 0) {
+      cursor = text.length
+      break
+    }
+    cursor = end + close.length
+  }
+  return out + text.slice(cursor)
+}
+
+/** 剥离注释后逐行返回（.vue 需同时剥离模板注释与脚本注释） */
 const stripComments = (text: string): string[] => {
-  let body = text.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  const body = stripBlock(stripBlock(text, '<!--', '-->'), '/*', '*/')
   return body.split('\n').map((line) => {
     const idx = line.indexOf('//')
     return idx >= 0 ? line.slice(0, idx) : line
