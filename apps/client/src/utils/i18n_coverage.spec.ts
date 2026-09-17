@@ -57,6 +57,9 @@ const I18N_MIGRATED_FILES: string[] = [
   'features/schedule/components/ScheduleEventForm.vue',
   'features/schedule/composables/useScheduleEvents.ts',
   'features/schedule/utils/eventTypes.ts',
+  // #838：个人日程详情 surface（独立于课程详情语义）与详情状态编排
+  'features/schedule/components/ScheduleEventDetail.vue',
+  'features/schedule/composables/useScheduleEventDetail.ts',
   'features/schedule/components/ScheduleManageCoursesDialog.vue',
   'features/schedule/components/ScheduleWeekPicker.vue',
   'features/schedule/composables/useScheduleEditor.ts',
