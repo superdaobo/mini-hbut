@@ -94,11 +94,11 @@ export const buildExportEventsForWeek = (
   return events
 }
 
-/** 导出整个学期的事件列表（按课程去重） */
-export const buildExportEventsForSemester = (options: { startDateStr: string; scheduleData: any[] }): any[] => {
-  const { startDateStr, scheduleData } = options || {}
-  const events: any[] = []
-  if (!startDateStr) return events
+/**
+ * 学期总周数推导：取全部课程 weeks 的最大值，无有效周次时兜底 25 周。
+ * #840 起被「学期导出」与「学期日期范围推导」共用，保证两者同源。
+ */
+export const resolveSemesterTotalWeeks = (scheduleData: any[]): number => {
   const source = Array.isArray(scheduleData) ? scheduleData : []
   const maxWeek = source.reduce((acc: number, course: any) => {
     const maxCourseWeek = Array.isArray(course.weeks) && course.weeks.length
@@ -106,7 +106,16 @@ export const buildExportEventsForSemester = (options: { startDateStr: string; sc
       : 0
     return Math.max(acc, maxCourseWeek)
   }, 0)
-  const totalWeeks = maxWeek || 25
+  return maxWeek || 25
+}
+
+/** 导出整个学期的事件列表（按课程去重） */
+export const buildExportEventsForSemester = (options: { startDateStr: string; scheduleData: any[] }): any[] => {
+  const { startDateStr, scheduleData } = options || {}
+  const events: any[] = []
+  if (!startDateStr) return events
+  const source = Array.isArray(scheduleData) ? scheduleData : []
+  const totalWeeks = resolveSemesterTotalWeeks(source)
   const seen = new Set<string>()
 
   for (let week = 1; week <= totalWeeks; week++) {

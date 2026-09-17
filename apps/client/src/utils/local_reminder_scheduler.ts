@@ -33,6 +33,9 @@ import {
   writeJSON
 } from './notify_center_util.js'
 import { t, tf } from './app_i18n'
+// #839：个人日程提醒并入本模块的唯一调度管线（见下方 reconcile 的 expected 构建）
+import { buildPersonalReminderPlan } from './personal_reminder_plan'
+import { listPersonalReminderEvents } from './personal_reminder_store'
 
 /** 默认滚动窗口天数（产品验收窗口 7~14 天，取 14 天兼顾两端课程量） */
 export const REMINDER_WINDOW_DAYS = 14
@@ -45,8 +48,11 @@ export const EXAM_REMINDER_LEAD_DAYS = 1
 /** 单账号最多登记的 pending 提醒数（iOS 系统上限 64，留余量） */
 export const MAX_PENDING_REMINDERS = 50
 
-/** 提醒类型 */
-export type ReminderType = 'class' | 'exam'
+/**
+ * 提醒类型：class 课程 / exam 考试 / personal 个人日程（#839）。
+ * 三种类型共用同一 expected 列表、同一台账与同一配额，不各自开管线。
+ */
+export type ReminderType = 'class' | 'exam' | 'personal'
 
 export interface ReminderSpec {
   id: number
@@ -626,6 +632,8 @@ export const reconcileLocalReminders = async (input: ReconcileInput): Promise<Re
 
     const now = input.now instanceof Date && !Number.isNaN(input.now.getTime()) ? input.now : new Date()
     const window = computeReminderWindow(now, input.windowDays)
+    // 生效窗口天数（computeReminderWindow 已做 7~14 天夹取）；日程取数与计划共用同一窗口
+    const windowDays = Math.round((window.endEpochMs - window.startEpochMs) / 86400000)
     const settings = input.settings || getNotifySettings()
 
     // —— 数据源：显式传入优先，否则读缓存 ——
@@ -720,6 +728,18 @@ export const reconcileLocalReminders = async (input: ReconcileInput): Promise<Re
         })
       )
     }
+    // 个人日程（#839）：并入同一 expected 列表，与课程/考试共用台账、diff 与配额。
+    // 取数失败静默返回空数组（提醒失败绝不阻断日程 CRUD，也不影响课程/考试提醒）。
+    const personalEvents = await listPersonalReminderEvents({ studentId: sid, now, windowDays })
+    if (personalEvents.length > 0) {
+      expected = expected.concat(
+        buildPersonalReminderPlan(personalEvents, { studentId: sid, nowMs: now.getTime(), windowDays })
+      )
+    }
+
+    // 配额（MAX_PENDING_REMINDERS = 50，iOS 系统上限 64 留余量）由课程/考试/日程共享：
+    // 这里按触发时间升序保留最近的 50 条，不给任何类型单独配额——个人日程是用户显式
+    // 设置的提醒，与课程/考试同等重要，按时间先后截断是最直观且无歧义的策略。
     expected = applyReminderCap(expected)
 
     // —— diff 与执行 ——
@@ -806,7 +826,7 @@ export const reconcileLocalReminders = async (input: ReconcileInput): Promise<Re
       kept: diff.toKeep.length,
       failed: failedIds.length,
       errors,
-      windowDays: Math.round((window.endEpochMs - window.startEpochMs) / 86400000),
+      windowDays,
       windowStart: new Date(window.startEpochMs).toISOString(),
       windowEnd: new Date(window.endEpochMs).toISOString(),
       ledgerCount: nextEntries.length,

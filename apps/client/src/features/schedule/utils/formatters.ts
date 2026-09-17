@@ -76,6 +76,20 @@ export const buildCourseDetailText = (course: any): string => {
   return buildSingleCourseDetailText(course)
 }
 
+/**
+ * 分钟数（距 00:00）→ 'HH:MM'。
+ * #837：日程卡 / 可见区外 indicator / 空白点击创建共用；非法输入返回空串，不抛异常。
+ */
+export const formatMinuteToClock = (value: any): string => {
+  const minute = Number(value)
+  if (!Number.isFinite(minute) || minute < 0) return ''
+  const total = Math.floor(minute)
+  const hour = Math.floor(total / 60)
+  if (hour > 23) return ''
+  const rest = total % 60
+  return `${String(hour).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
+}
+
 /** 复制文本：优先 Clipboard API，回退 textarea + execCommand */
 export const copyTextWithFallback = async (text: any): Promise<boolean> => {
   const content = String(text || '').trim()
