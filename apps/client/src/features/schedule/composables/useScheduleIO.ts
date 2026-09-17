@@ -15,6 +15,12 @@ import {
   buildExportEventsForWeek
 } from '../utils/calendar'
 import {
+  mergePersonalEventsIntoExport,
+  resolveSemesterDateRange,
+  resolveWeekDateRange
+} from '../utils/calendarEvents'
+import type { ExportDateRange, PersonalScheduleEvent } from '../utils/calendarEvents'
+import {
   isLikelyMobileDevice,
   readTextFromFile,
   saveJsonByFilePicker,
@@ -36,6 +42,8 @@ export interface ScheduleIOOptions {
   semester: ScheduleSemester
   editor: ScheduleEditor
   confirmDialog: ScheduleConfirmDialog
+  /** #840：可选注入「按日期范围取个人日程」，默认走 /v2/schedule/event/list-range */
+  fetchPersonalEvents?: (range: ExportDateRange) => Promise<PersonalScheduleEvent[]>
 }
 
 export const useScheduleIO = (options: ScheduleIOOptions) => {
@@ -281,6 +289,21 @@ export const useScheduleIO = (options: ScheduleIOOptions) => {
     }
   }
 
+  /** 默认个人日程数据源（#840）：闭区间按日期范围拉取；失败由调用方降级处理 */
+  const requestPersonalEvents = async (range: ExportDateRange): Promise<PersonalScheduleEvent[]> => {
+    const sid = String(props.studentId || '').trim()
+    if (!sid) return []
+    const res = await axios.post(`${API_BASE}/v2/schedule/event/list-range`, {
+      student_id: sid,
+      start_date: range.startDate,
+      end_date: range.endDate
+    })
+    if (!res.data?.success) {
+      throw new Error(res.data?.error || '获取日程失败')
+    }
+    return Array.isArray(res.data?.data) ? res.data.data : []
+  }
+
   /** 导出日历（week/semester）到服务端生成 ICS 链接 */
   const exportCalendar = async (mode = 'week') => {
     exportError.value = ''
@@ -296,15 +319,34 @@ export const useScheduleIO = (options: ScheduleIOOptions) => {
       return
     }
     exportingMode.value = mode
-    const events = mode === 'semester'
-      ? buildExportEventsForSemester({ startDateStr: semester.startDateStr.value, scheduleData: data.scheduleData.value })
-      : buildExportEventsForWeek(Number(semester.selectedWeek.value || 1), { startDateStr: semester.startDateStr.value, scheduleData: data.scheduleData.value })
-    if (!events.length) {
-      exportError.value = '当前周暂无可导出的课表数据'
-      return
-    }
     exporting.value = true
     try {
+      const weekNumber = Number(semester.selectedWeek.value || 1)
+      const startDateStr = semester.startDateStr.value
+      const scheduleData = data.scheduleData.value
+      const courseEvents = mode === 'semester'
+        ? buildExportEventsForSemester({ startDateStr, scheduleData })
+        : buildExportEventsForWeek(weekNumber, { startDateStr, scheduleData })
+
+      // #840：按导出范围拉取个人日程并并入；范围外的日程不得纳入（个人日程无 semester 字段）
+      const range = mode === 'semester'
+        ? resolveSemesterDateRange(startDateStr, scheduleData)
+        : resolveWeekDateRange({ weekDates: semester.weekDates.value, startDateStr, weekNumber })
+      const merged = await mergePersonalEventsIntoExport({
+        courseEvents,
+        range,
+        fetchEvents: options.fetchPersonalEvents || requestPersonalEvents
+      })
+      if (merged.personalEventsFailed) {
+        // 仅记录范围与失败事实，不打印日程标题/备注（隐私约束）
+        console.warn('[Schedule] 个人日程拉取失败，本次导出仅包含课程：', range)
+      }
+      const events = merged.events
+      if (!events.length) {
+        exportError.value = '当前周暂无可导出的课表数据'
+        return
+      }
+
       const uploadEndpoint = String(localStorage.getItem('hbu_temp_upload_endpoint') || '').trim()
       const payload: any = {
         student_id: props.studentId,

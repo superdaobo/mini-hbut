@@ -2,11 +2,15 @@
 /**
  * 添加/修改自定义课程弹窗。
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
+ * #836：课程字段区（学期条 + 名称/教师/地点/星期/节次/节数/周次）抽为
+ * ScheduleCourseForm.vue，与统一「添加安排」弹窗的课程 Tab 共用同一份字段实现；
+ * 本组件保留配色、错误提示与动作区，字段/默认值/校验/提交行为完全不变。
  */
 import { computed } from 'vue'
-import { periodOptions, getWeekDayLabels } from '../constants'
 // #772：恢复组件拆分时丢失的颜色选择器（script setup 中 import 即自动注册）
 import CourseColorPicker from '../../../components/CourseColorPicker.vue'
+// #836：共用课程字段区
+import ScheduleCourseForm from './ScheduleCourseForm.vue'
 // #788 i18n：文案经 useI18n 响应式取词
 import { useI18n } from '../../../utils/app_i18n'
 
@@ -32,9 +36,6 @@ const form = computed(() => props.addCourseForm)
 
 // 响应式 t：语言切换后弹窗文案即时生效
 const { t } = useI18n()
-
-// #788：星期标签随语言切换取最新词（getter 函数在渲染时调用）
-const weekDayLabels = computed(() => getWeekDayLabels())
 </script>
 
 <template>
@@ -46,45 +47,13 @@ const weekDayLabels = computed(() => getWeekDayLabels())
           <button class="close-btn" @click="emit('close')">×</button>
         </div>
         <div class="modal-body add-course-body">
-          <div class="add-course-semester">{{ t('schedule.addCourse.semesterLabel').replace('{t}', courseDialogSemester) }}</div>
-          <label class="add-field">
-            <span>{{ t('schedule.addCourse.nameLabel') }}</span>
-            <input v-model.trim="form.name" type="text" :placeholder="t('schedule.addCourse.namePlaceholder')" />
-          </label>
-          <label class="add-field">
-            <span>{{ t('schedule.addCourse.teacherLabel') }}</span>
-            <input v-model.trim="form.teacher" type="text" :placeholder="t('schedule.addCourse.teacherPlaceholder')" />
-          </label>
-          <label class="add-field">
-            <span>{{ t('schedule.addCourse.roomLabel') }}</span>
-            <input v-model.trim="form.room" type="text" :placeholder="t('schedule.addCourse.roomPlaceholder')" />
-          </label>
-          <div class="add-field">
-            <span>{{ t('schedule.addCourse.timeLabel') }}</span>
-            <IOSSelect v-model.number="form.weekday">
-              <option v-for="(label, idx) in weekDayLabels" :key="label" :value="idx + 1">{{ label }}</option>
-            </IOSSelect>
-          </div>
-          <div class="add-row">
-            <label class="add-field">
-              <span>{{ t('schedule.addCourse.startPeriodLabel') }}</span>
-              <IOSSelect v-model.number="form.period">
-                <option v-for="p in periodOptions" :key="p" :value="p">{{ t('schedule.addCourse.periodOption').replace('{n}', String(p)) }}</option>
-              </IOSSelect>
-            </label>
-            <label class="add-field">
-              <span>{{ t('schedule.addCourse.spanLabel') }}</span>
-              <IOSSelect v-model.number="form.djs">
-                <option v-for="s in courseSpanOptions" :key="s" :value="s">{{ t('schedule.addCourse.spanOption').replace('{n}', String(s)) }}</option>
-              </IOSSelect>
-            </label>
-          </div>
-          <div class="add-field">
-            <span>{{ t('schedule.addCourse.weeksLabel') }}</span>
-            <button class="week-picker-trigger" @click="emit('open-week-picker')">
-              {{ addWeeksCountText }}
-            </button>
-          </div>
+          <ScheduleCourseForm
+            :form="form"
+            :semester="courseDialogSemester"
+            :span-options="courseSpanOptions"
+            :weeks-count-text="addWeeksCountText"
+            @open-week-picker="emit('open-week-picker')"
+          />
           <div class="add-field">
             <CourseColorPicker v-model="form.color" />
           </div>
@@ -122,60 +91,10 @@ const weekDayLabels = computed(() => getWeekDayLabels())
   padding-right: 2px;
 }
 
-.add-course-semester {
-  font-size: 12px;
-  color: #475569;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgba(226, 232, 240, 0.55);
-}
-
-.add-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
+/* 配色区包装（字段区样式已随 ScheduleCourseForm.vue 抽出） */
 .add-field {
   display: grid;
   gap: 6px;
-}
-
-.add-field > span {
-  font-size: 12px;
-  color: #475569;
-  font-weight: 600;
-}
-
-.add-field input,
-.add-field select {
-  width: 100%;
-  min-height: 36px;
-  border-radius: 10px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #0f172a;
-  font-size: 13px;
-  padding: 0 10px;
-  box-sizing: border-box;
-}
-
-.add-field input:focus,
-.add-field select:focus {
-  outline: 2px solid rgba(37, 99, 235, 0.3);
-  outline-offset: 0;
-}
-
-.week-picker-trigger {
-  width: 100%;
-  min-height: 38px;
-  border-radius: 10px;
-  border: 1px dashed #94a3b8;
-  background: rgba(248, 250, 252, 0.95);
-  color: #0f172a;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .add-actions {
@@ -230,11 +149,6 @@ const weekDayLabels = computed(() => getWeekDayLabels())
 }
 
 @media (max-width: 768px) {
-  .add-row {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
   .add-actions {
     grid-template-columns: 1fr;
   }

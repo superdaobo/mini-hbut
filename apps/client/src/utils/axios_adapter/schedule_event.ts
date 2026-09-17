@@ -1,4 +1,19 @@
 import { bridgePost, errorMessage, hasTauri, invoke, mockResponse, type JsonObject } from './bridge';
+import { reconcileLocalReminders } from '../local_reminder_scheduler';
+
+/**
+ * 日程 CRUD 成功后触发本地提醒 reconcile（#839）。
+ *
+ * 与 post.ts 的 fireCustomCourseReconcile 同策略：不 await、失败静默——
+ * 提醒登记失败绝不能影响日程本身的结果（add/update/delete 已成功）。
+ * reconcile 内部会按稳定 event id diff：新增 → 补建，修改 → 旧取消 + 新建，
+ * 删除 → 该日程不再出现在 expected，自动取消。
+ */
+const fireScheduleEventReconcile = (data: JsonObject) => {
+  const sid = String(data?.student_id || data?.studentId || '').trim();
+  if (!sid) return;
+  void reconcileLocalReminders({ studentId: sid, reason: 'schedule-event-crud' }).catch(() => {});
+};
 
 /**
  * 处理个人日程（#835）端点；非日程端点返回 null。
@@ -15,10 +30,12 @@ export const handleScheduleEventPost = async (
     try {
       if (hasTauri) {
         const payload = await invoke('add_schedule_event', { req: data || {} });
+        fireScheduleEventReconcile(data);
         return mockResponse(payload);
       }
       const res = await bridgePost('/schedule/event/add', data || {});
       if (res?.success && res?.data) {
+        fireScheduleEventReconcile(data);
         return mockResponse({ success: true, ...res.data });
       }
       return mockResponse({ success: false, error: errorMessage(res.error) || '添加日程失败' });
@@ -49,10 +66,12 @@ export const handleScheduleEventPost = async (
     try {
       if (hasTauri) {
         const payload = await invoke('update_schedule_event', { req: data || {} });
+        fireScheduleEventReconcile(data);
         return mockResponse(payload);
       }
       const res = await bridgePost('/schedule/event/update', data || {});
       if (res?.success && res?.data) {
+        fireScheduleEventReconcile(data);
         return mockResponse({ success: true, ...res.data });
       }
       return mockResponse({ success: false, error: errorMessage(res.error) || '修改日程失败' });
@@ -67,10 +86,12 @@ export const handleScheduleEventPost = async (
           studentId: data?.student_id || data?.studentId || '',
           eventId: data?.event_id || data?.eventId || ''
         });
+        fireScheduleEventReconcile(data);
         return mockResponse(payload);
       }
       const res = await bridgePost('/schedule/event/delete', data || {});
       if (res?.success && res?.data) {
+        fireScheduleEventReconcile(data);
         return mockResponse({ success: true, ...res.data });
       }
       return mockResponse({ success: false, error: errorMessage(res.error) || '删除日程失败' });
