@@ -35,8 +35,9 @@ import { useScheduleTermStart } from '../features/schedule/composables/useSchedu
 // #833 Wave2：个人日程（数据层 + 统一「添加安排」编辑器）
 import { useScheduleEventData } from '../features/schedule/composables/useScheduleEventData'
 import { useScheduleEvents } from '../features/schedule/composables/useScheduleEvents'
+// #838：日程详情 / 编辑 / 删除交互闭环
+import { useScheduleEventDetail } from '../features/schedule/composables/useScheduleEventDetail'
 import { useI18n } from '../utils/app_i18n'
-import { normalizeScheduleEvent } from '../features/schedule/utils/eventTypes'
 import { deriveSemesterByDate, readStoredSemester } from '../features/schedule/utils/semester'
 import { semesterIsNewer } from '../utils/semester.js'
 
@@ -48,6 +49,8 @@ import ScheduleCourseDetail from '../features/schedule/components/ScheduleCourse
 // #836：统一「添加安排」弹窗（课程 | 日程）。旧的 ScheduleAddCourseDialog 不再挂载，
 // 其课程字段区已抽为 ScheduleCourseForm.vue 被新弹窗复用。
 import ScheduleAddArrangementDialog from '../features/schedule/components/ScheduleAddArrangementDialog.vue'
+// #838：日程详情 surface（与课程详情业务类型分离）
+import ScheduleEventDetail from '../features/schedule/components/ScheduleEventDetail.vue'
 import ScheduleCourseImportDialog from '../features/schedule/components/ScheduleCourseImportDialog.vue'
 import ScheduleManageCoursesDialog from '../features/schedule/components/ScheduleManageCoursesDialog.vue'
 import ScheduleWeekPicker from '../features/schedule/components/ScheduleWeekPicker.vue'
@@ -82,6 +85,37 @@ const events = useScheduleEvents({
   confirmDialog,
   onChanged: () => eventData.refreshWeekEvents()
 })
+
+/**
+ * 当前周全部课程（教务 + 自定义），扁平化后供日程冲突提示与详情共用。
+ * 逐日取网格数据再补回 weekday，避免合并结果丢失星期字段导致漏判。
+ */
+const allWeekCourses = computed(() => {
+  const list: any[] = []
+  for (let day = 1; day <= 7; day += 1) {
+    const dayCourses = grid.getCoursesForDay(day)
+    if (!Array.isArray(dayCourses)) continue
+    for (const course of dayCourses) {
+      list.push({ ...course, weekday: Number(course?.weekday) || day })
+    }
+  }
+  return list
+})
+
+// #838：日程详情编排（冲突复用同一 conflictsOf；删除确认由 useScheduleEvents 内部发起，此处不重复确认）
+const eventDetail = useScheduleEventDetail({
+  props,
+  eventData,
+  events,
+  confirmDialog,
+  getWeekCourses: () => allWeekCourses.value,
+  onEdit: () => {
+    // 详情已回填草稿并关闭，这里只负责把统一编辑器以「编辑日程」态打开
+    arrangementMode.value = 'editEvent'
+    arrangementInitialTab.value = 'event'
+    showArrangement.value = true
+  }
+})
 const io = useScheduleIO({ props, data, semester: semesterApi, editor, confirmDialog })
 // #815：AI 课表导入（Parser / Merge / Conflict / Colors / Commit 编排）
 const importApi = useScheduleImport({ props, data, semester: semesterApi, editor })
@@ -101,6 +135,7 @@ const anyOverlayOpen = computed(() => {
   return (
     menu.showMenu.value ||
     detail.showDetail.value ||
+    eventDetail.showEventDetail.value ||
     showArrangement.value ||
     editor.showAddCourse.value ||
     editor.showManageCourses.value ||
@@ -175,6 +210,8 @@ const {
 } = editor
 // 日程（#833 Wave2）
 const { eventDraft, eventError, savingEvent, deletingEvent } = events
+// 日程详情（#838）
+const { showEventDetail, selectedEvent, detailConflicts, detailError } = eventDetail
 // 导入导出
 const {
   exporting,
@@ -279,15 +316,9 @@ const handleCreateEventAt = (payload: any) => {
   openAddArrangement({ type: 'event', ...(payload || {}) })
 }
 
-/** 网格日程卡点击 → 编辑日程（详情页属 #838，本 Wave 先复用统一弹窗的编辑态） */
+/** 网格日程卡点击 → 打开日程详情（#838） */
 const handleOpenEventDetail = (raw: any) => {
-  const event = normalizeScheduleEvent(raw)
-  if (!event) return
-  events.populateEventDraft(event)
-  events.editingEventId.value = event.id
-  arrangementMode.value = 'editEvent'
-  arrangementInitialTab.value = 'event'
-  showArrangement.value = true
+  eventDetail.openEventDetail(raw)
 }
 
 /** 日程提交成功后关闭弹窗；刷新由 useScheduleEvents 的 onChanged 回调负责 */
@@ -306,22 +337,6 @@ const handleDeleteEvent = async () => {
     events.editingEventId.value = ''
   }
 }
-
-/**
- * 当前周全部课程（教务 + 自定义），扁平化后供日程冲突提示使用。
- * 逐日取网格数据再补回 weekday，避免合并结果丢失星期字段导致漏判。
- */
-const allWeekCourses = computed(() => {
-  const list: any[] = []
-  for (let day = 1; day <= 7; day += 1) {
-    const dayCourses = grid.getCoursesForDay(day)
-    if (!Array.isArray(dayCourses)) continue
-    for (const course of dayCourses) {
-      list.push({ ...course, weekday: Number(course?.weekday) || day })
-    }
-  }
-  return list
-})
 
 /** 日程冲突提示（只 warning，不阻止提交）；编辑课程态不参与 */
 const arrangementConflicts = computed(() => {
@@ -662,6 +677,18 @@ onBeforeUnmount(() => {
     />
 
     <!-- 添加/修改课程弹窗 -->
+    <!-- #838：日程详情（编辑 / 删除闭环，与课程详情业务类型分离） -->
+    <ScheduleEventDetail
+      :show="showEventDetail"
+      :event="selectedEvent"
+      :conflicts="detailConflicts"
+      :deleting="deletingEvent"
+      :error="detailError"
+      @close="eventDetail.closeEventDetail"
+      @edit="eventDetail.requestEditEvent"
+      @delete="eventDetail.requestDeleteEvent"
+    />
+
     <!-- #836：统一「添加安排」弹窗（创建态可切 课程|日程；编辑态类型锁定） -->
     <ScheduleAddArrangementDialog
       :show="showArrangement"

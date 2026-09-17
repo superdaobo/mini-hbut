@@ -512,6 +512,12 @@ export const messages: Record<string, string> = {
   'schedule.event.studentRequired': 'Missing student id, cannot save the schedule',
   'schedule.event.submitFailed': 'Failed to save the schedule',
   'schedule.event.deleteFailed': 'Failed to delete the schedule',
+  // Schedule details (#838)
+  'schedule.event.detailTitle': 'Schedule details',
+  'schedule.event.detailDate': '{weekday}, {month}/{day}',
+  'schedule.event.detailNote': 'Note: {note}',
+  'schedule.event.conflictExpand': 'Show all',
+  'schedule.event.conflictCollapse': 'Collapse',
   // Week picker
   'schedule.weekPicker.title': 'Select weeks',
   'schedule.weekPicker.selectAll': 'All',

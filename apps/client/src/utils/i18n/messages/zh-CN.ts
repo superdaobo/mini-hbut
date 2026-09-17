@@ -513,6 +513,12 @@ export const messages: Record<string, string> = {
   'schedule.event.studentRequired': '缺少学号信息，无法保存日程',
   'schedule.event.submitFailed': '保存日程失败',
   'schedule.event.deleteFailed': '删除日程失败',
+  // 日程详情（#838）
+  'schedule.event.detailTitle': '日程详情',
+  'schedule.event.detailDate': '{month}月{day}日 {weekday}',
+  'schedule.event.detailNote': '备注：{note}',
+  'schedule.event.conflictExpand': '展开全部',
+  'schedule.event.conflictCollapse': '收起',
   // 周次选择器
   'schedule.weekPicker.title': '选择周次',
   'schedule.weekPicker.selectAll': '全选',
