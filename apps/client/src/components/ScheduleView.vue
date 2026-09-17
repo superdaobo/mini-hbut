@@ -7,7 +7,7 @@
  *  - utils：颜色分配 / 布局合并 / 日历事件 / 导入导出 / 学期派生 / 弹窗存储 等纯函数
  * 本文件仅保留：props/emits 契约、composable 组合、事件接线、Widget 深链接与生命周期编排。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   clearScheduleLock,
   consumeScheduleSwitchPending,
@@ -32,7 +32,11 @@ import { useScheduleIO } from '../features/schedule/composables/useScheduleIO'
 import { useScheduleImport } from '../features/schedule/composables/useScheduleImport'
 import { useScheduleSync } from '../features/schedule/composables/useScheduleSync'
 import { useScheduleTermStart } from '../features/schedule/composables/useScheduleTermStart'
+// #833 Wave2：个人日程（数据层 + 统一「添加安排」编辑器）
+import { useScheduleEventData } from '../features/schedule/composables/useScheduleEventData'
+import { useScheduleEvents } from '../features/schedule/composables/useScheduleEvents'
 import { useI18n } from '../utils/app_i18n'
+import { normalizeScheduleEvent } from '../features/schedule/utils/eventTypes'
 import { deriveSemesterByDate, readStoredSemester } from '../features/schedule/utils/semester'
 import { semesterIsNewer } from '../utils/semester.js'
 
@@ -41,7 +45,9 @@ import ScheduleDrawer from '../features/schedule/components/ScheduleDrawer.vue'
 import ScheduleBanners from '../features/schedule/components/ScheduleBanners.vue'
 import ScheduleGrid from '../features/schedule/components/ScheduleGrid.vue'
 import ScheduleCourseDetail from '../features/schedule/components/ScheduleCourseDetail.vue'
-import ScheduleAddCourseDialog from '../features/schedule/components/ScheduleAddCourseDialog.vue'
+// #836：统一「添加安排」弹窗（课程 | 日程）。旧的 ScheduleAddCourseDialog 不再挂载，
+// 其课程字段区已抽为 ScheduleCourseForm.vue 被新弹窗复用。
+import ScheduleAddArrangementDialog from '../features/schedule/components/ScheduleAddArrangementDialog.vue'
 import ScheduleCourseImportDialog from '../features/schedule/components/ScheduleCourseImportDialog.vue'
 import ScheduleManageCoursesDialog from '../features/schedule/components/ScheduleManageCoursesDialog.vue'
 import ScheduleWeekPicker from '../features/schedule/components/ScheduleWeekPicker.vue'
@@ -66,6 +72,16 @@ const data = useScheduleData(props, emit, { semester: semesterApi })
 const grid = useScheduleGrid({ data, semester: semesterApi, menu })
 const detail = useScheduleDetail({ data, semester: semesterApi })
 const editor = useScheduleEditor({ props, data, semester: semesterApi, detail, menu, confirmDialog })
+// #833 Wave2：当前周个人日程数据层（按 weekDates 区间拉取；含切周竞态令牌与失败降级）
+const eventData = useScheduleEventData({ props, semester: semesterApi })
+// #833 Wave2：日程草稿与 CRUD；变更成功后重拉当前周日程，保证网格即时同步
+const events = useScheduleEvents({
+  props,
+  semester: semesterApi,
+  data,
+  confirmDialog,
+  onChanged: () => eventData.refreshWeekEvents()
+})
 const io = useScheduleIO({ props, data, semester: semesterApi, editor, confirmDialog })
 // #815：AI 课表导入（Parser / Merge / Conflict / Colors / Commit 编排）
 const importApi = useScheduleImport({ props, data, semester: semesterApi, editor })
@@ -73,12 +89,19 @@ const sync = useScheduleSync({ props, data, semester: semesterApi, editor, confi
 // #750：开学日期驱动学期切换（时间应选学期判定/自动切换/横幅/回前台重探）
 const termStart = useScheduleTermStart({ props, data, semester: semesterApi })
 
+// #836：统一「添加安排」弹窗状态
+// mode: add（创建，可切 课程|日程）/ editCourse（编辑课程，类型锁定）/ editEvent（编辑日程，类型锁定）
+const showArrangement = ref(false)
+const arrangementMode = ref('add')
+const arrangementInitialTab = ref('course')
+
 // 任一弹层打开时禁用周次滑动/键盘切换（与原始 shouldIgnoreWeekSwipe 一致）
 // #742：学期徽章/提示弹窗 UI 已移除，其状态不再参与门控
 const anyOverlayOpen = computed(() => {
   return (
     menu.showMenu.value ||
     detail.showDetail.value ||
+    showArrangement.value ||
     editor.showAddCourse.value ||
     editor.showManageCourses.value ||
     editor.showWeekPicker.value ||
@@ -86,6 +109,15 @@ const anyOverlayOpen = computed(() => {
     confirmDialog.showConfirmDialog.value
   )
 })
+
+// 课程侧提交成功后 useScheduleEditor 会把 showAddCourse 置回 false，
+// 这里同步关闭统一弹窗，避免残留一个空壳遮罩。
+watch(
+  () => editor.showAddCourse.value,
+  (open) => {
+    if (!open) showArrangement.value = false
+  }
+)
 
 // ============ 顶层解构（模板自动解包） ============
 // 学期周次
@@ -132,8 +164,6 @@ const {
 const { showDetail, selectedCourse, detailActionError } = detail
 // 编辑
 const {
-  showAddCourse,
-  courseDialogMode,
   courseDialogSemester,
   addCourseForm,
   addCourseError,
@@ -143,6 +173,8 @@ const {
   showManageCourses,
   showWeekPicker,
 } = editor
+// 日程（#833 Wave2）
+const { eventDraft, eventError, savingEvent, deletingEvent } = events
 // 导入导出
 const {
   exporting,
@@ -200,14 +232,106 @@ const closeMenu = () => {
   exportCopied.value = false
 }
 
-const openAddCourseDialog = () => {
+/**
+ * #836：打开统一「添加安排」。
+ * `payload.type === 'event'` 时直接落到日程 Tab（供抽屉入口与网格空白点击复用）；
+ * 默认走课程 Tab，并复用既有课程创建入口的登录校验 / 学期校验 / 表单重置。
+ */
+const openAddArrangement = (payload: any = {}) => {
   showMenu.value = false
-  void editor.openAddCourseDialog()
+  if (payload?.type === 'event') {
+    events.resetEventDraft({
+      date: payload?.date,
+      startTime: payload?.startTime,
+      endTime: payload?.endTime
+    })
+    events.editingEventId.value = ''
+    arrangementMode.value = 'add'
+    arrangementInitialTab.value = 'event'
+    showArrangement.value = true
+    return
+  }
+  arrangementInitialTab.value = 'course'
+  arrangementMode.value = 'add'
+  // 旧 ScheduleAddCourseDialog 已不再挂载，其 showAddCourse 仅作为内部控制位：
+  // 登录/学期校验不通过时它保持 false，统一弹窗因此不会打开。
+  editor.openAddCourseDialog()
+  showArrangement.value = editor.showAddCourse.value
 }
 
-const handleEditManagedCourse = (course: any) => {
-  void editor.openEditCourseDialog(course, { reopenManage: true })
+/** 关闭统一弹窗；课程侧同时清掉 useScheduleEditor 的弹窗状态（必要时会重开管理弹窗） */
+const closeArrangement = () => {
+  showArrangement.value = false
+  events.editingEventId.value = ''
+  if (editor.showAddCourse.value) editor.closeAddCourseDialog()
 }
+
+const handleEditManagedCourse = async (course: any) => {
+  editor.openEditCourseDialog(course, { reopenManage: true })
+  // openEditCourseDialog 内部经 nextTick 才把 showAddCourse 置真，等一拍再同步可见性
+  await nextTick()
+  arrangementMode.value = 'editCourse'
+  showArrangement.value = editor.showAddCourse.value
+}
+
+/** 网格空白点击创建日程：预填日期与近似开始时间，直接落到日程 Tab */
+const handleCreateEventAt = (payload: any) => {
+  openAddArrangement({ type: 'event', ...(payload || {}) })
+}
+
+/** 网格日程卡点击 → 编辑日程（详情页属 #838，本 Wave 先复用统一弹窗的编辑态） */
+const handleOpenEventDetail = (raw: any) => {
+  const event = normalizeScheduleEvent(raw)
+  if (!event) return
+  events.populateEventDraft(event)
+  events.editingEventId.value = event.id
+  arrangementMode.value = 'editEvent'
+  arrangementInitialTab.value = 'event'
+  showArrangement.value = true
+}
+
+/** 日程提交成功后关闭弹窗；刷新由 useScheduleEvents 的 onChanged 回调负责 */
+const handleSubmitEvent = async () => {
+  const ok = await events.submitEvent()
+  if (ok) {
+    showArrangement.value = false
+    events.editingEventId.value = ''
+  }
+}
+
+const handleDeleteEvent = async () => {
+  const ok = await events.deleteEvent(events.editingEventId.value)
+  if (ok) {
+    showArrangement.value = false
+    events.editingEventId.value = ''
+  }
+}
+
+/**
+ * 当前周全部课程（教务 + 自定义），扁平化后供日程冲突提示使用。
+ * 逐日取网格数据再补回 weekday，避免合并结果丢失星期字段导致漏判。
+ */
+const allWeekCourses = computed(() => {
+  const list: any[] = []
+  for (let day = 1; day <= 7; day += 1) {
+    const dayCourses = grid.getCoursesForDay(day)
+    if (!Array.isArray(dayCourses)) continue
+    for (const course of dayCourses) {
+      list.push({ ...course, weekday: Number(course?.weekday) || day })
+    }
+  }
+  return list
+})
+
+/** 日程冲突提示（只 warning，不阻止提交）；编辑课程态不参与 */
+const arrangementConflicts = computed(() => {
+  if (!showArrangement.value || arrangementMode.value === 'editCourse') return []
+  return events.conflictsOf(events.eventDraft.value, {
+    courses: allWeekCourses.value,
+    events: eventData.weekEvents.value,
+    excludeEventId: events.editingEventId.value
+  })
+})
 
 const handleSemesterChange = () => {
   // #750：手动切换 = 会话内临时行为（manual-select 锁，重启后以时间驱动为准）
@@ -482,7 +606,7 @@ onBeforeUnmount(() => {
       @update:semester-draft="semesterDraft = $event"
       @semester-change="handleSemesterChange"
       @set-style="setScheduleCourseCardStyle"
-      @open-add-course="openAddCourseDialog"
+      @open-add-arrangement="openAddArrangement"
       @open-manage-courses="editor.openManageCoursesDialog"
       @open-ai-import="importApi.openImportDialog"
       @sync-upload="sync.handleCloudSyncUpload"
@@ -518,8 +642,11 @@ onBeforeUnmount(() => {
       :course-card-refresh-nonce="courseCardRefreshNonce"
       :get-courses-for-day="grid.getCoursesForDay"
       :get-course-style="grid.getCourseCardStyle"
+      :get-events-for-day="eventData.getEventsForDay"
       :is-widget-highlighted="grid.isWidgetHighlighted"
       @open-detail="detail.openDetail"
+      @open-event-detail="handleOpenEventDetail"
+      @create-event-at="handleCreateEventAt"
     />
 
     <!-- 详情弹窗 -->
@@ -535,17 +662,26 @@ onBeforeUnmount(() => {
     />
 
     <!-- 添加/修改课程弹窗 -->
-    <ScheduleAddCourseDialog
-      :show-add-course="showAddCourse"
-      :course-dialog-mode="courseDialogMode"
-      :course-dialog-semester="courseDialogSemester"
-      :add-course-form="addCourseForm"
-      :add-course-error="addCourseError"
-      :adding-course="addingCourse"
+    <!-- #836：统一「添加安排」弹窗（创建态可切 课程|日程；编辑态类型锁定） -->
+    <ScheduleAddArrangementDialog
+      :show="showArrangement"
+      :mode="arrangementMode"
+      :initial-tab="arrangementInitialTab"
+      :course-semester="courseDialogSemester"
+      :course-draft="addCourseForm"
+      :course-error="addCourseError"
+      :saving-course="addingCourse"
       :course-span-options="courseSpanOptions"
       :add-weeks-count-text="addWeeksCountText"
-      @close="editor.closeAddCourseDialog"
-      @submit="editor.submitAddCourse"
+      :event-draft="eventDraft"
+      :event-error="eventError"
+      :saving-event="savingEvent"
+      :deleting-event="deletingEvent"
+      :event-conflicts="arrangementConflicts"
+      @close="closeArrangement"
+      @submit-course="editor.submitAddCourse"
+      @submit-event="handleSubmitEvent"
+      @delete-event="handleDeleteEvent"
       @open-week-picker="showWeekPicker = true"
     />
 
