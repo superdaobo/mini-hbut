@@ -2,6 +2,7 @@ import { isTestAccountSession } from '../test_account.js';
 import { resolveTestAccountHttpResponse } from '../test_account_fixtures.js';
 import { handleAuthPost } from './auth';
 import { handleCampusCodePost } from './campus_code';
+import { handleScheduleEventPost } from './schedule_event';
 import { reconcileLocalReminders } from '../local_reminder_scheduler';
 import {
   asRecord,
@@ -192,73 +193,9 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
                 return mockResponse({ success: false, error: errorMessage(err) });
             }
         }
-        if (url.includes('/v2/schedule/event/add')) {
-            try {
-                if (hasTauri) {
-                    const payload = await invoke('add_schedule_event', { req: data || {} });
-                    return mockResponse(payload);
-                }
-                const res = await bridgePost('/schedule/event/add', data || {});
-                if (res?.success && res?.data) {
-                    return mockResponse({ success: true, ...res.data });
-                }
-                return mockResponse({ success: false, error: errorMessage(res.error) || '添加日程失败' });
-            } catch (err) {
-                return mockResponse({ success: false, error: errorMessage(err) });
-            }
-        }
-        if (url.includes('/v2/schedule/event/list-range')) {
-            try {
-                if (hasTauri) {
-                    const payload = await invoke('list_schedule_events_range', {
-                        studentId: data?.student_id || data?.studentId || '',
-                        startDate: data?.start_date || data?.startDate || '',
-                        endDate: data?.end_date || data?.endDate || ''
-                    });
-                    return mockResponse(payload);
-                }
-                const res = await bridgePost('/schedule/event/list-range', data || {});
-                if (res?.success && res?.data) {
-                    return mockResponse({ success: true, ...res.data });
-                }
-                return mockResponse({ success: false, error: errorMessage(res.error) || '获取日程失败' });
-            } catch (err) {
-                return mockResponse({ success: false, error: errorMessage(err) });
-            }
-        }
-        if (url.includes('/v2/schedule/event/update')) {
-            try {
-                if (hasTauri) {
-                    const payload = await invoke('update_schedule_event', { req: data || {} });
-                    return mockResponse(payload);
-                }
-                const res = await bridgePost('/schedule/event/update', data || {});
-                if (res?.success && res?.data) {
-                    return mockResponse({ success: true, ...res.data });
-                }
-                return mockResponse({ success: false, error: errorMessage(res.error) || '修改日程失败' });
-            } catch (err) {
-                return mockResponse({ success: false, error: errorMessage(err) });
-            }
-        }
-        if (url.includes('/v2/schedule/event/delete')) {
-            try {
-                if (hasTauri) {
-                    const payload = await invoke('delete_schedule_event', {
-                        studentId: data?.student_id || data?.studentId || '',
-                        eventId: data?.event_id || data?.eventId || ''
-                    });
-                    return mockResponse(payload);
-                }
-                const res = await bridgePost('/schedule/event/delete', data || {});
-                if (res?.success && res?.data) {
-                    return mockResponse({ success: true, ...res.data });
-                }
-                return mockResponse({ success: false, error: errorMessage(res.error) || '删除日程失败' });
-            } catch (err) {
-                return mockResponse({ success: false, error: errorMessage(err) });
-            }
-        }
+        // #835：个人日程 CRUD 分支已抽到 ./schedule_event，避免本文件继续膨胀
+        const scheduleEventResponse = await handleScheduleEventPost(url, data);
+        if (scheduleEventResponse) return scheduleEventResponse;
         if (url.includes('/v2/schedule/export_calendar')) {
             try {
                 if (hasTauri) {
