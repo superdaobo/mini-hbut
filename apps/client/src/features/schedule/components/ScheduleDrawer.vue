@@ -37,7 +37,7 @@ const emit = defineEmits([
   'update:semesterDraft',
   'semester-change',
   'set-style',
-  'open-add-course',
+  'open-add-arrangement',
   'open-manage-courses',
   'open-ai-import',
   'sync-upload',
@@ -107,9 +107,9 @@ const { t } = useI18n()
         <div class="drawer-course-group">
           <div class="drawer-subtitle" data-step="3">{{ t('schedule.drawer.section.manage') }}</div>
           <div class="drawer-course-actions">
-            <button class="drawer-action add-course" :disabled="addingCourse" @click="emit('open-add-course')">
+            <button class="drawer-action add-course" :disabled="addingCourse" @click="emit('open-add-arrangement')">
               <span class="material-symbols-outlined">add_circle</span>
-              {{ t('schedule.drawer.addCourse') }}
+              {{ t('schedule.drawer.addArrangement') }}
             </button>
             <button class="drawer-action manage-course" :disabled="loadingManageCourses" @click="emit('open-manage-courses')">
               <span class="material-symbols-outlined">folder_copy</span>
