@@ -148,5 +148,5 @@ fn phase5_http_registry_has_no_duplicate_or_empty_entries() {
         unique.len(),
         "baseline contains duplicate routes"
     );
-    assert_eq!(baseline.len(), 119, "unexpected public HTTP route count");
+    assert_eq!(baseline.len(), 130, "unexpected public HTTP route count");
 }

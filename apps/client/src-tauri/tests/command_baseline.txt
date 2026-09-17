@@ -1,6 +1,9 @@
 get_login_page
 get_captcha
 recognize_captcha
+list_saved_accounts
+switch_active_account
+delete_saved_account
 set_ocr_endpoint
 set_ocr_runtime_config
 get_ocr_runtime_status
@@ -29,6 +32,7 @@ open_external_url
 modules::school_website_embed::school_website_embed_open
 modules::school_website_embed::school_website_embed_resize
 modules::school_website_embed::school_website_embed_close
+modules::cert_probe::probe_school_cert_status
 http_server::ensure_http_bridge
 prepare_module_bundle
 open_file_with_system
@@ -79,6 +83,10 @@ add_custom_schedule_course
 delete_custom_schedule_course
 update_custom_schedule_course
 export_schedule_calendar
+add_schedule_event
+list_schedule_events_range
+update_schedule_event
+delete_schedule_event
 fetch_exams
 fetch_ranking
 fetch_student_info
@@ -193,7 +201,9 @@ usage_stats_cmd::usage_stats_list_pending_upload
 usage_stats_cmd::usage_stats_mark_uploaded
 modules::weather::fetch_weather
 identity::commands::identity_device_status
+identity::commands::identity_core_fetch
 identity::commands::identity_get_public_key
 identity::commands::identity_enroll_device
 identity::commands::identity_sign_auth_request
 identity::commands::identity_revoke_current_device_local
+identity::commands::identity_fetch_auth_history
