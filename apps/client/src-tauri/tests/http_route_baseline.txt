@@ -8,12 +8,16 @@ GET /cache/get
 GET /campus-guide-debug/field-matrix
 GET /campus-map/direction
 GET /debug/diag
+GET /debug/identity-core-diag
 GET /debug/logs
 GET /debug/routes
 GET /debug/state
 GET /export_cookies
 GET /exports/:filename
 GET /health
+GET /local/grades
+GET /local/profile
+GET /local/timetable
 GET /module_bundle/content/:channel/:module_id/:version
 GET /module_bundle/content/:channel/:module_id/:version/*path
 GET /proxy/video
@@ -45,7 +49,10 @@ POST /debug/chaoxing/courses
 POST /debug/chaoxing/session
 POST /debug/custom_schedule/upsert
 POST /debug/dom_screenshot
+POST /debug/frontend-eval
+POST /debug/identity-intent
 POST /debug/inbox
+POST /debug/keyring-probe
 POST /debug/logs/push
 POST /debug/logs/query
 POST /debug/navigate
@@ -115,5 +122,9 @@ POST /schedule/custom/delete
 POST /schedule/custom/list
 POST /schedule/custom/list_all
 POST /schedule/custom/update
+POST /schedule/event/add
+POST /schedule/event/delete
+POST /schedule/event/list-range
+POST /schedule/event/update
 POST /sync_grades
 POST /sync_schedule

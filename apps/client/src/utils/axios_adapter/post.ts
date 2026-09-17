@@ -2,6 +2,7 @@ import { isTestAccountSession } from '../test_account.js';
 import { resolveTestAccountHttpResponse } from '../test_account_fixtures.js';
 import { handleAuthPost } from './auth';
 import { handleCampusCodePost } from './campus_code';
+import { handleScheduleEventPost } from './schedule_event';
 import { reconcileLocalReminders } from '../local_reminder_scheduler';
 import {
   asRecord,
@@ -192,6 +193,9 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
                 return mockResponse({ success: false, error: errorMessage(err) });
             }
         }
+        // #835：个人日程 CRUD 分支已抽到 ./schedule_event，避免本文件继续膨胀
+        const scheduleEventResponse = await handleScheduleEventPost(url, data);
+        if (scheduleEventResponse) return scheduleEventResponse;
         if (url.includes('/v2/schedule/export_calendar')) {
             try {
                 if (hasTauri) {

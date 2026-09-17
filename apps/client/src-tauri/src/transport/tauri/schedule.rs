@@ -95,6 +95,39 @@ pub struct UpdateCustomScheduleCourseRequest {
     pub color: Option<String>,
 }
 
+/// 个人日程新增请求（#835），字段名与冻结契约一致（snake_case）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddScheduleEventRequest {
+    pub student_id: String,
+    pub title: String,
+    /// 'YYYY-MM-DD' 本地日历日期
+    pub date: String,
+    /// 'HH:mm'
+    pub start_time: String,
+    /// 'HH:mm'
+    pub end_time: String,
+    pub location: Option<String>,
+    pub note: Option<String>,
+    pub color: Option<String>,
+    /// 提前提醒分钟数；null = 不提醒
+    pub reminder_minutes: Option<i64>,
+}
+
+/// 个人日程修改请求（#835）；按 `student_id + event_id` 双条件定位。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateScheduleEventRequest {
+    pub student_id: String,
+    pub event_id: String,
+    pub title: String,
+    pub date: String,
+    pub start_time: String,
+    pub end_time: String,
+    pub location: Option<String>,
+    pub note: Option<String>,
+    pub color: Option<String>,
+    pub reminder_minutes: Option<i64>,
+}
+
 #[tauri::command]
 pub(crate) async fn sync_schedule(
     state: State<'_, AppState>,
@@ -455,6 +488,153 @@ pub(crate) async fn update_custom_schedule_course(
     Ok(serde_json::json!({
         "success": true,
         "data": custom_course_to_payload(&updated)
+    }))
+}
+
+// ────────────────────────────────────────────────────────────
+// 个人日程（#835）：与 HTTP /schedule/event/* 语义完全一致，校验统一走
+// db::validate_schedule_event_input（单一实现，避免双份漂移）。
+// 独立表 personal_events，不复用 custom_schedule_courses，也不新增任何上传路径。
+
+#[tauri::command]
+pub(crate) async fn add_schedule_event(
+    req: AddScheduleEventRequest,
+) -> Result<serde_json::Value, String> {
+    let validated = db::validate_schedule_event_input(
+        req.student_id.as_str(),
+        req.title.as_str(),
+        req.date.as_str(),
+        req.start_time.as_str(),
+        req.end_time.as_str(),
+        req.reminder_minutes,
+    )?;
+
+    let now = chrono::Local::now().to_rfc3339();
+    let record = db::ScheduleEventRecord {
+        id: db::new_schedule_event_id(),
+        student_id: validated.student_id,
+        title: validated.title,
+        date: validated.date,
+        start_time: validated.start_time,
+        end_time: validated.end_time,
+        location: req.location.unwrap_or_default().trim().to_string(),
+        note: req.note.unwrap_or_default().trim().to_string(),
+        color: req.color.unwrap_or_default().trim().to_string(),
+        reminder_minutes: req.reminder_minutes,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    db::add_schedule_event(DB_FILENAME, &record).map_err(|e| e.to_string())?;
+    let sid = record.student_id.clone();
+    let event_id = record.id.clone();
+    let saved = db::get_schedule_event(DB_FILENAME, sid.as_str(), event_id.as_str())
+        .map_err(|e| e.to_string())?
+        .unwrap_or(record);
+    Ok(serde_json::json!({
+        "success": true,
+        "data": db::schedule_event_payload(&saved)
+    }))
+}
+
+#[tauri::command]
+pub(crate) async fn list_schedule_events_range(
+    student_id: String,
+    start_date: String,
+    end_date: String,
+) -> Result<serde_json::Value, String> {
+    let sid = student_id.trim();
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+    let (start_date, end_date) =
+        db::validate_schedule_event_date_range(start_date.as_str(), end_date.as_str())?;
+    let list =
+        db::list_schedule_events_range(DB_FILENAME, sid, start_date.as_str(), end_date.as_str())
+            .map_err(|e| e.to_string())?;
+    let data = list
+        .iter()
+        .map(db::schedule_event_payload)
+        .collect::<Vec<serde_json::Value>>();
+    Ok(serde_json::json!({
+        "success": true,
+        "data": data
+    }))
+}
+
+#[tauri::command]
+pub(crate) async fn update_schedule_event(
+    req: UpdateScheduleEventRequest,
+) -> Result<serde_json::Value, String> {
+    let event_id = req.event_id.trim().to_string();
+    if event_id.is_empty() {
+        return Err("event_id 不能为空".to_string());
+    }
+    let validated = db::validate_schedule_event_input(
+        req.student_id.as_str(),
+        req.title.as_str(),
+        req.date.as_str(),
+        req.start_time.as_str(),
+        req.end_time.as_str(),
+        req.reminder_minutes,
+    )?;
+
+    let existing = db::get_schedule_event(
+        DB_FILENAME,
+        validated.student_id.as_str(),
+        event_id.as_str(),
+    )
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "未找到要修改的日程".to_string())?;
+
+    let record = db::ScheduleEventRecord {
+        id: existing.id,
+        student_id: validated.student_id,
+        title: validated.title,
+        date: validated.date,
+        start_time: validated.start_time,
+        end_time: validated.end_time,
+        location: req.location.unwrap_or_default().trim().to_string(),
+        note: req.note.unwrap_or_default().trim().to_string(),
+        color: req.color.unwrap_or_default().trim().to_string(),
+        reminder_minutes: req.reminder_minutes,
+        created_at: existing.created_at,
+        updated_at: existing.updated_at,
+    };
+    let affected = db::update_schedule_event(DB_FILENAME, &record).map_err(|e| e.to_string())?;
+    if affected == 0 {
+        return Err("未找到要修改的日程".to_string());
+    }
+    let sid = record.student_id.clone();
+    let updated = db::get_schedule_event(DB_FILENAME, sid.as_str(), record.id.as_str())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "更新后未找到日程记录".to_string())?;
+    Ok(serde_json::json!({
+        "success": true,
+        "data": db::schedule_event_payload(&updated)
+    }))
+}
+
+#[tauri::command]
+pub(crate) async fn delete_schedule_event(
+    student_id: String,
+    event_id: String,
+) -> Result<serde_json::Value, String> {
+    let sid = student_id.trim().to_string();
+    let event_id = event_id.trim().to_string();
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+    if event_id.is_empty() {
+        return Err("event_id 不能为空".to_string());
+    }
+    let affected = db::delete_schedule_event(DB_FILENAME, sid.as_str(), event_id.as_str())
+        .map_err(|e| e.to_string())?;
+    if affected == 0 {
+        return Err("未找到要删除的日程".to_string());
+    }
+    Ok(serde_json::json!({
+        "success": true,
+        "deleted": true
     }))
 }
 

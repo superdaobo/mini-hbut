@@ -298,6 +298,34 @@ pub(crate) fn migrate_add_chaoxing_checkin_log(conn: &Connection) -> Result<()> 
     Ok(())
 }
 
+/// 创建 personal_events（个人日程）表与 (student_id, date) 索引（幂等迁移，#835）。
+///
+/// 独立于 `custom_schedule_courses`：日程是「某个本地日历日期的某个时间段」，
+/// 不按学期/周次重复，也不参与课表云同步，因此单独建表而不是复用课程列。
+/// `location` / `note` / `color` 可空；`reminder_minutes` 为 NULL 表示不提醒。
+pub(crate) fn migrate_add_personal_events_table(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS personal_events (
+            id               TEXT PRIMARY KEY,
+            student_id       TEXT NOT NULL,
+            title            TEXT NOT NULL,
+            date             TEXT NOT NULL,
+            start_time       TEXT NOT NULL,
+            end_time         TEXT NOT NULL,
+            location         TEXT,
+            note             TEXT,
+            color            TEXT,
+            reminder_minutes INTEGER,
+            created_at       TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+            updated_at       TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_personal_events_student_date
+            ON personal_events (student_id, date);",
+    )?;
+    Ok(())
+}
+
 /// 初始化数据库：建表 + 幂等迁移 + schema 版本记录。
 ///
 /// 安全迁移（凭据加密重写）必须由用户明确触发。启动阶段只建表，
@@ -481,6 +509,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
 
     migrate_add_chaoxing_checkin_log(&conn)?;
     migrate_add_app_usage_tables(&conn)?;
+    migrate_add_personal_events_table(&conn)?;
 
     ensure_schema_migration(&conn, 1, "WAL journal_mode (open_connection)")?;
     ensure_schema_migration(&conn, 2, "chaoxing_checkin_log")?;
@@ -496,6 +525,11 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         &conn,
         6,
         "custom_schedule_courses.color optional user color",
+    )?;
+    ensure_schema_migration(
+        &conn,
+        7,
+        "personal_events (student_id, date) local calendar events",
     )?;
 
     // 历史空壳 NULL 自愈（#659 根因 2）：幂等，仅契约列 NULL→''，不覆盖非空值；
@@ -644,8 +678,8 @@ mod tests {
                 row.get(0)
             })
             .expect("count");
-        // init_db 记录版本 1,2,3,5,6；version 4 由 migrate_session_passwords_v2 单独记录
-        assert_eq!(count, 5);
+        // init_db 记录版本 1,2,3,5,6,7；version 4 由 migrate_session_passwords_v2 单独记录
+        assert_eq!(count, 6);
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }

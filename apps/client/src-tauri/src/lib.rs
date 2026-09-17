@@ -78,8 +78,9 @@ pub use transport::tauri::course_selection::{
 };
 pub use transport::tauri::qxzkb::QxzkbQuery;
 pub use transport::tauri::schedule::{
-    AddCustomScheduleCourseRequest, DeleteCustomScheduleCourseRequest, ScheduleCourse,
-    ScheduleExportEvent, ScheduleExportRequest, UpdateCustomScheduleCourseRequest,
+    AddCustomScheduleCourseRequest, AddScheduleEventRequest, DeleteCustomScheduleCourseRequest,
+    ScheduleCourse, ScheduleExportEvent, ScheduleExportRequest, UpdateCustomScheduleCourseRequest,
+    UpdateScheduleEventRequest,
 };
 pub(crate) use transport::tauri::system::open_external_url_impl;
 pub(crate) use transport::tauri::update::{
@@ -521,6 +522,10 @@ pub fn run() {
             transport::tauri::schedule::delete_custom_schedule_course,
             transport::tauri::schedule::update_custom_schedule_course,
             transport::tauri::schedule::export_schedule_calendar,
+            transport::tauri::schedule::add_schedule_event,
+            transport::tauri::schedule::list_schedule_events_range,
+            transport::tauri::schedule::update_schedule_event,
+            transport::tauri::schedule::delete_schedule_event,
             transport::tauri::academic::fetch_exams,
             transport::tauri::academic::fetch_ranking,
             transport::tauri::academic::fetch_student_info,
