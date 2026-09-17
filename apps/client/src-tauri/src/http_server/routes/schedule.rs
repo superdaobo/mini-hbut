@@ -1,5 +1,5 @@
-//! 课表领域路由与 Handler：自定义课表 CRUD、冲突检测、debug upsert、
-//! 课表导出（ICS 生成 + 临时存储上传）。
+//! 课表领域路由与 Handler：自定义课表 CRUD、个人日程 CRUD、冲突检测、
+//! debug upsert、课表导出（ICS 生成 + 临时存储上传）。
 
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -23,8 +23,8 @@ use crate::utils::ics::{
     escape_ics_text, fold_ics_line, parse_ics_datetime, sanitize_filename_part,
 };
 use crate::{
-    db, AddCustomScheduleCourseRequest, DeleteCustomScheduleCourseRequest,
-    UpdateCustomScheduleCourseRequest, DB_FILENAME,
+    db, AddCustomScheduleCourseRequest, AddScheduleEventRequest, DeleteCustomScheduleCourseRequest,
+    UpdateCustomScheduleCourseRequest, UpdateScheduleEventRequest, DB_FILENAME,
 };
 
 // ────────────────────────────────────────────────────────────
@@ -38,6 +38,22 @@ struct CustomScheduleListRequest {
 #[derive(Debug, Deserialize)]
 struct CustomScheduleListAllRequest {
     student_id: String,
+}
+
+// ────────────────────────────────────────────────────────────
+/// 个人日程区间查询请求（#835）。
+#[derive(Debug, Deserialize)]
+struct ScheduleEventListRangeRequest {
+    student_id: String,
+    start_date: String,
+    end_date: String,
+}
+
+/// 个人日程删除请求（#835）。
+#[derive(Debug, Deserialize)]
+struct ScheduleEventDeleteRequest {
+    student_id: String,
+    event_id: String,
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1148,6 +1164,237 @@ async fn download_export(Path(filename): Path<String>) -> impl IntoResponse {
 
 // GENERATED DOMAIN ROUTERS — 路由协议由原始 method+path 清单生成。
 
+// ────────────────────────────────────────────────────────────
+// 个人日程（personal_events，#835）：独立于 custom_schedule_courses，
+// 不复用课程列、不参与课表云同步；update/delete 一律按 student_id + event_id 定位。
+// 校验统一走 db::validate_schedule_event_input，失败返回 400 而不是 500。
+// 日志不打印 title / note 内容。
+
+/// 个人日程新增。
+async fn schedule_event_add(
+    Json(req): Json<AddScheduleEventRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let validated = db::validate_schedule_event_input(
+        req.student_id.as_str(),
+        req.title.as_str(),
+        req.date.as_str(),
+        req.start_time.as_str(),
+        req.end_time.as_str(),
+        req.reminder_minutes,
+    )
+    .map_err(|message| err(StatusCode::BAD_REQUEST, "参数错误", message))?;
+
+    let now = chrono::Local::now().to_rfc3339();
+    let record = db::ScheduleEventRecord {
+        id: db::new_schedule_event_id(),
+        student_id: validated.student_id,
+        title: validated.title,
+        date: validated.date,
+        start_time: validated.start_time,
+        end_time: validated.end_time,
+        location: req.location.unwrap_or_default().trim().to_string(),
+        note: req.note.unwrap_or_default().trim().to_string(),
+        color: req.color.unwrap_or_default().trim().to_string(),
+        reminder_minutes: req.reminder_minutes,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    db::add_schedule_event(DB_FILENAME, &record).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "数据库错误",
+            e.to_string(),
+        )
+    })?;
+    let sid = record.student_id.clone();
+    let event_id = record.id.clone();
+    let saved = db::get_schedule_event(DB_FILENAME, sid.as_str(), event_id.as_str())
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?
+        .unwrap_or(record);
+    Ok(ok(serde_json::json!({
+        "success": true,
+        "data": db::schedule_event_payload(&saved)
+    })))
+}
+
+/// 个人日程按日期区间（闭区间）查询。
+async fn schedule_event_list_range(
+    Json(req): Json<ScheduleEventListRangeRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let sid = req.student_id.trim();
+    if sid.is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
+    }
+    let (start_date, end_date) =
+        db::validate_schedule_event_date_range(req.start_date.as_str(), req.end_date.as_str())
+            .map_err(|message| err(StatusCode::BAD_REQUEST, "参数错误", message))?;
+    let list =
+        db::list_schedule_events_range(DB_FILENAME, sid, start_date.as_str(), end_date.as_str())
+            .map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "数据库错误",
+                    e.to_string(),
+                )
+            })?;
+    let data = list
+        .iter()
+        .map(db::schedule_event_payload)
+        .collect::<Vec<serde_json::Value>>();
+    Ok(ok(serde_json::json!({
+        "success": true,
+        "data": data
+    })))
+}
+
+/// 个人日程修改（student_id + event_id 双条件定位）。
+async fn schedule_event_update(
+    Json(req): Json<UpdateScheduleEventRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let event_id = req.event_id.trim().to_string();
+    if event_id.is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "event_id 不能为空".to_string(),
+        ));
+    }
+    let validated = db::validate_schedule_event_input(
+        req.student_id.as_str(),
+        req.title.as_str(),
+        req.date.as_str(),
+        req.start_time.as_str(),
+        req.end_time.as_str(),
+        req.reminder_minutes,
+    )
+    .map_err(|message| err(StatusCode::BAD_REQUEST, "参数错误", message))?;
+
+    let existing = db::get_schedule_event(
+        DB_FILENAME,
+        validated.student_id.as_str(),
+        event_id.as_str(),
+    )
+    .map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "数据库错误",
+            e.to_string(),
+        )
+    })?
+    .ok_or_else(|| {
+        err(
+            StatusCode::BAD_REQUEST,
+            "业务错误",
+            "未找到要修改的日程".to_string(),
+        )
+    })?;
+
+    let record = db::ScheduleEventRecord {
+        id: existing.id,
+        student_id: validated.student_id,
+        title: validated.title,
+        date: validated.date,
+        start_time: validated.start_time,
+        end_time: validated.end_time,
+        location: req.location.unwrap_or_default().trim().to_string(),
+        note: req.note.unwrap_or_default().trim().to_string(),
+        color: req.color.unwrap_or_default().trim().to_string(),
+        reminder_minutes: req.reminder_minutes,
+        created_at: existing.created_at,
+        updated_at: existing.updated_at,
+    };
+    let affected = db::update_schedule_event(DB_FILENAME, &record).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "数据库错误",
+            e.to_string(),
+        )
+    })?;
+    if affected == 0 {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "业务错误",
+            "未找到要修改的日程".to_string(),
+        ));
+    }
+
+    let sid = record.student_id.clone();
+    let updated = db::get_schedule_event(DB_FILENAME, sid.as_str(), record.id.as_str())
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?
+        .ok_or_else(|| {
+            err(
+                StatusCode::BAD_REQUEST,
+                "业务错误",
+                "更新后未找到日程记录".to_string(),
+            )
+        })?;
+    Ok(ok(serde_json::json!({
+        "success": true,
+        "data": db::schedule_event_payload(&updated)
+    })))
+}
+
+/// 个人日程删除（student_id + event_id 双条件定位）。
+async fn schedule_event_delete(
+    Json(req): Json<ScheduleEventDeleteRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let sid = req.student_id.trim().to_string();
+    let event_id = req.event_id.trim().to_string();
+    if sid.is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
+    }
+    if event_id.is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "event_id 不能为空".to_string(),
+        ));
+    }
+    let affected = db::delete_schedule_event(DB_FILENAME, sid.as_str(), event_id.as_str())
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?;
+    if affected == 0 {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "业务错误",
+            "未找到要删除的日程".to_string(),
+        ));
+    }
+    Ok(ok(serde_json::json!({
+        "success": true,
+        "deleted": true
+    })))
+}
+
 pub(crate) fn router() -> Router<HttpState> {
     Router::new()
         .route("/schedule/custom/list", post(schedule_custom_list))
@@ -1155,6 +1402,13 @@ pub(crate) fn router() -> Router<HttpState> {
         .route("/schedule/custom/add", post(schedule_custom_add))
         .route("/schedule/custom/delete", post(schedule_custom_delete))
         .route("/schedule/custom/update", post(schedule_custom_update))
+        .route("/schedule/event/add", post(schedule_event_add))
+        .route(
+            "/schedule/event/list-range",
+            post(schedule_event_list_range),
+        )
+        .route("/schedule/event/update", post(schedule_event_update))
+        .route("/schedule/event/delete", post(schedule_event_delete))
         .route("/export_schedule_calendar", post(export_schedule_calendar))
         .route("/exports/:filename", get(download_export))
 }
