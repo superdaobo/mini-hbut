@@ -51,6 +51,12 @@ const I18N_MIGRATED_FILES: string[] = [
   'features/schedule/components/ScheduleConfirmDialog.vue',
   'features/schedule/components/ScheduleCourseDetail.vue',
   'features/schedule/components/ScheduleAddCourseDialog.vue',
+  // #836：统一「添加安排」创建器（课程/日程切换）及其字段区、日程表单与日程领域层
+  'features/schedule/components/ScheduleAddArrangementDialog.vue',
+  'features/schedule/components/ScheduleCourseForm.vue',
+  'features/schedule/components/ScheduleEventForm.vue',
+  'features/schedule/composables/useScheduleEvents.ts',
+  'features/schedule/utils/eventTypes.ts',
   'features/schedule/components/ScheduleManageCoursesDialog.vue',
   'features/schedule/components/ScheduleWeekPicker.vue',
   'features/schedule/composables/useScheduleEditor.ts',
