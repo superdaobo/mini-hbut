@@ -7,7 +7,7 @@
  *
  * ── 如何往白名单追加文件 ──
  * 1. 将目标文件里的用户可见中文全部改为 t('域.页面.元素')；
- * 2. 在 zh-CN.ts / en.ts 两侧同步补齐 key（测试 2 强制校验集合一致）；
+ * 2. 在 zh-CN.ts / en.ts / ja.ts 三侧同步补齐 key（测试 2 强制校验集合一致）；
  * 3. 把文件相对 apps/client/src 的路径（正斜杠，如 'components/HomeView.vue'）
  *    追加进 I18N_MIGRATED_FILES，跑 npx vitest run src/utils/i18n_coverage.spec.ts 验证。
  *
@@ -164,15 +164,23 @@ describe('i18n 完整性契约（#785，#784 各批次共同看守）', () => {
     expect(violations).toEqual([])
   })
 
-  it('测试 2：zh-CN 与 en 字典 key 集合完全一致（双向 diff 为空）', () => {
+  it('测试 2：zh-CN / en / ja 字典 key 集合完全一致', () => {
     const zhKeys = Object.keys(messages['zh-CN']).sort()
     const enKeys = Object.keys(messages.en).sort()
+    const jaKeys = Object.keys(messages.ja).sort()
 
-    // 双向 diff：任一侧多出/缺失的 key 全部列出，便于批次代理一次修完
     const missingInEn = zhKeys.filter((k) => !enKeys.includes(k))
     const missingInZh = enKeys.filter((k) => !zhKeys.includes(k))
+    const missingInJa = zhKeys.filter((k) => !jaKeys.includes(k))
+    const extraInJa = jaKeys.filter((k) => !zhKeys.includes(k))
 
-    expect({ missingInEn, missingInZh }).toEqual({ missingInEn: [], missingInZh: [] })
+    expect({ missingInEn, missingInZh, missingInJa, extraInJa }).toEqual({
+      missingInEn: [],
+      missingInZh: [],
+      missingInJa: [],
+      extraInJa: []
+    })
     expect(enKeys).toEqual(zhKeys)
+    expect(jaKeys).toEqual(zhKeys)
   })
 })

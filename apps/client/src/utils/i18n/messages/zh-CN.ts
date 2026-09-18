@@ -1563,6 +1563,7 @@ export const messages: Record<string, string> = {
   'settings.language.hint': '更多界面语言支持将逐步开放',
   'settings.language.label': '语言 / Language',
   'settings.language.option.en': 'English',
+  'settings.language.option.ja': '日本語',
   'settings.language.option.zh-CN': '简体中文',
   'settings.language.toast': '语言：简体中文',
   'settings.tab.appearance': '外观',

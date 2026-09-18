@@ -60,6 +60,9 @@ describe('app_i18n（#773 语言偏好）', () => {
     storageMap.set('hbu_app_locale', 'en')
     expect((await loadModule()).getLocale()).toBe('en')
 
+    storageMap.set('hbu_app_locale', 'ja')
+    expect((await loadModule()).getLocale()).toBe('ja')
+
     // 非法值（外部写坏的数据）
     storageMap.set('hbu_app_locale', 'fr-FR')
     expect((await loadModule()).getLocale()).toBe('zh-CN')
@@ -72,6 +75,7 @@ describe('app_i18n（#773 语言偏好）', () => {
     const i18n = await loadModule()
 
     expect(i18n.resolveLocale('en')).toBe('en')
+    expect(i18n.resolveLocale('ja')).toBe('ja')
     expect(i18n.resolveLocale('zh-CN')).toBe('zh-CN')
     expect(i18n.resolveLocale(null)).toBe('zh-CN')
     expect(i18n.resolveLocale('')).toBe('zh-CN')
@@ -116,6 +120,10 @@ describe('app_i18n（#773 语言偏好）', () => {
     i18n.setLocale('en')
     expect(i18n.t('settings.title')).toBe('Settings')
     expect(i18n.t('tab.home')).toBe('Home')
+
+    i18n.setLocale('ja')
+    expect(i18n.t('settings.title')).toBe('設定センター')
+    expect(i18n.t('tab.home')).toBe('ホーム')
   })
 
   it('t() 回落链：en 缺失 key → zh-CN 字典 → 仍缺失返回 key 本身', async () => {
@@ -160,12 +168,14 @@ describe('app_i18n（#773 语言偏好）', () => {
     expect(tFn('tab.me')).toBe('Me')
   })
 
-  it('字典：zh-CN 与 en 的 key 集合完全一致（防止漏翻译）', async () => {
+  it('字典：zh-CN / en / ja 的 key 集合完全一致（防止漏翻译）', async () => {
     const i18n = await loadModule()
 
     const zhKeys = Object.keys(i18n.messages['zh-CN']).sort()
     const enKeys = Object.keys(i18n.messages.en).sort()
+    const jaKeys = Object.keys(i18n.messages.ja).sort()
     expect(enKeys).toEqual(zhKeys)
+    expect(jaKeys).toEqual(zhKeys)
   })
 
   // ── 以下为 #785 新增用例：字典拆分后的公开 API 兼容 + useI18n + DEV 缺 key 告警 ──
@@ -180,6 +190,7 @@ describe('app_i18n（#773 语言偏好）', () => {
     // messages 为拆分后的聚合字典（17 个既有 key + #785 公共组件 key 均可查）
     expect(i18n.messages['zh-CN']['app.name']).toBe('校园小助手')
     expect(i18n.messages.en['settings.title']).toBe('Settings')
+    expect(i18n.messages.ja['settings.title']).toBe('設定センター')
     expect(i18n.messages['zh-CN']['common.empty.text']).toBe('暂无数据')
   })
 

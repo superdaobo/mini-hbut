@@ -91,7 +91,8 @@ const { locale, t } = useLocale()
 // 值与既有字典 settings.language.option.* 保持一致；此处以转义形式表达，通过契约测试 CJK 扫描）
 const localeOptions = [
   { key: 'zh-CN', label: '\u7b80\u4f53\u4e2d\u6587' },
-  { key: 'en', label: 'English' }
+  { key: 'en', label: 'English' },
+  { key: 'ja', label: '\u65e5\u672c\u8a9e' }
 ]
 // 点击即切：写存储 + 派发事件（useLocale 监听后本页文案即时更新），toast 文案随 locale
 const handleLocaleChange = (next) => {

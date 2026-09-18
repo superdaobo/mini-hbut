@@ -1562,6 +1562,7 @@ export const messages: Record<string, string> = {
   'settings.language.hint': 'More interface languages coming soon',
   'settings.language.label': 'Language / 语言',
   'settings.language.option.en': 'English',
+  'settings.language.option.ja': '日本語',
   'settings.language.option.zh-CN': '简体中文',
   'settings.language.toast': 'Language: English',
   'settings.tab.appearance': 'Appearance',

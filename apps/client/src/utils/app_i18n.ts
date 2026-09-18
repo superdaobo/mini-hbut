@@ -31,7 +31,7 @@ export const APP_LOCALE_STORAGE_KEY = 'hbu_app_locale'
 /** 语言切换自定义事件名：setLocale 派发，useLocale 监听 */
 export const APP_LOCALE_CHANGED_EVENT = 'hbu-locale-changed'
 
-const LOCALE_VALUES: readonly Locale[] = ['zh-CN', 'en']
+const LOCALE_VALUES: readonly Locale[] = ['zh-CN', 'en', 'ja']
 
 /**
  * 校验并规范化存储值：合法值原样返回，空/非法/损坏 → 默认 zh-CN。
