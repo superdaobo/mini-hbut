@@ -9,14 +9,16 @@
  */
 import { messages as zhCN } from './zh-CN'
 import { messages as en } from './en'
+import { messages as ja } from './ja'
 
 export const messages: Record<Locale, Record<string, string>> = {
   'zh-CN': zhCN,
-  en
+  en,
+  ja
 }
 
 /** 语言标识类型（与 app_i18n.ts 中定义保持同一字面量集合） */
-export type Locale = 'zh-CN' | 'en'
+export type Locale = 'zh-CN' | 'en' | 'ja'
 
 /** 默认语言（与 app_i18n.ts 中 re-export 的 DEFAULT_LOCALE 同源） */
 export const DEFAULT_LOCALE: Locale = 'zh-CN'
