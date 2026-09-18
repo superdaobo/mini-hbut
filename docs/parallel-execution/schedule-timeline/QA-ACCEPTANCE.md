@@ -1,8 +1,8 @@
 # Epic #833 / #841 QA 验收记录
 
-> 日期：2026-09-18  
-> QA 分支：`feat-841-qa-final`  
-> Parent：#833  
+> 日期：2026-09-18
+> QA 分支：`feat-841-qa-final`
+> Parent：#833
 > Final QA：#841
 
 ## 0. 验收口径说明
