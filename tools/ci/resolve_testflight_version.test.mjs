@@ -32,17 +32,20 @@ test('compareVersionParts 逐段比较，缺失段视为 0', () => {
   assert.equal(compareVersionParts([2], [1, 9, 9]), 1)
 })
 
-test('pickLatestVersion 跟随 ASC 最高版本，不自动开新版本', () => {
-  assert.equal(pickLatestVersion(['1.4.6', '1.4.7', '1.3.0'], '9.9.9'), '1.4.7')
-  // 字符串排序会错判（"10" < "9"），必须数值比较
-  assert.equal(pickLatestVersion(['1.4.10', '1.4.9'], '0.0.1'), '1.4.10')
-  // 非法候选被过滤
-  assert.equal(pickLatestVersion(['1.4.7', 'bad', ''], '1.0.0'), '1.4.7')
+test('pickLatestVersion 在 ASC 最高版本与仓库下一 patch 中取较高者', () => {
+  // 已批准的 1.4.10 列车关闭时，package 仍为 1.4.10，也应自动进入 1.4.11
+  assert.equal(pickLatestVersion(['1.4.10', '1.4.9'], '1.4.10'), '1.4.11')
+  // 1.4.11 测试列车一旦存在，后续构建继续复用，不会每次都跳到 1.4.12
+  assert.equal(pickLatestVersion(['1.4.11', '1.4.10'], '1.4.10'), '1.4.11')
+  // ASC 若已经更高则不倒退
+  assert.equal(pickLatestVersion(['1.5.0', '1.4.11'], '1.4.10'), '1.5.0')
+  // 字符串排序会错判（"10" < "9"），必须数值比较；非法候选被过滤
+  assert.equal(pickLatestVersion(['1.4.9', 'bad', ''], '1.4.8'), '1.4.9')
 })
 
-test('pickLatestVersion 无候选时原样回退 fallback', () => {
-  assert.equal(pickLatestVersion([], '1.4.6'), '1.4.6')
-  assert.equal(pickLatestVersion(['bad'], '1.5'), '1.5')
+test('pickLatestVersion 在 ASC 无有效候选时采用仓库版本 patch+1', () => {
+  assert.equal(pickLatestVersion([], '1.4.10'), '1.4.11')
+  assert.equal(pickLatestVersion(['bad'], '1.5'), '1.5.1')
   assert.throws(() => pickLatestVersion([], ''))
 })
 
