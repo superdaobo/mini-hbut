@@ -27,7 +27,7 @@
  *
  * 安全性：任何非法输入都不抛异常；几何不可用时返回空结果。
  */
-import { getGridTotalHeight, intervalToGridRect, intervalsOverlap, timeToGridY } from './timeGeometry'
+import { getGridTotalHeight, intervalToGridRect, intervalsOverlap } from './timeGeometry'
 import type { ScheduleTimeGeometry, ScheduleTimelineItem } from './timelineTypes'
 
 /** 默认可读并排上限（超过即聚合为 +N） */

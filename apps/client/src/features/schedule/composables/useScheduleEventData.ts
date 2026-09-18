@@ -54,16 +54,29 @@ export const useScheduleEventData = (options: ScheduleEventDataOptions) => {
    * 保证日程读取失败不会影响课表本身可用。
    */
   const loadWeekEvents = async (): Promise<void> => {
+    // 每次进入加载函数都先让上一请求失效——包括「登出 / 切学期中间态导致
+    // studentId 或 weekDates 为空」这种无需真正发请求的路径。
+    // 否则旧请求可能在 early return 之后回填上一账号 / 上一周的数据。
+    const token = requestToken + 1
+    requestToken = token
+
     const studentId = String(props?.studentId || '').trim()
     const dates = weekIsoDates.value
     if (!studentId || dates.length === 0) {
       weekEvents.value = []
+      loadingWeekEvents.value = false
       return
     }
 
-    const token = requestToken + 1
-    requestToken = token
     loadingWeekEvents.value = true
+
+    // token 负责请求之间的先后；requestKey 再校验当前响应仍属于「此学生 + 此周」，
+    // 覆盖响应恰好早于 Vue watch callback 执行的极窄竞态窗口。
+    const requestKey = `${studentId}|${dates.join(',')}`
+    const isCurrentRequest = () =>
+      token === requestToken &&
+      requestKey ===
+        `${String(props?.studentId || '').trim()}|${weekIsoDates.value.join(',')}`
 
     try {
       const res = await axios.post(`${API_BASE}/v2/schedule/event/list-range`, {
@@ -71,15 +84,15 @@ export const useScheduleEventData = (options: ScheduleEventDataOptions) => {
         start_date: dates[0],
         end_date: dates[dates.length - 1]
       })
-      if (token !== requestToken) return
+      if (!isCurrentRequest()) return
       weekEvents.value = extractEventList(res)
         .map((item: any) => normalizeScheduleEvent(item))
         .filter((event: ScheduleEvent | null): event is ScheduleEvent => event !== null)
     } catch {
-      if (token !== requestToken) return
+      if (!isCurrentRequest()) return
       weekEvents.value = []
     } finally {
-      if (token === requestToken) loadingWeekEvents.value = false
+      if (isCurrentRequest()) loadingWeekEvents.value = false
     }
   }
 
