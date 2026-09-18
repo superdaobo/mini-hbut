@@ -195,6 +195,35 @@ describe('timelineLayout (#837)', () => {
     expect(boundary.inRange).toHaveLength(1)
   })
 
+  it('8b. 部分越界仍渲染可见部分：跨上边界、跨下边界、跨整个网格都进入 lane', () => {
+    const crossesBefore = event('cross-before', '08:00', '08:30')
+    const crossesAfter = event('cross-after', '19:00', '21:00')
+    const spansAll = event('span-all', '07:00', '22:00')
+    const endsAtStart = event('ends-at-start', '07:30', '08:20')
+    const startsAtEnd = event('starts-at-end', '20:55', '21:30')
+
+    const split = splitOutOfRangeEvents(
+      [crossesBefore, crossesAfter, spansAll, endsAtStart, startsAtEnd],
+      geometry
+    )
+
+    expect(split.before.map((item) => item.id)).toEqual(['ends-at-start'])
+    expect(split.after.map((item) => item.id)).toEqual(['starts-at-end'])
+    expect(split.inRange.map((item) => item.id)).toEqual([
+      'cross-before',
+      'cross-after',
+      'span-all'
+    ])
+
+    const result = layout([crossesBefore, crossesAfter, spansAll])
+    expect(result.slots.map((slot) => slot.item.id).sort()).toEqual([
+      'cross-after',
+      'cross-before',
+      'span-all'
+    ])
+    expect(result.slots.every((slot) => slot.heightPercent > 0)).toBe(true)
+  })
+
   it('9. 几何联动：14:00 的事件顶部落在第 5 节行顶（400/11 %）', () => {
     const slots = slotsOf([event('noon', '14:00', '15:00')])
 

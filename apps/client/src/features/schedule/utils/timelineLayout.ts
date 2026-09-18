@@ -112,20 +112,51 @@ const compareEntries = (a: ScheduleTimelineItem, b: ScheduleTimelineItem): numbe
 }
 
 /**
- * 判断条目是否落在可见区之外。
- * 复用 `timeToGridY` 的 edge 判定（几何真源），非有限时间 / 空几何统一按 `before` 处理。
+ * 判断整个区间是否完全落在可见区之外。
+ *
+ * 不能只看 start/end 单个端点的 edge：例如 19:00-21:00 虽然结束时间晚于
+ * 最后一节 20:55，但 19:00-20:55 仍有可见部分，应进入 lane 并由 geometry
+ * 把末端 clamp 到网格底部，而不是整条降级成 after indicator。
+ *
+ * 半开区间口径与 intervalsOverlap 一致：
+ * - end <= firstMinute：完全位于可见区之前；
+ * - start >= lastMinute：完全位于可见区之后；
+ * - 其余均与可见区有真实交集。
+ *
+ * 非法区间 / 空几何保持历史安全退化：统一视为 before，避免进入 lane。
  */
-const isBeforeVisibleRange = (item: ScheduleTimelineItem, geometry: ScheduleTimeGeometry): boolean =>
-  timeToGridY(item.startMinute, geometry).edge === 'before'
+const isBeforeVisibleRange = (item: ScheduleTimelineItem, geometry: ScheduleTimeGeometry): boolean => {
+  if (
+    !geometry?.valid ||
+    !Number.isFinite(geometry.firstMinute) ||
+    !Number.isFinite(geometry.lastMinute) ||
+    geometry.lastMinute <= geometry.firstMinute ||
+    !Number.isFinite(item?.startMinute) ||
+    !Number.isFinite(item?.endMinute) ||
+    item.endMinute <= item.startMinute
+  ) {
+    return true
+  }
+  return item.endMinute <= geometry.firstMinute
+}
 
-const isAfterVisibleRange = (item: ScheduleTimelineItem, geometry: ScheduleTimeGeometry): boolean =>
-  timeToGridY(item.endMinute, geometry).edge === 'after'
+const isAfterVisibleRange = (item: ScheduleTimelineItem, geometry: ScheduleTimeGeometry): boolean => {
+  if (
+    !geometry?.valid ||
+    !Number.isFinite(item?.startMinute) ||
+    !Number.isFinite(item?.endMinute) ||
+    item.endMinute <= item.startMinute
+  ) {
+    return false
+  }
+  return item.startMinute >= geometry.lastMinute
+}
 
 /**
  * 一天内需要 edge indicator 承载的日程（早于第一节 / 晚于最后一节）。
  *
- * 同时早于第一节且晚于最后一节（跨越整个可见区）的条目归入 `before`，便于在列顶部
- * 用一条 indicator 表达；`inRange` 为可进入 lane 计算的条目。
+ * 只有**整个区间**完全早于 / 晚于可见区才进入 indicator；只要与可见区有交集
+ * （包括跨越整个可见区），就归入 `inRange`，由 geometry clamp 可见端点后参与 lane。
  */
 export function splitOutOfRangeEvents(
   items: ScheduleTimelineItem[],
@@ -225,8 +256,9 @@ export function layoutTimelineItems(
       ? Math.trunc(rawMaxLanes)
       : DEFAULT_MAX_LANES
 
-  // 1) 可见区外条目（早于第一节 / 晚于最后一节）不进入 lane 计算：
-  //    它们被 clamp 到 0 / totalHeight 后会产生「假重叠」，改由 edge indicator 承载。
+  // 1) 只有整个区间完全位于可见区外的条目才不进入 lane。
+  //    部分越界（例如 19:00-21:00）仍有真实可见区间，允许 intervalToGridRect
+  //    把越界端点 clamp 到边界；完全越界条目才由 edge indicator 承载。
   const entries: LayoutEntry[] = []
   for (const item of list) {
     if (isBeforeVisibleRange(item, geometry) || isAfterVisibleRange(item, geometry)) continue
