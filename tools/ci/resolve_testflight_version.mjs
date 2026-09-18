@@ -8,8 +8,8 @@
  * 二者都不代表 ASC 现状，直接回读会撞上述限制（2026-08-24 run 32735810871 即因此失败）。
  *
  * 职责（仅当 workflow_dispatch 对应输入留空时查询 ASC）：
- *  1. version_name 留空 → 跟随 ASC 当前最高 iOS 版本（不开新版本；发新版本显式填写）；
- *     ASC 尚无版本时回退 apps/client/package.json 版本
+ *  1. version_name 留空 → 取 max(ASC 当前最高 iOS 版本, package.json 当前版本的 patch+1)；
+ *     这样已存在 1.4.11 测试列车时会继续复用 1.4.11，而 ASC 最高仍停在已批准的 1.4.10 时会自动开 1.4.11
  *  2. build_number 留空 → 查询 ASC 正常序列最大 CFBundleVersion，+1
  *     （忽略早期遗留的时间戳等异常长串）；尚无构建时从 1 开始
  * 手动输入优先级始终最高：填了就不查询、不改写。
@@ -48,20 +48,26 @@ export function compareVersionParts(a, b) {
 }
 
 /**
- * 跟随 ASC 当前最高 marketing 版本（不自动开新版本；发新版本请显式填写输入）。
- * 候选为空时原样回退 fallback（package.json 版本尚未上传过，不撞已批准限制）。
+ * 选择 TestFlight marketing 版本：ASC 当前最高版本与 package.json 的下一 patch 取较高者。
+ * - package=1.4.10, ASC最高=1.4.10 → 1.4.11（自动避开已批准/已关闭的 1.4.10 列车）
+ * - package=1.4.10, ASC最高=1.4.11 → 1.4.11（继续复用当前测试列车）
+ * - package=1.4.10, ASC最高=1.5.0  → 1.5.0（不倒退）
  * @param {string[]} versions ASC 已存在的版本号列表
- * @param {string} fallback 回退基准（如 package.json 版本）
+ * @param {string} fallback 仓库基准版本（apps/client/package.json）
  */
 export function pickLatestVersion(versions, fallback) {
   const parsed = (versions || []).map(parseVersionParts).filter(Boolean)
-  if (parsed.length === 0) {
-    const fallbackParts = parseVersionParts(fallback)
-    if (!fallbackParts) {
-      throw new Error(`无法确定版本号：ASC 无历史版本且回退版本非法（${fallback}）`)
-    }
-    return fallbackParts.join('.')
+  const fallbackParts = parseVersionParts(fallback)
+  if (!fallbackParts) {
+    throw new Error(`无法确定版本号：仓库版本非法（${fallback}）`)
   }
+
+  const nextPatch = [...fallbackParts]
+  while (nextPatch.length < 3) nextPatch.push(0)
+  nextPatch.length = 3
+  nextPatch[2] += 1
+
+  parsed.push(nextPatch)
   return parsed.sort(compareVersionParts)[parsed.length - 1].join('.')
 }
 
@@ -152,8 +158,8 @@ async function main() {
       versionName = pickLatestVersion(versions, readClientPackageVersion())
       console.log(
         versions.length > 0
-          ? `📌 跟随 ASC 当前最高版本（共 ${versions.length} 个历史版本）；发新版本请显式填写 version_name`
-          : '📌 ASC 无历史版本，采用 package.json 版本',
+          ? `📌 自动选择 max(ASC 当前最高版本, package.json 下一 patch)（ASC 共 ${versions.length} 个历史版本）`
+          : '📌 ASC 无历史版本，采用 package.json 下一 patch',
       )
     }
 

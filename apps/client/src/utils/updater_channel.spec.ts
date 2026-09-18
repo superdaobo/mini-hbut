@@ -155,6 +155,15 @@ describe('update channel (stable / dev)', () => {
     expect(workflow).toContain('print(bump_patch(base_version or current_version')
   })
 
+  it('dev-build 所有平台统一使用 run_number beta_version 命名产物', () => {
+    const workflow = readSource('../../.github/workflows/dev-build.yml')
+    expect(workflow).toContain('BETA_NUM=$((GITHUB_RUN_NUMBER % 65535))')
+    expect(workflow).toContain('name: windows-${{ needs.meta.outputs.beta_version }}')
+    expect(workflow).toContain('BETA_VERSION: ${{ needs.meta.outputs.beta_version }}')
+    expect(workflow).not.toContain('artifact_tag')
+    expect(workflow).not.toContain('ARTIFACT_TAG')
+  })
+
   it('builds download proxies for dev-latest tag', () => {
     const name = 'Mini-HBUT_1.4.3-beta.1_arm64.apk'
     const urls = buildUpdateDownloadUrls('dev-latest', name)
