@@ -128,6 +128,37 @@ pub struct UpdateScheduleEventRequest {
     pub reminder_minutes: Option<i64>,
 }
 
+/// 云同步恢复用的个人日程快照项。
+///
+/// student_id 不放在单条记录里，统一由外层请求提供，避免云端 payload 伪造跨账号写入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncScheduleEventInput {
+    pub id: String,
+    pub title: String,
+    pub date: String,
+    pub start_time: String,
+    pub end_time: String,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub reminder_minutes: Option<i64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplaceScheduleEventsRequest {
+    pub student_id: String,
+    #[serde(default)]
+    pub events: Vec<SyncScheduleEventInput>,
+}
+
 #[tauri::command]
 pub(crate) async fn sync_schedule(
     state: State<'_, AppState>,
@@ -494,7 +525,7 @@ pub(crate) async fn update_custom_schedule_course(
 // ────────────────────────────────────────────────────────────
 // 个人日程（#835）：与 HTTP /schedule/event/* 语义完全一致，校验统一走
 // db::validate_schedule_event_input（单一实现，避免双份漂移）。
-// 独立表 personal_events，不复用 custom_schedule_courses，也不新增任何上传路径。
+// 独立表 personal_events，不复用 custom_schedule_courses；云同步仅通过独立 events 快照显式备份/恢复。
 
 #[tauri::command]
 pub(crate) async fn add_schedule_event(
@@ -558,6 +589,83 @@ pub(crate) async fn list_schedule_events_range(
     Ok(serde_json::json!({
         "success": true,
         "data": data
+    }))
+}
+
+#[tauri::command]
+pub(crate) async fn list_schedule_events_all(
+    student_id: String,
+) -> Result<serde_json::Value, String> {
+    let sid = student_id.trim();
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+    let list = db::list_schedule_events_all(DB_FILENAME, sid).map_err(|e| e.to_string())?;
+    let data = list
+        .iter()
+        .map(db::schedule_event_payload)
+        .collect::<Vec<serde_json::Value>>();
+    Ok(serde_json::json!({
+        "success": true,
+        "data": data
+    }))
+}
+
+#[tauri::command]
+pub(crate) async fn replace_schedule_events(
+    req: ReplaceScheduleEventsRequest,
+) -> Result<serde_json::Value, String> {
+    let sid = req.student_id.trim().to_string();
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+
+    let now = chrono::Local::now().to_rfc3339();
+    let mut records = Vec::with_capacity(req.events.len());
+    for item in req.events {
+        let event_id = item.id.trim().to_string();
+        if event_id.is_empty() {
+            return Err("日程 id 不能为空".to_string());
+        }
+        let validated = db::validate_schedule_event_input(
+            sid.as_str(),
+            item.title.as_str(),
+            item.date.as_str(),
+            item.start_time.as_str(),
+            item.end_time.as_str(),
+            item.reminder_minutes,
+        )?;
+        let created_at = item.created_at.unwrap_or_default().trim().to_string();
+        let updated_at = item.updated_at.unwrap_or_default().trim().to_string();
+        records.push(db::ScheduleEventRecord {
+            id: event_id,
+            student_id: validated.student_id,
+            title: validated.title,
+            date: validated.date,
+            start_time: validated.start_time,
+            end_time: validated.end_time,
+            location: item.location.unwrap_or_default().trim().to_string(),
+            note: item.note.unwrap_or_default().trim().to_string(),
+            color: item.color.unwrap_or_default().trim().to_string(),
+            reminder_minutes: item.reminder_minutes,
+            created_at: if created_at.is_empty() {
+                now.clone()
+            } else {
+                created_at
+            },
+            updated_at: if updated_at.is_empty() {
+                now.clone()
+            } else {
+                updated_at
+            },
+        });
+    }
+
+    db::replace_schedule_events_for_student(DB_FILENAME, sid.as_str(), records.as_slice())
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "success": true,
+        "replaced": records.len()
     }))
 }
 

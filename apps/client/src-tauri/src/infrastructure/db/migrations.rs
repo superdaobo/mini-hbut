@@ -301,7 +301,7 @@ pub(crate) fn migrate_add_chaoxing_checkin_log(conn: &Connection) -> Result<()> 
 /// 创建 personal_events（个人日程）表与 (student_id, date) 索引（幂等迁移，#835）。
 ///
 /// 独立于 `custom_schedule_courses`：日程是「某个本地日历日期的某个时间段」，
-/// 不按学期/周次重复，也不参与课表云同步，因此单独建表而不是复用课程列。
+/// 不按学期/周次重复；云同步也保持独立 events 快照，因此单独建表而不是复用课程列。
 /// `location` / `note` / `color` 可空；`reminder_minutes` 为 NULL 表示不提醒。
 pub(crate) fn migrate_add_personal_events_table(conn: &Connection) -> Result<()> {
     conn.execute_batch(

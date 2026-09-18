@@ -1,7 +1,7 @@
 //! 个人日程表仓储（personal_events，#835）。
 //!
 //! 与 `custom_schedule_courses` 完全独立：日程是「某个本地日历日期的某个时间段」，
-//! 按 `date` 存储、不按学期/周次重复，也不参与课表云同步。
+//! 按 `date` 存储、不按学期/周次重复；云同步以独立 events 快照读写，不混入课程模型。
 //!
 //! 调用约定：所有写入口（HTTP handler / Tauri command）必须先调用
 //! [`validate_schedule_event_input`] 校验并规范化，仓储层只负责 SQL 读写。
@@ -284,6 +284,74 @@ pub fn list_schedule_events_range<P: AsRef<Path>>(
         result.push(map_schedule_event_row(row)?);
     }
     Ok(result)
+}
+
+/// 查询某个学生的全部个人日程，供账号级备份/同步使用。
+///
+/// 与 range 查询保持同一排序口径；只按 student_id 取数据，绝不跨账号。
+pub fn list_schedule_events_all<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+) -> Result<Vec<ScheduleEventRecord>> {
+    let conn = open_connection(path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, student_id, title, date, start_time, end_time, location, note, color,
+                reminder_minutes, created_at, updated_at
+         FROM personal_events
+         WHERE student_id = ?1
+         ORDER BY date ASC, start_time ASC, id ASC",
+    )?;
+    let mut rows = stmt.query(params![student_id])?;
+    let mut result = Vec::new();
+    while let Some(row) = rows.next()? {
+        result.push(map_schedule_event_row(row)?);
+    }
+    Ok(result)
+}
+
+/// 原子替换某个学生的全部个人日程。
+///
+/// 云同步下载必须区分“section 缺失（保留本地）”与“section 明确为空（清空本地）”。
+/// 一旦调用本函数，就代表远端 section 已明确存在，因此在单个事务里先删当前 student_id，
+/// 再写入完整快照。任何一条 INSERT 失败都会回滚，避免留下半同步状态。
+///
+/// 写入时 student_id 始终使用函数参数，而不是信任记录内字段，保证账号隔离。
+pub fn replace_schedule_events_for_student<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    events: &[ScheduleEventRecord],
+) -> Result<()> {
+    let mut conn = open_connection(path)?;
+    let tx = conn.transaction()?;
+    tx.execute(
+        "DELETE FROM personal_events WHERE student_id = ?1",
+        params![student_id],
+    )?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO personal_events (
+                id, student_id, title, date, start_time, end_time, location, note, color,
+                reminder_minutes, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        )?;
+        for event in events {
+            stmt.execute(params![
+                event.id,
+                student_id,
+                event.title,
+                event.date,
+                event.start_time,
+                event.end_time,
+                optional_text(&event.location),
+                optional_text(&event.note),
+                optional_text(&event.color),
+                event.reminder_minutes,
+                event.created_at,
+                event.updated_at
+            ])?;
+        }
+    }
+    tx.commit()
 }
 
 pub fn get_schedule_event<P: AsRef<Path>>(
@@ -592,7 +660,86 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// 6. update 生效且受影响行数为 1；跨账号 update 不生效（行数 0）。
+    /// 6. 全量查询：只返回当前账号，且按 date/start_time/id 稳定排序。
+    #[test]
+    fn list_all_is_sorted_and_scoped_by_student() {
+        std::env::remove_var("HBUT_DB_PATH");
+        let path = temp_db_path("list_all");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        add_schedule_event(&path, &sample_event("b", "2510231000", "2026-09-20")).unwrap();
+        add_schedule_event(&path, &sample_event("a", "2510231000", "2026-09-18")).unwrap();
+        add_schedule_event(&path, &sample_event("other", "2510239999", "2026-09-17")).unwrap();
+
+        let list = list_schedule_events_all(&path, "2510231000").unwrap();
+        assert_eq!(
+            list.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
+        assert!(list.iter().all(|item| item.student_id == "2510231000"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 7. 云快照替换：当前账号原子 replace；空快照清空；其他账号不受影响。
+    #[test]
+    fn replace_all_is_atomic_and_does_not_touch_other_students() {
+        std::env::remove_var("HBUT_DB_PATH");
+        let path = temp_db_path("replace_all");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        add_schedule_event(&path, &sample_event("old-a", "2510231000", "2026-09-18")).unwrap();
+        add_schedule_event(&path, &sample_event("keep-b", "2510239999", "2026-09-18")).unwrap();
+
+        let replacement = vec![
+            sample_event("new-a-1", "ignored", "2026-09-19"),
+            sample_event("new-a-2", "ignored", "2026-09-20"),
+        ];
+        replace_schedule_events_for_student(&path, "2510231000", &replacement).unwrap();
+
+        let a = list_schedule_events_all(&path, "2510231000").unwrap();
+        assert_eq!(
+            a.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            vec!["new-a-1", "new-a-2"]
+        );
+        assert!(a.iter().all(|item| item.student_id == "2510231000"));
+        let b = list_schedule_events_all(&path, "2510239999").unwrap();
+        assert_eq!(
+            b.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            vec!["keep-b"]
+        );
+
+        replace_schedule_events_for_student(&path, "2510231000", &[]).unwrap();
+        assert!(list_schedule_events_all(&path, "2510231000")
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            list_schedule_events_all(&path, "2510239999").unwrap().len(),
+            1
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 8. 快照中有重复 id 时整个事务回滚，旧数据不会被删一半。
+    #[test]
+    fn replace_all_rolls_back_on_duplicate_ids() {
+        std::env::remove_var("HBUT_DB_PATH");
+        let path = temp_db_path("replace_rollback");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        add_schedule_event(&path, &sample_event("old", "2510231000", "2026-09-18")).unwrap();
+
+        let replacement = vec![
+            sample_event("dup", "ignored", "2026-09-19"),
+            sample_event("dup", "ignored", "2026-09-20"),
+        ];
+        assert!(replace_schedule_events_for_student(&path, "2510231000", &replacement).is_err());
+        let after = list_schedule_events_all(&path, "2510231000").unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].id, "old");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 9. update 生效且受影响行数为 1；跨账号 update 不生效（行数 0）。
     #[test]
     fn update_applies_and_reports_affected_rows() {
         std::env::remove_var("HBUT_DB_PATH");

@@ -36,8 +36,8 @@ describe('cloud sync auto upload contract', () => {
     '\n' +
     readSource('src/utils/cloud_sync_snapshot.ts')
 
-  it('builds schema v4 payloads with explicit client version and runtime metadata', () => {
-    expectSourceMatches(source, /const\s+SYNC_SCHEMA_VERSION\s*=\s*4\b/, 'schema version should be bumped to 4')
+  it('builds schema v5 payloads with explicit client version and runtime metadata', () => {
+    expectSourceMatches(source, /const\s+SYNC_SCHEMA_VERSION\s*=\s*5\b/, 'schema version should be bumped to 5')
     expectSourceContains(source, "import { getCurrentVersion } from './updater'", 'current app version should be read from updater')
     expectSourceContains(source, "import { detectRuntime } from '../platform/runtime'", 'runtime should be detected through platform/runtime')
     expectSourceContains(source, 'const buildClientSnapshot', 'client snapshot builder should exist')
@@ -56,6 +56,20 @@ describe('cloud sync auto upload contract', () => {
     expectSourceContains(source, 'const buildExamSnapshot', 'exam snapshot builder should exist')
     expectSourceContains(source, 'exams:${sid}:current', 'exam snapshot should read current exam cache')
     expectSourceMatches(source, /academic\.exams\s*=\s*examSnapshot|exams:\s*examSnapshot/, 'academic payload should include exams')
+  })
+
+  it('backs up personal events as a first-class section and keeps explicit empty snapshots', () => {
+    expectSourceContains(source, 'fetchAllPersonalEvents', 'personal events should be read for cloud backup')
+    expectSourceMatches(source, /payload\.events\s*=\s*personalEvents/, 'payload should include events even when empty')
+    expectSourceMatches(source, /events:\s*personalEvents/, 'auto-upload signature should include personal events')
+    expectSourceContains(source, 'personal_events: includePersonalEvents === true', 'upload sections should advertise personal events')
+  })
+
+  it('preserves local events for legacy payloads and replaces only explicit event sections', () => {
+    expectSourceContains(source, "hasOwnProperty.call(data || {}, 'events')", 'missing events section must be detectable')
+    expectSourceContains(source, 'reason=missing-events-section', 'legacy payload should preserve local events')
+    expectSourceContains(source, 'replacePersonalEvents(sid, data.events)', 'explicit events section should restore the snapshot')
+    expectSourceContains(source, "detail?.reason === 'cloud-restore'", 'cloud restore signal must not trigger upload loop')
   })
 
   it('keeps stable course identifiers for grades, custom courses, and schedule courses', () => {

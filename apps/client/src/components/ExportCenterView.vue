@@ -7,6 +7,11 @@ import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester
 import { invokeNative as invoke, isTauriRuntime, isCapacitorRuntime } from '../platform/native'
 import { blobToDataUrl, waitForCaptureReady, renderElementToCanvas } from '../utils/capture_service'
 import { useI18n, tf } from '../utils/app_i18n'
+import { resolveSemesterDateRange } from '../features/schedule/utils/calendarEvents'
+import {
+  collectExportCenterPersonalEvents,
+  personalEventTimeLabel
+} from '../features/schedule/utils/exportCenterSchedule'
 import { TPageHeader } from './templates'
 
 // i18n（#794 批次 I）：响应式取词用于模板/computed，tf 用于整句插值
@@ -459,30 +464,54 @@ const fetchRankingData = async (selected) => {
 }
 
 const fetchScheduleData = async (selected) => {
-  const res = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: props.studentId })
-  const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || t('export.error.schedule'))
+  const requestedSemesters = selected.length ? selected : ['']
+  const grouped = []
+  const seenEventIds = new Set()
+  let latestMeta = {}
+  let offline = false
+  let syncTime = ''
 
-  const metaSemester = String(payload?.meta?.semester || '').trim() || t('export.semester.current')
-  const courses = Array.isArray(payload.data) ? payload.data : []
-  const groups = new Map()
-  courses.forEach((course) => {
-    const semKey = String(course.semester || course.term || metaSemester).trim() || metaSemester
-    if (!groups.has(semKey)) groups.set(semKey, [])
-    groups.get(semKey).push(course)
-  })
+  for (const requestedSemester of requestedSemesters) {
+    const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
+      student_id: props.studentId,
+      semester: requestedSemester || undefined
+    })
+    const payload = res.data || {}
+    if (!payload.success) throw new Error(payload.error || t('export.error.schedule'))
 
-  const keys = normalizeSemesterList([...groups.keys()])
-  const targetSemesters = selected.length ? selected : keys
-  const grouped = targetSemesters.map((semester) => ({
-    semester,
-    list: sortCourses(groups.get(semester) || [])
-  }))
+    const meta = payload.meta || {}
+    const semester = String(meta.semester || requestedSemester || '').trim() || t('export.semester.current')
+    const courses = sortCourses(Array.isArray(payload.data) ? payload.data : [])
+    const range = resolveSemesterDateRange(String(meta.start_date || '').trim(), courses)
+    if (!range) {
+      throw new Error(tf('export.error.scheduleEventRange', { semester }))
+    }
+
+    const eventRes = await axios.post(`${API_BASE}/v2/schedule/event/list-range`, {
+      student_id: props.studentId,
+      start_date: range.startDate,
+      end_date: range.endDate
+    })
+    const eventPayload = eventRes.data || {}
+    if (!eventPayload.success) {
+      throw new Error(eventPayload.error || tf('export.error.scheduleEvents', { semester }))
+    }
+    const events = collectExportCenterPersonalEvents({
+      events: eventPayload.data,
+      range,
+      seenIds: seenEventIds
+    })
+    grouped.push({ semester, list: courses, events, range })
+    latestMeta = meta
+    offline = offline || !!payload.offline
+    if (payload.sync_time && payload.sync_time > syncTime) syncTime = payload.sync_time
+  }
+
   return {
     grouped,
-    meta: payload.meta || {},
-    offline: !!payload.offline,
-    syncTime: payload.sync_time || ''
+    meta: latestMeta,
+    offline,
+    syncTime
   }
 }
 
@@ -1156,6 +1185,29 @@ onMounted(async () => {
                     </tr>
                   </tbody>
                 </table>
+                <div v-if="term.events?.length" class="schedule-event-export-block">
+                  <h5>{{ t('export.preview.personalEvents') }}（{{ term.events.length }} {{ t('export.preview.itemCountUnit') }}）</h5>
+                  <table class="detail-table">
+                    <thead>
+                      <tr>
+                        <th>{{ t('export.preview.table.date') }}</th>
+                        <th>{{ t('export.preview.table.time') }}</th>
+                        <th>{{ t('export.preview.table.title') }}</th>
+                        <th>{{ t('export.preview.table.location') }}</th>
+                        <th>{{ t('export.preview.table.note') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="event in term.events" :key="`schedule-event-${term.semester}-${event.id}`">
+                        <td>{{ event.date }}</td>
+                        <td>{{ personalEventTimeLabel(event) }}</td>
+                        <td>{{ event.title }}</td>
+                        <td>{{ event.location || '-' }}</td>
+                        <td>{{ event.note || '-' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 

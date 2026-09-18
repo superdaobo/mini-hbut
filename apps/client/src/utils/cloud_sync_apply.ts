@@ -105,6 +105,37 @@ export const replaceCustomCourses = async (
   }
 }
 
+/**
+ * 用云端个人日程快照原子替换当前账号本地 personal_events。
+ *
+ * 是否调用本函数由 cloud_sync.ts 根据 section 是否存在决定：
+ * - section 缺失：不调用，保留本地（兼容 schema v4 及更早云数据）
+ * - section 存在且 []：调用并清空当前账号
+ * - section 存在且有数据：后端逐条校验后事务替换
+ */
+export const replacePersonalEvents = async (
+  studentId: unknown,
+  events: unknown
+): Promise<{ replaced: number }> => {
+  const sid = toSafeText(studentId)
+  if (!sid) return { replaced: 0 }
+  if (!Array.isArray(events)) {
+    throw new Error('云端个人日程数据格式无效')
+  }
+  const res = await axios.post(`${API_BASE}/v2/schedule/event/replace-all`, {
+    student_id: sid,
+    events
+  })
+  const data = asRecord(res?.data)
+  if (!data.success) {
+    throw new Error(toSafeText(data.error) || '恢复个人日程失败')
+  }
+  const replaced = Number(data.replaced)
+  return {
+    replaced: Number.isFinite(replaced) && replaced >= 0 ? replaced : events.length
+  }
+}
+
 export const applySettingsFromCloud = async (
   settings: unknown
 ): Promise<{ app: boolean; ui: boolean; font: boolean }> => {

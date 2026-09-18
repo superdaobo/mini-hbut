@@ -26,6 +26,9 @@ import { decideHomeNavigate } from '../utils/moduleAccess'
 import { useAuthStore } from '../stores'
 import { useViewportBreakpoint } from '../composables/useViewportBreakpoint'
 import { useLocale } from '../utils/app_i18n'
+import {
+  SCHEDULE_EVENT_CHANGED_EVENT
+} from '../utils/schedule_event_signal'
 
 // 响应式取词：必须经 useLocale() 解构 t（locale 变化触发重渲染），不可直接 import { t }
 const { t } = useLocale()
@@ -198,6 +201,7 @@ const homeSearchCourses = ref([])
 const todayLoading = ref(false)
 const todayError = ref('')
 const nowTick = ref(Date.now())
+let todayRequestToken = 0
 let clockTimer = null
 const CLOCK_TICK_MS = 1000
 
@@ -286,6 +290,11 @@ const todayBlockTitle = computed(() => {
 
 const syncNowTick = () => { nowTick.value = Date.now() }
 const handleVisibilityRefresh = () => { if (document.visibilityState === 'visible') syncNowTick() }
+const handleScheduleEventChanged = (event) => {
+  const detail = event?.detail || {}
+  if (String(detail?.studentId || '').trim() !== String(props.studentId || '').trim()) return
+  void fetchTodayCourses()
+}
 const getTodayWeekday = () => { const day = new Date(nowTick.value).getDay(); return day === 0 ? 7 : day }
 
 const getCurrentWeek = (metaWeek) => {
@@ -370,6 +379,69 @@ const fetchCustomCoursesForToday = async (semester) => {
   } catch (_error) { return [] }
 }
 
+const getTodayIsoDate = () => {
+  const now = new Date(nowTick.value)
+  const yyyy = String(now.getFullYear())
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+/** 首页只取“今天”这一日的个人日程；失败时独立降级为空，不影响课程时间线。 */
+const fetchPersonalEventsForToday = async () => {
+  const sid = String(props.studentId || '').trim()
+  if (!sid) return []
+  const date = getTodayIsoDate()
+  try {
+    const res = await axios.post(`${API_BASE}/v2/schedule/event/list-range`, {
+      student_id: sid,
+      start_date: date,
+      end_date: date
+    })
+    if (!res.data?.success) return []
+    return Array.isArray(res.data?.data) ? res.data.data : []
+  } catch (_error) {
+    return []
+  }
+}
+
+const buildTodayPersonalEvents = (events) => {
+  const HH_MM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+  return (Array.isArray(events) ? events : [])
+    .map((event) => {
+      const id = String(event?.id || event?.event_id || '').trim()
+      const name = String(event?.title || '').trim()
+      const start = String(event?.start_time || event?.startTime || '').trim()
+      const end = String(event?.end_time || event?.endTime || '').trim()
+      if (!id || !name || !HH_MM_RE.test(start) || !HH_MM_RE.test(end)) return null
+      const startMinutes = toMinutes(start)
+      const endMinutes = toMinutes(end)
+      if (endMinutes <= startMinutes) return null
+      return {
+        key: `event-${id}`,
+        sourceId: id,
+        kind: 'event',
+        isEvent: true,
+        name,
+        teacher: '',
+        room: String(event?.location || '').trim(),
+        start,
+        end,
+        startMinutes,
+        endMinutes
+      }
+    })
+    .filter(Boolean)
+}
+
+const mergeTodayTimelineItems = (courseItems, eventItems) => {
+  return [...(courseItems || []), ...(eventItems || [])].sort((a, b) => {
+    return a.startMinutes - b.startMinutes ||
+      a.endMinutes - b.endMinutes ||
+      String(a.key || '').localeCompare(String(b.key || ''))
+  })
+}
+
 const buildTodayCourses = (courses, currentWeek) => {
   const safeWeek = toPositiveInt(currentWeek, 1)
   const todayWeekday = getTodayWeekday()
@@ -423,6 +495,8 @@ const buildTodayCourses = (courses, currentWeek) => {
     const endText = periodTimeMap[endPeriod]?.end || '--:--'
     merged.push({
       key: `${current.name}-${teacher}-${startPeriod}-${endPeriod}-${room}`,
+      kind: 'course',
+      isEvent: false,
       name: current.name, teacher, room,
       start: startText, end: endText,
       startMinutes: toMinutes(startText), endMinutes: toMinutes(endText)
@@ -433,10 +507,17 @@ const buildTodayCourses = (courses, currentWeek) => {
 }
 
 const fetchTodayCourses = async () => {
+  const token = ++todayRequestToken
   if (!props.isLoggedIn || !props.studentId) { todayCourses.value = []; homeSearchCourses.value = []; todayError.value = ''; return }
+  const sid = String(props.studentId || '').trim()
+  const isCurrentRequest = () =>
+    token === todayRequestToken &&
+    props.isLoggedIn &&
+    sid === String(props.studentId || '').trim()
+  const personalItems = buildTodayPersonalEvents(await fetchPersonalEventsForToday())
+  if (!isCurrentRequest()) return
   const preferredInfo = getPreferredScheduleSemester()
   const preferredSemester = String(preferredInfo?.semester || '').trim()
-  const sid = String(props.studentId || '').trim()
   const cacheKey = buildScheduleCacheKey(props.studentId, preferredSemester)
   // 优先用缓存数据立即渲染，避免空白/loading 闪烁
   const cached = getCachedData(cacheKey)
@@ -454,12 +535,14 @@ const fetchTodayCourses = async () => {
         const rsp = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: props.studentId, semester: preferredSemester || undefined })
         return rsp.data
       }, undefined, DEFAULT_SWR_OPTIONS)
+      if (!isCurrentRequest()) return
       payload = res?.data
     }
     const shouldForceOnlineRetry = !!payload?.success && !!payload?.offline && isVacationPreviousMeta(payload?.meta)
     if (shouldForceOnlineRetry && sid) {
       try {
         const onlineRes = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: sid, semester: undefined })
+        if (!isCurrentRequest()) return
         const onlinePayload = onlineRes?.data
         if (onlinePayload?.success && !onlinePayload?.offline) {
           payload = onlinePayload
@@ -471,10 +554,12 @@ const fetchTodayCourses = async () => {
     }
     const semesterForCustom = String(payload?.meta?.semester || preferredSemester || '').trim()
     customCourses = await fetchCustomCoursesForToday(semesterForCustom)
+    if (!isCurrentRequest()) return
     if (!payload?.success) {
-      if (customCourses.length > 0) {
-        const week = getCurrentWeek()
-        todayCourses.value = buildTodayCourses(customCourses, week)
+      const week = getCurrentWeek()
+      const customItems = buildTodayCourses(customCourses, week)
+      if (customItems.length > 0 || personalItems.length > 0) {
+        todayCourses.value = mergeTodayTimelineItems(customItems, personalItems)
         homeSearchCourses.value = buildWeeklyCourseSearchEntries({ courses: customCourses, currentWeek: week, periodTimeMap })
         todayError.value = ''
       } else {
@@ -494,11 +579,16 @@ const fetchTodayCourses = async () => {
     const week = getCurrentWeek(payload?.meta?.current_week)
     const remoteCourses = Array.isArray(payload?.data) ? payload.data : []
     const mergedCourses = [...remoteCourses, ...customCourses]
-    todayCourses.value = buildTodayCourses(mergedCourses, week)
+    todayCourses.value = mergeTodayTimelineItems(buildTodayCourses(mergedCourses, week), personalItems)
     homeSearchCourses.value = buildWeeklyCourseSearchEntries({ courses: mergedCourses, currentWeek: week, periodTimeMap })
     todayError.value = ''
-  } catch (error) { todayCourses.value = []; homeSearchCourses.value = []; todayError.value = t('home.today.loadFailed') }
-  finally { todayLoading.value = false }
+  } catch (error) {
+    if (!isCurrentRequest()) return
+    todayCourses.value = personalItems
+    homeSearchCourses.value = []
+    todayError.value = personalItems.length > 0 ? '' : t('home.today.loadFailed')
+  }
+  finally { if (isCurrentRequest()) todayLoading.value = false }
 }
 
 // 模块列表（name/desc 仅存 i18n key，渲染时经 moduleLabel/moduleDesc 按当前语言取词）
@@ -1377,6 +1467,7 @@ onMounted(() => {
   clockTimer = window.setInterval(() => { syncNowTick() }, CLOCK_TICK_MS)
   window.addEventListener('resize', handleNoticeResize)
   window.addEventListener('focus', syncNowTick)
+  window.addEventListener(SCHEDULE_EVENT_CHANGED_EVENT, handleScheduleEventChanged)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
 })
 
@@ -1392,6 +1483,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleNoticeResize)
   if (noticeResizeRaf) { window.cancelAnimationFrame(noticeResizeRaf); noticeResizeRaf = 0 }
   window.removeEventListener('focus', syncNowTick)
+  window.removeEventListener(SCHEDULE_EVENT_CHANGED_EVENT, handleScheduleEventChanged)
   document.removeEventListener('visibilitychange', handleVisibilityRefresh)
 })
 

@@ -22,10 +22,12 @@ export interface ScheduleSyncOptions {
   semester: ScheduleSemester
   editor: ScheduleEditor
   confirmDialog: ScheduleConfirmDialog
+  /** 云下载真正应用了个人日程快照后，刷新当前周 Event Grid。 */
+  onPersonalEventsChanged?: () => Promise<void> | void
 }
 
 export const useScheduleSync = (options: ScheduleSyncOptions) => {
-  const { props, data, semester, editor, confirmDialog } = options
+  const { props, data, semester, editor, confirmDialog, onPersonalEventsChanged } = options
   const { askConfirm } = confirmDialog
 
   const syncUploading = ref(false)
@@ -77,6 +79,9 @@ export const useScheduleSync = (options: ScheduleSyncOptions) => {
     if (!hasCached && shouldRefreshSchedule) {
       await data.fetchSchedule(sem)
     }
+    if (syncResult?.personalEventsApplied?.applied) {
+      await onPersonalEventsChanged?.()
+    }
   }
 
   const handleCloudSyncUpdated = (event: any) => {
@@ -116,7 +121,7 @@ export const useScheduleSync = (options: ScheduleSyncOptions) => {
     const confirmed = await askConfirm({
       title: '确认上传到云端',
       lines: [
-        '将覆盖云端已有的自定义课程数据。',
+        '将覆盖云端已有的自定义课程与个人日程数据。',
         `当前学期：${sem || '未选择学期'}`,
         '确认后将立即执行上传。'
       ],
@@ -171,7 +176,7 @@ export const useScheduleSync = (options: ScheduleSyncOptions) => {
     }
 
     syncDownloading.value = true
-    syncStatusText.value = '正在下载云端备份并覆盖本地课表...'
+    syncStatusText.value = '正在下载云端备份并覆盖本地课表与日程...'
     try {
       const result = await runCloudSyncDownload({
         studentId: sid,
@@ -195,7 +200,7 @@ export const useScheduleSync = (options: ScheduleSyncOptions) => {
       if (result?.empty) {
         showToast('云端暂无备份，已记录本次同步', 'info')
       } else {
-        showToast('云下载完成，已应用自定义课程', 'success')
+        showToast('云下载完成，已应用自定义课程与个人日程', 'success')
       }
     } catch (e) {
       showToast(String((e as any)?.message || '云下载失败'), 'error')
