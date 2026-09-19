@@ -10,15 +10,16 @@
  *   intervalsOverlap，不自建第二套重叠算法）；
  * - 可见区外（早于第一节 / 晚于最后一节）的日程由列顶 / 列底 indicator 承载，不静默丢失。
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { MAX_PERIOD, timeSchedule } from '../constants'
 // #788 i18n：文案经 useI18n 响应式取词
 import { useI18n } from '../../../utils/app_i18n'
 import ScheduleEventCard from './ScheduleEventCard.vue'
 import { formatMinuteToClock } from '../utils/formatters'
-import { buildScheduleTimeGeometry, getGridTotalHeight } from '../utils/timeGeometry'
+import { buildScheduleTimeGeometry, getGridTotalHeight, intervalToGridRect } from '../utils/timeGeometry'
 import { courseToTimelineItem, eventToTimelineItem } from '../utils/timelineAdapters'
 import { gridYToMinute, layoutTimelineItems, splitOutOfRangeEvents } from '../utils/timelineLayout'
+import { buildBlankTimeSelection, isSameBlankTimeSelection } from '../utils/blankSelection'
 
 const props = defineProps({
   weekDates: { type: Array, default: () => [] },
@@ -33,10 +34,14 @@ const props = defineProps({
   isWidgetHighlighted: { type: Function, default: () => false },
   // #837：该天的事件（camelCase 领域对象）。默认返回空数组 → 未接线时零改动
   getEventsForDay: { type: Function, default: () => () => [] },
+  // #856：all | courses | events。筛选发生在 lane 输入层，不做 CSS 假隐藏。
+  viewMode: { type: String, default: 'all' },
   // #837：是否允许点击空白处快速创建（默认开启）
   enableBlankCreate: { type: Boolean, default: true },
+  // #857：父层打开抽屉/弹窗时递增，清掉未确认的临时虚线框。
+  selectionResetNonce: { type: Number, default: 0 },
 })
-const emit = defineEmits(['open-detail', 'open-event-detail', 'create-event-at'])
+const emit = defineEmits(['open-detail', 'open-event-detail', 'confirm-blank-selection'])
 
 // 响应式 t：语言切换后网格文案即时生效
 const { t } = useI18n()
@@ -48,9 +53,6 @@ const { t } = useI18n()
  */
 const percentGeometry = buildScheduleTimeGeometry(timeSchedule, 100 / MAX_PERIOD)
 
-/** 空白点击创建的默认时长（分钟）与吸附步长（分钟） */
-const BLANK_CREATE_DURATION_MINUTES = 60
-const BLANK_CREATE_STEP_MINUTES = 5
 /** tap / swipe 判定阈值（px）：位移超过即视为滑动，不触发空白创建 */
 const TAP_MOVE_THRESHOLD_PX = 8
 /** 空白布局结果（时间表不可用 / 当天无条目时的安全回退） */
@@ -70,13 +72,28 @@ const weekIsoDates = computed(() =>
   (Array.isArray(props.weekDates) ? props.weekDates : []).map((entry) => entry?.iso || '')
 )
 
+const showCourses = computed(() => props.viewMode !== 'events')
+const showEvents = computed(() => props.viewMode !== 'courses')
+
+const visibleCoursesForDay = (day) => {
+  if (!showCourses.value) return []
+  const courses = props.getCoursesForDay(day)
+  return Array.isArray(courses) ? courses : []
+}
+
+const visibleEventsForDay = (day) => {
+  if (!showEvents.value) return []
+  const events = props.getEventsForDay(day)
+  return Array.isArray(events) ? events : []
+}
+
 /** 课程对象 → lane 匹配键（与 courseToTimelineItem 的 id 取值口径保持一致） */
 const courseKeyOf = (course) => String(course?._uid ?? course?.id ?? course?.source_id ?? '')
 
 /** 汇总某天参与 lane 计算的条目：课程（教务 / 自定义）+ 个人日程 */
 const collectTimelineItems = (day) => {
   const items = []
-  const courses = props.getCoursesForDay(day)
+  const courses = visibleCoursesForDay(day)
   if (Array.isArray(courses)) {
     for (const course of courses) {
       const item = courseToTimelineItem(
@@ -88,7 +105,7 @@ const collectTimelineItems = (day) => {
       if (item) items.push(item)
     }
   }
-  const events = props.getEventsForDay(day)
+  const events = visibleEventsForDay(day)
   if (Array.isArray(events)) {
     for (const event of events) {
       const item = eventToTimelineItem(event, weekIsoDates.value, day)
@@ -123,7 +140,7 @@ const dayTimeline = computed(() => {
 
 const dayLayout = (day) => dayTimeline.value[day]?.layout || EMPTY_LAYOUT
 const eventSlots = (day) => dayLayout(day).slots.filter((slot) => slot.item.kind === 'event')
-const overflowGroups = (day) => dayLayout(day).overflowGroups
+const overflowGroups = (day) => showEvents.value ? dayLayout(day).overflowGroups : []
 const beforeEvents = (day) => dayTimeline.value[day]?.before || []
 const afterEvents = (day) => dayTimeline.value[day]?.after || []
 
@@ -131,7 +148,7 @@ const afterEvents = (day) => dayTimeline.value[day]?.after || []
 const courseSlotMap = computed(() => {
   const map = new Map()
   for (let day = 1; day <= 7; day += 1) {
-    const courses = props.getCoursesForDay(day)
+    const courses = visibleCoursesForDay(day)
     if (!Array.isArray(courses) || courses.length === 0) continue
     const byId = new Map()
     for (const slot of dayLayout(day).slots) {
@@ -163,7 +180,43 @@ const courseLaneStyle = (course, day) => {
   }
 }
 
-/** 空白点击创建：记录 pointerdown 坐标，用于区分 tap 与滑动（页面根有周滑动手势） */
+/** #857：第一次点击只选中时间块；同一块第二次点击才确认进入「添加安排」。 */
+const blankSelection = ref(null)
+
+const clearBlankSelection = () => {
+  blankSelection.value = null
+}
+
+watch(
+  [
+    () => props.selectedWeek,
+    () => props.viewMode,
+    () => props.selectionResetNonce,
+    () => weekIsoDates.value.join('|')
+  ],
+  clearBlankSelection
+)
+
+const blankSelectionStyle = (day) => {
+  const selection = blankSelection.value
+  if (!selection || selection.dayIndex !== Number(day)) return null
+  const rect = intervalToGridRect(selection.startMinute, selection.endMinute, percentGeometry)
+  if (!rect) return null
+  return {
+    top: `${rect.top}%`,
+    height: `${rect.height}%`
+  }
+}
+
+const blankSelectionLabel = (day) => {
+  const selection = blankSelection.value
+  if (!selection || selection.dayIndex !== Number(day)) return ''
+  return selection.startPeriod === selection.endPeriod
+    ? String(selection.startPeriod)
+    : `${selection.startPeriod}–${selection.endPeriod}`
+}
+
+/** 空白点击：记录 pointerdown 坐标，用于区分 tap 与滑动（页面根有周滑动手势） */
 let pointerOrigin = null
 let tapMoved = false
 
@@ -182,8 +235,9 @@ const handleColumnPointerUp = (event) => {
 }
 
 /**
- * 空白点击 → 由点击高度反算时间并请求创建日程。
- * 命中课程卡 / 日程卡 / 聚合入口 / indicator 时一律不创建（各自走详情）。
+ * 空白点击 → 由点击高度反算课节，并吸附到常见双节块。
+ * 第一次只画虚线框；再次点击同一块才 emit 确认。
+ * 命中课程卡 / 日程卡 / 聚合入口 / indicator 时不参与空白选择。
  */
 const handleColumnClick = (event, day) => {
   if (!props.enableBlankCreate || tapMoved) return
@@ -191,6 +245,7 @@ const handleColumnClick = (event, day) => {
   if (
     target?.closest?.('.course-card, .event-card, .event-overflow-chip, .event-edge-indicator')
   ) {
+    clearBlankSelection()
     return
   }
   const layer = event.currentTarget?.querySelector?.('.event-layer')
@@ -205,18 +260,21 @@ const handleColumnClick = (event, day) => {
     percentGeometry
   )
   if (approximate === null) return
-  const snapped = Math.round(approximate / BLANK_CREATE_STEP_MINUTES) * BLANK_CREATE_STEP_MINUTES
-  // 收敛：默认时长不得跨越当天最后一节结束（emit 契约只携带 startTime，时长由上层按此约束处理）
-  const latestStart = Math.max(
-    percentGeometry.firstMinute,
-    percentGeometry.lastMinute - BLANK_CREATE_DURATION_MINUTES
-  )
-  const startMinute = Math.min(Math.max(snapped, percentGeometry.firstMinute), latestStart)
 
-  emit('create-event-at', {
-    date: props.weekDates?.[day - 1]?.iso || '',
-    startTime: formatMinuteToClock(startMinute)
-  })
+  const nextSelection = buildBlankTimeSelection(
+    approximate,
+    Number(day),
+    props.weekDates?.[day - 1]?.iso || '',
+    timeSchedule
+  )
+  if (!nextSelection) return
+
+  if (isSameBlankTimeSelection(blankSelection.value, nextSelection)) {
+    clearBlankSelection()
+    emit('confirm-blank-selection', nextSelection)
+    return
+  }
+  blankSelection.value = nextSelection
 }
 
 /** 可见区外日程的 indicator 文案：时间 + 标题（多条时补 `+N`），全部来自数据，无硬编码文案 */
@@ -231,7 +289,20 @@ const edgeHint = (list) => {
 /** indicator / 聚合入口统一打开排序最靠前的那一条详情 */
 const openFirstEvent = (list) => {
   const first = Array.isArray(list) ? list[0] : null
-  if (first) emit('open-event-detail', first.raw)
+  if (first) {
+    clearBlankSelection()
+    emit('open-event-detail', first.raw)
+  }
+}
+
+const openCourseDetail = (course) => {
+  clearBlankSelection()
+  emit('open-detail', course)
+}
+
+const openEventDetail = (raw) => {
+  clearBlankSelection()
+  emit('open-event-detail', raw)
 }
 </script>
 
@@ -282,7 +353,7 @@ const openFirstEvent = (list) => {
             @click="handleColumnClick($event, day)"
           >
             <div
-              v-for="course in getCoursesForDay(day)"
+              v-for="course in visibleCoursesForDay(day)"
               :key="course._uid || course.id"
               class="course-card"
               :class="[
@@ -291,7 +362,7 @@ const openFirstEvent = (list) => {
                 { 'widget-highlight': isWidgetHighlighted(course, day) }
               ]"
               :style="[getCourseStyle(course), courseLaneStyle(course, day)]"
-              @click="emit('open-detail', course)"
+              @click="openCourseDetail(course)"
             >
               <div class="course-name">{{ course.name }}</div>
               <div class="course-room">
@@ -303,6 +374,16 @@ const openFirstEvent = (list) => {
               >
                 {{ course.teacher || t('schedule.grid.noTeacher') }}
               </div>
+            </div>
+
+            <!-- #857：第一次空白点击仅展示临时双节虚线框；pointer-events:none 保证第二次点击仍由列处理。 -->
+            <div
+              v-if="blankSelectionStyle(day)"
+              class="blank-time-selection"
+              :style="blankSelectionStyle(day)"
+              aria-hidden="true"
+            >
+              <span class="blank-time-selection-label">{{ blankSelectionLabel(day) }}</span>
             </div>
 
             <!-- #837 事件层：绝对定位 + 百分比坐标，与课程卡的 grid-row 定位互不干扰；
@@ -322,7 +403,7 @@ const openFirstEvent = (list) => {
                 :key="`event-${slot.item.id}`"
                 :item="slot.item"
                 :slot="slot"
-                @open-detail="emit('open-event-detail', $event)"
+                @open-detail="openEventDetail($event)"
               />
 
               <!-- 超可读阈值的聚合入口：不在该处继续压窄成细条 -->
@@ -555,6 +636,43 @@ const openFirstEvent = (list) => {
   padding: 0 1px;
   position: relative;
   min-height: calc(var(--slot-height) * 11);
+}
+
+.blank-time-selection {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  box-sizing: border-box;
+  border: 2px dashed color-mix(in srgb, var(--ui-primary, #2563eb) 78%, #ffffff 22%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, transparent 90%);
+  pointer-events: none;
+  z-index: 4;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3px 1px;
+}
+
+.blank-time-selection-label {
+  font-size: 8px;
+  line-height: 1;
+  font-weight: 800;
+  color: var(--ui-primary, #2563eb);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+  padding: 2px 3px;
+  white-space: nowrap;
+}
+
+html.dark .blank-time-selection {
+  border-color: rgba(96, 165, 250, 0.88);
+  background: rgba(59, 130, 246, 0.14);
+}
+
+html.dark .blank-time-selection-label {
+  color: #bfdbfe;
+  background: rgba(15, 23, 42, 0.92);
 }
 
 .day-column.is-today-column::before {

@@ -140,17 +140,21 @@ const conflictCount = computed(() => (Array.isArray(props.conflicts) ? props.con
 .event-form-fields {
   display: grid;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 
 .add-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  min-width: 0;
 }
 
 .add-field {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .add-field > span {
@@ -163,6 +167,10 @@ const conflictCount = computed(() => (Array.isArray(props.conflicts) ? props.con
 .add-field select,
 .add-field textarea {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-inline-size: 0;
+  inline-size: 100%;
   min-height: 36px;
   border-radius: 10px;
   border: 1px solid #cbd5e1;
@@ -170,6 +178,21 @@ const conflictCount = computed(() => (Array.isArray(props.conflicts) ? props.con
   color: #0f172a;
   font-size: 13px;
   padding: 0 10px;
+  box-sizing: border-box;
+}
+
+/*
+ * iOS WebKit 会给原生 date/time input 一个大于父 Grid 的 intrinsic inline-size；
+ * 仅写 width:100% 仍可能把右边框推出弹窗并制造横向滚动。明确允许 flex/grid 子项
+ * 收缩，同时保留原生 appearance，系统日期/时间 picker 继续正常工作。
+ */
+.add-field input[type='date'],
+.add-field input[type='time'] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-inline-size: 0;
   box-sizing: border-box;
 }
 

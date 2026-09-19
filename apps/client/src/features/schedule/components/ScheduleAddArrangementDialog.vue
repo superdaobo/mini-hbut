@@ -200,6 +200,9 @@ const onSubmit = () => {
 .arrangement-modal {
   width: min(92vw, 400px);
   max-width: 420px;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
   /* 上限留出安全区，避免小屏被软键盘完全顶出可视区 */
   max-height: min(84dvh, 680px);
   display: flex;
@@ -252,7 +255,9 @@ const onSubmit = () => {
   /* flex 子项必须允许收缩，滚动才会发生在内容区而不是把动作按钮顶出视口 */
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 2px;
 }
 

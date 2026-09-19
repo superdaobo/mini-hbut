@@ -135,6 +135,8 @@ const termStart = useScheduleTermStart({ props, data, semester: semesterApi })
 const showArrangement = ref(false)
 const arrangementMode = ref('add')
 const arrangementInitialTab = ref('course')
+// #857：父层打开抽屉/弹窗时递增，让 Grid 丢弃尚未二次确认的虚线选择框。
+const gridSelectionResetNonce = ref(0)
 
 // 任一弹层打开时禁用周次滑动/键盘切换（与原始 shouldIgnoreWeekSwipe 一致）
 // #742：学期徽章/提示弹窗 UI 已移除，其状态不再参与门控
@@ -150,6 +152,10 @@ const anyOverlayOpen = computed(() => {
     importApi.showImportDialog.value ||
     confirmDialog.showConfirmDialog.value
   )
+})
+
+watch(anyOverlayOpen, (open) => {
+  if (open) gridSelectionResetNonce.value += 1
 })
 
 // 课程侧提交成功后 useScheduleEditor 会把 showAddCourse 置回 false，
@@ -181,10 +187,13 @@ const {
 const {
   showMenu,
   scheduleCourseCardStyle,
+  scheduleViewMode,
   courseCardRefreshNonce,
   styleOptions,
+  viewModeOptions,
   toggleMenu,
   setScheduleCourseCardStyle,
+  setScheduleViewMode,
 } = menu
 // 数据
 const {
@@ -277,12 +286,37 @@ const closeMenu = () => {
 }
 
 /**
- * #836：打开统一「添加安排」。
- * `payload.type === 'event'` 时直接落到日程 Tab（供抽屉入口与网格空白点击复用）；
- * 默认走课程 Tab，并复用既有课程创建入口的登录校验 / 学期校验 / 表单重置。
+ * #836/#857：打开统一「添加安排」。
+ *
+ * 抽屉入口保持原行为：默认课程。
+ * 网格二次确认入口会同时预填两份草稿：
+ * - Course：星期 / 开始节次 / 双节跨度；
+ * - Event：真实日期 / 开始时间 / 结束时间。
+ * 这样创建态切 Course ↔ Event 时，两边预填不会丢失。
  */
 const openAddArrangement = (payload: any = {}) => {
   showMenu.value = false
+  if (payload?.source === 'grid') {
+    const coursePrefill = {
+      weekday: Number(payload?.weekday),
+      period: Number(payload?.period),
+      djs: Number(payload?.djs)
+    }
+    // 统一走课程入口的登录/学期校验，并让 showAddCourse 成为统一弹窗的生命周期控制位。
+    editor.openAddCourseDialog(coursePrefill)
+    if (!editor.showAddCourse.value) return
+
+    events.resetEventDraft({
+      date: payload?.date,
+      startTime: payload?.startTime,
+      endTime: payload?.endTime
+    })
+    events.editingEventId.value = ''
+    arrangementMode.value = 'add'
+    arrangementInitialTab.value = payload?.type === 'event' ? 'event' : 'course'
+    showArrangement.value = true
+    return
+  }
   if (payload?.type === 'event') {
     events.resetEventDraft({
       date: payload?.date,
@@ -318,9 +352,20 @@ const handleEditManagedCourse = async (course: any) => {
   showArrangement.value = editor.showAddCourse.value
 }
 
-/** 网格空白点击创建日程：预填日期与近似开始时间，直接落到日程 Tab */
-const handleCreateEventAt = (payload: any) => {
-  openAddArrangement({ type: 'event', ...(payload || {}) })
+/** #857：同一虚线时间块二次确认后，进入统一「添加安排」。 */
+const handleConfirmBlankSelection = (selection: any) => {
+  if (!selection) return
+  const defaultType = scheduleViewMode.value === 'events' ? 'event' : 'course'
+  openAddArrangement({
+    source: 'grid',
+    type: defaultType,
+    date: selection.date,
+    startTime: selection.startTime,
+    endTime: selection.endTime,
+    weekday: selection.dayIndex,
+    period: selection.startPeriod,
+    djs: selection.span
+  })
 }
 
 /** 网格日程卡点击 → 打开日程详情（#838） */
@@ -332,16 +377,14 @@ const handleOpenEventDetail = (raw: any) => {
 const handleSubmitEvent = async () => {
   const ok = await events.submitEvent()
   if (ok) {
-    showArrangement.value = false
-    events.editingEventId.value = ''
+    closeArrangement()
   }
 }
 
 const handleDeleteEvent = async () => {
   const ok = await events.deleteEvent(events.editingEventId.value)
   if (ok) {
-    showArrangement.value = false
-    events.editingEventId.value = ''
+    closeArrangement()
   }
 }
 
@@ -356,6 +399,7 @@ const arrangementConflicts = computed(() => {
 })
 
 const handleSemesterChange = () => {
+  gridSelectionResetNonce.value += 1
   // #750：手动切换 = 会话内临时行为（manual-select 锁，重启后以时间驱动为准）
   termStart.clearNoticeIfMatches(semesterDraft.value)
   void data.onSemesterChange()
@@ -608,6 +652,8 @@ onBeforeUnmount(() => {
       :loading="loading"
       :semester-error="semesterError"
       :schedule-course-card-style="scheduleCourseCardStyle"
+      :schedule-view-mode="scheduleViewMode"
+      :view-mode-options="viewModeOptions"
       :style-options="styleOptions"
       :adding-course="addingCourse"
       :loading-manage-courses="loadingManageCourses"
@@ -627,6 +673,7 @@ onBeforeUnmount(() => {
       @close="closeMenu"
       @update:semester-draft="semesterDraft = $event"
       @semester-change="handleSemesterChange"
+      @set-view-mode="setScheduleViewMode"
       @set-style="setScheduleCourseCardStyle"
       @open-add-arrangement="openAddArrangement"
       @open-manage-courses="editor.openManageCoursesDialog"
@@ -665,10 +712,12 @@ onBeforeUnmount(() => {
       :get-courses-for-day="grid.getCoursesForDay"
       :get-course-style="grid.getCourseCardStyle"
       :get-events-for-day="eventData.getEventsForDay"
+      :view-mode="scheduleViewMode"
+      :selection-reset-nonce="gridSelectionResetNonce"
       :is-widget-highlighted="grid.isWidgetHighlighted"
       @open-detail="detail.openDetail"
       @open-event-detail="handleOpenEventDetail"
-      @create-event-at="handleCreateEventAt"
+      @confirm-blank-selection="handleConfirmBlankSelection"
     />
 
     <!-- 详情弹窗 -->

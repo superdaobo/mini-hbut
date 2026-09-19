@@ -166,6 +166,23 @@ describe('移动端与滚动区契约（软键盘不得遮挡确认按钮）', (
     expect(source).not.toContain('v-model.number="form.reminderMinutes"')
   })
 
+  it('#855 iOS 原生 date/time 输入可收缩，弹窗内容区禁止横向滚动', () => {
+    const formSource = eventFormSource()
+    const dialog = dialogSource()
+
+    expect(formSource).toContain(".add-field input[type='date']")
+    expect(formSource).toContain(".add-field input[type='time']")
+    expect(formSource).toContain('min-inline-size: 0')
+    expect(formSource).toContain('max-width: 100%')
+    expect(formSource).toContain('inline-size: 100%')
+    expect(formSource).not.toContain('-webkit-appearance: none')
+
+    expect(dialog).toMatch(/\.arrangement-modal\s*\{[^}]*min-width:\s*0/)
+    expect(dialog).toMatch(/\.arrangement-modal\s*\{[^}]*overflow:\s*hidden/)
+    expect(dialog).toMatch(/\.arrangement-body\s*\{[^}]*min-width:\s*0/)
+    expect(dialog).toMatch(/\.arrangement-body\s*\{[^}]*overflow-x:\s*hidden/)
+  })
+
   it('日程表单折叠低频字段，并展示冲突 warning', () => {
     const source = eventFormSource()
     expect(source).toContain("t('schedule.event.moreSettings')")
@@ -176,12 +193,23 @@ describe('移动端与滚动区契约（软键盘不得遮挡确认按钮）', (
 })
 
 describe('ScheduleDrawer #836 入口升级契约', () => {
-  it('第三区第一项文案为「添加安排」，emit 改为 open-add-arrangement', () => {
+  it('课程管理区第一项文案为「添加安排」，emit 改为 open-add-arrangement', () => {
     const source = drawerSource()
     expect(source).toContain("t('schedule.drawer.addArrangement')")
     expect(source).toContain("emit('open-add-arrangement')")
     expect(source).toContain("'open-add-arrangement',")
     expect(source).not.toContain("emit('open-add-course')")
+  })
+
+  it('#856 在学期与课程样式之间提供三态视图筛选，并包含 dark mode 样式', () => {
+    const source = drawerSource()
+    expect(source).toContain('data-step="2">{{ t(\'schedule.drawer.section.view\') }}')
+    expect(source).toContain('v-for="item in viewModeOptions"')
+    expect(source).toContain(':class="{ active: scheduleViewMode === item.key }"')
+    expect(source).toContain("emit('set-view-mode', item.key)")
+    expect(source).toContain(':global(html.dark) .drawer-view-switch')
+    expect(source).toContain(':global(html.dark) .drawer-view-chip.active')
+    expect(source).toContain('data-step="3">{{ t(\'schedule.drawer.section.style\') }}')
   })
 
   it('AI 课表导入入口保持完全独立', () => {

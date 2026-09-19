@@ -15,6 +15,8 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   semesterError: { type: String, default: '' },
   scheduleCourseCardStyle: { type: String, default: 'modern' },
+  scheduleViewMode: { type: String, default: 'all' },
+  viewModeOptions: { type: Array, default: () => [] },
   styleOptions: { type: Array, default: () => [] },
   addingCourse: { type: Boolean, default: false },
   loadingManageCourses: { type: Boolean, default: false },
@@ -36,6 +38,7 @@ const emit = defineEmits([
   'close',
   'update:semesterDraft',
   'semester-change',
+  'set-view-mode',
   'set-style',
   'open-add-arrangement',
   'open-manage-courses',
@@ -85,7 +88,26 @@ const { t } = useI18n()
       </div>
 
       <div class="drawer-section">
-        <div class="drawer-subtitle" data-step="2">{{ t('schedule.drawer.section.style') }}</div>
+        <div class="drawer-subtitle" data-step="2">{{ t('schedule.drawer.section.view') }}</div>
+        <div class="drawer-view-switch" role="tablist" :aria-label="t('schedule.viewMode.aria')">
+          <button
+            v-for="item in viewModeOptions"
+            :key="item.key"
+            type="button"
+            class="drawer-view-chip"
+            :class="{ active: scheduleViewMode === item.key }"
+            role="tab"
+            :aria-pressed="scheduleViewMode === item.key"
+            :aria-selected="scheduleViewMode === item.key"
+            @click.stop="emit('set-view-mode', item.key)"
+          >
+            <strong>{{ item.label }}</strong>
+          </button>
+        </div>
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-subtitle" data-step="3">{{ t('schedule.drawer.section.style') }}</div>
         <div class="drawer-style-switch" role="tablist" :aria-label="t('schedule.drawer.styleSwitchAria')">
           <button
             v-for="item in styleOptions"
@@ -105,7 +127,7 @@ const { t } = useI18n()
 
       <div class="drawer-actions">
         <div class="drawer-course-group">
-          <div class="drawer-subtitle" data-step="3">{{ t('schedule.drawer.section.manage') }}</div>
+          <div class="drawer-subtitle" data-step="4">{{ t('schedule.drawer.section.manage') }}</div>
           <div class="drawer-course-actions">
             <button class="drawer-action add-course" :disabled="addingCourse" @click="emit('open-add-arrangement')">
               <span class="material-symbols-outlined">add_circle</span>
@@ -122,7 +144,7 @@ const { t } = useI18n()
           </div>
         </div>
         <div class="drawer-sync-group">
-          <div class="drawer-subtitle" data-step="4">{{ t('schedule.drawer.section.sync') }}</div>
+          <div class="drawer-subtitle" data-step="5">{{ t('schedule.drawer.section.sync') }}</div>
           <div class="drawer-sync-actions">
             <button
               class="drawer-action sync-upload"
@@ -173,7 +195,7 @@ const { t } = useI18n()
             <span v-if="customCourseExportLocation" class="drawer-sync-export-path">{{ t('schedule.drawer.exportLocation').replace('{t}', customCourseExportLocation) }}</span>
           </div>
         </div>
-        <div class="drawer-subtitle" data-step="5">{{ t('schedule.drawer.section.export') }}</div>
+        <div class="drawer-subtitle" data-step="6">{{ t('schedule.drawer.section.export') }}</div>
         <button
           class="drawer-action"
           :disabled="exporting"
@@ -335,6 +357,7 @@ const { t } = useI18n()
   color: #dc2626;
 }
 
+.drawer-view-switch,
 .drawer-style-switch {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -346,6 +369,7 @@ const { t } = useI18n()
   background: #f9fafb;
 }
 
+.drawer-view-chip,
 .drawer-style-chip {
   border: none;
   background: transparent;
@@ -364,16 +388,33 @@ const { t } = useI18n()
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 
+.drawer-view-chip strong,
 .drawer-style-chip strong {
   font-size: 13px;
   font-weight: 600;
 }
 
+.drawer-view-chip.active,
 .drawer-style-chip.active {
   color: #ffffff;
   background: var(--ui-primary, #2563eb);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
   font-weight: 600;
+}
+
+:global(html.dark) .drawer-view-switch {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+:global(html.dark) .drawer-view-chip {
+  color: #94a3b8;
+}
+
+:global(html.dark) .drawer-view-chip.active {
+  color: #ffffff;
+  background: var(--ui-primary, #3b82f6);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #3b82f6) 38%, transparent 62%);
 }
 
 .drawer-action {
