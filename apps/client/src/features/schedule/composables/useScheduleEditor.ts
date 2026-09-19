@@ -435,6 +435,59 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     }
   }
 
+  /**
+   * Issue #867：从 Mini-HBUT 课表移除教务课程。
+   * 只写本地可见性偏好，不修改教务原始数据；恢复后无需重新向教务添加。
+   */
+  const removeOfficialCourse = async (courseArg: any = null) => {
+    const course = courseArg || detail.selectedCourse.value
+    if (!course || course?.is_custom || course?.is_removed_official) return false
+    const name = String(course?.name || '').trim() || t('schedule.editor.officialCourseFallback')
+    const confirmed = await askConfirm({
+      title: t('schedule.editor.removeOfficialTitle'),
+      lines: [
+        t('schedule.editor.removeOfficialLine').replace('{name}', name),
+        t('schedule.editor.removeOfficialHint')
+      ],
+      confirmText: t('schedule.editor.confirmRemoveOfficial'),
+      cancelText: t('schedule.confirm.cancel'),
+      danger: true
+    })
+    if (!confirmed) return false
+
+    const ok = data.removeOfficialCourse(course)
+    if (!ok) {
+      detail.detailActionError.value = t('schedule.editor.removeOfficialFailed')
+      return false
+    }
+    detail.detailActionError.value = ''
+    detail.showDetail.value = false
+    detail.selectedCourse.value = null
+    return true
+  }
+
+  /** 管理课程页恢复此前移除的教务课程。 */
+  const restoreOfficialCourse = async (course: any) => {
+    const record = course?.visibility_record || course
+    const name = String(record?.representative?.name || course?.name || '').trim() || t('schedule.editor.officialCourseFallback')
+    const confirmed = await askConfirm({
+      title: t('schedule.editor.restoreOfficialTitle'),
+      lines: [t('schedule.editor.restoreOfficialLine').replace('{name}', name)],
+      confirmText: t('schedule.editor.confirmRestoreOfficial'),
+      cancelText: t('schedule.confirm.cancel'),
+      danger: false
+    })
+    if (!confirmed) return false
+
+    const ok = data.restoreOfficialCourse(record)
+    if (!ok) {
+      data.manageCoursesError.value = t('schedule.editor.restoreOfficialFailed')
+      return false
+    }
+    data.manageCoursesError.value = ''
+    return true
+  }
+
   return {
     showAddCourse,
     courseDialogMode,
@@ -469,7 +522,9 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     submitAddCourse,
     deleteCustomCourseRecord,
     deleteCustomCourse,
-    deleteManagedCourse
+    deleteManagedCourse,
+    removeOfficialCourse,
+    restoreOfficialCourse
   }
 }
 
