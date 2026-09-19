@@ -17,6 +17,7 @@ const emit = defineEmits([
   'open-conflict-course-detail',
   'open-edit-course',
   'delete-custom-course',
+  'remove-official-course',
   'copy-detail',
 ])
 
@@ -55,9 +56,9 @@ const { t } = useI18n()
           </div>
         </div>
         <div v-else class="modal-body">
-          <div v-if="selectedCourse?.is_custom" class="info-row">
+          <div class="info-row">
             <span class="label">{{ t('schedule.detail.type') }}</span>
-            <span class="value">{{ t('schedule.detail.typeCustom') }}</span>
+            <span class="value">{{ selectedCourse?.is_custom ? t('schedule.detail.typeCustom') : t('schedule.detail.typeOfficial') }}</span>
           </div>
           <div class="info-row">
             <span class="label">{{ t('schedule.detail.teacher') }}</span>
@@ -87,6 +88,12 @@ const { t } = useI18n()
             <button class="custom-delete-btn edit" @click="emit('open-edit-course', selectedCourse, { reopenDetail: true })">{{ t('schedule.detail.editCourse') }}</button>
             <button class="custom-delete-btn week" @click="emit('delete-custom-course', 'current_week')">{{ t('schedule.detail.deleteCurrentWeek') }}</button>
             <button class="custom-delete-btn all" @click="emit('delete-custom-course', 'all')">{{ t('schedule.detail.deleteAllWeeks') }}</button>
+          </div>
+          <div v-else class="official-course-actions">
+            <button class="official-remove-btn" @click="emit('remove-official-course', selectedCourse)">
+              {{ t('schedule.detail.removeOfficial') }}
+            </button>
+            <p class="official-remove-hint">{{ t('schedule.detail.removeOfficialHint') }}</p>
           </div>
         </div>
         <div class="detail-copy-actions">
@@ -154,6 +161,30 @@ const { t } = useI18n()
 .custom-delete-btn.all {
   background: #dc2626;
   color: #ffffff;
+}
+
+.official-course-actions {
+  margin-top: 12px;
+  display: grid;
+  gap: 7px;
+}
+
+.official-remove-btn {
+  min-height: 36px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff1f2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.official-remove-hint {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .detail-copy-actions {
