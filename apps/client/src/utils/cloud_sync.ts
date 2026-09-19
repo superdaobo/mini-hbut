@@ -42,6 +42,7 @@ import {
   SCHEDULE_EVENT_CHANGED_EVENT,
   type ScheduleEventChangedDetail
 } from './schedule_event_signal'
+import { replaceScheduleVisibilityFromCloud } from './schedule_visibility'
 
 export interface CloudSyncUploadInput {
   studentId?: string | null
@@ -309,6 +310,7 @@ export const runCloudSyncDownload = async (
     let settingResult = { app: false, ui: false, font: false }
     let customResult = { deleted: 0, added: 0, semesters: 0 }
     let personalEventResult = { replaced: 0, applied: false }
+    let scheduleVisibilityApplied = false
     let academicResult: AcademicApplyResult = {
       gradesCached: false,
       rankingCached: false,
@@ -348,6 +350,17 @@ export const runCloudSyncDownload = async (
         personalEventResult = { ...restored, applied: true }
       }
     }
+    const hasVisibilitySection = Object.prototype.hasOwnProperty.call(data || {}, 'schedule_visibility')
+    if (!hasVisibilitySection) {
+      // 旧版云数据没有这一领域：字段缺失 = 未同步，必须保留本机已有隐藏状态。
+      pushDebugLog('CloudSync', `下载跳过课表可见性应用 student=${sid} reason=missing-schedule-visibility-section`, 'info')
+    } else {
+      scheduleVisibilityApplied = replaceScheduleVisibilityFromCloud(sid, data.schedule_visibility)
+      if (!scheduleVisibilityApplied) {
+        throw new Error('云端课表可见性数据格式无效')
+      }
+    }
+
     if (applyAcademic) {
       academicResult = applyAcademicFromCloud(sid, data?.academic)
     }
@@ -371,6 +384,7 @@ export const runCloudSyncDownload = async (
       settingsApplied: settingResult,
       customCoursesApplied: customResult,
       personalEventsApplied: personalEventResult,
+      scheduleVisibilityApplied,
       academicApplied: academicResult
     }
     commitCloudSyncResult(sid, 'download', {
