@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
 vi.mock('../../platform/native', () => ({
+  getCurrentNativeWindow: vi.fn(async () => null),
   isCapacitorRuntime: vi.fn(() => false),
   isTauriRuntime: vi.fn(() => false)
 }))
@@ -21,6 +22,10 @@ vi.mock('../../platform/runtime', () => ({
 
 vi.mock('../../utils/campus_network_service', () => ({
   runCampusNetworkAutoLogin: vi.fn(() => Promise.resolve())
+}))
+
+vi.mock('../../utils/debug_logger', () => ({
+  pushDebugLog: vi.fn()
 }))
 
 vi.mock('../../navigation/app_navigation', () => ({
@@ -46,25 +51,33 @@ vi.mock('../../utils/school_website_embed.ts', () => ({
 
 import { createLifecycleCoordinator } from './LifecycleCoordinator'
 import { tryWriteSnapshotFromCache } from '../../utils/widget_bridge'
+import { isIOSLike } from '../../platform/runtime'
+import { getCurrentNativeWindow, isTauriRuntime } from '../../platform/native'
 
 const mockTryWrite = vi.mocked(tryWriteSnapshotFromCache)
+const mockIsIOSLike = vi.mocked(isIOSLike)
+const mockIsTauriRuntime = vi.mocked(isTauriRuntime)
+const mockGetCurrentNativeWindow = vi.mocked(getCurrentNativeWindow)
 
 const SID = '2510231106'
 
-const makeRuntime = (studentId: string) => {
+const makeRuntime = (studentId: string, idleMs = 1000) => {
   const state = {
     studentId: ref(studentId),
     currentView: ref('home'),
     appShellRef: ref(null),
+    homeScrollRestoring: ref(false),
     mutable: {
       appBootstrapped: true,
       lastResumeHandledAt: 0,
       resumePendingSnapshot: null,
       iosHardReloadCount: 0,
       iosReloadFallbackAt: 0,
+      lastSoftRemountAt: 0,
       viewportResizeRaf: 0,
       desktopResizePerfTimer: null,
       capacitorAppStateListener: null,
+      tauriWindowFocusUnlisten: null,
       removeHomeLayoutDiagnosticsErrorCapture: null
     }
   }
@@ -73,7 +86,7 @@ const makeRuntime = (studentId: string) => {
     stores: {
       lifecycle: {
         markHidden: vi.fn(),
-        consumeHiddenDuration: vi.fn(() => 1000)
+        consumeHiddenDuration: vi.fn(() => idleMs)
       }
     },
     navigation: {
@@ -104,10 +117,14 @@ const waitForTryWrite = async (times: number) => {
 
 beforeEach(() => {
   mockTryWrite.mockClear()
+  mockIsIOSLike.mockReturnValue(false)
+  mockIsTauriRuntime.mockReturnValue(false)
+  mockGetCurrentNativeWindow.mockResolvedValue(null)
   vi.stubGlobal(
     'document',
     {
       hidden: false,
+      activeElement: null,
       documentElement: {
         clientHeight: 0,
         style: {
@@ -117,11 +134,24 @@ beforeEach(() => {
         classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) }
       },
       body: null,
+      querySelector: vi.fn(() => null),
+      getElementById: vi.fn(() => null),
       addEventListener: vi.fn(),
       removeEventListener: vi.fn()
     }
   )
-  vi.stubGlobal('window', globalThis)
+  vi.stubGlobal('window', {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => { callback(0); return 1 }),
+    cancelAnimationFrame: vi.fn(),
+    setTimeout,
+    clearTimeout,
+    innerHeight: 0,
+    screen: { width: 0, height: 0 },
+    location: { reload: vi.fn() },
+    dispatchEvent: vi.fn()
+  })
 })
 
 afterEach(() => {
@@ -163,5 +193,83 @@ describe('#759 回前台补写小组件快照', () => {
     const { coordinator } = makeRuntime(SID)
     expect(() => coordinator.handleAppResume('visibilitychange')).not.toThrow()
     await waitForTryWrite(1)
+  })
+})
+
+describe('#864 iOS 长后台恢复加固', () => {
+  it('iOS 后台超过 10 分钟时即使 DOM 看似健康也强制 soft remount，并清除残留交互锁', () => {
+    mockIsIOSLike.mockReturnValue(true)
+    const { state, runtime, coordinator } = makeRuntime(SID, 11 * 60 * 1000)
+    state.homeScrollRestoring.value = true
+
+    coordinator.handleAppResume('visibilitychange')
+
+    expect(runtime.navigation.restoreViewFromSnapshot).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        softRemount: true,
+        allowHardReload: false,
+        idleMs: 11 * 60 * 1000
+      })
+    )
+    expect(state.homeScrollRestoring.value).toBe(false)
+  })
+
+  it('原生 Tauri focus 信号可绕过冻结后 stale document.hidden，普通 WebView 信号仍会被拦截', () => {
+    mockIsIOSLike.mockReturnValue(true)
+    ;(document as any).hidden = true
+    const { runtime, coordinator } = makeRuntime(SID)
+
+    coordinator.handleAppResume('visibilitychange')
+    expect(runtime.navigation.restoreViewFromSnapshot).not.toHaveBeenCalled()
+
+    coordinator.handleAppResume('tauri-window-focus')
+    expect(runtime.navigation.restoreViewFromSnapshot).toHaveBeenCalledTimes(1)
+  })
+
+  it('strict DOM health 不把冻结遗留的 transition active class 当成健康', () => {
+    const transitionRoot = {
+      matches: vi.fn(() => true),
+      querySelector: vi.fn(() => null),
+      classList: { contains: vi.fn(() => false) },
+      childElementCount: 1
+    }
+    const shell = {
+      querySelector: vi.fn((selector: string) =>
+        selector === '.view-transition-root' ? transitionRoot : null
+      )
+    }
+    const { state, coordinator } = makeRuntime(SID)
+    ;(state.appShellRef as any).value = shell
+
+    expect(coordinator.isCurrentViewDomHealthy('home')).toBe(true)
+    expect(coordinator.isCurrentViewDomHealthy('home', { strict: true })).toBe(false)
+  })
+
+  it('Tauri iOS 注册原生 window focus 监听，并用它补齐 WebView 生命周期信号', async () => {
+    mockIsIOSLike.mockReturnValue(true)
+    mockIsTauriRuntime.mockReturnValue(true)
+    const unlisten = vi.fn()
+    const handlerRef: { current?: (event: { payload: boolean }) => void } = {}
+    const onFocusChanged = vi.fn(async (handler: (event: { payload: boolean }) => void) => {
+      handlerRef.current = handler
+      return unlisten
+    })
+    mockGetCurrentNativeWindow.mockResolvedValue({ onFocusChanged } as any)
+    const { runtime, coordinator } = makeRuntime(SID)
+
+    coordinator.installResumeListeners()
+    await vi.waitFor(() => expect(onFocusChanged).toHaveBeenCalledTimes(1))
+
+    expect(handlerRef.current).toBeTypeOf('function')
+    handlerRef.current!({ payload: false })
+    expect(runtime.stores.lifecycle.markHidden).toHaveBeenCalledTimes(1)
+
+    ;(document as any).hidden = true
+    handlerRef.current!({ payload: true })
+    expect(runtime.navigation.restoreViewFromSnapshot).toHaveBeenCalledTimes(1)
+
+    coordinator.dispose()
+    expect(unlisten).toHaveBeenCalledTimes(1)
   })
 })

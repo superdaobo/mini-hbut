@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const source = () => readFileSync(new URL('./MeView.vue', import.meta.url), 'utf8')
+const zhMessages = () => readFileSync(new URL('../utils/i18n/messages/zh-CN.ts', import.meta.url), 'utf8')
+const enMessages = () => readFileSync(new URL('../utils/i18n/messages/en.ts', import.meta.url), 'utf8')
+const jaMessages = () => readFileSync(new URL('../utils/i18n/messages/ja.ts', import.meta.url), 'utf8')
 
 describe('MeView account switch contract (#755)', () => {
   it('renders a 切换账号 entry in profile actions (hidden for demo sessions)', () => {
@@ -55,5 +58,26 @@ describe('MeView account switch modal title icon contract (#770)', () => {
     // 标题图标必须是子集字体中已收录且语义匹配的 switch_account
     // （#794 文案 t() 化后标题文本改为插值，图标 ligature 锚点保持不变）
     expect(vue).toContain('material-symbols-outlined account-switch-title-icon">switch_account</span>')
+  })
+})
+
+describe('MeView 开源说明富文本契约 (#862)', () => {
+  it('通过真实 strong 节点强调感谢对象，不使用 v-html', () => {
+    const vue = source()
+
+    expect(vue).toContain("<strong>{{ t('me.opensource.thanksMiniHuGong.name') }}</strong>")
+    expect(vue).toContain("<strong>{{ t('me.opensource.thanksFriends.name') }}</strong>")
+    expect(vue).not.toContain('v-html="t(\'me.opensource')
+  })
+
+  it('三种语言的开源说明翻译值不再携带 strong 标签字面量', () => {
+    for (const messages of [zhMessages(), enMessages(), jaMessages()]) {
+      const openSourceBlock = messages.slice(
+        messages.indexOf("'me.opensource.title'"),
+        messages.indexOf("'me.sponsor.title'")
+      )
+      expect(openSourceBlock).not.toContain('<strong>')
+      expect(openSourceBlock).not.toContain('</strong>')
+    }
   })
 })

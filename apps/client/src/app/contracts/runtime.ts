@@ -152,7 +152,7 @@ export interface LifecycleCoordinator {
   handleViewportResize(): void
   scheduleViewportUpdate(): void
   recoverViewportAfterTransition(options?: { scrollToTop?: boolean; blurActive?: boolean }): void
-  isCurrentViewDomHealthy(view?: string): boolean
+  isCurrentViewDomHealthy(view?: string, options?: { strict?: boolean }): boolean
   nudgeWebViewPaint(
     view?: string,
     options?: { verify?: boolean; allowReload?: boolean; idleMs?: number }

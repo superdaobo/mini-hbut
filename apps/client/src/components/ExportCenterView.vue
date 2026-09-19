@@ -87,7 +87,7 @@ const moduleGroups = computed(() => [
 
 const moduleMap = computed(() => {
   const out = new Map()
-  moduleGroups.forEach((group) => {
+  moduleGroups.value.forEach((group) => {
     group.modules.forEach((mod) => out.set(mod.id, mod))
   })
   return out

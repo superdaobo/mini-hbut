@@ -709,7 +709,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       }
     }
     await nextTick()
-    runtime.lifecycle.recoverViewportAfterTransition({ scrollToTop: false, blurActive: false })
+    runtime.lifecycle.recoverViewportAfterTransition({ scrollToTop: false, blurActive: softRemount })
     if (isIOSLike && (didSoftRemount || !runtime.lifecycle.isCurrentViewDomHealthy(targetView))) {
       requestAnimationFrame(() => {
         runtime.lifecycle.nudgeWebViewPaint(targetView, {

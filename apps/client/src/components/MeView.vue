@@ -540,8 +540,12 @@ const removeAccount = async (acc) => {
           </ul>
         </div>
         <div class="section thanks">
-          <p>{{ t('me.opensource.thanksMiniHuGong') }}</p>
-          <p>{{ t('me.opensource.thanksFriends') }}</p>
+          <p>
+            {{ t('me.opensource.thanksMiniHuGong.prefix') }}<strong>{{ t('me.opensource.thanksMiniHuGong.name') }}</strong>{{ t('me.opensource.thanksMiniHuGong.suffix') }}
+          </p>
+          <p>
+            {{ t('me.opensource.thanksFriends.prefix') }}<strong>{{ t('me.opensource.thanksFriends.name') }}</strong>{{ t('me.opensource.thanksFriends.suffix') }}
+          </p>
           <p class="highlight">{{ t('me.opensource.thanksAll') }}</p>
         </div>
         <div class="modal-actions">

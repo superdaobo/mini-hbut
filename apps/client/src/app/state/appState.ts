@@ -34,6 +34,7 @@ export interface AppMutable {
   lastSoftRemountAt: number
   appBootstrapped: boolean
   capacitorAppStateListener: null | { remove: () => Promise<void> }
+  tauriWindowFocusUnlisten: null | (() => void)
   widgetCrossDayTimer: null | number
   removeNotificationActionListener: null | (() => void)
   removeHomeLayoutDiagnosticsErrorCapture: null | (() => void)
@@ -212,6 +213,7 @@ export const createAppState = (stores: AppStores, options: CreateAppStateOptions
     lastSoftRemountAt: 0,
     appBootstrapped: false,
     capacitorAppStateListener: null,
+    tauriWindowFocusUnlisten: null,
     widgetCrossDayTimer: null,
     removeNotificationActionListener: null,
     removeHomeLayoutDiagnosticsErrorCapture: null,
