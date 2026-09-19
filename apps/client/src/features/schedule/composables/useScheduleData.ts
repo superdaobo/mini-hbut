@@ -502,7 +502,15 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
       if (requestedSemester && requestedSemester !== previousSemester) {
         customScheduleData.value = []
         remoteScheduleData.value = []
-        mergeCurrentScheduleSources()
+        // 保留 mergeScheduleSources 显式调用：既满足 #633 的学期切换契约，
+        // 又通过 visibility 参数继续走统一有效课表语义。
+        mergeScheduleSources(
+          { remoteScheduleData, customScheduleData, scheduleData },
+          {
+            studentId: String(props.studentId || '').trim(),
+            semester: requestedSemester || getFallbackSemester()
+          }
+        )
       }
       if (requestedSemester) {
         semester.semester.value = requestedSemester
