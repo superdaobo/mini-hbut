@@ -729,6 +729,7 @@ onBeforeUnmount(() => {
       @open-conflict-course-detail="detail.openConflictCourseDetail"
       @open-edit-course="editor.openEditCourseDialog"
       @delete-custom-course="editor.deleteCustomCourse"
+      @remove-official-course="editor.removeOfficialCourse"
       @copy-detail="detail.copySelectedCourseDetail"
     />
 
@@ -779,6 +780,7 @@ onBeforeUnmount(() => {
       @toggle-semester="editor.toggleManageSemester"
       @edit-course="handleEditManagedCourse"
       @delete-course="editor.deleteManagedCourse"
+      @restore-official-course="editor.restoreOfficialCourse"
     />
 
     <!-- AI 课表导入弹窗（#815） -->
