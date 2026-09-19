@@ -17,6 +17,13 @@ import {
 import { afterScheduleRefresh } from '../../../utils/widget_bridge'
 import { hasBootMetric, markBootMetric } from '../../../utils/boot_metrics.js'
 import { pushDebugLog } from '../../../utils/debug_logger'
+import {
+  buildEffectiveSchedule,
+  buildOfficialCourseIdentityKey,
+  listRemovedOfficialCourses,
+  removeOfficialCourseFromSchedule,
+  restoreOfficialCourseToSchedule
+} from '../../../utils/schedule_visibility'
 import { normalizeCustomCourse } from '../utils/course'
 import { processScheduleData } from '../utils/layout'
 import { deriveSemesterByDate, readStoredSemester, resolveDisplayStudentId } from '../utils/semester'
@@ -31,8 +38,13 @@ export const mergeScheduleSources = (state: {
   remoteScheduleData: { value: any[] }
   customScheduleData: { value: any[] }
   scheduleData: { value: any[] }
-}) => {
-  const merged = [...state.remoteScheduleData.value, ...state.customScheduleData.value]
+}, visibility: { studentId?: string; semester?: string } = {}) => {
+  const merged = buildEffectiveSchedule(
+    visibility.studentId || '',
+    visibility.semester || '',
+    state.remoteScheduleData.value,
+    state.customScheduleData.value
+  )
   state.scheduleData.value = processScheduleData(merged)
 }
 
@@ -55,6 +67,7 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
   const loadingManageCourses = ref(false)
   const manageCoursesError = ref('')
   const manageExpandedSemesters = ref<Record<string, boolean>>({})
+  const removedOfficialCourses = ref<any[]>([])
 
   const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -68,13 +81,49 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
 
   const getFallbackSemester = () => String(semester.semester.value || semester.semesterDraft.value || '').trim()
 
+  const mergeCurrentScheduleSources = () => mergeScheduleSources(
+    { remoteScheduleData, customScheduleData, scheduleData },
+    {
+      studentId: String(props.studentId || '').trim(),
+      semester: getFallbackSemester()
+    }
+  )
+
+  const refreshRemovedOfficialCourses = (targetSemester = '') => {
+    const sid = String(props.studentId || '').trim()
+    const sem = String(targetSemester || getFallbackSemester()).trim()
+    removedOfficialCourses.value = sid && sem ? listRemovedOfficialCourses(sid, sem) : []
+    return removedOfficialCourses.value
+  }
+
+  const removeOfficialCourse = (course: any) => {
+    const sid = String(props.studentId || '').trim()
+    const sem = String(course?.semester || getFallbackSemester()).trim()
+    const record = removeOfficialCourseFromSchedule(sid, sem, course, remoteScheduleData.value)
+    if (!record) return false
+    refreshRemovedOfficialCourses(sem)
+    mergeCurrentScheduleSources()
+    persistScheduleRenderSnapshot('official-course-remove')
+    return true
+  }
+
+  const restoreOfficialCourse = (record: any) => {
+    const sid = String(props.studentId || '').trim()
+    const sem = String(record?.representative?.semester || record?.semester || getFallbackSemester()).trim()
+    if (!restoreOfficialCourseToSchedule(sid, sem, record)) return false
+    refreshRemovedOfficialCourses(sem)
+    mergeCurrentScheduleSources()
+    persistScheduleRenderSnapshot('official-course-restore')
+    return true
+  }
+
   /** 加载当前学期的自定义课程 */
   const loadCustomCourses = async (targetSemester = '') => {
     const sid = String(props.studentId || '').trim()
     const sem = String(targetSemester || semester.semester.value || semester.semesterDraft.value || '').trim()
     if (!sid || !sem) {
       customScheduleData.value = []
-      mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
+      mergeCurrentScheduleSources()
       return false
     }
 
@@ -91,39 +140,95 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
         .map((item: any) => normalizeCustomCourse(item, sem))
         .filter(Boolean)
         .filter((course: any) => course.name && course.weekday >= 1 && course.weekday <= 7 && course.period >= 1 && course.period <= 11)
-      mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
+      mergeCurrentScheduleSources()
       persistScheduleRenderSnapshot('custom-load')
       return true
     } catch (e) {
       console.warn('加载自定义课程失败', e)
       customScheduleData.value = []
-      mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
+      mergeCurrentScheduleSources()
       return false
     }
   }
 
-  /** 管理页：按学期分组的全部自定义课程 */
+  /** 管理页：同一学期内分类展示教务课程 / 已移除课程 / 自定义课程。 */
   const managedCourseGroups = computed(() => {
-    const groups = new Map<string, any[]>()
-    for (const rawCourse of allCustomCourses.value || []) {
-      const course = normalizeCustomCourse(rawCourse, getFallbackSemester())
-      if (!course?.id) continue
-      const sem = String(course.semester || '未分配学期').trim() || '未分配学期'
-      if (!groups.has(sem)) {
-        groups.set(sem, [])
+    const groups = new Map<string, {
+      officialMap: Map<string, any>
+      removedMap: Map<string, any>
+      customCourses: any[]
+    }>()
+    const ensureGroup = (semesterKey: string) => {
+      const key = String(semesterKey || '未分配学期').trim() || '未分配学期'
+      if (!groups.has(key)) {
+        groups.set(key, {
+          officialMap: new Map<string, any>(),
+          removedMap: new Map<string, any>(),
+          customCourses: []
+        })
       }
-      groups.get(sem)!.push(course)
+      return groups.get(key)!
     }
+
+    const currentSemester = getFallbackSemester()
+    for (const course of remoteScheduleData.value || []) {
+      const key = buildOfficialCourseIdentityKey(course)
+      if (!key) continue
+      const group = ensureGroup(String(course?.semester || currentSemester))
+      if (!group.officialMap.has(key)) {
+        group.officialMap.set(key, {
+          ...course,
+          semester: String(course?.semester || currentSemester),
+          course_identity_key: key,
+          is_custom: false
+        })
+      }
+    }
+
+    for (const record of removedOfficialCourses.value || []) {
+      const representative = record?.representative
+      const key = String(record?.key || buildOfficialCourseIdentityKey(representative)).trim()
+      if (!key || !representative) continue
+      const group = ensureGroup(String(representative.semester || currentSemester))
+      group.officialMap.delete(key)
+      group.removedMap.set(key, {
+        ...representative,
+        semester: String(representative.semester || currentSemester),
+        course_identity_key: key,
+        visibility_record: record,
+        is_removed_official: true,
+        is_custom: false
+      })
+    }
+
+    for (const rawCourse of allCustomCourses.value || []) {
+      const course = normalizeCustomCourse(rawCourse, currentSemester)
+      if (!course?.id) continue
+      ensureGroup(String(course.semester || '未分配学期')).customCourses.push(course)
+    }
+
+    const sortCourses = (courses: any[]) => courses.sort((a: any, b: any) => {
+      if (a.weekday !== b.weekday) return a.weekday - b.weekday
+      if (a.period !== b.period) return a.period - b.period
+      return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN')
+    })
+
     return Array.from(groups.entries())
       .sort((a, b) => sortSemesterKeys(a[0], b[0]))
-      .map(([semesterKey, courses]) => ({
-        semester: semesterKey,
-        courses: courses.sort((a: any, b: any) => {
-          if (a.weekday !== b.weekday) return a.weekday - b.weekday
-          if (a.period !== b.period) return a.period - b.period
-          return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN')
-        })
-      }))
+      .map(([semesterKey, group]) => {
+        const officialCourses = sortCourses([...group.officialMap.values()])
+        const removedCourses = sortCourses([...group.removedMap.values()])
+        const customCourses = sortCourses(group.customCourses)
+        return {
+          semester: semesterKey,
+          officialCourses,
+          removedCourses,
+          customCourses,
+          // 兼容旧组件/测试中的 courses 字段；语义仍为自定义课程。
+          courses: customCourses,
+          totalCount: officialCourses.length + removedCourses.length + customCourses.length
+        }
+      })
   })
 
   const syncManageExpandedSemesters = () => {
@@ -157,6 +262,7 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
         .map((item: any) => normalizeCustomCourse(item, getFallbackSemester()))
         .filter(Boolean)
         .filter((course: any) => course.name && course.weekday >= 1 && course.weekday <= 7 && course.period >= 1 && course.period <= 11)
+      refreshRemovedOfficialCourses()
       syncManageExpandedSemesters()
       return true
     } catch (e) {
@@ -226,9 +332,10 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
     semester.semesterDraft.value = resolvedSemester
     remoteScheduleData.value = Array.isArray(saved.remote_schedule_data) ? saved.remote_schedule_data : []
     customScheduleData.value = Array.isArray(saved.custom_schedule_data) ? saved.custom_schedule_data : []
-    scheduleData.value = Array.isArray(saved.merged_schedule_data) && saved.merged_schedule_data.length
-      ? saved.merged_schedule_data
-      : processScheduleData([...remoteScheduleData.value, ...customScheduleData.value])
+    refreshRemovedOfficialCourses(resolvedSemester)
+    // merged_schedule_data 是渲染缓存，可能早于用户最近一次“移除课程”操作；
+    // 始终从原始教务 + 自定义课程重算有效课表，避免冷启动闪回已移除课程。
+    mergeCurrentScheduleSources()
 
     semester.applyMeta(saved.meta, resolvedSemester)
     const nextWeek = Number(saved.selected_week || semester.currentWeek.value || 1)
@@ -286,7 +393,9 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
     }
     syncTime.value = payload.sync_time || ''
     remoteScheduleData.value = processScheduleData(rawData)
-    mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
+    const resolvedSemester = String(payload?.meta?.semester || requestedSemester || getFallbackSemester()).trim()
+    refreshRemovedOfficialCourses(resolvedSemester)
+    mergeCurrentScheduleSources()
     semester.applyMeta(payload.meta, requestedSemester)
     errorMsg.value = rawData.length === 0 ? '暂无可用课表' : ''
     return true
@@ -392,7 +501,7 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
       if (requestedSemester && requestedSemester !== previousSemester) {
         customScheduleData.value = []
         remoteScheduleData.value = []
-        mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
+        mergeCurrentScheduleSources()
       }
       if (requestedSemester) {
         semester.semester.value = requestedSemester
@@ -494,7 +603,7 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
         }
         if (!(remoteScheduleData.value.length || customScheduleData.value.length)) {
           remoteScheduleData.value = []
-          mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
+          mergeCurrentScheduleSources()
           offline.value = false
           semester.vacationNotice.value = ''
           semester.startDateStr.value = ''
@@ -519,7 +628,7 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
       console.error('获取课表异常', e)
       if (!(remoteScheduleData.value.length || customScheduleData.value.length)) {
         remoteScheduleData.value = []
-        mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
+        mergeCurrentScheduleSources()
         offline.value = false
         semester.vacationNotice.value = ''
         semester.startDateStr.value = ''
@@ -647,12 +756,16 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
     semesterLoading,
     semesterError,
     allCustomCourses,
+    removedOfficialCourses,
     loadingManageCourses,
     manageCoursesError,
     manageExpandedSemesters,
     managedCourseGroups,
     loadCustomCourses,
     loadAllCustomCourses,
+    refreshRemovedOfficialCourses,
+    removeOfficialCourse,
+    restoreOfficialCourse,
     syncManageExpandedSemesters,
     persistScheduleRenderSnapshot,
     applyScheduleRenderSnapshot,
@@ -667,7 +780,7 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
     onSemesterChange,
     handleSessionLogout,
     handleSessionOnline,
-    mergeScheduleSources: () => mergeScheduleSources({ remoteScheduleData, customScheduleData, scheduleData })
+    mergeScheduleSources: mergeCurrentScheduleSources
   }
 }
 
