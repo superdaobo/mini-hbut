@@ -16,7 +16,7 @@ defineProps({
   managedCourseGroups: { type: Array, default: () => [] },
   manageExpandedSemesters: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['close', 'toggle-semester', 'edit-course', 'delete-course'])
+const emit = defineEmits(['close', 'toggle-semester', 'edit-course', 'delete-course', 'restore-official-course'])
 
 // 响应式 t：语言切换后弹窗文案即时生效
 const { t } = useI18n()
@@ -46,31 +46,95 @@ const weekDayLabels = computed(() => getWeekDayLabels())
               <button class="manage-course-group-header" @click="emit('toggle-semester', group.semester)">
                 <div class="manage-course-group-title">
                   <strong>{{ group.semester }}</strong>
-                  <span>{{ t('schedule.manageCourses.courseCount').replace('{n}', String(group.courses.length)) }}</span>
+                  <span>{{ t('schedule.manageCourses.courseCount').replace('{n}', String(group.totalCount ?? group.courses.length)) }}</span>
                 </div>
                 <span class="manage-course-group-arrow">{{ manageExpandedSemesters[group.semester] ? t('schedule.manageCourses.collapse') : t('schedule.manageCourses.expand') }}</span>
               </button>
               <div v-if="manageExpandedSemesters[group.semester]" class="manage-course-list">
-                <article
-                  v-for="course in group.courses"
-                  :key="`${group.semester}-${course.source_id || course.id}`"
-                  class="manage-course-card"
-                >
-                  <div class="manage-course-card-main">
-                    <div class="manage-course-card-name">{{ course.name }}</div>
-                    <div class="manage-course-card-meta">
-                      {{ t('schedule.manageCourses.timeMeta').replace('{day}', weekDayLabels[(course.weekday || 1) - 1]).replace('{s}', String(course.period)).replace('{e}', String(getCourseEndPeriod(course))) }}
-                    </div>
-                    <div class="manage-course-card-meta">{{ t('schedule.manageCourses.weeksMeta').replace('{t}', course.weeks_text) }}</div>
-                    <div v-if="course.teacher || course.room" class="manage-course-card-meta">
-                      {{ [course.teacher, course.room].filter(Boolean).join(' · ') }}
-                    </div>
+                <section v-if="group.officialCourses?.length" class="manage-course-category">
+                  <div class="manage-course-category-title">
+                    <strong>{{ t('schedule.manageCourses.officialSection') }}</strong>
+                    <span>{{ t('schedule.manageCourses.courseCount').replace('{n}', String(group.officialCourses.length)) }}</span>
                   </div>
-                  <div class="manage-course-card-actions">
-                    <button class="manage-course-btn edit" @click="emit('edit-course', course)">{{ t('schedule.manageCourses.edit') }}</button>
-                    <button class="manage-course-btn delete" @click="emit('delete-course', course)">{{ t('schedule.manageCourses.delete') }}</button>
+                  <article
+                    v-for="course in group.officialCourses"
+                    :key="`${group.semester}-official-${course.course_identity_key || course.id}`"
+                    class="manage-course-card"
+                  >
+                    <div class="manage-course-card-main">
+                      <div class="manage-course-card-name-row">
+                        <div class="manage-course-card-name">{{ course.name }}</div>
+                        <span class="manage-course-tag official">{{ t('schedule.manageCourses.officialTag') }}</span>
+                      </div>
+                      <div class="manage-course-card-meta">
+                        {{ t('schedule.manageCourses.timeMeta').replace('{day}', weekDayLabels[(course.weekday || 1) - 1]).replace('{s}', String(course.period)).replace('{e}', String(getCourseEndPeriod(course))) }}
+                      </div>
+                      <div class="manage-course-card-meta">{{ t('schedule.manageCourses.weeksMeta').replace('{t}', course.weeks_text || '-') }}</div>
+                      <div v-if="course.teacher || course.room" class="manage-course-card-meta">
+                        {{ [course.teacher, course.room].filter(Boolean).join(' · ') }}
+                      </div>
+                    </div>
+                  </article>
+                </section>
+
+                <section v-if="group.removedCourses?.length" class="manage-course-category removed">
+                  <div class="manage-course-category-title">
+                    <strong>{{ t('schedule.manageCourses.removedSection') }}</strong>
+                    <span>{{ t('schedule.manageCourses.courseCount').replace('{n}', String(group.removedCourses.length)) }}</span>
                   </div>
-                </article>
+                  <p class="manage-course-category-hint">{{ t('schedule.manageCourses.removedHint') }}</p>
+                  <article
+                    v-for="course in group.removedCourses"
+                    :key="`${group.semester}-removed-${course.course_identity_key || course.id}`"
+                    class="manage-course-card removed"
+                  >
+                    <div class="manage-course-card-main">
+                      <div class="manage-course-card-name-row">
+                        <div class="manage-course-card-name">{{ course.name }}</div>
+                        <span class="manage-course-tag removed">{{ t('schedule.manageCourses.removedTag') }}</span>
+                      </div>
+                      <div class="manage-course-card-meta">
+                        {{ t('schedule.manageCourses.timeMeta').replace('{day}', weekDayLabels[(course.weekday || 1) - 1]).replace('{s}', String(course.period)).replace('{e}', String(getCourseEndPeriod(course))) }}
+                      </div>
+                      <div v-if="course.teacher || course.room" class="manage-course-card-meta">
+                        {{ [course.teacher, course.room].filter(Boolean).join(' · ') }}
+                      </div>
+                    </div>
+                    <div class="manage-course-card-actions">
+                      <button class="manage-course-btn restore" @click="emit('restore-official-course', course)">{{ t('schedule.manageCourses.restore') }}</button>
+                    </div>
+                  </article>
+                </section>
+
+                <section v-if="group.customCourses?.length || group.courses?.length" class="manage-course-category">
+                  <div class="manage-course-category-title">
+                    <strong>{{ t('schedule.manageCourses.customSection') }}</strong>
+                    <span>{{ t('schedule.manageCourses.courseCount').replace('{n}', String((group.customCourses || group.courses || []).length)) }}</span>
+                  </div>
+                  <article
+                    v-for="course in (group.customCourses || group.courses || [])"
+                    :key="`${group.semester}-custom-${course.source_id || course.id}`"
+                    class="manage-course-card"
+                  >
+                    <div class="manage-course-card-main">
+                      <div class="manage-course-card-name-row">
+                        <div class="manage-course-card-name">{{ course.name }}</div>
+                        <span class="manage-course-tag custom">{{ t('schedule.manageCourses.customTag') }}</span>
+                      </div>
+                      <div class="manage-course-card-meta">
+                        {{ t('schedule.manageCourses.timeMeta').replace('{day}', weekDayLabels[(course.weekday || 1) - 1]).replace('{s}', String(course.period)).replace('{e}', String(getCourseEndPeriod(course))) }}
+                      </div>
+                      <div class="manage-course-card-meta">{{ t('schedule.manageCourses.weeksMeta').replace('{t}', course.weeks_text) }}</div>
+                      <div v-if="course.teacher || course.room" class="manage-course-card-meta">
+                        {{ [course.teacher, course.room].filter(Boolean).join(' · ') }}
+                      </div>
+                    </div>
+                    <div class="manage-course-card-actions">
+                      <button class="manage-course-btn edit" @click="emit('edit-course', course)">{{ t('schedule.manageCourses.edit') }}</button>
+                      <button class="manage-course-btn delete" @click="emit('delete-course', course)">{{ t('schedule.manageCourses.delete') }}</button>
+                    </div>
+                  </article>
+                </section>
               </div>
             </section>
           </div>
@@ -155,8 +219,42 @@ const weekDayLabels = computed(() => getWeekDayLabels())
 
 .manage-course-list {
   display: grid;
-  gap: 10px;
+  gap: 14px;
   padding: 0 12px 12px;
+}
+
+.manage-course-category {
+  display: grid;
+  gap: 9px;
+}
+
+.manage-course-category + .manage-course-category {
+  padding-top: 12px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.35);
+}
+
+.manage-course-category-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.manage-course-category-title strong {
+  font-size: 13px;
+}
+
+.manage-course-category-title span,
+.manage-course-category-hint {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.manage-course-category-hint {
+  margin: -3px 0 0;
+  line-height: 1.5;
 }
 
 .manage-course-card {
@@ -176,10 +274,47 @@ const weekDayLabels = computed(() => getWeekDayLabels())
   gap: 4px;
 }
 
+.manage-course-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
 .manage-course-card-name {
   font-size: 14px;
   font-weight: 700;
   color: #0f172a;
+}
+
+.manage-course-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.manage-course-tag.official {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.manage-course-tag.custom {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.manage-course-tag.removed {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.manage-course-card.removed {
+  opacity: 0.82;
+  background: rgba(255, 247, 237, 0.86);
 }
 
 .manage-course-card-meta {
@@ -210,5 +345,10 @@ const weekDayLabels = computed(() => getWeekDayLabels())
 .manage-course-btn.delete {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.manage-course-btn.restore {
+  background: #dcfce7;
+  color: #15803d;
 }
 </style>
