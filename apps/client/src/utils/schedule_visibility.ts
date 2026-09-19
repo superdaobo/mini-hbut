@@ -294,7 +294,10 @@ export const isOfficialCourseRemoved = (
   course: any
 ): boolean => {
   if (!course || course?.is_custom) return false
-  const records = listRemovedOfficialCourses(studentId, text(semester))
+  const sem = text(semester)
+  // 学期未知时宁可暂时显示，也不能跨学期用相同课程身份误隐藏。
+  if (!sem) return false
+  const records = listRemovedOfficialCourses(studentId, sem)
   return records.some((record) => recordMatchesCourse(record, course))
 }
 
@@ -304,7 +307,9 @@ export const filterVisibleOfficialCourses = <T = any>(
   courses: T[]
 ): T[] => {
   const source = Array.isArray(courses) ? courses : []
-  const records = listRemovedOfficialCourses(studentId, text(semester))
+  const sem = text(semester)
+  if (!sem) return source.slice()
+  const records = listRemovedOfficialCourses(studentId, sem)
   if (!records.length) return source.slice()
   return source.filter((course: any) => {
     if (course?.is_custom) return true
