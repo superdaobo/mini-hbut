@@ -89,10 +89,11 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
     }
   )
 
-  const refreshRemovedOfficialCourses = (targetSemester = '') => {
+  const refreshRemovedOfficialCourses = (_targetSemester = '') => {
     const sid = String(props.studentId || '').trim()
-    const sem = String(targetSemester || getFallbackSemester()).trim()
-    removedOfficialCourses.value = sid && sem ? listRemovedOfficialCourses(sid, sem) : []
+    // 管理页与自定义课程一样跨学期展示；真正的渲染过滤由 buildEffectiveSchedule
+    // 按当前 semester 严格匹配，因此这里读取全部记录不会造成跨学期误隐藏。
+    removedOfficialCourses.value = sid ? listRemovedOfficialCourses(sid) : []
     return removedOfficialCourses.value
   }
 
