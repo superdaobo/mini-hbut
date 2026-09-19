@@ -26,6 +26,7 @@ import {
 } from './cloud_sync_storage.js'
 import { asRecord } from './cloud_sync_transport.js'
 import { pushDebugLog } from './debug_logger'
+import { buildScheduleVisibilityCloudSnapshot } from './schedule_visibility'
 
 export const buildAutoUploadSignature = async (
   studentId: unknown,
@@ -41,7 +42,8 @@ export const buildAutoUploadSignature = async (
     settings: buildSettingsSnapshot(),
     notify: buildNotifySnapshot(sid),
     academic: buildAcademicSnapshot(sid, latestGrades),
-    events: personalEvents
+    events: personalEvents,
+    schedule_visibility: buildScheduleVisibilityCloudSnapshot(sid)
   }
   const stable = stableStringify(signaturePayload)
   return {
@@ -111,6 +113,8 @@ export const buildSyncPayload = async (
   // events 必须保留显式 []：空数组代表“用户当前确实没有日程”，与旧云数据缺失 section
   // 的“未知/保持本地”语义不同，不能经过 pruneValue 被删掉。
   if (includePersonalEvents) payload.events = personalEvents
+  // Issue #867：显式上传完整可见性快照；空 by_semester 表示“当前没有隐藏课程”。
+  payload.schedule_visibility = buildScheduleVisibilityCloudSnapshot(sid)
   payload.client = clientSnapshot
   payload.notify = notifySnapshot
   if (includeAcademic) payload.academic = academic || {}
