@@ -97,6 +97,38 @@ export const resolveCourseBlock = (
   return { startPeriod, endPeriod, span: 2 }
 }
 
+/**
+ * 课程待选框必须按“课节行”而不是按真实时钟区间绘制。
+ *
+ * 例如 5–6 节真实时间是 14:00–15:35，但课表视觉上占据完整第 5、6 两行；
+ * 如果复用真实时间几何，6→7 之间的 20 分钟课间会让待选框底边提前结束。
+ */
+export const courseBlockToGridRect = (
+  startPeriod: number,
+  endPeriod: number,
+  totalPeriods = defaultTimeSchedule.length
+): { top: number; height: number } | null => {
+  const start = Number(startPeriod)
+  const end = Number(endPeriod)
+  const total = Number(totalPeriods)
+  if (
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    !Number.isInteger(total) ||
+    total <= 0 ||
+    start < 1 ||
+    end < start ||
+    end > total
+  ) {
+    return null
+  }
+
+  return {
+    top: ((start - 1) / total) * 100,
+    height: ((end - start + 1) / total) * 100
+  }
+}
+
 export const buildBlankTimeSelection = (
   approximateMinute: number,
   dayIndex: number,

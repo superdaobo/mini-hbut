@@ -16,10 +16,14 @@ import { MAX_PERIOD, timeSchedule } from '../constants'
 import { useI18n } from '../../../utils/app_i18n'
 import ScheduleEventCard from './ScheduleEventCard.vue'
 import { formatMinuteToClock } from '../utils/formatters'
-import { buildScheduleTimeGeometry, getGridTotalHeight, intervalToGridRect } from '../utils/timeGeometry'
+import { buildScheduleTimeGeometry, getGridTotalHeight } from '../utils/timeGeometry'
 import { courseToTimelineItem, eventToTimelineItem } from '../utils/timelineAdapters'
 import { gridYToMinute, layoutTimelineItems, splitOutOfRangeEvents } from '../utils/timelineLayout'
-import { buildBlankTimeSelection, isSameBlankTimeSelection } from '../utils/blankSelection'
+import {
+  buildBlankTimeSelection,
+  courseBlockToGridRect,
+  isSameBlankTimeSelection
+} from '../utils/blankSelection'
 
 const props = defineProps({
   weekDates: { type: Array, default: () => [] },
@@ -200,7 +204,7 @@ watch(
 const blankSelectionStyle = (day) => {
   const selection = blankSelection.value
   if (!selection || selection.dayIndex !== Number(day)) return null
-  const rect = intervalToGridRect(selection.startMinute, selection.endMinute, percentGeometry)
+  const rect = courseBlockToGridRect(selection.startPeriod, selection.endPeriod, MAX_PERIOD)
   if (!rect) return null
   return {
     top: `${rect.top}%`,
