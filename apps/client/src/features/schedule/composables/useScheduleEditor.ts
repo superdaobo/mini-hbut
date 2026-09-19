@@ -6,6 +6,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 import axios from 'axios'
 import { DEFAULT_COURSE_COLOR, normalizeOptionalCourseColor } from '../../../utils/course_color'
 import { t } from '../../../utils/app_i18n'
+import { tryWriteSnapshotFromCache } from '../../../utils/widget_bridge'
+import { reconcileLocalReminders } from '../../../utils/local_reminder_scheduler'
 import { formatWeeksText, normalizeWeeks } from '../utils/weeks'
 import { normalizeCustomCourse } from '../utils/course'
 import { LOGIN_SESSION_TOKEN_KEY, periodOptions, getWeekDayLabels } from '../constants'
@@ -435,6 +437,77 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     }
   }
 
+  /**
+   * Issue #867：从 Mini-HBUT 课表移除教务课程。
+   * 只写本地可见性偏好，不修改教务原始数据；恢复后无需重新向教务添加。
+   */
+  const removeOfficialCourse = async (courseArg: any = null) => {
+    const course = courseArg || detail.selectedCourse.value
+    if (!course || course?.is_custom || course?.is_removed_official) return false
+    const name = String(course?.name || '').trim() || t('schedule.editor.officialCourseFallback')
+    const confirmed = await askConfirm({
+      title: t('schedule.editor.removeOfficialTitle'),
+      lines: [
+        t('schedule.editor.removeOfficialLine').replace('{name}', name),
+        t('schedule.editor.removeOfficialHint')
+      ],
+      confirmText: t('schedule.editor.confirmRemoveOfficial'),
+      cancelText: t('schedule.confirm.cancel'),
+      danger: true
+    })
+    if (!confirmed) return false
+
+    const ok = data.removeOfficialCourse(course)
+    if (!ok) {
+      detail.detailActionError.value = t('schedule.editor.removeOfficialFailed')
+      return false
+    }
+    detail.detailActionError.value = ''
+    detail.showDetail.value = false
+    detail.selectedCourse.value = null
+
+    const sid = String(props.studentId || '').trim()
+    const sem = String(course?.semester || semester.semester.value || semester.semesterDraft.value || '').trim()
+    // Widget 与系统预调度提醒都可能绕过当前页面读缓存，因此可见性变化后主动重建。
+    void tryWriteSnapshotFromCache(sid)
+    void reconcileLocalReminders({
+      studentId: sid,
+      semesterHint: sem,
+      reason: 'schedule-visibility-remove'
+    })
+    return true
+  }
+
+  /** 管理课程页恢复此前移除的教务课程。 */
+  const restoreOfficialCourse = async (course: any) => {
+    const record = course?.visibility_record || course
+    const name = String(record?.representative?.name || course?.name || '').trim() || t('schedule.editor.officialCourseFallback')
+    const confirmed = await askConfirm({
+      title: t('schedule.editor.restoreOfficialTitle'),
+      lines: [t('schedule.editor.restoreOfficialLine').replace('{name}', name)],
+      confirmText: t('schedule.editor.confirmRestoreOfficial'),
+      cancelText: t('schedule.confirm.cancel'),
+      danger: false
+    })
+    if (!confirmed) return false
+
+    const ok = data.restoreOfficialCourse(record)
+    if (!ok) {
+      data.manageCoursesError.value = t('schedule.editor.restoreOfficialFailed')
+      return false
+    }
+    data.manageCoursesError.value = ''
+    const sid = String(props.studentId || '').trim()
+    const sem = String(record?.representative?.semester || course?.semester || semester.semester.value || '').trim()
+    void tryWriteSnapshotFromCache(sid)
+    void reconcileLocalReminders({
+      studentId: sid,
+      semesterHint: sem,
+      reason: 'schedule-visibility-restore'
+    })
+    return true
+  }
+
   return {
     showAddCourse,
     courseDialogMode,
@@ -469,7 +542,9 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     submitAddCourse,
     deleteCustomCourseRecord,
     deleteCustomCourse,
-    deleteManagedCourse
+    deleteManagedCourse,
+    removeOfficialCourse,
+    restoreOfficialCourse
   }
 }
 

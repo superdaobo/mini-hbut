@@ -65,6 +65,14 @@ describe('cloud sync auto upload contract', () => {
     expectSourceContains(source, 'personal_events: includePersonalEvents === true', 'upload sections should advertise personal events')
   })
 
+  it('backs up schedule visibility and preserves local state for legacy cloud payloads', () => {
+    expectSourceContains(source, 'buildScheduleVisibilityCloudSnapshot', 'visibility snapshot should be uploaded')
+    expectSourceMatches(source, /schedule_visibility:\s*buildScheduleVisibilityCloudSnapshot\(sid\)|payload\.schedule_visibility\s*=\s*buildScheduleVisibilityCloudSnapshot\(sid\)/, 'payload should include schedule visibility')
+    expectSourceContains(source, "hasOwnProperty.call(data || {}, 'schedule_visibility')", 'missing visibility section must be detectable')
+    expectSourceContains(source, 'reason=missing-schedule-visibility-section', 'legacy payload should preserve local visibility')
+    expectSourceContains(source, 'replaceScheduleVisibilityFromCloud(sid, data.schedule_visibility)', 'explicit visibility section should replace local state')
+  })
+
   it('preserves local events for legacy payloads and replaces only explicit event sections', () => {
     expectSourceContains(source, "hasOwnProperty.call(data || {}, 'events')", 'missing events section must be detectable')
     expectSourceContains(source, 'reason=missing-events-section', 'legacy payload should preserve local events')

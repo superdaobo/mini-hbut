@@ -33,6 +33,7 @@ import {
   writeJSON
 } from './notify_center_util.js'
 import { t, tf } from './app_i18n'
+import { filterVisibleOfficialCourses } from './schedule_visibility'
 // #839：个人日程提醒并入本模块的唯一调度管线（见下方 reconcile 的 expected 构建）
 import { buildPersonalReminderPlan } from './personal_reminder_plan'
 import { listPersonalReminderEvents } from './personal_reminder_store'
@@ -657,6 +658,10 @@ export const reconcileLocalReminders = async (input: ReconcileInput): Promise<Re
       startDate = toSafeText(meta?.start_date || meta?.startDate)
       currentWeek = toPositiveInt(meta?.current_week, 0) || 1
     }
+
+    // Issue #867：先过滤用户已从 Mini-HBUT 隐藏的教务课程。
+    // 不修改原始缓存；提醒调度只消费“有效课表”。
+    courses = filterVisibleOfficialCourses(sid, semester, courses)
 
     // 自定义课程：与正常课表同一调度规则（本地 DB 读取，失败不阻塞）
     try {
