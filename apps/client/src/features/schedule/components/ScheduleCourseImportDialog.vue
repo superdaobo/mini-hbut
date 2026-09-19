@@ -385,6 +385,7 @@ watch(
                     :get-courses-for-day="previewGetCoursesForDay"
                     :get-course-style="previewCourseStyle"
                     :is-widget-highlighted="noHighlight"
+                    :enable-blank-create="false"
                     @open-detail="onPreviewOpenDetail"
                   />
                 </div>

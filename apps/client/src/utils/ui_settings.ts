@@ -23,6 +23,7 @@ const DENSITY_STYLES = ['comfortable', 'balanced', 'compact']
 const ICON_STYLES = ['duotone', 'line', 'mono']
 const DECOR_STYLES = ['mesh', 'grain', 'none']
 const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional', 'class']
+const SCHEDULE_VIEW_MODES = ['all', 'courses', 'events']
 const STARTUP_PAGES = ['home', 'schedule']
 
 type UiSettingsState = typeof SYSTEM_UI_SETTINGS
@@ -149,6 +150,9 @@ const normalizeSettings = (raw: unknown): UiSettingsState => {
   )
     ? merged.scheduleCourseCardStyle
     : base.scheduleCourseCardStyle
+  merged.scheduleViewMode = SCHEDULE_VIEW_MODES.includes(merged.scheduleViewMode)
+    ? merged.scheduleViewMode
+    : base.scheduleViewMode
   merged.startupPage = STARTUP_PAGES.includes(merged.startupPage)
     ? merged.startupPage
     : base.startupPage

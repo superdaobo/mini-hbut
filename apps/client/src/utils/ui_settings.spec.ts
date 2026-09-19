@@ -92,4 +92,12 @@ describe('applyUiSettings night mode isolation', () => {
       expect.stringContaining('15, 23, 42')
     )
   })
+
+  it('#856 scheduleViewMode 仅接受 all / courses / events，非法值回退 all', () => {
+    expect(normalizeSettings({ scheduleViewMode: 'all' }).scheduleViewMode).toBe('all')
+    expect(normalizeSettings({ scheduleViewMode: 'courses' }).scheduleViewMode).toBe('courses')
+    expect(normalizeSettings({ scheduleViewMode: 'events' }).scheduleViewMode).toBe('events')
+    expect(normalizeSettings({ scheduleViewMode: 'hidden' }).scheduleViewMode).toBe('all')
+    expect(normalizeSettings({}).scheduleViewMode).toBe('all')
+  })
 })

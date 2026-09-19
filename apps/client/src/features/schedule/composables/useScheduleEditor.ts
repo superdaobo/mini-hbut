@@ -85,14 +85,22 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     }
   )
 
-  const resetAddCourseForm = () => {
+  const resetAddCourseForm = (prefill: { weekday?: number; period?: number; djs?: number } = {}) => {
+    const weekdayRaw = Number(prefill.weekday)
+    const periodRaw = Number(prefill.period)
+    const weekday = Number.isInteger(weekdayRaw) && weekdayRaw >= 1 && weekdayRaw <= 7 ? weekdayRaw : 1
+    const period = Number.isInteger(periodRaw) && periodRaw >= 1 && periodRaw <= 11 ? periodRaw : 1
+    const maxSpan = Math.max(1, 12 - period)
+    const spanRaw = Number(prefill.djs)
+    const djs = Number.isInteger(spanRaw) && spanRaw >= 1 ? Math.min(spanRaw, maxSpan) : 1
+
     addCourseForm.value = {
       name: '',
       teacher: '',
       room: '',
-      weekday: 1,
-      period: 1,
-      djs: 1,
+      weekday,
+      period,
+      djs,
       weeks: semester.semesterWeekOptions.value.slice(),
       color: DEFAULT_COURSE_COLOR
     }
@@ -138,7 +146,7 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     })
   }
 
-  const openAddCourseDialog = () => {
+  const openAddCourseDialog = (prefill: { weekday?: number; period?: number; djs?: number } = {}) => {
     if (!hasValidLoginSession()) {
       void promptLoginRequired()
       return
@@ -153,7 +161,7 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     editingCourseSemester.value = sem
     returnToDetailAfterCourseSubmit.value = false
     returnToManageAfterCourseSubmit.value = false
-    resetAddCourseForm()
+    resetAddCourseForm(prefill)
     showAddCourse.value = true
   }
 

@@ -8,6 +8,7 @@
  */
 
 import { t } from '../../utils/app_i18n'
+import type { ScheduleViewMode } from '../../config/ui_settings'
 
 /**
  * 一周七天标签（含序号前缀，用于日期头展示）。
@@ -40,6 +41,13 @@ export const getCourseCardStyleOptions = (): { key: string; label: string }[] =>
   { key: 'modern', label: t('schedule.style.modern') },
   { key: 'traditional', label: t('schedule.style.traditional') },
   { key: 'class', label: t('schedule.style.class') }
+]
+
+/** 课表内容筛选：同时显示 / 仅课程 / 仅个人日程。 */
+export const getScheduleViewModeOptions = (): { key: ScheduleViewMode; label: string }[] => [
+  { key: 'all', label: t('schedule.viewMode.all') },
+  { key: 'courses', label: t('schedule.viewMode.courses') },
+  { key: 'events', label: t('schedule.viewMode.events') }
 ]
 
 /** 节次时间表（第 1-11 节起止时间） */

@@ -6,6 +6,7 @@ export type DensityStyle = 'comfortable' | 'balanced' | 'compact'
 export type IconStyle = 'duotone' | 'line' | 'mono'
 export type DecorStyle = 'mesh' | 'grain' | 'none'
 export type ScheduleCourseCardStyle = 'modern' | 'traditional' | 'class'
+export type ScheduleViewMode = 'all' | 'courses' | 'events'
 export type HomeWidgetKey = 'module_grid' | 'today_panel'
 export type HomeModuleKey =
   | 'grades'
@@ -236,6 +237,7 @@ export const SYSTEM_UI_SETTINGS = {
   danger: '#ef4444',
   success: '#10b981',
   scheduleCourseCardStyle: 'modern' as ScheduleCourseCardStyle,
+  scheduleViewMode: 'all' as ScheduleViewMode,
   startupPage: 'home' as 'home' | 'schedule',
   splashEnabled: true,
   workspaceLayout: buildDefaultWorkspaceLayout(),

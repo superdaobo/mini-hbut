@@ -9,8 +9,9 @@ import { readVueContractSource } from '../../utils/contract_source_test'
  * 1. 事件层绝对定位且不拦截课程卡点击（层 pointer-events: none + 卡片 auto）；
  * 2. 课程卡样式必须**合并** lane 结果（禁止改动 utils/layout.ts 的既有定位）；
  * 3. 重叠判定复用 timelineLayout（不自建第二套算法）；
- * 4. 空白点击创建必须保留 tap / swipe 位移守卫（页面根有周滑动手势）；
- * 5. #837 新增 props 必须带安全默认值（AI 导入预览等既有调用点零改动）。
+ * 4. 空白点击必须保留 tap / swipe 位移守卫，并走 #857 两段式选择；
+ * 5. #856 视图筛选必须在 lane 输入层发生，不能 CSS 假隐藏；
+ * 6. 新增 props 必须带安全默认值（AI 导入预览等既有调用点零改动）。
  */
 const source = readVueContractSource('src/features/schedule/components/ScheduleGrid.vue')
 const cardSource = readVueContractSource('src/features/schedule/components/ScheduleEventCard.vue')
@@ -51,13 +52,28 @@ describe('schedule grid event layer contract (#837)', () => {
     expect(source).not.toContain('function intervalsOverlap')
   })
 
-  it('空白点击创建保留 tap / swipe 位移守卫', () => {
+  it('空白点击保留 tap / swipe 位移守卫，并且两次点击同一选择才确认', () => {
     expect(source).toContain('TAP_MOVE_THRESHOLD_PX = 8')
     expect(source).toContain("closest?.('.course-card, .event-card")
+    expect(source).toContain('buildBlankTimeSelection(')
+    expect(source).toContain('isSameBlankTimeSelection(blankSelection.value, nextSelection)')
+    expect(source).toContain("emit('confirm-blank-selection', nextSelection)")
+    expect(source).toContain('class="blank-time-selection"')
+    expect(source).not.toContain("emit('create-event-at'")
   })
 
-  it('#837 新增 props 全部带安全默认值', () => {
+  it('#856 三态筛选在 lane 输入层生效，不保留隐藏内容的空 lane', () => {
+    expect(source).toContain("const showCourses = computed(() => props.viewMode !== 'events')")
+    expect(source).toContain("const showEvents = computed(() => props.viewMode !== 'courses')")
+    expect(source).toContain('const courses = visibleCoursesForDay(day)')
+    expect(source).toContain('const events = visibleEventsForDay(day)')
+    expect(source).toContain('v-for="course in visibleCoursesForDay(day)"')
+  })
+
+  it('#837/#856/#857 新增 props 全部带安全默认值', () => {
     expect(source).toContain('getEventsForDay: { type: Function, default: () => () => [] }')
     expect(source).toContain('enableBlankCreate: { type: Boolean, default: true }')
+    expect(source).toContain("viewMode: { type: String, default: 'all' }")
+    expect(source).toContain('selectionResetNonce: { type: Number, default: 0 }')
   })
 })
