@@ -1,0 +1,6 @@
+{
+  "installCommand": "echo skip",
+  "buildCommand": "echo skip",
+  "outputDirectory": ".",
+  "nodeVersion": "22.17.1"
+}
