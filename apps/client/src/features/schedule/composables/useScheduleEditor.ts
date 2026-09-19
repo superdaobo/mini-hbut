@@ -6,6 +6,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 import axios from 'axios'
 import { DEFAULT_COURSE_COLOR, normalizeOptionalCourseColor } from '../../../utils/course_color'
 import { t } from '../../../utils/app_i18n'
+import { tryWriteSnapshotFromCache } from '../../../utils/widget_bridge'
+import { reconcileLocalReminders } from '../../../utils/local_reminder_scheduler'
 import { formatWeeksText, normalizeWeeks } from '../utils/weeks'
 import { normalizeCustomCourse } from '../utils/course'
 import { LOGIN_SESSION_TOKEN_KEY, periodOptions, getWeekDayLabels } from '../constants'
@@ -463,6 +465,16 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     detail.detailActionError.value = ''
     detail.showDetail.value = false
     detail.selectedCourse.value = null
+
+    const sid = String(props.studentId || '').trim()
+    const sem = String(course?.semester || semester.semester.value || semester.semesterDraft.value || '').trim()
+    // Widget 与系统预调度提醒都可能绕过当前页面读缓存，因此可见性变化后主动重建。
+    void tryWriteSnapshotFromCache(sid)
+    void reconcileLocalReminders({
+      studentId: sid,
+      semesterHint: sem,
+      reason: 'schedule-visibility-remove'
+    })
     return true
   }
 
@@ -485,6 +497,14 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
       return false
     }
     data.manageCoursesError.value = ''
+    const sid = String(props.studentId || '').trim()
+    const sem = String(record?.representative?.semester || course?.semester || semester.semester.value || '').trim()
+    void tryWriteSnapshotFromCache(sid)
+    void reconcileLocalReminders({
+      studentId: sid,
+      semesterHint: sem,
+      reason: 'schedule-visibility-restore'
+    })
     return true
   }
 
