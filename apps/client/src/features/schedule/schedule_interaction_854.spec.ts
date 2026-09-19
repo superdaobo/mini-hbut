@@ -9,6 +9,7 @@ const editorSource = () => read('./composables/useScheduleEditor.ts')
 const drawerSource = () => read('./components/ScheduleDrawer.vue')
 const importDialogSource = () => read('./components/ScheduleCourseImportDialog.vue')
 const darkModeSource = () => read('../../styles/dark-mode.css')
+const zhMessagesSource = () => read('../../utils/i18n/messages/zh-CN.ts')
 
 describe('#854 schedule interaction integration contract', () => {
   it('#856 view mode 通过 UI settings 持久化，并接线到 Drawer / Grid', () => {
@@ -22,6 +23,12 @@ describe('#854 schedule interaction integration contract', () => {
     expect(view).toContain(':view-mode-options="viewModeOptions"')
     expect(view).toContain('@set-view-mode="setScheduleViewMode"')
     expect(view).toContain(':view-mode="scheduleViewMode"')
+  })
+
+  it('#861 简体中文视图选项使用正式文案“全部”', () => {
+    const zh = zhMessagesSource()
+    expect(zh).toContain("'schedule.viewMode.all': '全部'")
+    expect(zh).not.toContain("'schedule.viewMode.all': '都有'")
   })
 
   it('#856 dark mode 对 view switch 有高优先级规则', () => {

@@ -62,6 +62,14 @@ describe('schedule grid event layer contract (#837)', () => {
     expect(source).not.toContain("emit('create-event-at'")
   })
 
+  it('#860 空白待选框与事件层共用固定 11 节高度，避免 day-column 拉伸导致纵向漂移', () => {
+    expect(source).toContain('class="blank-selection-layer"')
+    const selectionLayer = cssBlock(source, '.blank-selection-layer')
+    expect(selectionLayer).toContain('height: calc(var(--slot-height) * 11)')
+    expect(selectionLayer).toContain('pointer-events: none')
+    expect(source).toMatch(/class="blank-selection-layer"[\s\S]*?class="blank-time-selection"/)
+  })
+
   it('#856 三态筛选在 lane 输入层生效，不保留隐藏内容的空 lane', () => {
     expect(source).toContain("const showCourses = computed(() => props.viewMode !== 'events')")
     expect(source).toContain("const showEvents = computed(() => props.viewMode !== 'courses')")

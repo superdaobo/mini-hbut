@@ -376,14 +376,16 @@ const openEventDetail = (raw) => {
               </div>
             </div>
 
-            <!-- #857：第一次空白点击仅展示临时双节虚线框；pointer-events:none 保证第二次点击仍由列处理。 -->
-            <div
-              v-if="blankSelectionStyle(day)"
-              class="blank-time-selection"
-              :style="blankSelectionStyle(day)"
-              aria-hidden="true"
-            >
-              <span class="blank-time-selection-label">{{ blankSelectionLabel(day) }}</span>
+            <!-- #857/#860：第一次空白点击仅展示临时双节虚线框。
+                 百分比 top/height 必须相对固定 11 节高度计算，不能直接相对可能被拉伸的 day-column。 -->
+            <div class="blank-selection-layer" aria-hidden="true">
+              <div
+                v-if="blankSelectionStyle(day)"
+                class="blank-time-selection"
+                :style="blankSelectionStyle(day)"
+              >
+                <span class="blank-time-selection-label">{{ blankSelectionLabel(day) }}</span>
+              </div>
             </div>
 
             <!-- #837 事件层：绝对定位 + 百分比坐标，与课程卡的 grid-row 定位互不干扰；
@@ -638,6 +640,16 @@ const openEventDetail = (raw) => {
   min-height: calc(var(--slot-height) * 11);
 }
 
+.blank-selection-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--slot-height) * 11);
+  pointer-events: none;
+  z-index: 4;
+}
+
 .blank-time-selection {
   position: absolute;
   left: 2px;
@@ -647,7 +659,6 @@ const openEventDetail = (raw) => {
   border-radius: 10px;
   background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, transparent 90%);
   pointer-events: none;
-  z-index: 4;
   display: flex;
   align-items: flex-start;
   justify-content: center;

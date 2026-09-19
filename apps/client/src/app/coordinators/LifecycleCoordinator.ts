@@ -13,7 +13,8 @@ import {
   IOS_HARD_RELOAD_MAX_PER_SESSION
 } from '../state/constants'
 import { runCampusNetworkAutoLogin } from '../../utils/campus_network_service'
-import { isCapacitorRuntime, isTauriRuntime } from '../../platform/native'
+import { getCurrentNativeWindow, isCapacitorRuntime, isTauriRuntime } from '../../platform/native'
+import { pushDebugLog } from '../../utils/debug_logger'
 import {
   isAndroidLike as detectAndroidLike,
   isDesktopLike as detectDesktopLike,
@@ -31,6 +32,9 @@ const VIEW_HEALTH_SELECTOR_MAP: Record<string, string> = Object.freeze({
   more: '.more-view',
   me: '.me-view'
 })
+
+/** 原生生命周期信号比 WKWebView 的 document.hidden 更可信，可用于修复长冻结后的 stale hidden。 */
+const NATIVE_RESUME_SOURCES = new Set(['tauri-window-focus', 'capacitor-appStateChange'])
 
 export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordinator => {
   const { state, stores } = runtime
@@ -106,19 +110,28 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     })
   }
 
-  const isCurrentViewDomHealthy = (view = state.currentView.value) => {
+  const isCurrentViewDomHealthy = (
+    view = state.currentView.value,
+    { strict = false }: { strict?: boolean } = {}
+  ) => {
     try {
       const root = state.appShellRef.value || document.querySelector('.app-shell')
       if (!root) return false
       const transitionRoot = root.querySelector('.view-transition-root')
       if (!transitionRoot) return false
 
-      // leave/enter 过渡中子树可能短暂为空，勿判死
+      // leave/enter 过渡中子树可能短暂为空，常规检查勿判死；
+      // 但长后台恢复的 strict 检查不能把冻结遗留的 transition class 永久当成“健康”。
       // 兼容三套过渡类：name 兜底（module-fade-*）、方向类（module-fade-fwd/back-*）、Vue 基础 v-*
-      const leaving = transitionRoot.querySelector(
+      const transitionActiveSelector =
         '.v-leave-active, .v-enter-active, .module-fade-leave-active, .module-fade-enter-active, .module-fade-fwd-leave-active, .module-fade-fwd-enter-active, .module-fade-back-leave-active, .module-fade-back-enter-active'
-      )
-      if (leaving) return true
+      // Vue Transition 的 active class 通常挂在 transitionRoot 自身；同时保留后代检查，
+      // 兼容未来容器层级变化，避免只 querySelector() 后代而漏掉根节点本身。
+      const leaving =
+        transitionRoot.matches?.(transitionActiveSelector) ||
+        transitionRoot.querySelector(transitionActiveSelector)
+      if (leaving) return !strict
+      if (strict && transitionRoot.classList.contains('home-scroll-restoring')) return false
 
       const expectedSelector = VIEW_HEALTH_SELECTOR_MAP[normalizeViewName(view)]
       if (expectedSelector) {
@@ -147,7 +160,7 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     if (!isIOSLike) return false
     if (state.mutable.iosHardReloadCount >= IOS_HARD_RELOAD_MAX_PER_SESSION) return false
     if (idleMs < IOS_RESUME_HARD_RELOAD_MS) return false
-    if (isCurrentViewDomHealthy(targetView)) return false
+    if (isCurrentViewDomHealthy(targetView, { strict: true })) return false
     const now = Date.now()
     if (now - state.mutable.iosReloadFallbackAt < IOS_RELOAD_MIN_INTERVAL_MS) return false
     state.mutable.iosReloadFallbackAt = now
@@ -190,12 +203,13 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
       // ignore
     }
     if (!verify) return
-    // 仅在恢复场景下做健康检查；二次确认后再考虑硬 reload（#451）
+    // 仅在恢复场景下做健康检查；长后台使用 strict 模式，防止冻结的 transition class 误报健康。
+    const strict = idleMs >= IOS_RESUME_SOFT_REMOUNT_MS
     setTimeout(() => {
-      if (isCurrentViewDomHealthy(targetView)) return
+      if (isCurrentViewDomHealthy(targetView, { strict })) return
       // 再等一帧布局，减少误判
       setTimeout(() => {
-        if (isCurrentViewDomHealthy(targetView)) return
+        if (isCurrentViewDomHealthy(targetView, { strict })) return
         if (!allowReload) return
         maybeHardReloadAfterResume(targetView, { idleMs })
       }, 400)
@@ -271,8 +285,22 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     }
   }
 
+  const markAppHidden = (source: string) => {
+    const hiddenAt = Date.now()
+    stores.lifecycle.markHidden(hiddenAt)
+    state.mutable.resumePendingSnapshot =
+      runtime.navigation.readWindowRouteSnapshot() ||
+      runtime.navigation.collectCurrentViewSnapshot()
+    pushDebugLog('LifecycleResume', 'app hidden', 'info', {
+      source,
+      hiddenAt,
+      view: state.currentView.value
+    })
+  }
+
   const handleAppResume = (source = 'visibilitychange') => {
-    if (!state.mutable.appBootstrapped || document.hidden) return
+    const nativeResumeSignal = NATIVE_RESUME_SOURCES.has(source)
+    if (!state.mutable.appBootstrapped || (document.hidden && !nativeResumeSignal)) return
     const now = Date.now()
     // 合并 visibility/pageshow/focus 连发，降低恢复路径重入
     if (now - state.mutable.lastResumeHandledAt < 320) return
@@ -284,10 +312,23 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     state.mutable.resumePendingSnapshot = null
     scheduleViewportUpdate()
     const targetView = normalizeViewName(snapshot?.view || snapshot?.module || state.currentView.value)
-    // #451：仅长后台 + DOM 明确不健康时 softRemount；硬 reload 另设更高 idle 门槛
-    const softRemount =
-      isIOSLike && idle >= IOS_RESUME_SOFT_REMOUNT_MS && !isCurrentViewDomHealthy(targetView)
+    // #864：iOS 长后台一律软重挂当前视图，不再依赖 DOM“看起来健康”。
+    // WKWebView 可能保留完整 DOM，却丢失可交互状态；仅做节点/尺寸检查无法识别这种半死状态。
+    const softRemount = isIOSLike && idle >= IOS_RESUME_SOFT_REMOUNT_MS
     const allowHardReload = isIOSLike && idle >= IOS_RESUME_HARD_RELOAD_MS
+    if (softRemount && state.homeScrollRestoring.value) {
+      // WebView 冻结时 900ms 兜底 timer 可能不再执行，遗留该状态会让整个视图 pointer-events:none。
+      state.homeScrollRestoring.value = false
+    }
+    pushDebugLog('LifecycleResume', 'resume decision', 'info', {
+      source,
+      idleMs: idle,
+      targetView,
+      documentHidden: document.hidden,
+      nativeResumeSignal,
+      softRemount,
+      allowHardReload
+    })
     if (isIOSLike && !softRemount) {
       nudgeWebViewPaint(targetView, { verify: false, allowReload: false, idleMs: idle })
     }
@@ -338,10 +379,7 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
 
   const handleVisibilityChange = () => {
     if (document.hidden) {
-      stores.lifecycle.markHidden(Date.now())
-      state.mutable.resumePendingSnapshot =
-        runtime.navigation.readWindowRouteSnapshot() ||
-        runtime.navigation.collectCurrentViewSnapshot()
+      markAppHidden('visibilitychange')
       return
     }
     handleAppResume('visibilitychange')
@@ -376,10 +414,7 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     void import('@capacitor/app').then((mod) => {
       mod.App.addListener('appStateChange', ({ isActive }) => {
         if (!isActive) {
-          stores.lifecycle.markHidden(Date.now())
-          state.mutable.resumePendingSnapshot =
-            runtime.navigation.readWindowRouteSnapshot() ||
-            runtime.navigation.collectCurrentViewSnapshot()
+          markAppHidden('capacitor-appStateChange')
           return
         }
         handleAppResume('capacitor-appStateChange')
@@ -387,6 +422,30 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
         state.mutable.capacitorAppStateListener = handle
       }).catch(() => {})
     }).catch(() => {})
+  }
+
+  /**
+   * #864：Tauri iOS 没有 Capacitor appStateChange，不能只依赖 WKWebView 的
+   * visibility/pageshow/focus。原生窗口 focus 作为额外权威信号，长冻结后即使
+   * document.hidden 尚未刷新，也允许进入恢复链。
+   */
+  const installTauriWindowFocusListener = () => {
+    if (!hasTauri || !isIOSLike || state.mutable.tauriWindowFocusUnlisten) return
+    void getCurrentNativeWindow()
+      .then(async (nativeWindow) => {
+        if (!nativeWindow || typeof nativeWindow.onFocusChanged !== 'function') return
+        const unlisten = await nativeWindow.onFocusChanged(({ payload: focused }) => {
+          if (!focused) {
+            markAppHidden('tauri-window-focus')
+            return
+          }
+          handleAppResume('tauri-window-focus')
+        })
+        state.mutable.tauriWindowFocusUnlisten = unlisten
+      })
+      .catch((error) => {
+        pushDebugLog('LifecycleResume', 'install tauri focus listener failed', 'warn', String(error || ''))
+      })
   }
 
   const dispose = () => {
@@ -405,6 +464,14 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     if (state.mutable.capacitorAppStateListener) {
       state.mutable.capacitorAppStateListener.remove().catch(() => {})
       state.mutable.capacitorAppStateListener = null
+    }
+    if (state.mutable.tauriWindowFocusUnlisten) {
+      try {
+        state.mutable.tauriWindowFocusUnlisten()
+      } catch {
+        // ignore native listener cleanup failures
+      }
+      state.mutable.tauriWindowFocusUnlisten = null
     }
     if (typeof state.mutable.removeHomeLayoutDiagnosticsErrorCapture === 'function') {
       state.mutable.removeHomeLayoutDiagnosticsErrorCapture()
@@ -426,6 +493,7 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     nudgeWebViewPaint,
     installResumeListeners: () => {
       removeResumeListeners = registerResumeListeners()
+      installTauriWindowFocusListener()
     },
     installCapacitorStateListener,
     dispose
