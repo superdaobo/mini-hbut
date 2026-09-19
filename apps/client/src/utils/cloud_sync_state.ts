@@ -66,6 +66,12 @@ export const commitCloudSyncResult = (
     if ('includeCustomCourses' in payload) {
       patch.lastUploadIncludeCustomCourses = payload.includeCustomCourses === true
     }
+    if ('includePersonalEvents' in payload) {
+      patch.lastUploadIncludePersonalEvents = payload.includePersonalEvents === true
+    }
+    if ('personalEventCount' in payload) {
+      patch.lastUploadPersonalEventCount = Math.max(0, Number(payload.personalEventCount) || 0)
+    }
   } else if (result.action === 'download') {
     patch.lastDownloadAt = now
     patch.lastDownloadOk = result.success
@@ -73,6 +79,9 @@ export const commitCloudSyncResult = (
     patch.lastDownloadError = result.success ? '' : result.error
     if ('applyCustomCourses' in payload) {
       patch.lastDownloadApplyCustomCourses = payload.applyCustomCourses === true
+    }
+    if ('applyPersonalEvents' in payload) {
+      patch.lastDownloadApplyPersonalEvents = payload.applyPersonalEvents === true
     }
   }
   patch.lastAction = result.action

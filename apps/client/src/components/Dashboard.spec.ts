@@ -39,3 +39,28 @@ describe('Dashboard quick entry defaults', () => {
     expect(vue).toContain('v-for="(meta, id) in editableQuickEntryMeta"')
   })
 })
+
+describe('Dashboard 今日安排个人日程契约 (#850)', () => {
+  it('按今天的绝对日期读取个人日程并与课程合并排序', () => {
+    const vue = source()
+
+    expect(vue).toContain('/v2/schedule/event/list-range')
+    expect(vue).toContain('start_date: date')
+    expect(vue).toContain('end_date: date')
+    expect(vue).toContain('buildTodayPersonalEvents')
+    expect(vue).toContain('mergeTodayTimelineItems')
+    expect(vue).toContain("kind: 'event'")
+    expect(vue).toContain('a.startMinutes - b.startMinutes')
+  })
+
+  it('日程接口失败独立降级，且 CRUD/云恢复信号会刷新当前账号的今日安排', () => {
+    const vue = source()
+
+    expect(vue).toContain('fetchPersonalEventsForToday')
+    expect(vue).toContain('catch (_error) {')
+    expect(vue).toContain('return []')
+    expect(vue).toContain('SCHEDULE_EVENT_CHANGED_EVENT')
+    expect(vue).toContain("String(detail?.studentId || '').trim() !== String(props.studentId || '').trim()")
+    expect(vue).toContain('void fetchTodayCourses()')
+  })
+})

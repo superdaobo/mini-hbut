@@ -85,6 +85,8 @@ update_custom_schedule_course
 export_schedule_calendar
 add_schedule_event
 list_schedule_events_range
+list_schedule_events_all
+replace_schedule_events
 update_schedule_event
 delete_schedule_event
 fetch_exams

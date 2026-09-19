@@ -27,7 +27,7 @@ export const DEFAULT_COOLDOWN_SEC = 180
 export const DEFAULT_UPLOAD_COOLDOWN_SEC = 120
 export const DEFAULT_DOWNLOAD_COOLDOWN_SEC = 10
 export const DEFAULT_SECRET_REF = 'kv1-main'
-export const SYNC_SCHEMA_VERSION = 4
+export const SYNC_SCHEMA_VERSION = 5
 const STUDENT_ID_RE = /^\d{10}$/
 export const CHALLENGE_SKEW_MS = 3000
 export const CHALLENGE_FALLBACK_TTL_MS = 60 * 1000
@@ -331,6 +331,61 @@ export const fetchAllCustomCourses = async (studentId: unknown): Promise<Record<
     }
   }
   return output
+}
+
+/** 云同步中的个人日程快照白名单。student_id 不进入单条记录，由请求外层做账号作用域。 */
+export const normalizeCloudPersonalEvent = (value: unknown): Record<string, unknown> | null => {
+  const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const id = toSafeText(raw.id || raw.event_id)
+  const title = toSafeText(raw.title)
+  const date = toSafeText(raw.date)
+  const startTime = toSafeText(raw.start_time || raw.startTime)
+  const endTime = toSafeText(raw.end_time || raw.endTime)
+  if (!id || !title || !date || !startTime || !endTime) return null
+
+  const reminderRaw = raw.reminder_minutes ?? raw.reminderMinutes
+  const reminder = reminderRaw == null || reminderRaw === ''
+    ? null
+    : Number(reminderRaw)
+  if (reminder !== null && (!Number.isFinite(reminder) || reminder < 0)) return null
+
+  return {
+    id,
+    title,
+    date,
+    start_time: startTime,
+    end_time: endTime,
+    location: toSafeText(raw.location),
+    note: toSafeText(raw.note),
+    color: toSafeText(raw.color),
+    reminder_minutes: reminder,
+    created_at: toSafeText(raw.created_at || raw.createdAt),
+    updated_at: toSafeText(raw.updated_at || raw.updatedAt)
+  }
+}
+
+/**
+ * 读取当前账号全部个人日程。
+ *
+ * 这里故意不把读取失败降级为 []：同步层必须区分“真实空列表”和“本地读取失败”，
+ * 否则一次临时 bridge 故障可能把云端已有日程覆盖成空。
+ */
+export const fetchAllPersonalEvents = async (studentId: unknown): Promise<Record<string, unknown>[]> => {
+  const sid = toSafeText(studentId)
+  if (!sid) return []
+  const res = await axios.post(`${API_BASE}/v2/schedule/event/list-all`, {
+    student_id: sid
+  })
+  const data = res?.data && typeof res.data === 'object'
+    ? (res.data as Record<string, unknown>)
+    : {}
+  if (!data.success) {
+    throw new Error(toSafeText(data.error) || '读取个人日程失败')
+  }
+  const list = Array.isArray(data.data) ? data.data : []
+  return list
+    .map(normalizeCloudPersonalEvent)
+    .filter((item): item is Record<string, unknown> => item !== null)
 }
 
 export const extractDataArray = (value: unknown): unknown[] => {

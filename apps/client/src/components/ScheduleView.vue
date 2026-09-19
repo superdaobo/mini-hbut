@@ -119,7 +119,14 @@ const eventDetail = useScheduleEventDetail({
 const io = useScheduleIO({ props, data, semester: semesterApi, editor, confirmDialog })
 // #815：AI 课表导入（Parser / Merge / Conflict / Colors / Commit 编排）
 const importApi = useScheduleImport({ props, data, semester: semesterApi, editor })
-const sync = useScheduleSync({ props, data, semester: semesterApi, editor, confirmDialog })
+const sync = useScheduleSync({
+  props,
+  data,
+  semester: semesterApi,
+  editor,
+  confirmDialog,
+  onPersonalEventsChanged: () => eventData.refreshWeekEvents()
+})
 // #750：开学日期驱动学期切换（时间应选学期判定/自动切换/横幅/回前台重探）
 const termStart = useScheduleTermStart({ props, data, semester: semesterApi })
 

@@ -24,7 +24,8 @@ use crate::utils::ics::{
 };
 use crate::{
     db, AddCustomScheduleCourseRequest, AddScheduleEventRequest, DeleteCustomScheduleCourseRequest,
-    UpdateCustomScheduleCourseRequest, UpdateScheduleEventRequest, DB_FILENAME,
+    ReplaceScheduleEventsRequest, UpdateCustomScheduleCourseRequest, UpdateScheduleEventRequest,
+    DB_FILENAME,
 };
 
 // ────────────────────────────────────────────────────────────
@@ -47,6 +48,11 @@ struct ScheduleEventListRangeRequest {
     student_id: String,
     start_date: String,
     end_date: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScheduleEventListAllRequest {
+    student_id: String,
 }
 
 /// 个人日程删除请求（#835）。
@@ -1166,7 +1172,7 @@ async fn download_export(Path(filename): Path<String>) -> impl IntoResponse {
 
 // ────────────────────────────────────────────────────────────
 // 个人日程（personal_events，#835）：独立于 custom_schedule_courses，
-// 不复用课程列、不参与课表云同步；update/delete 一律按 student_id + event_id 定位。
+// 不复用课程列；云同步使用独立 events 快照，update/delete 一律按 student_id + event_id 定位。
 // 校验统一走 db::validate_schedule_event_input，失败返回 400 而不是 500。
 // 日志不打印 title / note 内容。
 
@@ -1256,6 +1262,110 @@ async fn schedule_event_list_range(
     Ok(ok(serde_json::json!({
         "success": true,
         "data": data
+    })))
+}
+
+/// 个人日程全量查询（仅当前 student_id），供账号级云同步快照使用。
+async fn schedule_event_list_all(
+    Json(req): Json<ScheduleEventListAllRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let sid = req.student_id.trim();
+    if sid.is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
+    }
+    let list = db::list_schedule_events_all(DB_FILENAME, sid).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "数据库错误",
+            e.to_string(),
+        )
+    })?;
+    let data = list
+        .iter()
+        .map(db::schedule_event_payload)
+        .collect::<Vec<serde_json::Value>>();
+    Ok(ok(serde_json::json!({
+        "success": true,
+        "data": data
+    })))
+}
+
+/// 个人日程云快照原子替换。
+async fn schedule_event_replace_all(
+    Json(req): Json<ReplaceScheduleEventsRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let sid = req.student_id.trim().to_string();
+    if sid.is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
+    }
+
+    let now = chrono::Local::now().to_rfc3339();
+    let mut records = Vec::with_capacity(req.events.len());
+    for item in req.events {
+        let event_id = item.id.trim().to_string();
+        if event_id.is_empty() {
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                "参数错误",
+                "日程 id 不能为空".to_string(),
+            ));
+        }
+        let validated = db::validate_schedule_event_input(
+            sid.as_str(),
+            item.title.as_str(),
+            item.date.as_str(),
+            item.start_time.as_str(),
+            item.end_time.as_str(),
+            item.reminder_minutes,
+        )
+        .map_err(|message| err(StatusCode::BAD_REQUEST, "参数错误", message))?;
+        let created_at = item.created_at.unwrap_or_default().trim().to_string();
+        let updated_at = item.updated_at.unwrap_or_default().trim().to_string();
+        records.push(db::ScheduleEventRecord {
+            id: event_id,
+            student_id: validated.student_id,
+            title: validated.title,
+            date: validated.date,
+            start_time: validated.start_time,
+            end_time: validated.end_time,
+            location: item.location.unwrap_or_default().trim().to_string(),
+            note: item.note.unwrap_or_default().trim().to_string(),
+            color: item.color.unwrap_or_default().trim().to_string(),
+            reminder_minutes: item.reminder_minutes,
+            created_at: if created_at.is_empty() {
+                now.clone()
+            } else {
+                created_at
+            },
+            updated_at: if updated_at.is_empty() {
+                now.clone()
+            } else {
+                updated_at
+            },
+        });
+    }
+
+    db::replace_schedule_events_for_student(DB_FILENAME, sid.as_str(), records.as_slice())
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?;
+    Ok(ok(serde_json::json!({
+        "success": true,
+        "replaced": records.len()
     })))
 }
 
@@ -1406,6 +1516,11 @@ pub(crate) fn router() -> Router<HttpState> {
         .route(
             "/schedule/event/list-range",
             post(schedule_event_list_range),
+        )
+        .route("/schedule/event/list-all", post(schedule_event_list_all))
+        .route(
+            "/schedule/event/replace-all",
+            post(schedule_event_replace_all),
         )
         .route("/schedule/event/update", post(schedule_event_update))
         .route("/schedule/event/delete", post(schedule_event_delete))

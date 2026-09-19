@@ -5,7 +5,12 @@
  * 云端应用在 ./cloud_sync_apply.ts，存储/工具在 ./cloud_sync_storage.ts，
  * 学业快照在 ./cloud_sync_snapshot.ts。
  */
-import { applyAcademicFromCloud, applySettingsFromCloud, replaceCustomCourses } from './cloud_sync_apply.js'
+import {
+  applyAcademicFromCloud,
+  applySettingsFromCloud,
+  replaceCustomCourses,
+  replacePersonalEvents
+} from './cloud_sync_apply.js'
 import type { AcademicApplyResult } from './cloud_sync_apply.js'
 import { getCloudSyncRuntimeConfig } from './cloud_sync_config.js'
 import { mergeCustomCourseSemesters } from './cloud_sync_snapshot.js'
@@ -33,6 +38,10 @@ import {
 import { asRecord, requestCloudSync } from './cloud_sync_transport.js'
 import { pushDebugLog } from './debug_logger'
 import { NOTIFY_SNAPSHOT_EVENT } from './notify_center'
+import {
+  SCHEDULE_EVENT_CHANGED_EVENT,
+  type ScheduleEventChangedDetail
+} from './schedule_event_signal'
 
 export interface CloudSyncUploadInput {
   studentId?: string | null
@@ -40,6 +49,7 @@ export interface CloudSyncUploadInput {
   force?: boolean
   latestGrades?: unknown[]
   includeCustomCourses?: boolean
+  includePersonalEvents?: boolean
   includeAcademic?: boolean
   includeSettings?: boolean
   skipCooldownRecord?: boolean
@@ -51,6 +61,7 @@ export interface CloudSyncDownloadInput {
   force?: boolean
   applySettings?: boolean
   applyCustomCourses?: boolean
+  applyPersonalEvents?: boolean
   applyAcademic?: boolean
   skipCooldownRecord?: boolean
 }
@@ -78,6 +89,7 @@ export const runCloudSyncUpload = async (
     force = false,
     latestGrades = [],
     includeCustomCourses = true,
+    includePersonalEvents = true,
     includeAcademic = true,
     includeSettings = true,
     skipCooldownRecord = false
@@ -119,12 +131,13 @@ export const runCloudSyncUpload = async (
   try {
     pushDebugLog(
       'CloudSync',
-      `上传内容 settings=${includeSettings ? 1 : 0} academic=${includeAcademic ? 1 : 0} custom=${includeCustomCourses ? 1 : 0}`,
+      `上传内容 settings=${includeSettings ? 1 : 0} academic=${includeAcademic ? 1 : 0} custom=${includeCustomCourses ? 1 : 0} events=${includePersonalEvents ? 1 : 0}`,
       'debug'
     )
     const payloadResult = await buildSyncPayload(sid, {
       latestGrades,
       includeCustomCourses,
+      includePersonalEvents,
       includeAcademic,
       includeSettings
     })
@@ -147,7 +160,8 @@ export const runCloudSyncUpload = async (
       sections: {
         settings: includeSettings === true,
         academic: includeAcademic === true,
-        custom_courses: includeCustomCourses === true
+        custom_courses: includeCustomCourses === true,
+        personal_events: includePersonalEvents === true
       },
       custom_courses_mode: customCoursesMode
     }
@@ -170,6 +184,8 @@ export const runCloudSyncUpload = async (
       ...output,
       reason: safeReason,
       includeCustomCourses,
+      includePersonalEvents,
+      personalEventCount: payloadResult.personalEventCount,
       customCoursesMode
     })
     return output
@@ -179,7 +195,8 @@ export const runCloudSyncUpload = async (
       success: false,
       reason: safeReason,
       error: errorText,
-      includeCustomCourses
+      includeCustomCourses,
+      includePersonalEvents
     })
     pushDebugLog('CloudSync', `上传失败 student=${sid}`, 'warn', error)
     throw error
@@ -195,6 +212,7 @@ export const runCloudSyncDownload = async (
     force = false,
     applySettings = true,
     applyCustomCourses = true,
+    applyPersonalEvents = true,
     applyAcademic = true,
     skipCooldownRecord = false
   } = input || {}
@@ -205,7 +223,8 @@ export const runCloudSyncDownload = async (
     commitCloudSyncResult(studentId, 'download', {
       ...output,
       reason: safeReason,
-      applyCustomCourses
+      applyCustomCourses,
+      applyPersonalEvents
     })
     return output
   }
@@ -214,7 +233,8 @@ export const runCloudSyncDownload = async (
     commitCloudSyncResult(sid, 'download', {
       ...output,
       reason: safeReason,
-      applyCustomCourses
+      applyCustomCourses,
+      applyPersonalEvents
     })
     return output
   }
@@ -224,7 +244,8 @@ export const runCloudSyncDownload = async (
     commitCloudSyncResult(sid, 'download', {
       ...output,
       reason: safeReason,
-      applyCustomCourses
+      applyCustomCourses,
+      applyPersonalEvents
     })
     return output
   }
@@ -241,7 +262,8 @@ export const runCloudSyncDownload = async (
       commitCloudSyncResult(sid, 'download', {
         ...output,
         reason: safeReason,
-        applyCustomCourses
+        applyCustomCourses,
+        applyPersonalEvents
       })
       return output
     }
@@ -278,13 +300,15 @@ export const runCloudSyncDownload = async (
       commitCloudSyncResult(sid, 'download', {
         ...output,
         reason: safeReason,
-        applyCustomCourses
+        applyCustomCourses,
+        applyPersonalEvents
       })
       return output
     }
 
     let settingResult = { app: false, ui: false, font: false }
     let customResult = { deleted: 0, added: 0, semesters: 0 }
+    let personalEventResult = { replaced: 0, applied: false }
     let academicResult: AcademicApplyResult = {
       gradesCached: false,
       rankingCached: false,
@@ -311,6 +335,19 @@ export const runCloudSyncDownload = async (
         }
       }
     }
+    if (applyPersonalEvents) {
+      const hasEventsSection = Object.prototype.hasOwnProperty.call(data || {}, 'events')
+      if (!hasEventsSection) {
+        // schema v4 及更早 payload 没有 events：字段缺失 = 未同步该领域，必须保留本地。
+        pushDebugLog('CloudSync', `下载跳过个人日程应用 student=${sid} reason=missing-events-section`, 'info')
+      } else if (!Array.isArray(data?.events)) {
+        // section 存在但损坏时宁可失败，也不能误解释为空数组后清空本地。
+        throw new Error('云端个人日程数据格式无效')
+      } else {
+        const restored = await replacePersonalEvents(sid, data.events)
+        personalEventResult = { ...restored, applied: true }
+      }
+    }
     if (applyAcademic) {
       academicResult = applyAcademicFromCloud(sid, data?.academic)
     }
@@ -325,7 +362,7 @@ export const runCloudSyncDownload = async (
     }
     pushDebugLog(
       'CloudSync',
-      `下载成功 student=${sid} add=${customResult.added} del=${customResult.deleted} schedule=${academicResult.scheduleCacheWrites}`,
+      `下载成功 student=${sid} add=${customResult.added} del=${customResult.deleted} events=${personalEventResult.replaced} schedule=${academicResult.scheduleCacheWrites}`,
       'info'
     )
     const output: CloudSyncResult = {
@@ -333,12 +370,14 @@ export const runCloudSyncDownload = async (
       response,
       settingsApplied: settingResult,
       customCoursesApplied: customResult,
+      personalEventsApplied: personalEventResult,
       academicApplied: academicResult
     }
     commitCloudSyncResult(sid, 'download', {
       ...output,
       reason: safeReason,
-      applyCustomCourses
+      applyCustomCourses,
+      applyPersonalEvents
     })
     return output
   } catch (error) {
@@ -347,7 +386,8 @@ export const runCloudSyncDownload = async (
       success: false,
       reason: safeReason,
       error: errorText,
-      applyCustomCourses
+      applyCustomCourses,
+      applyPersonalEvents
     })
     pushDebugLog('CloudSync', `下载失败 student=${sid}`, 'warn', error)
     throw error
@@ -415,6 +455,7 @@ export const runAutoCloudSyncAfterLogin = async (
           force: true,
           applySettings: true,
           applyCustomCourses: false,
+          applyPersonalEvents: true,
           applyAcademic: true,
           skipCooldownRecord: true
         })
@@ -441,6 +482,7 @@ export const runAutoCloudSyncAfterLogin = async (
         force: true,
         latestGrades: syncedGrades,
         includeCustomCourses: false,
+        includePersonalEvents: true,
         includeAcademic: true,
         includeSettings: true,
         skipCooldownRecord: true
@@ -501,6 +543,29 @@ const installNotifyAutoUploadListener = (): void => {
 }
 
 installNotifyAutoUploadListener()
+
+let scheduleEventAutoUploadListenerInstalled = false
+
+const installScheduleEventAutoUploadListener = (): void => {
+  if (scheduleEventAutoUploadListenerInstalled || typeof window === 'undefined') return
+  window.addEventListener(SCHEDULE_EVENT_CHANGED_EVENT, (event) => {
+    const detail = (event as CustomEvent<ScheduleEventChangedDetail>)?.detail
+    // 云下载 replace-all 会广播给 Dashboard/Reminder 刷新，但不能立刻反向触发上传。
+    if (detail?.reason === 'cloud-restore') return
+    const sid = toSafeText(detail?.studentId)
+    if (!sid || !isValidStudentId(sid)) return
+    runAutoCloudSyncAfterLogin({
+      studentId: sid,
+      reason: 'auto-signature-change',
+      skipDownload: true
+    }).catch((error) => {
+      pushDebugLog('CloudSync', `个人日程变更触发自动上传失败 student=${sid}`, 'warn', error)
+    })
+  })
+  scheduleEventAutoUploadListenerInstalled = true
+}
+
+installScheduleEventAutoUploadListener()
 
 // 供测试与辅助模块复用
 export {

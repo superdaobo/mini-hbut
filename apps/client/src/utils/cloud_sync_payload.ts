@@ -17,6 +17,7 @@ import {
   buildSettingsSnapshot,
   ensureDeviceId,
   fetchAllCustomCourses,
+  fetchAllPersonalEvents,
   fetchSemestersForSync,
   hashText,
   pruneValue,
@@ -32,13 +33,15 @@ export const buildAutoUploadSignature = async (
 ): Promise<{ version: string; signature: string; payload: Record<string, unknown> }> => {
   const sid = toSafeText(studentId)
   const clientSnapshot = await buildClientSnapshot()
+  const personalEvents = await fetchAllPersonalEvents(sid)
   const signaturePayload = {
     schema: SYNC_SCHEMA_VERSION,
     sid,
     client: clientSnapshot,
     settings: buildSettingsSnapshot(),
     notify: buildNotifySnapshot(sid),
-    academic: buildAcademicSnapshot(sid, latestGrades)
+    academic: buildAcademicSnapshot(sid, latestGrades),
+    events: personalEvents
   }
   const stable = stableStringify(signaturePayload)
   return {
@@ -74,12 +77,18 @@ export const buildSyncPayload = async (
   options: {
     latestGrades?: unknown
     includeCustomCourses?: boolean
+    includePersonalEvents?: boolean
     includeAcademic?: boolean
     includeSettings?: boolean
   } = {}
-): Promise<{ payload: Record<string, unknown>; hasCustomCourseData: boolean }> => {
+): Promise<{
+  payload: Record<string, unknown>
+  hasCustomCourseData: boolean
+  personalEventCount: number
+}> => {
   const sid = toSafeText(studentId)
   const includeCustomCourses = options?.includeCustomCourses !== false
+  const includePersonalEvents = options?.includePersonalEvents !== false
   const includeAcademic = options?.includeAcademic !== false
   const includeSettings = options?.includeSettings !== false
   const clientSnapshot = await buildClientSnapshot()
@@ -88,6 +97,7 @@ export const buildSyncPayload = async (
   const bySemester = includeCustomCourses ? await fetchAllCustomCourses(sid) : {}
   const hasCustomCourseData = includeCustomCourses && hasNonEmptyCourseMap(bySemester)
   const courses = hasCustomCourseData ? (pruneValue({ by_semester: bySemester }) || undefined) : undefined
+  const personalEvents = includePersonalEvents ? await fetchAllPersonalEvents(sid) : []
   const academic = includeAcademic ? (pruneValue(buildAcademicSnapshot(sid, options?.latestGrades)) || {}) : undefined
   const deviceId = ensureDeviceId()
   const payload: Record<string, unknown> = {
@@ -98,12 +108,16 @@ export const buildSyncPayload = async (
   }
   if (includeSettings) payload.settings = settingsSnapshot
   if (courses) payload.courses = courses
+  // events 必须保留显式 []：空数组代表“用户当前确实没有日程”，与旧云数据缺失 section
+  // 的“未知/保持本地”语义不同，不能经过 pruneValue 被删掉。
+  if (includePersonalEvents) payload.events = personalEvents
   payload.client = clientSnapshot
   payload.notify = notifySnapshot
   if (includeAcademic) payload.academic = academic || {}
   return {
     payload,
-    hasCustomCourseData
+    hasCustomCourseData,
+    personalEventCount: personalEvents.length
   }
 }
 

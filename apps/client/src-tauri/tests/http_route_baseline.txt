@@ -124,7 +124,9 @@ POST /schedule/custom/list_all
 POST /schedule/custom/update
 POST /schedule/event/add
 POST /schedule/event/delete
+POST /schedule/event/list-all
 POST /schedule/event/list-range
+POST /schedule/event/replace-all
 POST /schedule/event/update
 POST /sync_grades
 POST /sync_schedule
