@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildBlankTimeSelection,
+  courseBlockToGridRect,
   isSameBlankTimeSelection,
   resolveClickedPeriod,
   resolveCourseBlock
@@ -72,6 +73,17 @@ describe('#857 blank time selection', () => {
     )
   })
 
+  it('待选框按完整课节行绘制，5–6 节正好占两行', () => {
+    expect(courseBlockToGridRect(5, 6, 11)).toEqual({
+      top: (4 / 11) * 100,
+      height: (2 / 11) * 100
+    })
+    expect(courseBlockToGridRect(11, 11, 11)).toEqual({
+      top: (10 / 11) * 100,
+      height: (1 / 11) * 100
+    })
+  })
+
   it('同一天同一双节块视为二次确认；换位置则不是', () => {
     const first = buildBlankTimeSelection(minute('10:20'), 2, '2026-09-22')
     const sameBlock = buildBlankTimeSelection(minute('11:20'), 2, '2026-09-22')
@@ -83,6 +95,7 @@ describe('#857 blank time selection', () => {
   it('非法输入安全返回 null', () => {
     expect(resolveClickedPeriod(Number.NaN)).toBeNull()
     expect(resolveCourseBlock(0)).toBeNull()
+    expect(courseBlockToGridRect(6, 5, 11)).toBeNull()
     expect(buildBlankTimeSelection(minute('10:20'), 8, '2026-09-22')).toBeNull()
   })
 })
