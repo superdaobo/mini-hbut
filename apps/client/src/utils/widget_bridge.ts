@@ -19,6 +19,7 @@ import {
 import { pushDebugLog } from './debug_logger'
 import { getCacheKey } from './api.js'
 import { isTauriRuntime, invokeNative } from '@/platform/native'
+import { buildEffectiveSchedule } from './schedule_visibility'
 
 // ─── 内联的缓存读取逻辑（避免循环依赖 schedule_prefetch ↔ widget_bridge） ───
 
@@ -188,8 +189,10 @@ export async function afterScheduleRefresh(
 
     // 合并自定义课程
     const lockedSemester = readScheduleLockInline(sid)
-    const customCourses = readCustomCoursesInline(sid, lockedSemester)
-    const allCourses = [...remoteCourses, ...customCourses]
+    const payloadSemester = toSafeText((payload as { meta?: Record<string, unknown> })?.meta?.semester)
+    const effectiveSemester = lockedSemester || payloadSemester
+    const customCourses = readCustomCoursesInline(sid, effectiveSemester)
+    const allCourses = buildEffectiveSchedule(sid, effectiveSemester, remoteCourses, customCourses)
 
     const snapshot = buildTodayCourseSnapshot({
       cache: allCourses,
@@ -227,7 +230,7 @@ export async function tryWriteSnapshotFromCache(sid: string): Promise<void> {
 
     // 合并自定义课程
     const customCourses = readCustomCoursesInline(sid, lockedSemester)
-    const allCourses = [...remoteCourses, ...customCourses]
+    const allCourses = buildEffectiveSchedule(sid, lockedSemester, remoteCourses, customCourses)
 
     // #759：跨天定时器/回前台触发时重算当前真实周次（优先开学锚点推算），
     // 不再直接信任前一天缓存写入的 current_week；date/weekday 由
