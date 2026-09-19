@@ -139,6 +139,7 @@ export const useScheduleSync = (options: ScheduleSyncOptions) => {
         reason: 'schedule-manual-upload',
         force: false,
         includeCustomCourses: true,
+        includePersonalEvents: true,
         includeAcademic: false,
         includeSettings: false
       })
@@ -184,6 +185,7 @@ export const useScheduleSync = (options: ScheduleSyncOptions) => {
         force: false,
         applySettings: false,
         applyCustomCourses: true,
+        applyPersonalEvents: true,
         applyAcademic: false
       })
       if (!result?.success) {
