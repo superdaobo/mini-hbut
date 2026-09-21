@@ -31,7 +31,7 @@ object WidgetRenderer {
         val themeColor = parseColor(store.readThemeColor())
         // #758：应用强制 light/dark 时覆盖背景与中性文字色；system 模式零干预
         val themeMode = WidgetThemeMode.resolve(context)
-        val snapshot = parseSnapshot(snapshotJson)
+        val snapshot = WidgetScheduleResolver.resolveToday(snapshotJson)
         val date = snapshot?.optString("date", "") ?: ""
         val weekIndex = snapshot?.optInt("week_index", 0) ?: 0
         val studentId = snapshot?.optString("student_id", "") ?: ""
@@ -42,7 +42,11 @@ object WidgetRenderer {
         // 兜底策略：标题日期显示今天 + 溢出位显示「数据更新于 X月X日」陈旧标记，
         // 深链同样携带今天，避免点击后前端高亮到昨天。快照内容仍由前端主修路径重写。
         val snapshotDate = try { java.time.LocalDate.parse(date) } catch (_: Exception) { null }
-        val today = java.time.LocalDate.now()
+        val today = try {
+            java.time.LocalDate.parse(WidgetScheduleResolver.todayDateString())
+        } catch (_: Exception) {
+            java.time.LocalDate.now()
+        }
         val outdated = snapshotDate != null && snapshotDate.isBefore(today)
         val stale = (snapshot != null && WidgetLayoutHelper.isStale(snapshot)) || outdated
 
@@ -88,7 +92,7 @@ object WidgetRenderer {
         val deepLinkDate = when {
             outdated -> today.toString()
             date.isNotEmpty() -> date
-            else -> java.time.LocalDate.now().toString()
+            else -> WidgetScheduleResolver.todayDateString()
         }
         val rootPendingIntent = WidgetDeepLink.pendingIntent(
             context,
@@ -194,15 +198,6 @@ object WidgetRenderer {
                 views.setTextViewText(emptyId, emptyMessage.ifEmpty { "今日无课" })
                 views.setViewVisibility(emptyId, View.VISIBLE)
             }
-        }
-    }
-
-    private fun parseSnapshot(json: String?): JSONObject? {
-        if (json.isNullOrBlank()) return null
-        return try {
-            JSONObject(json)
-        } catch (_: Exception) {
-            null
         }
     }
 

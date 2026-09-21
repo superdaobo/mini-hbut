@@ -191,11 +191,35 @@ def patch_manifest():
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="com.hbut.mini.widget.ACTION_REFRESH" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/appwidget_today_courses" />
         </receiver>''')
+
+    # #881：旧的 Tauri 生成工程可能已经有 TodayCoursesProvider，但缺少跨天相关 action。
+    # 以自定义刷新 action 为稳定锚点做幂等补丁，确保升级后无需重新 init Android 工程。
+    today_refresh_action = '                <action android:name="com.hbut.mini.widget.ACTION_REFRESH" />'
+    if today_refresh_action in text:
+        extra_today_actions = [
+            "android.intent.action.DATE_CHANGED",
+            "android.intent.action.TIME_SET",
+            "android.intent.action.TIMEZONE_CHANGED",
+        ]
+        missing_actions = [
+            action for action in extra_today_actions
+            if f'android:name="{action}"' not in text
+        ]
+        if missing_actions:
+            injected = today_refresh_action + "".join(
+                f'\n                <action android:name="{action}" />'
+                for action in missing_actions
+            )
+            text = text.replace(today_refresh_action, injected, 1)
+            print("  [PATCH] TodayCoursesProvider date/time refresh actions")
 
     if "ElectricityWidgetProvider" not in text:
         application_entries.append('''

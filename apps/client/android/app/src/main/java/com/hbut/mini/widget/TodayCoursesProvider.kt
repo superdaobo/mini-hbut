@@ -14,7 +14,7 @@ import android.content.Intent
  * - onUpdate：系统周期刷新或首次添加时调用
  * - onEnabled：第一个小组件实例被添加时注册 WorkManager 周期任务
  * - onDisabled：最后一个小组件实例被移除时取消周期任务
- * - onReceive：处理自定义 ACTION_REFRESH 广播
+ * - onReceive：处理自定义刷新与系统日期/时区变化广播
  */
 class TodayCoursesProvider : AppWidgetProvider() {
 
@@ -48,7 +48,12 @@ class TodayCoursesProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action == ACTION_REFRESH) {
+        if (
+            intent.action == ACTION_REFRESH ||
+            intent.action == Intent.ACTION_DATE_CHANGED ||
+            intent.action == Intent.ACTION_TIME_CHANGED ||
+            intent.action == Intent.ACTION_TIMEZONE_CHANGED
+        ) {
             WidgetRefreshScheduler.ensurePeriodic(context)
             val mgr = AppWidgetManager.getInstance(context)
             val ids = mgr.getAppWidgetIds(ComponentName(context, TodayCoursesProvider::class.java))

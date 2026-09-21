@@ -87,4 +87,33 @@ describe('android widget contract', () => {
       expect(patchScript).toContain(resource)
     }
   })
+
+  it('resolves today courses natively from a semester index after the App is killed', () => {
+    const resolver = readText('android/app/src/main/java/com/hbut/mini/widget/WidgetScheduleResolver.kt')
+    const renderer = readText('android/app/src/main/java/com/hbut/mini/widget/WidgetRenderer.kt')
+    const service = readText('android/app/src/main/java/com/hbut/mini/widget/TodayCoursesRemoteViewsService.kt')
+    const provider = readText('android/app/src/main/java/com/hbut/mini/widget/TodayCoursesProvider.kt')
+    const manifest = readText('android/app/src/main/AndroidManifest.xml')
+    const patchScript = readText('scripts/patch_android_widget.py')
+    const bridge = readText('src/utils/widget_bridge.ts')
+
+    expect(resolver).toContain('schedule_index')
+    expect(resolver).toContain('Asia/Shanghai')
+    expect(resolver).toContain('base_week_index')
+    expect(resolver).toContain('start_date')
+    expect(renderer).toContain('WidgetScheduleResolver.resolveToday')
+    expect(service).toContain('WidgetScheduleResolver.resolveToday')
+    expect(bridge).toContain('buildWidgetScheduleIndex')
+    expect(provider).toContain('Intent.ACTION_DATE_CHANGED')
+    expect(provider).toContain('Intent.ACTION_TIME_CHANGED')
+    expect(provider).toContain('Intent.ACTION_TIMEZONE_CHANGED')
+    for (const action of [
+      'android.intent.action.DATE_CHANGED',
+      'android.intent.action.TIME_SET',
+      'android.intent.action.TIMEZONE_CHANGED'
+    ]) {
+      expect(manifest).toContain(action)
+      expect(patchScript).toContain(action)
+    }
+  })
 })

@@ -70,6 +70,37 @@ describe('strict-CSP-safe widget snapshot validator', () => {
     )
   })
 
+  it('accepts the optional semester schedule index and validates nested day ranges', () => {
+    const snapshot = validSnapshot()
+    ;(snapshot as any).schedule_index = {
+      version: 1,
+      start_date: '2026-08-31',
+      base_date: '2026-09-20',
+      base_week_index: 3,
+      total_weeks: 20,
+      days: [
+        {
+          week_index: 3,
+          weekday: 7,
+          courses: [{ ...snapshot.courses[0] }]
+        }
+      ]
+    }
+    expect(validateSnapshot(snapshot)).toBe(true)
+    expect(validateSnapshot.errors).toBeNull()
+
+    ;(snapshot as any).schedule_index.days[0].weekday = 8
+    expect(validateSnapshot(snapshot)).toBe(false)
+    expect(validateSnapshot.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          instancePath: '/schedule_index/days/0/weekday',
+          keyword: 'maximum'
+        })
+      ])
+    )
+  })
+
   it('contains no runtime compiler dependency or dynamic evaluation primitive', async () => {
     const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('./widget_snapshot_schema.ts', import.meta.url), 'utf8'))
     expect(source).not.toMatch(/from\s+['"]ajv|new\s+Function|\beval\s*\(/)

@@ -12,6 +12,25 @@ export interface WidgetCourse {
   color?: string         // "#RRGGBB"
 }
 
+export interface WidgetScheduleDay {
+  week_index: number
+  weekday: number
+  courses: WidgetCourse[]
+}
+
+/**
+ * #881：整学期 Widget 索引。
+ * App 端预计算最终有效课表，Android 仅按日期选择 week/day。
+ */
+export interface WidgetScheduleIndex {
+  version: 1
+  start_date?: string
+  base_date: string
+  base_week_index: number
+  total_weeks: number
+  days: WidgetScheduleDay[]
+}
+
 export interface TodayCourseSnapshot {
   version: 1
   generated_at: string   // ISO 8601
@@ -20,6 +39,8 @@ export interface TodayCourseSnapshot {
   week_index: number     // 1..60
   weekday: number        // 1..7（1=周一）
   courses: WidgetCourse[]
+  /** #881：旧版 Widget 忽略，新版原生端跨天时据此重算 courses。 */
+  schedule_index?: WidgetScheduleIndex
 }
 
 export type WidgetCapability = 'android-appwidget' | 'ios-widgetkit' | 'unavailable'
@@ -51,7 +72,7 @@ export interface ExamWidgetSnapshot {
 }
 
 export type WidgetBridgeErrorCode =
-  | 'SNAPSHOT_TOO_LARGE'     // 超过 32 KB
+  | 'SNAPSHOT_TOO_LARGE'     // 超过原生共享存储大小上限
   | 'WRITE_FAILED'           // 底层 I/O 失败
   | 'INVALID_SNAPSHOT'       // schema 校验失败
   | 'UNAVAILABLE'            // 非移动端运行时
