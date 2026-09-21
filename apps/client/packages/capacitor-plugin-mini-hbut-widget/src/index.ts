@@ -11,6 +11,8 @@ export { MiniHbutWidget }
 // 导出类型定义供外部消费
 export type {
   WidgetCourse,
+  WidgetScheduleDay,
+  WidgetScheduleIndex,
   TodayCourseSnapshot,
   ElectricityWidgetSnapshot,
   ExamWidgetItem,

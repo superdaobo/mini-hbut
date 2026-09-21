@@ -13,8 +13,12 @@ import { validateSnapshot } from '@/utils/widget_snapshot_schema'
 import { pushDebugLog } from '@/utils/debug_logger'
 import { isTauriRuntime, isCapacitorRuntime, invokeNative } from '@/platform/native'
 
-/** 最大 snapshot 字节数：32 KB */
-const MAX_SNAPSHOT_BYTES = 32 * 1024
+/**
+ * #881：snapshot 现在可携带整学期 week/day 索引。
+ * 数据只落 SharedPreferences，不通过 AppWidget RemoteViews binder 传输；
+ * 512 KB 上限用于防止异常课表无限膨胀，同时容纳正常整学期课程。
+ */
+const MAX_SNAPSHOT_BYTES = 512 * 1024
 
 /**
  * #758：应用内主题模式（与线A #757 三态对应）。
@@ -147,7 +151,7 @@ export function getWidgetBridge(): MiniHbutWidgetPlugin {
 
 /**
  * 写入快照到原生 Widget 共享存储。
- * 执行 strict-CSP-safe 静态 schema 校验 + UTF-8 字节数校验（≤ 32 KB）后委托写入。
+ * 执行 strict-CSP-safe 静态 schema 校验 + UTF-8 字节数校验（≤ 512 KB）后委托写入。
  */
 export async function writeSnapshot(snapshot: TodayCourseSnapshot): Promise<void> {
   // 1. strict-CSP-safe 静态 schema 校验

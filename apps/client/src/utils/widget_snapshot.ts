@@ -1,7 +1,11 @@
 // src/utils/widget_snapshot.ts
 // 纯函数：从 Schedule_Cache 派生 TodayCourseSnapshot，无 I/O、无副作用
 
-import type { TodayCourseSnapshot, WidgetCourse } from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
+import type {
+  TodayCourseSnapshot,
+  WidgetCourse,
+  WidgetScheduleIndex
+} from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
 // #621：深链生成逻辑统一收敛到 src/platform/deep_link.ts（单一 minihbut:// 入口），此处仅薄委托。
 import { buildMiniHbutDeepLink } from '../platform/deep_link'
 
@@ -217,6 +221,151 @@ export function extractCoursesOfDay(
   )
 
   return results
+}
+
+/**
+ * #881：把 App 已经合并完成的“最终有效课表”预计算为整学期 week/day 索引。
+ *
+ * Android Widget 只需要根据本地日期算 week_index + weekday，然后从 days 中取课程；
+ * 教务课程删除、自定义课程、单双周等规则仍全部复用 extractCoursesOfDay，不在原生端
+ * 再实现第二套业务规则。
+ */
+export function buildWidgetScheduleIndex(params: {
+  cache: unknown[]
+  baseWeekIndex: number
+  startDate?: string
+  totalWeeks?: number
+  now?: Date
+}): WidgetScheduleIndex {
+  const now = params.now ?? new Date()
+  const cache = Array.isArray(params.cache) ? params.cache : []
+  let inferredMaxWeek = 0
+  for (const item of cache) {
+    if (!item || typeof item !== 'object') continue
+    const entry = item as Record<string, unknown>
+    const singleWeek = Number(entry.week_index)
+    if (Number.isFinite(singleWeek) && singleWeek >= 1) {
+      inferredMaxWeek = Math.max(inferredMaxWeek, Math.floor(singleWeek))
+    }
+    if (Array.isArray(entry.weeks)) {
+      for (const value of entry.weeks) {
+        const week = Number(value)
+        if (Number.isFinite(week) && week >= 1) {
+          inferredMaxWeek = Math.max(inferredMaxWeek, Math.floor(week))
+        }
+      }
+    }
+  }
+  const configuredTotalWeeks =
+    Number.isFinite(params.totalWeeks) && Number(params.totalWeeks) >= 1
+      ? Math.floor(Number(params.totalWeeks))
+      : 25
+  const totalWeeks = Math.min(Math.max(configuredTotalWeeks, inferredMaxWeek, 1), 60)
+  const baseWeekIndex = Math.min(
+    Math.max(Number.isFinite(params.baseWeekIndex) ? Math.floor(params.baseWeekIndex) : 1, 1),
+    60,
+  )
+  const startDate = toSafeString(params.startDate)
+  const days: WidgetScheduleIndex['days'] = []
+
+  for (let weekIndex = 1; weekIndex <= totalWeeks; weekIndex += 1) {
+    for (let weekday = 1; weekday <= 7; weekday += 1) {
+      const courses = extractCoursesOfDay(cache, weekIndex, weekday)
+      if (courses.length === 0) continue
+      days.push({ week_index: weekIndex, weekday, courses })
+    }
+  }
+
+  const index: WidgetScheduleIndex = {
+    version: 1,
+    base_date: formatLocalDate(now),
+    base_week_index: baseWeekIndex,
+    total_weeks: totalWeeks,
+    days,
+  }
+  if (parseUtcMidnightMs(startDate) != null) index.start_date = startDate
+  return index
+}
+
+/**
+ * 无开学日期时，以“某天属于第几周”为回退锚点计算教学周。
+ * 以周一为周边界，确保周日→周一会准确 +1。
+ */
+export function resolveWeekIndexFromBase(
+  baseDate: string,
+  baseWeekIndex: number,
+  now: Date,
+  totalWeeks = 25,
+): number {
+  const baseMs = parseUtcMidnightMs(baseDate)
+  const todayMs = parseUtcMidnightMs(formatLocalDate(now))
+  if (baseMs == null || todayMs == null || !Number.isFinite(baseWeekIndex) || baseWeekIndex < 1) {
+    return 0
+  }
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const WEEK_MS = 7 * DAY_MS
+  const isoWeekdayForUtcMs = (ms: number) => {
+    const jsDay = new Date(ms).getUTCDay() // 0=Sunday
+    return jsDay === 0 ? 7 : jsDay
+  }
+  const baseMonday = baseMs - (isoWeekdayForUtcMs(baseMs) - 1) * DAY_MS
+  const todayMonday = todayMs - (isoWeekdayForUtcMs(todayMs) - 1) * DAY_MS
+  const deltaWeeks = Math.floor((todayMonday - baseMonday) / WEEK_MS)
+  const maxWeek = Number.isFinite(totalWeeks) && totalWeeks >= 1 ? Math.min(Math.floor(totalWeeks), 60) : 25
+  return Math.min(Math.max(Math.floor(baseWeekIndex) + deltaWeeks, 1), maxWeek)
+}
+
+/**
+ * Web 侧的原生解析镜像，供回归测试和非 Android 渲染契约使用。
+ * 老快照没有 schedule_index 时保持原样。
+ */
+export function resolveTodaySnapshotFromScheduleIndex(
+  snapshot: TodayCourseSnapshot,
+  now: Date = new Date(),
+): TodayCourseSnapshot {
+  const index = snapshot.schedule_index
+  if (!index || index.version !== 1 || !Array.isArray(index.days)) return snapshot
+
+  const todayDate = formatLocalDate(now)
+  const todayMs = parseUtcMidnightMs(todayDate)
+  const startMs = index.start_date ? parseUtcMidnightMs(index.start_date) : null
+  let weekIndex = 0
+
+  if (startMs != null && todayMs != null) {
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const daysSinceStart = Math.floor((todayMs - startMs) / DAY_MS)
+    const rawWeekIndex = daysSinceStart >= 0 ? Math.floor(daysSinceStart / 7) + 1 : 0
+    weekIndex = rawWeekIndex >= 1 && rawWeekIndex <= index.total_weeks ? rawWeekIndex : 0
+    if (weekIndex < 1) {
+      return {
+        ...snapshot,
+        date: todayDate,
+        week_index: 0,
+        weekday: getIsoWeekday(now),
+        courses: [],
+      }
+    }
+  } else {
+    weekIndex = resolveWeekIndexFromBase(
+      index.base_date,
+      index.base_week_index,
+      now,
+      index.total_weeks,
+    )
+  }
+  if (weekIndex < 1) return snapshot
+
+  const weekday = getIsoWeekday(now)
+  const day = index.days.find(
+    (item) => item.week_index === weekIndex && item.weekday === weekday,
+  )
+  return {
+    ...snapshot,
+    date: todayDate,
+    week_index: weekIndex,
+    weekday,
+    courses: day?.courses ? day.courses.slice() : [],
+  }
 }
 
 /**

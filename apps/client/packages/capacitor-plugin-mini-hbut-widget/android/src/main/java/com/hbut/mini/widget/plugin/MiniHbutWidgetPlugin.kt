@@ -24,7 +24,7 @@ class MiniHbutWidgetPlugin : Plugin() {
 
     /**
      * 将 TodayCourseSnapshot 写入 SharedPreferences。
-     * - 字节数校验：序列化 JSON ≤ 32KB，否则 reject SNAPSHOT_TOO_LARGE
+     * - 字节数校验：序列化 JSON ≤ 512KB，否则 reject SNAPSHOT_TOO_LARGE
      * - 使用 SharedPreferences.edit().commit() 同步写入
      * - 写入成功后立即触发小组件刷新
      */
@@ -36,7 +36,7 @@ class MiniHbutWidgetPlugin : Plugin() {
         // 字节数校验（UTF-8 编码）
         val byteSize = json.toByteArray(Charsets.UTF_8).size
         if (byteSize > MAX_SNAPSHOT_BYTES) {
-            return call.reject("snapshot > 32KB (actual: ${byteSize} bytes)", "SNAPSHOT_TOO_LARGE")
+            return call.reject("snapshot > 512KB (actual: ${byteSize} bytes)", "SNAPSHOT_TOO_LARGE")
         }
 
         // 同步写入 SharedPreferences
@@ -106,7 +106,7 @@ class MiniHbutWidgetPlugin : Plugin() {
     }
 
     companion object {
-        /** 快照最大字节数限制：32 KB */
-        const val MAX_SNAPSHOT_BYTES = 32 * 1024
+        /** 快照最大字节数限制：512 KB */
+        const val MAX_SNAPSHOT_BYTES = 512 * 1024
     }
 }

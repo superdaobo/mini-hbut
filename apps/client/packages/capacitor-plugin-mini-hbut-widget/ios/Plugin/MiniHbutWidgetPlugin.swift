@@ -13,8 +13,8 @@ public class MiniHbutWidgetPlugin: CAPPlugin {
     /// App Group suite name，主 App 与 Widget Extension 共享数据
     private let suite = "group.com.hbut.mini"
 
-    /// 快照最大字节数限制（32 KB）
-    private let maxBytes = 32 * 1024
+    /// 快照最大字节数限制（512 KB）
+    private let maxBytes = 512 * 1024
 
     private enum Keys {
         static let snapshot = "widget_snapshot"
@@ -40,7 +40,7 @@ public class MiniHbutWidgetPlugin: CAPPlugin {
         }
 
         if data.count > maxBytes {
-            call.reject("snapshot exceeds 32KB limit", "SNAPSHOT_TOO_LARGE")
+            call.reject("snapshot exceeds 512KB limit", "SNAPSHOT_TOO_LARGE")
             return
         }
 

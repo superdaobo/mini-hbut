@@ -45,6 +45,22 @@ export const todayCourseSnapshotSchema = {
         },
       },
     },
+    schedule_index: {
+      type: 'object' as const,
+      additionalProperties: false,
+      required: ['version', 'base_date', 'base_week_index', 'total_weeks', 'days'],
+      properties: {
+        version: { type: 'integer' as const, const: 1 },
+        start_date: { type: 'string' as const, pattern: DATE_PATTERN.source },
+        base_date: { type: 'string' as const, pattern: DATE_PATTERN.source },
+        base_week_index: { type: 'integer' as const, minimum: 1, maximum: 60 },
+        total_weeks: { type: 'integer' as const, minimum: 1, maximum: 60 },
+        days: {
+          type: 'array' as const,
+          maxItems: 420,
+        },
+      },
+    },
   },
 } as const
 
@@ -163,6 +179,9 @@ const ROOT_REQUIRED = todayCourseSnapshotSchema.required
 const ROOT_PROPERTIES = new Set(Object.keys(todayCourseSnapshotSchema.properties))
 const COURSE_REQUIRED = todayCourseSnapshotSchema.properties.courses.items.required
 const COURSE_PROPERTIES = new Set(Object.keys(todayCourseSnapshotSchema.properties.courses.items.properties))
+const SCHEDULE_REQUIRED = todayCourseSnapshotSchema.properties.schedule_index.required
+const SCHEDULE_PROPERTIES = new Set(Object.keys(todayCourseSnapshotSchema.properties.schedule_index.properties))
+const SCHEDULE_DAY_PROPERTIES = new Set(['week_index', 'weekday', 'courses'])
 
 const validator = ((value: unknown): value is TodayCourseSnapshot => {
   const errors: SnapshotValidationError[] = []
@@ -246,6 +265,106 @@ const validator = ((value: unknown): value is TodayCourseSnapshot => {
           validateString(course.color, propertyPath('color'), propertySchema('color'), addError, { pattern: COLOR_PATTERN })
         }
       })
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, 'schedule_index')) {
+    const schedule = value.schedule_index
+    const schedulePath = '/schedule_index'
+    const scheduleSchema = '#/properties/schedule_index'
+    if (!isPlainObject(schedule)) {
+      addError(schedulePath, `${scheduleSchema}/type`, 'type', 'must be object', { type: 'object' })
+    } else {
+      validateAllowedProperties(schedule, SCHEDULE_PROPERTIES, schedulePath, scheduleSchema, addError)
+      validateRequiredProperties(schedule, SCHEDULE_REQUIRED, schedulePath, scheduleSchema, addError)
+
+      if (Object.prototype.hasOwnProperty.call(schedule, 'version')) {
+        if (!Number.isInteger(schedule.version)) {
+          addError(`${schedulePath}/version`, `${scheduleSchema}/properties/version/type`, 'type', 'must be integer', { type: 'integer' })
+        } else if (schedule.version !== 1) {
+          addError(`${schedulePath}/version`, `${scheduleSchema}/properties/version/const`, 'const', 'must be equal to constant', { allowedValue: 1 })
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(schedule, 'start_date')) {
+        validateString(schedule.start_date, `${schedulePath}/start_date`, `${scheduleSchema}/properties/start_date`, addError, { pattern: DATE_PATTERN })
+      }
+      if (Object.prototype.hasOwnProperty.call(schedule, 'base_date')) {
+        validateString(schedule.base_date, `${schedulePath}/base_date`, `${scheduleSchema}/properties/base_date`, addError, { pattern: DATE_PATTERN })
+      }
+      if (Object.prototype.hasOwnProperty.call(schedule, 'base_week_index')) {
+        validateInteger(schedule.base_week_index, `${schedulePath}/base_week_index`, `${scheduleSchema}/properties/base_week_index`, addError, 1, 60)
+      }
+      if (Object.prototype.hasOwnProperty.call(schedule, 'total_weeks')) {
+        validateInteger(schedule.total_weeks, `${schedulePath}/total_weeks`, `${scheduleSchema}/properties/total_weeks`, addError, 1, 60)
+      }
+      if (Object.prototype.hasOwnProperty.call(schedule, 'days')) {
+        if (!Array.isArray(schedule.days)) {
+          addError(`${schedulePath}/days`, `${scheduleSchema}/properties/days/type`, 'type', 'must be array', { type: 'array' })
+        } else {
+          if (schedule.days.length > 420) {
+            addError(`${schedulePath}/days`, `${scheduleSchema}/properties/days/maxItems`, 'maxItems', 'must NOT have more than 420 items', { limit: 420 })
+          }
+          schedule.days.forEach((day, dayIndex) => {
+            const dayPath = `${schedulePath}/days/${dayIndex}`
+            const daySchema = `${scheduleSchema}/properties/days/items`
+            if (!isPlainObject(day)) {
+              addError(dayPath, `${daySchema}/type`, 'type', 'must be object', { type: 'object' })
+              return
+            }
+            validateAllowedProperties(day, SCHEDULE_DAY_PROPERTIES, dayPath, daySchema, addError)
+            validateRequiredProperties(day, ['week_index', 'weekday', 'courses'], dayPath, daySchema, addError)
+            if (Object.prototype.hasOwnProperty.call(day, 'week_index')) {
+              validateInteger(day.week_index, `${dayPath}/week_index`, `${daySchema}/properties/week_index`, addError, 1, 60)
+            }
+            if (Object.prototype.hasOwnProperty.call(day, 'weekday')) {
+              validateInteger(day.weekday, `${dayPath}/weekday`, `${daySchema}/properties/weekday`, addError, 1, 7)
+            }
+            if (Object.prototype.hasOwnProperty.call(day, 'courses')) {
+              if (!Array.isArray(day.courses)) {
+                addError(`${dayPath}/courses`, `${daySchema}/properties/courses/type`, 'type', 'must be array', { type: 'array' })
+              } else {
+                if (day.courses.length > 14) {
+                  addError(`${dayPath}/courses`, `${daySchema}/properties/courses/maxItems`, 'maxItems', 'must NOT have more than 14 items', { limit: 14 })
+                }
+                day.courses.forEach((course, courseIndex) => {
+                  const coursePath = `${dayPath}/courses/${courseIndex}`
+                  const courseSchema = `${daySchema}/properties/courses/items`
+                  if (!isPlainObject(course)) {
+                    addError(coursePath, `${courseSchema}/type`, 'type', 'must be object', { type: 'object' })
+                    return
+                  }
+                  validateAllowedProperties(course, COURSE_PROPERTIES, coursePath, courseSchema, addError)
+                  validateRequiredProperties(course, COURSE_REQUIRED, coursePath, courseSchema, addError)
+                  if (Object.prototype.hasOwnProperty.call(course, 'period_start')) {
+                    validateInteger(course.period_start, `${coursePath}/period_start`, `${courseSchema}/properties/period_start`, addError, 1, 14)
+                  }
+                  if (Object.prototype.hasOwnProperty.call(course, 'period_end')) {
+                    validateInteger(course.period_end, `${coursePath}/period_end`, `${courseSchema}/properties/period_end`, addError, 1, 14)
+                  }
+                  if (Object.prototype.hasOwnProperty.call(course, 'time_start')) {
+                    validateString(course.time_start, `${coursePath}/time_start`, `${courseSchema}/properties/time_start`, addError, { pattern: TIME_PATTERN })
+                  }
+                  if (Object.prototype.hasOwnProperty.call(course, 'time_end')) {
+                    validateString(course.time_end, `${coursePath}/time_end`, `${courseSchema}/properties/time_end`, addError, { pattern: TIME_PATTERN })
+                  }
+                  if (Object.prototype.hasOwnProperty.call(course, 'name')) {
+                    validateString(course.name, `${coursePath}/name`, `${courseSchema}/properties/name`, addError, { minLength: 1, maxLength: 80 })
+                  }
+                  if (Object.prototype.hasOwnProperty.call(course, 'location')) {
+                    validateString(course.location, `${coursePath}/location`, `${courseSchema}/properties/location`, addError, { maxLength: 80 })
+                  }
+                  if (Object.prototype.hasOwnProperty.call(course, 'teacher')) {
+                    validateString(course.teacher, `${coursePath}/teacher`, `${courseSchema}/properties/teacher`, addError, { maxLength: 80 })
+                  }
+                  if (Object.prototype.hasOwnProperty.call(course, 'color')) {
+                    validateString(course.color, `${coursePath}/color`, `${courseSchema}/properties/color`, addError, { pattern: COLOR_PATTERN })
+                  }
+                })
+              }
+            }
+          })
+        }
+      }
     }
   }
 

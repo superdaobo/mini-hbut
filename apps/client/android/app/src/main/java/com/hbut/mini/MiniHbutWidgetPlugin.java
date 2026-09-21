@@ -12,7 +12,7 @@ import com.hbut.mini.widget.WidgetRefreshScheduler;
 
 @CapacitorPlugin(name = "MiniHbutWidget")
 public class MiniHbutWidgetPlugin extends Plugin {
-    private static final int MAX_SNAPSHOT_BYTES = 32 * 1024;
+    private static final int MAX_SNAPSHOT_BYTES = 512 * 1024;
 
     private WidgetDataStore dataStore;
 
@@ -32,7 +32,7 @@ public class MiniHbutWidgetPlugin extends Plugin {
         }
         String json = snapshot.toString();
         if (json.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_SNAPSHOT_BYTES) {
-            call.reject("snapshot > 32KB", "SNAPSHOT_TOO_LARGE");
+            call.reject("snapshot > 512KB", "SNAPSHOT_TOO_LARGE");
             return;
         }
         if (!store().writeSnapshot(json)) {

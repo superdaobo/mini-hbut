@@ -110,41 +110,69 @@ describe('writeSnapshot', () => {
     await expect(writeSnapshot(noDate)).rejects.toMatchObject({ code: 'INVALID_SNAPSHOT' })
   })
 
-  it('rejects with SNAPSHOT_TOO_LARGE when serialized JSON exceeds 32 KB', async () => {
+  it('accepts a valid semester index larger than the old 32 KB limit', async () => {
     const { writeSnapshot, WidgetBridgeError } = await import('./widget')
-
-    // 构造一个超大 snapshot：14 门课，每门课 name/location/teacher 填满 80 字符
-    const bigCourses = Array.from({ length: 14 }, (_, i) => ({
-      period_start: i + 1,
-      period_end: i + 1,
-      time_start: '08:00',
-      time_end: '09:00',
-      name: 'A'.repeat(80),
-      location: 'B'.repeat(80),
-      teacher: 'C'.repeat(80),
+    void WidgetBridgeError
+    const sampleCourse = {
+      period_start: 1,
+      period_end: 2,
+      time_start: '08:20',
+      time_end: '09:55',
+      name: '课程'.repeat(40),
+      location: '教室'.repeat(40),
+      teacher: '教师'.repeat(40),
       color: '#AABBCC',
+    }
+    const days = Array.from({ length: 25 * 7 }, (_, index) => ({
+      week_index: Math.floor(index / 7) + 1,
+      weekday: (index % 7) + 1,
+      courses: [sampleCourse],
     }))
-
-    // 14 courses × ~280 bytes each ≈ 3920 bytes, still under 32KB
-    // We need to make it bigger — use a very long student_id won't work (max 32)
-    // Instead, let's directly test with a snapshot that we know exceeds 32KB
-    // by repeating courses data in a way that exceeds the limit
-    const snapshot = makeValidSnapshot({ courses: bigCourses })
+    const snapshot = makeValidSnapshot({
+      schedule_index: {
+        version: 1,
+        start_date: '2026-08-31',
+        base_date: '2026-09-20',
+        base_week_index: 3,
+        total_weeks: 25,
+        days,
+      },
+    })
     const json = JSON.stringify(snapshot)
     const byteLength = new TextEncoder().encode(json).length
+    expect(byteLength).toBeGreaterThan(32 * 1024)
+    expect(byteLength).toBeLessThan(512 * 1024)
+    await expect(writeSnapshot(snapshot)).resolves.toBeUndefined()
+  })
 
-    if (byteLength <= 32 * 1024) {
-      // The 14-course snapshot is still under 32KB, so let's create a truly oversized one
-      // by mocking the schema validation to pass and using a manually crafted large object
-      // Actually, with 14 courses at max field lengths, it's about 4KB.
-      // We need to test the byte check directly — let's use a snapshot with courses
-      // that have very long names (schema allows max 80, so we can't exceed that legitimately)
-      // Instead, we'll test by mocking validateSnapshot to always return true
-      // and passing a snapshot with extra data that makes it large
-      expect(true).toBe(true) // This case can't be triggered with valid schema data
-      return
+  it('rejects a pathological semester index above 512 KB', async () => {
+    const { writeSnapshot, WidgetBridgeError } = await import('./widget')
+    const bigCourse = {
+      period_start: 1,
+      period_end: 2,
+      time_start: '08:20',
+      time_end: '09:55',
+      name: '课'.repeat(80),
+      location: '室'.repeat(80),
+      teacher: '师'.repeat(80),
+      color: '#AABBCC',
     }
-
+    const days = Array.from({ length: 60 * 7 }, (_, index) => ({
+      week_index: Math.floor(index / 7) + 1,
+      weekday: (index % 7) + 1,
+      courses: Array.from({ length: 14 }, () => ({ ...bigCourse })),
+    }))
+    const snapshot = makeValidSnapshot({
+      schedule_index: {
+        version: 1,
+        base_date: '2026-09-20',
+        base_week_index: 3,
+        total_weeks: 60,
+        days,
+      },
+    })
+    const byteLength = new TextEncoder().encode(JSON.stringify(snapshot)).length
+    expect(byteLength).toBeGreaterThan(512 * 1024)
     await expect(writeSnapshot(snapshot)).rejects.toThrow(WidgetBridgeError)
     await expect(writeSnapshot(snapshot)).rejects.toMatchObject({ code: 'SNAPSHOT_TOO_LARGE' })
   })

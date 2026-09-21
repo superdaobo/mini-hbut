@@ -42,6 +42,8 @@ class TodayCoursesRemoteViewsFactory(
 
     /** 当前渲染的课程列表（已按 pickRows 逻辑截断） */
     private var courses: List<CourseRow> = emptyList()
+    /** 当前解析后的“今天”日期；#881 下可能来自 schedule_index，而不是原始快照日期。 */
+    private var snapshotDate: String = ""
 
     /** 4×2 布局默认容量：最多显示 3 门课 */
     private val defaultCapacity = 3
@@ -51,14 +53,16 @@ class TodayCoursesRemoteViewsFactory(
     }
 
     override fun onDataSetChanged() {
-        // 从 SharedPreferences 读取快照 JSON
+        // #881：先由原生 resolver 根据 Asia/Shanghai 日期把整学期索引解析成今天课程。
         val store = WidgetDataStore(context)
-        val json = store.readSnapshot()
-        courses = pickRows(parseCoursesFromSnapshot(json), defaultCapacity)
+        val snapshot = WidgetScheduleResolver.resolveToday(store.readSnapshot())
+        snapshotDate = snapshot?.optString("date", "") ?: ""
+        courses = pickRows(parseCoursesFromSnapshot(snapshot), defaultCapacity)
     }
 
     override fun onDestroy() {
         courses = emptyList()
+        snapshotDate = ""
     }
 
     override fun getCount(): Int = courses.size
@@ -114,8 +118,7 @@ class TodayCoursesRemoteViewsFactory(
         )
 
         // 行点击深链：携带节次参数（#759：快照过期时深链用今天，避免前端高亮到昨天）
-        val snapshotJson = store.readSnapshot()
-        val snapshotDateRaw = readSnapshotDate(snapshotJson)
+        val snapshotDateRaw = snapshotDate
         val snapshotDate = if (isBeforeToday(snapshotDateRaw)) todayString() else snapshotDateRaw
         if (snapshotDate.isNotEmpty() && row.periodStart >= 1) {
             val fillInIntent = Intent().apply {
@@ -136,15 +139,6 @@ class TodayCoursesRemoteViewsFactory(
         return views
     }
 
-    private fun readSnapshotDate(json: String?): String {
-        if (json.isNullOrBlank()) return ""
-        return try {
-            JSONObject(json).optString("date", "")
-        } catch (_: Exception) {
-            ""
-        }
-    }
-
     /**
      * #759：快照日期是否早于今天（解析失败按未过期处理，保持原行为）。
      * 用 "yyyy-MM-dd" 字典序比较（ISO 日期字符串字典序 = 时间序），
@@ -157,8 +151,7 @@ class TodayCoursesRemoteViewsFactory(
 
     /** 今天的 "yyyy-MM-dd"（SimpleDateFormat API 1+，与 isBeforeToday 同源比较基准） */
     private fun todayString(): String {
-        return java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-            .format(java.util.Date())
+        return WidgetScheduleResolver.todayDateString()
     }
 
     override fun getLoadingView(): RemoteViews? = null
@@ -185,10 +178,9 @@ class TodayCoursesRemoteViewsFactory(
      * 从 snapshot JSON 解析课程列表。
      * 合并已在 TypeScript 层完成，这里直接解析即可。
      */
-    private fun parseCoursesFromSnapshot(json: String?): List<CourseRow> {
-        if (json.isNullOrBlank()) return emptyList()
+    private fun parseCoursesFromSnapshot(obj: JSONObject?): List<CourseRow> {
+        if (obj == null) return emptyList()
         return try {
-            val obj = JSONObject(json)
             val arr = obj.optJSONArray("courses") ?: return emptyList()
             val result = mutableListOf<CourseRow>()
             for (i in 0 until arr.length()) {
