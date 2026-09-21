@@ -292,7 +292,7 @@ fn has_chaoxing_login_cookie(client: &HbutClient) -> bool {
 
 fn normalize_student_id_candidate(value: &str) -> Option<String> {
     let text = value.trim();
-    if text.len() == 10 && text.chars().all(|c| c.is_ascii_digit()) {
+    if (text.len() == 9 || text.len() == 10) && text.chars().all(|c| c.is_ascii_digit()) {
         return Some(text.to_string());
     }
     None
@@ -569,7 +569,7 @@ async fn finalize_chaoxing_login(
         resolved_student_id = guess_chaoxing_student_id(account_hint, &merged_cookie);
     }
     let student_id = resolved_student_id.ok_or_else(|| {
-        "学习通登录成功，但未解析到 10 位学号，请先使用融合门户登录一次后再重试".to_string()
+        "学习通登录成功，但未解析到有效学号，请先使用融合门户登录一次后再重试".to_string()
     })?;
     let display_name = fetched_user
         .as_ref()
@@ -1531,4 +1531,24 @@ pub(crate) async fn refresh_session(state: State<'_, AppState>) -> Result<UserIn
         }
     });
     Ok(info)
+}
+
+#[cfg(test)]
+mod student_id_tests {
+    use super::normalize_student_id_candidate;
+
+    #[test]
+    fn accepts_nine_and_ten_digit_student_ids_only() {
+        assert_eq!(
+            normalize_student_id_candidate(" 251023106 "),
+            Some("251023106".to_string())
+        );
+        assert_eq!(
+            normalize_student_id_candidate("2510231106"),
+            Some("2510231106".to_string())
+        );
+        assert_eq!(normalize_student_id_candidate("25102310"), None);
+        assert_eq!(normalize_student_id_candidate("25102311061"), None);
+        assert_eq!(normalize_student_id_candidate("25102A106"), None);
+    }
 }

@@ -37,7 +37,7 @@ export const resolveDisplayStudentId = (studentId: string): string => {
   if (sid) return sid
   if (localStorage.getItem('hbu_manual_logout') === 'true') return ''
   const fallback = String(localStorage.getItem('hbu_username') || '').trim()
-  return /^\d{10}$/.test(fallback) ? fallback : ''
+  return /^\d{9,10}$/.test(fallback) ? fallback : ''
 }
 
 /** 读取本地存储的学期元信息（完整 meta：semester/start_date/current_week/total_weeks 等） */

@@ -29,6 +29,7 @@ import {
   NON_OFFICIAL_DISCLAIMER_ZH
 } from '../config/app_store_policy'
 import { saveRememberedUsername } from '../utils/remembered_username.js'
+import { isValidStudentId as isLikelyStudentId } from '../utils/student_id.js'
 import { runExclusiveLogin } from '../app/coordinators/sessionGate'
 import { useAuthStore } from '../stores'
 import { useLocale } from '../utils/app_i18n'
@@ -162,8 +163,6 @@ const canSubmitPasswordLogin = computed(() => {
 const canSubmitChaoxingPasswordLogin = computed(() => {
   return !loading.value
 })
-
-const isLikelyStudentId = (value) => /^\d{10}$/.test(String(value || '').trim())
 
 const pickStudentIdCandidate = (payload) => {
   if (!payload || typeof payload !== 'object') return ''

@@ -2,15 +2,13 @@ import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { getCurrentVersion } from './updater'
 import { scheduleUsageUpload } from './usage_uploader'
+import { isValidStudentId } from './student_id.js'
 
 const CLOUD_SYNC_DEVICE_ID_KEY = 'hbu_cloud_sync_device_id'
 const WEB_QUEUE_KEY = 'hbu_usage_events_queue_v1'
 const WEB_SESSIONS_KEY = 'hbu_usage_sessions_queue_v1'
 const DAILY_EVENT_LIMIT = 5000
-const STUDENT_ID_RE = /^\d{10}$/
-
 const toSafeText = (value) => String(value || '').trim()
-const isValidStudentId = (value) => STUDENT_ID_RE.test(toSafeText(value))
 
 // 安全随机十六进制串：优先 crypto.getRandomValues，避免 Math.random 被用于
 // 会话/事件/设备标识（CodeQL js/insecure-randomness）

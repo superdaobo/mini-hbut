@@ -157,11 +157,12 @@ export const overlayVisible: ComputedRef<boolean> = computed(
       !state.suppressedForLogin)
 )
 
-/** 学号脱敏展示：25******06（非 10 位学号原样返回） */
+/** 学号脱敏展示：兼容 9 位研究生 / 10 位本科生学号。 */
 export const maskStudentId = (studentId: string): string => {
   const sid = String(studentId || '').trim()
-  if (!/^\d{10}$/.test(sid)) return sid
-  return `${sid.slice(0, 2)}******${sid.slice(-2)}`
+  if (!/^\d{9,10}$/.test(sid)) return sid
+  const hidden = '*'.repeat(Math.max(1, sid.length - 4))
+  return `${sid.slice(0, 2)}${hidden}${sid.slice(-2)}`
 }
 
 /**

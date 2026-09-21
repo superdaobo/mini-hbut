@@ -322,7 +322,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       }
     }
     const hash = window.location.hash || '#/'
-    const match = hash.match(/^#\/(\d{10})(?:\/(\w+))?$/)
+    const match = hash.match(/^#\/(\d{9,10})(?:\/(\w+))?$/)
     if (!match) return null
     return {
       sid: match[1],
@@ -458,7 +458,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
   // （startupPage）优先，避免 WebView 会话残留的 history 快照覆盖用户启动页选择。
   const readStartupHashDeepLink = (): { sid: string; view: string } | null => {
     if (typeof window === 'undefined') return null
-    const match = String(window.location.hash || '').match(/^#\/(\d{10})\/(\w+)$/)
+    const match = String(window.location.hash || '').match(/^#\/(\d{9,10})\/(\w+)$/)
     if (!match) return null
     return { sid: match[1], view: normalizeViewName(match[2]) }
   }

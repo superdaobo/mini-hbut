@@ -55,7 +55,7 @@ onMounted(async () => {
   // 检查 URL hash (格式: #/学号)
   const hash = window.location.hash
   if (hash) {
-    const studentMatch = hash.match(/^#\/(\d{10})$/)
+    const studentMatch = hash.match(/^#\/(\d{9,10})$/)
     if (studentMatch) {
       username.value = studentMatch[1]
       statusMsg.value = t('login.status.checkingSession')

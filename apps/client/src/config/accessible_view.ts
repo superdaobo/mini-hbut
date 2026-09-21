@@ -16,7 +16,7 @@ export function resolvePolicySafeView(view: unknown, fallback: string = 'home'):
 }
 
 /**
- * 解析 `#/{10位学号}/{view}` 类 hash 路由（与 App.vue readWindowRouteSnapshot 对齐）。
+ * 解析 `#/{9或10位学号}/{view}` 类 hash 路由（与 App.vue readWindowRouteSnapshot 对齐）。
  * 返回的 view 已经过策略收敛。
  */
 export function resolvePolicySafeHashRoute(
@@ -24,7 +24,7 @@ export function resolvePolicySafeHashRoute(
   fallback: string = 'home'
 ): { sid: string; view: string } | null {
   const text = String(hash || '')
-  const match = text.match(/^#\/(\d{10})(?:\/(\w+))?$/)
+  const match = text.match(/^#\/(\d{9,10})(?:\/(\w+))?$/)
   if (!match) return null
   return {
     sid: match[1],
