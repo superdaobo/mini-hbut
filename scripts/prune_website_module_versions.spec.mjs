@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { pruneModuleDir } from './prune_website_module_versions.mjs'
+import { DEFAULT_KEEP_VERSIONS, pruneModuleDir } from './prune_website_module_versions.mjs'
 
 const writeJson = (filePath, value) => {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -16,6 +16,10 @@ const touchDir = (dirPath, mtimeMs) => {
   const when = new Date(mtimeMs)
   fs.utimesSync(dirPath, when, when)
 }
+
+test('keeps five module versions by default for cached mobile manifests', () => {
+  assert.equal(DEFAULT_KEEP_VERSIONS, 5)
+})
 
 test('keeps manifest-pointed version even when older name sorts lower', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'modules-prune-'))

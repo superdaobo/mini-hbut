@@ -195,6 +195,34 @@ pub(crate) async fn fetch_remote_json(url: String) -> Result<serde_json::Value, 
 }
 
 #[tauri::command]
+pub(crate) async fn probe_remote_url(url: String) -> Result<serde_json::Value, String> {
+    let parsed = reqwest::Url::parse(url.trim()).map_err(|e| format!("远程 URL 无效: {}", e))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("仅允许探测 http/https URL".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| format!("创建远程探测客户端失败: {}", e))?;
+    let response = client
+        .get(parsed)
+        .header("Accept", "text/html,*/*")
+        .header("Range", "bytes=0-0")
+        .send()
+        .await
+        .map_err(|e| format!("探测远程 URL 失败: {}", e))?;
+    let status = response.status().as_u16();
+    let final_url = response.url().to_string();
+    Ok(serde_json::json!({
+        "ok": (200..400).contains(&status),
+        "status": status,
+        "final_url": final_url,
+    }))
+}
+
+#[tauri::command]
 pub(crate) fn set_temp_upload_endpoint(endpoint: Option<String>) -> Result<(), String> {
     set_temp_upload_endpoint_config(endpoint)
 }

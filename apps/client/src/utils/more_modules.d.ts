@@ -22,9 +22,20 @@ export interface ModuleHostPreviewResult {
 export function isLocalModuleBridgePreviewUrl(url: string): boolean
 export function canUseLocalModuleBridgePreview(): boolean
 export function getLocalModuleState(moduleId: string): unknown
+export function deleteModuleState(moduleId: string): boolean
+export function readCachedManifestSnapshot(manifestUrl: string): any
+export function writeCachedManifestSnapshot(manifest: Record<string, unknown>): void
+export function deleteCachedManifestSnapshot(manifestUrl: string): boolean
+export function pickFirstReachableUrl(
+  candidates: string[],
+  probe?: (url: string, timeoutMs?: number) => boolean | Promise<boolean>
+): Promise<string>
 export function resolveModuleChannel(): Promise<string>
 export function fetchModuleCatalog(inputChannel?: string): Promise<unknown>
-export function fetchModuleManifest(manifestUrl: string): Promise<unknown>
+export function fetchModuleManifest(
+  manifestUrl: string,
+  options?: { allowCache?: boolean }
+): Promise<any>
 export function resolveModuleHostPreviewSource(payload?: ModuleHostPreviewPayload, options?: Record<string, unknown>): ModuleHostPreviewResult
 export function normalizeModuleHostSessionPayload(payload?: Record<string, unknown>, options?: Record<string, unknown>): Promise<unknown>
 export function prepareModuleBundle(options: { channel?: string; moduleInfo?: unknown; manifest?: unknown }): Promise<unknown>

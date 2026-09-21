@@ -5,6 +5,8 @@ import {
   canUseLocalModuleBridgePreview,
   fetchModuleCatalog,
   fetchModuleManifest,
+  deleteCachedManifestSnapshot,
+  deleteModuleState,
   getLocalModuleState,
   isLocalModuleBridgePreviewUrl,
   prepareModuleBundle,
@@ -596,8 +598,28 @@ const handleOpenRemoteModule = async (moduleItem) => {
       if (!isManifestVersionCompatible(cachedManifest, moduleItem?.min_compatible_version)) {
         throw new Error(t(INCOMPATIBLE_CACHE_MESSAGE_KEY))
       }
-      await openPreparedModule(cachedManifest, 'more.msg.remoteFailFallbackCache')
-      return
+      try {
+        await openPreparedModule(cachedManifest, 'more.msg.remoteFailFallbackCache')
+        return
+      } catch (cachedError) {
+        if (cachedError?.code !== 'MODULE_REMOTE_UNAVAILABLE') throw cachedError
+
+        // #883：旧 manifest 指向已裁剪版本时，先清理持久化模块状态与 manifest 缓存，
+        // 再强制绕过缓存拉一次当前 manifest。避免把 CDN 404 页面直接交给 iframe。
+        deleteModuleState(moduleId)
+        deleteCachedManifestSnapshot(moduleItem.manifest_url)
+        setModuleState(moduleId, {
+          status: 'checking',
+          channel: moduleChannel.value,
+          message: t('more.msg.fetchingManifest')
+        })
+        const refreshedManifest = await fetchModuleManifest(moduleItem.manifest_url, { allowCache: false })
+        await openPreparedModule(refreshedManifest, 'more.msg.downloadingPrepare', {}, {
+          manifest_url: safeText(refreshedManifest.url || moduleItem.manifest_url),
+          manifest_checked_at: new Date().toISOString()
+        })
+        return
+      }
     }
 
     throw remoteManifestError || new Error(t('more.msg.manifestFetchFailed'))

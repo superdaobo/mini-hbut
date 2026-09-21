@@ -75,6 +75,7 @@ import {
   readModuleStateMap,
   writeModuleStateMap,
   updateModuleState,
+  deleteModuleState,
   getLocalModuleState,
   readStorageJson,
   writeStorageJson,
@@ -83,16 +84,30 @@ import {
   buildManifestCacheKey,
   readCachedManifestSnapshot,
   writeCachedManifestSnapshot,
+  deleteCachedManifestSnapshot,
   fetchJsonNoStore,
   fetchJsonFromAnyCandidate,
   fetchJsonWithRetry,
+  pickFirstReachableUrl,
   pickFastestOpenUrl,
   resolveModuleChannel,
   normalizeCatalogModule,
   fetchModuleCatalog,
   fetchModuleManifest
 } from './more_modules/core.js'
-export { isLocalModuleBridgePreviewUrl, canUseLocalModuleBridgePreview, getLocalModuleState, resolveModuleChannel, fetchModuleCatalog, fetchModuleManifest } from './more_modules/core.js'
+export {
+  isLocalModuleBridgePreviewUrl,
+  canUseLocalModuleBridgePreview,
+  getLocalModuleState,
+  deleteModuleState,
+  readCachedManifestSnapshot,
+  writeCachedManifestSnapshot,
+  deleteCachedManifestSnapshot,
+  pickFirstReachableUrl,
+  resolveModuleChannel,
+  fetchModuleCatalog,
+  fetchModuleManifest
+} from './more_modules/core.js'
 
 const buildRemoteOpenUrlCandidates = ({
   manifestUrl,
@@ -770,7 +785,9 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
     }
   }
 
-  throw new Error('模块启动失败')
+  const error = new Error('模块远端入口不可用，请刷新模块清单后重试')
+  error.code = 'MODULE_REMOTE_UNAVAILABLE'
+  throw error
 }
 
 export const prepareAndOpenModule = prepareModuleBundle

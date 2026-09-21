@@ -12,7 +12,12 @@ import { fileURLToPath } from 'node:url'
  */
 
 const MODULES_ROOT = path.resolve(process.argv[2] || 'website/dist/modules')
-const KEEP_VERSIONS = Math.max(1, Number.parseInt(process.env.MODULE_KEEP_VERSIONS || '1', 10) || 1)
+export const DEFAULT_KEEP_VERSIONS = 5
+const KEEP_VERSIONS = Math.max(
+  1,
+  Number.parseInt(process.env.MODULE_KEEP_VERSIONS || String(DEFAULT_KEEP_VERSIONS), 10) ||
+    DEFAULT_KEEP_VERSIONS
+)
 const RESERVED_DIR_NAMES = new Set(['site'])
 
 const removeDir = (targetPath) => {
