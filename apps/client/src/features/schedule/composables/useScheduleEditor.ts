@@ -438,28 +438,56 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
   }
 
   /**
-   * Issue #867：从 Mini-HBUT 课表移除教务课程。
-   * 只写本地可见性偏好，不修改教务原始数据；恢复后无需重新向教务添加。
+   * Issue #867 / #884：从 Mini-HBUT 课表移除教务课程。
+   * 只写本地可见性偏好，不修改教务原始数据；支持仅当前周或整学期两种范围。
    */
-  const removeOfficialCourse = async (courseArg: any = null) => {
+  const removeOfficialCourse = async (
+    courseArg: any = null,
+    mode: 'all' | 'current_week' = 'all'
+  ) => {
     const course = courseArg || detail.selectedCourse.value
     if (!course || course?.is_custom || course?.is_removed_official) return false
     const name = String(course?.name || '').trim() || t('schedule.editor.officialCourseFallback')
+    const isCurrentWeek = mode === 'current_week'
+    const week = Number(semester.selectedWeek.value || 0)
+
+    if (isCurrentWeek) {
+      const courseWeeks = normalizeWeeks(course?.weeks)
+      if (!Number.isInteger(week) || week <= 0 || !courseWeeks.includes(week)) {
+        detail.detailActionError.value = t('schedule.editor.removeOfficialWeekUnavailable')
+        return false
+      }
+    }
+
     const confirmed = await askConfirm({
-      title: t('schedule.editor.removeOfficialTitle'),
+      title: isCurrentWeek
+        ? t('schedule.editor.removeOfficialCurrentWeekTitle')
+        : t('schedule.editor.removeOfficialTitle'),
       lines: [
-        t('schedule.editor.removeOfficialLine').replace('{name}', name),
+        isCurrentWeek
+          ? t('schedule.editor.removeOfficialCurrentWeekLine')
+            .replace('{name}', name)
+            .replace('{w}', String(week))
+          : t('schedule.editor.removeOfficialLine').replace('{name}', name),
         t('schedule.editor.removeOfficialHint')
       ],
-      confirmText: t('schedule.editor.confirmRemoveOfficial'),
+      confirmText: isCurrentWeek
+        ? t('schedule.editor.confirmRemoveOfficialCurrentWeek')
+        : t('schedule.editor.confirmRemoveOfficial'),
       cancelText: t('schedule.confirm.cancel'),
       danger: true
     })
     if (!confirmed) return false
 
-    const ok = data.removeOfficialCourse(course)
+    const ok = data.removeOfficialCourse(
+      course,
+      isCurrentWeek ? 'current_week' : 'all',
+      week
+    )
     if (!ok) {
-      detail.detailActionError.value = t('schedule.editor.removeOfficialFailed')
+      detail.detailActionError.value = isCurrentWeek
+        ? t('schedule.editor.removeOfficialWeekUnavailable')
+        : t('schedule.editor.removeOfficialFailed')
       return false
     }
     detail.detailActionError.value = ''
@@ -473,7 +501,9 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
     void reconcileLocalReminders({
       studentId: sid,
       semesterHint: sem,
-      reason: 'schedule-visibility-remove'
+      reason: isCurrentWeek
+        ? 'schedule-visibility-remove-week'
+        : 'schedule-visibility-remove'
     })
     return true
   }
