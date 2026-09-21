@@ -8,7 +8,7 @@
 
 export const SCHEDULE_VISIBILITY_STORAGE_PREFIX = 'hbu_schedule_visibility_v1:'
 export const SCHEDULE_VISIBILITY_CHANGED_EVENT = 'hbu:schedule-visibility-changed'
-export const SCHEDULE_VISIBILITY_VERSION = 1
+export const SCHEDULE_VISIBILITY_VERSION = 2
 
 export interface OfficialCourseSnapshot {
   id: string
@@ -38,10 +38,15 @@ export interface RemovedOfficialCourseRecord {
   removed_at: number
 }
 
+export interface RemovedOfficialCourseWeekRecord extends RemovedOfficialCourseRecord {
+  removed_weeks: number[]
+}
+
 export interface ScheduleVisibilitySnapshot {
   version: number
   updated_at: number
   by_semester: Record<string, RemovedOfficialCourseRecord[]>
+  by_semester_weeks: Record<string, RemovedOfficialCourseWeekRecord[]>
 }
 
 const text = (value: unknown): string => String(value ?? '').trim()
@@ -59,6 +64,26 @@ const normalizeWeeks = (value: unknown): number[] => {
     .map((item) => Number(item))
     .filter((item) => Number.isInteger(item) && item > 0))]
     .sort((a, b) => a - b)
+}
+
+const formatWeeksText = (weeks: unknown): string => {
+  const values = normalizeWeeks(weeks)
+  if (!values.length) return ''
+  const ranges: string[] = []
+  let start = values[0]
+  let prev = values[0]
+  for (let i = 1; i < values.length; i += 1) {
+    const current = values[i]
+    if (current === prev + 1) {
+      prev = current
+      continue
+    }
+    ranges.push(start === prev ? `${start}` : `${start}-${prev}`)
+    start = current
+    prev = current
+  }
+  ranges.push(start === prev ? `${start}` : `${start}-${prev}`)
+  return `${ranges.join(',')}周`
 }
 
 const pickSourceId = (course: any): string => text(
@@ -142,7 +167,8 @@ export const normalizeOfficialCourseSnapshot = (
 const emptySnapshot = (): ScheduleVisibilitySnapshot => ({
   version: SCHEDULE_VISIBILITY_VERSION,
   updated_at: 0,
-  by_semester: {}
+  by_semester: {},
+  by_semester_weeks: {}
 })
 
 const normalizeRecord = (
@@ -184,6 +210,20 @@ const normalizeRecord = (
   }
 }
 
+const normalizeWeekRecord = (
+  raw: unknown,
+  semester: string
+): RemovedOfficialCourseWeekRecord | null => {
+  const base = normalizeRecord(raw, semester)
+  if (!base || !raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const removedWeeks = normalizeWeeks((raw as Record<string, unknown>).removed_weeks)
+  if (!removedWeeks.length) return null
+  return {
+    ...base,
+    removed_weeks: removedWeeks
+  }
+}
+
 export const normalizeScheduleVisibilitySnapshot = (
   raw: unknown
 ): ScheduleVisibilitySnapshot | null => {
@@ -206,11 +246,27 @@ export const normalizeScheduleVisibilitySnapshot = (
     bySemester[semester] = [...dedup.values()]
   }
 
+  const bySemesterWeeks: Record<string, RemovedOfficialCourseWeekRecord[]> = {}
+  const rawBySemesterWeeks = data.by_semester_weeks
+  if (rawBySemesterWeeks && typeof rawBySemesterWeeks === 'object' && !Array.isArray(rawBySemesterWeeks)) {
+    for (const [semesterRaw, recordsRaw] of Object.entries(rawBySemesterWeeks as Record<string, unknown>)) {
+      const semester = text(semesterRaw)
+      if (!semester || !Array.isArray(recordsRaw)) continue
+      const dedup = new Map<string, RemovedOfficialCourseWeekRecord>()
+      recordsRaw.forEach((item) => {
+        const record = normalizeWeekRecord(item, semester)
+        if (record) dedup.set(record.key, record)
+      })
+      bySemesterWeeks[semester] = [...dedup.values()]
+    }
+  }
+
   const updatedAt = Number(data.updated_at)
   return {
     version: SCHEDULE_VISIBILITY_VERSION,
     updated_at: Number.isFinite(updatedAt) && updatedAt >= 0 ? updatedAt : 0,
-    by_semester: bySemester
+    by_semester: bySemester,
+    by_semester_weeks: bySemesterWeeks
   }
 }
 
@@ -268,7 +324,7 @@ const writeScheduleVisibilitySnapshot = (
   return normalized
 }
 
-export const listRemovedOfficialCourses = (
+const listFullyRemovedOfficialCourses = (
   studentId: unknown,
   semester = ''
 ): RemovedOfficialCourseRecord[] => {
@@ -277,6 +333,24 @@ export const listRemovedOfficialCourses = (
   if (sem) return [...(snapshot.by_semester[sem] || [])]
   return Object.values(snapshot.by_semester).flatMap((records) => records || [])
 }
+
+const listWeekRemovedOfficialCourses = (
+  studentId: unknown,
+  semester = ''
+): RemovedOfficialCourseWeekRecord[] => {
+  const snapshot = readScheduleVisibilitySnapshot(studentId)
+  const sem = text(semester)
+  if (sem) return [...(snapshot.by_semester_weeks[sem] || [])]
+  return Object.values(snapshot.by_semester_weeks).flatMap((records) => records || [])
+}
+
+export const listRemovedOfficialCourses = (
+  studentId: unknown,
+  semester = ''
+): Array<RemovedOfficialCourseRecord | RemovedOfficialCourseWeekRecord> => [
+  ...listFullyRemovedOfficialCourses(studentId, semester),
+  ...listWeekRemovedOfficialCourses(studentId, semester)
+]
 
 const recordMatchesCourse = (
   record: RemovedOfficialCourseRecord,
@@ -297,7 +371,7 @@ export const isOfficialCourseRemoved = (
   const sem = text(semester)
   // 学期未知时宁可暂时显示，也不能跨学期用相同课程身份误隐藏。
   if (!sem) return false
-  const records = listRemovedOfficialCourses(studentId, sem)
+  const records = listFullyRemovedOfficialCourses(studentId, sem)
   return records.some((record) => recordMatchesCourse(record, course))
 }
 
@@ -309,11 +383,32 @@ export const filterVisibleOfficialCourses = <T = any>(
   const source = Array.isArray(courses) ? courses : []
   const sem = text(semester)
   if (!sem) return source.slice()
-  const records = listRemovedOfficialCourses(studentId, sem)
-  if (!records.length) return source.slice()
-  return source.filter((course: any) => {
-    if (course?.is_custom) return true
-    return !records.some((record) => recordMatchesCourse(record, course))
+  const fullRecords = listFullyRemovedOfficialCourses(studentId, sem)
+  const weekRecords = listWeekRemovedOfficialCourses(studentId, sem)
+  if (!fullRecords.length && !weekRecords.length) return source.slice()
+
+  return source.flatMap((course: any) => {
+    if (course?.is_custom) return [course as T]
+    if (fullRecords.some((record) => recordMatchesCourse(record, course))) return []
+
+    const removedWeeks = new Set(
+      weekRecords
+        .filter((record) => recordMatchesCourse(record, course))
+        .flatMap((record) => record.removed_weeks)
+    )
+    if (!removedWeeks.size) return [course as T]
+
+    const weeks = normalizeWeeks(course?.weeks)
+    if (!weeks.length) return [course as T]
+    const visibleWeeks = weeks.filter((week) => !removedWeeks.has(week))
+    if (visibleWeeks.length === weeks.length) return [course as T]
+    if (!visibleWeeks.length) return []
+
+    return [{
+      ...course,
+      weeks: visibleWeeks,
+      weeks_text: formatWeeksText(visibleWeeks)
+    } as T]
   })
 }
 
@@ -321,8 +416,9 @@ export const removeOfficialCourseFromSchedule = (
   studentId: unknown,
   semester: unknown,
   selectedCourse: any,
-  officialCourses: any[] = []
-): RemovedOfficialCourseRecord | null => {
+  officialCourses: any[] = [],
+  options: { mode?: 'all' | 'current_week'; currentWeek?: unknown } = {}
+): RemovedOfficialCourseRecord | RemovedOfficialCourseWeekRecord | null => {
   const sid = text(studentId)
   const sem = text(semester)
   const selected = normalizeOfficialCourseSnapshot(selectedCourse, sem)
@@ -345,11 +441,38 @@ export const removeOfficialCourseFromSchedule = (
   }
 
   const snapshot = readScheduleVisibilitySnapshot(sid)
+  const mode = options.mode === 'current_week' ? 'current_week' : 'all'
+
+  if (mode === 'current_week') {
+    const currentWeek = toPositiveInt(options.currentWeek)
+    if (!currentWeek) return null
+    const courseWeeks = new Set(instances.flatMap((course) => normalizeWeeks(course.weeks)))
+    if (!courseWeeks.has(currentWeek)) return null
+    if ((snapshot.by_semester[sem] || []).some((item) => item.key === key)) return null
+
+    const current = snapshot.by_semester_weeks[sem] || []
+    const existing = current.find((item) => item.key === key)
+    const weekRecord: RemovedOfficialCourseWeekRecord = {
+      ...record,
+      removed_weeks: normalizeWeeks([...(existing?.removed_weeks || []), currentWeek])
+    }
+    snapshot.by_semester_weeks[sem] = [
+      ...current.filter((item) => item.key !== key),
+      weekRecord
+    ]
+    writeScheduleVisibilitySnapshot(sid, snapshot, 'remove', sem)
+    return weekRecord
+  }
+
   const current = snapshot.by_semester[sem] || []
   snapshot.by_semester[sem] = [
     ...current.filter((item) => item.key !== key),
     record
   ]
+  const weekCurrent = snapshot.by_semester_weeks[sem] || []
+  const weekNext = weekCurrent.filter((item) => item.key !== key)
+  if (weekNext.length) snapshot.by_semester_weeks[sem] = weekNext
+  else delete snapshot.by_semester_weeks[sem]
   writeScheduleVisibilitySnapshot(sid, snapshot, 'remove', sem)
   return record
 }
@@ -357,7 +480,7 @@ export const removeOfficialCourseFromSchedule = (
 export const restoreOfficialCourseToSchedule = (
   studentId: unknown,
   semester: unknown,
-  recordOrKey: RemovedOfficialCourseRecord | string
+  recordOrKey: RemovedOfficialCourseRecord | RemovedOfficialCourseWeekRecord | string
 ): boolean => {
   const sid = text(studentId)
   const sem = text(semester)
@@ -365,6 +488,19 @@ export const restoreOfficialCourseToSchedule = (
   if (!sid || !sem || !key) return false
 
   const snapshot = readScheduleVisibilitySnapshot(sid)
+  const isWeekRecord = typeof recordOrKey !== 'string' &&
+    Array.isArray((recordOrKey as RemovedOfficialCourseWeekRecord)?.removed_weeks)
+
+  if (isWeekRecord) {
+    const current = snapshot.by_semester_weeks[sem] || []
+    const next = current.filter((record) => record.key !== key)
+    if (next.length === current.length) return false
+    if (next.length) snapshot.by_semester_weeks[sem] = next
+    else delete snapshot.by_semester_weeks[sem]
+    writeScheduleVisibilitySnapshot(sid, snapshot, 'restore', sem)
+    return true
+  }
+
   const current = snapshot.by_semester[sem] || []
   const next = current.filter((record) => record.key !== key)
   if (next.length === current.length) return false
@@ -393,6 +529,17 @@ export const replaceScheduleVisibilityFromCloud = (
 ): boolean => {
   const normalized = normalizeScheduleVisibilitySnapshot(raw)
   if (!normalized) return false
+
+  // 旧客户端上传的 v1 snapshot 没有按周字段。此时保留本地按周隐藏偏好；
+  // 新客户端显式上传 by_semester_weeks（即使为空对象）才视为完整替换。
+  const hasWeekSection = !!raw &&
+    typeof raw === 'object' &&
+    !Array.isArray(raw) &&
+    Object.prototype.hasOwnProperty.call(raw, 'by_semester_weeks')
+  if (!hasWeekSection) {
+    normalized.by_semester_weeks = readScheduleVisibilitySnapshot(studentId).by_semester_weeks
+  }
+
   writeScheduleVisibilitySnapshot(studentId, normalized, 'replace')
   return true
 }
