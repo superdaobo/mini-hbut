@@ -575,7 +575,10 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
   }
 
   const installCloseInterceptor = async () => {
-    if (!hasTauri) return
+    // 桌面端的系统关闭（标题栏 × / Alt+F4 / 任务栏关闭）必须保持原生语义：
+    // 关闭窗口就是退出应用，不能再复用页面返回或二次确认逻辑。
+    // 移动端仍保留下面的 CloseRequested 保护流程。
+    if (!hasTauri || isDesktopLike) return
     try {
       const appWindow = await getCurrentNativeWindow()
       if (!appWindow) return
