@@ -25,6 +25,14 @@ const emit = defineEmits([
 
 // 响应式 t：语言切换后详情文案即时生效
 const { t } = useI18n()
+
+const canRemoveCurrentWeek = computed(() => {
+  const week = Number(props.selectedWeek || 0)
+  const weeks = Array.isArray(props.selectedCourse?.weeks)
+    ? props.selectedCourse.weeks.map((item) => Number(item))
+    : []
+  return Number.isInteger(week) && week > 0 && weeks.includes(week)
+})
 </script>
 
 <template>
