@@ -2,7 +2,7 @@
 // #758：writeThemeMode（应用主题模式 → 原生 Widget 存储）平台通路单测
 //
 // 通路设计：
-// - Tauri Android：invokeNative('write_widget_theme_mode')（Rust 命令待补齐，未注册时 reject）
+// - Tauri Android：invokeNative('write_widget_theme_mode') 写入原生主题偏好并请求刷新
 // - Capacitor：MiniHbutWidget.writeThemeMode（插件未实现该方法时 reject）
 // - 桌面/Web：reject
 // 调用方 widget_bridge.writeWidgetThemeMode 静默捕获全部失败。

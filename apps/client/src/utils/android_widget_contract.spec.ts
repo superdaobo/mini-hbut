@@ -59,4 +59,32 @@ describe('android widget contract', () => {
     expect(helper).toContain('widget_today_courses_4x1')
     expect(provider).toContain('onAppWidgetOptionsChanged')
   })
+
+  it('wires three-state widget theme mode through Tauri and Android resources', () => {
+    const lib = readText('src-tauri/src/lib.rs')
+    const tauriWidget = readText('src-tauri/src/transport/tauri/widget.rs')
+    const store = readText('android/app/src/main/java/com/hbut/mini/widget/WidgetDataStore.kt')
+    const themeMode = readText('android/app/src/main/java/com/hbut/mini/widget/WidgetThemeMode.kt')
+    const patchScript = readText('scripts/patch_android_widget.py')
+
+    expect(lib).toContain('transport::tauri::widget::write_widget_theme_mode')
+    expect(lib).toContain('transport::tauri::widget::request_widget_refresh')
+    expect(tauriWidget).toContain('pub(crate) async fn write_widget_theme_mode')
+    expect(tauriWidget).toContain('pub(crate) async fn request_widget_refresh')
+    expect(tauriWidget).toContain('name="theme_mode"')
+    expect(store).toContain('fun writeThemeMode(mode: String)')
+    expect(themeMode).toContain('widget_background_light')
+    expect(themeMode).toContain('widget_background_dark')
+
+    for (const resource of [
+      'res/values-night/colors_widget.xml',
+      'res/values-v31/colors_widget.xml',
+      'res/values-night-v31/colors_widget.xml',
+      'res/drawable/widget_background_light.xml',
+      'res/drawable/widget_background_dark.xml',
+      'res/drawable-v31/widget_background.xml'
+    ]) {
+      expect(patchScript).toContain(resource)
+    }
+  })
 })

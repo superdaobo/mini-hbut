@@ -58,12 +58,15 @@ function createTauriAndroidBridge(): MiniHbutWidgetPlugin {
     async writeThemeColor(options: { color: string }): Promise<void> {
       await invokeNative('write_widget_theme_color', { color: options.color })
     },
+    async writeThemeMode(options: { mode: WidgetThemeMode }): Promise<void> {
+      await invokeNative('write_widget_theme_mode', { mode: options.mode })
+      await invokeNative('request_widget_refresh')
+    },
     async clearSnapshot(): Promise<void> {
       await invokeNative('clear_widget_snapshot')
     },
     async requestRefresh(): Promise<void> {
-      // Tauri 无法直接触发 AppWidgetManager 刷新，依赖系统 30 分钟周期
-      // 写入 SharedPreferences 后 widget 下次刷新时会读到新数据
+      await invokeNative('request_widget_refresh')
     },
     async getCapabilities(): Promise<{ platform: 'android-appwidget' | 'ios-widgetkit' | 'unavailable'; pinned: boolean }> {
       return { platform: 'android-appwidget', pinned: false }
@@ -79,6 +82,7 @@ function createNoOpProxy(): MiniHbutWidgetPlugin {
     writeElectricity: () => Promise.resolve(),
     writeExam: () => Promise.resolve(),
     writeThemeColor: () => Promise.resolve(),
+    writeThemeMode: () => Promise.resolve(),
     clearSnapshot: () => Promise.resolve(),
     requestRefresh: () => Promise.resolve(),
     getCapabilities: () => Promise.resolve({ platform: 'unavailable', pinned: false }),
@@ -194,7 +198,7 @@ export async function writeWidgetThemeColor(color: string): Promise<void> {
 /**
  * #758：将应用当前主题模式写入原生 Widget 存储（SharedPreferences key=theme_mode）。
  * 写入通路：
- * - Tauri Android：invokeNative('write_widget_theme_mode')（原生命令尚未注册时 reject）
+ * - Tauri Android：invokeNative('write_widget_theme_mode') 写入原生 SharedPreferences，并立即请求重绘
  * - Capacitor：MiniHbutWidget.writeThemeMode（插件尚未实现该方法时 reject）
  * - 桌面/Web：不支持，reject
  * 调用方（widget_bridge.writeWidgetThemeMode）必须静默捕获失败——通路未就绪时
@@ -202,7 +206,7 @@ export async function writeWidgetThemeColor(color: string): Promise<void> {
  */
 export async function writeThemeMode(mode: WidgetThemeMode): Promise<void> {
   if (isTauriAndroid()) {
-    await invokeNative('write_widget_theme_mode', { mode })
+    await getWidgetBridge().writeThemeMode({ mode })
     return
   }
   if (isCapacitorRuntime()) {
