@@ -96,6 +96,13 @@ const weekDayLabels = computed(() => getWeekDayLabels())
                       <div class="manage-course-card-meta">
                         {{ t('schedule.manageCourses.timeMeta').replace('{day}', weekDayLabels[(course.weekday || 1) - 1]).replace('{s}', String(course.period)).replace('{e}', String(getCourseEndPeriod(course))) }}
                       </div>
+                      <div class="manage-course-card-meta removed-scope">
+                        {{
+                          course.visibility_scope === 'weeks'
+                            ? t('schedule.manageCourses.removedScopeWeeks').replace('{weeks}', course.removed_weeks_text || '-')
+                            : t('schedule.manageCourses.removedScopeAll')
+                        }}
+                      </div>
                       <div v-if="course.teacher || course.room" class="manage-course-card-meta">
                         {{ [course.teacher, course.room].filter(Boolean).join(' · ') }}
                       </div>
@@ -320,6 +327,11 @@ const weekDayLabels = computed(() => getWeekDayLabels())
 .manage-course-card-meta {
   font-size: 12px;
   color: #475569;
+}
+
+.manage-course-card-meta.removed-scope {
+  font-weight: 700;
+  color: #b45309;
 }
 
 .manage-course-card-actions {
