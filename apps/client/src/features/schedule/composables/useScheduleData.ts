@@ -97,14 +97,29 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
     return removedOfficialCourses.value
   }
 
-  const removeOfficialCourse = (course: any) => {
+  const removeOfficialCourse = (
+    course: any,
+    mode: 'all' | 'current_week' = 'all',
+    currentWeek = 0
+  ) => {
     const sid = String(props.studentId || '').trim()
     const sem = String(course?.semester || getFallbackSemester()).trim()
-    const record = removeOfficialCourseFromSchedule(sid, sem, course, remoteScheduleData.value)
+    const record = removeOfficialCourseFromSchedule(
+      sid,
+      sem,
+      course,
+      remoteScheduleData.value,
+      {
+        mode,
+        currentWeek
+      }
+    )
     if (!record) return false
     refreshRemovedOfficialCourses(sem)
     mergeCurrentScheduleSources()
-    persistScheduleRenderSnapshot('official-course-remove')
+    persistScheduleRenderSnapshot(mode === 'current_week'
+      ? 'official-course-remove-week'
+      : 'official-course-remove')
     return true
   }
 
@@ -191,12 +206,24 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
       const key = String(record?.key || buildOfficialCourseIdentityKey(representative)).trim()
       if (!key || !representative) continue
       const group = ensureGroup(String(representative.semester || currentSemester))
-      group.officialMap.delete(key)
+      const removedWeeks = Array.isArray(record?.removed_weeks)
+        ? record.removed_weeks
+          .map((week: unknown) => Number(week))
+          .filter((week: number) => Number.isInteger(week) && week > 0)
+          .sort((a: number, b: number) => a - b)
+        : []
+      const isWeekScoped = removedWeeks.length > 0
+      if (!isWeekScoped) {
+        group.officialMap.delete(key)
+      }
       group.removedMap.set(key, {
         ...representative,
         semester: String(representative.semester || currentSemester),
         course_identity_key: key,
         visibility_record: record,
+        visibility_scope: isWeekScoped ? 'weeks' : 'all',
+        removed_weeks: removedWeeks,
+        removed_weeks_text: removedWeeks.join('、'),
         is_removed_official: true,
         is_custom: false
       })
@@ -227,7 +254,9 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
           customCourses,
           // 兼容旧组件/测试中的 courses 字段；语义仍为自定义课程。
           courses: customCourses,
-          totalCount: officialCourses.length + removedCourses.length + customCourses.length
+          totalCount: officialCourses.length +
+            removedCourses.filter((course: any) => course.visibility_scope !== 'weeks').length +
+            customCourses.length
         }
       })
   })
