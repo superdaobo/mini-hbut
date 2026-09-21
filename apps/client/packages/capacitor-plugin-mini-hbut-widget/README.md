@@ -141,7 +141,7 @@ interface WidgetCapabilities {
 
 | 错误码 | 含义 | 可重试 | 处理建议 |
 |--------|------|--------|----------|
-| `SNAPSHOT_TOO_LARGE` | 快照序列化后超过 512 KB | ❌ | 裁剪 courses 数组后重试 |
+| `SNAPSHOT_TOO_LARGE` | 快照序列化后超过 512 KB | ❌ | 检查重复/异常课程数据，缩减异常快照后重试 |
 | `INVALID_SNAPSHOT` | 快照未通过 JSON Schema 校验 | ❌ | 检查数据源，修复后重试 |
 | `WRITE_FAILED` | 底层 I/O 写入失败（SP commit / UD set） | ✅ | 自动重试（指数退避 250/1000/4000ms） |
 | `UNAVAILABLE` | 非移动端运行时（Web / Tauri） | ✅ | 降级为 no-op，不影响主流程 |
@@ -241,4 +241,4 @@ A: 检查以下项目：
 
 **Q: 快照超过 512 KB 怎么办？**
 
-A: 正常课表不会超限（14 门课约 3-5 KB）。若确实超限，`buildTodayCourseSnapshot` 会按 `time_start` 倒序裁剪尾部课程，优先保留早课，并通过 `+N 节` 角标提示用户。
+A: 正常的今日快照与整学期 `schedule_index` 都应明显低于 512 KB。若异常数据导致快照超过上限，桥接层会返回 `SNAPSHOT_TOO_LARGE` 并记录写入失败，不会把超大数据写入原生共享存储；应先检查重复/异常课程数据，而不是静默裁剪有效课程。

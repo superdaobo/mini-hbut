@@ -7,7 +7,6 @@ import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * Widget 渲染器 — 构建 RemoteViews 并推送到 AppWidgetManager。
