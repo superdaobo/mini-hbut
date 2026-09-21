@@ -56,6 +56,18 @@ class WidgetDataStore(context: Context) {
         return prefs.getString(KEY_THEME_MODE, THEME_MODE_SYSTEM) ?: THEME_MODE_SYSTEM
     }
 
+    fun writeThemeMode(mode: String): Boolean {
+        val normalized = mode.trim().lowercase()
+        val value = if (
+            normalized == THEME_MODE_LIGHT ||
+            normalized == THEME_MODE_DARK
+        ) normalized else THEME_MODE_SYSTEM
+        return prefs.edit()
+            .putString(KEY_THEME_MODE, value)
+            .putLong(KEY_LAST_WRITE_TS, System.currentTimeMillis())
+            .commit()
+    }
+
     fun readElectricity(): String? = prefs.getString(KEY_ELECTRICITY_JSON, null)
 
     fun writeElectricity(json: String): Boolean {
@@ -85,5 +97,7 @@ class WidgetDataStore(context: Context) {
         private const val KEY_THEME_MODE = "theme_mode"
         const val DEFAULT_THEME_COLOR = "#2563eb"
         const val THEME_MODE_SYSTEM = "system"
+        const val THEME_MODE_LIGHT = "light"
+        const val THEME_MODE_DARK = "dark"
     }
 }

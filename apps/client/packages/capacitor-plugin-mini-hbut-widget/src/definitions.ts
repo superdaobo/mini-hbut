@@ -61,6 +61,7 @@ export interface MiniHbutWidgetPlugin {
   writeElectricity(options: { data: ElectricityWidgetSnapshot }): Promise<void>
   writeExam(options: { data: ExamWidgetSnapshot }): Promise<void>
   writeThemeColor(options: { color: string }): Promise<void>
+  writeThemeMode(options: { mode: 'system' | 'light' | 'dark' }): Promise<void>
   clearSnapshot(): Promise<void>
   requestRefresh(): Promise<void>
   getCapabilities(): Promise<WidgetCapabilities>

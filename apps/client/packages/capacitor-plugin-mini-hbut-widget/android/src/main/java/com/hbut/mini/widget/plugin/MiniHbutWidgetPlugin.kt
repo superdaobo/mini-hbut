@@ -74,6 +74,21 @@ class MiniHbutWidgetPlugin : Plugin() {
         call.resolve()
     }
 
+    @PluginMethod
+    fun writeThemeMode(call: PluginCall) {
+        val mode = call.getString("mode")?.trim()?.lowercase() ?: "system"
+        if (mode != "system" && mode != "light" && mode != "dark") {
+            return call.reject("invalid theme mode", "INVALID_THEME_MODE")
+        }
+        if (!dataStore.writeThemeMode(mode)) {
+            return call.reject("SharedPreferences commit failed", "WRITE_FAILED")
+        }
+        WidgetRefreshScheduler.ensurePeriodic(context)
+        WidgetRefreshScheduler.triggerAllImmediate(context)
+        WidgetRefreshScheduler.enqueueImmediate(context)
+        call.resolve()
+    }
+
     /**
      * 返回当前平台能力信息。
      * - platform: "android-appwidget"

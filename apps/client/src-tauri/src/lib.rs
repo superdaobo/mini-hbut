@@ -632,6 +632,8 @@ pub fn run() {
             transport::tauri::widget::write_widget_snapshot,
             transport::tauri::widget::clear_widget_snapshot,
             transport::tauri::widget::write_widget_theme_color,
+            transport::tauri::widget::write_widget_theme_mode,
+            transport::tauri::widget::request_widget_refresh,
             transport::tauri::widget::write_electricity_snapshot,
             transport::tauri::widget::write_exam_snapshot,
             transport::tauri::widget::debug_widget_paths,

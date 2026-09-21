@@ -81,6 +81,24 @@ public class MiniHbutWidgetPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void writeThemeMode(PluginCall call) {
+        String mode = call.getString("mode", "system");
+        if (mode == null ||
+            !("system".equals(mode) || "light".equals(mode) || "dark".equals(mode))) {
+            call.reject("invalid theme mode", "INVALID_THEME_MODE");
+            return;
+        }
+        if (!store().writeThemeMode(mode)) {
+            call.reject("SharedPreferences commit failed", "WRITE_FAILED");
+            return;
+        }
+        WidgetRefreshScheduler.INSTANCE.ensurePeriodic(getContext());
+        WidgetRefreshScheduler.INSTANCE.triggerAllImmediate(getContext());
+        WidgetRefreshScheduler.INSTANCE.enqueueImmediate(getContext());
+        call.resolve();
+    }
+
+    @PluginMethod
     public void clearSnapshot(PluginCall call) {
         store().clear();
         WidgetRefreshScheduler.INSTANCE.triggerAllImmediate(getContext());

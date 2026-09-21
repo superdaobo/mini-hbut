@@ -26,6 +26,10 @@ export class MiniHbutWidgetWeb extends WebPlugin implements MiniHbutWidgetPlugin
     throw this.unavailable('writeThemeColor is not available on web')
   }
 
+  async writeThemeMode(): Promise<void> {
+    throw this.unavailable('writeThemeMode is not available on web')
+  }
+
   async requestRefresh(): Promise<void> {
     throw this.unavailable('requestRefresh is not available on web')
   }
