@@ -4,12 +4,14 @@
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
  * #788 i18n：文案经 useI18n 响应式取词。
  */
+import { computed } from 'vue'
 import { getCourseEndPeriod } from '../utils/layout'
 import { useI18n } from '../../../utils/app_i18n'
 
-defineProps({
+const props = defineProps({
   showDetail: { type: Boolean, default: false },
   selectedCourse: { type: Object, default: null },
+  selectedWeek: { type: Number, default: 0 },
   detailActionError: { type: String, default: '' },
 })
 const emit = defineEmits([
@@ -23,6 +25,14 @@ const emit = defineEmits([
 
 // 响应式 t：语言切换后详情文案即时生效
 const { t } = useI18n()
+
+const canRemoveCurrentWeek = computed(() => {
+  const week = Number(props.selectedWeek || 0)
+  const weeks = Array.isArray(props.selectedCourse?.weeks)
+    ? props.selectedCourse.weeks.map((item) => Number(item))
+    : []
+  return Number.isInteger(week) && week > 0 && weeks.includes(week)
+})
 </script>
 
 <template>
@@ -90,9 +100,21 @@ const { t } = useI18n()
             <button class="custom-delete-btn all" @click="emit('delete-custom-course', 'all')">{{ t('schedule.detail.deleteAllWeeks') }}</button>
           </div>
           <div v-else class="official-course-actions">
-            <button class="official-remove-btn" @click="emit('remove-official-course', selectedCourse)">
-              {{ t('schedule.detail.removeOfficial') }}
-            </button>
+            <div class="official-remove-grid">
+              <button
+                class="official-remove-btn week"
+                :disabled="!canRemoveCurrentWeek"
+                @click="emit('remove-official-course', selectedCourse, 'current_week')"
+              >
+                {{ t('schedule.detail.removeOfficialCurrentWeek') }}
+              </button>
+              <button
+                class="official-remove-btn all"
+                @click="emit('remove-official-course', selectedCourse, 'all')"
+              >
+                {{ t('schedule.detail.removeOfficialAllWeeks') }}
+              </button>
+            </div>
             <p class="official-remove-hint">{{ t('schedule.detail.removeOfficialHint') }}</p>
           </div>
         </div>
@@ -169,15 +191,35 @@ const { t } = useI18n()
   gap: 7px;
 }
 
+.official-remove-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .official-remove-btn {
   min-height: 36px;
   border: 1px solid #fecaca;
   border-radius: 10px;
-  background: #fff1f2;
-  color: #b91c1c;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.official-remove-btn.week {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+
+.official-remove-btn.all {
+  background: #fff1f2;
+  color: #b91c1c;
+}
+
+.official-remove-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .official-remove-hint {

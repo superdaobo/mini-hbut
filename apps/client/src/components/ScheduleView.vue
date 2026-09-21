@@ -724,6 +724,7 @@ onBeforeUnmount(() => {
     <ScheduleCourseDetail
       :show-detail="showDetail"
       :selected-course="selectedCourse"
+      :selected-week="selectedWeek"
       :detail-action-error="detailActionError"
       @close="showDetail = false"
       @open-conflict-course-detail="detail.openConflictCourseDetail"
