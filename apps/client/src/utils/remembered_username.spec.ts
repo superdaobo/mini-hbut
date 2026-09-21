@@ -21,11 +21,15 @@ describe('remembered_username（hbu_username 收拢读写）', () => {
     vi.unstubAllGlobals()
   })
 
-  it('保存/读取 10 位学号，空值等价于清除', () => {
+  it('保存/读取 9 位研究生与 10 位本科生学号，空值等价于清除', () => {
     const storage = createStorage()
     vi.stubGlobal('localStorage', storage)
 
     expect(getRememberedUsername()).toBe('')
+    saveRememberedUsername('251023106')
+    expect(getRememberedUsername()).toBe('251023106')
+    expect(storage.snapshot()['hbu_username']).toBe('251023106')
+
     saveRememberedUsername('2510231106')
     expect(getRememberedUsername()).toBe('2510231106')
     expect(storage.snapshot()['hbu_username']).toBe('2510231106')
@@ -64,10 +68,11 @@ describe('remembered_username（hbu_username 收拢读写）', () => {
     expect(storage.snapshot()['hbu_username']).toBeUndefined()
   })
 
-  it('isLikelyStudentId 只识别 10 位纯数字学号', () => {
+  it('isLikelyStudentId 只识别 9 或 10 位纯数字学号', () => {
+    expect(isLikelyStudentId('251023106')).toBe(true)
     expect(isLikelyStudentId('2510231106')).toBe(true)
     expect(isLikelyStudentId(' 2510231106 ')).toBe(true)
-    expect(isLikelyStudentId('251023110')).toBe(false)
+    expect(isLikelyStudentId('25102310')).toBe(false)
     expect(isLikelyStudentId('25102311061')).toBe(false)
     expect(isLikelyStudentId('abc')).toBe(false)
     expect(isLikelyStudentId('')).toBe(false)

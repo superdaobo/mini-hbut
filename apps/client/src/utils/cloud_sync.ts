@@ -103,7 +103,7 @@ export const runCloudSyncUpload = async (
     return output
   }
   if (!isValidStudentId(sid)) {
-    const output: CloudSyncResult = { success: false, error: '云同步仅支持 10 位学号账号' }
+    const output: CloudSyncResult = { success: false, error: '云同步仅支持有效学号账号' }
     commitCloudSyncResult(sid, 'upload', { ...output, reason: safeReason })
     return output
   }
@@ -230,7 +230,7 @@ export const runCloudSyncDownload = async (
     return output
   }
   if (!isValidStudentId(sid)) {
-    const output: CloudSyncResult = { success: false, error: '云同步仅支持 10 位学号账号' }
+    const output: CloudSyncResult = { success: false, error: '云同步仅支持有效学号账号' }
     commitCloudSyncResult(sid, 'download', {
       ...output,
       reason: safeReason,
@@ -440,7 +440,7 @@ export const runAutoCloudSyncAfterLogin = async (
   const sid = toSafeText(studentId)
   if (!sid) return { success: false, reason: 'missing-student' }
   if (!isValidStudentId(sid)) {
-    pushDebugLog('CloudSync', `跳过自动云同步：非 10 位学号 sid=${sid}`, 'warn')
+    pushDebugLog('CloudSync', `跳过自动云同步：学号格式无效 sid=${sid}`, 'warn')
     return { success: false, reason: 'invalid-student' }
   }
 

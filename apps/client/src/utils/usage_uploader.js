@@ -7,6 +7,7 @@ import {
 } from './usage_tracker'
 import { shouldApplyAppStoreRestrictions } from '../config/app_store_policy'
 import { isTestAccountSession } from './test_account.js'
+import { isValidStudentId } from './student_id.js'
 
 const CLOUD_SYNC_DEVICE_ID_KEY = 'hbu_cloud_sync_device_id'
 const USAGE_UPLOAD_LAST_SUCCESS_PREFIX = 'hbu_usage_upload_last_success:'
@@ -15,7 +16,6 @@ const DEFAULT_UPLOAD_COOLDOWN_MS = 15 * 60 * 1000
 const CHALLENGE_SKEW_MS = 3000
 const CHALLENGE_FALLBACK_TTL_MS = 60 * 1000
 const BATCH_LIMIT = 200
-const STUDENT_ID_RE = /^\d{10}$/
 
 const challengeState = {
   token: '',
@@ -27,7 +27,6 @@ let uploadTimer = null
 let uploadInFlight = null
 
 const toSafeText = (value) => String(value || '').trim()
-const isValidStudentId = (value) => STUDENT_ID_RE.test(toSafeText(value))
 
 const safeParseJson = (raw, fallback = null) => {
   if (!raw) return fallback

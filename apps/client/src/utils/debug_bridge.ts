@@ -45,7 +45,7 @@ let unlistenState: (() => void) | null = null
 const resolveDebugHash = (sid: string, view: string) => {
   const normalizedSid = String(sid || '').trim()
   const normalizedView = String(view || '').trim() || 'home'
-  if (!/^\d{10}$/.test(normalizedSid)) return '#/'
+  if (!/^\d{9,10}$/.test(normalizedSid)) return '#/'
   if (normalizedView === 'home') return `#/${normalizedSid}`
   return `#/${normalizedSid}/${normalizedView}`
 }

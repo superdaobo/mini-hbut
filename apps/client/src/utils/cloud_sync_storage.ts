@@ -11,6 +11,7 @@ import {
   getLastNotifySnapshot,
   getNotificationMonitorSettings
 } from './notify_center'
+import { isValidStudentId } from './student_id.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 export { API_BASE }
@@ -28,7 +29,6 @@ export const DEFAULT_UPLOAD_COOLDOWN_SEC = 120
 export const DEFAULT_DOWNLOAD_COOLDOWN_SEC = 10
 export const DEFAULT_SECRET_REF = 'kv1-main'
 export const SYNC_SCHEMA_VERSION = 5
-const STUDENT_ID_RE = /^\d{10}$/
 export const CHALLENGE_SKEW_MS = 3000
 export const CHALLENGE_FALLBACK_TTL_MS = 60 * 1000
 
@@ -42,7 +42,7 @@ export const safeParseJson = <T>(raw: string | null, fallback: T): T => {
 }
 
 export const toSafeText = (value: unknown): string => String(value || '').trim()
-export const isValidStudentId = (value: unknown): boolean => STUDENT_ID_RE.test(toSafeText(value))
+export { isValidStudentId }
 
 export const normalizeProxyEndpoint = (value: unknown): string => {
   const text = toSafeText(value)

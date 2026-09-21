@@ -25,6 +25,7 @@ import {
   JWXT_RECOVERY_INTERVAL
 } from '../state/constants'
 import { saveRememberedUsername, clearRememberedUsername } from '../../utils/remembered_username'
+import { isValidStudentId } from '../../utils/student_id.js'
 import {
   TEST_ACCOUNT,
   isTestAccountSession
@@ -126,7 +127,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     if (isManualLogout()) return false
     const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
     if (!cachedSid) return false
-    if (!/^\d{10}$/.test(cachedSid)) {
+    if (!isValidStudentId(cachedSid)) {
       clearRememberedUsername()
       return false
     }
@@ -234,7 +235,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   const getStoredPassword = () => loadPortalStoredPassword()
   const getStoredChaoxingPassword = () => loadChaoxingStoredPassword()
 
-  const isLikelyStudentId = (value: unknown) => /^\d{10}$/.test(String(value || '').trim())
+  const isLikelyStudentId = isValidStudentId
 
   const resolveAutoLoginStudentId = async (payload: Record<string, unknown>) => {
     const payloadSid = String(payload?.student_id || payload?.studentId || '').trim()
@@ -276,7 +277,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
           state.studentId.value = sid
           saveRememberedUsername(sid)
         } else {
-          throw new Error('学习通自动登录未解析到 10 位学号')
+          throw new Error('学习通自动登录未解析到有效学号')
         }
         await persistSessionCookies()
         return true
