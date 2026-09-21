@@ -168,6 +168,47 @@ export const probeUrlViaCapacitor = async (url, timeoutMs = FAST_REMOTE_OPEN_PRO
   }
 }
 
+export const probeOpenUrl = async (url, timeoutMs = FAST_REMOTE_OPEN_PROBE_TIMEOUT_MS) => {
+  const target = safeText(url)
+  if (!target) return false
+
+  if (isCapacitorRuntime()) {
+    return probeUrlViaCapacitor(target, timeoutMs)
+  }
+
+  if (isTauriRuntime()) {
+    try {
+      const result = await withTimeout(
+        invokeNativeBridge(
+          'probe_remote_url',
+          { url: withCacheBust(target) },
+          `模块入口探测 ${target}`
+        ),
+        timeoutMs + 800,
+        '模块入口探测超时'
+      )
+      const status = Number(result?.status || 0)
+      return result?.ok === true || (status >= 200 && status < 400)
+    } catch (error) {
+      pushDebugLog('MoreModules', `Tauri 模块入口探测失败：${target}`, 'warn', {
+        error: describeError(error)
+      })
+      return false
+    }
+  }
+
+  try {
+    const response = await fetchWithTimeout(
+      withCacheBust(target),
+      { method: 'GET', cache: 'no-store', headers: { Accept: 'text/html,*/*' } },
+      timeoutMs
+    )
+    return response.status >= 200 && response.status < 400
+  } catch {
+    return false
+  }
+}
+
 export const isNativeBridgeUnavailableError = (error) => {
   const text = describeError(error).toLowerCase()
   if (!text) return true
@@ -556,6 +597,16 @@ export const updateModuleState = (moduleId, patch) => {
   writeModuleStateMap(map)
 }
 
+export const deleteModuleState = (moduleId) => {
+  const id = safeText(moduleId)
+  if (!id) return false
+  const map = readModuleStateMap()
+  if (!(id in map)) return false
+  delete map[id]
+  writeModuleStateMap(map)
+  return true
+}
+
 export const getLocalModuleState = (moduleId) => {
   const id = safeText(moduleId)
   if (!id) return null
@@ -660,6 +711,16 @@ export const writeCachedManifestSnapshot = (manifest) => {
     open_url: safeText(manifest?.open_url)
   }
   writeStorageJson(MODULE_MANIFEST_CACHE_STORAGE_KEY, cacheMap)
+}
+
+export const deleteCachedManifestSnapshot = (url) => {
+  const cacheKey = buildManifestCacheKey(url)
+  if (!cacheKey) return false
+  const cacheMap = readStorageJson(MODULE_MANIFEST_CACHE_STORAGE_KEY, {})
+  if (!cacheMap || typeof cacheMap !== 'object' || !(cacheKey in cacheMap)) return false
+  delete cacheMap[cacheKey]
+  writeStorageJson(MODULE_MANIFEST_CACHE_STORAGE_KEY, cacheMap)
+  return true
 }
 
 export const fetchJsonNoStore = async (url, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS) => {
@@ -783,15 +844,14 @@ export const fetchJsonWithRetry = async (
   throw lastError || new Error('远程配置请求失败')
 }
 
-export const pickFastestOpenUrl = async (candidates = []) => {
+export const pickFirstReachableUrl = async (candidates = [], probe = probeOpenUrl) => {
   const urls = toUniqueTextList(candidates)
   if (!urls.length) return ''
-  if (!isCapacitorRuntime() || urls.length === 1) return urls[0]
   return await new Promise((resolve) => {
     let settled = false
     let pending = urls.length
     urls.forEach((candidate) => {
-      probeUrlViaCapacitor(candidate, FAST_REMOTE_OPEN_PROBE_TIMEOUT_MS)
+      Promise.resolve(probe(candidate, FAST_REMOTE_OPEN_PROBE_TIMEOUT_MS))
         .then((ok) => {
           if (!ok || settled) return
           settled = true
@@ -803,11 +863,19 @@ export const pickFastestOpenUrl = async (candidates = []) => {
         .finally(() => {
           pending -= 1
           if (!settled && pending <= 0) {
-            resolve(urls[0] || '')
+            resolve('')
           }
         })
     })
   })
+}
+
+export const pickFastestOpenUrl = async (candidates = []) => {
+  const urls = toUniqueTextList(candidates)
+  if (!urls.length) return ''
+  const shouldProbe = isCapacitorRuntime() || isTauriRuntime()
+  if (!shouldProbe) return urls[0]
+  return pickFirstReachableUrl(urls, probeOpenUrl)
 }
 
 export const resolveModuleChannel = async () => {
@@ -895,9 +963,10 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
   throw new Error('无法获取模块清单，请检查网络后重试')
 }
 
-export const fetchModuleManifest = async (manifestUrl) => {
+export const fetchModuleManifest = async (manifestUrl, options = {}) => {
   const url = toAbsoluteUrl(manifestUrl)
   if (!url) throw new Error('模块 manifest 地址为空')
+  const allowCache = options?.allowCache !== false
   try {
     const { payload, url: resolvedUrl } = await fetchJsonWithRetry(
       buildRemoteUrlCandidates(url, '', 'manifest'),
@@ -937,7 +1006,7 @@ export const fetchModuleManifest = async (manifestUrl) => {
     writeCachedManifestSnapshot(manifest)
     return manifest
   } catch (error) {
-    const cachedManifest = readCachedManifestSnapshot(url)
+    const cachedManifest = allowCache ? readCachedManifestSnapshot(url) : null
     if (cachedManifest) return cachedManifest
     throw error
   }

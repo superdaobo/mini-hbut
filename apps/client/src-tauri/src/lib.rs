@@ -446,6 +446,7 @@ pub fn run() {
             transport::tauri::config::set_temp_upload_endpoint,
             transport::tauri::config::fetch_remote_config,
             transport::tauri::config::fetch_remote_json,
+            transport::tauri::config::probe_remote_url,
             transport::tauri::system::exit_app,
             transport::tauri::update::download_deyihei_font,
             transport::tauri::update::download_deyihei_font_payload,

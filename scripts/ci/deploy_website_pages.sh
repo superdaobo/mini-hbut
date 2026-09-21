@@ -24,7 +24,8 @@ if [ ! -d "$DEPLOY_SOURCE_DIR" ]; then
 fi
 
 if [ -d "$DEPLOY_SOURCE_DIR/modules" ]; then
-  node scripts/prune_website_module_versions.mjs "$DEPLOY_SOURCE_DIR/modules"
+  MODULE_KEEP_VERSIONS="${MODULE_KEEP_VERSIONS:-5}" \
+    node scripts/prune_website_module_versions.mjs "$DEPLOY_SOURCE_DIR/modules"
 fi
 
 DEPLOY="$(mktemp -d)"
