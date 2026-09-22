@@ -7,13 +7,13 @@ const readText = (path: string) =>
   readFileSync(resolve(process.cwd(), path), 'utf8')
 
 describe('android widget contract', () => {
-  it('requests refresh after widget snapshot writes in web bridge', () => {
+  it('requests refresh exactly once inside platform snapshot writes', () => {
     const bridge = readText('src/utils/widget_bridge.ts')
     const widget = readText('src/platform/capacitor/widget.ts')
 
     expect(bridge).toContain('requestWidgetRefresh')
-    expect(bridge).toMatch(/afterScheduleRefresh[\s\S]*requestWidgetRefresh/)
-    expect(bridge).toMatch(/tryWriteSnapshotFromCache[\s\S]*requestWidgetRefresh/)
+    const refreshCallsInBridge = bridge.match(/await requestWidgetRefresh\(\)/g) ?? []
+    expect(refreshCallsInBridge).toHaveLength(1)
     expect(widget).toMatch(/writeSnapshotWithRetry[\s\S]*await requestRefresh\(\)/)
     expect(widget).toMatch(/writeElectricitySnapshot[\s\S]*await requestRefresh\(\)/)
     expect(widget).toMatch(/writeExamSnapshot[\s\S]*await requestRefresh\(\)/)
@@ -88,7 +88,7 @@ describe('android widget contract', () => {
     }
   })
 
-  it('resolves today courses natively from a semester index after the App is killed', () => {
+  it('keeps native semester-index support but disables schedule_index on the app boot path', () => {
     const resolver = readText('android/app/src/main/java/com/hbut/mini/widget/WidgetScheduleResolver.kt')
     const renderer = readText('android/app/src/main/java/com/hbut/mini/widget/WidgetRenderer.kt')
     const service = readText('android/app/src/main/java/com/hbut/mini/widget/TodayCoursesRemoteViewsService.kt')
@@ -103,7 +103,8 @@ describe('android widget contract', () => {
     expect(resolver).toContain('start_date')
     expect(renderer).toContain('WidgetScheduleResolver.resolveToday')
     expect(service).toContain('WidgetScheduleResolver.resolveToday')
-    expect(bridge).toContain('buildWidgetScheduleIndex')
+    expect(bridge).not.toContain('buildWidgetScheduleIndex')
+    expect(bridge).not.toContain('snapshot.schedule_index')
     expect(provider).toContain('Intent.ACTION_DATE_CHANGED')
     expect(provider).toContain('Intent.ACTION_TIME_CHANGED')
     expect(provider).toContain('Intent.ACTION_TIMEZONE_CHANGED')
@@ -115,5 +116,14 @@ describe('android widget contract', () => {
       expect(manifest).toContain(action)
       expect(patchScript).toContain(action)
     }
+  })
+
+  it('serializes Tauri widget preference writes and uses unique temp files', () => {
+    const tauriWidget = readText('src-tauri/src/transport/tauri/widget.rs')
+    expect(tauriWidget).toContain('WIDGET_PREFS_WRITE_LOCK')
+    expect(tauriWidget).toContain('WIDGET_PREFS_WRITE_LOCK.lock().await')
+    expect(tauriWidget).toContain('WIDGET_TMP_COUNTER.fetch_add')
+    expect(tauriWidget).toContain('"{}.{}.{}.tmp"')
+    expect(tauriWidget).not.toContain('"{}.{}.tmp"')
   })
 })

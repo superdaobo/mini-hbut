@@ -7,7 +7,6 @@
 
 import {
   buildTodayCourseSnapshot,
-  buildWidgetScheduleIndex,
   resolveWeekIndexFromAnchor
 } from './widget_snapshot'
 import {
@@ -157,16 +156,6 @@ function readScheduleMetaInline(): Record<string, unknown> | null {
   return raw as Record<string, unknown>
 }
 
-function resolveWidgetTotalWeeks(...values: unknown[]): number {
-  for (const value of values) {
-    const numeric = Number(value)
-    if (Number.isFinite(numeric) && numeric >= 1) {
-      return Math.min(Math.floor(numeric), 60)
-    }
-  }
-  return 25
-}
-
 /**
  * #759：解析写入 Widget 快照应使用的「当前真实周次」。
  * 优先级：meta.start_date 开学锚点推算（跨天后依然正确，修复周一凌晨写错周次）
@@ -208,10 +197,7 @@ export async function afterScheduleRefresh(
     const effectiveSemester = lockedSemester || payloadSemester
     const customCourses = readCustomCoursesInline(sid, effectiveSemester)
     const allCourses = buildEffectiveSchedule(sid, effectiveSemester, remoteCourses, customCourses)
-    const storedMeta = readScheduleMetaInline()
     const baseWeekIndex = readMetaCurrentWeekOr(opts.selectedWeek)
-    const startDate = toSafeText(payloadMeta?.start_date || storedMeta?.start_date)
-    const totalWeeks = resolveWidgetTotalWeeks(payloadMeta?.total_weeks, storedMeta?.total_weeks)
     const now = new Date()
 
     const snapshot = buildTodayCourseSnapshot({
@@ -222,16 +208,10 @@ export async function afterScheduleRefresh(
       weekIndex: baseWeekIndex,
       now
     })
-    snapshot.schedule_index = buildWidgetScheduleIndex({
-      cache: allCourses,
-      baseWeekIndex,
-      startDate,
-      totalWeeks,
-      now
-    })
+    // #891：诊断阶段不在 App 主流程预展开整学期 schedule_index。
+    // 保留原生 resolver/schema 的兼容能力，后续改为紧凑课程索引后再恢复跨天数据。
 
     await writeSnapshotWithRetry(snapshot)
-    await requestWidgetRefresh()
   } catch (err: unknown) {
     const code = (err as { code?: string })?.code ?? 'UNKNOWN'
     const message = err instanceof Error ? err.message : String(err)
@@ -264,9 +244,6 @@ export async function tryWriteSnapshotFromCache(sid: string): Promise<void> {
     // 不再直接信任前一天缓存写入的 current_week；date/weekday 由
     // buildTodayCourseSnapshot 用当下时间计算，天然正确
     const weekIndex = resolveWeekIndexForSnapshot()
-    const storedMeta = readScheduleMetaInline()
-    const startDate = toSafeText(storedMeta?.start_date)
-    const totalWeeks = resolveWidgetTotalWeeks(storedMeta?.total_weeks)
     const now = new Date()
 
     const snapshot = buildTodayCourseSnapshot({
@@ -275,16 +252,10 @@ export async function tryWriteSnapshotFromCache(sid: string): Promise<void> {
       weekIndex,
       now
     })
-    snapshot.schedule_index = buildWidgetScheduleIndex({
-      cache: allCourses,
-      baseWeekIndex: weekIndex,
-      startDate,
-      totalWeeks,
-      now
-    })
+    // #891：启动/恢复路径保持 beta.503 级别的小 Today Snapshot，
+    // 避免主页挂载后立刻构建、校验并通过 IPC 传输整学期展开数据。
 
     await writeSnapshotWithRetry(snapshot)
-    await requestWidgetRefresh()
   } catch (err: unknown) {
     const code = (err as { code?: string })?.code ?? 'UNKNOWN'
     const message = err instanceof Error ? err.message : String(err)

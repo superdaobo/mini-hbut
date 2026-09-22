@@ -155,8 +155,7 @@ describe('#759 tryWriteSnapshotFromCache 周次重算', () => {
     expect(snapshot.date).toBe(`${y}-${m}-${d}`)
     expect(snapshot.weekday).toBeGreaterThanOrEqual(1)
     expect(snapshot.weekday).toBeLessThanOrEqual(7)
-    expect(snapshot.schedule_index?.start_date).toBe('2026-03-02')
-    expect(snapshot.schedule_index?.base_week_index).toBe(snapshot.week_index)
+    expect(snapshot.schedule_index).toBeUndefined()
   })
 
   it('无课表缓存时静默返回（不写入、不抛错）', async () => {
@@ -172,11 +171,7 @@ describe('#759 afterScheduleRefresh 真实周优先', () => {
     await afterScheduleRefresh(SID, { data: [] }, { selectedWeek: 7 })
     const snapshot = lastSnapshot()
     expect(snapshot.week_index).toBe(3)
-    expect(snapshot.schedule_index).toMatchObject({
-      start_date: '2026-03-02',
-      base_week_index: 3,
-      total_weeks: 25
-    })
+    expect(snapshot.schedule_index).toBeUndefined()
   })
 
   it('meta 缺失 current_week → 退回 selectedWeek', async () => {

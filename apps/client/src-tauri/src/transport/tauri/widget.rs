@@ -1,6 +1,13 @@
 //! Android Widget 快照写入 Tauri commands（SharedPreferences XML）。
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Manager;
+
+// #891：所有 Widget SharedPreferences 的 read-modify-write 必须串行。
+// 启动阶段 theme_mode/theme_color/snapshot 可能并发到达；若不加锁，
+// 后写入者会基于旧 XML 覆盖先写入者，且旧实现还会竞争同一个 tmp 文件。
+static WIDGET_PREFS_WRITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static WIDGET_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(target_os = "android")]
 fn trigger_android_widget_refresh() -> Result<(), String> {
@@ -96,6 +103,7 @@ pub(crate) async fn write_widget_snapshot(
     app: tauri::AppHandle,
     snapshot_json: String,
 ) -> Result<(), String> {
+    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
 
     tokio::fs::create_dir_all(&prefs_dir)
@@ -147,6 +155,7 @@ pub(crate) async fn write_widget_snapshot(
 /// 清空 widget 快照数据
 #[tauri::command]
 pub(crate) async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
+    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
     let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
 
@@ -190,6 +199,7 @@ pub(crate) async fn write_widget_theme_color(
     app: tauri::AppHandle,
     color: String,
 ) -> Result<(), String> {
+    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
     tokio::fs::create_dir_all(&prefs_dir)
         .await
@@ -241,6 +251,7 @@ pub(crate) async fn write_widget_theme_mode(
     app: tauri::AppHandle,
     mode: String,
 ) -> Result<(), String> {
+    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
     let normalized = match mode.trim().to_ascii_lowercase().as_str() {
         "system" => "system",
         "light" => "light",
@@ -297,6 +308,7 @@ pub(crate) async fn write_electricity_snapshot(
     app: tauri::AppHandle,
     json: String,
 ) -> Result<(), String> {
+    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
     tokio::fs::create_dir_all(&prefs_dir)
         .await
@@ -348,6 +360,7 @@ pub(crate) async fn write_electricity_snapshot(
 /// 写入考试快照到 SharedPreferences
 #[tauri::command]
 pub(crate) async fn write_exam_snapshot(app: tauri::AppHandle, json: String) -> Result<(), String> {
+    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
     tokio::fs::create_dir_all(&prefs_dir)
         .await
@@ -452,7 +465,13 @@ async fn atomic_write_file(path: &std::path::Path, content: &[u8]) -> std::io::R
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "out.bin".to_string());
-    let tmp_path = path.with_file_name(format!("{}.{}.tmp", file_name, std::process::id()));
+    let unique = WIDGET_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = path.with_file_name(format!(
+        "{}.{}.{}.tmp",
+        file_name,
+        std::process::id(),
+        unique
+    ));
     tokio::fs::write(&tmp_path, content).await?;
     // rename 为原子操作（同目录/同文件系统），成功即覆盖目标
     match tokio::fs::rename(&tmp_path, path).await {
