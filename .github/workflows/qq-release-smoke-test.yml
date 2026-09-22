@@ -1,0 +1,349 @@
+name: QQ Release Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qq-release-smoke-test
+  cancel-in-progress: false
+
+jobs:
+  send-latest-release:
+    name: Send latest stable release to QQ
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      QQBOT_APP_ID: ${{ secrets.QQBOT_APP_ID }}
+      QQBOT_APP_SECRET: ${{ secrets.QQBOT_APP_SECRET }}
+      QQ_GROUP_OPENID: ${{ secrets.QQ_GROUP_OPENID }}
+
+    steps:
+      - name: Validate QQ secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in QQBOT_APP_ID QQBOT_APP_SECRET QQ_GROUP_OPENID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing repository secret: ${name}"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Resolve latest stable GitHub Release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_JSON="${RUNNER_TEMP}/latest-release.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/latest" > "${RELEASE_JSON}"
+
+          TAG="$(jq -r '.tag_name' "${RELEASE_JSON}")"
+          NAME="$(jq -r '.name // .tag_name' "${RELEASE_JSON}")"
+          URL="$(jq -r '.html_url' "${RELEASE_JSON}")"
+          NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+          jq -r '.body // "No release notes."' "${RELEASE_JSON}" > "${NOTES_FILE}"
+
+          if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
+            echo "::error::Could not resolve the latest stable release tag."
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "name=${NAME}" >> "${GITHUB_OUTPUT}"
+          echo "url=${URL}" >> "${GITHUB_OUTPUT}"
+          echo "json=${RELEASE_JSON}" >> "${GITHUB_OUTPUT}"
+          echo "notes=${NOTES_FILE}" >> "${GITHUB_OUTPUT}"
+
+          echo "Latest stable release: ${NAME} (${TAG})"
+
+      - name: Download Android and Windows installers
+        id: assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_JSON: ${{ steps.release.outputs.json }}
+        run: |
+          set -euo pipefail
+          ASSET_DIR="${RUNNER_TEMP}/release-assets"
+          mkdir -p "${ASSET_DIR}"
+
+          mapfile -t ASSET_NAMES < <(
+            jq -r '.assets[].name' "${RELEASE_JSON}" |
+              grep -E '^Mini-HBUT_.*_(arm64\.apk|x64-setup\.exe)$' || true
+          )
+
+          if [ "${#ASSET_NAMES[@]}" -eq 0 ]; then
+            echo "::error::Latest release has no matching Android APK or Windows NSIS installer."
+            echo "Available assets:"
+            jq -r '.assets[].name' "${RELEASE_JSON}"
+            exit 1
+          fi
+
+          for asset in "${ASSET_NAMES[@]}"; do
+            echo "Downloading ${asset}"
+            gh release download "${RELEASE_TAG}"               --repo "${GITHUB_REPOSITORY}"               --dir "${ASSET_DIR}"               --pattern "${asset}"               --clobber
+          done
+
+          echo "dir=${ASSET_DIR}" >> "${GITHUB_OUTPUT}"
+          ls -lh "${ASSET_DIR}"
+
+      - name: Install QQ bot and screenshot runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_DIR="${RUNNER_TEMP}/qq-release-runtime"
+          mkdir -p "${RUNTIME_DIR}"
+          cd "${RUNTIME_DIR}"
+
+          npm init -y >/dev/null
+          npm install --no-save --no-audit --no-fund             @tencent-connect/qqbot-nodejs@1             marked@15             playwright@1
+
+          npx playwright install --with-deps chromium
+          echo "QQ_RUNTIME_DIR=${RUNTIME_DIR}" >> "${GITHUB_ENV}"
+
+      - name: Render Release Notes screenshot
+        shell: bash
+        env:
+          RELEASE_NAME: ${{ steps.release.outputs.name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+          NOTES_FILE: ${{ steps.release.outputs.notes }}
+        run: |
+          set -euo pipefail
+          cd "${QQ_RUNTIME_DIR}"
+
+          cat > render-release-notes.mjs <<'NODE'
+          import fs from "node:fs";
+          import { marked } from "marked";
+          import { chromium } from "playwright";
+
+          const notes = fs.readFileSync(process.env.NOTES_FILE, "utf8");
+          const body = marked.parse(notes, { gfm: true, breaks: true });
+
+          const html = `<!doctype html>
+          <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8">
+            <style>
+              * { box-sizing: border-box; }
+              body {
+                margin: 0;
+                background: #f5f7fb;
+                color: #182033;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+              }
+              main {
+                width: 1080px;
+                margin: 0 auto;
+                padding: 64px 72px 72px;
+                background: #ffffff;
+              }
+              .eyebrow {
+                margin: 0 0 12px;
+                color: #667085;
+                font-size: 24px;
+                font-weight: 600;
+              }
+              h1 {
+                margin: 0;
+                font-size: 48px;
+                line-height: 1.18;
+                letter-spacing: -0.02em;
+              }
+              .meta {
+                margin: 14px 0 42px;
+                color: #667085;
+                font-size: 22px;
+                word-break: break-all;
+              }
+              .notes {
+                font-size: 24px;
+                line-height: 1.72;
+              }
+              .notes h1 { font-size: 38px; margin-top: 44px; }
+              .notes h2 { font-size: 34px; margin: 40px 0 14px; }
+              .notes h3 { font-size: 29px; margin: 34px 0 12px; }
+              .notes p, .notes ul, .notes ol { margin: 14px 0; }
+              .notes li { margin: 8px 0; }
+              .notes code {
+                padding: 2px 7px;
+                border-radius: 7px;
+                background: #f2f4f7;
+                font-family: "SFMono-Regular", Consolas, monospace;
+                font-size: 0.9em;
+              }
+              .notes pre {
+                overflow-wrap: anywhere;
+                white-space: pre-wrap;
+                padding: 20px 22px;
+                border-radius: 14px;
+                background: #101828;
+                color: #f8fafc;
+              }
+              .notes pre code { padding: 0; background: transparent; color: inherit; }
+              .notes a { color: #155eef; text-decoration: none; }
+              .notes blockquote {
+                margin: 18px 0;
+                padding: 2px 0 2px 20px;
+                border-left: 5px solid #d0d5dd;
+                color: #475467;
+              }
+              hr { border: 0; border-top: 1px solid #eaecf0; margin: 34px 0; }
+            </style>
+          </head>
+          <body>
+            <main>
+              <p class="eyebrow">Mini-HBUT · GitHub Release</p>
+              <h1>${escapeHtml(process.env.RELEASE_NAME || process.env.RELEASE_TAG || "Latest Release")}</h1>
+              <p class="meta">${escapeHtml(process.env.RELEASE_TAG || "")} · ${escapeHtml(process.env.RELEASE_URL || "")}</p>
+              <section class="notes">${body}</section>
+            </main>
+          </body>
+          </html>`;
+
+          function escapeHtml(value) {
+            return String(value)
+              .replaceAll("&", "&amp;")
+              .replaceAll("<", "&lt;")
+              .replaceAll(">", "&gt;")
+              .replaceAll('"', "&quot;")
+              .replaceAll("'", "&#039;");
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({
+            viewport: { width: 1080, height: 1200 },
+            deviceScaleFactor: 1,
+          });
+          await page.setContent(html, { waitUntil: "networkidle" });
+          await page.screenshot({
+            path: process.env.SCREENSHOT_FILE,
+            fullPage: true,
+            type: "png",
+          });
+          await browser.close();
+          NODE
+
+          SCREENSHOT_FILE="${RUNNER_TEMP}/release-notes.png"
+          export SCREENSHOT_FILE
+          node render-release-notes.mjs
+          ls -lh "${SCREENSHOT_FILE}"
+          echo "QQ_RELEASE_NOTES_PNG=${SCREENSHOT_FILE}" >> "${GITHUB_ENV}"
+
+      - name: Send Release Notes and installers to QQ group
+        shell: bash
+        env:
+          RELEASE_NAME: ${{ steps.release.outputs.name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          ASSET_DIR: ${{ steps.assets.outputs.dir }}
+        run: |
+          set -euo pipefail
+          cd "${QQ_RUNTIME_DIR}"
+
+          cat > send-to-qq.mjs <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          import { QQBot } from "@tencent-connect/qqbot-nodejs";
+
+          const required = [
+            "QQBOT_APP_ID",
+            "QQBOT_APP_SECRET",
+            "QQ_GROUP_OPENID",
+            "QQ_RELEASE_NOTES_PNG",
+            "ASSET_DIR",
+          ];
+          for (const name of required) {
+            if (!process.env[name]) throw new Error(`Missing environment variable: ${name}`);
+          }
+
+          const bot = new QQBot({
+            appId: process.env.QQBOT_APP_ID,
+            appSecret: process.env.QQBOT_APP_SECRET,
+          });
+
+          const target = {
+            scope: "group",
+            targetId: process.env.QQ_GROUP_OPENID,
+          };
+
+          const releaseName = process.env.RELEASE_NAME || process.env.RELEASE_TAG || "Mini-HBUT";
+          const releaseTag = process.env.RELEASE_TAG || "";
+
+          await bot.sendText(
+            target,
+            `🚀 ${releaseName}\n版本：${releaseTag}\n以下为本次 Release Notes 与安装包。`,
+          );
+
+          await bot.sendImage(
+            target,
+            { localPath: process.env.QQ_RELEASE_NOTES_PNG },
+            { content: "Release Notes" },
+          );
+
+          const assets = fs
+            .readdirSync(process.env.ASSET_DIR)
+            .filter((name) => /(_arm64\.apk|_x64-setup\.exe)$/i.test(name))
+            .sort((a, b) => {
+              const aOrder = a.toLowerCase().endsWith(".apk") ? 0 : 1;
+              const bOrder = b.toLowerCase().endsWith(".apk") ? 0 : 1;
+              return aOrder - bOrder || a.localeCompare(b);
+            });
+
+          if (assets.length === 0) {
+            throw new Error("No installer assets found after download.");
+          }
+
+          const sdkFileLimit = 100 * 1024 * 1024;
+          for (const name of assets) {
+            const file = path.join(process.env.ASSET_DIR, name);
+            const size = fs.statSync(file).size;
+            if (size > sdkFileLimit) {
+              throw new Error(
+                `${name} is ${(size / 1024 / 1024).toFixed(1)} MB, above the QQ SDK 100 MB FILE limit.`,
+              );
+            }
+
+            console.log(`Sending ${name} (${(size / 1024 / 1024).toFixed(1)} MB)`);
+            await bot.sendFile(
+              target,
+              { localPath: file },
+              {
+                fileName: name,
+                content: name.toLowerCase().endsWith(".apk")
+                  ? "Android 安装包"
+                  : "Windows 安装包",
+                onProgress: (uploaded, total) =>
+                  console.log(`${name}: ${uploaded}/${total}`),
+              },
+            );
+          }
+
+          console.log(`QQ release smoke test completed: ${releaseTag}`);
+          NODE
+
+          node send-to-qq.mjs
+
+      - name: Write workflow summary
+        if: always()
+        shell: bash
+        env:
+          RELEASE_NAME: ${{ steps.release.outputs.name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          {
+            echo "## QQ Release Smoke Test"
+            echo
+            echo "- Release: ${RELEASE_NAME:-unknown} (${RELEASE_TAG:-unknown})"
+            echo "- Target: QQ group via QQ official bot"
+            echo "- Content: announcement + Release Notes screenshot + Android APK + Windows NSIS EXE"
+            echo "- Trigger: manual only (workflow_dispatch)"
+          } >> "${GITHUB_STEP_SUMMARY}"
