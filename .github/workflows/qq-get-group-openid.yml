@@ -1,0 +1,134 @@
+name: Get QQ Group OpenID
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qq-get-group-openid
+  cancel-in-progress: true
+
+jobs:
+  listen:
+    name: Wait for a QQ group mention
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    env:
+      QQBOT_APP_ID: ${{ secrets.QQBOT_APP_ID }}
+      QQBOT_APP_SECRET: ${{ secrets.QQBOT_APP_SECRET }}
+
+    steps:
+      - name: Validate QQ bot secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in QQBOT_APP_ID QQBOT_APP_SECRET; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing repository secret: ${name}"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Install QQ Bot SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_DIR="${RUNNER_TEMP}/qq-openid-runtime"
+          mkdir -p "${RUNTIME_DIR}"
+          cd "${RUNTIME_DIR}"
+          npm init -y >/dev/null
+          npm install --no-save --no-audit --no-fund @tencent-connect/qqbot-nodejs@1
+          echo "QQ_RUNTIME_DIR=${RUNTIME_DIR}" >> "${GITHUB_ENV}"
+
+      - name: Wait up to 5 minutes for a group message
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${QQ_RUNTIME_DIR}"
+
+          cat > get-group-openid.mjs <<'NODE'
+          import fs from "node:fs";
+          import { QQBot } from "@tencent-connect/qqbot-nodejs";
+
+          const appId = process.env.QQBOT_APP_ID;
+          const appSecret = process.env.QQBOT_APP_SECRET;
+          if (!appId || !appSecret) {
+            throw new Error("QQBOT_APP_ID / QQBOT_APP_SECRET is missing.");
+          }
+
+          const bot = new QQBot({
+            appId,
+            appSecret,
+            logger: console,
+          });
+
+          const controller = new AbortController();
+          let found = null;
+
+          const timer = setTimeout(() => {
+            console.error("Timed out: no QQ group message was received within 5 minutes.");
+            controller.abort();
+          }, 5 * 60 * 1000);
+
+          bot.on("message", async (_ctx, msg) => {
+            if (msg.kind !== "group") {
+              console.log(`Ignoring non-group message from ${msg.kind}`);
+              return;
+            }
+
+            const groupOpenid = msg.groupOpenid || msg.replyTarget?.targetId;
+            if (!groupOpenid) {
+              console.error("Received a group message but no group_openid was present.");
+              return;
+            }
+
+            found = groupOpenid;
+            console.log("");
+            console.log("============================================================");
+            console.log("QQ_GROUP_OPENID=" + groupOpenid);
+            console.log("============================================================");
+            console.log("");
+
+            if (process.env.GITHUB_STEP_SUMMARY) {
+              fs.appendFileSync(
+                process.env.GITHUB_STEP_SUMMARY,
+                [
+                  "## QQ Group OpenID captured",
+                  "",
+                  "Add the following value as the repository secret `QQ_GROUP_OPENID`:",
+                  "",
+                  "```text",
+                  groupOpenid,
+                  "```",
+                  "",
+                  "> This OpenID is scoped to the current QQ bot.",
+                  "",
+                ].join("\n"),
+              );
+            }
+
+            clearTimeout(timer);
+            controller.abort();
+          });
+
+          try {
+            await bot.start(controller.signal);
+          } finally {
+            clearTimeout(timer);
+          }
+
+          if (!found) {
+            throw new Error(
+              "No group_openid captured. Run the workflow again and @ the bot in the target QQ group while the job is waiting.",
+            );
+          }
+          NODE
+
+          node get-group-openid.mjs
