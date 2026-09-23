@@ -1154,6 +1154,8 @@ jobs:
   notify-qq:
     name: Notify QQ after website deployment
     needs: deploy-website
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -1194,7 +1196,7 @@ jobs:
           jq -r '.body // "No release notes."' "${RELEASE_JSON}" > "${NOTES_FILE}"
 
           if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
-            echo "::error::Could not resolve the latest stable release tag."
+            echo "::error::Could not resolve the current release tag."
             exit 1
           fi
 
