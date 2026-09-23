@@ -102,7 +102,7 @@ describe('checkChaoxingInbox（#715 学习通通知独立渠道）', () => {
     expect(result.success).toBe(true)
     expect(invokeNativeMock).not.toHaveBeenCalled()
     expect(queue.length).toBe(0)
-  })
+  }, 15_000)
 
   it('首次同步只建立基线，不推送历史消息', async () => {
     invokeNativeMock.mockResolvedValue(

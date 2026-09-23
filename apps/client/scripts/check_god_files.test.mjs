@@ -33,6 +33,20 @@ test('detects an unregistered oversized Vue file', () => {
   }
 })
 
+test('exempts pure localization dictionaries from the generic script size limit only', () => {
+  const root = makeRepo()
+  try {
+    writeLines(path.join(root, 'src', 'utils', 'i18n', 'messages', 'zh-CN.ts'), 1501, "export const text = 'x'")
+    writeLines(path.join(root, 'src', 'utils', 'ordinary.ts'), 1001)
+    const violations = scanGodFileViolations(root).violations
+    const keys = violations.map((item) => item.key)
+    assert.equal(keys.includes('size:src/utils/i18n/messages/zh-CN.ts'), false)
+    assert.equal(keys.includes('size:src/utils/ordinary.ts'), true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('accepts registered migration debt but strict mode rejects it', () => {
   const root = makeRepo()
   try {
