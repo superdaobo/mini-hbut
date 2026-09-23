@@ -7,6 +7,14 @@ const readText = (path: string) =>
   readFileSync(resolve(process.cwd(), path), 'utf8')
 
 describe('android widget contract', () => {
+  it('disables the Tauri Android native widget bridge for #894 crash diagnosis', () => {
+    const widget = readText('src/platform/capacitor/widget.ts')
+    expect(widget).toContain('TAURI_ANDROID_WIDGET_NATIVE_BRIDGE_DISABLED = true')
+    expect(widget).toMatch(
+      /TAURI_ANDROID_WIDGET_NATIVE_BRIDGE_DISABLED[\s\S]*\?[\s\S]*createNoOpProxy\(\)[\s\S]*:[\s\S]*createTauriAndroidBridge\(\)/
+    )
+  })
+
   it('requests refresh exactly once inside platform snapshot writes', () => {
     const bridge = readText('src/utils/widget_bridge.ts')
     const widget = readText('src/platform/capacitor/widget.ts')
