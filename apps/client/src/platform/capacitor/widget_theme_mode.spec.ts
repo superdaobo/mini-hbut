@@ -2,7 +2,7 @@
 // #758：writeThemeMode（应用主题模式 → 原生 Widget 存储）平台通路单测
 //
 // 通路设计：
-// - Tauri Android：invokeNative('write_widget_theme_mode') 写入原生主题偏好并请求刷新
+// - Tauri Android：1.4.11 为避免 #894 启动闪退，暂时走安全 no-op
 // - Capacitor：MiniHbutWidget.writeThemeMode（插件未实现该方法时 reject）
 // - 桌面/Web：reject
 // 调用方 widget_bridge.writeWidgetThemeMode 静默捕获全部失败。
@@ -36,10 +36,10 @@ afterEach(() => {
 })
 
 describe('#758 writeThemeMode 平台通路', () => {
-  it('Tauri Android：走 invokeNative("write_widget_theme_mode")', async () => {
+  it('Tauri Android：1.4.11 暂时熔断原生 Widget bridge，不调用 invokeNative', async () => {
     mockTauri.mockReturnValue(true)
     await expect(writeThemeMode('dark')).resolves.toBeUndefined()
-    expect(mockInvoke).toHaveBeenCalledWith('write_widget_theme_mode', { mode: 'dark' })
+    expect(mockInvoke).not.toHaveBeenCalled()
   })
 
   it('Capacitor 且插件已实现 writeThemeMode：透传调用', async () => {

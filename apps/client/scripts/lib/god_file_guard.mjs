@@ -14,6 +14,7 @@ export const LIMITS = Object.freeze({
 const SOURCE_ROOTS = ['src', 'src-tauri/src']
 const SPECIFIC_LIMITS = new Map(Object.entries(LIMITS).filter(([key]) => key.includes('/')))
 const TEST_FILE_RE = /(?:^|\/)(?:__tests__|fixtures?)(?:\/|$)|(?:\.spec|\.test)\.[cm]?[jt]sx?$|\.d\.ts$|_fixtures?\.[cm]?[jt]s$/i
+const LOCALIZATION_DICTIONARY_RE = /^src\/utils\/i18n\/messages\/[^/]+\.ts$/i
 const RUNTIME_FILE_RE = /\.runtime\.js$/i
 const RUNTIME_IMPORT_RE = /(?:from\s*['"][^'"]*\.runtime\.js['"]|import\s*\(\s*['"][^'"]*\.runtime\.js['"]\s*\)|require\s*\(\s*['"][^'"]*\.runtime\.js['"]\s*\))/i
 
@@ -40,6 +41,9 @@ const classifyLimit = (relativePath) => {
     return { kind: 'size', limit: SPECIFIC_LIMITS.get(relativePath), scope: 'specific' }
   }
   if (TEST_FILE_RE.test(relativePath)) return null
+  // 语言字典是纯静态文案数据，不属于需要通过拆文件控制复杂度的业务脚本。
+  // 这里只跳过“行数”判定；runtime 文件/import 等其它架构守卫仍在扫描阶段照常执行。
+  if (LOCALIZATION_DICTIONARY_RE.test(relativePath)) return null
   const extension = path.extname(relativePath).toLowerCase()
   if (extension === '.vue') return { kind: 'size', limit: LIMITS.vue, scope: 'vue' }
   if (extension === '.rs') return { kind: 'size', limit: LIMITS.rust, scope: 'rust' }
