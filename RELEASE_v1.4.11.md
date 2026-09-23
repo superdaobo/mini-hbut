@@ -18,7 +18,7 @@
 6. **新增日语界面**：在简体中文、English 基础上新增日本語
 7. **稳定性与平台体验修复**：修复 iOS 长后台恢复、导出中心白屏、课表空白选择偏移、Windows 关闭键行为、Android 小游戏 404 容灾等问题
 8. **Android 启动闪退止血**：针对 beta.504–507 的主页面启动闪退，1.4.11 暂时熔断 Tauri Android Widget 原生桥，以稳定启动为优先
-9. **发布前依赖安全升级**：Vitest 工具链升级至 4.1.11，修复 GHSA-82fw-gwwq-j7x9，客户端与官网 npm audit 均恢复为 0 漏洞
+9. **发布前依赖安全升级**：Vitest 工具链升级至 4.1.11，修复 GHSA-82fw-gwwq-j7x9；同时将 rustls 升级至 0.23.45，修复 RUSTSEC-2026-0285
 
 完整对比：[v1.4.10...v1.4.11](https://github.com/superdaobo/mini-hbut/compare/v1.4.10...v1.4.11)
 
@@ -194,6 +194,8 @@ Windows 桌面端右上角关闭按钮恢复为真正的一键退出，不再误
 - `vitest` / `@vitest/coverage-v8` 升级至 **4.1.11**
 - 修复 `@vitest/mocker` 的 GHSA-82fw-gwwq-j7x9 路径穿越 / 任意文件读取公告
 - 发布门禁重新验证客户端与官网依赖，`npm audit` 均为 0 漏洞
+- `rustls` 从 **0.23.36** 升级至 **0.23.45**，并同步更新 `rustls-webpki` 至 **0.103.15**
+- 修复 RUSTSEC-2026-0285（TLS 1.3 handshake messages incorrectly accepted across encryption level boundaries）
 
 ### TestFlight / Dev 构建版本
 
@@ -225,7 +227,7 @@ Windows 桌面端右上角关闭按钮恢复为真正的一键退出，不再误
 - 标签：[`v1.4.11`](https://github.com/superdaobo/mini-hbut/releases/tag/v1.4.11)
 - 上一版本：[`v1.4.10`](https://github.com/superdaobo/mini-hbut/releases/tag/v1.4.10)
 - 完整变更：[`v1.4.10...v1.4.11`](https://github.com/superdaobo/mini-hbut/compare/v1.4.10...v1.4.11)
-- 统计：提交 **22** 个 · 变更文件 **187** 个 · +20,262 / −1,145 行
+- 统计：提交 **22** 个 · 变更文件 **187** 个 · +20,268 / −1,149 行
 
 ---
 
