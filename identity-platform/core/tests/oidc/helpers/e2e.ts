@@ -14,7 +14,12 @@ import http from 'node:http'
 import { createHash, createVerify, generateKeyPairSync, randomBytes } from 'node:crypto'
 import { createApp, type App, type AppWithProvider } from '../../../src/app.js'
 import type { TestDatabase } from '../../helpers/pg.js'
+import { listenOnFetchAllowedPort } from '../../helpers.js'
 import { TEST_KEK, TEST_HANDOFF_HMAC_KEY, TEST_PAIRWISE_KEY, TEST_SERVICE_TOKEN } from '../../helpers/keys.js'
+import {
+  resolveGameResourceConfig,
+  type GameResourceOptions,
+} from '../../../src/oidc/resource-indicators.js'
 import type Provider from 'oidc-provider'
 
 /** 测试 canonical issuer（Discovery 断言用真实 Production canonical 另测） */
@@ -41,6 +46,11 @@ export interface StartAppOptions {
   codeTtlSeconds?: number
   /** 覆盖 refresh token TTL（秒） */
   refreshTtlSeconds?: number
+  /**
+   * #902a 游戏 resource server 配置；缺省 = audience/indicator 默认值 + 空白名单
+   * （fail closed：任何带 resource 的授权请求 invalid_target）
+   */
+  gameResource?: GameResourceOptions
 }
 
 async function startApp(db: TestDatabase, opts: StartAppOptions = {}) {
@@ -64,15 +74,12 @@ async function startApp(db: TestDatabase, opts: StartAppOptions = {}) {
         accessToken: 3600,
         refreshToken: opts.refreshTtlSeconds ?? 3600,
       },
+      gameResource: resolveGameResourceConfig(opts.gameResource ?? {}),
     },
   })
   const server = http.createServer(app.callback())
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const address = server.address()
-  if (!address || typeof address === 'string') {
-    throw new Error('无法获取测试端口')
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`
+  // 随机端口必须避开 fetch 的 bad-port 黑名单（否则请求直接 fetch failed）
+  const baseUrl = await listenOnFetchAllowedPort(server)
   return {
     app,
     baseUrl,
@@ -303,12 +310,15 @@ export async function tokenRequest(opts: {
   codeVerifier?: string
   redirectUri?: string
   refreshToken?: string
+  /** #902a：token 端点显式携带 resource indicator（可选，RFC 8707） */
+  resource?: string
 }): Promise<{ status: number; body: Record<string, unknown> }> {
   const params = new URLSearchParams({ grant_type: opts.grantType })
   if (opts.code) params.set('code', opts.code)
   if (opts.codeVerifier) params.set('code_verifier', opts.codeVerifier)
   if (opts.redirectUri) params.set('redirect_uri', opts.redirectUri)
   if (opts.refreshToken) params.set('refresh_token', opts.refreshToken)
+  if (opts.resource) params.set('resource', opts.resource)
   const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded' }
   if (opts.clientSecret) {
     headers.authorization = `Basic ${Buffer.from(`${opts.clientId}:${opts.clientSecret}`).toString('base64')}`
@@ -375,6 +385,14 @@ export async function fullAuthorizationFlow(opts: {
   userId: string
   /** prompt 参数（offline_access 需要 prompt=consent，v9 强制） */
   prompt?: string
+  /** #902a：authorize 阶段携带的 resource indicator（游戏 resource-scoped 授权） */
+  resource?: string
+  /**
+   * #902a：token 兑换阶段携带的 resource ——
+   * `true` = 与 authorize 相同；字符串 = 指定值（用于 resource 替换负向测试）；
+   * 缺省/undefined = 不在 token 端点携带。
+   */
+  resourceAtToken?: string | boolean
 }): Promise<{
   code: string
   state: string
@@ -387,6 +405,9 @@ export async function fullAuthorizationFlow(opts: {
   const { codeVerifier, codeChallenge } = pkcePair()
   const state = `st_${randomBytes(8).toString('hex')}`
   const nonce = `no_${randomBytes(8).toString('hex')}`
+  const extra: Record<string, string> = {}
+  if (opts.prompt) extra.prompt = opts.prompt
+  if (opts.resource) extra.resource = opts.resource
   const auth = await beginAuthorize({
     baseUrl: opts.baseUrl,
     clientId: opts.clientId,
@@ -396,7 +417,7 @@ export async function fullAuthorizationFlow(opts: {
     nonce,
     codeChallenge,
     codeChallengeMethod: 'S256',
-    extra: opts.prompt ? { prompt: opts.prompt } : undefined,
+    extra: Object.keys(extra).length > 0 ? extra : undefined,
   })
   if (auth.status !== 303 || !auth.location) {
     throw new Error(`authorize 未进入交互：status=${auth.status}`)
@@ -422,6 +443,9 @@ export async function fullAuthorizationFlow(opts: {
   if (!cb.code) {
     throw new Error(`回调缺少 code：${done.location}`)
   }
+  const tokenResource = opts.resourceAtToken === true
+    ? opts.resource
+    : (typeof opts.resourceAtToken === 'string' ? opts.resourceAtToken : undefined)
   const token = await tokenRequest({
     baseUrl: opts.baseUrl,
     grantType: 'authorization_code',
@@ -430,6 +454,7 @@ export async function fullAuthorizationFlow(opts: {
     code: cb.code,
     codeVerifier,
     redirectUri: opts.redirectUri,
+    resource: tokenResource,
   })
   if (token.status !== 200 || typeof token.body.access_token !== 'string') {
     throw new Error(`token 兑换失败：${JSON.stringify(token)}`)

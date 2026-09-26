@@ -31,6 +31,12 @@ export {
   type CreateClientResult,
 } from './clients.js'
 export {
+  SENSITIVE_SCOPES,
+  scopeRisk,
+  sensitiveScopesSqlList,
+  countPendingSensitiveScopes,
+} from './scope-risk.js'
+export {
   createAuthRequest,
   approveAuthRequest,
   denyAuthRequest,

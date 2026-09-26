@@ -57,6 +57,9 @@ Punycode issuer，禁止 Unicode/Punycode 混用（`core/src/config/issuer.ts`�
 | `IDENTITY_SERVICE_TOKEN` | Web BFF → Core 内部服务令牌 |
 | `IDENTITY_AUTH_ORIGIN` | auth.* 接力页 origin |
 | `IDENTITY_STATIC_CLIENTS_JSON` | 第一方静态 Client（仅 Preview/Test；Production 默认不配置） |
+| `IDENTITY_GAME_RESOURCE_AUDIENCE` | 游戏平台 resource server audience（#902a；默认 `mini-hbut-hf-api`，须与 ocr-service `MINI_HBUT_IDENTITY_AUDIENCE` 一致） |
+| `IDENTITY_GAME_RESOURCE_INDICATOR` | 游戏 resource indicator（绝对 https URI；缺省 `https://<audience>`） |
+| `IDENTITY_GAME_RESOURCE_CLIENTS` | 允许申请游戏 JWT AT 的第一方 client_id 白名单（逗号分隔；**默认空 = 该能力关闭**） |
 
 **Web（Vercel Project B）**：
 

@@ -24,6 +24,7 @@ import {
 import { verifyHandoffSecret, expireAuthRequest } from '../domain/auth-requests/service.js'
 import { transitionAuthRequestStatus } from '../domain/auth-requests/service.js'
 import { resumeAuthRequest, ResumeError } from '../oidc/interaction.js'
+import type { ResolvedGameResourceConfig } from '../oidc/resource-indicators.js'
 import type Provider from 'oidc-provider'
 
 export const API_PREFIX = '/api/v1'
@@ -37,6 +38,11 @@ export const SCOPE_META: Record<string, { label: string; risk: 'basic' | 'sensit
   profile: { label: '基础资料（昵称/显示名）', risk: 'basic' },
   'student.identity': { label: '学校身份信息（学号/姓名/验证方式）', risk: 'sensitive' },
   offline_access: { label: '刷新令牌（长期保持登录）', risk: 'basic' },
+  // #902a：游戏平台 scope（协议 §6）——与 domain/scope-risk.ts 一致按敏感展示。
+  // 注：student.grades.read / student.timetable.read 的历史缺项（展示为原始 id +
+  // basic）不在 #902a 范围内，另行处理。
+  'game.read': { label: '游戏平台数据读取（对局状态/榜单/钱包）', risk: 'sensitive' },
+  'game.play': { label: '游戏平台对局与结算（ticket/session/提交结果）', risk: 'sensitive' },
 }
 
 /** #630 CoreRequestStatus 映射（auth_requests 状态 → 页面状态机输入） */
@@ -65,6 +71,11 @@ export interface RequestsApiDeps {
   sql: SqlExecutor
   provider: Provider
   handoffHmacKey: string | undefined
+  /**
+   * #902a 游戏 resource 配置（与 provider 使用同一份解析结果，app.ts 单点解析）。
+   * 缺省 = 空白名单 fail closed（任何带 resource 的授权在 resume 阶段 400）。
+   */
+  gameResource?: ResolvedGameResourceConfig
 }
 
 /** 请求详情（含 client/developer 展示信息；JOIN 只取展示所需列 + handoff 校验字段） */
@@ -224,7 +235,12 @@ export function registerRequestsRoutes(router: Router, deps: RequestsApiDeps): v
     }
     try {
       const result = await resumeAuthRequest(
-        { sql, provider, handoffHmacKey: deps.handoffHmacKey },
+        {
+          sql,
+          provider,
+          handoffHmacKey: deps.handoffHmacKey,
+          gameResource: deps.gameResource,
+        },
         { requestId: ctx.params.id as string, handoffSecret: handoff },
       )
       ctx.status = 200
