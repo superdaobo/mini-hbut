@@ -23,3 +23,20 @@ export const isTemporaryLoginSession = (): boolean => {
     return false
   }
 }
+
+/** 会话失效处置方式 */
+export type SessionExpiryAction = 'logout' | 'degrade' | 'error'
+
+/**
+ * 会话失效时该做什么。
+ *
+ * - 临时扫码会话：退回登录页（会话本身即临时语义，没有后台恢复的意义）
+ * - 正式会话 + 已有数据：降级展示并挂失效横幅
+ * - 正式会话 + 无数据：错误态提示重新登录
+ *
+ * 后两者都必须保留本地身份 —— 清身份会让 #355 的后台静默重登彻底停摆。
+ */
+export const resolveSessionExpiryAction = (hasCachedData: boolean): SessionExpiryAction => {
+  if (isTemporaryLoginSession()) return 'logout'
+  return hasCachedData ? 'degrade' : 'error'
+}

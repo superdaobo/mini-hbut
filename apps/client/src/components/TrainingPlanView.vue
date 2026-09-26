@@ -6,7 +6,7 @@ import { formatRelativeTime } from '../utils/time.js'
 import { t, useLocale } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 import { isTestAccountSession } from '../utils/test_account.js'
-import { isTemporaryLoginSession } from '../utils/session_flags.js'
+import { resolveSessionExpiryAction } from '../utils/session_flags.js'
 
 // i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
 const { locale } = useLocale()
@@ -91,17 +91,19 @@ const loadLocalOptions = () => {
  * #898：会话失效不再等同用户主动登出 —— 仅临时扫码会话退回登录页；
  * 正式会话保留本地身份与已展示数据，交由后台恢复链路静默重登（对齐课表/校历）。
  */
-const applySessionExpired = (data) => {
-  if (isTemporaryLoginSession()) {
+const applySessionExpired = () => {
+  const action = resolveSessionExpiryAction(courses.value.length > 0)
+  if (action === 'logout') {
     emit('logout')
     return
   }
-  sessionExpired.value = true
-  // 已有列表数据时保留展示，仅挂横幅提示；否则走错误态说明需重新登录
-  error.value = courses.value.length > 0 ? '' : t('trainingplan.error.sessionExpired')
+  // 降级横幅与错误态互斥：无数据时不得声称"当前显示上次查询结果"
+  sessionExpired.value = action === 'degrade'
+  error.value = action === 'error' ? t('trainingplan.error.sessionExpired') : ''
 }
 
 const fetchOptions = async () => {
+  sessionExpired.value = false
   try {
     console.log('[TrainingPlan] Fetching options...')
     const { data, fromCache } = await fetchWithCache(`training:options:${props.studentId}`, async () => {
@@ -130,7 +132,7 @@ const fetchOptions = async () => {
       }
       await fetchJys()
     } else if (data?.need_login) {
-      applySessionExpired(data)
+      applySessionExpired()
     }
   } catch (e) {
     console.error('获取培养方案筛选项失败', e)
@@ -163,6 +165,7 @@ const fetchJys = async () => {
 const fetchCourses = async (page = pagination.value.page) => {
   loading.value = true
   error.value = ''
+  sessionExpired.value = false
   console.log('[TrainingPlan] fetchCourses called with page:', page, 'filters:', JSON.stringify(filters.value))
   try {
     const cacheKey = `training:${props.studentId}:${page}:${JSON.stringify(filters.value)}`
@@ -186,9 +189,8 @@ const fetchCourses = async (page = pagination.value.page) => {
       pagination.value.totalPages = data.totalPages || 0
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
-      sessionExpired.value = false
     } else if (data?.need_login) {
-      applySessionExpired(data)
+      applySessionExpired()
     } else {
       error.value = data?.error || t('trainingplan.error.fetch')
     }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { isTemporaryLoginSession } from './session_flags'
+import { isTemporaryLoginSession, resolveSessionExpiryAction } from './session_flags'
 
 /** 与 forum_cache.spec 一致：node 环境下手动安装 localStorage */
 const installStorage = () => {
@@ -54,5 +54,27 @@ describe('isTemporaryLoginSession (#898)', () => {
       }
     })
     expect(isTemporaryLoginSession()).toBe(false)
+  })
+})
+
+describe('resolveSessionExpiryAction (#898)', () => {
+  beforeEach(() => {
+    installStorage()
+  })
+
+  it('临时会话一律退回登录页（有缓存也登出）', () => {
+    localStorage.setItem('hbu_login_method', 'portal_qr_temp')
+    expect(resolveSessionExpiryAction(true)).toBe('logout')
+    expect(resolveSessionExpiryAction(false)).toBe('logout')
+  })
+
+  it('正式会话已有数据时降级展示，保留本地身份', () => {
+    localStorage.setItem('hbu_login_method', 'portal')
+    expect(resolveSessionExpiryAction(true)).toBe('degrade')
+  })
+
+  it('正式会话无数据时走错误态，不得声称有缓存结果', () => {
+    localStorage.setItem('hbu_login_method', 'portal')
+    expect(resolveSessionExpiryAction(false)).toBe('error')
   })
 })

@@ -5,7 +5,7 @@ import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { t, useLocale } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
-import { isTemporaryLoginSession } from '../utils/session_flags.js'
+import { resolveSessionExpiryAction } from '../utils/session_flags.js'
 
 // i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
 const { locale } = useLocale()
@@ -247,18 +247,20 @@ const closeCourseDetail = () => {
  * 正式会话保留本地身份与已展示数据，交由后台恢复链路静默重登（对齐课表/校历）。
  */
 const applySessionExpired = () => {
-  if (isTemporaryLoginSession()) {
+  const action = resolveSessionExpiryAction(Boolean(progressData.value))
+  if (action === 'logout') {
     emit('logout')
     return
   }
-  sessionExpired.value = true
-  // 已有数据时保留展示，仅挂横幅提示；否则走错误态说明需重新登录
-  error.value = progressData.value ? '' : t('academic.error.sessionExpired')
+  // 降级横幅与错误态互斥：无数据时不得声称"当前显示上次查询结果"
+  sessionExpired.value = action === 'degrade'
+  error.value = action === 'error' ? t('academic.error.sessionExpired') : ''
 }
 
 const fetchProgress = async () => {
   loading.value = true
   error.value = ''
+  sessionExpired.value = false
   try {
     const faszInt = normalizeFasz(fasz.value)
     fasz.value = faszInt
@@ -275,7 +277,6 @@ const fetchProgress = async () => {
       progressData.value = data.data || {}
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
-      sessionExpired.value = false
     } else if (data?.need_login) {
       applySessionExpired()
     } else {

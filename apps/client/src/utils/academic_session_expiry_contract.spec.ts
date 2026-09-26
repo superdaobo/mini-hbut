@@ -4,6 +4,9 @@
  * 背景：这两个页面曾把 need_login 无条件转成 emit('logout')，会话过期时清空本地登录身份、
  * 写入 hbu_manual_logout，连后台自动重登链路一起停摆（违反 #355）。
  * 现对齐课表/校历：仅临时扫码会话退回登录页，其余情况保留身份并降级提示。
+ *
+ * 处置语义（临时登出 / 有数据降级 / 无数据错误态）的真值表由
+ * `session_flags.spec.ts` 覆盖，本文件只守视图侧的接线不回退。
  */
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
@@ -19,35 +22,27 @@ const VIEW_FILES = [
 ] as const
 
 describe('academic views session expiry contract (#898)', () => {
-  it('会话失效走临时会话守卫，而非无条件登出', () => {
+  it('会话失效处置集中到共享决策函数，视图不再内联判定', () => {
     for (const view of VIEW_FILES) {
       const source = readText(view.path)
 
-      expect(source, `${view.label} 应复用共享的临时会话判定`).toContain(
+      expect(source, `${view.label} 应复用共享会话工具`).toContain(
         "from '../utils/session_flags.js'",
       )
-
-      const handler = source.match(/const applySessionExpired[\s\S]*?\n\}/)
-      expect(handler, `${view.label} 缺少 applySessionExpired`).toBeTruthy()
-      // 登出必须被临时会话判定包裹
-      expect(handler![0], `${view.label} 的登出未经过临时会话判定`).toMatch(
-        /if \(isTemporaryLoginSession\(\)\) \{\s*\n\s*emit\('logout'\)/,
+      expect(source, `${view.label} 未使用 resolveSessionExpiryAction`).toMatch(
+        /resolveSessionExpiryAction\(/,
       )
-      // 判定块之外不得再出现登出调用（回归信号）
-      const outsideGuard = handler![0].replace(
-        /if \(isTemporaryLoginSession\(\)\) \{[\s\S]*?\n {2}\}/,
-        '',
-      )
-      expect(outsideGuard, `${view.label} 不得在临时会话判定之外登出`).not.toContain(
-        "emit('logout')",
+      // 会话类型判定集中在 utils：视图内联判定即回退到各写一份的老问题
+      expect(source, `${view.label} 不应内联会话类型判定`).not.toContain(
+        'isTemporaryLoginSession(',
       )
     }
   })
 
-  it('need_login 分支改为携带上下文的会话失效处理', () => {
+  it('need_login 分支不再直接登出', () => {
     for (const view of VIEW_FILES) {
       const source = readText(view.path)
-      // 正向：need_login 直接接 applySessionExpired
+      // 正向：need_login 接 applySessionExpired
       expect(source, `${view.label} 的 need_login 未接会话失效处理`).toMatch(
         /need_login[\s\S]{0,60}applySessionExpired\(/,
       )
