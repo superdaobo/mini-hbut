@@ -5,6 +5,7 @@ import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { t, useLocale } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
+import { resolveSessionExpiryAction } from '../utils/session_flags.js'
 
 // i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
 const { locale } = useLocale()
@@ -22,6 +23,7 @@ const error = ref('')
 const progressData = ref(null)
 const fasz = ref(1)
 const offline = ref(false)
+const sessionExpired = ref(false)
 const syncTime = ref('')
 const showDetail = ref(false)
 const selectedCourse = ref(null)
@@ -240,9 +242,25 @@ const closeCourseDetail = () => {
   selectedCourse.value = null
 }
 
+/**
+ * #898：会话失效不再等同用户主动登出 —— 仅临时扫码会话退回登录页；
+ * 正式会话保留本地身份与已展示数据，交由后台恢复链路静默重登（对齐课表/校历）。
+ */
+const applySessionExpired = () => {
+  const action = resolveSessionExpiryAction(Boolean(progressData.value))
+  if (action === 'logout') {
+    emit('logout')
+    return
+  }
+  // 降级横幅与错误态互斥：无数据时不得声称"当前显示上次查询结果"
+  sessionExpired.value = action === 'degrade'
+  error.value = action === 'error' ? t('academic.error.sessionExpired') : ''
+}
+
 const fetchProgress = async () => {
   loading.value = true
   error.value = ''
+  sessionExpired.value = false
   try {
     const faszInt = normalizeFasz(fasz.value)
     fasz.value = faszInt
@@ -259,11 +277,9 @@ const fetchProgress = async () => {
       progressData.value = data.data || {}
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
+    } else if (data?.need_login) {
+      applySessionExpired()
     } else {
-      if (data?.need_login) {
-        emit('logout')
-        return
-      }
       error.value = data?.error || t('academic.error.fetch')
     }
   } catch (e) {
@@ -287,8 +303,13 @@ onMounted(() => {
   <div class="progress-view">
     <TPageHeader :title="t('academic.title')" @back="emit('back')" />
 
-    <div v-if="offline" class="offline-banner">
-      {{ t('common.offline.prefix') }}{{ formatRelativeTime(syncTime) }}
+    <div
+      v-if="offline || sessionExpired"
+      class="offline-banner"
+      :class="{ 'session-banner': sessionExpired }"
+    >
+      <template v-if="sessionExpired">{{ t('academic.error.sessionExpiredCached') }}</template>
+      <template v-else>{{ t('common.offline.prefix') }}{{ formatRelativeTime(syncTime) }}</template>
     </div>
 
     <div class="controls">
@@ -421,6 +442,12 @@ onMounted(() => {
   color: #b45309;
   font-weight: 600;
   font-size: 13px;
+}
+
+.offline-banner.session-banner {
+  background: #fee2e2;
+  border-color: color-mix(in oklab, #ef4444 40%, transparent);
+  color: #b91c1c;
 }
 
 .controls {

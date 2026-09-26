@@ -6,6 +6,7 @@ import { formatRelativeTime } from '../utils/time.js'
 import { t, useLocale } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 import { isTestAccountSession } from '../utils/test_account.js'
+import { resolveSessionExpiryAction } from '../utils/session_flags.js'
 
 // i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
 const { locale } = useLocale()
@@ -22,6 +23,7 @@ const loading = ref(false)
 const error = ref('')
 const courses = ref([])
 const offline = ref(false)
+const sessionExpired = ref(false)
 const syncTime = ref('')
 const selectedCourse = ref(null)
 const showDetail = ref(false)
@@ -85,7 +87,23 @@ const loadLocalOptions = () => {
   }
 }
 
+/**
+ * #898：会话失效不再等同用户主动登出 —— 仅临时扫码会话退回登录页；
+ * 正式会话保留本地身份与已展示数据，交由后台恢复链路静默重登（对齐课表/校历）。
+ */
+const applySessionExpired = () => {
+  const action = resolveSessionExpiryAction(courses.value.length > 0)
+  if (action === 'logout') {
+    emit('logout')
+    return
+  }
+  // 降级横幅与错误态互斥：无数据时不得声称"当前显示上次查询结果"
+  sessionExpired.value = action === 'degrade'
+  error.value = action === 'error' ? t('trainingplan.error.sessionExpired') : ''
+}
+
 const fetchOptions = async () => {
+  sessionExpired.value = false
   try {
     console.log('[TrainingPlan] Fetching options...')
     const { data, fromCache } = await fetchWithCache(`training:options:${props.studentId}`, async () => {
@@ -114,7 +132,7 @@ const fetchOptions = async () => {
       }
       await fetchJys()
     } else if (data?.need_login) {
-      emit('logout')
+      applySessionExpired()
     }
   } catch (e) {
     console.error('获取培养方案筛选项失败', e)
@@ -147,6 +165,7 @@ const fetchJys = async () => {
 const fetchCourses = async (page = pagination.value.page) => {
   loading.value = true
   error.value = ''
+  sessionExpired.value = false
   console.log('[TrainingPlan] fetchCourses called with page:', page, 'filters:', JSON.stringify(filters.value))
   try {
     const cacheKey = `training:${props.studentId}:${page}:${JSON.stringify(filters.value)}`
@@ -170,6 +189,8 @@ const fetchCourses = async (page = pagination.value.page) => {
       pagination.value.totalPages = data.totalPages || 0
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
+    } else if (data?.need_login) {
+      applySessionExpired()
     } else {
       error.value = data?.error || t('trainingplan.error.fetch')
     }
@@ -289,8 +310,13 @@ onMounted(async () => {
   <div class="training-plan-view">
     <TPageHeader :title="t('trainingplan.title')" @back="emit('back')" />
 
-    <div v-if="offline" class="offline-banner">
-      {{ t('common.offline.prefix') }}{{ formatRelativeTime(syncTime) }}
+    <div
+      v-if="offline || sessionExpired"
+      class="offline-banner"
+      :class="{ 'session-banner': sessionExpired }"
+    >
+      <template v-if="sessionExpired">{{ t('trainingplan.error.sessionExpiredCached') }}</template>
+      <template v-else>{{ t('common.offline.prefix') }}{{ formatRelativeTime(syncTime) }}</template>
     </div>
 
     <section class="filters">
@@ -734,6 +760,12 @@ onMounted(async () => {
   color: #b45309;
   border-radius: 12px;
   font-weight: 600;
+}
+
+.offline-banner.session-banner {
+  background: #fee2e2;
+  border-color: color-mix(in oklab, #ef4444 40%, transparent);
+  color: #b91c1c;
 }
 
 @keyframes training-fade-up {
