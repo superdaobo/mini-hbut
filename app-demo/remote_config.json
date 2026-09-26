@@ -1,0 +1,92 @@
+{
+  "announcements": {
+    "ticker": [
+      {
+        "id": "ticker-001",
+        "title": "滚动公告1",
+        "summary": "新学期功能更新，点击查看详情",
+        "content": "<p>欢迎使用新版本，已修复多项问题。</p>",
+        "link": "",
+        "image": "https://example.com/notice/ticker-1.png",
+        "updated_at": "2026-01-25"
+      },
+      {
+        "id": "ticker-002",
+        "title": "滚动公告2",
+        "summary": "系统维护时间 22:00-23:00",
+        "content": "<p>维护期间可能无法登录。</p>",
+        "link": "",
+        "image": "https://example.com/notice/ticker-2.png",
+        "updated_at": "2026-01-25"
+      }
+    ],
+    "pinned": [
+      {
+        "id": "pinned-001",
+        "title": "置顶公告：账号激活提醒",
+        "summary": "首次登录请先完成注册中心激活",
+        "content": "<p>新入学同学请先前往注册中心激活账号。</p>",
+        "image": "https://example.com/notice/pinned-1.png",
+        "updated_at": "2026-01-25",
+        "pinned": true
+      }
+    ],
+    "confirm": [
+      {
+        "id": "confirm-qq-group",
+        "title": "欢迎加入 mini-hbut 交流群",
+        "summary": "加入 QQ 群，反馈问题、交流使用心得",
+        "content": "感谢你使用 mini-hbut！\n\n这是我个人利用 vibecoding 开发的小工具，能力有限，难免存在不少问题和不足。如果你在使用中遇到 Bug 或者有任何改进建议，非常欢迎告诉我，每一条反馈我都会认真对待。\n\n我建了一个 QQ 交流群，方便大家沟通：\n\n👉 [点击加入 QQ 交流群](https://qm.qq.com/q/你的群链接参数)\n\n也欢迎访问项目官网了解更多：[hbut.6661111.xyz](https://hbut.6661111.xyz)\n\n再次感谢你的支持与包容 🙏",
+        "link": "https://qm.qq.com/q/你的群链接参数",
+        "updated_at": "2025-07-14",
+        "require_confirm": true
+      }
+    ],
+    "list": [
+      {
+        "id": "notice-001",
+        "title": "新功能上线：学业完成情况",
+        "summary": "支持查看学分与课程进度",
+        "content": "<p>新增学业完成情况模块。</p>",
+        "image": "https://example.com/notice/list-1.png",
+        "updated_at": "2026-01-25"
+      }
+    ]
+  },
+  "force_update": {
+    "min_version": "1.2.0",
+    "message": "当前版本过低，请更新后继续使用。",
+    "download_url": "https://example.com/download"
+  },
+  "ocr": {
+    "endpoint": "https://mini-hbut-testocr1.hf.space/api/ocr/recognize",
+    "endpoints": [
+      "https://mini-hbut-testocr1.hf.space/api/ocr/recognize"
+    ],
+    "local_fallback_endpoints": [
+      "http://1.94.167.18:5080/api/ocr/recognize"
+    ],
+    "enabled": true
+  },
+  "temp_upload": {
+    "endpoint": "https://mini-hbut-testocr1.hf.space/api/temp/upload"
+  },
+  "cloud_sync": {
+    "enabled": true,
+    "mode": "proxy",
+    "proxy_endpoint": "https://mini-hbut-testocr1.hf.space/api/cloud-sync",
+    "secret_ref": "kv1-main",
+    "timeout_ms": 12000,
+    "cooldown_seconds": 180
+  },
+  "ai_models": [
+    { "label": "Qwen-Plus", "value": "qwen-plus" },
+    { "label": "Qwen-Max", "value": "qwen-max" },
+    { "label": "DeepSeek-R1", "value": "deepseek-r1" },
+    { "label": "Doubao1.5-Pro", "value": "doubao-1.5-pro" }
+  ],
+  "config_admin_ids": [],
+  "ai_entry_url_template": "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?NCPNavBarAlpha=0&customerServiceConfId=122&response_type=code&identityTypeCode=null&flag=bjdk_hbgy_dk_echar&hidden=true&isBindEcard=true&customerCode=2002135&force_login=false&client_id=c20653ee0dd54a8faca19fb127680714&token="
+}
+
+
