@@ -1,0 +1,1 @@
+const o=e=>{if(!e)return"未知时间";const t=new Date(e);if(Number.isNaN(t.getTime()))return e;const r=Date.now()-t.getTime();return r<0?t.toLocaleString():r<6e4?"刚刚":r<36e5?`${Math.floor(r/6e4)}分钟前`:r<864e5?`${Math.floor(r/36e5)}小时前`:r<6048e5?`${Math.floor(r/864e5)}天前`:t.toLocaleString()};export{o as f};

@@ -1,0 +1,1 @@
+const e="hbu_login_method",r="hbu_login_temporary",o=()=>{try{const t=String(localStorage.getItem(e)||"").trim();return localStorage.getItem(r)==="1"||t.endsWith("_temp")}catch{return!1}},s=t=>o()?"logout":t?"degrade":"error";export{s as r};
