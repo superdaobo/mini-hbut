@@ -58,8 +58,10 @@ export interface MatchTrust {
   relayBindingForMatch(matchId?: string): string
   /** W1/F1：离开 / 重置房间时作废内存里的 relay 凭证 */
   forgetRelayBinding(): string
-  /** 冻结字段：join 响应里的 peer_secret（只存内存，绝不落盘/广播） */
+  /** 冻结字段：更新己方持有的 peer_secret（空值保留旧值——记录存活期间旧值仍有效） */
   setPeerSecret(value?: string): void
+  /** 冻结字段：读取当前持有的 peer_secret（空串 = 未持有） */
+  peerSecret(): string
   [key: string]: any
 }
 

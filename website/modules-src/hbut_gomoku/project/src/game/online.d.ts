@@ -22,7 +22,9 @@ export interface GomokuRelayRoomOptions {
   relayBinding?: string
   /** W1/F2：凭证失效（403 RELAY_BINDING_REQUIRED / SEAT_PEER_OWNERSHIP_REQUIRED）时回调宿主重绑；可返回 Promise（房间会 await 后再重试），也可返回 { ok, code } 供 UI 文案 */
   onBindingRequired?: () => any
-  /** 冻结字段：join 响应的 peer_secret（只进内存；空串表示本次 join 未提供） */
+  /** 冻结字段：已持有的 peer_secret（join 时会带回；服务端匹配当前值才重签） */
+  peerSecret?: string
+  /** 冻结字段：join 响应下发的新 peer_secret（只在新值非空时回调；空/缺字段不清空旧值） */
   onPeerSecret?: (secret: string) => void
   /** F3：轮询中断 / 重绑停机的可读文案上报（poll_recovered 表示恢复） */
   onError?: (event: Record<string, any>) => void
@@ -36,7 +38,11 @@ export interface GomokuRelayRoom {
   getMatchId(): string
   /** W1：热更新 relay 绑定凭证（席位绑定 / 重绑后由宿主回填） */
   setRelayBinding(value: string): void
-  /** F5：宿主主动重新 join（刷新服务端重签的 peer_secret） */
+  /** 冻结字段：宿主同步已持有的 peer_secret（空值保留旧值） */
+  setPeerSecret?(value: string): void
+  /** 冻结字段：当前持有的 peer_secret（空串 = 未持有） */
+  getPeerSecret?(): string
+  /** F5：宿主主动重新 join（带回当前 peer_secret，刷新服务端重签的值） */
   rejoin?(): Promise<any>
   [key: string]: any
 }

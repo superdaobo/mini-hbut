@@ -676,8 +676,11 @@ async function initMatchTrust() {
     })
     matchTrust = bootstrapped.trust
     matchTrustEnabled = bootstrapped.enabled
-    // 房间 join 可能早于可信层就绪：把已捕获的 peer_secret 补给可信层（仍只在内存）。
-    if (pendingPeerSecret) matchTrust.setPeerSecret(pendingPeerSecret)
+    // 房间 join 可能早于可信层就绪：把已捕获的 peer_secret 补给可信层与房间层（仍只在内存）。
+    if (pendingPeerSecret) {
+      matchTrust.setPeerSecret(pendingPeerSecret)
+      onlineClient?.setPeerSecret?.(pendingPeerSecret)
+    }
   } catch {
     // 任何异常都只降级为"不统计"，绝不影响下棋。
     matchTrust = null
@@ -766,11 +769,15 @@ async function handleRelayBindingRequired() {
   return result
 }
 
-// 冻结字段 peer_secret：只存内存，绝不落盘 / 进 postMessage / 进日志；
-// 只在可信层的 seat 请求体里携带（join 每次重签 → 这里每次覆盖刷新）。
+// 冻结字段 peer_secret：只存内存，绝不落盘 / 进 postMessage / 进日志。
+// 服务端只在"首次 join"或"出示匹配的当前值"时重签，响应缺失/为空不清空旧值；
+// 因此这里只接受非空值，并同时补给可信层与房间层（房间层后续 re-join 要带回当前值）。
 function handlePeerSecret(secret) {
-  pendingPeerSecret = String(secret || '')
-  matchTrust?.setPeerSecret?.(pendingPeerSecret)
+  const next = String(secret || '').trim()
+  if (!next) return
+  pendingPeerSecret = next
+  matchTrust?.setPeerSecret?.(next)
+  onlineClient?.setPeerSecret?.(next)
 }
 
 // F3：relay 层的持久错误/恢复文案（连续轮询失败、重绑停机）写入 onlineError。
@@ -818,6 +825,8 @@ function createNetworkRoom({ roomCode, strategy, onEvent, peerId }) {
     // 尚未下发（join 之后才拿到），因此首个 join 绝不携带上一局凭证，等 claim 成功后回填。
     const roomMatchId = onlineClient?.getMatchId?.() || ''
     const relayBinding = matchTrust?.relayBindingForMatch?.(roomMatchId) || ''
+    // 冻结字段：把已持有的 peer_secret 交给新房间（re-join 需带回当前值，服务端匹配才重签）。
+    const peerSecret = matchTrust?.peerSecret?.() || pendingPeerSecret || ''
     return createHfRelayGomokuRoom({
       roomCode,
       peerId,
@@ -826,7 +835,8 @@ function createNetworkRoom({ roomCode, strategy, onEvent, peerId }) {
       // W1/F2：承载服务端下发的 relay 绑定凭证；凭证失效时回调触发有界重绑（等待宿主 Promise）。
       relayBinding,
       onBindingRequired: handleRelayBindingRequired,
-      // 冻结字段：join 下发的 peer_secret 只经此回调进内存（不落盘 / 不广播 / 不写日志）。
+      // 冻结字段：join 下发的新 peer_secret 只经此回调进内存（不落盘 / 不广播 / 不写日志）。
+      peerSecret,
       onPeerSecret: handlePeerSecret,
       // F3：轮询连续失败 / 重绑停机的可读文案上报给 UI。
       onError: handleRelayError
@@ -880,6 +890,8 @@ async function connectOnlineRoom(role, rawRoomCode, options = {}) {
     roomInputValue = formatRoomCode(roomCode)
     // 席位绑定可能已完成（join 响应里的 match_id 触发）而房间对象刚刚才赋值：补一次回填。
     applyRelayBinding()
+    // 冻结字段：把已持有的 peer_secret 同步给新房间（join 早于回调/可信层就绪的方向）。
+    if (pendingPeerSecret) onlineClient.setPeerSecret?.(pendingPeerSecret)
     armOnlineTimeout(role, roomCode)
   } catch (error) {
     onlineClient = null

@@ -76,6 +76,71 @@ const trustWithBinding = async (token = 'grb1.old.token') => {
   return { trust, transport }
 }
 
+const parseBody = (init: Record<string, unknown>) =>
+  JSON.parse(String(init.body || '{}')) as Record<string, unknown>
+
+/**
+ * 模拟服务端（ocr-service-w1-auth 71b685e）的 peer_secret 语义：
+ * - 无 `(room_code, peer_id)` 记录 → 签发新值；
+ * - 有记录且请求出示的 peer_secret === 当前值 → 重签换新值；
+ * - 有记录但未出示/不匹配 → 不重签、响应不带该字段（记录存活期间旧值仍有效）。
+ */
+const createPeerSecretServer = ({ initial = '' } = {}) => {
+  const key = 'ROOM1:peer-a'
+  const store = new Map<string, string>()
+  if (initial) store.set(key, initial)
+  const joins: Array<Record<string, unknown>> = []
+  const issued: string[] = []
+  let counter = 0
+  let silent = false
+  const issue = () => {
+    counter += 1
+    const secret = `gps1.${String(counter).padStart(2, '0')}${'ab'.repeat(20)}`
+    store.set(key, secret)
+    issued.push(secret)
+    return secret
+  }
+  const handleJoin = (body: Record<string, unknown>) => {
+    joins.push(body)
+    if (silent) return { success: true, cursor: 0, peers: [] }
+    const provided = typeof body.peer_secret === 'string' ? body.peer_secret : ''
+    const current = store.get(key)
+    if (!current) return { success: true, cursor: 0, peers: [], peer_secret: issue() }
+    if (provided && provided === current) {
+      return { success: true, cursor: 0, peers: [], peer_secret: issue() }
+    }
+    return { success: true, cursor: 0, peers: [] }
+  }
+  return {
+    store,
+    joins,
+    issued,
+    handleJoin,
+    current: () => store.get(key) || '',
+    setSilent: (value: boolean) => {
+      silent = value
+    }
+  }
+}
+
+const relayFetchFrom = (
+  server: ReturnType<typeof createPeerSecretServer>,
+  seatBodies: Array<Record<string, unknown>> = []
+) =>
+  async (url: string, init: Record<string, unknown> = {}) => {
+    const target = String(url)
+    if (target.includes('/join')) return jsonResponse(server.handleJoin(parseBody(init)))
+    if (target.includes('/seat')) {
+      seatBodies.push(parseBody(init))
+      return okJson({ seat: 'black', match: {} })
+    }
+    if (target.includes('/send')) return jsonResponse({ success: true })
+    if (target.includes('/poll')) {
+      return jsonResponse({ success: true, cursor: 1, peers: [], events: [] })
+    }
+    return jsonResponse({ success: true })
+  }
+
 describe('W1 收口：同房号重连凭证（F1）', () => {
   it('F1：reset 后同房号重连，首个 join 不带上一局任何 relay_binding', async () => {
     const { trust } = await trustWithBinding()
@@ -413,47 +478,126 @@ describe('冻结字段 peer_secret（join → seat，只存内存）', () => {
     await client.close()
   })
 
-  it('每次重连 join 重签覆盖旧值；旧服务端缺字段时清空（请求体不带该字段）', async () => {
-    let joinCount = 0
-    let pollCount = 0
-    const fetchImpl = async (url: string) => {
-      const target = String(url)
-      if (target.includes('/join')) {
-        joinCount += 1
-        return jsonResponse({
-          success: true,
-          cursor: 0,
-          peers: [],
-          ...(joinCount === 1 ? { peer_secret: PEER_SECRET } : {})
-        })
-      }
-      if (target.includes('/poll')) {
-        pollCount += 1
-        if (pollCount === 1) {
-          return jsonResponse({ success: false, error: '房间或 peer 不存在' }, 404)
-        }
-        return jsonResponse({ success: true, cursor: 2, peers: [], events: [] })
-      }
-      return jsonResponse({ success: true })
-    }
+  // 行为修正（服务端安全收窄 71b685e）：旧断言"响应缺 peer_secret 时清空"改为"保留旧值"——
+  // 响应缺字段只表示本次 join 未出示当前值，记录存活期间旧值仍有效；清空会让下一次席位绑定 403。
+  it('不清空：join 响应无 peer_secret 时保留旧值，后续 join 继续携带', async () => {
+    // 记录存在但客户端出示的值不匹配（如上一次重签响应丢失）→ 服务端不重签、不带字段。
+    const server = createPeerSecretServer({ initial: 'gps1.' + 'cd'.repeat(20) })
     const captured: string[] = []
     const client = await createHfRelayGomokuRoom({
-      roomCode: 'HBUT1',
+      roomCode: 'ROOM1',
       peerId: 'peer-a',
       baseUrl: RELAY_BASE,
-      fetchImpl,
+      fetchImpl: relayFetchFrom(server),
       pollIntervalMs: 0,
+      peerSecret: PEER_SECRET,
       onPeerSecret: (secret) => captured.push(secret),
       onEvent: () => {}
     })
-    // poll 404 → 自动重入房间（第二次 join 无 peer_secret）。
-    await client.pollOnce()
-    expect(captured).toEqual([PEER_SECRET, ''])
-    expect(buildSeatClaimBody({ roomCode: 'HBUT1', peerId: 'peer-a', peerSecret: '' })).toEqual({
-      protocol_version: 1,
-      room_code: 'HBUT1',
-      peer_id: 'peer-a'
+    // 没有新值就不回调、不清空。
+    expect(captured).toEqual([])
+    expect(client.getPeerSecret?.()).toBe(PEER_SECRET)
+    await client.rejoin?.()
+    expect(server.joins).toHaveLength(2)
+    // 下一次 join 仍出示持有的旧值（而不是丢掉它）。
+    expect(server.joins[1].peer_secret).toBe(PEER_SECRET)
+    await client.close()
+  })
+
+  it('轮换：持有 peer_secret 时 join 请求体携带，响应新值覆盖并上报宿主', async () => {
+    const server = createPeerSecretServer({ initial: PEER_SECRET })
+    const captured: string[] = []
+    const client = await createHfRelayGomokuRoom({
+      roomCode: 'ROOM1',
+      peerId: 'peer-a',
+      baseUrl: RELAY_BASE,
+      fetchImpl: relayFetchFrom(server),
+      pollIntervalMs: 0,
+      peerSecret: PEER_SECRET,
+      onPeerSecret: (secret) => captured.push(secret),
+      onEvent: () => {}
     })
+    // 首个 join 出示当前值 → 服务端匹配 → 重签换新值。
+    expect(server.joins[0].peer_secret).toBe(PEER_SECRET)
+    const rotated = server.current()
+    expect(rotated).not.toBe(PEER_SECRET)
+    expect(captured).toEqual([rotated])
+    expect(client.getPeerSecret?.()).toBe(rotated)
+    await client.close()
+  })
+
+  it('首连兼容：无 peer_secret 时 join 请求体不含该字段（与旧版逐字一致）', async () => {
+    const server = createPeerSecretServer()
+    const client = await createHfRelayGomokuRoom({
+      roomCode: 'ROOM1',
+      peerId: 'peer-a',
+      baseUrl: RELAY_BASE,
+      fetchImpl: relayFetchFrom(server),
+      pollIntervalMs: 0,
+      onEvent: () => {}
+    })
+    expect('peer_secret' in server.joins[0]).toBe(false)
+    // 无记录 → 服务端签发，客户端持有新值。
+    const issued = server.current()
+    expect(issued.startsWith('gps1.')).toBe(true)
+    expect(client.getPeerSecret?.()).toBe(issued)
+    await client.close()
+  })
+
+  it('房间层自行持有副本：宿主 setPeerSecret 后 re-join 带回该值（不依赖可信层）', async () => {
+    const server = createPeerSecretServer({ initial: PEER_SECRET })
+    const client = await createHfRelayGomokuRoom({
+      roomCode: 'ROOM1',
+      peerId: 'peer-a',
+      baseUrl: RELAY_BASE,
+      fetchImpl: relayFetchFrom(server),
+      pollIntervalMs: 0,
+      onEvent: () => {}
+    })
+    // 首次 join 时房间层尚未持有（未出示 → 服务端不重签）。
+    expect('peer_secret' in server.joins[0]).toBe(false)
+    // 可信层就绪后由宿主同步给房间层 → 下一次 re-join 带回当前值。
+    client.setPeerSecret?.(PEER_SECRET)
+    await client.rejoin?.()
+    expect(server.joins[1].peer_secret).toBe(PEER_SECRET)
+    await client.close()
+  })
+
+  it('重连不自杀：re-join 无新值 → 再次席位绑定仍带原 secret，且不进入 suspended', async () => {
+    const server = createPeerSecretServer({ initial: PEER_SECRET })
+    const seatBodies: Array<Record<string, unknown>> = []
+    const errors: Array<Record<string, unknown>> = []
+    const client = await createHfRelayGomokuRoom({
+      roomCode: 'ROOM1',
+      peerId: 'peer-a',
+      baseUrl: RELAY_BASE,
+      fetchImpl: relayFetchFrom(server, seatBodies),
+      pollIntervalMs: 0,
+      peerSecret: PEER_SECRET,
+      onError: (event) => errors.push(event),
+      onEvent: () => {}
+    })
+    // 首次 join 出示了当前值 → 服务端轮换；客户端持有新值。
+    const rotated = server.current()
+    expect(rotated).not.toBe(PEER_SECRET)
+    // 网络重连：本次 join 响应不带 peer_secret（旧服务端 / 未上线字段）。
+    server.setSilent(true)
+    await client.rejoin?.()
+    expect(client.getPeerSecret?.()).toBe(rotated)
+
+    // 再次席位绑定：请求体仍带原持有值（join 响应没有把它清空）。
+    const trust = createGomokuMatchTrust({
+      transport: createPlatformMatchTransport({
+        sessionToken: TOKEN,
+        baseUrl: 'https://x.example/api/game-platform/v1',
+        fetchImpl: relayFetchFrom(server, seatBodies)
+      })
+    })
+    trust.rememberMatch({ matchId: MATCH_ID, roomCode: 'ROOM1' })
+    trust.setPeerSecret?.(client.getPeerSecret?.() || rotated)
+    await trust.claimSeat({ peerId: 'peer-a' })
+    expect(seatBodies[0].peer_secret).toBe(rotated)
+    expect(errors.some((event) => event.code === BINDING_SUSPENDED_CODE)).toBe(false)
     await client.close()
   })
 
@@ -509,9 +653,23 @@ describe('W1 收口：导出契约（修复后必须存在）', () => {
     expect(typeof trust.forgetRelayBinding).toBe('function')
     expect(typeof trust.relayBindingForMatch).toBe('function')
     expect(typeof trust.setPeerSecret).toBe('function')
+    expect(typeof trust.peerSecret).toBe('function')
     expect(buildSeatClaimBody({ roomCode: 'R', peerId: 'p', peerSecret: PEER_SECRET })).toMatchObject({
       peer_secret: PEER_SECRET
     })
+
+    // 房间层：持有副本 + 本地可读（宿主在可信层就绪后同步；re-join 带回当前值）。
+    const room = await createHfRelayGomokuRoom({
+      roomCode: 'ROOM1',
+      peerId: 'peer-a',
+      baseUrl: RELAY_BASE,
+      fetchImpl: relayFetchFrom(createPeerSecretServer()),
+      pollIntervalMs: 0,
+      onEvent: () => {}
+    })
+    expect(typeof room.setPeerSecret).toBe('function')
+    expect(typeof room.getPeerSecret).toBe('function')
+    await room.close()
   })
 })
 

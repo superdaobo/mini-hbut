@@ -370,7 +370,7 @@ export const createGomokuMatchTrust = ({
   }
 
   /**
-   * 冻结字段：join 响应里的 `peer_secret`（不透明字符串，每次 join 重签）。
+   * 冻结字段：join 响应里的 `peer_secret`（不透明字符串，服务端按 `(room_code, peer_id)` 记录校验）。
    * **只存内存**：不进 state/snapshot（避免随 onUpdate 广播、被渲染或落盘），
    * 不进 localStorage / postMessage / diagnostics / 日志；只在 seat 请求体里携带。
    */
@@ -458,10 +458,19 @@ export const createGomokuMatchTrust = ({
     return state.relayBinding
   }
 
-  /** 冻结字段：join 响应里的 peer_secret（只存内存；空值 = 清空旧值，请求体不带该字段）。 */
+  /**
+   * 冻结字段：更新己方持有的 peer_secret。
+   * 服务端只在"首次 join"或"出示匹配的当前值"时重签；响应缺失/为空只表示本次未出示当前值，
+   * 记录存活期间旧值仍然有效 → **空值保留旧值**（清空会让下一次席位绑定 403 自我锁死）。
+   */
   const setPeerSecret = (value = '') => {
-    peerSecret = safeText(value)
+    const next = safeText(value)
+    if (!next) return
+    peerSecret = next
   }
+
+  /** 冻结字段：当前持有的 peer_secret（空串 = 尚未持有；只读内存，绝不落盘/广播）。 */
+  const readPeerSecret = () => peerSecret
 
   const claimSeat = async ({ peerId = '', roomCode = '', force = false } = {}) => {
     if (!state.matchId) return null
@@ -549,8 +558,10 @@ export const createGomokuMatchTrust = ({
     relayBindingForMatch,
     /** F1：离开 / 重置房间时作废内存里的 relay 凭证。 */
     forgetRelayBinding,
-    /** 冻结字段：join 响应里的 peer_secret（只存内存，绝不落盘/广播）。 */
-    setPeerSecret
+    /** 冻结字段：更新己方持有的 peer_secret（空值保留旧值）。 */
+    setPeerSecret,
+    /** 冻结字段：读取当前持有的 peer_secret（空串 = 未持有）。 */
+    peerSecret: readPeerSecret
   }
 }
 

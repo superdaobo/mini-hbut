@@ -919,6 +919,7 @@ export const createHfRelayGomokuRoom = async ({
   fetchImpl = globalThis.fetch?.bind(globalThis),
   pollIntervalMs = 1200,
   relayBinding = '',
+  peerSecret = '',
   onBindingRequired = () => {},
   onPeerSecret = () => {},
   onError = () => {},
@@ -938,6 +939,12 @@ export const createHfRelayGomokuRoom = async ({
   let matchId = ''
   // W1：relay 绑定凭证（席位绑定下发；宿主可在重绑后热更新）。
   let bindingToken = String(relayBinding || '').trim()
+  /**
+   * 冻结字段：join 响应下发的 `peer_secret`（服务端按 `(room_code, peer_id)` 记录校验）。
+   * 房间层自己持有副本（不依赖可信层）：本方 join 时带回，服务端匹配当前值才会重签换新。
+   * 服务端记录存活期间旧值一直有效，因此**空值不得清空**（见 emitPeerSecret）。
+   */
+  let heldPeerSecret = String(peerSecret || '').trim()
 
   const selfPeerId = normalizePeerId(peerId) || createRelayPeerId()
   const setRelayBinding = (value) => {
@@ -945,6 +952,18 @@ export const createHfRelayGomokuRoom = async ({
   }
   const withBinding = (payload) =>
     bindingToken ? { ...payload, relay_binding: bindingToken } : payload
+  /** 冻结字段：仅持有非空 peer_secret 时随 join 带回（首连不带，保持旧服务端请求形状）。 */
+  const withPeerSecret = (payload) =>
+    heldPeerSecret ? { ...payload, peer_secret: heldPeerSecret } : payload
+  /**
+   * 冻结字段：宿主机把已持有的 peer_secret 同步给房间层（可信层就绪晚于 join 的场景）。
+   * 空值保留旧值——记录存活期间旧值仍有效，清空只会让下一次绑定被 403。
+   */
+  const setPeerSecret = (value) => {
+    const next = String(value || '').trim()
+    if (!next) return
+    heldPeerSecret = next
+  }
   const isBindingRequiredError = (error) => {
     if (Number(error?.status || 0) !== 403) return false
     const code = String(error?.body?.error_code || error?.code || '')
@@ -1060,11 +1079,15 @@ export const createHfRelayGomokuRoom = async ({
     onEvent({ type: 'match', matchId: next, roomCode: normalizedRoom, peerId: selfPeerId })
   }
   /**
-   * 冻结字段：join 响应的 `peer_secret`（不透明字符串，每次 join 重签）。
-   * **只交给宿主内存持有**——本函数不做落盘 / 广播 / 日志；旧服务端无该字段时回调空串以清空旧值。
+   * 冻结字段：join 响应的 `peer_secret`（不透明字符串）。
+   * 服务端只在"首次 join"或"出示了匹配的当前值"时重签；响应缺失/为空只表示本次 join
+   * 未出示当前值，**记录存活期间旧值仍然有效** → 保留旧值，绝不当作清空。
+   * **只交给宿内存持有**：本函数不做落盘 / 广播 / 日志。
    */
   const emitPeerSecret = (value) => {
     const secret = typeof value === 'string' ? value.trim() : ''
+    if (!secret) return
+    heldPeerSecret = secret
     try {
       onPeerSecret(secret)
     } catch {
@@ -1126,7 +1149,8 @@ export const createHfRelayGomokuRoom = async ({
       fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/join`, {
         method: 'POST',
         body: JSON.stringify(
-          withBinding({ room_code: normalizedRoom, peer_id: selfPeerId })
+          // 冻结字段：持有 peer_secret 时随 join 带回（服务端匹配当前值才重签；首连不带）。
+          withPeerSecret(withBinding({ room_code: normalizedRoom, peer_id: selfPeerId }))
         )
       })
     )
@@ -1200,8 +1224,16 @@ export const createHfRelayGomokuRoom = async ({
     /** W1：热更新 relay 绑定凭证（席位绑定 / 重绑后由宿主回填）。 */
     setRelayBinding,
     /**
+     * 冻结字段：宿主把已持有的 peer_secret 同步给房间层（空值保留旧值）。
+     * 用于"可信层就绪晚于房间 join"的方向——房间层不依赖可信层也能在 re-join 时带回。
+     */
+    setPeerSecret,
+    /** 冻结字段：当前持有的 peer_secret（空串 = 尚未持有）。 */
+    getPeerSecret: () => heldPeerSecret,
+    /**
      * F5：宿主在席位身份凭证失效（SEAT_PEER_OWNERSHIP_REQUIRED）时主动重新 join 一次，
-     * 以刷新服务端重签的 peer_secret；失败原样抛出，由调用方的有界策略接管。
+     * 以刷新服务端重签的 peer_secret（join 会带回当前持有的值，服务端匹配才重签）；
+     * 失败原样抛出，由调用方的有界策略接管。
      */
     async rejoin() {
       if (closed) return null
