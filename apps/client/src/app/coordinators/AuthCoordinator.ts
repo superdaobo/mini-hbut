@@ -42,6 +42,9 @@ import { invokeNative, isTauriRuntime } from '../../platform/native'
 /** 登录后成绩补拉的等待上限：超时以空快照兜底继续云同步，不无限等待 */
 const LOGIN_GRADES_TIMEOUT_MS = 20 * 1000
 
+/** 同一次登录被「组件交付 + 复用交付」两条路径重复投递的去重时间窗 */
+const LOGIN_DELIVERY_DEDUPE_WINDOW_MS = 5 * 1000
+
 /** Promise 超时包装：超时即抛错，迟到结果被丢弃（不中止底层请求） */
 const waitPromiseWithTimeout = <T>(
   task: Promise<T>,
@@ -211,7 +214,19 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   // 卸载，Vue 会丢弃已卸载实例的 emit，全局事件才能保证结果仍被应用层接收。
   // 测试环境下 window 被 stub（无 addEventListener），此处做了能力守卫。
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    subscribePortalLoginSucceeded(() => {
+    // 去重：同一次登录可能被两条路径交付 —— 发起提交的组件（publish 不受组件卸载
+    // 影响）与「登录中切回页面」的新实例（复用同一请求后又交付一次）。按学号+方式+
+    // 时间窗判定为同一次登录，避免整套登录后初始化被重复执行。
+    let lastHandledKey = ''
+    let lastHandledAt = 0
+    subscribePortalLoginSucceeded((detail) => {
+      const key = `${detail?.studentId || ''}|${detail?.method || ''}`
+      const now = Date.now()
+      if (key === lastHandledKey && now - lastHandledAt < LOGIN_DELIVERY_DEDUPE_WINDOW_MS) {
+        return
+      }
+      lastHandledKey = key
+      lastHandledAt = now
       handleLoginSuccess([])
     })
   }

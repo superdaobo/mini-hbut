@@ -9,9 +9,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  LOGIN_METHOD_CHAOXING_PASSWORD,
+  LOGIN_METHOD_PORTAL_PASSWORD,
+  LOGIN_METHOD_PORTAL_QR,
   normalizePortalLoginOutcome,
   publishPortalLoginSucceeded,
-  subscribePortalLoginSucceeded
+  subscribePortalLoginSucceeded,
+  triggersLoginCooldown
 } from './loginOutcome'
 
 type Listener = (event: { type: string; detail?: unknown }) => void
@@ -66,6 +70,22 @@ describe('门户登录结果归一化（#932）', () => {
     expect(normalizePortalLoginOutcome(null).success).toBe(false)
     expect(normalizePortalLoginOutcome(undefined).success).toBe(false)
     expect(normalizePortalLoginOutcome('oops').success).toBe(false)
+  })
+
+  it('有 success 但无 data 的载荷（如学习通登录）提升顶层 student_id', () => {
+    const raw = { success: true, student_id: '2510231106', username: '张三' }
+
+    const normalized = normalizePortalLoginOutcome(raw)
+
+    expect(normalized.success).toBe(true)
+    expect((normalized.data as Record<string, unknown>).student_id).toBe('2510231106')
+  })
+
+  it('triggersLoginCooldown 只认门户密码登录（其余命令不走 client.login）', () => {
+    expect(triggersLoginCooldown(LOGIN_METHOD_PORTAL_PASSWORD)).toBe(true)
+    expect(triggersLoginCooldown(LOGIN_METHOD_PORTAL_QR)).toBe(false)
+    expect(triggersLoginCooldown(LOGIN_METHOD_CHAOXING_PASSWORD)).toBe(false)
+    expect(triggersLoginCooldown('')).toBe(false)
   })
 })
 

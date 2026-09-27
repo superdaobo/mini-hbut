@@ -30,9 +30,18 @@ export const LOGIN_IN_FLIGHT_TIMEOUT_MS = 90_000
 
 let inFlightPromise: Promise<unknown> | null = null
 let inFlightStartedAt = 0
+let inFlightMethod = ''
 
 /** 当前是否已有登录请求在飞（供 UI 展示 / 恢复链让路判断） */
 export const isLoginInFlight = (): boolean => inFlightPromise !== null
+
+/**
+ * 当前在飞登录的方式标记（进入门时由发起方标注）。
+ *
+ * 「登录中切回页面」的复用路径据此还原落地语义：写回 `hbu_login_method`、
+ * 判断是否需要登记登录冷却等（#932 / N2）。
+ */
+export const loginInFlightMethod = (): string => inFlightMethod
 
 /**
  * 等待当前在飞登录结束（不发起新登录）；门空闲时立即返回 null。
@@ -55,6 +64,7 @@ export const resetLoginGateIfStale = (now: number = Date.now()): boolean => {
   if (!isLoginInFlightStale(now)) return false
   inFlightPromise = null
   inFlightStartedAt = 0
+  inFlightMethod = ''
   return true
 }
 
@@ -63,8 +73,13 @@ export const resetLoginGateIfStale = (now: number = Date.now()): boolean => {
  *  - 无 in-flight：执行 fn 并持有其 promise，完成后释放（不论成败）；
  *  - 已有 in-flight 且未失联：不执行 fn，直接返回同一个 promise（复用对方结果）；
  *  - 已有 in-flight 但已失联：接管（清门后执行 fn），避免永久复用死 promise。
+ *
+ * `options.method` 标注本次登录方式，供复用路径还原落地语义（#932 / N2）。
  */
-export const runExclusiveLogin = <T>(fn: () => Promise<T>): Promise<T> => {
+export const runExclusiveLogin = <T>(
+  fn: () => Promise<T>,
+  options: { method?: string } = {}
+): Promise<T> => {
   if (inFlightPromise && !resetLoginGateIfStale()) {
     return inFlightPromise as Promise<T>
   }
@@ -78,11 +93,13 @@ export const runExclusiveLogin = <T>(fn: () => Promise<T>): Promise<T> => {
       if (inFlightPromise === task) {
         inFlightPromise = null
         inFlightStartedAt = 0
+        inFlightMethod = ''
       }
     }
   })()
   inFlightPromise = task
   inFlightStartedAt = Date.now()
+  inFlightMethod = String(options.method || '')
   return task
 }
 
@@ -90,6 +107,7 @@ export const runExclusiveLogin = <T>(fn: () => Promise<T>): Promise<T> => {
 export const resetLoginGate = (): void => {
   inFlightPromise = null
   inFlightStartedAt = 0
+  inFlightMethod = ''
 }
 
 /** 测试辅助：读取在飞起始时间（生产代码无需感知） */

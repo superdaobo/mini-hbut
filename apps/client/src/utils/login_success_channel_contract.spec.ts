@@ -20,11 +20,17 @@ describe('登录成功交付通道契约（#928 / #932）', () => {
     expect(source).not.toContain('emitSuccessWithGrades')
   })
 
-  it('门户密码登录与扫码登录均通过应用级通道交付结果', () => {
+  it('门户密码/扫码/学习通登录均按各自方式标注，并统一交付结果', () => {
     const source = readSource('components/LoginV3.vue')
     expect(source).toContain('publishPortalLoginSucceeded')
-    expect(source).toContain('method: LOGIN_METHOD_PORTAL_PASSWORD')
+    // 落地函数按 method 参数区分登录方式（不得硬编码为门户密码登录，
+    // 否则扫码临时会话会被当成正式会话、学习通自动重登会走错凭据分支）
+    expect(source).toContain('method = LOGIN_METHOD_PORTAL_PASSWORD')
+    expect(source).toContain('triggersLoginCooldown(method)')
+    // 各调用点在进入单飞门时标注方式，供复用路径还原语义
     expect(source).toContain('method: LOGIN_METHOD_PORTAL_QR')
+    expect(source).toContain('method: LOGIN_METHOD_CHAOXING_PASSWORD')
+    expect(source).toContain('method: LOGIN_METHOD_CHAOXING_QR')
   })
 
   it('登录中恢复路径具备超时逃生与结果归一化', () => {

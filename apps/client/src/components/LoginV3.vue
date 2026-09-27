@@ -32,11 +32,21 @@ import { saveRememberedUsername } from '../utils/remembered_username.js'
 import { isValidStudentId as isLikelyStudentId } from '../utils/student_id.js'
 import {
   isLoginInFlight,
+  loginInFlightMethod,
+  resetLoginGateIfStale,
   runExclusiveLogin,
   waitForInFlightLogin
 } from '../app/coordinators/sessionGate'
 import { noteLoginSuccess } from '../app/coordinators/loginCooldown'
-import { publishPortalLoginSucceeded, normalizePortalLoginOutcome } from '../app/coordinators/loginOutcome'
+import {
+  LOGIN_METHOD_CHAOXING_PASSWORD,
+  LOGIN_METHOD_CHAOXING_QR,
+  LOGIN_METHOD_PORTAL_PASSWORD,
+  LOGIN_METHOD_PORTAL_QR,
+  normalizePortalLoginOutcome,
+  publishPortalLoginSucceeded,
+  triggersLoginCooldown
+} from '../app/coordinators/loginOutcome'
 import { useAuthStore } from '../stores'
 import { useLocale } from '../utils/app_i18n'
 
@@ -71,9 +81,6 @@ const LOGIN_MODE_PREF_KEY = 'hbu_login_entry_mode'
 const LOGIN_TEMP_FLAG_KEY = 'hbu_login_temporary'
 const LOGOUT_REASON_KEY = 'hbu_logout_reason'
 const TEMP_SESSION_EXPIRED_REASON = 'temp_session_expired'
-/** 登录方式标记（应用级登录成功通道载荷用，#932） */
-const LOGIN_METHOD_PORTAL_PASSWORD = 'portal_password'
-const LOGIN_METHOD_PORTAL_QR = 'portal_qr_temp'
 const CHAOXING_ACCOUNT_KEY = 'hbu_cx_account'
 const CHAOXING_PASSWORD_KEY = 'hbu_cx_password'
 const CHAOXING_REMEMBER_KEY = 'hbu_cx_remember'
@@ -482,16 +489,23 @@ const scheduleCxQrPoll = () => {
 }
 
 /**
- * 门户登录结果落地（手动提交与「登录中切回页面」两条路径共用）。
- * 返回是否登录成功。
+ * 登录结果落地（手动提交与「登录中切回页面」复用两条路径共用）。
+ *
+ * `method` 标注本次登录方式：复用路径必须先读取门内标注（loginInFlightMethod），
+ * 否则扫码/学习通登录会被错误落成门户密码登录 —— 临时会话标记与自动重登的凭据
+ * 选择都会跟着错；且只有门户密码登录才应登记 Rust 侧登录冷却。
+ *
+ * @returns 是否登录成功
  */
-const applyPortalLoginResult = async (result) => {
+const applyPortalLoginResult = async (result, { method = LOGIN_METHOD_PORTAL_PASSWORD } = {}) => {
   if (!result?.success) {
     statusMsg.value = `❌ ${friendlyLoginError(result?.error || '')}`
     return false
   }
 
-  const sid = String(result?.data?.student_id || username.value || '').trim()
+  const sid = String(
+    result?.data?.student_id || result?.data?.studentId || username.value || ''
+  ).trim()
   if (sid) {
     saveRememberedUsername(sid)
   }
@@ -504,16 +518,19 @@ const applyPortalLoginResult = async (result) => {
   if (rememberMe.value) {
     localStorage.setItem('hbu_remember', 'true')
   }
-  applyLoginMethodStorage('portal_password')
+  applyLoginMethodStorage(method)
   localStorage.removeItem(LOGOUT_REASON_KEY)
   markLoginOnline()
-  // 门户登录成功：Rust 侧进入 60s 登录冷却，前端同步登记，供自动恢复链让路（#931）
-  noteLoginSuccess()
+  // 只有门户密码登录会进入 Rust 的 60s 冷却门（其余登录命令不经过 client.login），
+  // 登记冷却供自动恢复链在窗口内让路（#931）
+  if (triggersLoginCooldown(method)) {
+    noteLoginSuccess()
+  }
   statusMsg.value = t('login.status.signInSuccessSyncing')
   // #928：成绩同步不再阻塞登录完成（原先要多转约 10s）。
   // #932：结果走应用级通道 —— 登录期间被切走时本实例可能已卸载，Vue 会丢弃
   // 已卸载实例的 emit，全局事件才能保证结果仍被应用层接收。
-  publishPortalLoginSucceeded({ studentId: sid, method: LOGIN_METHOD_PORTAL_PASSWORD })
+  publishPortalLoginSucceeded({ studentId: sid, method })
   return true
 }
 
@@ -526,6 +543,8 @@ let resumeWatchSeq = 0
  */
 const resumeInFlightLogin = async () => {
   if (!isLoginInFlight()) return
+  // 门内在飞期间读取登录方式（请求结束会在 finally 中清理该标记）
+  const method = loginInFlightMethod()
   const seq = ++resumeWatchSeq
   loading.value = true
   statusMsg.value = t('login.status.signingIn')
@@ -538,7 +557,8 @@ const resumeInFlightLogin = async () => {
       t('login.error.submitTimeout')
     )
     if (seq !== resumeWatchSeq || outcome === null) return
-    await applyPortalLoginResult(normalizePortalLoginOutcome(outcome))
+    // 按门内标注的登录方式落地，避免把扫码/学习通登录落成门户密码登录（N2）
+    await applyPortalLoginResult(normalizePortalLoginOutcome(outcome), { method })
   } catch (e) {
     if (seq !== resumeWatchSeq) return
     const errMsg = e?.response?.data?.error || e?.message || t('login.error.unknown')
@@ -641,6 +661,9 @@ const handlePasswordLogin = async () => {
   } catch (e) {
     const errMsg = e.response?.data?.error || e.message || t('login.error.unknown')
     statusMsg.value = `⚠️ ${friendlyLoginError(errMsg)}`
+    // #929：超时/失败后，若门内请求已超过失联阈值则立即清理，
+    // 让用户的下一次点击能发起真实登录，而不是继续复用同一个死 promise。
+    resetLoginGateIfStale()
   } finally {
     loading.value = false
     await refreshOcrMode(String(getStoredOcrConfig().endpoint || '').trim())
@@ -764,11 +787,13 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
   clearQrTimer()
 
   try {
-    const userInfo = await runExclusiveLogin(() =>
-      invoke('portal_qr_confirm_login', {
-        uuid: qrUuid.value,
-        service: 'https://e.hbut.edu.cn/login#/'
-      })
+    const userInfo = await runExclusiveLogin(
+      () =>
+        invoke('portal_qr_confirm_login', {
+          uuid: qrUuid.value,
+          service: 'https://e.hbut.edu.cn/login#/'
+        }),
+      { method: LOGIN_METHOD_PORTAL_QR }
     )
     const sid = String(userInfo?.student_id || '').trim()
     if (!sid) {
@@ -835,11 +860,13 @@ const handleChaoxingPasswordLogin = async () => {
   loading.value = true
   statusMsg.value = t('login.error.cx.signingIn')
   try {
-    const payload = await runExclusiveLogin(() =>
-      invoke('chaoxing_password_login', {
-        account: chaoxingAccount.value,
-        password: chaoxingPassword.value
-      })
+    const payload = await runExclusiveLogin(
+      () =>
+        invoke('chaoxing_password_login', {
+          account: chaoxingAccount.value,
+          password: chaoxingPassword.value
+        }),
+      { method: LOGIN_METHOD_CHAOXING_PASSWORD }
     )
     await handleChaoxingLoginSuccess(payload, 'chaoxing_password')
   } catch (e) {
@@ -985,12 +1012,14 @@ const confirmChaoxingQrLogin = async () => {
   clearCxQrTimer()
 
   try {
-    const payload = await runExclusiveLogin(() =>
-      invoke('chaoxing_qr_confirm_login', {
-        uuid: cxQrUuid.value,
-        enc: cxQrEnc.value,
-        account_hint: chaoxingAccount.value || undefined
-      })
+    const payload = await runExclusiveLogin(
+      () =>
+        invoke('chaoxing_qr_confirm_login', {
+          uuid: cxQrUuid.value,
+          enc: cxQrEnc.value,
+          account_hint: chaoxingAccount.value || undefined
+        }),
+      { method: LOGIN_METHOD_CHAOXING_QR }
     )
     cxQrState.value = 'success'
     cxQrStateMessage.value = t('login.cx.qr.successSyncing')

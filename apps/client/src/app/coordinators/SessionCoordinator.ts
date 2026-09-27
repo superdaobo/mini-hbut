@@ -38,6 +38,10 @@ import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '..
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
 import {
+  LOGIN_METHOD_CHAOXING_PASSWORD,
+  LOGIN_METHOD_PORTAL_PASSWORD
+} from './loginOutcome'
+import {
   isLoginCooldownActive,
   loginCooldownRemainingMs,
   noteLoginCooldownFromError,
@@ -270,7 +274,16 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     if (delay <= 2000) return
     cooldownResumeTimer = window.setTimeout(() => {
       cooldownResumeTimer = null
-      void attemptOnlineRecovery({ silent: true })
+      void attemptOnlineRecovery({ silent: true }).then((ok) => {
+        // attemptOnlineRecovery 入口即把状态置为 recovering，而静默路径失败时不弹横幅
+        // 也不回落状态 —— 必须显式落回，否则 Dashboard 会话点会一直闪到下一个
+        // keep-alive 周期（20 分钟）才被修正。让路（仍有登录在飞）同样按未成功处理。
+        if (!ok) {
+          markJwxtMaintenance(sessionFailureHint('会话恢复失败，稍后自动重试'), {
+            phase: 'failed'
+          })
+        }
+      })
     }, delay)
   }
 
@@ -293,11 +306,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       if (!chaoxingCreds) return false
       try {
         // #659：自动重登与手动登录互斥单飞 —— 已有登录在飞时复用同一请求
-        const payload = await runExclusiveLogin(() =>
-          invoke('chaoxing_password_login', {
-            account: chaoxingCreds.account,
-            password: chaoxingCreds.password
-          })
+        const payload = await runExclusiveLogin(
+          () =>
+            invoke('chaoxing_password_login', {
+              account: chaoxingCreds.account,
+              password: chaoxingCreds.password
+            }),
+          { method: LOGIN_METHOD_CHAOXING_PASSWORD }
         )
         const sid = await resolveAutoLoginStudentId(payload as Record<string, unknown>)
         if (sid) {
@@ -325,10 +340,12 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     // 直接调用后端 auto_relogin_from_stored 走完整 CAS 登录，立即恢复而非等轮询。
     if (creds.backendRestorable) {
       try {
-        const userInfo = await runExclusiveLogin(() =>
-          invoke('auto_relogin_from_stored', {
-            studentId: creds.username
-          })
+        const userInfo = await runExclusiveLogin(
+          () =>
+            invoke('auto_relogin_from_stored', {
+              studentId: creds.username
+            }),
+          { method: LOGIN_METHOD_PORTAL_PASSWORD }
         )
         await persistSessionCookies()
         const sid = String(
@@ -351,22 +368,25 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     const doLogin = () =>
       // #659：invoke('login') 走全局单飞门 —— 与手动登录互斥复用，
       // 绝不在已有登录请求在飞时再次触发
-      runExclusiveLogin(async () => {
-        const userInfo = await invoke('login', {
-          username: creds.username,
-          password: creds.password,
-          captcha: '',
-          lt: '',
-          execution: ''
-        })
-        await persistSessionCookies()
-        const sid = String(userInfo?.student_id || creds.username || '').trim()
-        if (sid) {
-          state.studentId.value = sid
-          saveRememberedUsername(sid)
-        }
-        return userInfo
-      })
+      runExclusiveLogin(
+        async () => {
+          const userInfo = await invoke('login', {
+            username: creds.username,
+            password: creds.password,
+            captcha: '',
+            lt: '',
+            execution: ''
+          })
+          await persistSessionCookies()
+          const sid = String(userInfo?.student_id || creds.username || '').trim()
+          if (sid) {
+            state.studentId.value = sid
+            saveRememberedUsername(sid)
+          }
+          return userInfo
+        },
+        { method: LOGIN_METHOD_PORTAL_PASSWORD }
+      )
 
     try {
       await doLogin()

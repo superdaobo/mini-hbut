@@ -20,6 +20,23 @@ export interface PortalLoginSucceededDetail {
 
 const EVENT_NAME = 'hbu-portal-login-succeeded'
 
+/**
+ * 登录方式标记（即写入 `hbu_login_method` 的取值）。
+ *
+ * 复用「在飞登录结果」的路径（#932）无法自行得知原始登录方式，必须由发起方
+ * 在进入单飞门时标注，否则会把扫码/学习通登录错误地落成门户密码登录 —— 那会
+ * 让临时扫码会话被当成正式会话（失效不再退回登录页）、并让学习通会话的自动
+ * 重登改走门户密码分支（本地无密码 → 必然失败）。
+ */
+export const LOGIN_METHOD_PORTAL_PASSWORD = 'portal_password'
+export const LOGIN_METHOD_PORTAL_QR = 'portal_qr_temp'
+export const LOGIN_METHOD_CHAOXING_PASSWORD = 'chaoxing_password'
+export const LOGIN_METHOD_CHAOXING_QR = 'chaoxing_qr_temp'
+
+/** 门户密码登录才会触发 Rust 的 60s 冷却门（其余登录命令不走 client.login） */
+export const triggersLoginCooldown = (method: string): boolean =>
+  method === LOGIN_METHOD_PORTAL_PASSWORD
+
 export interface NormalizedPortalLoginOutcome {
   success: boolean
   data?: unknown
@@ -40,7 +57,9 @@ export const normalizePortalLoginOutcome = (raw: unknown): NormalizedPortalLogin
   if ('success' in record) {
     return {
       success: Boolean(record.success),
-      data: record.data,
+      // 部分登录命令返回 {success, student_id, ...}（无 data 包装，如学习通登录）：
+      // 提升为 data，避免复用路径回退到表单值而丢失真实学号。
+      data: record.data ?? (record.student_id ? record : undefined),
       error: typeof record.error === 'string' ? record.error : undefined
     }
   }

@@ -13,6 +13,7 @@ import {
   LOGIN_IN_FLIGHT_TIMEOUT_MS,
   isLoginInFlight,
   isLoginInFlightStale,
+  loginInFlightMethod,
   resetLoginGate,
   resetLoginGateIfStale,
   runExclusiveLogin,
@@ -378,5 +379,19 @@ describe('登录单飞门失联自愈（#929）', () => {
 
     await expect(waiting).resolves.toBe('shared-result')
     await expect(stuck).resolves.toBe('shared-result')
+  })
+
+  it('门内标注登录方式：在飞期间可读、释放后清空（复用路径据此还原落地语义）', async () => {
+    const holder: { resolve: ((v: string) => void) | null } = { resolve: null }
+    const stuck = runExclusiveLogin(
+      () => new Promise<string>((r) => { holder.resolve = r }),
+      { method: 'portal_qr_temp' }
+    )
+
+    expect(loginInFlightMethod()).toBe('portal_qr_temp')
+
+    holder.resolve?.('done')
+    await stuck
+    expect(loginInFlightMethod()).toBe('')
   })
 })
