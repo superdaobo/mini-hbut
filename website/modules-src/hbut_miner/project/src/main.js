@@ -6,29 +6,30 @@ import {
   restartMinerGame,
   stepMinerGame
 } from './game/miner.js'
-import {
-  canUseGameRank,
-  createRunId,
-  fetchGameLeaderboard,
-  readGameModuleContext,
-  submitGameRank
-} from './utils/game_rank.js'
+import { MiniHBUTGame, readLegacyModuleContext } from '../../../_sdk/src/index.js'
+import { HBUT_MINER_ADAPTER } from './utils/game_sdk_adapter.js'
 
 const MODULE_ID = 'hbut_miner'
 const app = document.getElementById('app')
 
-const moduleContext = readGameModuleContext()
-const rankEnabled = canUseGameRank(moduleContext)
+// SDK 句柄：同步创建（Host 握手 / ticket 兑换在后台进行），不阻塞渲染与玩法
+const sdkGame = MiniHBUTGame.create({ gameId: MODULE_ID, adapter: HBUT_MINER_ADAPTER })
+// 同步预判能力：有 ticket 或旧版上下文（student_id + rank_api）时为 true，与旧 canUseGameRank 一致
+let rankEnabled = sdkGame.capabilities.canSubmit
+let leaderboardAvailable = sdkGame.capabilities.leaderboard
+
+// 班级上下文只用于选择默认榜单 scope（展示用途，不参与身份判定）
+const launchContext = readLegacyModuleContext({ gameId: MODULE_ID })
 
 let state = createInitialMinerState()
 let lastFrame = performance.now()
 let canvas
 let ctx
-let currentRunId = createRunId()
-let runStartedAt = Date.now()
-let submitPending = null
+// run 生命周期由 SDK 管理（run_id 生成、幂等、降级、pending 重试）
+let run = sdkGame.startRun()
 let lastTerminalStatus = ''
-let currentLeaderboardScope = moduleContext.className ? 'class' : 'school'
+let retryAvailable = false // 仅 SDK 判定 retryable 的失败才给「点此重试」入口
+let currentLeaderboardScope = launchContext.className ? 'class' : 'school'
 
 function syncViewport() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight
@@ -112,7 +113,7 @@ function renderShell() {
       <section class="control-panel">
         <button id="launch-button" class="primary-action" type="button">发射吊钩</button>
         <button id="restart-button" class="secondary-action" type="button">重新开始</button>
-        ${rankEnabled ? '<button id="leaderboard-button" class="secondary-action" type="button">排行榜</button>' : ''}
+        ${leaderboardAvailable ? '<button id="leaderboard-button" class="secondary-action" type="button">排行榜</button>' : ''}
       </section>
 
       <div id="submit-status" class="submit-status" aria-live="polite"></div>
@@ -126,7 +127,7 @@ function renderShell() {
       </section>
     </main>
 
-    ${rankEnabled ? `
+    ${leaderboardAvailable ? `
     <div class="leaderboard-overlay" id="leaderboard-overlay" style="display:none">
       <div class="leaderboard-modal">
         <div class="leaderboard-header">
@@ -151,10 +152,10 @@ function renderShell() {
   document.getElementById('launch-button')?.addEventListener('click', launchHook)
   document.getElementById('restart-button')?.addEventListener('click', () => {
     state = restartMinerGame(state)
-    currentRunId = createRunId()
-    runStartedAt = Date.now()
+    // 新一局 = 新 run_id（旧 run 未结算的成绩随旧 run 丢弃，与既有行为一致）
+    run = sdkGame.startRun({ replaceActive: true })
     lastTerminalStatus = ''
-    submitPending = null
+    retryAvailable = false
     showSubmitStatus('')
     lastFrame = performance.now()
     updateUi()
@@ -164,11 +165,22 @@ function renderShell() {
     launchHook()
   })
   setupLeaderboard()
+  applyRankAvailability()
 
   resizeCanvas()
 }
 
-function showSubmitStatus(status) {
+/** 排行榜入口跟随最终模式（standalone 时隐藏；DOM 结构不变，仅切 hidden） */
+function applyRankAvailability() {
+  const button = document.getElementById('leaderboard-button')
+  if (button) button.hidden = !leaderboardAvailable
+}
+
+/**
+ * 提交状态提示：DOM 与文案保持迁移前一致；
+ * 仅新增「不可重试」分支（确定性失败不再显示会永远失败的「点此重试」入口）。
+ */
+function showSubmitStatus(status, text = '', retryable = true) {
   const el = document.getElementById('submit-status')
   if (!el) return
   switch (status) {
@@ -178,7 +190,7 @@ function showSubmitStatus(status) {
       el.onclick = null
       break
     case 'success':
-      el.textContent = '✓ 成绩已上传'
+      el.textContent = text || '✓ 成绩已上传'
       el.className = 'submit-status success'
       el.onclick = null
       setTimeout(() => {
@@ -189,11 +201,13 @@ function showSubmitStatus(status) {
       }, 3000)
       break
     case 'failed':
-      el.textContent = '上传失败，点此重试'
+      el.textContent = retryable ? '上传失败，点此重试' : text || '本局成绩仅保留在本地'
       el.className = 'submit-status failed'
-      el.onclick = () => {
-        void retrySubmit()
-      }
+      el.onclick = retryable
+        ? () => {
+            void retrySubmit()
+          }
+        : null
       break
     default:
       el.textContent = ''
@@ -202,26 +216,44 @@ function showSubmitStatus(status) {
   }
 }
 
+/** 结算后统一更新提交状态（SDK 已把三种模式归一为同一 outcome） */
+function applySubmitOutcome(outcome) {
+  rankEnabled = sdkGame.capabilities.canSubmit
+  leaderboardAvailable = sdkGame.capabilities.leaderboard
+  applyRankAvailability()
+  if (outcome?.success) {
+    retryAvailable = false
+    // standalone（本地记录）时给出 SDK 的中文说明，其余仍是既有的「✓ 成绩已上传」
+    showSubmitStatus('success', outcome.uploaded === false ? outcome.message : '')
+    return
+  }
+  if (outcome?.retryable === true) {
+    retryAvailable = true
+    showSubmitStatus('failed')
+    return
+  }
+  retryAvailable = false
+  showSubmitStatus('failed', outcome?.message || '', false)
+}
+
 async function submitTerminalScore(endedReason) {
   if (!rankEnabled) return
-  const payload = {
-    runId: currentRunId,
-    score: state.score,
-    maxLevel: state.levelNumber || 1,
-    durationMs: Math.max(0, Date.now() - runStartedAt),
-    moveCount: Number(state.shotCount || 0),
-    endedReason,
-    extra: {
-      levelName: state.levelName || '',
-      targetScore: state.targetScore || 0
-    }
-  }
-  submitPending = payload
   showSubmitStatus('uploading')
   try {
-    await submitGameRank(moduleContext, payload)
-    submitPending = null
-    showSubmitStatus('success')
+    // 数值语义与迁移前逐字一致（main.js 旧 :207-218）：仅 run_id/durationMs 交给 SDK；
+    // maxLevel 是 levelNumber，adapter 的 fromLegacyMaxLevel 负责 -1 得到 metric.value
+    const outcome = await run.finish({
+      score: state.score,
+      maxLevel: state.levelNumber || 1,
+      durationMs: Math.max(0, Date.now() - run.startedAt),
+      moveCount: Number(state.shotCount || 0),
+      endedReason,
+      extra: {
+        levelName: state.levelName || '',
+        targetScore: state.targetScore || 0
+      }
+    })
+    applySubmitOutcome(outcome)
   } catch (error) {
     console.warn('[hbut_miner] rank submit failed', error)
     showSubmitStatus('failed')
@@ -229,12 +261,11 @@ async function submitTerminalScore(endedReason) {
 }
 
 async function retrySubmit() {
-  if (!submitPending || !rankEnabled) return
+  if (!rankEnabled || !retryAvailable) return
   showSubmitStatus('uploading')
   try {
-    await submitGameRank(moduleContext, submitPending)
-    submitPending = null
-    showSubmitStatus('success')
+    // SDK 复用同一 pending payload，保证服务端 content_hash 稳定
+    applySubmitOutcome(await run.retry())
   } catch (error) {
     console.warn('[hbut_miner] rank retry failed', error)
     showSubmitStatus('failed')
@@ -242,11 +273,12 @@ async function retrySubmit() {
 }
 
 function setupLeaderboard() {
-  if (!rankEnabled) return
   const overlay = document.getElementById('leaderboard-overlay')
   const openBtn = document.getElementById('leaderboard-button')
   const closeBtn = document.getElementById('leaderboard-close')
-  openBtn?.addEventListener('click', () => {
+  if (!overlay || !openBtn) return
+  openBtn.addEventListener('click', () => {
+    if (!leaderboardAvailable) return
     if (overlay) overlay.style.display = 'flex'
     void loadLeaderboard(currentLeaderboardScope)
   })
@@ -271,8 +303,16 @@ async function loadLeaderboard(scope) {
   if (!content) return
   content.innerHTML = '<div class="leaderboard-loading">加载中...</div>'
   try {
-    const data = await fetchGameLeaderboard(moduleContext, { scope, limit: 20 })
-    const list = data.leaderboard || data.data || []
+    // SDK 统一榜单读取：verified 走 V2 榜，compatibility 走经典榜，失败自动降级
+    const data = await sdkGame.leaderboard({ scope, limit: 20 })
+    const list = data.entries || []
+    if (!data.success) {
+      content.innerHTML = '<div class="leaderboard-empty"></div>'
+      const box = content.firstElementChild
+      // 服务端文案只允许经 textContent 写入（禁止 innerHTML 插值）
+      if (box) box.textContent = data.message || '排行榜加载失败'
+      return
+    }
     if (!list.length) {
       content.innerHTML = '<div class="leaderboard-empty">暂无数据</div>'
       return
@@ -281,10 +321,9 @@ async function loadLeaderboard(scope) {
     content.innerHTML = `<div class="leaderboard-list">${list
       .map((item, index) => {
         const rank = item.rank || index + 1
-        const name = isClassTotal
-          ? item.class_name || item.className || '未知班级'
-          : item.player_name || item.playerName || item.student_id || '匿名'
-        const score = isClassTotal ? item.total_score ?? item.totalScore ?? 0 : item.score ?? 0
+        // 条目已由 SDK 去 PII 并解析展示名（学号绝不出现在榜单里）
+        const name = item.display_name || (isClassTotal ? '未知班级' : '匿名')
+        const score = isClassTotal ? item.total_score ?? item.score ?? 0 : item.score ?? 0
         return `<div class="leaderboard-item"><span class="rank-badge">${rank}</span><span class="rank-name">${name}</span><span class="rank-score">${score}</span></div>`
       })
       .join('')}</div>`
@@ -488,3 +527,10 @@ renderShell()
 syncViewport()
 updateUi()
 requestAnimationFrame(tick)
+
+// 模式判定（Host 握手 / ticket 兑换）完成后刷新排行可用性：只影响入口显隐，不阻塞玩法
+void sdkGame.ready.then(() => {
+  rankEnabled = sdkGame.capabilities.canSubmit
+  leaderboardAvailable = sdkGame.capabilities.leaderboard
+  applyRankAvailability()
+})
