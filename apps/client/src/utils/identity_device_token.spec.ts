@@ -174,6 +174,20 @@ describe('#902 设备换票 provider', () => {
     expect(await getIdentityAccessToken()).toBeNull()
   })
 
+  it('重复安装幂等：不叠加事件监听，旧实例卸载不会打掉新安装的 provider', async () => {
+    const first = installIdentityDeviceTokenProvider({ invoke: makeInvoke(), isTauri: () => true })
+    const second = installIdentityDeviceTokenProvider({ invoke: makeInvoke(), isTauri: () => true })
+    // 监听只保留一份（每次安装都会先解绑上一次）
+    expect(listeners.get(IDENTITY_DEVICE_TOKEN_LOGOUT_EVENT)?.size ?? 0).toBe(1)
+    expect(listeners.get(IDENTITY_DEVICE_TOKEN_LOGIN_EVENT)?.size ?? 0).toBe(1)
+    // 旧实例卸载：provider 仍由新安装持有（不清空）
+    first.uninstall()
+    expect(hasIdentityAccessTokenProvider()).toBe(true)
+    second.uninstall()
+    expect(hasIdentityAccessTokenProvider()).toBe(false)
+    expect(listeners.get(IDENTITY_DEVICE_TOKEN_LOGOUT_EVENT)?.size ?? 0).toBe(0)
+  })
+
   it('失败一律 null：非 Tauri / 未注册设备 / 无本地会话', async () => {
     const invoke = makeInvoke()
     // 非 Tauri（Web/Capacitor 无设备私钥）

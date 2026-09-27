@@ -157,19 +157,24 @@ export const createIdentityDeviceTokenProvider = (
   }
 }
 
-/** 安装结果：卸载函数（幂等；测试与热更新场景必须能解绑） */
+/** 安装结果：卸载函数（测试与热更新场景必须能解绑） */
 export interface InstallIdentityDeviceTokenResult {
   uninstall: () => void
 }
 
+/** 当前生效的安装（模块级单一实例，保证重复安装不叠加监听） */
+let activeUninstall: (() => void) | null = null
+
 /**
  * 注册 provider 并挂载生命周期监听（生产唯一注入点，#629 的 provider 从此不再恒为 null）。
- * - 幂等：重复调用会先卸载上一次的监听与 provider，避免重复绑定；
+ * - 幂等：重复调用先卸载上一次安装（provider + 事件监听），不会叠加监听或互相干扰；
  * - 非浏览器环境（node 测试）不挂监听，只注册 provider。
  */
 export const installIdentityDeviceTokenProvider = (
   deps: DeviceTokenProviderDeps = {}
 ): InstallIdentityDeviceTokenResult => {
+  // 重复安装（HMR / 组合式函数被调用两次）：先解绑上一次，避免监听泄漏
+  activeUninstall?.()
   setIdentityAccessTokenProvider(createIdentityDeviceTokenProvider(deps))
 
   const onLogout = (): void => {
@@ -188,15 +193,19 @@ export const installIdentityDeviceTokenProvider = (
   }
 
   let uninstalled = false
-  return {
-    uninstall: () => {
-      if (uninstalled) return
-      uninstalled = true
-      if (hasWindow) {
-        window.removeEventListener(IDENTITY_DEVICE_TOKEN_LOGOUT_EVENT, onLogout)
-        window.removeEventListener(IDENTITY_DEVICE_TOKEN_LOGIN_EVENT, onLoginResumed)
-      }
+  const uninstall = (): void => {
+    if (uninstalled) return
+    uninstalled = true
+    if (hasWindow) {
+      window.removeEventListener(IDENTITY_DEVICE_TOKEN_LOGOUT_EVENT, onLogout)
+      window.removeEventListener(IDENTITY_DEVICE_TOKEN_LOGIN_EVENT, onLoginResumed)
+    }
+    // 只清理「仍是本次安装」的 provider：避免旧实例的卸载动作把新安装打掉
+    if (activeUninstall === uninstall) {
+      activeUninstall = null
       setIdentityAccessTokenProvider(null)
     }
   }
+  activeUninstall = uninstall
+  return { uninstall }
 }
