@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import '../../../../website/modules-src/hbut_gomoku/project/src/game/online.test.js'
 import {
+  RELAY_BINDING_REQUIRED_CODE,
   createHfRelayGomokuRoom,
   normalizeRoomCode
 } from '../../../../website/modules-src/hbut_gomoku/project/src/game/online.js'
@@ -22,6 +23,7 @@ import {
   GOMOKU_GAME_ID,
   MATCH_RESULTS,
   MATCH_TRUST_LEVEL,
+  RELAY_AUTH_HEADER,
   bootstrapMatchSession,
   buildResultClaimBody,
   buildSeatClaimBody,
@@ -29,6 +31,7 @@ import {
   createGomokuMatchTrustFromHost,
   createPlatformMatchTransport,
   describeMatchOutcome,
+  extractRelayBinding,
   isRetryableMatchError,
   matchPaths,
   normalizeMatchView,
@@ -118,6 +121,28 @@ describe('五子棋服务端确认赛果（客户端契约）', () => {
         '服务端已确认'
       )
       expect(describeMatchOutcome({ outcome: 'win', trustLevel: '' })).toContain('服务端未确认')
+    })
+
+    it('W1：未认证局（authenticated=false）不得声称已确认；旧服务端字段缺失仍兼容', () => {
+      const unverified = resolveAuthoritativeOutcome({
+        claim: { claimed: 'win', authoritative: 'win' },
+        match: {
+          status: 'finalized',
+          result: 'black_win',
+          server_verified: true,
+          authenticated: false
+        },
+        seat: 'black'
+      })
+      expect(unverified.trustLevel).toBe('')
+      expect(unverified.authoritative).toBe('')
+      // additive 兼容：旧服务端不返回 authenticated 字段 → 按已确认处理。
+      const legacy = resolveAuthoritativeOutcome({
+        claim: { claimed: 'win', authoritative: 'win' },
+        match: { status: 'finalized', result: 'black_win', server_verified: true },
+        seat: 'black'
+      })
+      expect(legacy.trustLevel).toBe(MATCH_TRUST_LEVEL)
     })
 
     it('归一化视图丢弃所有身份字段', () => {
@@ -449,6 +474,213 @@ describe('五子棋服务端确认赛果（客户端契约）', () => {
       expect(client.getMatchId()).toBe('')
       expect(events.some((event) => event.type === 'peer_join')).toBe(true)
       await client.close()
+    })
+  })
+
+  describe('W1 relay 绑定凭证（peer_id 不再单独代表身份）', () => {
+    const buildRelayRouter = () =>
+      createFetchRouter([
+        {
+          match: '/join',
+          method: 'POST',
+          respond: () =>
+            jsonResponse({ success: true, cursor: 1, peers: ['peer-a', 'peer-b'], match_id: MATCH_ID })
+        },
+        {
+          match: '/send',
+          method: 'POST',
+          respond: () => jsonResponse({ success: true, event_id: 2, cursor: 2, match_id: MATCH_ID })
+        },
+        {
+          match: '/poll',
+          method: 'GET',
+          respond: () =>
+            jsonResponse({ success: true, cursor: 2, peers: [], events: [], match_id: MATCH_ID })
+        },
+        { match: '/leave', method: 'POST', respond: () => jsonResponse({ success: true }) }
+      ])
+
+    const bodyOf = (call: { body: unknown }) => (call.body || {}) as Record<string, unknown>
+
+    it('携带凭证时 join/send/poll/leave 全部带上 relay_binding', async () => {
+      const router = buildRelayRouter()
+      const client = await createHfRelayGomokuRoom({
+        roomCode: 'room-1',
+        peerId: 'peer-a',
+        baseUrl: 'https://relay.example/api/gomoku-relay',
+        fetchImpl: router.fetch,
+        pollIntervalMs: 0,
+        relayBinding: 'grb1.demo.token',
+        onEvent: () => {}
+      })
+      await client.send({ type: 'move', row: 0, col: 0 }, 'peer-b')
+      await client.pollOnce()
+      await client.close()
+
+      expect(bodyOf(router.callsFor('/join')[0]).relay_binding).toBe('grb1.demo.token')
+      expect(bodyOf(router.callsFor('/send')[0]).relay_binding).toBe('grb1.demo.token')
+      expect(router.callsFor('/poll')[0].url).toContain('relay_binding=grb1.demo.token')
+      expect(bodyOf(router.callsFor('/leave')[0]).relay_binding).toBe('grb1.demo.token')
+    })
+
+    it('未提供凭证时请求形状与旧版逐字一致（旧客户端 / 未接入时段）', async () => {
+      const router = buildRelayRouter()
+      const client = await createHfRelayGomokuRoom({
+        roomCode: 'room-1',
+        peerId: 'peer-a',
+        baseUrl: 'https://relay.example/api/gomoku-relay',
+        fetchImpl: router.fetch,
+        pollIntervalMs: 0,
+        onEvent: () => {}
+      })
+      await client.send({ type: 'move', row: 0, col: 0 })
+      await client.pollOnce()
+
+      expect('relay_binding' in bodyOf(router.callsFor('/join')[0])).toBe(false)
+      expect('relay_binding' in bodyOf(router.callsFor('/send')[0])).toBe(false)
+      expect(router.callsFor('/poll')[0].url).not.toContain('relay_binding')
+    })
+
+    it('setRelayBinding 热更新后立即生效（席位绑定回填路径）', async () => {
+      const router = buildRelayRouter()
+      const client = await createHfRelayGomokuRoom({
+        roomCode: 'room-1',
+        peerId: 'peer-a',
+        baseUrl: 'https://relay.example/api/gomoku-relay',
+        fetchImpl: router.fetch,
+        pollIntervalMs: 0,
+        onEvent: () => {}
+      })
+      expect('relay_binding' in bodyOf(router.callsFor('/join')[0])).toBe(false)
+      client.setRelayBinding('grb1.late.token')
+      await client.send({ type: 'move', row: 0, col: 0 })
+      expect(bodyOf(router.callsFor('/send')[0]).relay_binding).toBe('grb1.late.token')
+    })
+
+    it('403 RELAY_BINDING_REQUIRED → 触发重绑回调并带新凭证重试一次', async () => {
+      const sendBodies: Array<Record<string, unknown>> = []
+      let sendAttempts = 0
+      const fetchImpl = async (url: string, init: Record<string, unknown> = {}) => {
+        const target = String(url)
+        if (target.includes('/join')) {
+          return jsonResponse({ success: true, cursor: 0, peers: [] })
+        }
+        if (target.includes('/send')) {
+          sendAttempts += 1
+          sendBodies.push(JSON.parse(String(init.body || '{}')) as Record<string, unknown>)
+          if (sendAttempts === 1) {
+            return jsonResponse(
+              {
+                success: false,
+                error: '该 peer 已绑定身份，必须携带 relay 绑定凭证',
+                error_code: RELAY_BINDING_REQUIRED_CODE
+              },
+              403
+            )
+          }
+          return jsonResponse({ success: true })
+        }
+        return jsonResponse({ success: true })
+      }
+      let rebinds = 0
+      let client: any = null
+      client = await createHfRelayGomokuRoom({
+        roomCode: 'room-1',
+        peerId: 'peer-a',
+        baseUrl: 'https://relay.example/api/gomoku-relay',
+        fetchImpl,
+        pollIntervalMs: 0,
+        onBindingRequired: () => {
+          rebinds += 1
+          client?.setRelayBinding('grb1.fresh.token')
+        },
+        onEvent: () => {}
+      })
+      await client.send({ type: 'move', row: 0, col: 0 })
+
+      expect(RELAY_BINDING_REQUIRED_CODE).toBe('RELAY_BINDING_REQUIRED')
+      expect(rebinds).toBe(1)
+      expect(sendAttempts).toBe(2)
+      expect(sendBodies[1].relay_binding).toBe('grb1.fresh.token')
+    })
+  })
+
+  describe('W1 席位绑定声明与凭证回传（match_trust.js）', () => {
+    const transportStub = (overrides: Record<string, unknown> = {}) => ({
+      hasSession: () => true,
+      claimSeat: vi.fn(async () => ({ seat: 'black', match: { match_id: MATCH_ID } })),
+      reportResult: vi.fn(async () => ({ seat: 'black', settled: true, match: {} })),
+      fetchStats: vi.fn(async () => ({ stats: {} })),
+      ...overrides
+    })
+
+    it('席位绑定请求声明 X-Gomoku-Relay-Auth（旧客户端不发该头）', async () => {
+      const router = createFetchRouter([
+        { match: '/seat', method: 'POST', respond: () => okJson({ seat: 'black', match: {} }) }
+      ])
+      const transport = createPlatformMatchTransport({
+        sessionToken: TOKEN,
+        baseUrl: 'https://x.example/api/game-platform/v1',
+        fetchImpl: router.fetch
+      })
+      await transport.claimSeat({ matchId: MATCH_ID, roomCode: 'HBUT1', peerId: 'peer-a' })
+      expect(router.calls[0].headers[RELAY_AUTH_HEADER.toLowerCase()]).toBe('1')
+      // 声明走 header：body 白名单形状不变（协议字段不变形）。
+      expect(Object.keys(router.calls[0].body as Record<string, unknown>).sort()).toEqual([
+        'peer_id',
+        'protocol_version',
+        'room_code'
+      ])
+    })
+
+    it('席位绑定响应里的 relay_binding 被保存并可交给 relay 房间', async () => {
+      const transport = transportStub({
+        claimSeat: vi.fn(async () => ({
+          seat: 'black',
+          match: { match_id: MATCH_ID },
+          relay_binding: { token: 'grb1.demo.token', expires_at: 1_700_000_000 }
+        }))
+      })
+      const trust = createGomokuMatchTrust({ transport })
+      trust.rememberMatch({ matchId: MATCH_ID, roomCode: 'HBUT1' })
+      await trust.claimSeat({ peerId: 'peer-a' })
+      expect(trust.relayBinding()).toBe('grb1.demo.token')
+      expect(trust.snapshot().relayBindingExpiresAt).toBe(1_700_000_000)
+    })
+
+    it('force 重绑取回新凭证；换场（match_id 变化）时清空旧凭证', async () => {
+      let token = 'grb1.old.token'
+      const transport = transportStub({
+        claimSeat: vi.fn(async () => ({
+          seat: 'black',
+          match: { match_id: MATCH_ID },
+          relay_binding: { token, expires_at: 1 }
+        }))
+      })
+      const trust = createGomokuMatchTrust({ transport })
+      trust.rememberMatch({ matchId: MATCH_ID, roomCode: 'HBUT1' })
+      await trust.claimSeat({ peerId: 'peer-a' })
+      expect(trust.relayBinding()).toBe('grb1.old.token')
+
+      await trust.claimSeat({ peerId: 'peer-a' })
+      expect(transport.claimSeat).toHaveBeenCalledTimes(1)
+      token = 'grb1.new.token'
+      await trust.claimSeat({ peerId: 'peer-a', force: true })
+      expect(transport.claimSeat).toHaveBeenCalledTimes(2)
+      expect(trust.relayBinding()).toBe('grb1.new.token')
+
+      trust.rememberMatch({ matchId: 'gm_ffffffffffffffffffffffff' })
+      expect(trust.relayBinding()).toBe('')
+      expect(trust.snapshot().relayBindingExpiresAt).toBe(0)
+    })
+
+    it('extractRelayBinding 只读取非 PII 字段（token / expires_at）', () => {
+      expect(extractRelayBinding({ relay_binding: { token: 'grb1.x.1', expires_at: 5 } })).toEqual({
+        token: 'grb1.x.1',
+        expiresAt: 5
+      })
+      expect(extractRelayBinding({})).toEqual({ token: '', expiresAt: 0 })
+      expect(extractRelayBinding({ relay_binding: { token: 'grb1.y.1' } }).expiresAt).toBe(0)
     })
   })
 

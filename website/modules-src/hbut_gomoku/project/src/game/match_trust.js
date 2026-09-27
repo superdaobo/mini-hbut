@@ -16,6 +16,11 @@
  * 身份凭据：端点要求 `Authorization: Bearer <GS token>`（protocol-v1.md §1.2）。GS token
  * 只存在于内存（SDK §6.2.3 禁止落盘），由宿主通过 iframe URL 注入的一次性 Launch Ticket
  * 兑换（`#905` 接线）。宿主尚未注入 ticket 时本模块整体降级为"禁用"（不影响下棋）。
+ *
+ * W1（relay 身份绑定）：席位绑定成功后服务端下发 `relay_binding`（HMAC 签名凭证，
+ * 只含非 PII 字段）。宿主把它交给 relay 房间，key 请求携带该凭证 → 服务端就能确认
+ * "这个 `peer_id` 属于这个已验证的 Game Session"，同房对手即使拿到对方 `peer_id`
+ * 也无法代表对方落子 / 重入 / poll / leave。
  */
 
 import {
@@ -53,6 +58,12 @@ export const MATCH_RESULTS = Object.freeze({
 
 /** 上报重试策略：只对可重试错误退避（与 SDK 的 1200/2600/5200ms 同口径）。 */
 export const CLAIM_RETRY_DELAYS_MS = Object.freeze([1200, 2600, 5200])
+
+/**
+ * W1：席位绑定声明头 —— 告诉服务端"本席位后续 relay 请求会携带绑定凭证"。
+ * 服务端据此对该席位的 relay 请求强制校验（旧客户端不发该头，行为不变）。
+ */
+export const RELAY_AUTH_HEADER = 'X-Gomoku-Relay-Auth'
 
 const RETRYABLE_STATUS = new Set([0, 408, 425, 429, 500, 502, 503, 504])
 
@@ -123,6 +134,20 @@ export const buildResultClaimBody = ({ claimedOutcome = '' } = {}) => {
   return body
 }
 
+/**
+ * W1：从席位绑定响应里提取 relay 绑定凭证（**只含非 PII 的签名 token**）。
+ *
+ * relay 侧凭它把 ``peer_id`` 与已验证的 Game Session 绑定：对手拿到别人的
+ * ``peer_id`` 但没有该凭证 → 落子 / 重入 / poll / leave 一律被服务端拒绝。
+ */
+export const extractRelayBinding = (payload = {}) => {
+  const raw = payload?.relay_binding || payload?.relayBinding || {}
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const token = safeText(source.token)
+  const expiresAt = Number(source.expires_at ?? source.expiresAt ?? 0) || 0
+  return { token, expiresAt }
+}
+
 /** 服务端赛果 → 本席位视角的胜负（本地仅用于展示，权威性来自服务端字段）。 */
 export const outcomeForSeat = (result, seat) => {
   const normalized = safeText(result)
@@ -141,6 +166,7 @@ export const normalizeMatchView = (raw = {}) => {
   const anomalies = pick('anomalies', 'anomalies')
   const claimVerdicts = pick('claimVerdicts', 'claim_verdicts')
   const seatOccupied = pick('seatOccupied', 'seat_occupied')
+  const authenticatedRaw = pick('authenticated', 'authenticated')
   return {
     matchId: safeText(pick('matchId', 'match_id')),
     roomCode: safeText(pick('roomCode', 'room_code')),
@@ -151,6 +177,8 @@ export const normalizeMatchView = (raw = {}) => {
     loserSeat: safeText(pick('loserSeat', 'loser_seat')),
     plies: Number(match.plies || 0) || 0,
     serverVerified: match.server_verified === true || match.serverVerified === true,
+    // W1：着法是否可归因于已验证身份（缺字段 = 旧服务端，按已认证兼容处理）。
+    authenticated: authenticatedRaw === undefined ? true : authenticatedRaw === true,
     anomalies: anomalies && typeof anomalies === 'object' ? { ...anomalies } : {},
     claimVerdicts:
       claimVerdicts && typeof claimVerdicts === 'object' ? { ...claimVerdicts } : {},
@@ -169,7 +197,8 @@ export const resolveAuthoritativeOutcome = ({ claim = {}, match = {}, seat = '' 
   const view = normalizeMatchView(match)
   const claimed = safeText(claim.claimed)
   const authoritative = safeText(claim.authoritative) || outcomeForSeat(view.result, seat)
-  const confirmed = view.serverVerified && Boolean(authoritative)
+  // W1：未认证局（着法无法归因）不得声称"服务端已确认"（不计统计、不发奖）。
+  const confirmed = view.serverVerified && view.authenticated && Boolean(authoritative)
   const mismatched = Boolean(claimed) && confirmed && claimed !== authoritative
   return {
     claimed,
@@ -232,11 +261,20 @@ export const createPlatformMatchTransport = ({
 } = {}) => {
   const token = safeText(sessionToken)
   const base = safeText(baseUrl) || DEFAULT_GAME_PLATFORM_API_BASE
-  const request = async (path, { method = 'POST', body = null, idempotencyKey = '' } = {}) => {
+  const request = async (
+    path,
+    { method = 'POST', body = null, idempotencyKey = '', headers: extraHeaders = null } = {}
+  ) => {
     if (typeof fetchImpl !== 'function') throw new Error('当前环境不支持 fetch')
     const headers = {
       'content-type': 'application/json',
       'X-Game-Platform-Protocol': String(PROTOCOL_VERSION)
+    }
+    if (extraHeaders && typeof extraHeaders === 'object') {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        if (value === undefined || value === null || String(value) === '') continue
+        headers[key] = String(value)
+      }
     }
     if (token) headers.Authorization = `Bearer ${token}`
     if (clientVersion) headers['X-Client-Version'] = clientVersion
@@ -266,9 +304,11 @@ export const createPlatformMatchTransport = ({
   return {
     hasSession: () => Boolean(token),
     async claimSeat({ matchId, roomCode = '', peerId = '' }) {
+      // W1：声明"该席位 relay 请求会携带绑定凭证"，服务端据此强制校验（防 peer_id 冒用）。
       return request(matchPaths(matchId).seat, {
         body: buildSeatClaimBody({ roomCode, peerId, clientVersion }),
-        idempotencyKey: safeText(matchId)
+        idempotencyKey: safeText(matchId),
+        headers: { [RELAY_AUTH_HEADER]: '1' }
       })
     },
     async reportResult({ matchId, claimedOutcome = '' }) {
@@ -311,7 +351,10 @@ export const createGomokuMatchTrust = ({
     lastError: '',
     lastErrorCode: '',
     lastPayload: null,
-    stats: null
+    stats: null,
+    // W1：服务端签发的 relay 绑定凭证（内存态；随席位绑定下发、随换场清空）。
+    relayBinding: '',
+    relayBindingExpiresAt: 0
   }
 
   const emit = () => {
@@ -361,10 +404,12 @@ export const createGomokuMatchTrust = ({
     const next = safeText(matchId)
     if (!next) return state.matchId
     if (state.matchId && state.matchId !== next) {
-      // 换场（房间被回收后复用同一房间号）→ 重置座位绑定与上报记忆。
+      // 换场（房间被回收后复用同一房间号）→ 重置座位绑定、绑定凭证与上报记忆。
       state.seatClaimed = false
       state.reported = ''
       state.seat = ''
+      state.relayBinding = ''
+      state.relayBindingExpiresAt = 0
     }
     state.matchId = next
     if (roomCode) state.roomCode = safeText(roomCode)
@@ -372,8 +417,9 @@ export const createGomokuMatchTrust = ({
     return state.matchId
   }
 
-  const claimSeat = async ({ peerId = '', roomCode = '' } = {}) => {
-    if (!state.matchId || state.seatClaimed) return null
+  const claimSeat = async ({ peerId = '', roomCode = '', force = false } = {}) => {
+    if (!state.matchId) return null
+    if (state.seatClaimed && !force) return null
     const payload = await guard('绑定比赛席位', () =>
       transport.claimSeat({
         matchId: state.matchId,
@@ -384,6 +430,11 @@ export const createGomokuMatchTrust = ({
     if (payload) {
       state.seat = safeText(payload.seat)
       state.seatClaimed = true
+      const binding = extractRelayBinding(payload)
+      if (binding.token) {
+        state.relayBinding = binding.token
+        state.relayBindingExpiresAt = binding.expiresAt
+      }
     }
     return payload
   }
@@ -425,7 +476,7 @@ export const createGomokuMatchTrust = ({
       claimVerdicts: view.claimVerdicts,
       description: describeMatchOutcome({
         outcome: outcomeForSeat(view.result, state.seat),
-        trustLevel: view.serverVerified ? MATCH_TRUST_LEVEL : '',
+        trustLevel: view.serverVerified && view.authenticated ? MATCH_TRUST_LEVEL : '',
         endedReason: view.endedReason
       })
     }
@@ -438,7 +489,13 @@ export const createGomokuMatchTrust = ({
     refreshStats,
     authoritative,
     snapshot: () => ({ ...state }),
-    isEnabled: () => state.enabled
+    isEnabled: () => state.enabled,
+    /**
+     * W1：relay 绑定凭证（席位绑定响应下发；内存态，绝不落盘）。
+     * 宿主把它交给 relay 房间（``online.js`` 的 ``setRelayBinding``），
+     * 使 relay 侧能把 ``peer_id`` 与已验证身份绑定（对手不能冒用他人 ``peer_id``）。
+     */
+    relayBinding: () => state.relayBinding
   }
 }
 

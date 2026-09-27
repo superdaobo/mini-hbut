@@ -671,7 +671,7 @@ async function initMatchTrust() {
 }
 
 // 绑定席位（幂等；每次 relay 下发/更换 match_id 都会尝试一次）
-async function syncMatchSeat(event = {}) {
+async function syncMatchSeat(event = {}, { force = false } = {}) {
   if (!matchTrustEnabled || !matchTrust || matchTrustBusy) return
   matchTrust.rememberMatch({ matchId: event.matchId, roomCode: event.roomCode })
   if (!matchTrust.snapshot().matchId) return
@@ -679,12 +679,40 @@ async function syncMatchSeat(event = {}) {
   try {
     const payload = await matchTrust.claimSeat({
       peerId: event.peerId || state.transportPeerId || state.localPeerId,
-      roomCode: event.roomCode || state.sessionId
+      roomCode: event.roomCode || state.sessionId,
+      force
     })
-    if (payload) render()
+    if (payload) {
+      applyRelayBinding()
+      render()
+    }
   } finally {
     matchTrustBusy = false
   }
+}
+
+// W1：把服务端签发的 relay 绑定凭证交给 relay 房间（内存态）——relay 侧据此把
+// peer_id 与已验证身份绑定，对手不能再用他人 peer_id 落子。
+function applyRelayBinding() {
+  const token = matchTrust?.relayBinding?.() || ''
+  if (!token || !onlineClient?.setRelayBinding) return
+  onlineClient.setRelayBinding(token)
+}
+
+// relay 侧发现凭证缺失/过期（403 RELAY_BINDING_REQUIRED）时由房间回调触发：
+// 重新绑定席位（服务端幂等）取回新凭证并回填；失败只降级为"未认证"，不影响下棋。
+function handleRelayBindingRequired() {
+  if (!matchTrustEnabled || !matchTrust) return
+  const snapshot = matchTrust.snapshot()
+  if (!snapshot.matchId) return
+  void syncMatchSeat(
+    {
+      matchId: snapshot.matchId,
+      roomCode: state.sessionId || snapshot.roomCode,
+      peerId: state.transportPeerId || state.localPeerId
+    },
+    { force: true }
+  )
 }
 
 // 上报"我以为的结果"（同一结果只上报一次；服务端幂等，重复上报不会产生第二条结果）
@@ -714,11 +742,20 @@ function strategyLabel(strategy) {
 
 function createNetworkRoom({ roomCode, strategy, onEvent, peerId }) {
   if (strategy === HF_RELAY_STRATEGY) {
+    // 只把**同一房间**已签发的凭证带进新连接（换房后旧凭证对新 match 无效）。
+    const trustRoom = matchTrust?.snapshot?.().roomCode || ''
+    const relayBinding =
+      normalizeRoomCode(trustRoom) === normalizeRoomCode(roomCode)
+        ? matchTrust?.relayBinding?.() || ''
+        : ''
     return createHfRelayGomokuRoom({
       roomCode,
       peerId,
       baseUrl: GOMOKU_RELAY_BASE_URL,
-      onEvent
+      onEvent,
+      // W1：承载服务端下发的 relay 绑定凭证；凭证失效时回调触发幂等重绑。
+      relayBinding,
+      onBindingRequired: handleRelayBindingRequired
     })
   }
   return createTrysteroGomokuRoom({
@@ -767,6 +804,8 @@ async function connectOnlineRoom(role, rawRoomCode, options = {}) {
       }
     }
     roomInputValue = formatRoomCode(roomCode)
+    // 席位绑定可能已完成（join 响应里的 match_id 触发）而房间对象刚刚才赋值：补一次回填。
+    applyRelayBinding()
     armOnlineTimeout(role, roomCode)
   } catch (error) {
     onlineClient = null

@@ -18,6 +18,10 @@ export interface GomokuRelayRoomOptions {
   peerId?: string
   fetchImpl?: (url: string, init?: Record<string, any>) => Promise<any>
   pollIntervalMs?: number
+  /** W1：服务端签发的 relay 绑定凭证（席位绑定下发；无则保持旧请求形状） */
+  relayBinding?: string
+  /** W1：凭证失效（403 RELAY_BINDING_REQUIRED）时回调宿主重绑 */
+  onBindingRequired?: () => void
   /** additive match_id 走这里（#908） */
   onEvent?: (event: GomokuRelayEvent) => void
   [key: string]: any
@@ -26,6 +30,8 @@ export interface GomokuRelayRoomOptions {
 export interface GomokuRelayRoom {
   /** 服务端下发的 match_id；未开局或开关关闭时为 ''（#908） */
   getMatchId(): string
+  /** W1：热更新 relay 绑定凭证（席位绑定 / 重绑后由宿主回填） */
+  setRelayBinding(value: string): void
   [key: string]: any
 }
 
@@ -37,6 +43,8 @@ export const TRYSTERO_NOSTR_URL: string
 export const TRYSTERO_TORRENT_URL: string
 export const DEFAULT_NOSTR_RELAY_URLS: any
 export const DEFAULT_TORRENT_TRACKER_URLS: any
+/** W1：relay 拒绝"未携带绑定凭证"的请求时的机器可读错误码 */
+export const RELAY_BINDING_REQUIRED_CODE: string
 
 export function normalizeRoomCode(value: string | null | undefined): string
 export function formatRoomCode(value: string | null | undefined): string

@@ -31,6 +31,10 @@ const MATCHMAKING_PEER_ACTIVE_MS = 30_000
 const ONLINE_MAX_TIMEOUT_RETRIES = 5
 const RELAY_REQUEST_RETRY_ATTEMPTS = 3
 const RELAY_REQUEST_RETRY_DELAY_MS = 80
+//: W1：relay 拒绝"未携带绑定凭证的代表他人 peer_id"请求时的机器可读错误码。
+export const RELAY_BINDING_REQUIRED_CODE = 'RELAY_BINDING_REQUIRED'
+//: 重绑等待：宿主拿到新凭证后重试一次（席位绑定本身是幂等的）。
+const RELAY_BINDING_RETRY_DELAY_MS = 800
 
 export const normalizeRoomCode = (value) =>
   String(value || '')
@@ -881,6 +885,8 @@ export const createHfRelayGomokuRoom = async ({
   baseUrl = DEFAULT_HF_RELAY_BASE_URL,
   fetchImpl = globalThis.fetch?.bind(globalThis),
   pollIntervalMs = 1200,
+  relayBinding = '',
+  onBindingRequired = () => {},
   onEvent = () => {}
 } = {}) => {
   const normalizedRoom = normalizeRoomCode(roomCode)
@@ -895,8 +901,36 @@ export const createHfRelayGomokuRoom = async ({
   let pollTimer = 0
   // #908：relay 下发服务端比赛标识（additive 字段；服务端开关关闭时为空）。
   let matchId = ''
+  // W1：relay 绑定凭证（席位绑定下发；宿主可在重绑后热更新）。
+  let bindingToken = String(relayBinding || '').trim()
 
   const selfPeerId = normalizePeerId(peerId) || createRelayPeerId()
+  const setRelayBinding = (value) => {
+    bindingToken = String(value || '').trim()
+  }
+  const withBinding = (payload) =>
+    bindingToken ? { ...payload, relay_binding: bindingToken } : payload
+  const isBindingRequiredError = (error) =>
+    Number(error?.status || 0) === 403 &&
+    String(error?.body?.error_code || '') === RELAY_BINDING_REQUIRED_CODE
+  const notifyBindingRequired = () => {
+    try {
+      onBindingRequired()
+    } catch {
+      // 宿主回调异常不得影响下棋（与 onEvent 同一铁律）。
+    }
+  }
+  /** 绑定凭证缺失/过期导致 403 → 通知宿主重绑并重试一次；其它错误原样抛。 */
+  const withBindingRetry = async (action) => {
+    try {
+      return await action()
+    } catch (error) {
+      if (!isBindingRequiredError(error)) throw error
+      notifyBindingRequired()
+      await wait(RELAY_BINDING_RETRY_DELAY_MS)
+      return await action()
+    }
+  }
   const emitMatchId = (value) => {
     const next = normalizePeerId(value)
     if (!next || next === matchId) return
@@ -933,13 +967,14 @@ export const createHfRelayGomokuRoom = async ({
 
   const joinRelayRoom = async ({ preserveCursor = false } = {}) => {
     const previousCursor = cursor
-    const joinBody = await fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/join`, {
-      method: 'POST',
-      body: JSON.stringify({
-        room_code: normalizedRoom,
-        peer_id: selfPeerId
+    const joinBody = await withBindingRetry(() =>
+      fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/join`, {
+        method: 'POST',
+        body: JSON.stringify(
+          withBinding({ room_code: normalizedRoom, peer_id: selfPeerId })
+        )
       })
-    })
+    )
     const joinedCursor = Number(joinBody.cursor || 0) || 0
     cursor =
       preserveCursor && joinedCursor >= previousCursor ? previousCursor : joinedCursor
@@ -956,6 +991,7 @@ export const createHfRelayGomokuRoom = async ({
       peer_id: selfPeerId,
       cursor: String(cursor)
     })
+    if (bindingToken) params.set('relay_binding', bindingToken)
     return fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/poll?${params.toString()}`)
   }
 
@@ -973,11 +1009,11 @@ export const createHfRelayGomokuRoom = async ({
     polling = true
     try {
       try {
-        applyPollBody(await fetchPollBody())
+        applyPollBody(await withBindingRetry(fetchPollBody))
       } catch (error) {
         if (!isMissingRelayPeerError(error)) throw error
         await joinRelayRoom({ preserveCursor: true })
-        applyPollBody(await fetchPollBody())
+        applyPollBody(await withBindingRetry(fetchPollBody))
       }
     } finally {
       polling = false
@@ -999,22 +1035,26 @@ export const createHfRelayGomokuRoom = async ({
     pollOnce,
     /** 服务端比赛标识（#908；未开启比赛记录或尚未 join 时返回空串）。 */
     getMatchId: () => matchId,
+    /** W1：热更新 relay 绑定凭证（席位绑定 / 重绑后由宿主回填）。 */
+    setRelayBinding,
     async send(message, targetPeerId = '') {
       const sendOnce = () => fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/send`, {
         method: 'POST',
-        body: JSON.stringify({
-          room_code: normalizedRoom,
-          peer_id: selfPeerId,
-          target_peer_id: normalizePeerId(targetPeerId),
-          message
-        })
+        body: JSON.stringify(
+          withBinding({
+            room_code: normalizedRoom,
+            peer_id: selfPeerId,
+            target_peer_id: normalizePeerId(targetPeerId),
+            message
+          })
+        )
       })
       try {
-        emitMatchId((await sendOnce())?.match_id)
+        emitMatchId((await withBindingRetry(sendOnce))?.match_id)
       } catch (error) {
         if (!isMissingRelayPeerError(error)) throw error
         await joinRelayRoom({ preserveCursor: true })
-        emitMatchId((await sendOnce())?.match_id)
+        emitMatchId((await withBindingRetry(sendOnce))?.match_id)
       }
     },
     async close() {
@@ -1025,10 +1065,9 @@ export const createHfRelayGomokuRoom = async ({
       try {
         await fetchRelayJson(fetchImpl, `${relayBase}/leave`, {
           method: 'POST',
-          body: JSON.stringify({
-            room_code: normalizedRoom,
-            peer_id: selfPeerId
-          })
+          body: JSON.stringify(
+            withBinding({ room_code: normalizedRoom, peer_id: selfPeerId })
+          )
         })
       } catch {
         // 页面关闭或切换模式时忽略离线失败。

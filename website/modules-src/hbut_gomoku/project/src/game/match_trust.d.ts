@@ -13,6 +13,8 @@ export interface MatchView {
   result?: string | null
   winner?: string | null
   seats?: Record<string, any>
+  /** W1：着法是否可归因于已验证身份（缺字段 = 旧服务端，按已认证兼容处理） */
+  authenticated?: boolean
   [key: string]: any
 }
 
@@ -28,14 +30,26 @@ export interface TrustSnapshot {
   seat?: string | null
   outcome?: string | null
   claimVerdict?: string | null
+  /** W1：relay 绑定凭证（内存态；换场清空） */
+  relayBinding?: string
+  relayBindingExpiresAt?: number
   [key: string]: any
+}
+
+export interface RelayBinding {
+  /** 服务端 HMAC 签名凭证（**不含 PII**） */
+  token: string
+  /** epoch 秒；0 表示未提供 */
+  expiresAt: number
 }
 
 export interface MatchTrust {
   rememberMatch(input?: { matchId?: string; roomCode?: string }): string
-  claimSeat(input?: { peerId?: string }): Promise<any>
+  claimSeat(input?: { peerId?: string; roomCode?: string; force?: boolean }): Promise<any>
   reportResult(input?: Record<string, any>): Promise<any>
   refreshStats(input?: Record<string, any>): Promise<any>
+  /** W1：当前 relay 绑定凭证（无则空串） */
+  relayBinding(): string
   [key: string]: any
 }
 
@@ -79,11 +93,15 @@ export const MATCH_RESULTS: Readonly<{
   abandoned: 'abandoned'
 }>
 export const CLAIM_RETRY_DELAYS_MS: readonly number[]
+/** W1：席位绑定声明头 —— 服务端据此对该席位的 relay 请求强制校验 */
+export const RELAY_AUTH_HEADER: string
 
 export function resolveGamePlatformBase(...args: any[]): string
 export function matchPaths(...args: any[]): Record<string, string>
 export function buildSeatClaimBody(...args: any[]): Record<string, any>
 export function buildResultClaimBody(...args: any[]): Record<string, any>
+/** W1：从席位绑定响应提取 relay 绑定凭证（只含非 PII 字段） */
+export function extractRelayBinding(...args: any[]): RelayBinding
 export function outcomeForSeat(...args: any[]): string | null
 export function normalizeMatchView(...args: any[]): MatchView
 export function resolveAuthoritativeOutcome(...args: any[]): AuthoritativeOutcome
