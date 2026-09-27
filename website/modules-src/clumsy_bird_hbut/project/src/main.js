@@ -4,13 +4,8 @@
  */
 import './style.css'
 import FlappyGame from './game/FlappyGame.js'
-import {
-  readGameModuleContext,
-  canUseGameRank,
-  submitGameRank,
-  fetchGameLeaderboard,
-  createRunId
-} from './utils/game_rank.js'
+import { MiniHBUTGame } from '../../../_sdk/src/index.js'
+import { CLUMSY_BIRD_ADAPTER } from './utils/game_sdk_adapter.js'
 
 const MODULE_ID = 'clumsy_bird_hbut'
 let syncTimer = null
@@ -62,10 +57,15 @@ function scheduleModuleFrameSync() {
 }
 
 // ========== 全局状态 ==========
+// SDK 句柄：同步创建（Host 握手 / ticket 兑换在后台进行），不阻塞渲染与玩法
+const sdkGame = MiniHBUTGame.create({ gameId: MODULE_ID, adapter: CLUMSY_BIRD_ADAPTER })
+// 同步预判能力：有 ticket 或旧版上下文（student_id + rank_api）时为 true，与旧 canUseGameRank 一致
+let rankEnabled = sdkGame.capabilities.canSubmit
+let leaderboardAvailable = sdkGame.capabilities.leaderboard
+// run 生命周期由 SDK 管理（run_id 生成、幂等、降级、pending 重试）
+let run = sdkGame.startRun()
+let retryAvailable = false // 仅 SDK 判定 retryable 的失败才给「点此重试」入口
 let game = null
-let moduleContext = null
-let currentRunId = createRunId()
-let pendingSubmit = null // 用于重试
 
 // ========== DOM 构建 ==========
 function buildUI() {
@@ -133,11 +133,38 @@ function hideUploadStatus() {
 }
 
 // ========== 排行榜提交 ==========
-async function submitScore(data) {
-  if (!canUseGameRank(moduleContext)) return
+/** 排行榜入口跟随最终模式（standalone 时隐藏；DOM 结构不变，仅切 hidden） */
+function applyRankAvailability() {
+  const button = document.getElementById('rank-btn')
+  if (button) button.hidden = !leaderboardAvailable
+}
 
+/** 结算后统一更新提交状态（SDK 已把三种模式归一为同一 outcome） */
+function applySubmitOutcome(outcome) {
+  rankEnabled = sdkGame.capabilities.canSubmit
+  leaderboardAvailable = sdkGame.capabilities.leaderboard
+  applyRankAvailability()
+  if (outcome?.success) {
+    retryAvailable = false
+    // standalone（本地记录）时给出 SDK 的中文说明，其余仍是既有的「成绩已上传」
+    showUploadStatus(outcome.uploaded === false ? outcome.message : '成绩已上传', 'success')
+    return
+  }
+  if (outcome?.retryable === true) {
+    retryAvailable = true
+    showUploadStatus('上传失败，点此重试', 'error')
+    return
+  }
+  // 确定性失败（SCHEMA_INVALID / RUN_ALREADY_FINISHED 等）不再给重试入口
+  retryAvailable = false
+  showUploadStatus(outcome?.message || '本局成绩仅保留在本地', 'error')
+}
+
+async function submitScore(data) {
+  if (!rankEnabled) return
+
+  // 数值语义与迁移前逐字一致（仅 run_id/durationMs 交给 SDK）；maxLevel 是历史最高分（registry §4.4）
   const payload = {
-    runId: currentRunId,
     score: data.score,
     maxLevel: data.bestScore,
     durationMs: data.durationMs,
@@ -145,14 +172,23 @@ async function submitScore(data) {
     endedReason: 'collision'
   }
 
-  pendingSubmit = payload
-
   try {
-    await submitGameRank(moduleContext, payload)
-    pendingSubmit = null
-    showUploadStatus('成绩已上传', 'success')
+    applySubmitOutcome(await run.finish(payload))
   } catch (err) {
     console.warn('排行榜提交失败:', err)
+    retryAvailable = true
+    showUploadStatus('上传失败，点此重试', 'error')
+  }
+}
+
+async function retrySubmit() {
+  if (!rankEnabled || !retryAvailable) return
+  hideUploadStatus()
+  try {
+    // SDK 内部复用同一 pending payload，保证服务端 content_hash 稳定
+    applySubmitOutcome(await run.retry())
+  } catch (err) {
+    console.warn('排行榜重试失败:', err)
     showUploadStatus('上传失败，点此重试', 'error')
   }
 }
@@ -184,7 +220,7 @@ async function loadLeaderboard(scope) {
     tab.classList.toggle('active', tab.dataset.scope === scope)
   })
 
-  if (!canUseGameRank(moduleContext)) {
+  if (!leaderboardAvailable) {
     content.innerHTML = '<div class="leaderboard-empty">排行榜不可用（缺少用户信息）</div>'
     return
   }
@@ -192,8 +228,17 @@ async function loadLeaderboard(scope) {
   content.innerHTML = '<div class="leaderboard-loading">加载中...</div>'
 
   try {
-    const result = await fetchGameLeaderboard(moduleContext, { scope, limit: 20 })
-    const list = result.leaderboard || result.data || []
+    // SDK 统一榜单读取：verified 走 V2 榜，compatibility 走经典榜，失败自动降级
+    const result = await sdkGame.leaderboard({ scope, limit: 20 })
+    const list = result.entries || []
+
+    if (!result.success) {
+      content.innerHTML = '<div class="leaderboard-empty"></div>'
+      const box = content.firstElementChild
+      // 服务端文案只允许经 textContent 写入（禁止 innerHTML 插值）
+      if (box) box.textContent = result.message || '排行榜加载失败'
+      return
+    }
 
     if (!list.length) {
       content.innerHTML = '<div class="leaderboard-empty">暂无数据</div>'
@@ -203,15 +248,14 @@ async function loadLeaderboard(scope) {
     const isClassTotal = scope === 'class_total'
     const html = list.map((item, index) => {
       const rank = item.rank || index + 1
-      const name = isClassTotal
-        ? (item.class_name || item.className || '未知班级')
-        : (item.player_name || item.playerName || item.student_id || '匿名')
-      const meta = isClassTotal
-        ? `${Number(item.player_count || item.playerCount || 0)}人`
-        : (item.class_name || item.className || '')
-      const score = isClassTotal
-        ? (item.total_score ?? item.totalScore ?? 0)
-        : (item.score ?? 0)
+      // 条目已由 SDK 去 PII 并解析展示名（学号绝不出现在榜单里）
+      const name = item.display_name || (isClassTotal ? '未知班级' : '匿名')
+      // class_total 的历史展示是「N 人」；SDK 归一化条目没有 player_count 时回落班级名
+      const meta =
+        isClassTotal && (item.player_count || item.playerCount)
+          ? `${Number(item.player_count || item.playerCount)}人`
+          : item.class_name || ''
+      const score = isClassTotal ? (item.total_score ?? item.score ?? 0) : (item.score ?? 0)
       return `
         <li class="rank-item ${item.is_self ? 'rank-self' : ''}">
           <span class="rank-num">${rank}</span>
@@ -224,7 +268,10 @@ async function loadLeaderboard(scope) {
       `
     }).join('')
 
-    const player = result.player || result.my_rank || result.myRank || null
+    // 「我的最高分」汇总只在经典榜响应体里（SDK 归一化条目不包含）；只读其中数字字段，
+    // 不渲染任何身份信息（学号已在 SDK 边界剔除）
+    const raw = result.raw && typeof result.raw === 'object' ? result.raw : null
+    const player = raw?.player || raw?.my_rank || raw?.myRank || null
     const myRankHtml = player
       ? `<div class="my-rank">我的最高分 ${player.score ?? 0}${player.class_rank ? ` · 班级第 ${player.class_rank} 名` : ''}${player.school_rank ? ` · 全校第 ${player.school_rank} 名` : ''}${player.class_total_rank ? ` · 班级总分第 ${player.class_total_rank} 名` : ''}</div>`
       : ''
@@ -267,17 +314,10 @@ function bindEvents() {
     })
   })
 
-  // 上传失败重试
-  document.getElementById('upload-status')?.addEventListener('click', async () => {
-    if (!pendingSubmit) return
-    hideUploadStatus()
-    try {
-      await submitGameRank(moduleContext, pendingSubmit)
-      pendingSubmit = null
-      showUploadStatus('成绩已上传', 'success')
-    } catch (err) {
-      showUploadStatus('上传失败，点此重试', 'error')
-    }
+  // 上传失败重试（仅 SDK 判定 retryable 的失败）
+  document.getElementById('upload-status')?.addEventListener('click', () => {
+    if (!retryAvailable) return
+    void retrySubmit()
   })
 }
 
@@ -285,11 +325,11 @@ function bindEvents() {
 function init() {
   setModuleViewportVars()
 
-  // 读取模块上下文
-  moduleContext = readGameModuleContext()
-
   // 构建 UI
   buildUI()
+
+  // 首屏按同步预判能力决定排行榜入口显隐（ready 后会用最终值再刷一次）
+  applyRankAvailability()
 
   // 初始化游戏
   const canvas = document.getElementById('game-canvas')
@@ -310,8 +350,9 @@ function init() {
 
   game.onStateChange = (state) => {
     if (state === 'playing') {
-      currentRunId = createRunId()
-      pendingSubmit = null
+      // 首次 flap 是显式开局事件：新一局 = 新 run（旧 run 未结算的成绩随旧 run 丢弃，与既有行为一致）
+      run = sdkGame.startRun({ replaceActive: true })
+      retryAvailable = false
       hideUploadStatus()
     }
     if (state === 'ready') {
@@ -331,6 +372,13 @@ function init() {
 
 // 启动
 init()
+
+// 模式判定（Host 握手 / ticket 兑换）完成后刷新排行可用性：只影响入口显隐，不阻塞玩法
+void sdkGame.ready.then(() => {
+  rankEnabled = sdkGame.capabilities.canSubmit
+  leaderboardAvailable = sdkGame.capabilities.leaderboard
+  applyRankAvailability()
+})
 
 // 窗口 resize 时也通知高度
 window.addEventListener('resize', scheduleModuleFrameSync, { passive: true })

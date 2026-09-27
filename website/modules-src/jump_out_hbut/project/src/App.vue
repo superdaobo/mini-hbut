@@ -50,7 +50,7 @@ import GameHUD from './components/GameHUD.vue'
 import GameOverScreen from './components/GameOverScreen.vue'
 import LeaderboardPanel from './components/LeaderboardPanel.vue'
 import { GameEngine } from './game/GameEngine.js'
-import { readGameModuleContext, createRunId, submitGameRank } from './utils/game_rank.js'
+import { sdkGame } from './utils/game_sdk.js'
 
 // 当前屏幕状态
 const screen = ref('start')
@@ -73,33 +73,14 @@ const gameData = reactive({
 // 最高分
 const highScore = ref(Number(localStorage.getItem('jump_out_hbut_highscore') || '0'))
 
-// 排名系统上下文（Task 11.1）
-const rankContext = reactive({
-  student_id: '',
-  player_name: '匿名玩家',
-  class_name: '',
-  rank_api: ''
-})
-
-// 当前游戏会话的 run_id（Task 11.2）
-let currentRunId = ''
+// run 生命周期由 SDK 管理（run_id 生成、幂等、降级、pending 重试）；加载即开局，开新局时替换
+let run = sdkGame.startRun()
 
 // 游戏引擎实例
 let engine = null
 const gameContainer = ref(null)
 
 onMounted(async () => {
-  // 读取排名系统上下文（Task 11.1）
-  try {
-    const ctx = readGameModuleContext()
-    rankContext.student_id = ctx.student_id
-    rankContext.player_name = ctx.player_name
-    rankContext.class_name = ctx.class_name
-    rankContext.rank_api = ctx.rank_api
-  } catch (e) {
-    console.warn('读取游戏上下文失败，排名功能降级:', e)
-  }
-
   engine = new GameEngine()
   try {
     await engine.init(gameContainer.value)
@@ -165,16 +146,16 @@ async function submitScore(score, jumpCount, duration) {
   gameData.uploadFailed = false
   gameData.retrying = false
   try {
-    const result = await submitGameRank({
+    // 字段名改成 camelCase（数值不变）；run_id / 幂等 / 降级由 SDK 负责
+    const outcome = await run.finish({
       score,
-      max_level: jumpCount,
-      duration_ms: duration,
-      move_count: jumpCount,
-      run_id: currentRunId,
-      ended_reason: 'fall'
+      maxLevel: jumpCount,
+      durationMs: duration,
+      moveCount: jumpCount,
+      endedReason: 'fall'
     })
-    if (!result.success) {
-      console.warn('分数提交未成功:', result.error)
+    if (!outcome.success) {
+      console.warn('分数提交未成功:', outcome.error?.code || outcome.message)
       gameData.uploadFailed = true
     }
   } catch (e) {
@@ -188,18 +169,12 @@ async function handleRetryUpload() {
   if (gameData.retrying) return
   gameData.retrying = true
   try {
-    const result = await submitGameRank({
-      score: gameData.score,
-      max_level: gameData.jumpCount,
-      duration_ms: gameData.duration,
-      move_count: gameData.jumpCount,
-      run_id: currentRunId,
-      ended_reason: 'fall'
-    })
-    if (result.success) {
+    // SDK 复用同一 run 的 pending payload（字节级一致，服务端 content_hash 稳定）
+    const outcome = await run.retry()
+    if (outcome.success) {
       gameData.uploadFailed = false
     } else {
-      console.warn('重试提交未成功:', result.error)
+      console.warn('重试提交未成功:', outcome.error?.code || outcome.message)
     }
   } catch (e) {
     console.warn('重试提交失败:', e)
@@ -217,8 +192,8 @@ function handleStartGame() {
   gameData.chargePercent = 0
   gameData.duration = 0
 
-  // 每局开始生成唯一 run_id（Task 11.2）
-  currentRunId = createRunId()
+  // 每局开始 = 新的 run（run_id 由 SDK 生成；旧 run 未结算的成绩随旧 run 丢弃）
+  run = sdkGame.startRun({ replaceActive: true })
 
   if (engine) {
     engine.start()
@@ -233,8 +208,8 @@ function handleRestart() {
   gameData.chargePercent = 0
   gameData.duration = 0
 
-  // 每局开始生成唯一 run_id（Task 11.2）
-  currentRunId = createRunId()
+  // 每局开始 = 新的 run（run_id 由 SDK 生成；旧 run 未结算的成绩随旧 run 丢弃）
+  run = sdkGame.startRun({ replaceActive: true })
 
   if (engine) {
     engine.reset()

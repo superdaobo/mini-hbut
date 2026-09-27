@@ -12,28 +12,30 @@ import {
   playTurn,
   restartGame
 } from './game/monopoly.js'
-import {
-  canUseGameRank,
-  createRunId,
-  fetchGameLeaderboard,
-  readGameModuleContext,
-  submitGameRank
-} from './utils/game_rank.js'
+import { MiniHBUTGame, readLegacyModuleContext } from '../../../_sdk/src/index.js'
+import { HBUT_MONOPOLY_ADAPTER } from './utils/game_sdk_adapter.js'
 
 const MODULE_ID = 'hbut_monopoly'
 const dice = createDeterministicDice()
 let state = createInitialState()
 
 const app = document.getElementById('app')
-const moduleContext = readGameModuleContext()
-const rankEnabled = canUseGameRank(moduleContext)
 
-let currentRunId = createRunId()
-let runStartedAt = Date.now()
-let submitPending = null
+// SDK 句柄：同步创建（宿主握手 / ticket 兑换在后台进行），不阻塞渲染与玩法
+const sdkGame = MiniHBUTGame.create({ gameId: MODULE_ID, adapter: HBUT_MONOPOLY_ADAPTER })
+// 同步预判能力：有 ticket 或旧版上下文（student_id + rank_api）时为 true，行为与旧 canUseGameRank 一致
+let rankEnabled = sdkGame.capabilities.canSubmit
+let leaderboardAvailable = sdkGame.capabilities.leaderboard
+
+// 班级上下文只用于选择默认榜单 scope（展示用途，不参与身份判定）
+const launchContext = readLegacyModuleContext({ gameId: MODULE_ID })
+
+// run 生命周期由 SDK 管理（run_id 生成、幂等、降级、pending 重试）
+let run = sdkGame.startRun()
 let lastTerminalStatus = ''
 let lastSubmitUiStatus = ''
-let currentLeaderboardScope = moduleContext.className ? 'class' : 'school'
+let lastSubmitUiText = ''
+let currentLeaderboardScope = launchContext.className ? 'class' : 'school'
 
 function syncViewport() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight
@@ -215,8 +217,10 @@ function renderInvestments() {
   }).join('')
 }
 
-function showSubmitStatus(status) {
+function showSubmitStatus(status, text = '') {
   lastSubmitUiStatus = status || ''
+  // 记录自定义文案，re-render 后（DOM 被重建）仍能恢复同一提示
+  lastSubmitUiText = status === 'success' || status === 'failed' ? text : ''
   const el = document.getElementById('submit-status')
   if (!el) return
   switch (status) {
@@ -226,7 +230,7 @@ function showSubmitStatus(status) {
       el.onclick = null
       break
     case 'success':
-      el.textContent = '✓ 成绩已上传'
+      el.textContent = text || '✓ 成绩已上传'
       el.className = 'submit-status success'
       el.onclick = null
       setTimeout(() => {
@@ -234,11 +238,12 @@ function showSubmitStatus(status) {
           el.textContent = ''
           el.className = 'submit-status'
           lastSubmitUiStatus = ''
+          lastSubmitUiText = ''
         }
       }, 3000)
       break
     case 'failed':
-      el.textContent = '上传失败，点此重试'
+      el.textContent = text || '上传失败，点此重试'
       el.className = 'submit-status failed'
       el.onclick = () => {
         void retrySubmit()
@@ -251,63 +256,78 @@ function showSubmitStatus(status) {
   }
 }
 
+/** 结算后统一更新提交状态（SDK 已把 verified / compatibility / standalone 归一为同一 outcome） */
+function applySubmitOutcome(outcome) {
+  rankEnabled = sdkGame.capabilities.canSubmit
+  leaderboardAvailable = sdkGame.capabilities.leaderboard
+  applyRankAvailability()
+  if (outcome?.success) {
+    showSubmitStatus('success', outcome.uploaded ? '✓ 成绩已上传' : outcome.message || '成绩已记录')
+    return
+  }
+  showSubmitStatus('failed', outcome?.retryable ? '上传失败，点此重试' : '本局成绩仅本地保留')
+}
+
 async function submitTerminalScore(endedReason) {
   if (!rankEnabled) return
-  const payload = {
-    runId: currentRunId,
-    score: computeRankScore(state),
-    maxLevel: (state.stageIndex || 0) + 1,
-    durationMs: Math.max(0, Date.now() - runStartedAt),
-    moveCount: Number(state.turn || 0),
-    endedReason,
-    extra: {
-      credits: state.credits,
-      influence: state.influence,
-      coins: state.coins,
-      energy: state.energy,
-      stress: state.stress,
-      stage: state.stageName,
-      stageIndex: state.stageIndex
-    }
-  }
-  submitPending = payload
   showSubmitStatus('uploading')
   try {
-    await submitGameRank(moduleContext, payload)
-    submitPending = null
-    showSubmitStatus('success')
+    // 数值语义与迁移前逐字一致（maxLevel 仍是 stageIndex+1，由 adapter.fromLegacyMaxLevel 换算 metric）
+    const outcome = await run.finish({
+      score: computeRankScore(state),
+      maxLevel: (state.stageIndex || 0) + 1,
+      durationMs: Math.max(0, Date.now() - run.startedAt),
+      moveCount: Number(state.turn || 0),
+      endedReason,
+      extra: {
+        credits: state.credits,
+        influence: state.influence,
+        coins: state.coins,
+        energy: state.energy,
+        stress: state.stress,
+        stage: state.stageName,
+        stageIndex: state.stageIndex
+      }
+    })
+    applySubmitOutcome(outcome)
   } catch (error) {
-    console.warn('[hbut_monopoly] rank submit failed', error)
+    console.warn('[hbut_monopoly] rank submit failed', error?.code || error)
     showSubmitStatus('failed')
   }
 }
 
 async function retrySubmit() {
-  if (!submitPending || !rankEnabled) return
+  if (!rankEnabled || !run) return
   showSubmitStatus('uploading')
   try {
-    await submitGameRank(moduleContext, submitPending)
-    submitPending = null
-    showSubmitStatus('success')
+    // SDK 内部复用同一 pending payload，保证服务端 content_hash 稳定
+    applySubmitOutcome(await run.retry())
   } catch (error) {
-    console.warn('[hbut_monopoly] rank retry failed', error)
+    console.warn('[hbut_monopoly] rank retry failed', error?.code || error)
     showSubmitStatus('failed')
   }
 }
 
+/** 排行榜可用性跟随最终模式（standalone 时隐藏入口） */
+function applyRankAvailability() {
+  const button = document.getElementById('leaderboard-button')
+  if (button) button.hidden = !leaderboardAvailable
+}
+
 function setupLeaderboard() {
-  if (!rankEnabled) return
   const overlay = document.getElementById('leaderboard-overlay')
   const openBtn = document.getElementById('leaderboard-button')
   const closeBtn = document.getElementById('leaderboard-close')
-  openBtn?.addEventListener('click', () => {
-    if (overlay) overlay.style.display = 'flex'
+  if (!overlay || !openBtn) return
+  openBtn.addEventListener('click', () => {
+    if (!leaderboardAvailable) return
+    overlay.style.display = 'flex'
     void loadLeaderboard(currentLeaderboardScope)
   })
   closeBtn?.addEventListener('click', () => {
-    if (overlay) overlay.style.display = 'none'
+    overlay.style.display = 'none'
   })
-  overlay?.addEventListener('click', (event) => {
+  overlay.addEventListener('click', (event) => {
     if (event.target === overlay) overlay.style.display = 'none'
   })
   document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -325,8 +345,15 @@ async function loadLeaderboard(scope) {
   if (!content) return
   content.innerHTML = '<div class="leaderboard-loading">加载中...</div>'
   try {
-    const data = await fetchGameLeaderboard(moduleContext, { scope, limit: 20 })
-    const list = data.leaderboard || data.data || []
+    // SDK 统一榜单读取：verified 走 V2 榜，compatibility 走经典榜，失败自动降级
+    const data = await sdkGame.leaderboard({ scope, limit: 20 })
+    const list = data.entries || []
+    if (!data.success && data.message) {
+      content.innerHTML = '<div class="leaderboard-empty"></div>'
+      const box = content.firstElementChild
+      if (box) box.textContent = data.message
+      return
+    }
     if (!list.length) {
       content.innerHTML = '<div class="leaderboard-empty">暂无数据</div>'
       return
@@ -335,10 +362,8 @@ async function loadLeaderboard(scope) {
     content.innerHTML = `<div class="leaderboard-list">${list
       .map((item, index) => {
         const rank = item.rank || index + 1
-        const name = isClassTotal
-          ? item.class_name || item.className || '未知班级'
-          : item.player_name || item.playerName || item.student_id || '匿名'
-        const score = isClassTotal ? item.total_score ?? item.totalScore ?? 0 : item.score ?? 0
+        const name = item.display_name || (isClassTotal ? '未知班级' : '匿名')
+        const score = isClassTotal ? item.total_score ?? 0 : item.score ?? 0
         return `<div class="leaderboard-item"><span class="rank-badge">${rank}</span><span class="rank-name">${name}</span><span class="rank-score">${score}</span></div>`
       })
       .join('')}</div>`
@@ -471,11 +496,11 @@ function render() {
   })
   document.getElementById('restart-button')?.addEventListener('click', () => {
     state = restartGame()
-    currentRunId = createRunId()
-    runStartedAt = Date.now()
+    // 新一局 = 新 run_id（旧 run 未结算的成绩随旧 run 丢弃，与既有行为一致）
+    run = sdkGame.startRun({ replaceActive: true })
     lastTerminalStatus = ''
-    submitPending = null
     lastSubmitUiStatus = ''
+    lastSubmitUiText = ''
     afterStateChange()
   })
   for (const button of app.querySelectorAll('[data-choice-id]')) {
@@ -497,7 +522,7 @@ function render() {
     })
   }
   setupLeaderboard()
-  if (lastSubmitUiStatus) showSubmitStatus(lastSubmitUiStatus)
+  if (lastSubmitUiStatus) showSubmitStatus(lastSubmitUiStatus, lastSubmitUiText)
   notifyHostHeight()
 }
 
@@ -511,3 +536,10 @@ if ('ResizeObserver' in window) {
 
 syncViewport()
 render()
+
+// 模式判定（宿主握手 / ticket 兑换）完成后刷新排行可用性：只影响入口显隐，不阻塞玩法
+void sdkGame.ready.then(() => {
+  rankEnabled = sdkGame.capabilities.canSubmit
+  leaderboardAvailable = sdkGame.capabilities.leaderboard
+  applyRankAvailability()
+})
