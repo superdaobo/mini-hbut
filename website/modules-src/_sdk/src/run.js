@@ -154,10 +154,23 @@ export const createRun = (engine, options = {}) => {
       })
     }
     try {
+      // #907 修复：Legacy body 必须保留**未归一化**的 ended_reason。
+      // 归一化（ended_reason_map）属 V2 语义；经典榜是历史数据，registry §5 要求存原值。
+      // 原始值已由 buildResult 保留在 diagnostics.endedReasonRaw，这里透传给 toLegacyPayload。
+      const rawEndedReason = prepared.diagnostics?.endedReasonRaw
       const legacyPayload =
         typeof engine.legacy.toLegacyPayload === 'function'
-          ? engine.legacy.toLegacyPayload({ result: prepared.result, durationMs: prepared.durationMs, runId })
-          : engine.adapter.toLegacyPayload({ result: prepared.result, durationMs: prepared.durationMs })
+          ? engine.legacy.toLegacyPayload({
+              result: prepared.result,
+              durationMs: prepared.durationMs,
+              runId,
+              rawEndedReason
+            })
+          : engine.adapter.toLegacyPayload({
+              result: prepared.result,
+              durationMs: prepared.durationMs,
+              rawEndedReason
+            })
       const response = await engine.legacy.submit({
         runId,
         payload: legacyPayload,
