@@ -43,11 +43,18 @@ describe('service stats frontend contract', () => {
     const source = readSource(viewPath)
 
     expect(existsSync(sourcePath(viewPath))).toBe(true)
-    expect(source).toContain("const HEALTH_URL = 'https://mini-hbut-ocr-service.hf.space/health'")
+    expect(source).toContain('STATISTICS_HEALTH_ENDPOINT')
+    expect(source).toContain('STATISTICS_ENVIRONMENT')
+    expect(source).toContain('statisticsEnvironmentLabel')
+    expect(source).toContain("t('stats.environment.production')")
+    expect(source).toContain("t('stats.environment.test')")
     expect(source).toContain('normalizeServiceHealth')
     expect(source).toContain('trend?.last_7_days')
     expect(source).toContain('version_user_counts')
     expect(source).toContain("t('stats.section.versionUsers')")
+    expect(source).toContain("t('stats.section.infrastructure')")
+    expect(source).toContain('infrastructureItems')
+    expect(source).not.toContain('const overviewItems')
     expect(source).toContain("t('stats.trend.empty')")
     expect(source).toContain("t('stats.error.readFailed')")
     expect(source).toContain('setInterval')
@@ -77,18 +84,25 @@ describe('service stats frontend contract', () => {
     const source = readSource('src/components/ServiceStatsView.vue')
 
     expect(source).toContain('displayClientVersion')
-    expect(source).toContain("health.value.cloud_sync.latest_version || ''")
+    expect(source).toContain('health.value.version_usage?.latest_version')
+    expect(source).toContain('health.value.cloud_sync.latest_version')
     expect(source).toContain("tf('stats.version', { version: displayClientVersion || t('common.unknown') })")
     expect(source).not.toContain('health.service.version')
   })
 
-  it('labels latest-version trend series with version axis instead of date-only labels', () => {
+  it('uses Statistics V2 version windows instead of the mixed-semantics legacy version trend', () => {
     const source = readSource('src/components/ServiceStatsView.vue')
 
-    expect(source).toContain("label: t('stats.metric.latestVersionUsers')")
-    expect(source).toContain("axisLabelKey: 'latest_version'")
-    expect(source).toContain('formatAxisVersion')
-    expect(source).toContain("axisLabelKey === 'latest_version'")
+    expect(source).toContain('const versionOverviewItems')
+    expect(source).toContain("t('stats.metric.latestVersionToday')")
+    expect(source).toContain("t('stats.metric.latestVersion7d')")
+    expect(source).toContain("t('stats.metric.latestVersion30d')")
+    expect(source).toContain('version_user_counts_30d')
+    expect(source).toContain('latest_version_7d')
+    expect(source).toContain('latest_version_30d')
+    expect(source).toContain("t('stats.section.ocr')")
+    expect(source).not.toContain("axisLabelKey: 'latest_version'")
+    expect(source).not.toContain('formatAxisVersion')
   })
 
   it('shows personal and global client usage sections', () => {

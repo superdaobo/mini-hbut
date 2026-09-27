@@ -18,6 +18,10 @@ import {
   safeParseJson,
   toSafeText
 } from './cloud_sync_storage.js'
+import {
+  STATISTICS_CLOUD_SYNC_ENDPOINT,
+  isStatisticsServiceUrlCompatible
+} from './statistics_environment'
 
 export interface CloudSyncRuntimeConfig {
   enabled: boolean
@@ -92,13 +96,25 @@ export const getCloudSyncRuntimeConfig = (): CloudSyncRuntimeConfig => {
   const moduleParams = (backend?.moduleParams || {}) as Record<string, unknown>
   const remote = readRemoteCloudSync()
   const useRemoteConfig = backend?.useRemoteConfig !== false
-  const localEndpoint = normalizeProxyEndpoint(backend?.cloudSyncEndpoint)
+  const localEndpointCandidate = normalizeProxyEndpoint(backend?.cloudSyncEndpoint)
+  const localEndpoint = isStatisticsServiceUrlCompatible(localEndpointCandidate)
+    ? localEndpointCandidate
+    : ''
   const localSecretRef = toSafeText(backend?.cloudSyncSecretRef)
   const defaultEndpoint = normalizeProxyEndpoint(DEFAULT_CLOUD_SYNC_ENDPOINT)
+  const environmentEndpoint = normalizeProxyEndpoint(STATISTICS_CLOUD_SYNC_ENDPOINT)
+  const remoteEndpoint = isStatisticsServiceUrlCompatible(remote.proxyEndpoint)
+    ? remote.proxyEndpoint
+    : ''
+  const isProductionStatistics = import.meta.env.VITE_BUILD_PROFILE === 'release'
 
-  const proxyEndpoint = useRemoteConfig
-    ? (localEndpoint || remote.proxyEndpoint || defaultEndpoint)
-    : (localEndpoint || defaultEndpoint)
+  const proxyEndpoint = localEndpoint || (
+    isProductionStatistics
+      ? (useRemoteConfig
+          ? (remoteEndpoint || environmentEndpoint || defaultEndpoint)
+          : (environmentEndpoint || defaultEndpoint))
+      : environmentEndpoint
+  )
 
   const secretRef = useRemoteConfig
     ? (localSecretRef || remote.secretRef || DEFAULT_SECRET_REF)
