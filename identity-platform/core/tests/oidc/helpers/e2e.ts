@@ -21,6 +21,7 @@ import {
   type GameResourceOptions,
 } from '../../../src/oidc/resource-indicators.js'
 import type Provider from 'oidc-provider'
+import type { RateLimiterOptions } from '../../../src/security/rate-limit.js'
 
 /** 测试 canonical issuer（Discovery 断言用真实 Production canonical 另测） */
 export const TEST_ISSUER = 'https://id.example.test'
@@ -51,6 +52,8 @@ export interface StartAppOptions {
    * （fail closed：任何带 resource 的授权请求 invalid_target）
    */
   gameResource?: GameResourceOptions
+  /** #902 限流覆盖（测试注入小 limit / 显式 enabled；缺省按环境推断 = 测试环境关闭） */
+  rateLimit?: RateLimiterOptions
 }
 
 async function startApp(db: TestDatabase, opts: StartAppOptions = {}) {
@@ -58,6 +61,7 @@ async function startApp(db: TestDatabase, opts: StartAppOptions = {}) {
   const app = createApp({
     executor: db.sql,
     serviceToken: TEST_SERVICE_TOKEN,
+    rateLimit: opts.rateLimit,
     providerDeps: {
       issuer: opts.issuer ?? TEST_ISSUER,
       environment: isProduction ? 'production' : 'test',

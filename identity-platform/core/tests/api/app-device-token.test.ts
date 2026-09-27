@@ -26,6 +26,7 @@ import { insertDeviceTokenChallenge } from '../../src/db/repos/device-token-chal
 import { sha256Base64url } from '../../src/security/hash.js'
 import { DEFAULT_GAME_AUDIENCE, GAME_RESOURCE_SCOPES } from '../../src/oidc/resource-indicators.js'
 import { DEVICE_TOKEN_ACCESS_TTL_SECONDS } from '../../src/oidc/device-access-token.js'
+import { DEFAULT_RATE_LIMIT_GROUPS } from '../../src/security/rate-limit.js'
 import {
   startE2E,
   fetchJwks,
@@ -387,6 +388,62 @@ describe('#902 设备换票（Device 签名 → resource-scoped JWT AT）', () =
       expect((res.body.error as { code: string }).code).toBe('FEATURE_DISABLED')
     } finally {
       await empty.close()
+    }
+  })
+
+  it('15. 限流（协议 §6.2.4）：命中即 429 + Retry-After，且不签发 AT；默认分组 fail closed', async () => {
+    // 默认分组策略：两个新端点都必须 fail closed（limiter 后端故障时宁可不服务）
+    const deviceTokenGroups = DEFAULT_RATE_LIMIT_GROUPS.filter((g) => g.name.startsWith('deviceToken'))
+    expect(deviceTokenGroups.map((g) => g.name).sort()).toEqual([
+      'deviceTokenChallenge',
+      'deviceTokenExchange',
+    ])
+    expect(deviceTokenGroups.every((g) => g.rule.failPolicy === 'closed')).toBe(true)
+    // 分组前缀必须精确覆盖新端点，且不与既有 /api/v1/app/devices/ 分组互相吞并
+    const byName = new Map(DEFAULT_RATE_LIMIT_GROUPS.map((g) => [g.name, g]))
+    expect(byName.get('deviceTokenChallenge')?.prefixes).toContain(DEVICE_TOKEN_CHALLENGE_PATH)
+    expect(byName.get('deviceTokenExchange')?.prefixes).toContain(DEVICE_TOKEN_EXCHANGE_PATH)
+    expect(DEVICE_TOKEN_CHALLENGE_PATH.startsWith('/api/v1/app/devices/')).toBe(false)
+    expect(DEVICE_TOKEN_EXCHANGE_PATH.startsWith('/api/v1/app/devices/')).toBe(false)
+
+    const limited = await startE2E(db, {
+      gameResource: { allowedClientIds: [GAME_CLIENT_ID], deviceTokenClientId: GAME_CLIENT_ID },
+      // 注入 limit=1 的 exchange 分组（生产默认 60/min），验证中间件确实覆盖该端点。
+      // 注意：createApp 的 rateLimit 是整体覆盖（含 sql），必须显式传 sql。
+      rateLimit: {
+        sql: db.sql,
+        enabled: true,
+        cleanupProbability: 0,
+        groups: [
+          {
+            name: 'deviceTokenExchangeTest',
+            prefixes: [DEVICE_TOKEN_EXCHANGE_PATH],
+            methods: ['POST'],
+            rule: { limit: 1, windowSeconds: 60, failPolicy: 'closed' },
+          },
+        ],
+      },
+    })
+    try {
+      const challengeRes = await requestDeviceTokenChallenge(limited.baseUrl, { key, deviceId })
+      const challenge = String(challengeRes.body.challenge)
+      const first = await postJson(
+        limited.baseUrl,
+        DEVICE_TOKEN_EXCHANGE_PATH,
+        buildDeviceTokenExchangeBody({ key, deviceId, challenge }),
+      )
+      expect(first.status).toBe(200)
+
+      const second = await postJson(
+        limited.baseUrl,
+        DEVICE_TOKEN_EXCHANGE_PATH,
+        buildDeviceTokenExchangeBody({ key, deviceId, challenge }),
+      )
+      expect(second.status).toBe(429)
+      expect(second.body.access_token).toBeUndefined()
+      expect(Number(second.body.retry_after)).toBeGreaterThan(0)
+    } finally {
+      await limited.close()
     }
   })
 
