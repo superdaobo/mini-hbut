@@ -78,7 +78,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { fetchGameLeaderboard } from '../utils/game_rank.js'
+import { sdkGame } from '../utils/game_sdk.js'
 
 defineEmits(['close'])
 
@@ -110,13 +110,16 @@ async function loadLeaderboard() {
   player.value = null
 
   try {
-    const result = await fetchGameLeaderboard({
-      scope: activeScope.value,
-      limit: 30
-    })
+    // SDK 统一榜单读取：verified 走 V2 榜，compatibility（旧协议通道）走经典榜，失败自动降级
+    const result = await sdkGame.leaderboard({ scope: activeScope.value, limit: 30 })
     if (result.success) {
-      list.value = Array.isArray(result.leaderboard) ? result.leaderboard : (Array.isArray(result.data) ? result.data : [])
-      player.value = result.player || null
+      const legacyList = Array.isArray(result.raw?.leaderboard) ? result.raw.leaderboard : []
+      // 经典榜响应仍带 player_count 展示列；V2 归一化条目不提供该字段（缺失时显示为空）
+      list.value = (result.entries || []).map((entry, index) => ({
+        ...entry,
+        player_count: entry.player_count ?? legacyList[index]?.player_count
+      }))
+      player.value = result.raw?.player || null
     } else {
       error.value = true
     }
