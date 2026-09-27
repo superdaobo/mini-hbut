@@ -33,8 +33,34 @@ const RELAY_REQUEST_RETRY_ATTEMPTS = 3
 const RELAY_REQUEST_RETRY_DELAY_MS = 80
 //: W1：relay 拒绝"未携带绑定凭证的代表他人 peer_id"请求时的机器可读错误码。
 export const RELAY_BINDING_REQUIRED_CODE = 'RELAY_BINDING_REQUIRED'
-//: 重绑等待：宿主拿到新凭证后重试一次（席位绑定本身是幂等的）。
+//: W1：席位身份凭证所有权不足（服务端新增错误码）——与 RELAY_BINDING_REQUIRED 同类处理。
+export const SEAT_PEER_OWNERSHIP_REQUIRED_CODE = 'SEAT_PEER_OWNERSHIP_REQUIRED'
+//: F5：重绑达到上限后停机时的机器可读错误码（UI 据此给出可判别文案）。
+export const RELAY_BINDING_SUSPENDED_CODE = 'RELAY_BINDING_SUSPENDED'
+//: F2：仅当宿主回调不返回 Promise（旧宿主）时使用的兜底等待；返回 Promise 时以回调完成为准。
 const RELAY_BINDING_RETRY_DELAY_MS = 800
+//: F5：宿主持有绑定的有界策略——连续失败上限与指数退避（避免无限重新声明把自己锁死）。
+export const RELAY_BINDING_MAX_REFRESH_ATTEMPTS = 5
+export const RELAY_BINDING_REFRESH_BASE_DELAY_MS = 1000
+export const RELAY_BINDING_REFRESH_MAX_DELAY_MS = 30_000
+//: F3：poll 连续失败达到该次数后向宿主上报"联机中断"（避免静默停摆）。
+export const RELAY_POLL_FAILURE_REPORT_THRESHOLD = 3
+
+/**
+ * F3：把 relay 失败映射为可展示的简体中文（服务端只回 `error_code` 时不再暴露裸 HTTP 文案）。
+ */
+export const describeRelayError = (error) => {
+  const code = typeof error === 'string' ? error : String(error?.code || error?.body?.error_code || '')
+  if (code === RELAY_BINDING_REQUIRED_CODE || code === SEAT_PEER_OWNERSHIP_REQUIRED_CODE) {
+    return '身份校验失效，正在重新绑定…'
+  }
+  if (code === RELAY_BINDING_SUSPENDED_CODE) return '身份校验失败，已停止自动重绑'
+  const status = Number(error?.status || 0)
+  if (!status) return '网络连接异常'
+  if (status === 403) return '请求被中转服务拒绝'
+  if (status >= 500) return '中转服务暂时不可用'
+  return `中转请求失败（HTTP ${status}）`
+}
 
 export const normalizeRoomCode = (value) =>
   String(value || '')
@@ -842,8 +868,15 @@ const fetchRelayJson = async (fetchImpl, url, options = {}) => {
     body = null
   }
   if (!response.ok || body?.success === false) {
-    const relayError = new Error(body?.error || `HF 中转请求失败 ${response.status || ''}`.trim())
+    const code = String(body?.error_code || '').trim()
+    const serverText = typeof body?.error === 'string' ? body.error.trim() : ''
+    // F3：服务端只回 error_code 时给出可读中文，而不是裸露 "HF 中转请求失败 403"。
+    const message =
+      serverText || (code ? describeRelayError({ code, status: Number(response.status || 0) }) : '') ||
+      `HF 中转请求失败 ${response.status || ''}`.trim()
+    const relayError = new Error(message)
     relayError.status = Number(response.status || 0)
+    relayError.code = code
     relayError.body = body
     throw relayError
   }
@@ -887,6 +920,8 @@ export const createHfRelayGomokuRoom = async ({
   pollIntervalMs = 1200,
   relayBinding = '',
   onBindingRequired = () => {},
+  onPeerSecret = () => {},
+  onError = () => {},
   onEvent = () => {}
 } = {}) => {
   const normalizedRoom = normalizeRoomCode(roomCode)
@@ -910,24 +945,111 @@ export const createHfRelayGomokuRoom = async ({
   }
   const withBinding = (payload) =>
     bindingToken ? { ...payload, relay_binding: bindingToken } : payload
-  const isBindingRequiredError = (error) =>
-    Number(error?.status || 0) === 403 &&
-    String(error?.body?.error_code || '') === RELAY_BINDING_REQUIRED_CODE
-  const notifyBindingRequired = () => {
+  const isBindingRequiredError = (error) => {
+    if (Number(error?.status || 0) !== 403) return false
+    const code = String(error?.body?.error_code || error?.code || '')
+    return code === RELAY_BINDING_REQUIRED_CODE || code === SEAT_PEER_OWNERSHIP_REQUIRED_CODE
+  }
+  const notifyRelayError = (payload) => {
     try {
-      onBindingRequired()
+      onError(payload)
     } catch {
       // 宿主回调异常不得影响下棋（与 onEvent 同一铁律）。
     }
   }
-  /** 绑定凭证缺失/过期导致 403 → 通知宿主重绑并重试一次；其它错误原样抛。 */
+  // F5：宿主重绑的有界状态机——指数退避 + 上限；超限停机并给出可判别文案，绝不无限 hammer。
+  let bindingRefreshFailures = 0
+  let bindingRefreshBlockedUntil = 0
+  let bindingRefreshSuspended = false
+  let bindingRefreshInFlight = null
+  let lastBindingFailureCode = ''
+  const summarizeBindingFailure = () => {
+    if (lastBindingFailureCode === SEAT_PEER_OWNERSHIP_REQUIRED_CODE) {
+      return '席位身份凭证已失效，请重新进入房间'
+    }
+    if (lastBindingFailureCode === RELAY_BINDING_REQUIRED_CODE) return '身份校验失效，请重新进入房间'
+    return '身份校验失败，请重新进入房间'
+  }
+  const runBindingRefresh = async () => {
+    if (bindingRefreshSuspended) return false
+    const now = Date.now()
+    if (now < bindingRefreshBlockedUntil) return false
+    const before = bindingToken
+    let result = null
+    let callbackFailed = false
+    try {
+      result = onBindingRequired()
+    } catch (error) {
+      callbackFailed = true
+      lastBindingFailureCode = String(error?.code || 'RELAY_BINDING_REFRESH_FAILED')
+    }
+    if (result && typeof result.then === 'function') {
+      // F2：宿主把席位绑定（含服务端 1200ms 起的退避）的 Promise 交回来，等它完成再判凭证。
+      try {
+        const settled = await result
+        if (settled && typeof settled === 'object' && settled.code) {
+          lastBindingFailureCode = String(settled.code)
+        }
+      } catch (error) {
+        callbackFailed = true
+        lastBindingFailureCode = String(error?.code || 'RELAY_BINDING_REFRESH_FAILED')
+      }
+    } else if (!callbackFailed && (!bindingToken || bindingToken === before)) {
+      // 旧宿主不返回 Promise 也没抛错：给一个兜底窗口，窗口后再看凭证是否已被 setRelayBinding 更新。
+      await wait(RELAY_BINDING_RETRY_DELAY_MS)
+    }
+    const refreshed = Boolean(bindingToken) && bindingToken !== before
+    if (refreshed) {
+      bindingRefreshFailures = 0
+      bindingRefreshBlockedUntil = 0
+      return true
+    }
+    bindingRefreshFailures += 1
+    if (bindingRefreshFailures >= RELAY_BINDING_MAX_REFRESH_ATTEMPTS) {
+      bindingRefreshSuspended = true
+      notifyRelayError({
+        type: 'binding_failed',
+        code: RELAY_BINDING_SUSPENDED_CODE,
+        causeCode: lastBindingFailureCode,
+        failures: bindingRefreshFailures,
+        message: `${summarizeBindingFailure()}（已停止自动重绑）`
+      })
+      return false
+    }
+    bindingRefreshBlockedUntil =
+      Date.now() +
+      Math.min(
+        RELAY_BINDING_REFRESH_BASE_DELAY_MS * 2 ** (bindingRefreshFailures - 1),
+        RELAY_BINDING_REFRESH_MAX_DELAY_MS
+      )
+    return false
+  }
+  /** F5/F2：请求宿主重绑；防重入 + 有界退避；返回"是否拿到了新凭证"。 */
+  const requestBindingRefresh = async () => {
+    if (bindingRefreshInFlight) {
+      try {
+        return await bindingRefreshInFlight
+      } catch {
+        return false
+      }
+    }
+    bindingRefreshInFlight = runBindingRefresh()
+    try {
+      return await bindingRefreshInFlight
+    } finally {
+      bindingRefreshInFlight = null
+    }
+  }
+  /** 绑定凭证缺失/过期导致 403 → 通知宿主重绑；只有拿到新凭证才重试一次，其它错误原样抛。 */
   const withBindingRetry = async (action) => {
     try {
       return await action()
     } catch (error) {
       if (!isBindingRequiredError(error)) throw error
-      notifyBindingRequired()
-      await wait(RELAY_BINDING_RETRY_DELAY_MS)
+      const failedToken = bindingToken
+      await requestBindingRefresh()
+      // F3：凭证未更新时不得重发同一个刚被拒绝的凭证（否则只是重复 403 把自己锁死）。
+      if (!bindingToken || bindingToken === failedToken) throw error
       return await action()
     }
   }
@@ -936,6 +1058,39 @@ export const createHfRelayGomokuRoom = async ({
     if (!next || next === matchId) return
     matchId = next
     onEvent({ type: 'match', matchId: next, roomCode: normalizedRoom, peerId: selfPeerId })
+  }
+  /**
+   * 冻结字段：join 响应的 `peer_secret`（不透明字符串，每次 join 重签）。
+   * **只交给宿主内存持有**——本函数不做落盘 / 广播 / 日志；旧服务端无该字段时回调空串以清空旧值。
+   */
+  const emitPeerSecret = (value) => {
+    const secret = typeof value === 'string' ? value.trim() : ''
+    try {
+      onPeerSecret(secret)
+    } catch {
+      // 宿主回调异常不得影响下棋。
+    }
+  }
+  // F3：poll 连续失败计数——达到阈值才上报一次，恢复后复位（避免抖动刷屏，也避免静默停摆）。
+  let pollFailures = 0
+  let pollErrorReported = false
+  const reportRelayPollFailure = (error) => {
+    pollFailures += 1
+    if (pollFailures < RELAY_POLL_FAILURE_REPORT_THRESHOLD || pollErrorReported) return
+    pollErrorReported = true
+    notifyRelayError({
+      type: 'poll_failed',
+      code: String(error?.code || 'RELAY_POLL_FAILED'),
+      failures: pollFailures,
+      message: `联机中断：${describeRelayError(error)}（已连续失败 ${pollFailures} 次）`
+    })
+  }
+  const reportRelayPollSuccess = () => {
+    const wasFailing = pollFailures > 0 || pollErrorReported
+    pollFailures = 0
+    if (!wasFailing) return
+    pollErrorReported = false
+    notifyRelayError({ type: 'poll_recovered', code: '', failures: 0, message: '' })
   }
   const emitPeerList = (peers = []) => {
     for (const peer of peers) {
@@ -978,6 +1133,8 @@ export const createHfRelayGomokuRoom = async ({
     const joinedCursor = Number(joinBody.cursor || 0) || 0
     cursor =
       preserveCursor && joinedCursor >= previousCursor ? previousCursor : joinedCursor
+    // 冻结字段：先刷新 peer_secret，再下发 match 事件——保证随后的席位绑定用上本次 join 的新值。
+    emitPeerSecret(joinBody.peer_secret)
     emitPeerList(joinBody.peers || [])
     emitMatchId(joinBody.match_id)
     return joinBody
@@ -1015,6 +1172,11 @@ export const createHfRelayGomokuRoom = async ({
         await joinRelayRoom({ preserveCursor: true })
         applyPollBody(await withBindingRetry(fetchPollBody))
       }
+      reportRelayPollSuccess()
+    } catch (error) {
+      // F3：轮询错误不再被静默吞掉——连续失败达到阈值后上报宿主持久展示。
+      reportRelayPollFailure(error)
+      throw error
     } finally {
       polling = false
     }
@@ -1023,7 +1185,7 @@ export const createHfRelayGomokuRoom = async ({
   if (pollIntervalMs > 0) {
     pollTimer = setInterval(() => {
       void pollOnce().catch(() => {
-        // 下一轮轮询会继续重试，短暂网络抖动不直接断开对局。
+        // 失败已由 reportRelayPollFailure 上报；这里只避免 unhandled rejection。
       })
     }, pollIntervalMs)
   }
@@ -1037,6 +1199,14 @@ export const createHfRelayGomokuRoom = async ({
     getMatchId: () => matchId,
     /** W1：热更新 relay 绑定凭证（席位绑定 / 重绑后由宿主回填）。 */
     setRelayBinding,
+    /**
+     * F5：宿主在席位身份凭证失效（SEAT_PEER_OWNERSHIP_REQUIRED）时主动重新 join 一次，
+     * 以刷新服务端重签的 peer_secret；失败原样抛出，由调用方的有界策略接管。
+     */
+    async rejoin() {
+      if (closed) return null
+      return await joinRelayRoom({ preserveCursor: true })
+    },
     async send(message, targetPeerId = '') {
       const sendOnce = () => fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/send`, {
         method: 'POST',

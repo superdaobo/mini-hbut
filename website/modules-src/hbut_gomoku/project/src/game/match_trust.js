@@ -112,8 +112,16 @@ export const matchPaths = (matchId) => {
 /**
  * 席位绑定请求体（**不得**出现 actor / 奖励数量字段；本地先断言一次）。
  * `match_id` 只在 URL 路径里，body 不重复。
+ *
+ * 冻结字段：`peer_secret`（join 响应下发的不透明字符串）只在拿到时携带；
+ * 旧服务端 / 灰度未上线时请求形状与旧版逐字一致（不得因缺字段而报错）。
  */
-export const buildSeatClaimBody = ({ roomCode = '', peerId = '', clientVersion = '' } = {}) => {
+export const buildSeatClaimBody = ({
+  roomCode = '',
+  peerId = '',
+  clientVersion = '',
+  peerSecret = ''
+} = {}) => {
   const body = {
     protocol_version: PROTOCOL_VERSION,
     room_code: safeText(roomCode),
@@ -121,6 +129,8 @@ export const buildSeatClaimBody = ({ roomCode = '', peerId = '', clientVersion =
   }
   const version = safeText(clientVersion)
   if (version) body.client_version = version
+  const secret = safeText(peerSecret)
+  if (secret) body.peer_secret = secret
   assertNoForbiddenFields(body)
   return body
 }
@@ -303,10 +313,10 @@ export const createPlatformMatchTransport = ({
   }
   return {
     hasSession: () => Boolean(token),
-    async claimSeat({ matchId, roomCode = '', peerId = '' }) {
+    async claimSeat({ matchId, roomCode = '', peerId = '', peerSecret = '' }) {
       // W1：声明"该席位 relay 请求会携带绑定凭证"，服务端据此强制校验（防 peer_id 冒用）。
       return request(matchPaths(matchId).seat, {
-        body: buildSeatClaimBody({ roomCode, peerId, clientVersion }),
+        body: buildSeatClaimBody({ roomCode, peerId, clientVersion, peerSecret }),
         idempotencyKey: safeText(matchId),
         headers: { [RELAY_AUTH_HEADER]: '1' }
       })
@@ -352,10 +362,19 @@ export const createGomokuMatchTrust = ({
     lastErrorCode: '',
     lastPayload: null,
     stats: null,
-    // W1：服务端签发的 relay 绑定凭证（内存态；随席位绑定下发、随换场清空）。
+    // W1：服务端签发的 relay 绑定凭证（内存态；随席位绑定下发、随换场/复位清空）。
     relayBinding: '',
-    relayBindingExpiresAt: 0
+    relayBindingExpiresAt: 0,
+    // W1/F1：凭证所属的 match_id —— 只有与当前房间已下发的 match_id 一致才允许携带。
+    relayBindingMatchId: ''
   }
+
+  /**
+   * 冻结字段：join 响应里的 `peer_secret`（不透明字符串，每次 join 重签）。
+   * **只存内存**：不进 state/snapshot（避免随 onUpdate 广播、被渲染或落盘），
+   * 不进 localStorage / postMessage / diagnostics / 日志；只在 seat 请求体里携带。
+   */
+  let peerSecret = ''
 
   const emit = () => {
     try {
@@ -410,11 +429,38 @@ export const createGomokuMatchTrust = ({
       state.seat = ''
       state.relayBinding = ''
       state.relayBindingExpiresAt = 0
+      state.relayBindingMatchId = ''
     }
     state.matchId = next
     if (roomCode) state.roomCode = safeText(roomCode)
     emit()
     return state.matchId
+  }
+
+  /**
+   * F1：离开 / 重置房间时显式作废 relay 凭证（内存态），避免同房号重连把上一局凭证带进新连接。
+   */
+  const forgetRelayBinding = () => {
+    if (!state.relayBinding && !state.relayBindingMatchId && !state.relayBindingExpiresAt) return ''
+    state.relayBinding = ''
+    state.relayBindingExpiresAt = 0
+    state.relayBindingMatchId = ''
+    emit()
+    return ''
+  }
+
+  /**
+   * F1：只返回"属于指定 match_id"的凭证；matchId 未下发（新连接）时绝不携带。
+   */
+  const relayBindingForMatch = (matchId = '') => {
+    const target = safeText(matchId)
+    if (!target || !state.relayBindingMatchId || state.relayBindingMatchId !== target) return ''
+    return state.relayBinding
+  }
+
+  /** 冻结字段：join 响应里的 peer_secret（只存内存；空值 = 清空旧值，请求体不带该字段）。 */
+  const setPeerSecret = (value = '') => {
+    peerSecret = safeText(value)
   }
 
   const claimSeat = async ({ peerId = '', roomCode = '', force = false } = {}) => {
@@ -424,17 +470,18 @@ export const createGomokuMatchTrust = ({
       transport.claimSeat({
         matchId: state.matchId,
         roomCode: roomCode || state.roomCode,
-        peerId
+        peerId,
+        peerSecret
       })
     )
     if (payload) {
       state.seat = safeText(payload.seat)
       state.seatClaimed = true
       const binding = extractRelayBinding(payload)
-      if (binding.token) {
-        state.relayBinding = binding.token
-        state.relayBindingExpiresAt = binding.expiresAt
-      }
+      // 无条件覆盖：服务端未回传 token 时必须清空旧凭证，不得沿用（重绑后新旧凭证不可混用）。
+      state.relayBinding = binding.token
+      state.relayBindingExpiresAt = binding.token ? binding.expiresAt : 0
+      state.relayBindingMatchId = binding.token ? state.matchId : ''
     }
     return payload
   }
@@ -495,7 +542,15 @@ export const createGomokuMatchTrust = ({
      * 宿主把它交给 relay 房间（``online.js`` 的 ``setRelayBinding``），
      * 使 relay 侧能把 ``peer_id`` 与已验证身份绑定（对手不能冒用他人 ``peer_id``）。
      */
-    relayBinding: () => state.relayBinding
+    relayBinding: () => state.relayBinding,
+    /** F1：凭证所属 match_id（空 = 无有效凭证）。 */
+    relayBindingMatchId: () => state.relayBindingMatchId,
+    /** F1：只返回属于指定 match_id 的凭证（matchId 未下发时恒为空串）。 */
+    relayBindingForMatch,
+    /** F1：离开 / 重置房间时作废内存里的 relay 凭证。 */
+    forgetRelayBinding,
+    /** 冻结字段：join 响应里的 peer_secret（只存内存，绝不落盘/广播）。 */
+    setPeerSecret
   }
 }
 

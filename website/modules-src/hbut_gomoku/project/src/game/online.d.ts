@@ -20,8 +20,12 @@ export interface GomokuRelayRoomOptions {
   pollIntervalMs?: number
   /** W1：服务端签发的 relay 绑定凭证（席位绑定下发；无则保持旧请求形状） */
   relayBinding?: string
-  /** W1：凭证失效（403 RELAY_BINDING_REQUIRED）时回调宿主重绑 */
-  onBindingRequired?: () => void
+  /** W1/F2：凭证失效（403 RELAY_BINDING_REQUIRED / SEAT_PEER_OWNERSHIP_REQUIRED）时回调宿主重绑；可返回 Promise（房间会 await 后再重试），也可返回 { ok, code } 供 UI 文案 */
+  onBindingRequired?: () => any
+  /** 冻结字段：join 响应的 peer_secret（只进内存；空串表示本次 join 未提供） */
+  onPeerSecret?: (secret: string) => void
+  /** F3：轮询中断 / 重绑停机的可读文案上报（poll_recovered 表示恢复） */
+  onError?: (event: Record<string, any>) => void
   /** additive match_id 走这里（#908） */
   onEvent?: (event: GomokuRelayEvent) => void
   [key: string]: any
@@ -32,6 +36,8 @@ export interface GomokuRelayRoom {
   getMatchId(): string
   /** W1：热更新 relay 绑定凭证（席位绑定 / 重绑后由宿主回填） */
   setRelayBinding(value: string): void
+  /** F5：宿主主动重新 join（刷新服务端重签的 peer_secret） */
+  rejoin?(): Promise<any>
   [key: string]: any
 }
 
@@ -45,6 +51,18 @@ export const DEFAULT_NOSTR_RELAY_URLS: any
 export const DEFAULT_TORRENT_TRACKER_URLS: any
 /** W1：relay 拒绝"未携带绑定凭证"的请求时的机器可读错误码 */
 export const RELAY_BINDING_REQUIRED_CODE: string
+/** W1：席位身份凭证所有权不足（与 RELAY_BINDING_REQUIRED 同类处理） */
+export const SEAT_PEER_OWNERSHIP_REQUIRED_CODE: string
+/** F5：重绑达到上限停机时的错误码 */
+export const RELAY_BINDING_SUSPENDED_CODE: string
+/** F5：宿主重绑的有界策略参数 */
+export const RELAY_BINDING_MAX_REFRESH_ATTEMPTS: number
+export const RELAY_BINDING_REFRESH_BASE_DELAY_MS: number
+export const RELAY_BINDING_REFRESH_MAX_DELAY_MS: number
+/** F3：poll 连续失败达到该次数后上报"联机中断" */
+export const RELAY_POLL_FAILURE_REPORT_THRESHOLD: number
+/** F3：relay 失败 → 可展示简体中文 */
+export function describeRelayError(error: any): string
 
 export function normalizeRoomCode(value: string | null | undefined): string
 export function formatRoomCode(value: string | null | undefined): string

@@ -30,9 +30,11 @@ export interface TrustSnapshot {
   seat?: string | null
   outcome?: string | null
   claimVerdict?: string | null
-  /** W1：relay 绑定凭证（内存态；换场清空） */
+  /** W1：relay 绑定凭证（内存态；换场/复位清空） */
   relayBinding?: string
   relayBindingExpiresAt?: number
+  /** W1/F1：凭证所属 match_id（只有与当前房间下发的 match_id 一致才允许携带） */
+  relayBindingMatchId?: string
   [key: string]: any
 }
 
@@ -50,6 +52,14 @@ export interface MatchTrust {
   refreshStats(input?: Record<string, any>): Promise<any>
   /** W1：当前 relay 绑定凭证（无则空串） */
   relayBinding(): string
+  /** W1/F1：凭证所属 match_id（空 = 无有效凭证） */
+  relayBindingMatchId(): string
+  /** W1/F1：只返回属于指定 match_id 的凭证（matchId 未下发时恒为空串） */
+  relayBindingForMatch(matchId?: string): string
+  /** W1/F1：离开 / 重置房间时作废内存里的 relay 凭证 */
+  forgetRelayBinding(): string
+  /** 冻结字段：join 响应里的 peer_secret（只存内存，绝不落盘/广播） */
+  setPeerSecret(value?: string): void
   [key: string]: any
 }
 
