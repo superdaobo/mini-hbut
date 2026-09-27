@@ -242,9 +242,27 @@ const resolveChaoxingStudentId = async (payload = null) => {
   return ''
 }
 
+/**
+ * 归一化登录方式标记：写入本地存储的值只会是下面几个字面量之一。
+ *
+ * 显式白名单而非直接透传入参：`applyLoginMethodStorage` 现在会收到来自
+ * 「复用路径」的变量（门内标注的登录方式），白名单既保证存储值恒可枚举，
+ * 也让静态分析能确认落入 localStorage 的不会是任意内容（CodeQL
+ * js/clear-text-storage-of-sensitive-data）。
+ */
+const resolveStoredLoginMethod = (mode) => {
+  // 演示会话标记：test_account.js 以该值判定「测试账号会话」，不可被归一化掉
+  if (mode === TEST_ACCOUNT_LOGIN_METHOD) return 'test_account'
+  if (mode === LOGIN_METHOD_PORTAL_QR) return 'portal_qr_temp'
+  if (mode === LOGIN_METHOD_CHAOXING_PASSWORD) return 'chaoxing_password'
+  if (mode === LOGIN_METHOD_CHAOXING_QR) return 'chaoxing_qr_temp'
+  return 'portal_password'
+}
+
 const applyLoginMethodStorage = (mode) => {
-  const isTemp = mode.endsWith('_temp')
-  localStorage.setItem(LOGIN_METHOD_KEY, mode)
+  const safeMode = resolveStoredLoginMethod(String(mode || ''))
+  const isTemp = safeMode.endsWith('_temp')
+  localStorage.setItem(LOGIN_METHOD_KEY, safeMode)
   localStorage.setItem(LOGIN_TEMP_FLAG_KEY, isTemp ? '1' : '0')
 }
 
