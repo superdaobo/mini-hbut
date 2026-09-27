@@ -13,6 +13,7 @@ use super::approval::{sign_auth_approval, SignApprovalInput, SignedApproval};
 use super::canonical::{self, DeviceApiCanonicalInput};
 use super::client::{EnrollDeviceBody, IdentityApiClient};
 use super::device_key::{DeviceKey, DeviceKeyStore};
+use super::device_token::{exchange_device_token, DeviceTokenPayload};
 use super::enrollment::{build_enroll_assertion, EnrollAssertionInput};
 use super::errors::IdentityError;
 use super::models::{
@@ -400,6 +401,47 @@ async fn fetch_auth_history_impl(
         },
         Err(err) => failure(&err),
     }
+}
+
+/// #902 设备换票：用本机设备私钥（keyring）换取 resource-scoped JWT Access Token。
+///
+/// 链路：Device Key → Identity AT（内存）→（#902c Game Launch Ticket → Game Session）。
+///
+/// 安全约定：
+/// - 私钥只在 Rust 进程内使用（复用 device_key 的 keyring 条目，不新建第二套密钥）；
+/// - AT **只作为返回值交给前端内存**：本命令不缓存、不落盘、不打印（协议 §10 日志禁令）；
+/// - V1 无 refresh token，AT 到期后前端再次调用本命令重新换取；
+/// - 失败一律返回简体中文错误（不含 token/签名材料），由前端降级为 legacy 流程。
+///
+/// 参数：
+/// - `base_url`：Identity Core origin（仅允许受信任 origin / 显式本地调试）；
+/// - `device_id`：enroll 返回值（前端持久化的非敏感设备元数据）。
+#[tauri::command]
+pub(crate) async fn identity_device_token(
+    base_url: String,
+    device_id: String,
+) -> Result<DeviceTokenPayload, String> {
+    // #672：Android 无 OS keyring 后端（keyring crate 不支持），显式降级而非误导性报错
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份注册，敬请期待后续版本".to_string());
+    let base_url = resolve_identity_core_base_url(&base_url).map_err(|e| e.to_string())?;
+    let device_id = device_id.trim().to_string();
+    if device_id.is_empty() {
+        return Err(IdentityError::NotEnrolled.to_string());
+    }
+    // keyring 是同步 blocking API：放进 spawn_blocking，避免阻塞 async runtime
+    // （与 identity_enroll_device 的既有做法一致）。
+    let store = real_store();
+    let key = tauri::async_runtime::spawn_blocking(move || store.load())
+        .await
+        .map_err(|e| format!("设备密钥读取任务失败：{e}"))?
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| IdentityError::NotEnrolled.to_string())?;
+
+    let client = IdentityApiClient::new(base_url);
+    exchange_device_token(&key, &client, &device_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Identity 代理请求（#623 架构修正）：

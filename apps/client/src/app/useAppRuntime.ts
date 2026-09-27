@@ -25,6 +25,10 @@ import { initUsageTracker } from '../utils/usage_tracker.js'
 import { startUsageUploadScheduler, stopUsageUploadScheduler } from '../utils/usage_uploader.js'
 import { runCampusNetworkAutoLogin } from '../utils/campus_network_service'
 import { installHomeLayoutDiagnosticsErrorCapture, collectHomeLayoutDiagnostics } from '../utils/home_layout_diagnostics'
+import {
+  installIdentityDeviceTokenProvider,
+  type InstallIdentityDeviceTokenResult
+} from '../utils/identity_device_token'
 import { showToast } from '../utils/toast'
 import { markBootMetric } from '../utils/boot_metrics.js'
 import { ensureRememberedPasswordCached } from '../utils/credential_storage.js'
@@ -56,6 +60,18 @@ export const useAppRuntime = () => {
   runtime.remoteConfig = createRemoteConfigCoordinator(runtime)
   runtime.notification = createNotificationCoordinator(runtime)
   runtime.identity = createIdentityCoordinator(runtime)
+
+  // #902：注册 Identity Access Token provider（设备签名换票，AT 仅内存）。
+  // 这是 #629 identity_access_token.ts 的生产注入点：未注入时 getIdentityAccessToken()
+  // 恒为 null（Forum / Cloud Sync 走 legacy）；注入后失败仍返回 null，行为向后兼容。
+  // 登出 / 登录事件由 provider 内部监听并清空内存令牌（见 utils/identity_device_token.ts）。
+  let identityDeviceTokenInstall: InstallIdentityDeviceTokenResult | null = null
+  try {
+    identityDeviceTokenInstall = installIdentityDeviceTokenProvider()
+  } catch (err) {
+    // 注册失败绝不阻断启动：保持未注入状态 = 调用方走 legacy
+    console.warn('[IdentityToken] provider 注册失败，继续使用 legacy 链路:', err)
+  }
 
   const { state } = runtime
   const startup = runtime.navigation.readStartupSnapshot()
@@ -306,6 +322,9 @@ export const useAppRuntime = () => {
     runtime.remoteConfig.stopRemoteConfigRefresh()
     runtime.notification.stopWidgetCrossDayTimer()
     runtime.identity.dispose()
+    // #902：解绑 provider 与登出/登录监听（幂等）；卸载后 getIdentityAccessToken() 回到 null
+    identityDeviceTokenInstall?.uninstall()
+    identityDeviceTokenInstall = null
     if (typeof state.mutable.removeNotificationActionListener === 'function') {
       state.mutable.removeNotificationActionListener()
       state.mutable.removeNotificationActionListener = null

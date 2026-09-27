@@ -19,6 +19,12 @@ pub const AUTH_VERSION: &str = "MINI-HBUT-AUTH-V1";
 pub const ENROLL_VERSION: &str = "MINI-HBUT-ENROLL-V1";
 /// 设备签名 API（devices/me、devices/revoke）认证版本头（#622 定义）。
 pub const DEVICE_API_VERSION: &str = "MINI-HBUT-DEVICE-API-V1";
+/// 设备换票（一次性 challenge → JWT AT）签名版本头（#902 定义）。
+///
+/// 与 DEVICE_API_VERSION 的区别：后者证明「请求来自此设备」（canonical 绑定 method/path），
+/// 前者证明「此设备同意用这次 challenge 换取身份令牌」——challenge 必须在签名内，
+/// 否则截获的签名可在时间窗内与任意 challenge 拼接（见 Core 侧 canonical.ts 同名注释）。
+pub const DEVICE_TOKEN_VERSION: &str = "MINI-HBUT-DEVICE-TOKEN-V1";
 
 /// approve 决策值（V1 只支持 approve；deny 不需要设备签名）。
 pub const DECISION_APPROVE: &str = "approve";
@@ -215,6 +221,38 @@ pub fn build_device_api_canonical(
         version = DEVICE_API_VERSION,
         method = method,
         path = input.path,
+        device_id = input.device_id,
+        issued_at = input.issued_at,
+        nonce = input.nonce,
+    ))
+}
+
+/// MINI-HBUT-DEVICE-TOKEN-V1 输入（#902 设备换票）。
+pub struct DeviceTokenCanonicalInput<'a> {
+    /// 服务端签发的一次性 challenge（高熵，明文只在响应中出现一次）
+    pub challenge: &'a str,
+    pub device_id: &'a str,
+    pub issued_at: i64,
+    pub nonce: &'a str,
+}
+
+/// 构建设备换票 canonical 文本（固定字段顺序 + 末尾 LF；与 Core 侧
+/// `buildDeviceTokenCanonical` 逐字节一致，由共享 golden fixture 双向锁定）。
+pub fn build_device_token_canonical(
+    input: &DeviceTokenCanonicalInput<'_>,
+) -> Result<String, IdentityError> {
+    assert_token_field("challenge", input.challenge)?;
+    assert_token_field("device_id", input.device_id)?;
+    assert_token_field("nonce", input.nonce)?;
+    assert_issued_at(input.issued_at)?;
+    Ok(format!(
+        "{version}\n\
+         challenge={challenge}\n\
+         device_id={device_id}\n\
+         issued_at={issued_at}\n\
+         nonce={nonce}\n",
+        version = DEVICE_TOKEN_VERSION,
+        challenge = input.challenge,
         device_id = input.device_id,
         issued_at = input.issued_at,
         nonce = input.nonce,
@@ -425,6 +463,122 @@ mod tests {
             .and_then(|v| v.as_str())
             .expect("fingerprint");
         assert_eq!(device_key.fingerprint(), expected);
+    }
+
+    // ── #902 设备换票 canonical（共享 fixture：Core 侧 tests/fixtures/device_token_canonical_v1.golden.json） ──
+
+    /// #902 共享 golden fixture（双副本，内容逐字节一致）：
+    /// - 本目录 fixtures/device_token_canonical_v1.golden.json（Rust 侧读取）；
+    /// - identity-platform/core/tests/fixtures/device_token_canonical_v1.golden.json（Core 侧读取，
+    ///   Core 测试会断言两份文件逐字节一致）。
+    /// 两侧各自重建 canonical 与签名并与 fixture 比对：任一实现漂移都会在对应分支直接失败。
+    fn device_token_fixture() -> serde_json::Value {
+        let raw = include_str!("fixtures/device_token_canonical_v1.golden.json");
+        serde_json::from_str(raw).expect("设备换票 golden fixture 必须是合法 JSON")
+    }
+
+    #[test]
+    fn golden_device_token_canonical_matches_fixture() {
+        // Rust 重建 canonical 必须与 fixture（Core 侧生成）逐字节一致：末尾 LF、字段顺序全锁定
+        let fx = device_token_fixture();
+        let dt = fx.get("device_token").expect("device_token 段");
+        let canonical = build_device_token_canonical(&DeviceTokenCanonicalInput {
+            challenge: dt
+                .get("challenge")
+                .and_then(|v| v.as_str())
+                .expect("challenge"),
+            device_id: dt
+                .get("device_id")
+                .and_then(|v| v.as_str())
+                .expect("device_id"),
+            issued_at: dt
+                .get("issued_at")
+                .and_then(|v| v.as_i64())
+                .expect("issued_at"),
+            nonce: dt.get("nonce").and_then(|v| v.as_str()).expect("nonce"),
+        })
+        .expect("canonical 构建不应失败");
+        let expected = dt
+            .get("canonical_text")
+            .and_then(|v| v.as_str())
+            .expect("canonical_text");
+        assert_eq!(
+            canonical, expected,
+            "Rust 重建设备换票 canonical 必须与 golden fixture 逐字节一致"
+        );
+        assert!(canonical.starts_with(DEVICE_TOKEN_VERSION));
+        assert!(canonical.ends_with('\n'));
+    }
+
+    #[test]
+    fn golden_device_token_signature_roundtrip() {
+        // 双向：Rust 验 fixture 签名 + Rust 用同一 seed 签出与 fixture 完全相同的签名
+        let fx = device_token_fixture();
+        let dt = fx.get("device_token").expect("device_token 段");
+        let canonical = dt
+            .get("canonical_text")
+            .and_then(|v| v.as_str())
+            .expect("canonical_text");
+        let expected_sig = dt
+            .get("signature")
+            .and_then(|v| v.as_str())
+            .expect("signature");
+        let public_x = fx
+            .get("signing_key")
+            .and_then(|k| k.get("public_key_jwk"))
+            .and_then(|k| k.get("x"))
+            .and_then(|v| v.as_str())
+            .expect("public_key_jwk.x");
+
+        let fixture_signature = decode_signature(expected_sig).expect("fixture 签名解码失败");
+        DeviceKey::verify_with_public_key(public_x, canonical.as_bytes(), &fixture_signature)
+            .expect("fixture 签名必须能通过 Rust 验证");
+
+        let device_key = DeviceKey::from_seed(seed_from_fixture(&fx));
+        assert_eq!(
+            encode_signature(&device_key.sign(canonical.as_bytes())),
+            expected_sig,
+            "Rust 签出的设备换票签名必须与 golden fixture（Core/Node 生成）一致"
+        );
+    }
+
+    #[test]
+    fn device_token_canonical_rejects_protocol_violations() {
+        // 协议外字符 / 空值 / 超长 / issued_at 越界一律拒绝（与 Core 侧 assertTokenField 等价）
+        for (challenge, device_id, nonce, issued_at) in [
+            (
+                "has space".to_string(),
+                "0198a1b2c3d4e5f6a7b8c9d0",
+                "n",
+                1755000000,
+            ),
+            ("ok".to_string(), "a/b", "n", 1755000000),
+            (
+                "ok".to_string(),
+                "0198a1b2c3d4e5f6a7b8c9d0",
+                "with\nlf",
+                1755000000,
+            ),
+            ("ok".to_string(), "0198a1b2c3d4e5f6a7b8c9d0", "n", 0),
+            (
+                "ok".to_string(),
+                "0198a1b2c3d4e5f6a7b8c9d0",
+                "n",
+                4102444801,
+            ),
+            ("".to_string(), "0198a1b2c3d4e5f6a7b8c9d0", "n", 1755000000),
+        ] {
+            assert!(
+                build_device_token_canonical(&DeviceTokenCanonicalInput {
+                    challenge: &challenge,
+                    device_id,
+                    issued_at,
+                    nonce,
+                })
+                .is_err(),
+                "非法输入必须被拒绝：challenge={challenge:?} device_id={device_id:?} nonce={nonce:?} issued_at={issued_at}"
+            );
+        }
     }
 
     #[test]
