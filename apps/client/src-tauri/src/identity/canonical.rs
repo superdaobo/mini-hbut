@@ -483,14 +483,29 @@ mod tests {
         let fx = device_token_fixture();
         let dt = fx.get("device_token").expect("device_token 段");
         let canonical = build_device_token_canonical(&DeviceTokenCanonicalInput {
-            challenge: dt.get("challenge").and_then(|v| v.as_str()).expect("challenge"),
-            device_id: dt.get("device_id").and_then(|v| v.as_str()).expect("device_id"),
-            issued_at: dt.get("issued_at").and_then(|v| v.as_i64()).expect("issued_at"),
+            challenge: dt
+                .get("challenge")
+                .and_then(|v| v.as_str())
+                .expect("challenge"),
+            device_id: dt
+                .get("device_id")
+                .and_then(|v| v.as_str())
+                .expect("device_id"),
+            issued_at: dt
+                .get("issued_at")
+                .and_then(|v| v.as_i64())
+                .expect("issued_at"),
             nonce: dt.get("nonce").and_then(|v| v.as_str()).expect("nonce"),
         })
         .expect("canonical 构建不应失败");
-        let expected = dt.get("canonical_text").and_then(|v| v.as_str()).expect("canonical_text");
-        assert_eq!(canonical, expected, "Rust 重建设备换票 canonical 必须与 golden fixture 逐字节一致");
+        let expected = dt
+            .get("canonical_text")
+            .and_then(|v| v.as_str())
+            .expect("canonical_text");
+        assert_eq!(
+            canonical, expected,
+            "Rust 重建设备换票 canonical 必须与 golden fixture 逐字节一致"
+        );
         assert!(canonical.starts_with(DEVICE_TOKEN_VERSION));
         assert!(canonical.ends_with('\n'));
     }
@@ -500,8 +515,14 @@ mod tests {
         // 双向：Rust 验 fixture 签名 + Rust 用同一 seed 签出与 fixture 完全相同的签名
         let fx = device_token_fixture();
         let dt = fx.get("device_token").expect("device_token 段");
-        let canonical = dt.get("canonical_text").and_then(|v| v.as_str()).expect("canonical_text");
-        let expected_sig = dt.get("signature").and_then(|v| v.as_str()).expect("signature");
+        let canonical = dt
+            .get("canonical_text")
+            .and_then(|v| v.as_str())
+            .expect("canonical_text");
+        let expected_sig = dt
+            .get("signature")
+            .and_then(|v| v.as_str())
+            .expect("signature");
         let public_x = fx
             .get("signing_key")
             .and_then(|k| k.get("public_key_jwk"))
@@ -525,11 +546,26 @@ mod tests {
     fn device_token_canonical_rejects_protocol_violations() {
         // 协议外字符 / 空值 / 超长 / issued_at 越界一律拒绝（与 Core 侧 assertTokenField 等价）
         for (challenge, device_id, nonce, issued_at) in [
-            ("has space".to_string(), "0198a1b2c3d4e5f6a7b8c9d0", "n", 1755000000),
+            (
+                "has space".to_string(),
+                "0198a1b2c3d4e5f6a7b8c9d0",
+                "n",
+                1755000000,
+            ),
             ("ok".to_string(), "a/b", "n", 1755000000),
-            ("ok".to_string(), "0198a1b2c3d4e5f6a7b8c9d0", "with\nlf", 1755000000),
+            (
+                "ok".to_string(),
+                "0198a1b2c3d4e5f6a7b8c9d0",
+                "with\nlf",
+                1755000000,
+            ),
             ("ok".to_string(), "0198a1b2c3d4e5f6a7b8c9d0", "n", 0),
-            ("ok".to_string(), "0198a1b2c3d4e5f6a7b8c9d0", "n", 4102444801),
+            (
+                "ok".to_string(),
+                "0198a1b2c3d4e5f6a7b8c9d0",
+                "n",
+                4102444801,
+            ),
             ("".to_string(), "0198a1b2c3d4e5f6a7b8c9d0", "n", 1755000000),
         ] {
             assert!(
