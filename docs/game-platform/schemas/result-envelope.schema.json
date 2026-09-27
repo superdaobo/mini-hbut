@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/superdaobo/mini-hbut/docs/game-platform/schemas/result-envelope.schema.json",
+  "title": "Game Platform V2 run result envelope",
+  "description": "V2 run 提交的 result 字段统一信封（protocol-v1.md §4）。每个游戏可自定义 extra，但不得覆盖 score/metric/moves/ended_reason 的服务端语义；本 envelope 描述的内容全部是客户端不可信输入，服务端必须重新做边界校验、异常检测与 registry 归一化。字节上限（JSON Schema 无法表达，必须由服务端代码实现）：result 整体序列化 ≤ 8192 字节（max_result_bytes）；extra 单独序列化 ≤ 6144 字节；整个请求体 ≤ 65536 字节（max_request_bytes）。所有数值字段只允许整数：出现浮点（含 1.0、1e3）→ 400 SCHEMA_INVALID。字符串在服务端先做 NFC 归一化再比较。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "score", "metric", "moves", "ended_reason"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "信封版本；未知版本一律 400 SCHEMA_INVALID，不做版本猜测。"
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000,
+      "description": "主排序分。语义与上限（score.max）由每个 game 在 registry 声明（见 game-registry.md §3/§4）。"
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "description": "取代 Legacy max_level 的单一表征指标；name 必须等于服务端 registry 为该 game_id 声明的 metric.name，value 不得超过 registry 的 metric.max，否则 SCHEMA_INVALID（超限时也可能进入 QUARANTINED，见 protocol-v1.md §3.2 T5）。",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,31}$",
+          "description": "metric 名（如 layers / stage_index / max_tile / score_only）；allowed 值由 registry 决定。"
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000,
+          "description": "0 基或结果本位的规范值；Legacy max_level 与它的换算由 registry 的 legacy_max_level_rule 声明一次（protocol-v1.md §2.4、game-registry.md §4）。"
+        }
+      }
+    },
+    "moves": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000,
+      "description": "取代 Legacy move_count（步数/操作数）。"
+    },
+    "ended_reason": {
+      "type": "string",
+      "enum": [
+        "won",
+        "lost",
+        "cleared",
+        "failed",
+        "timeout",
+        "abandoned",
+        "draw",
+        "collision",
+        "game_over",
+        "restart",
+        "unknown"
+      ],
+      "description": "归一化后的结束原因；Legacy 自由文本到该枚举的映射见 game-registry.md §5。"
+    },
+    "extra": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9_]{0,31}$"
+      },
+      "additionalProperties": {
+        "type": ["string", "integer", "boolean", "null"],
+        "maxLength": 512
+      },
+      "description": "游戏自定义附加量（如 perfectCount / clearedLevels / stage）。只允许标量值，禁止嵌套对象/数组（防 DoS 与结构歧义）；数值只允许整数（实现层额外拒绝 1.0 / 1e3 这类浮点写法）。键名首字符必须小写字母；允许 camelCase 以原样承载 Legacy payload（protocol-v1.md §2.4 的『原样保留』），新游戏推荐 snake_case。绝不参与结算裁决：服务端派生 XP/湖工币时不得读取本字段（trust-model.md §4.3）。"
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "score": 1240,
+      "metric": { "name": "layers", "value": 26 },
+      "moves": 26,
+      "ended_reason": "lost",
+      "extra": { "perfectCount": 9, "perfectCombo": 4 }
+    },
+    {
+      "schema_version": 1,
+      "score": 29150,
+      "metric": { "name": "stage_index", "value": 2 },
+      "moves": 47,
+      "ended_reason": "lost",
+      "extra": {
+        "credits": 168,
+        "influence": 123,
+        "coins": 742,
+        "energy": 4,
+        "stress": 62,
+        "stage": "毕业冲刺季"
+      }
+    }
+  ]
+}

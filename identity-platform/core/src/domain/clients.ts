@@ -33,11 +33,18 @@ import { deleteByClient } from '../db/repos/data-snapshots.repo.js'
  * V1 scope 白名单。
  * #617 初始：openid / profile / student.identity / offline_access；
  * #699 扩展数据域：student.grades.read / student.timetable.read
- * （沿用敏感审核：开发者用途说明 ≥10 字 + 管理员人工审批，见 0006 迁移 CHECK）。
+ * （沿用敏感审核：开发者用途说明 ≥10 字 + 管理员人工审批，见 0006 迁移 CHECK）；
+ * #902a 游戏平台：game.read / game.play（协议 §6；DB CHECK 见 0008 迁移）。
+ *
+ * ⚠️ 本数组与以下位置必须逐项一致（共 8 处，清单见 core/docs/contract.md §8）：
+ * core/src/oidc/provider.ts OIDC_SCOPES、DB CHECK（最新迁移）、
+ * core/src/api/admin/reviews.ts / queries.ts（敏感分级）、
+ * web/lib/developer/scopes.ts、web/app/developer-site/_components/app-form.tsx。
  */
 export const SCOPE_WHITELIST = [
   'openid', 'profile', 'student.identity', 'offline_access',
   'student.grades.read', 'student.timetable.read',
+  'game.read', 'game.play',
 ] as const
 
 export type { ApplicationStatus as ClientStatus } from '../db/repos/clients.repo.js'

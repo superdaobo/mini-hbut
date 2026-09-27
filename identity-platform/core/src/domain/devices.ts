@@ -15,6 +15,7 @@ import {
   setDeviceStatus,
   type DevicePlatform,
 } from '../db/repos/devices.repo.js'
+import { insertDeviceTokenChallenge } from '../db/repos/device-token-challenges.repo.js'
 import {
   ChallengeInvalidError,
   DeviceFingerprintExistsError,
@@ -35,6 +36,24 @@ export function createEnrollmentChallenge(
     id: newUuidV7(),
     challengeHash: sha256Base64url(challenge),
     purpose: input.purpose,
+    expiresAt,
+  }).then(() => ({ challenge, expiresAt }))
+}
+
+/**
+ * 生成一次性设备换票 challenge（#902；明文只返回一次，DB 存 sha256 hash）。
+ * 与 enrollment challenge 分表：绑定 device_id，只能由签发它的设备兑换（见仓储注释）。
+ */
+export function createDeviceTokenChallenge(
+  sql: SqlExecutor,
+  input: { deviceId: string; ttlSeconds?: number },
+): Promise<{ challenge: string; expiresAt: Date }> {
+  const challenge = newRandomSecret(32)
+  const expiresAt = new Date(Date.now() + (input.ttlSeconds ?? 120) * 1000)
+  return insertDeviceTokenChallenge(sql, {
+    id: newUuidV7(),
+    challengeHash: sha256Base64url(challenge),
+    deviceId: input.deviceId,
     expiresAt,
   }).then(() => ({ challenge, expiresAt }))
 }

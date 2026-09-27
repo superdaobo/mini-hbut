@@ -1,13 +1,19 @@
 /**
  * Scope 管理与敏感 scope 审核字段（纯函数）。
  *
- * 白名单（#617/#620 初版；#697 扩展学习数据域，敏感项均需理由+人工批准）：
+ * 白名单（#617/#620 初版；#697 扩展学习数据域；#902a 扩展游戏平台，
+ * 敏感项均需理由+人工批准）：
  *   openid                  必选、基础登录、自动选择不可移除；
  *   profile                 基础资料，普通 scope；
  *   student.identity        敏感：学校身份声明；必须使用理由+隐私政策+人工批准；
  *   offline_access          敏感：长期访问（Refresh Token）；人工批准；
  *   student.grades.read     敏感：读取全部成绩单快照（授权时由 App 加密上传，≤7 天）；
- *   student.timetable.read  敏感：读取完整课表快照（同上）。
+ *   student.timetable.read  敏感：读取完整课表快照（同上）；
+ *   game.read               敏感：读取游戏平台数据（run 状态 / 榜单 / 本人钱包快照）；
+ *   game.play               敏感：游戏平台写路径（换取 ticket/session、提交 run，协议 §6.2.1）。
+ *
+ * ⚠️ 本列表与 Core 侧必须逐项一致（SCOPE_WHITELIST / OIDC_SCOPES / DB CHECK /
+ * 敏感分级），同步点清单见 core/docs/contract.md §8。
  */
 
 import type { DeveloperClientType } from './contract'
@@ -19,6 +25,8 @@ export const SCOPE_WHITELIST = [
   'offline_access',
   'student.grades.read',
   'student.timetable.read',
+  'game.read',
+  'game.play',
 ] as const
 
 export type ScopeId = (typeof SCOPE_WHITELIST)[number]
@@ -79,6 +87,28 @@ export const SCOPE_META: Readonly<Record<ScopeId, ScopeMeta>> = {
     description:
       '读取你的完整课表。数据在你授权时由 Mini-HBUT App 加密上传为快照，有效期最长 7 天，' +
       '过期需重新授权。敏感：必须填写使用理由与隐私政策，管理员人工批准。',
+    risk: 'sensitive',
+    mandatory: false,
+    requiresJustification: true,
+  },
+  'game.read': {
+    id: 'game.read',
+    label: 'game.read（游戏平台数据读取）',
+    description:
+      '读取游戏平台数据：对局 run 状态、排行榜、本人钱包（XP / 湖工币 / 每日进度）快照。' +
+      '敏感：数据绑定你的学校身份（游戏平台内部使用学号作为玩家标识），' +
+      '必须填写使用理由与隐私政策，管理员人工批准。',
+    risk: 'sensitive',
+    mandatory: false,
+    requiresJustification: true,
+  },
+  'game.play': {
+    id: 'game.play',
+    label: 'game.play（游戏平台对局与结算）',
+    description:
+      '代表你使用游戏平台：兑换一次性 Launch Ticket / Game Session、提交对局结果并可产生' +
+      '奖励结算。该能力仅对 Mini-HBUT 第一方宿主签发（第三方令牌不含学校身份，且无法通过' +
+      '游戏平台校验）。敏感：必须填写使用理由与隐私政策，管理员人工批准。',
     risk: 'sensitive',
     mandatory: false,
     requiresJustification: true,

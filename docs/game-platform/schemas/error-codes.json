@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "source_of_truth": "docs/game-platform/protocol-v1.md",
+  "source_section": "§5 统一错误码表",
+  "consistency_requirement": "本文件与 protocol-v1.md §5 表格的 code/http_status/retryable/description/client_action 必须逐字段逐字一致；#911 提供自动 diff 断言（缺一即 CI 红）。",
+  "envelope": {
+    "success": false,
+    "error": {
+      "code": "<string, 见 codes[].code>",
+      "message": "<string, 可直接展示的简体中文>",
+      "retryable": "<boolean, 与 codes[].retryable 一致>",
+      "request_id": "<string, 必填，形如 req_...>",
+      "details": "<object, 可选，不得回显 token 内容>"
+    },
+    "internal_error_note": "INTERNAL_ERROR 的 message 必须是固定文案，禁止回显堆栈、异常文本、SQL、表名或任何内部标识。",
+    "legacy_note": "Legacy /api/game-rank/* 保持 {\"success\": false, \"error\": \"文本\"} 形状不变，禁止把本对象塞进 Legacy 的 error 字段。"
+  },
+  "codes": [
+    {
+      "code": "AUTH_REQUIRED",
+      "http_status": 401,
+      "retryable": false,
+      "description": "缺 Authorization: Bearer、token 为空或形状非法、Identity 校验链不可用（fail closed）。",
+      "client_action": "触发一次 refreshAccessToken()；仍失败 → registry legacy_compatible=true 则走 Legacy 提交，否则 standalone（本地展示成绩、不上传）。"
+    },
+    {
+      "code": "GAME_SESSION_EXPIRED",
+      "http_status": 401,
+      "retryable": false,
+      "description": "Game Session 过期、已撤销、session_id 未知，或 session 绑定的 game_id 与请求不一致。",
+      "client_action": "用宿主 Identity AT 重新换 ticket → session 后按幂等重试同一 run（run 状态不变）；两次失败则降级 compatibility/standalone，当前局按未结算处理。"
+    },
+    {
+      "code": "TICKET_INVALID",
+      "http_status": 401,
+      "retryable": false,
+      "description": "ticket 不存在、形状非法、已过期、签名不匹配，或绑定的 game_id 与请求不一致。",
+      "client_action": "重新走授权流程签发新 ticket；不重试同一 ticket。"
+    },
+    {
+      "code": "TICKET_USED",
+      "http_status": 409,
+      "retryable": false,
+      "description": "ticket 已被兑换（重放或并发兑换），且其绑定的 session 已过期或已撤销。",
+      "client_action": "若本地已持有有效 session 则复用；否则向宿主申请新 ticket。禁止再次提交同一 ticket。"
+    },
+    {
+      "code": "RUN_ALREADY_FINISHED",
+      "http_status": 409,
+      "retryable": false,
+      "description": "同 run_id 已存在且 content_hash 不同、同 run_id 属于其他 game_id，或该 run 已被 REJECTED。content_hash 相同时服务端返回 200 幂等重放（idempotent_replay=true），不出现本码。",
+      "client_action": "停止重试；本地结束该 run，重开新局（新 run_id）。"
+    },
+    {
+      "code": "RUN_INVALID",
+      "http_status": 400,
+      "retryable": false,
+      "description": "run_id 格式非法、run 不存在，或 run 不属于当前 session 绑定的 player。",
+      "client_action": "新建 run（新 run_id）重试一次；再失败 → standalone。"
+    },
+    {
+      "code": "REWARD_DISABLED",
+      "http_status": 200,
+      "retryable": false,
+      "description": "经济模块关闭（features.economy=false）；run 被接受但不发奖。默认以 settlement.reward_status=disabled 表达，仅当请求显式声明 require_rewards=true 时才以本码作为提示性结果返回。",
+      "client_action": "正常展示分数；隐藏 XP / 湖工币 / 任务进度 UI，标注「本轮不计奖励」；不得重试期望拿到奖励。"
+    },
+    {
+      "code": "GAME_DISABLED",
+      "http_status": 404,
+      "retryable": false,
+      "description": "game_id 未在 registry 登记，或 registry status=disabled（如 hugongda_escape，website/modules-src/hugongda_escape/module.json:10）。",
+      "client_action": "隐藏入口、不提交；已打开的 run 丢弃并本地提示。"
+    },
+    {
+      "code": "RATE_LIMITED",
+      "http_status": 429,
+      "retryable": true,
+      "description": "超出 IP / 账号 / 游戏维度限流窗口；限流状态为进程内实现（部署约束见 protocol-v1.md §11）。",
+      "client_action": "指数退避（1200/2600/5200ms，最多 3 次）；仍失败 → 保留 pending payload，UI 提供手动重试。"
+    },
+    {
+      "code": "FEATURE_DISABLED",
+      "http_status": 403,
+      "retryable": false,
+      "description": "/api/game-platform/v1/* 整体关闭（env flag，默认关闭灰度）。",
+      "client_action": "回退 Legacy /api/game-rank/*（若 legacy_compatible=true），否则 standalone；不重试。"
+    },
+    {
+      "code": "LEGACY_ONLY",
+      "http_status": 409,
+      "retryable": false,
+      "description": "该 game_id 未登记 V2（registry 无条目，或 status=legacy_only）。",
+      "client_action": "走 Legacy 提交路径；不重试 V2；上报「游戏待迁移」埋点。"
+    },
+    {
+      "code": "INTERNAL_ERROR",
+      "http_status": 500,
+      "retryable": true,
+      "description": "未捕获异常、DB 或依赖短暂不可用；响应体不得包含堆栈、异常文本、SQL、表名或任何内部标识。",
+      "client_action": "退避重试（最多 3 次）+ 保留 pending；仍失败 → Legacy 兜底或本地暂存。"
+    },
+    {
+      "code": "PROTOCOL_VERSION_UNSUPPORTED",
+      "http_status": 400,
+      "retryable": false,
+      "description": "protocol_version 超出服务端支持区间 [min,max]。",
+      "client_action": "不重试；降级 Legacy/standalone；提示升级客户端。"
+    },
+    {
+      "code": "CLIENT_VERSION_TOO_OLD",
+      "http_status": 426,
+      "retryable": false,
+      "description": "client_version 低于 registry 的 min_client_version（软门禁；client_version 可伪造，不得作为安全边界）。",
+      "client_action": "提示升级；降级 Legacy/standalone。"
+    },
+    {
+      "code": "SCHEMA_INVALID",
+      "http_status": 400,
+      "retryable": false,
+      "description": "result envelope、per-game extra、数值边界或语义校验失败；或请求含非 actor 类的服务端权威字段（xp_amount / coin_amount / reward / reward_amount / season_id / trust_level / settled_at / server_received_at）。",
+      "client_action": "结束本地 run（不重试同 run）；上报诊断信息；不产生结算。"
+    },
+    {
+      "code": "IDEMPOTENCY_CONFLICT",
+      "http_status": 409,
+      "retryable": false,
+      "description": "idempotency_key 被复用但请求内容摘要不同（ticket/session 签发接口）。",
+      "client_action": "生成新的 key（新 run / 新 ticket）；绝不用旧 key 猜测既有结果。"
+    },
+    {
+      "code": "FORBIDDEN_ACTOR",
+      "http_status": 403,
+      "retryable": false,
+      "description": "body/query 出现 actor 字段（student_id / player_id / user_id），或 actor 与 principal 不匹配，或 run_id 属他人。",
+      "client_action": "立即停止重试；记录安全事件；客户端移除该字段后才允许恢复。"
+    }
+  ]
+}

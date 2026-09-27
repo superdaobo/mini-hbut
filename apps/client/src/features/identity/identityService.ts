@@ -502,8 +502,8 @@ export const fetchAuthHistory = async (): Promise<IdentityAuthHistoryItem[]> => 
   let output: IdentityAuthHistoryNativeOutput
   try {
     output = await identityFetchAuthHistory({
-      base_url: getIdentityCoreBaseUrl(),
-      device_id: deviceId
+      baseUrl: getIdentityCoreBaseUrl(),
+      deviceId
     })
   } catch (err) {
     // invoke 本身失败（panic/运行时异常）：无法拿到结构化分类，按网络类兜底

@@ -69,6 +69,15 @@ export const DEFAULT_RATE_LIMIT_GROUPS: readonly RateLimitGroup[] = [
   { name: 'enroll', prefixes: ['/api/v1/app/devices/enroll'], methods: ['POST'], rule: { limit: 20, windowSeconds: 300, failPolicy: 'closed' } },
   { name: 'approve', prefixes: ['/api/v1/app/auth-requests/'], methods: ['POST'], rule: { limit: 60, windowSeconds: 60, failPolicy: 'closed' } },
   { name: 'deviceRevoke', prefixes: ['/api/v1/app/devices/'], methods: ['POST'], rule: { limit: 30, windowSeconds: 60, failPolicy: 'closed' } },
+  // #902 设备换票（协议 §6.2.4 限流与探测防护）：
+  // - challenge 签发：设备签名认证之后才执行，正常客户端只在「首次取 AT / 到期重取」时调用，
+  //   30 次/5 分钟足够（并覆盖时钟偏差导致的重试）；fail closed；
+  // - exchange：一次性 challenge + 签名，正常每 15 分钟才一次；60 次/分钟是防爆破/探测的
+  //   上限（challenge 为 256bit 熵，枚举不可行，此层是纵深防御）；fail closed。
+  // 前缀与 deviceRevoke 的 '/api/v1/app/devices/' 不重叠（device-token ≠ devices），
+  // 分组顺序无关。
+  { name: 'deviceTokenChallenge', prefixes: ['/api/v1/app/device-token/challenge'], methods: ['POST'], rule: { limit: 30, windowSeconds: 300, failPolicy: 'closed' } },
+  { name: 'deviceTokenExchange', prefixes: ['/api/v1/app/device-token/exchange'], methods: ['POST'], rule: { limit: 60, windowSeconds: 60, failPolicy: 'closed' } },
   { name: 'developerRead', prefixes: ['/api/v1/developer/'], methods: ['GET'], rule: { limit: 300, windowSeconds: 60, failPolicy: 'open' } },
   { name: 'developerWrite', prefixes: ['/api/v1/developer/'], methods: ['POST', 'PATCH', 'DELETE'], rule: { limit: 60, windowSeconds: 60, failPolicy: 'closed' } },
   // #688 账户级 API Key（Bearer 直连）：读多写少，读 fail open / 写 fail closed

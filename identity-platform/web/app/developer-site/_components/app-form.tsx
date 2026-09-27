@@ -51,6 +51,9 @@ export function AppForm() {
     // #697 学习数据域：授权时由 App 加密上传数据快照（≤7 天），供第三方在有效期内读取
     'student.grades.read': { selected: false, justification: '' },
     'student.timetable.read': { selected: false, justification: '' },
+    // #902a 游戏平台（协议 §6）：第一方宿主使用；第三方申请同样按敏感 scope 审核
+    'game.read': { selected: false, justification: '' },
+    'game.play': { selected: false, justification: '' },
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

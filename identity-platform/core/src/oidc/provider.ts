@@ -20,7 +20,7 @@
  *
  * 明确不开放：Implicit / ROPC / Client Credentials / DCR / device flow / CIBA。
  */
-import Provider, { interactionPolicy } from 'oidc-provider'
+import Provider, { errors, interactionPolicy } from 'oidc-provider'
 import type { SqlExecutor } from '../db/types.js'
 import { createPostgresAdapterFactory, createClientLoader } from './adapter/index.js'
 import { accountFinder } from './account.js'
@@ -35,11 +35,24 @@ import {
   generateEphemeralKeySet,
   toProviderJwks,
 } from './keys.js'
+import {
+  createExtraTokenClaims,
+  createGetResourceServerInfo,
+  resolveGameResourceConfig,
+  type GameResourceOptions,
+  type ResolvedGameResourceConfig,
+} from './resource-indicators.js'
 
-/** V1 scope 白名单（#617 初始 + #699 数据域扩展，与 domain/clients.ts SCOPE_WHITELIST 一致） */
+/**
+ * V1 scope 白名单（#617 初始 + #699 数据域扩展 + #902a 游戏平台，
+ * 必须与 domain/clients.ts SCOPE_WHITELIST、DB CHECK（0008 迁移）逐项一致）。
+ * game.* 不映射 userinfo claim（同 offline_access）：它们只用于资源绑定
+ * （resource indicator）与资源服务器侧 scope 门禁，见 docs/contract.md §8。
+ */
 export const OIDC_SCOPES = [
   'openid', 'profile', 'student.identity', 'offline_access',
   'student.grades.read', 'student.timetable.read',
+  'game.read', 'game.play',
 ] as const
 
 /**
@@ -97,6 +110,13 @@ export interface IdentityProviderDeps {
     refreshToken?: number
     interaction?: number
   }
+  /**
+   * 游戏平台 resource server 配置（#902a，协议 §6.4 方案 b）。
+   * 未提供 → `resolveGameResourceConfig()` 默认值：audience=mini-hbut-hf-api、
+   * indicator=https://mini-hbut-hf-api、**第一方白名单为空**（任何带 resource
+   * 的授权请求都不放行，等于该能力关闭；既有不带 resource 的链路零影响）。
+   */
+  gameResource?: ResolvedGameResourceConfig | GameResourceOptions
 }
 
 /** 默认 TTL（秒） */
@@ -135,6 +155,8 @@ export function createIdentityProvider(deps: IdentityProviderDeps): Provider {
 
   const authRequestTtl = deps.authRequestTtlSeconds ?? 120
   const ttlOverride = deps.ttlOverrides ?? {}
+  // 游戏 resource server 配置（#902a）：启动期解析并校验（非法 indicator → fail fast）
+  const gameResource = resolveGameResourceConfig(deps.gameResource ?? {})
 
   const provider = new Provider(deps.issuer, {
     adapter: createPostgresAdapterFactory({
@@ -181,8 +203,43 @@ export function createIdentityProvider(deps: IdentityProviderDeps): Provider {
       pushedAuthorizationRequests: { enabled: false },
       // 以下 V1 不开放：clientCredentials / deviceFlow / ciba /
       // introspection / registration / requestObjects / encryption /
-      // claimsParameter / jwtResponseModes / resourceIndicators / dPoP
+      // claimsParameter / jwtResponseModes / dPoP
+      //
+      // #902a 开放 resourceIndicators（协议 §6.4 方案 b）：只有「请求了游戏
+      // resource indicator 且 client 在第一方白名单内」的授权才会拿到 JWT AT；
+      // 其余授权（含既有 Forum / Cloud Sync 与全部第三方）继续 opaque，
+      // 因为 AT 格式是按 token 所属 resource server 逐 token 决定的。
+      // 三个必须写对的地方（9.11.3 源码已核实）：
+      //   1) getResourceServerInfo 必须提供实现，否则任何带 resource 的请求
+      //      直接抛错（defaults.js mustChange）；
+      //   2) defaultResource 必须把「已授权 resource 数组」收敛为单个字符串
+      //      —— resolve_resource.js 会把数组直接判为 invalid_target
+      //      （实测：默认实现返回原数组，token 阶段必然失败）；
+      //   3) useGrantedResource 返回 true：客户端只在 authorize 带了 resource
+      //      时，token 端点省略 resource 仍按已授权 resource 签发（RFC 8707
+      //      "以授权请求为准"的语义），否则会静默退回 opaque。
+      resourceIndicators: {
+        enabled: true,
+        defaultResource: async (_ctx: unknown, _client: unknown, oneOf: unknown) => {
+          // oneOf === undefined：authorize 阶段未请求 resource → 不注入默认 resource
+          if (!Array.isArray(oneOf)) {
+            return undefined
+          }
+          // 本实现只登记单一 indicator；多值一律 fail closed（不静默降级为 opaque）
+          if (oneOf.length !== 1) {
+            throw new errors.InvalidTarget('only a single game resource indicator is supported')
+          }
+          return oneOf[0]
+        },
+        getResourceServerInfo: createGetResourceServerInfo(gameResource),
+        useGrantedResource: async () => true,
+      },
     },
+
+    // #902a：受控 claim 注入（协议 §6.4 硬性前提 1）——
+    // 仅「游戏 audience 的 JWT AT + 第一方 client」注入 hbut_student_id 等；
+    // 其余 token（含全部 opaque AT）payload 零变化。
+    extraTokenClaims: createExtraTokenClaims(deps.sql, gameResource),
 
     // Refresh Token：无条件 rotation（#617：public client 必须 rotation；
     // replay 检测与 revoke chain 是 v9 内建行为，见 refresh_token.js）

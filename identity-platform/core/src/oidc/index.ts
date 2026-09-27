@@ -10,10 +10,19 @@
  */
 export { createIdentityProvider, OIDC_SCOPES, OIDC_CLAIMS, type IdentityProviderDeps } from './provider.js'
 export {
+  resolveGameResourceConfig,
+  DEFAULT_GAME_AUDIENCE,
+  GAME_RESOURCE_SCOPES,
+  GAME_AT_CLAIMS,
+  type GameResourceOptions,
+  type ResolvedGameResourceConfig,
+} from './resource-indicators.js'
+export {
   resumeAuthRequest,
   ResumeError,
   APPROVAL_AMR,
   type ResumeResult,
+  type ResumeDeps,
 } from './interaction.js'
 export {
   ensureStaticClients,

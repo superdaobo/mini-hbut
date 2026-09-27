@@ -70,7 +70,7 @@ export function ScopesTab({ app, me, setApp, reload }: TabProps) {
       <p className="dev-inline-hint">
         勾选你的应用需要拿到的用户数据；申请越多审核越严，按实际需要选择即可。
         <br />
-        敏感 scope（student.identity / offline_access）需要使用理由、隐私政策与管理员人工批准。
+        标记「敏感」的 scope（学校身份 / 长期访问 / 学习数据 / 游戏平台）需要使用理由、隐私政策与管理员人工批准。
         {editLockedHint(app)}
       </p>
       {reReview && (
