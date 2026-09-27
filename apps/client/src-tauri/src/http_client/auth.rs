@@ -264,24 +264,47 @@ fn html_looks_like_login_form(html: &str) -> bool {
     html.contains("pwdEncryptSalt") && html.contains("execution")
 }
 
+fn is_first_party_ocr_endpoint(url: &str) -> bool {
+    [
+        "https://mini-hbut-ocr-service.hf.space/",
+        "https://mini-hbut-testocr1.hf.space/",
+        "https://superdaobo-ocr-service.hf.space/",
+    ]
+    .iter()
+    .any(|prefix| url.starts_with(prefix))
+}
+
 async fn try_ocr_endpoint(
     ocr_client: reqwest::Client,
     source: String,
     ocr_url: String,
     normalized: String,
+    app_version: String,
+    device_id: String,
+    student_id: String,
 ) -> Result<(String, String, String), (String, String, String)> {
-    let ocr_response = ocr_client
+    let mut request = ocr_client
         .post(&ocr_url)
-        .json(&serde_json::json!({ "image": normalized }))
-        .send()
-        .await
-        .map_err(|e| {
-            (
-                source.clone(),
-                ocr_url.clone(),
-                format!("OCR request failed: {}", e),
-            )
-        })?;
+        .json(&serde_json::json!({ "image": normalized }));
+    if is_first_party_ocr_endpoint(&ocr_url) {
+        request = request
+            .header("x-mini-hbut-version", app_version)
+            .header("x-mini-hbut-runtime", "tauri")
+            .header("x-mini-hbut-platform", std::env::consts::OS);
+        if !device_id.is_empty() {
+            request = request.header("x-mini-hbut-device", device_id);
+        }
+        if !student_id.is_empty() {
+            request = request.header("x-mini-hbut-student", student_id);
+        }
+    }
+    let ocr_response = request.send().await.map_err(|e| {
+        (
+            source.clone(),
+            ocr_url.clone(),
+            format!("OCR request failed: {}", e),
+        )
+    })?;
 
     let ocr_status = ocr_response.status();
     let ocr_text = ocr_response.text().await.unwrap_or_default();
@@ -942,7 +965,7 @@ impl HbutClient {
         }
 
         // 2) 默认远程兜底
-        let remote_default = super::DEFAULT_REMOTE_OCR_ENDPOINT.to_string();
+        let remote_default = super::default_remote_ocr_endpoint().to_string();
         if seen.insert(remote_default.clone()) {
             endpoints.push(("remote_default", remote_default));
         }
@@ -964,11 +987,33 @@ impl HbutClient {
         }
 
         let image = normalized.to_string();
+        let app_version = env!("CARGO_PKG_VERSION").to_string();
+        let telemetry_device_id = self.ocr_telemetry_device_id.clone().unwrap_or_default();
+        let telemetry_student_id = self
+            .ocr_telemetry_student_id
+            .clone()
+            .or_else(|| {
+                self.last_username
+                    .as_ref()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| {
+                        (9..=10).contains(&value.len()) && value.chars().all(|c| c.is_ascii_digit())
+                    })
+            })
+            .unwrap_or_default();
         let mut tasks = FuturesUnordered::new();
         for (source, ocr_url) in endpoints {
             let client = self.ocr_client.clone();
             let img = image.clone();
-            tasks.push(try_ocr_endpoint(client, source.to_string(), ocr_url, img));
+            tasks.push(try_ocr_endpoint(
+                client,
+                source.to_string(),
+                ocr_url,
+                img,
+                app_version.clone(),
+                telemetry_device_id.clone(),
+                telemetry_student_id.clone(),
+            ));
         }
 
         let mut last_err = String::new();

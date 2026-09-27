@@ -70,15 +70,16 @@ pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/?loginType=1";
-pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str =
-    "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
+pub(super) const PRODUCTION_OCR_ENDPOINT: &str =
+    "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize";
+pub(super) const TEST_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
-pub(super) const SECONDARY_OCR_ENDPOINT: &str =
-    "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
+pub(super) const SECONDARY_OCR_ENDPOINT: &str = TEST_OCR_ENDPOINT;
 pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] =
     &[DEFAULT_OCR_ENDPOINT, SECONDARY_OCR_ENDPOINT];
-/// Release 构建仅允许 HTTPS OCR，避免验证码图片经明文 HTTP 外传。
-pub(super) const DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] = &[SECONDARY_OCR_ENDPOINT];
+/// Release 构建仅允许 production HTTPS OCR，避免验证码图片经明文 HTTP 外传，
+/// 同时防止正式用户的 OCR 与统计数据落入 testocr1。
+pub(super) const DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] = &[PRODUCTION_OCR_ENDPOINT];
 
 /// 登录风控：完整 CAS 尝试（收到认证服务器真实响应）的冷却时长（60s）。
 pub(super) const LOGIN_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
@@ -148,22 +149,52 @@ pub(super) fn is_transport_error(err: &(dyn std::error::Error + Send + Sync + 's
     false
 }
 
-/// Release 构建过滤掉非 HTTPS 的 OCR 端点。
+fn is_production_ocr_endpoint(endpoint: &str) -> bool {
+    let normalized = endpoint.trim().to_ascii_lowercase();
+    normalized.contains("mini-hbut-ocr-service.hf.space")
+        || normalized.contains("superdaobo-ocr-service.hf.space")
+}
+
+fn is_test_ocr_endpoint(endpoint: &str) -> bool {
+    endpoint
+        .trim()
+        .to_ascii_lowercase()
+        .contains("mini-hbut-testocr1.hf.space")
+}
+
+pub(super) fn is_statistics_production_build() -> bool {
+    matches!(option_env!("MINI_HBUT_BUILD_PROFILE"), Some("release"))
+}
+
+pub(super) fn default_remote_ocr_endpoint() -> &'static str {
+    if is_statistics_production_build() {
+        PRODUCTION_OCR_ENDPOINT
+    } else {
+        TEST_OCR_ENDPOINT
+    }
+}
+
+/// dev-fast / 本地 profile 默认不访问 production OCR；release profile 拒绝 testocr1 与非 HTTPS 地址。
 pub(super) fn filter_release_ocr_endpoints(endpoints: Vec<String>) -> Vec<String> {
-    if cfg!(debug_assertions) {
-        return endpoints;
+    if !is_statistics_production_build() {
+        return endpoints
+            .into_iter()
+            .filter(|endpoint| !is_production_ocr_endpoint(endpoint))
+            .collect();
     }
     endpoints
         .into_iter()
-        .filter(|e| e.trim().starts_with("https://"))
+        .filter(|endpoint| {
+            endpoint.trim().starts_with("https://") && !is_test_ocr_endpoint(endpoint)
+        })
         .collect()
 }
 
 fn default_local_ocr_fallback_endpoints() -> Vec<String> {
-    let source = if cfg!(debug_assertions) {
-        DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
-    } else {
+    let source = if is_statistics_production_build() {
         DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS
+    } else {
+        DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
     };
     source.iter().map(|v| v.to_string()).collect()
 }
@@ -313,6 +344,8 @@ pub struct HbutClient {
     pub(super) ocr_active_endpoint: Option<String>,
     pub(super) ocr_active_source: Option<String>,
     pub(super) ocr_last_error: Option<String>,
+    pub(super) ocr_telemetry_device_id: Option<String>,
+    pub(super) ocr_telemetry_student_id: Option<String>,
     pub(super) last_login_attempt: Option<std::time::Instant>,
     /// 最近一次「未收到认证服务器响应」的登录失败时间（传输层/登录页获取/参数解析失败），
     /// 用于 5s 短 backoff（#659：传输层失败不再锁 60s）。
@@ -485,6 +518,8 @@ impl HbutClient {
             ocr_active_endpoint: None,
             ocr_active_source: None,
             ocr_last_error: None,
+            ocr_telemetry_device_id: None,
+            ocr_telemetry_student_id: None,
             last_login_attempt: None,
             last_login_short_backoff_at: None,
             #[cfg(test)]
@@ -522,6 +557,23 @@ impl HbutClient {
         self.ocr_active_endpoint = None;
         self.ocr_active_source = None;
         self.ocr_last_error = None;
+    }
+
+    pub fn set_ocr_telemetry_context(&mut self, device_id: String, student_id: String) {
+        let did = device_id.trim();
+        self.ocr_telemetry_device_id = if did.is_empty() {
+            None
+        } else {
+            Some(did.chars().take(128).collect())
+        };
+
+        let sid = student_id.trim();
+        self.ocr_telemetry_student_id =
+            if (9..=10).contains(&sid.len()) && sid.chars().all(|c| c.is_ascii_digit()) {
+                Some(sid.to_string())
+            } else {
+                None
+            };
     }
 
     pub fn set_ocr_runtime_config(
@@ -594,7 +646,7 @@ impl HbutClient {
             "configured_endpoint": self.ocr_endpoint.clone().unwrap_or_default(),
             "configured_endpoints": self.ocr_remote_endpoints.clone(),
             "local_fallback_endpoints": self.ocr_local_fallback_endpoints.clone(),
-            "default_remote_endpoint": DEFAULT_REMOTE_OCR_ENDPOINT,
+            "default_remote_endpoint": default_remote_ocr_endpoint(),
             "fallback_endpoint": DEFAULT_OCR_ENDPOINT,
             "default_local_fallback_endpoints": DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS,
             "active_endpoint": self.ocr_active_endpoint.clone(),
@@ -711,5 +763,31 @@ mod tls_policy_tests {
             HbutClient::insecure_tls_allowed(),
             "TLS 放行策略必须恒为 true（#717：校内域名任何时候都必须可访问）"
         );
+    }
+}
+
+#[cfg(test)]
+mod statistics_environment_tests {
+    use super::*;
+
+    #[test]
+    fn ocr_endpoints_follow_build_profile_environment() {
+        let filtered = filter_release_ocr_endpoints(vec![
+            PRODUCTION_OCR_ENDPOINT.to_string(),
+            TEST_OCR_ENDPOINT.to_string(),
+        ]);
+        if is_statistics_production_build() {
+            assert_eq!(default_remote_ocr_endpoint(), PRODUCTION_OCR_ENDPOINT);
+            assert!(filtered
+                .iter()
+                .any(|value| value == PRODUCTION_OCR_ENDPOINT));
+            assert!(!filtered.iter().any(|value| value == TEST_OCR_ENDPOINT));
+        } else {
+            assert_eq!(default_remote_ocr_endpoint(), TEST_OCR_ENDPOINT);
+            assert!(filtered.iter().any(|value| value == TEST_OCR_ENDPOINT));
+            assert!(!filtered
+                .iter()
+                .any(|value| value == PRODUCTION_OCR_ENDPOINT));
+        }
     }
 }

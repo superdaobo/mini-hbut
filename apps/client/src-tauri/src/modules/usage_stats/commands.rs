@@ -36,6 +36,20 @@ pub fn usage_stats_upsert_device_profile(profile: UsageDeviceProfileInput) -> Re
 }
 
 #[tauri::command]
+pub fn usage_stats_rebind_pending_identity(
+    student_id: String,
+    device_id: String,
+) -> Result<usize, String> {
+    let sid = student_id.trim();
+    let did = device_id.trim();
+    if sid.is_empty() || did.is_empty() {
+        return Err("student_id 与 device_id 不能为空".to_string());
+    }
+    let conn = db_conn()?;
+    log_repo::rebind_pending_identity(&conn, sid, did).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn usage_stats_get_personal_summary(
     student_id: String,
 ) -> Result<UsagePersonalSummary, String> {
