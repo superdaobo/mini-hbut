@@ -3,7 +3,7 @@ import { resolveTestAccountForumResponse } from './test_account_fixtures.js'
 import { encryptData, decryptData } from './encryption.js'
 import { getIdentityAccessToken } from './identity_access_token.js'
 
-const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
+const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/forum'
 const TOKEN_CACHE_KEY_PREFIX = 'hbu_forum_token:'
 const PROFILE_CACHE_KEY_PREFIX = 'hbu_forum_profile:'
 const ADMIN_SECRET_CACHE_KEY_PREFIX = 'hbu_forum_admin_secret:'

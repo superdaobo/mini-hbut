@@ -19,14 +19,14 @@ export const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
 export const OCR_REMOTE_ENDPOINTS_KEY = 'hbu_ocr_remote_endpoints'
 export const OCR_LOCAL_FALLBACK_ENDPOINTS_KEY = 'hbu_ocr_local_fallback_endpoints'
 export const OCR_PRIMARY_ENDPOINT_KEY = 'hbu_ocr_endpoint'
-export const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/ocr/recognize'
+export const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/ocr/recognize'
 export const DEFAULT_OCR_ENDPOINTS = [DEFAULT_OCR_ENDPOINT]
 export const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS = [
   'http://1.94.167.18:5080/api/ocr/recognize',
-  'https://mini-hbut-testocr1.hf.space/api/ocr/recognize'
+  'https://mini-hbut-ocr-service.hf.space/api/ocr/recognize'
 ]
 export const DEFAULT_WEBDAV_ENDPOINT = 'https://mini-hbut-chaoxing-webdav.hf.space'
-export const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
+export const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/forum'
 export const LOCAL_FORUM_API_BASE_KEY = 'hbu_forum_api_base'
 // 云同步使用的服务端密钥「引用 ID」（指向服务端 KV 中哪把密钥，如 kv1-main），
 // 本身不是密钥。CodeQL 因字段名含 secret 而误报 js/clear-text-storage，见 docs/security/codeql-triage-js.md

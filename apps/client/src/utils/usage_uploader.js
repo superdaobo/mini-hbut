@@ -13,15 +13,7 @@ const CLOUD_SYNC_DEVICE_ID_KEY = 'hbu_cloud_sync_device_id'
 const USAGE_UPLOAD_LAST_SUCCESS_PREFIX = 'hbu_usage_upload_last_success:'
 const DEFAULT_TIMEOUT_MS = 12000
 const DEFAULT_UPLOAD_COOLDOWN_MS = 15 * 60 * 1000
-const CHALLENGE_SKEW_MS = 3000
-const CHALLENGE_FALLBACK_TTL_MS = 60 * 1000
 const BATCH_LIMIT = 200
-
-const challengeState = {
-  token: '',
-  expiresAt: 0,
-  endpoint: ''
-}
 
 let uploadTimer = null
 let uploadInFlight = null
@@ -87,18 +79,9 @@ const setLastUploadTs = (studentId, ts = Date.now()) => {
   localStorage.setItem(`${USAGE_UPLOAD_LAST_SUCCESS_PREFIX}${sid}`, String(ts))
 }
 
-const canReuseChallenge = (config) => {
-  const endpoint = toSafeText(config?.endpoint)
-  if (!endpoint) return false
-  if (challengeState.endpoint !== endpoint) return false
-  if (!challengeState.token) return false
-  return challengeState.expiresAt > Date.now() + CHALLENGE_SKEW_MS
-}
-
-const loadUsageStatsChallenge = async (config, force = false) => {
-  if (!force && canReuseChallenge(config)) {
-    return challengeState.token
-  }
+const loadUsageStatsChallenge = async (config) => {
+  // 服务端 challenge 是一次性消费的，不能按 TTL 缓存复用。
+  // 每次业务请求获取独立 challenge，避免 heartbeat / upload 并发抢同一个 token。
   const secretRef = toSafeText(config?.secretRef) || 'kv1-main'
   const query = new URLSearchParams({ secret_ref: secretRef }).toString()
   const url = `${config.endpoint.replace(/\/+$/, '')}/ping?${query}`
@@ -116,13 +99,6 @@ const loadUsageStatsChallenge = async (config, force = false) => {
     }
     const token = toSafeText(parsed?.challenge)
     if (!token) throw new Error('usage-stats 鉴权挑战获取失败')
-    const ttlSec = Number(parsed?.challenge_expires_in || 0)
-    const ttlMs = Number.isFinite(ttlSec) && ttlSec > 0
-      ? Math.max(10_000, Math.round(ttlSec * 1000))
-      : CHALLENGE_FALLBACK_TTL_MS
-    challengeState.token = token
-    challengeState.endpoint = config.endpoint
-    challengeState.expiresAt = Date.now() + ttlMs
     return token
   } finally {
     window.clearTimeout(timer)
@@ -242,6 +218,42 @@ export const runUsageStatsUpload = async ({
   } catch (error) {
     pushDebugLog('UsageStats', `上传失败 student=${sid}`, 'warn', error)
     return { success: false, error: String(error?.message || error || 'usage 上传失败') }
+  }
+}
+
+export const sendUsageHeartbeat = async ({
+  studentId,
+  event,
+  deviceProfile = null
+} = {}) => {
+  if (shouldApplyAppStoreRestrictions() || isTestAccountSession()) {
+    return { success: false, error: 'usage heartbeat 已在当前合规收紧会话/演示会话禁用' }
+  }
+  const sid = toSafeText(studentId)
+  if (!isValidStudentId(sid) || !event || typeof event !== 'object') {
+    return { success: false, error: 'usage heartbeat 参数无效' }
+  }
+  const cfg = getUsageStatsRuntimeConfig()
+  if (!cfg.enabled) {
+    return { success: false, error: 'usage-stats 未启用' }
+  }
+  try {
+    const response = await requestUsageStats('/heartbeat', {
+      method: 'POST',
+      config: cfg,
+      body: {
+        student_id: sid,
+        device_id: ensureDeviceId(),
+        secret_ref: cfg.secretRef,
+        client_time: Date.now(),
+        event,
+        device_profile: deviceProfile
+      }
+    })
+    return { success: true, response }
+  } catch (error) {
+    pushDebugLog('UsageStats', `heartbeat 失败 student=${sid}`, 'warn', error)
+    return { success: false, error: String(error?.message || error || 'usage heartbeat 失败') }
   }
 }
 
