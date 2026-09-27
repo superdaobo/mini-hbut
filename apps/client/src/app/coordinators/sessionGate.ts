@@ -13,20 +13,61 @@
  *    并发双 login 导致的“登录频率过高”与互踩。
  *
  * 模块级单例：与组件/API 层解耦，任何来源（UI / 轮询 / 恢复链）都能接入。
+ *
+ * #929：在飞状态必须具备失联判定。iOS 上 WebView 冻结/回收会让 invoke 的
+ * 响应永久丢失，promise 永不 settle，门被永久占用 —— 此后所有登录（含用户
+ * 手动点击）都被静默复用，界面无限转圈且不产生任何新日志。超过阈值即视为
+ * 失联，由「下一个登录调用接管」与「App 回前台」两条路径自愈。
  */
+
+/**
+ * 单次登录在飞的失联阈值。
+ *
+ * 需覆盖真实最长链路：拉登录页 + 抓取/识别验证码 + 提交 + /admin/caslogin
+ * 补偿（真机实测约 9s），以及 HttpClient 单请求 30s 上限的最坏叠加。
+ */
+export const LOGIN_IN_FLIGHT_TIMEOUT_MS = 90_000
+
 let inFlightPromise: Promise<unknown> | null = null
+let inFlightStartedAt = 0
 
 /** 当前是否已有登录请求在飞（供 UI 展示 / 恢复链让路判断） */
 export const isLoginInFlight = (): boolean => inFlightPromise !== null
 
 /**
+ * 等待当前在飞登录结束（不发起新登录）；门空闲时立即返回 null。
+ * 供「登录期间切换界面后重新挂载」的组件复用同一次登录结果（#932）。
+ */
+export const waitForInFlightLogin = <T = unknown>(): Promise<T | null> =>
+  inFlightPromise ? (inFlightPromise as Promise<T>) : Promise.resolve(null)
+
+/** 在飞请求是否已超过合理时长（IPC 响应丢失 / 命令卡死时用于自愈） */
+export const isLoginInFlightStale = (now: number = Date.now()): boolean =>
+  inFlightPromise !== null &&
+  inFlightStartedAt > 0 &&
+  now - inFlightStartedAt > LOGIN_IN_FLIGHT_TIMEOUT_MS
+
+/**
+ * 清理已失联的在飞状态，返回是否真的清理了。
+ * 未失联时不动作，以保持「同一时刻只有一个登录」的单飞语义。
+ */
+export const resetLoginGateIfStale = (now: number = Date.now()): boolean => {
+  if (!isLoginInFlightStale(now)) return false
+  inFlightPromise = null
+  inFlightStartedAt = 0
+  return true
+}
+
+/**
  * 在单飞门内执行一次登录动作：
  *  - 无 in-flight：执行 fn 并持有其 promise，完成后释放（不论成败）；
- *  - 已有 in-flight：不执行 fn，直接返回同一个 promise（复用对方结果）。
+ *  - 已有 in-flight 且未失联：不执行 fn，直接返回同一个 promise（复用对方结果）；
+ *  - 已有 in-flight 但已失联：接管（清门后执行 fn），避免永久复用死 promise。
  */
 export const runExclusiveLogin = <T>(fn: () => Promise<T>): Promise<T> => {
-  const existing = inFlightPromise
-  if (existing) return existing as Promise<T>
+  if (inFlightPromise && !resetLoginGateIfStale()) {
+    return inFlightPromise as Promise<T>
+  }
 
   let task!: Promise<T>
   task = (async () => {
@@ -34,14 +75,22 @@ export const runExclusiveLogin = <T>(fn: () => Promise<T>): Promise<T> => {
       return await fn()
     } finally {
       // 仅当自己仍是 in-flight 持有者时才释放，防止清掉更晚接管的调用
-      if (inFlightPromise === task) inFlightPromise = null
+      if (inFlightPromise === task) {
+        inFlightPromise = null
+        inFlightStartedAt = 0
+      }
     }
   })()
   inFlightPromise = task
+  inFlightStartedAt = Date.now()
   return task
 }
 
-/** 测试辅助：清空门内状态（生产代码不要调用） */
+/** 测试辅助：清空门内状态（生产代码请用 resetLoginGateIfStale） */
 export const resetLoginGate = (): void => {
   inFlightPromise = null
+  inFlightStartedAt = 0
 }
+
+/** 测试辅助：读取在飞起始时间（生产代码无需感知） */
+export const loginGateStartedAt = (): number => inFlightStartedAt

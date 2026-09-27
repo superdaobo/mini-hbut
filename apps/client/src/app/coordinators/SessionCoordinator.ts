@@ -37,6 +37,11 @@ import { startNotificationMonitor } from '../../utils/notify_center.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
+import {
+  isLoginCooldownActive,
+  noteLoginCooldownFromError,
+  noteLoginSuccess
+} from './loginCooldown'
 
 export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinator => {
   const { state } = runtime
@@ -260,6 +265,10 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     if (isManualLogout()) {
       return false
     }
+    // #931：门户登录成功后 Rust 侧有 60s 冷却门（http_client/mod.rs 的
+    // LOGIN_COOLDOWN），窗口内的重登必然被拒并产生 ERROR 日志与维护横幅噪音。
+    // 已登记冷却时直接让路，由冷却结束后的后续轮询继续恢复。
+    if (isLoginCooldownActive()) return false
     const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
     if (method.startsWith('chaoxing_')) {
       const chaoxingCreds = await getStoredChaoxingPassword()
@@ -311,6 +320,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
           state.studentId.value = sid
           saveRememberedUsername(sid)
         }
+        // #931：后端凭据走完整 CAS 登录，同样进入 Rust 冷却窗口
+        noteLoginSuccess()
         return true
       } catch (e) {
         state.jwxtSessionLastError.value = formatSessionError(e)
@@ -341,12 +352,16 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
 
     try {
       await doLogin()
+      // #931：门户登录成功即进入 Rust 冷却窗口，登记后让恢复链在窗口内让路
+      noteLoginSuccess()
       return true
     } catch (e) {
       // 检测登录冷却错误，等待后重试一次
       const msg = String((e as Error)?.message || e || '')
       const cooldownMatch = msg.match(/登录频率过高，请(\d+)秒后再试/)
       if (cooldownMatch) {
+        // #931：按服务端给出的剩余时长登记冷却，避免后续恢复链继续撞门
+        noteLoginCooldownFromError(msg)
         const waitSec = parseInt(cooldownMatch[1], 10)
         if (waitSec > 0 && waitSec <= 120) {
           console.info(`[Session] 登录冷却中，${waitSec}秒后重试...`)

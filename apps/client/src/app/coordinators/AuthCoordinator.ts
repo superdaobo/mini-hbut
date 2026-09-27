@@ -38,6 +38,26 @@ import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/lo
 import { saveRememberedUsername } from '../../utils/remembered_username'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
+/** 登录后成绩补拉的等待上限：超时以空快照兜底继续云同步，不无限等待 */
+const LOGIN_GRADES_TIMEOUT_MS = 20 * 1000
+
+/** Promise 超时包装：超时即抛错，迟到结果被丢弃（不中止底层请求） */
+const waitPromiseWithTimeout = <T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return Promise.race([
+    task,
+    new Promise<T>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
 export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   const { state } = runtime
   const hasTauri = isTauriRuntime()
@@ -55,6 +75,40 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     clearCacheByPrefix(`training:options:${TEST_ACCOUNT.studentId}`)
     clearCacheByPrefix(`training:jys:${TEST_ACCOUNT.studentId}`)
     clearCacheByPrefix(`electricity:${TEST_ACCOUNT.studentId}`)
+  }
+
+  /** 登录后云同步（成绩快照作为学业缓存权威输入，见 cloud_sync primeAcademicCaches） */
+  const syncAfterLogin = (grades: unknown[]) => {
+    runAutoCloudSyncAfterLogin({
+      studentId: state.studentId.value,
+      latestGrades: grades
+    }).catch((e) => {
+      console.warn('[CloudSync] 登录后自动同步失败:', e)
+    })
+  }
+
+  /**
+   * #928：登录后补拉成绩（不阻塞界面）→ 回填首页成绩态 → 再触发云同步。
+   *
+   * 登录组件已不再等待成绩同步（原先让登录按钮多转约 10s），因此这里承担
+   * 「拿到成绩再同步」的时序，避免用空数组顶替 latestGrades 污染学业缓存。
+   */
+  const loadGradesThenSyncAfterLogin = async (sid: string) => {
+    let grades: unknown[] = []
+    try {
+      const res = await waitPromiseWithTimeout(
+        axios.post<Record<string, any>>(`${API_BASE}/v2/quick_fetch`, { student_id: sid }),
+        LOGIN_GRADES_TIMEOUT_MS,
+        '登录后成绩同步超时'
+      )
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        grades = res.data.data as unknown[]
+        state.gradeData.value = grades
+      }
+    } catch (e) {
+      console.warn('[Session] 登录后成绩同步未完成，仍继续云同步:', e)
+    }
+    syncAfterLogin(grades)
   }
 
   // 处理登录成功
@@ -121,12 +175,14 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
           console.warn('[Reminder] 登录后预调度 reconcile 失败:', e)
         })
         resetCloudSyncCooldownForSession(state.studentId.value)
-        runAutoCloudSyncAfterLogin({
-          studentId: state.studentId.value,
-          latestGrades: Array.isArray(data) ? data : []
-        }).catch((e) => {
-          console.warn('[CloudSync] 登录后自动同步失败:', e)
-        })
+        // #928：登录事件不再携带成绩（登录组件已先放行界面）——有成绩直接同步，
+        // 否则后台补拉成绩后再同步，保证学业快照的输入不被空数组顶替。
+        const gradesSnapshot = Array.isArray(data) ? (data as unknown[]) : []
+        if (gradesSnapshot.length > 0) {
+          syncAfterLogin(gradesSnapshot)
+        } else {
+          void loadGradesThenSyncAfterLogin(state.studentId.value)
+        }
         setUsageTrackingStudentId(state.studentId.value)
         initUsageTracker({ studentId: state.studentId.value })
         scheduleUsageUpload({ studentId: state.studentId.value, reason: 'login', force: true })

@@ -15,6 +15,7 @@ import {
 import { runCampusNetworkAutoLogin } from '../../utils/campus_network_service'
 import { getCurrentNativeWindow, isCapacitorRuntime, isTauriRuntime } from '../../platform/native'
 import { pushDebugLog } from '../../utils/debug_logger'
+import { resetLoginGateIfStale } from './sessionGate'
 import {
   isAndroidLike as detectAndroidLike,
   isDesktopLike as detectDesktopLike,
@@ -305,6 +306,10 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
     // 合并 visibility/pageshow/focus 连发，降低恢复路径重入
     if (now - state.mutable.lastResumeHandledAt < 320) return
     state.mutable.lastResumeHandledAt = now
+    // #929：回前台清理已失联的登录单飞门 —— iOS 后台冻结/进程回收可能让 Tauri
+    // invoke 的响应永久丢失，门被一个永不 settle 的 promise 占住，此后所有手动
+    // 登录都只能复用死结果（无限转圈、无日志、无提示）。未失联时本调用无副作用。
+    resetLoginGateIfStale()
     const idle = stores.lifecycle.consumeHiddenDuration(now)
     const snapshot = state.mutable.resumePendingSnapshot ||
       runtime.navigation.readWindowRouteSnapshot() ||
