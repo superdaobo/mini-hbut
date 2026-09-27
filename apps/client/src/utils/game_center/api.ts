@@ -126,6 +126,23 @@ const requireGamePlatformBase = (override?: unknown): string =>
   requireBase([override, DEFAULT_GAME_PLATFORM_API_BASE], '游戏平台服务')
 
 /**
+ * 从云同步端点派生 Legacy 排行榜 base。
+ *
+ * 必须**先剥掉云同步命名空间再拼**：云同步端点是 `…/api/cloud-sync`，若直接做
+ * `replace('/cloud-sync', '/api/game-rank')` 会得到 `…/api/api/game-rank`（双 `/api`）——
+ * 该路径在服务端不存在（实测 `/api/game-rank/ping` = 200 而 `/api/api/game-rank/ping` = 404），
+ * 于是宿主注入 iframe 的 `rank_api`、经典榜请求全部 404（旧实现长期存在此缺陷）。
+ *
+ * 保留部署子路径：`…/sub/api/cloud-sync` → `…/sub/api/game-rank`。
+ */
+export const deriveLegacyRankBaseFromCloudSync = (endpoint: unknown): string => {
+  const text = safeText(endpoint).replace(/\/+$/, '')
+  if (!text) return ''
+  const stripped = text.replace(/\/api\/cloud-sync$/i, '').replace(/\/cloud-sync$/i, '')
+  return `${stripped}${LEGACY_GAME_RANK_NAMESPACE}`
+}
+
+/**
  * 解析 Legacy Game Rank API base：云同步同源派生 → 环境默认源。
  *
  * 跨环境候选（release 构建里的测试域 / 测试构建里的生产域）**一律不采用**：
@@ -137,9 +154,7 @@ export const resolveGameRankApiBase = (): string => {
   try {
     const runtime = getCloudSyncRuntimeConfig()
     const endpoint = safeText(runtime?.proxyEndpoint || runtime?.endpoint)
-    if (endpoint) {
-      candidates.push(endpoint.replace(/\/cloud-sync$/i, LEGACY_GAME_RANK_NAMESPACE))
-    }
+    if (endpoint) candidates.push(deriveLegacyRankBaseFromCloudSync(endpoint))
   } catch {
     // 运行时配置读取失败：交给环境默认源
   }
@@ -542,7 +557,7 @@ export interface LeaderboardQuery {
 export const fetchGameLeaderboards = async (
   query: LeaderboardQuery
 ): Promise<Record<string, unknown>> => {
-  const base = resolveGamePlatformApiBase(query.apiBase)
+  const base = requireGamePlatformBase(query.apiBase)
   const params = new URLSearchParams()
   params.set('game_id', safeText(query.gameId))
   params.set('board', safeText(query.board || 'classic'))
