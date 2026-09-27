@@ -9,6 +9,8 @@
 import { describe, expect, it } from 'vitest'
 import Koa from 'koa'
 import http from 'node:http'
+// 随机测试端口必须避开 fetch 的 bad-port 黑名单（见 tests/helpers.ts）
+import { listenOnFetchAllowedPort } from '../helpers.js'
 import {
   safeTokenEqual,
   serviceTokenMiddleware,
@@ -28,12 +30,7 @@ function buildApp(env: Record<string, string | undefined>, token?: string): Koa 
 
 async function withServer(app: Koa): Promise<{ baseUrl: string; close(): Promise<void> }> {
   const server = http.createServer(app.callback())
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const address = server.address()
-  if (!address || typeof address === 'string') {
-    throw new Error('无法获取测试端口')
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`
+  const baseUrl = await listenOnFetchAllowedPort(server)
   return {
     baseUrl,
     close: () =>

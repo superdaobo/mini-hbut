@@ -14,6 +14,8 @@ export interface ClientFixture {
   clientSecret: string | null
   applicationId: string
   userId: string
+  /** 绑定身份的学号（#902a 断言 AT claim 用） */
+  studentId: string
   developerId: string
 }
 
@@ -27,10 +29,13 @@ export async function createClientFixture(
     redirectUris?: Array<{ uri: string; kind: 'web_https' | 'native_loopback' }>
     /** 自定义 homepage_url（默认 https://app.example.com） */
     homepageUrl?: string
+    /** 固定 client_id（#902a：需要与 IDENTITY_GAME_RESOURCE_CLIENTS 白名单对齐时用） */
+    clientId?: string
   } = {},
 ): Promise<ClientFixture> {
+  const studentId = `2023${Math.floor(Math.random() * 9000) + 1000}000${Math.floor(Math.random() * 90) + 10}`
   const { userId } = await createUserWithHbutIdentity(sql, {
-    studentId: `2023${Math.floor(Math.random() * 9000) + 1000}000${Math.floor(Math.random() * 90) + 10}`,
+    studentId,
     studentName: '测试学生',
   })
   const developerId = newUuidV7()
@@ -45,6 +50,7 @@ export async function createClientFixture(
       redirectUris: opts.redirectUris ?? [{ uri: 'https://app.example.com/cb', kind: 'web_https' }],
       homepageUrl: opts.homepageUrl ?? 'https://app.example.com',
       requestedScopes: opts.scopes ?? ['openid', 'profile'],
+      clientId: opts.clientId,
     },
     { clientSecretKek: TEST_KEK },
   )
@@ -74,6 +80,7 @@ export async function createClientFixture(
     clientSecret: result.clientSecret,
     applicationId: result.applicationId,
     userId,
+    studentId,
     developerId,
   }
 }

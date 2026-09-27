@@ -21,6 +21,7 @@
  * - 未 APPROVED 直接 hit resume → 409 not_approved（不可绕过）。
  */
 import type Provider from 'oidc-provider'
+import { errors } from 'oidc-provider'
 import type { InteractionDetails } from 'oidc-provider'
 import type { SqlExecutor } from '../db/types.js'
 import { parseJsonb } from '../db/types.js'
@@ -45,6 +46,11 @@ import {
 } from '../domain/errors.js'
 import type { IdentityProviderDeps } from './provider.js'
 import { redactSensitiveText } from '../security/redact.js'
+import {
+  resolveGameResourceConfig,
+  resolveGrantedResourceScope,
+  type ResolvedGameResourceConfig,
+} from './resource-indicators.js'
 
 /** amr：App Approval 链（#620 推荐：设备密钥签名的 App 确认） */
 export const APPROVAL_AMR = ['mini_hbut_app', 'device_key']
@@ -187,6 +193,34 @@ async function alreadyResumedRedirect(
 }
 
 /**
+ * resume 的依赖（#902a 起含游戏 resource 配置）。
+ * `gameResource` 缺省 = 空白名单（fail closed）：任何带 resource 的授权在
+ * resume 阶段被拒（400 invalid_request），绝不静默丢弃 resource 后继续发码。
+ */
+export interface ResumeDeps {
+  sql: SqlExecutor
+  provider: Provider
+  handoffHmacKey: string | undefined
+  /** 与 provider 使用同一份解析结果（app.ts 单点解析） */
+  gameResource?: ResolvedGameResourceConfig
+}
+
+/**
+ * 归一化 authorize 请求里的 resource 参数（可能 string / string[]）。
+ * provider 的 check_resource 已在 authorize 阶段校验过 indicator 合法性，
+ * 这里只做形态归一化；非法形态（对象等）一律忽略（后续 length=0 → 不绑定）。
+ */
+function normalizeResourceParams(raw: unknown): string[] {
+  if (typeof raw === 'string') {
+    return raw.trim() ? [raw.trim()] : []
+  }
+  if (Array.isArray(raw)) {
+    return raw.filter((v): v is string => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim())
+  }
+  return []
+}
+
+/**
  * 核心：POST /api/v1/requests/:id/resume 的业务实现。
  *
  * 校验链（顺序即错误码优先级，#630 合同）：
@@ -209,7 +243,7 @@ async function alreadyResumedRedirect(
  * 返回 already_resumed + 同一 redirect_to，不产生第二份授权结果。
  */
 export async function resumeAuthRequest(
-  deps: { sql: SqlExecutor; provider: Provider; handoffHmacKey: string | undefined },
+  deps: ResumeDeps,
   input: { requestId: string; handoffSecret: string },
 ): Promise<ResumeResult> {
   const { sql, provider } = deps
@@ -278,6 +312,38 @@ export async function resumeAuthRequest(
     throw new ResumeError(400, 'invalid_request', '交互会话与认证请求的 client 不匹配')
   }
 
+  // #902a：资源指示（resource indicator）绑定校验 —— 必须在状态推进【之前】完成，
+  // 否则校验失败会把 AuthRequest 留在 INTERACTION_FINISHED 且没有 Grant（无法重试）。
+  //
+  // 为什么必须在这里 addResourceScope：v9 的 AT scope 来自 Grant 的 resources
+  // 记录（grant.getResourceScopeFiltered），resume 是我们唯一的 Grant 创建点
+  // （标准 consent submit 分支被 custom interaction 取代）。漏掉这步的后果是
+  // JWT AT 的 scope 为空串 → ticket 端点 require_scope('game.play') 必然失败。
+  const requestedResourceIndicators = normalizeResourceParams(interaction.params.resource)
+  const grantedResourceScopes: Array<{ indicator: string; scope: string }> = []
+  if (requestedResourceIndicators.length > 0) {
+    const gameResource = deps.gameResource ?? resolveGameResourceConfig()
+    for (const indicator of requestedResourceIndicators) {
+      try {
+        grantedResourceScopes.push({
+          indicator,
+          scope: resolveGrantedResourceScope(
+            gameResource,
+            indicator,
+            request.client_id,
+            request.requested_scopes as string[],
+          ),
+        })
+      } catch (err) {
+        if (err instanceof errors.InvalidTarget) {
+          // fail closed：未知 indicator / client 未获准 / 无 game.* scope
+          throw new ResumeError(400, 'invalid_request', '资源指示无效或未被允许')
+        }
+        throw err
+      }
+    }
+  }
+
   // 1) 状态推进（原子条件更新）：并发 resume 只有一个能成功
   try {
     await advanceAuthRequestProtocol(sql, input.requestId, 'INTERACTION_FINISHED')
@@ -299,6 +365,11 @@ export async function resumeAuthRequest(
   const scopes = (request.requested_scopes as string[]).join(' ')
   const grant = new provider.Grant({ accountId: approvedUserId, clientId: request.client_id })
   grant.addOIDCScope(scopes)
+  // #902a：resource-scoped 授权必须同时把 game scope 绑到 resource indicator，
+  // 否则 token 端点的 getResourceScopeFiltered 取不到 scope（见上方注释）
+  for (const granted of grantedResourceScopes) {
+    grant.addResourceScope(granted.indicator, granted.scope)
+  }
   const grantId = await grant.save()
 
   // 3) 写入 interaction result（等价 interactionFinished result 语义：

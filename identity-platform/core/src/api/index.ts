@@ -13,6 +13,7 @@
 import Router from '@koa/router'
 import type Provider from 'oidc-provider'
 import type { SqlExecutor } from '../db/types.js'
+import type { ResolvedGameResourceConfig } from '../oidc/resource-indicators.js'
 import { registerRequestsRoutes, API_PREFIX, type RequestsApiDeps } from './requests.js'
 import { registerAppRoutes } from './app/index.js'
 import { registerAdminRoutes } from './admin/index.js'
@@ -27,6 +28,8 @@ export interface ApiDeps {
   sql: SqlExecutor
   provider: Provider
   handoffHmacKey: string | undefined
+  /** #902a 游戏 resource 配置（resume 桥与 provider 共用同一份解析结果） */
+  gameResource?: ResolvedGameResourceConfig
 }
 
 /**
@@ -38,6 +41,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     sql: deps.sql,
     provider: deps.provider,
     handoffHmacKey: deps.handoffHmacKey,
+    gameResource: deps.gameResource,
   })
 
   // #622 app 端点（W3 Gate 已 merge）：设备 enrollment / approve / me / revoke

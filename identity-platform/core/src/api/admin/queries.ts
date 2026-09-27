@@ -14,6 +14,9 @@
 import type { SqlExecutor, QueryResultRow } from '../../db/types.js'
 import { parseJsonb } from '../../db/types.js'
 import { newUuidV7 } from '../../domain/ids.js'
+// 敏感 scope 列表来自领域层唯一权威（#902a：原先此文件另有一份字面量，
+// 与 reviews.ts 的 SENSITIVE_SCOPES 有漂移风险）
+import { sensitiveScopesSqlList, countPendingSensitiveScopes } from '../../domain/scope-risk.js'
 import { createHash } from 'node:crypto'
 import type { AdminRole } from './rbac.js'
 
@@ -142,14 +145,8 @@ export async function getOverviewStats(sql: SqlExecutor): Promise<AdminOverviewS
     sql.query<{ n: string | number }>(
       "SELECT COUNT(*) AS n FROM oauth_applications WHERE status = 'pending_review'",
     ),
-    sql.query<{ n: string | number }>(
-      `SELECT COUNT(*) AS n
-         FROM oauth_application_scopes s
-         JOIN oauth_applications a ON a.id = s.application_id
-        WHERE a.status = 'pending_review'
-          AND s.status = 'requested'
-          AND s.scope IN ('student.identity', 'offline_access')`,
-    ),
+    // 敏感 scope 计数：SQL 与 scope 列表都收敛在 domain/scope-risk.ts（#902a）
+    countPendingSensitiveScopes(sql),
     sql.query<{ n: string | number }>(
       "SELECT COUNT(*) AS n FROM oauth_applications WHERE status = 'active'",
     ),
@@ -160,7 +157,7 @@ export async function getOverviewStats(sql: SqlExecutor): Promise<AdminOverviewS
   const toNum = (v: string | number): number => (typeof v === 'number' ? v : Number(v))
   return {
     pendingReviews: toNum(pending.rows[0]?.n ?? 0),
-    pendingSensitiveScopes: toNum(sensitive.rows[0]?.n ?? 0),
+    pendingSensitiveScopes: toNum(sensitive),
     activeClients: toNum(active.rows[0]?.n ?? 0),
     suspendedClients: toNum(suspended.rows[0]?.n ?? 0),
   }
@@ -173,7 +170,7 @@ export async function getOverviewStats(sql: SqlExecutor): Promise<AdminOverviewS
 export interface AdminAppListFilter {
   status?: string
   clientType?: string
-  /** 包含敏感 scope（student.identity / offline_access） */
+  /** 包含敏感 scope（student.identity / offline_access / game.read / game.play） */
   sensitiveScope?: boolean
   /** 搜索 app 名称 / client_id / 开发者昵称（ILIKE） */
   search?: string
@@ -186,8 +183,6 @@ export interface AdminAppListRow extends AdminAppRow {
   developer_display_name: string
   scope_risks: string
 }
-
-const SENSITIVE_SCOPES = ['student.identity', 'offline_access']
 
 export async function listApplications(
   sql: SqlExecutor,
@@ -210,7 +205,7 @@ export async function listApplications(
       SELECT 1 FROM oauth_application_scopes s2
        WHERE s2.application_id = a.id
          AND s2.status = 'requested'
-         AND s2.scope IN ('student.identity', 'offline_access')
+         AND s2.scope IN (${sensitiveScopesSqlList()})
     )`)
   }
   if (filter.developer) {

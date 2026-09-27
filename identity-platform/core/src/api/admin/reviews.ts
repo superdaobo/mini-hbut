@@ -44,14 +44,13 @@ import {
 import { writeAdminAudit, ADMIN_EVENTS } from './audit.js'
 
 // ---------------------------------------------------------------------------
-// Scope 风险分级（issue #625：openid/profile 基础；student.identity/offline_access 敏感）
+// Scope 风险分级（#625 初版；#902a 起权威定义下沉到 domain/scope-risk.ts）
 // ---------------------------------------------------------------------------
 
-export const SENSITIVE_SCOPES = ['student.identity', 'offline_access'] as const
-
-export function scopeRisk(scope: string): 'basic' | 'sensitive' {
-  return (SENSITIVE_SCOPES as readonly string[]).includes(scope) ? 'sensitive' : 'basic'
-}
+// 敏感 scope（openid/profile 之外的数据/凭据类）与风险判定：
+// 唯一权威定义在 domain/scope-risk.ts，本文件 re-export 保持既有导入路径可用。
+import { SENSITIVE_SCOPES, scopeRisk } from '../../domain/scope-risk.js'
+export { SENSITIVE_SCOPES, scopeRisk }
 
 /** 文本限制：非空、去首尾空白、长度 1..2000、无控制字符 */
 export function assertReason(reason: unknown, field: string): string {

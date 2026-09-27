@@ -15,6 +15,14 @@ import { sha256Base64url } from '../../security/hash.js'
 export const AUTH_VERSION = 'MINI-HBUT-AUTH-V1'
 export const ENROLL_VERSION = 'MINI-HBUT-ENROLL-V1'
 export const DEVICE_API_VERSION = 'MINI-HBUT-DEVICE-API-V1'
+/**
+ * 设备换票 canonical（#902）：设备对「服务端签发的一次性 challenge」签名，
+ * 换取 resource/audience scoped JWT AT。与 DEVICE_API_VERSION 的区别：
+ * - DEVICE_API_VERSION 证明「这个请求来自设备」（canonical 绑定 method/path）；
+ * - DEVICE_TOKEN_VERSION 证明「这台设备同意用这次 challenge 换 AT」——
+ *   challenge 必须进签名，否则截获的签名可在时间窗内与任意 challenge 组合。
+ */
+export const DEVICE_TOKEN_VERSION = 'MINI-HBUT-DEVICE-TOKEN-V1'
 
 /** approve 决策值（V1 只支持 approve；deny 不需要设备签名） */
 export const DECISION_APPROVE = 'approve'
@@ -167,6 +175,35 @@ export function buildDeviceApiCanonical(input: DeviceApiCanonicalInput): string 
     DEVICE_API_VERSION,
     `method=${method}`,
     `path=${input.path}`,
+    `device_id=${input.deviceId}`,
+    `issued_at=${input.issuedAt}`,
+    `nonce=${input.nonce}`,
+    '',
+  ].join('\n')
+}
+
+/**
+ * MINI-HBUT-DEVICE-TOKEN-V1 输入（设备用一次性 challenge 换取 JWT AT）。
+ * 无 method/path：本 canonical 只表达「设备同意用该 challenge 换 AT」，
+ * 不表达 HTTP 请求形状（endpoint 路径固定在服务端，请求体由本层严格白名单校验）。
+ */
+export interface DeviceTokenCanonicalInput {
+  /** 服务端签发的一次性 challenge（高熵，明文只在响应中出现一次） */
+  challenge: string
+  deviceId: string
+  issuedAt: number
+  nonce: string
+}
+
+/** 构建设备换票 canonical 文本（与 Rust build_device_token_canonical 逐字节一致） */
+export function buildDeviceTokenCanonical(input: DeviceTokenCanonicalInput): string {
+  assertTokenField('challenge', input.challenge)
+  assertTokenField('device_id', input.deviceId)
+  assertTokenField('nonce', input.nonce)
+  assertIssuedAt(input.issuedAt)
+  return [
+    DEVICE_TOKEN_VERSION,
+    `challenge=${input.challenge}`,
     `device_id=${input.deviceId}`,
     `issued_at=${input.issuedAt}`,
     `nonce=${input.nonce}`,

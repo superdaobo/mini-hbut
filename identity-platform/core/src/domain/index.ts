@@ -14,6 +14,7 @@ export {
 } from './users.js'
 export {
   createEnrollmentChallenge,
+  createDeviceTokenChallenge,
   registerDevice,
   activateDevice,
   revokeDevice,
@@ -30,6 +31,12 @@ export {
   type CreateClientInput,
   type CreateClientResult,
 } from './clients.js'
+export {
+  SENSITIVE_SCOPES,
+  scopeRisk,
+  sensitiveScopesSqlList,
+  countPendingSensitiveScopes,
+} from './scope-risk.js'
 export {
   createAuthRequest,
   approveAuthRequest,
