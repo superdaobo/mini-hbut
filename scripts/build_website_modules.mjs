@@ -104,6 +104,77 @@ const listModuleDirs = () => {
     .filter((dir) => fs.existsSync(path.join(dir, 'module.json')))
 }
 
+/**
+ * Game Platform SDK（website/modules-src/_sdk，无 module.json，不是游戏模块）。
+ *
+ * 价值（#904）：把「SDK 版本 ↔ 模块产物」绑定起来，回滚时可从 manifest 直接判断
+ * 某个历史版本内联的是哪一版 SDK，并在构建期 fail-fast 拦住语法错误/未内联的产物。
+ * 未引用 SDK 的模块**产物字节不变**（manifest 不新增字段），避免影响既有模块。
+ */
+const SDK_DIR = path.join(SOURCE_ROOT, '_sdk')
+const SDK_SRC_DIR = path.join(SDK_DIR, 'src')
+const SDK_SOURCE_IMPORT_RE = /(?:from|import)\s*\(?\s*['"][^'"]*_sdk\/[^'"]*['"]/g
+const SDK_DIST_RESIDUAL_RE = /_sdk[\\/]+src[\\/]/
+
+const listFilesByExt = (dir, extensions) => {
+  if (!fs.existsSync(dir)) return []
+  const out = []
+  for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, item.name)
+    if (item.isDirectory()) out.push(...listFilesByExt(full, extensions))
+    else if (item.isFile() && extensions.some((ext) => item.name.endsWith(ext))) out.push(full)
+  }
+  return out
+}
+
+const loadSdkPackage = () => {
+  if (!fs.existsSync(path.join(SDK_DIR, 'package.json'))) return null
+  const meta = JSON.parse(fs.readFileSync(path.join(SDK_DIR, 'package.json'), 'utf8'))
+  const version = String(meta.version || '').trim()
+  const entry = path.resolve(SDK_DIR, String(meta.main || 'src/index.js'))
+  if (!version) throw new Error('[sdk] _sdk/package.json 缺少 version')
+  if (!fs.existsSync(entry)) throw new Error(`[sdk] _sdk 入口不存在: ${entry}`)
+  // 语法预检：构建前拦下 SDK 自身的语法错误（比模块构建失败更早、更易定位）
+  for (const file of listFilesByExt(SDK_SRC_DIR, ['.js'])) {
+    try {
+      execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' })
+    } catch (error) {
+      throw new Error(`[sdk] 语法错误 ${path.relative(process.cwd(), file)}: ${error.stderr?.toString() || error.message}`)
+    }
+  }
+  const hash = crypto.createHash('sha256')
+  for (const file of listFilesByExt(SDK_SRC_DIR, ['.js']).sort()) {
+    hash.update(path.relative(SDK_DIR, file).replace(/\\/g, '/'))
+    hash.update(fs.readFileSync(file))
+  }
+  return {
+    version,
+    protocolVersion: Number(meta?.miniHbut?.protocol_version || 0) || 0,
+    entry,
+    sha256: hash.digest('hex'),
+    sourceFiles: listFilesByExt(SDK_SRC_DIR, ['.js']).length
+  }
+}
+
+/** 模块源码是否 import 了 SDK（相对路径引用，构建时被内联） */
+const moduleUsesSdk = (sourceDir) =>
+  listFilesByExt(sourceDir, ['.js', '.mjs', '.ts', '.vue']).some((file) => {
+    SDK_SOURCE_IMPORT_RE.lastIndex = 0
+    return SDK_SOURCE_IMPORT_RE.test(fs.readFileSync(file, 'utf8'))
+  })
+
+/** 校验产物确实内联了 SDK（不残留 _sdk/src 运行时引用） */
+const assertSdkInlined = (distDir, moduleId) => {
+  const bundles = listFilesByExt(distDir, ['.js', '.mjs', '.html'])
+  const residual = bundles.find((file) => SDK_DIST_RESIDUAL_RE.test(fs.readFileSync(file, 'utf8')))
+  if (residual) {
+    throw new Error(
+      `[sdk] 模块 ${moduleId} 的产物 ${path.relative(process.cwd(), residual)} 仍引用 _sdk/src（SDK 未被打包内联）`
+    )
+  }
+  return bundles.length
+}
+
 const readJsonIfExists = (filePath) => {
   try {
     if (!fs.existsSync(filePath)) return null
@@ -178,7 +249,8 @@ const publishBuiltModule = ({
   distDir,
   entryPath,
   version,
-  minCompatibleVersion
+  minCompatibleVersion,
+  sdkMeta
 }) => {
   const moduleRootDir = path.join(outputRoot, moduleId)
   const versionDir = path.join(moduleRootDir, version)
@@ -217,6 +289,12 @@ const publishBuiltModule = ({
   if (minCompatibleVersion) {
     manifest.min_compatible_version = minCompatibleVersion
   }
+  // 只有真正引用 SDK 的模块才写这两个字段（其余模块 manifest 保持字节不变）
+  if (sdkMeta) {
+    manifest.sdk_version = sdkMeta.version
+    manifest.sdk_sha256 = sdkMeta.sha256
+    manifest.sdk_protocol_version = sdkMeta.protocolVersion
+  }
 
   fs.writeFileSync(path.join(versionDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(path.join(moduleRootDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
@@ -231,12 +309,19 @@ const publishBuiltModule = ({
       order: Number(moduleMeta.order || 999),
       icon: String(moduleMeta.icon || '').trim(),
       description: String(moduleMeta.description || '').trim(),
-      min_compatible_version: minCompatibleVersion
+      min_compatible_version: minCompatibleVersion,
+      ...(sdkMeta ? { sdk_version: sdkMeta.version } : {})
     }
   }
 }
 
 const catalogModulesByChannel = new Map(PUBLISH_CHANNELS.map((channel) => [channel, []]))
+const sdkPackage = loadSdkPackage()
+if (sdkPackage) {
+  console.log(
+    `[sdk] mini-hbut-game-sdk v${sdkPackage.version} (protocol v${sdkPackage.protocolVersion}) files=${sdkPackage.sourceFiles} sha256=${sdkPackage.sha256.slice(0, 12)}`
+  )
+}
 for (const moduleDir of listModuleDirs()) {
   const metaPath = path.join(moduleDir, 'module.json')
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
@@ -263,12 +348,23 @@ for (const moduleDir of listModuleDirs()) {
   }
 
   console.log(`[modules] building ${moduleId} from ${sourceDir}`)
+  const usesSdk = moduleUsesSdk(sourceDir)
+  if (usesSdk && !sdkPackage) {
+    throw new Error(`[sdk] 模块 ${moduleId} 引用了 _sdk，但 website/modules-src/_sdk 不可用`)
+  }
   installModuleDeps(sourceDir)
   runCommand('npm', ['run', 'build'], { cwd: sourceDir })
 
   const distDir = path.resolve(sourceDir, String(meta.dist_dir || 'dist').trim() || 'dist')
   if (!fs.existsSync(distDir)) {
     throw new Error(`模块 ${moduleId} 缺少构建输出目录: ${distDir}`)
+  }
+  if (usesSdk) {
+    // 注入校验：产物必须已内联 SDK（保证离线包/远端加载不依赖额外的 SDK 请求）
+    const bundleCount = assertSdkInlined(distDir, moduleId)
+    console.log(
+      `[sdk] ${moduleId} 已内联 SDK v${sdkPackage.version}（dist 文件 ${bundleCount} 个，无 _sdk/src 残留引用）`
+    )
   }
 
   for (const publishChannel of PUBLISH_CHANNELS) {
@@ -281,7 +377,8 @@ for (const moduleDir of listModuleDirs()) {
       distDir,
       entryPath,
       version: MODULE_VERSION,
-      minCompatibleVersion
+      minCompatibleVersion,
+      sdkMeta: usesSdk ? sdkPackage : null
     })
     catalogModulesByChannel.get(publishChannel).push(published.catalogItem)
   }

@@ -1,0 +1,20 @@
+{
+  "name": "mini-hbut-game-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mini HBUT Game Platform SDK（protocol v1）：统一 run 生命周期、可信提交、Legacy 兼容与本地降级",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./adapter": "./src/adapters/adapter.js",
+    "./legacy": "./src/legacy/legacy-rank.js",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "miniHbut": {
+    "protocol_version": 1,
+    "sdk_version": "1.0.0",
+    "namespace": "/api/game-platform/v1"
+  }
+}
