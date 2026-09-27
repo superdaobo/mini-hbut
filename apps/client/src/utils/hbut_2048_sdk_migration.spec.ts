@@ -185,7 +185,7 @@ describe('hbut_2048 提交（compatibility 通道）', () => {
     game.dispose()
   })
 
-  it('win 局：数值逐字段一致，ended_reason 被归一化为 won（文档化差异）', async () => {
+  it('win 局：与迁移前逐字段完全等价（ended_reason 存原值 win）', async () => {
     const router = createFetchRouter([submitRoute()])
     const game = await init2048(router)
     const payload = buildLegacyPayload('win')
@@ -198,9 +198,10 @@ describe('hbut_2048 提交（compatibility 通道）', () => {
     const legacyBody = JSON.parse(String(legacyFetch.mock.calls[0][1].body)) as Record<string, unknown>
     const sdkBody = router.callsFor('/submit')[0].body as Record<string, unknown>
 
+    // #937 修复后：经典榜存**未归一化**的原值（归一化只属 V2 语义）
     expect(legacyBody.ended_reason).toBe('win')
-    expect(sdkBody.ended_reason).toBe('won')
-    for (const key of Object.keys(legacyBody).filter((item) => item !== 'ended_reason')) {
+    expect(sdkBody.ended_reason).toBe('win')
+    for (const key of Object.keys(legacyBody)) {
       expect(sdkBody[key], `字段 ${key} 应保持等价`).toEqual(legacyBody[key])
     }
     expect(sdkBody).toMatchObject({

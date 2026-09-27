@@ -163,7 +163,7 @@ describe('jump_out_hbut adapter 语义（game-registry §3/§4.2）', () => {
 })
 
 describe('jump_out_hbut 提交（旧协议通道，camelCase → snake_case）', () => {
-  it('经典榜 body：数值逐字段等价，差异仅为 run_id 未透传 / 追加空 payload / ended_reason 归一化', async () => {
+  it('经典榜 body：与迁移前逐字段完全等价（含 run_id；ended_reason 存原值）', async () => {
     const router = createFetchRouter([{ match: '/submit', method: 'POST', respond: () => okJson({ success: true }) }])
     const { game } = await initJumpOut(router)
     expect(game.mode).toBe('compatibility')
@@ -188,15 +188,16 @@ describe('jump_out_hbut 提交（旧协议通道，camelCase → snake_case）',
     const legacyKeys = Object.keys(legacyBody).sort()
     const sdkKeys = Object.keys(sdkBody).sort()
 
-    // 差异一：SDK 的旧协议适配层未透传 run_id；差异二：固定附带 extra 容器 payload
-    expect(legacyKeys.filter((key) => !sdkKeys.includes(key))).toEqual(['run_id'])
+    // #937 修复后：run_id 已透传、ended_reason 存原值 —— 与旧实现仅剩「固定附带 extra 容器 payload」一处形态差异
+    expect(legacyKeys.filter((key) => !sdkKeys.includes(key))).toEqual([])
     expect(sdkKeys.filter((key) => !legacyKeys.includes(key))).toEqual(['payload'])
     expect(sdkBody.payload).toEqual({})
-    // 差异三：ended_reason 被归一化为 V2 枚举（fall → lost）
+    // 经典榜是历史数据：存**未归一化**的原值（归一化只属 V2 语义）
     expect(legacyBody.ended_reason).toBe('fall')
-    expect(sdkBody.ended_reason).toBe('lost')
+    expect(sdkBody.ended_reason).toBe('fall')
+    expect(sdkBody.run_id).toBe('run_jumpout_equivalence_1')
     // 其余字段（含身份与数值）逐字段等价
-    for (const key of legacyKeys.filter((item) => item !== 'run_id' && item !== 'ended_reason')) {
+    for (const key of legacyKeys.filter((item) => item !== 'payload')) {
       expect(sdkBody[key], `字段 ${key} 应保持等价`).toEqual(legacyBody[key])
     }
     expect(sdkBody).toMatchObject({
