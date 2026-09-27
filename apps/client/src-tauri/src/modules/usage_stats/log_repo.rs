@@ -8,7 +8,7 @@ use super::types::{
     UsagePendingUploadBatch, UsagePersonalSummary, UsageSessionInput, UsageTodaySummary,
 };
 
-const RETENTION_DAYS: i64 = 180;
+const RETENTION_DAYS: i64 = 14;
 
 fn stat_date_from_ms(ms: i64) -> String {
     Local
@@ -101,7 +101,47 @@ fn cleanup_old_events(conn: &Connection, student_id: &str) -> Result<()> {
          WHERE student_id = ?1 AND occurred_at < ?2 AND uploaded_at IS NOT NULL",
         params![student_id, cutoff],
     )?;
+    conn.execute(
+        "DELETE FROM app_usage_sessions
+         WHERE student_id = ?1 AND ended_at < ?2 AND uploaded_at IS NOT NULL",
+        params![student_id, cutoff],
+    )?;
     Ok(())
+}
+
+/// 启动早期可能尚未恢复学号：先以 anonymous 持久化，身份恢复后再把未上传记录绑定到真实账号。
+/// 只改 pending 行，已经上传的历史记录保持原样，避免修改既有统计语义。
+pub fn rebind_pending_identity(
+    conn: &Connection,
+    student_id: &str,
+    device_id: &str,
+) -> Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let mut changed = 0usize;
+    changed += tx.execute(
+        "UPDATE app_usage_events
+         SET student_id = ?1
+         WHERE device_id = ?2
+           AND uploaded_at IS NULL
+           AND student_id = 'anonymous'",
+        params![student_id, device_id],
+    )?;
+    changed += tx.execute(
+        "UPDATE app_usage_sessions
+         SET student_id = ?1
+         WHERE device_id = ?2
+           AND uploaded_at IS NULL
+           AND student_id = 'anonymous'",
+        params![student_id, device_id],
+    )?;
+    tx.execute(
+        "UPDATE app_usage_device_profile
+         SET student_id = ?1
+         WHERE device_id = ?2",
+        params![student_id, device_id],
+    )?;
+    tx.commit()?;
+    Ok(changed)
 }
 
 pub fn append_event(conn: &Connection, event: &UsageEventInput) -> Result<()> {

@@ -3,6 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchPersonalUsageSummary } from '../utils/usage_tracker.js'
 import { fetchRemotePersonalUsageSummary } from '../utils/usage_uploader.js'
 import { useI18n, tf } from '../utils/app_i18n'
+import {
+  STATISTICS_ENVIRONMENT,
+  STATISTICS_HEALTH_ENDPOINT
+} from '../utils/statistics_environment'
 
 const props = defineProps({
   studentId: {
@@ -16,7 +20,12 @@ const emit = defineEmits(['back'])
 // i18n（#794 批次 I）
 const { t } = useI18n()
 
-const HEALTH_URL = 'https://mini-hbut-ocr-service.hf.space/health'
+const HEALTH_URL = STATISTICS_HEALTH_ENDPOINT
+const statisticsEnvironmentLabel = computed(() => (
+  STATISTICS_ENVIRONMENT === 'production'
+    ? t('stats.environment.production')
+    : t('stats.environment.test')
+))
 const HEALTH_CACHE_KEY = 'hbu_service_health_cache_v1'
 const HEALTH_TIMEOUT_MS = 10000
 const REFRESH_INTERVAL_MS = 60 * 1000
@@ -44,9 +53,13 @@ const formatDurationMs = (ms) => formatDuration(Math.floor(toNumber(ms) / 1000))
 
 const normalizeClientUsage = (raw = {}) => ({
   today_active_users: toNumber(raw?.today_active_users),
+  active_users_7d: toNumber(raw?.active_users_7d),
+  active_users_30d: toNumber(raw?.active_users_30d),
   today_total_events: toNumber(raw?.today_total_events),
   today_duration_hours: toNumber(raw?.today_duration_hours),
   today_app_opens: toNumber(raw?.today_app_opens),
+  today_launches: toNumber(raw?.today_launches),
+  today_foregrounds: toNumber(raw?.today_foregrounds),
   top_modules_today: Array.isArray(raw?.top_modules_today)
     ? raw.top_modules_today.map((item) => ({
         module_id: String(item?.module_id || '').trim(),
@@ -65,9 +78,39 @@ const normalizeClientUsage = (raw = {}) => ({
         active_users: toNumber(row?.active_users),
         total_events: toNumber(row?.total_events),
         total_duration_ms: toNumber(row?.total_duration_ms),
-        app_opens: toNumber(row?.app_opens)
+        app_opens: toNumber(row?.app_opens),
+        launch_count: toNumber(row?.launch_count),
+        foreground_count: toNumber(row?.foreground_count)
       }))
     : []
+})
+
+const normalizeVersionUsage = (raw = {}, cloud = {}) => ({
+  latest_version: String(raw?.latest_version || cloud?.latest_version || '').trim(),
+  latest_version_today: toNumber(raw?.latest_version_today),
+  latest_version_7d: toNumber(raw?.latest_version_7d ?? cloud?.latest_version_user_count),
+  latest_version_30d: toNumber(raw?.latest_version_30d),
+  source: String(raw?.source || '').trim(),
+  version_user_counts_30d: Array.isArray(raw?.version_user_counts_30d)
+    ? raw.version_user_counts_30d.map((item) => ({
+        version: String(item?.version || '').trim(),
+        user_count: toNumber(item?.user_count)
+      })).filter((item) => item.version)
+    : []
+})
+
+const normalizeOcrStats = (raw = {}, daily = {}) => ({
+  request_count: toNumber(raw?.request_count),
+  inference_count: toNumber(raw?.inference_count ?? daily?.ocr_count),
+  success_count: toNumber(raw?.success_count),
+  failure_count: toNumber(raw?.failure_count),
+  timeout_count: toNumber(raw?.timeout_count),
+  rate_limited_count: toNumber(raw?.rate_limited_count),
+  busy_count: toNumber(raw?.busy_count),
+  legacy_request_count: toNumber(raw?.legacy_request_count),
+  unique_users: toNumber(raw?.unique_users),
+  unique_devices: toNumber(raw?.unique_devices),
+  by_version: Array.isArray(raw?.by_version) ? raw.by_version : []
 })
 
 const normalizePersonalUsage = (raw = null) => {
@@ -143,6 +186,23 @@ const normalizeServiceHealth = (raw = {}) => {
   const uptimeSeconds = toNumber(raw?.service?.uptime_seconds)
   const archiveStatus = raw?.archive_status || {}
   const hfBucket = raw?.hf_bucket || {}
+  const normalizedDaily = {
+    date: raw?.daily_usage?.date || '',
+    ocr_count: toNumber(raw?.daily_usage?.ocr_count),
+    upload_count: toNumber(raw?.daily_usage?.upload_count),
+    grade_dist_query_count: toNumber(raw?.daily_usage?.grade_dist_query_count)
+  }
+  const normalizedCloud = {
+    total_records: toNumber(raw?.cloud_sync?.total_records),
+    latest_version: raw?.cloud_sync?.latest_version || '',
+    latest_version_user_count: toNumber(raw?.cloud_sync?.latest_version_user_count),
+    version_user_counts: Array.isArray(raw?.cloud_sync?.version_user_counts)
+      ? raw.cloud_sync.version_user_counts.map((item) => ({
+          version: String(item?.version || '').trim(),
+          user_count: toNumber(item?.user_count)
+        })).filter((item) => item.version)
+      : []
+  }
 
   return {
     status: raw?.status || 'unknown',
@@ -152,23 +212,10 @@ const normalizeServiceHealth = (raw = {}) => {
       uptime: raw?.service?.uptime || formatDuration(uptimeSeconds),
       version: raw?.service?.version || ''
     },
-    daily_usage: {
-      date: raw?.daily_usage?.date || '',
-      ocr_count: toNumber(raw?.daily_usage?.ocr_count),
-      upload_count: toNumber(raw?.daily_usage?.upload_count),
-      grade_dist_query_count: toNumber(raw?.daily_usage?.grade_dist_query_count)
-    },
-    cloud_sync: {
-      total_records: toNumber(raw?.cloud_sync?.total_records),
-      latest_version: raw?.cloud_sync?.latest_version || '',
-      latest_version_user_count: toNumber(raw?.cloud_sync?.latest_version_user_count),
-      version_user_counts: Array.isArray(raw?.cloud_sync?.version_user_counts)
-        ? raw.cloud_sync.version_user_counts.map((item) => ({
-            version: String(item?.version || '').trim(),
-            user_count: toNumber(item?.user_count)
-          })).filter((item) => item.version)
-        : []
-    },
+    daily_usage: normalizedDaily,
+    cloud_sync: normalizedCloud,
+    version_usage: normalizeVersionUsage(raw?.version_usage || {}, normalizedCloud),
+    ocr_stats: normalizeOcrStats(raw?.ocr_stats || {}, normalizedDaily),
     trend: {
       last_7_days: trendRows
     },
@@ -270,13 +317,18 @@ const statusClass = computed(() => ({
   'is-warn': health.value.status && health.value.status !== 'ok'
 }))
 
-const displayClientVersion = computed(() => health.value.cloud_sync.latest_version || '')
+const displayClientVersion = computed(() => (
+  health.value.version_usage?.latest_version
+  || health.value.cloud_sync.latest_version
+  || ''
+))
 
 const clientUsage = computed(() => health.value.client_usage || normalizeClientUsage())
 
 const hasClientUsage = computed(() => (
   clientUsage.value.today_total_events > 0
   || clientUsage.value.today_active_users > 0
+  || clientUsage.value.active_users_7d > 0
   || clientUsage.value.top_modules_today.length > 0
 ))
 
@@ -301,9 +353,12 @@ const personalOverviewItems = computed(() => {
 
 const globalUsageOverviewItems = computed(() => [
   { label: t('stats.metric.todayActive'), value: formatNumber(clientUsage.value.today_active_users), icon: 'groups' },
+  { label: t('stats.metric.active7d'), value: formatNumber(clientUsage.value.active_users_7d), icon: 'calendar_view_week' },
+  { label: t('stats.metric.active30d'), value: formatNumber(clientUsage.value.active_users_30d), icon: 'calendar_month' },
+  { label: t('stats.metric.launchesToday'), value: formatNumber(clientUsage.value.today_launches), icon: 'rocket_launch' },
+  { label: t('stats.metric.foregroundsToday'), value: formatNumber(clientUsage.value.today_foregrounds), icon: 'visibility' },
   { label: t('stats.metric.todayEvents'), value: formatNumber(clientUsage.value.today_total_events), icon: 'analytics' },
-  { label: t('stats.metric.todayDuration'), value: tf('stats.hoursSuffix', { n: clientUsage.value.today_duration_hours.toFixed(1) }), icon: 'timer' },
-  { label: t('stats.metric.appOpens'), value: formatNumber(clientUsage.value.today_app_opens), icon: 'smartphone' }
+  { label: t('stats.metric.todayDuration'), value: tf('stats.hoursSuffix', { n: clientUsage.value.today_duration_hours.toFixed(1) }), icon: 'timer' }
 ])
 
 const loadModeSplitRows = computed(() => {
@@ -322,12 +377,7 @@ const personalLoadModeRows = computed(() => personalUsage.value?.load_mode_split
 
 const hasPersonalUsage = computed(() => Boolean(personalUsage.value?.today))
 
-const overviewItems = computed(() => [
-  {
-    label: t('stats.metric.ocrToday'),
-    value: formatNumber(health.value.daily_usage.ocr_count),
-    icon: 'document_scanner'
-  },
+const infrastructureItems = computed(() => [
   {
     label: t('stats.metric.uploadToday'),
     value: formatNumber(health.value.daily_usage.upload_count),
@@ -344,11 +394,6 @@ const overviewItems = computed(() => [
     icon: 'database'
   },
   {
-    label: t('stats.metric.latestVersionUsers'),
-    value: formatNumber(health.value.cloud_sync.latest_version_user_count),
-    icon: 'groups'
-  },
-  {
     label: t('stats.metric.uptime'),
     value: health.value.service.uptime,
     icon: 'schedule'
@@ -358,8 +403,33 @@ const overviewItems = computed(() => [
 const trendRows = computed(() => health.value.trend?.last_7_days || [])
 const hasTrend = computed(() => trendRows.value.length > 0)
 
-const versionUserCounts = computed(() => health.value.cloud_sync.version_user_counts || [])
+const versionUserCounts = computed(() => (
+  health.value.version_usage?.version_user_counts_30d?.length
+    ? health.value.version_usage.version_user_counts_30d
+    : health.value.cloud_sync.version_user_counts
+))
 const hasVersionUserCounts = computed(() => versionUserCounts.value.length > 0)
+
+const versionOverviewItems = computed(() => [
+  { label: t('stats.metric.latestVersionToday'), value: formatNumber(health.value.version_usage.latest_version_today), icon: 'today' },
+  { label: t('stats.metric.latestVersion7d'), value: formatNumber(health.value.version_usage.latest_version_7d), icon: 'date_range' },
+  { label: t('stats.metric.latestVersion30d'), value: formatNumber(health.value.version_usage.latest_version_30d), icon: 'calendar_month' }
+])
+
+const ocrSuccessRate = computed(() => {
+  const total = toNumber(health.value.ocr_stats.inference_count)
+  if (total <= 0) return '—'
+  return `${((toNumber(health.value.ocr_stats.success_count) / total) * 100).toFixed(1)}%`
+})
+
+const ocrOverviewItems = computed(() => [
+  { label: t('stats.metric.ocrRequests'), value: formatNumber(health.value.ocr_stats.request_count), icon: 'input' },
+  { label: t('stats.metric.ocrInferences'), value: formatNumber(health.value.ocr_stats.inference_count), icon: 'document_scanner' },
+  { label: t('stats.metric.ocrSuccessRate'), value: ocrSuccessRate.value, icon: 'check_circle' },
+  { label: t('stats.metric.ocrUniqueUsers'), value: formatNumber(health.value.ocr_stats.unique_users), icon: 'person_search' },
+  { label: t('stats.metric.ocrFailures'), value: formatNumber(health.value.ocr_stats.failure_count), icon: 'error' },
+  { label: t('stats.metric.ocrLegacy'), value: formatNumber(health.value.ocr_stats.legacy_request_count), icon: 'history' }
+])
 
 const trendMetrics = computed(() => [
   {
@@ -385,13 +455,6 @@ const trendMetrics = computed(() => [
     label: t('stats.trend.cloudSync'),
     color: '#7c3aed',
     values: trendRows.value.map((row) => row.cloud_sync_total)
-  },
-  {
-    key: 'latest_version_user_count',
-    label: t('stats.metric.latestVersionUsers'),
-    color: '#0891b2',
-    values: trendRows.value.map((row) => row.latest_version_user_count),
-    axisLabelKey: 'latest_version'
   }
 ])
 
@@ -416,12 +479,7 @@ const formatAxisDate = (value) => {
   return text || '-'
 }
 
-const formatAxisVersion = (value) => {
-  const text = String(value || '').trim()
-  return text || '-'
-}
-
-const buildTrendChart = (values, axisLabelKey = 'date') => {
+const buildTrendChart = (values) => {
   const safeValues = Array.isArray(values) ? values.map((value) => toNumber(value)) : []
   const plotWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
   const plotHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom
@@ -458,12 +516,10 @@ const buildTrendChart = (values, axisLabelKey = 'date') => {
     y: CHART_PADDING.top + ((max - value) / span) * plotHeight
   }))
   const dateSource = trendRows.value
-  const formatAxisLabel = axisLabelKey === 'latest_version' ? formatAxisVersion : formatAxisDate
-  const labelField = axisLabelKey === 'latest_version' ? 'latest_version' : 'date'
   const dateTicks = points
     .map((point, index) => ({
       x: point.x,
-      label: formatAxisLabel(dateSource[index]?.[labelField])
+      label: formatAxisDate(dateSource[index]?.date)
     }))
     .filter((_, index) => index === 0 || index === points.length - 1)
 
@@ -575,6 +631,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="status-meta">
+        <span>{{ statisticsEnvironmentLabel }}</span>
         <span>{{ tf('stats.version', { version: displayClientVersion || t('common.unknown') }) }}</span>
         <span>{{ tf('stats.updatedAt', { time: lastUpdatedAt || t('stats.waiting') }) }}</span>
       </div>
@@ -582,12 +639,18 @@ onBeforeUnmount(() => {
 
     <p v-if="error" class="error-banner">{{ error }}</p>
 
-    <section class="overview-grid" :aria-label="t('stats.title')">
-      <article v-for="item in overviewItems" :key="item.label" class="metric-card">
-        <span class="material-symbols-outlined metric-icon">{{ item.icon }}</span>
-        <span class="metric-label">{{ item.label }}</span>
-        <strong class="metric-value">{{ item.value }}</strong>
-      </article>
+    <section class="usage-card" :aria-label="t('stats.section.infrastructure')">
+      <div class="section-title">
+        <span class="material-symbols-outlined">dns</span>
+        <h2>{{ t('stats.section.infrastructure') }}</h2>
+      </div>
+      <div class="overview-grid">
+        <article v-for="item in infrastructureItems" :key="item.label" class="metric-card">
+          <span class="material-symbols-outlined metric-icon">{{ item.icon }}</span>
+          <span class="metric-label">{{ item.label }}</span>
+          <strong class="metric-value">{{ item.value }}</strong>
+        </article>
+      </div>
     </section>
 
     <section v-if="hasPersonalUsage" class="usage-card" :aria-label="t('stats.section.mine')">
@@ -643,10 +706,34 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
-    <section v-if="hasVersionUserCounts" class="version-card" :aria-label="t('stats.section.versionUsers')">
+    <section class="usage-card" :aria-label="t('stats.section.ocr')">
+      <div class="section-title">
+        <span class="material-symbols-outlined">document_scanner</span>
+        <h2>{{ t('stats.section.ocr') }}</h2>
+      </div>
+      <div class="overview-grid personal-grid">
+        <article v-for="item in ocrOverviewItems" :key="item.label" class="metric-card">
+          <span class="material-symbols-outlined metric-icon">{{ item.icon }}</span>
+          <span class="metric-label">{{ item.label }}</span>
+          <strong class="metric-value">{{ item.value }}</strong>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="displayClientVersion || hasVersionUserCounts" class="version-card" :aria-label="t('stats.section.versionUsers')">
       <div class="section-title">
         <span class="material-symbols-outlined">devices</span>
         <h2>{{ t('stats.section.versionUsers') }}</h2>
+      </div>
+      <p v-if="displayClientVersion" class="empty-hint">
+        {{ tf('stats.version', { version: displayClientVersion }) }}
+      </p>
+      <div class="overview-grid personal-grid">
+        <article v-for="item in versionOverviewItems" :key="item.label" class="metric-card">
+          <span class="material-symbols-outlined metric-icon">{{ item.icon }}</span>
+          <span class="metric-label">{{ item.label }}</span>
+          <strong class="metric-value">{{ item.value }}</strong>
+        </article>
       </div>
       <ul class="version-list">
         <li v-for="item in versionUserCounts" :key="item.version" class="version-row">
@@ -674,7 +761,7 @@ onBeforeUnmount(() => {
             role="img"
             :aria-label="tf('stats.trend.ariaLabel', { label: metric.label })"
           >
-            <template v-for="tick in buildTrendChart(metric.values, metric.axisLabelKey).axisTicks" :key="`${metric.key}-${tick.label}`">
+            <template v-for="tick in buildTrendChart(metric.values).axisTicks" :key="`${metric.key}-${tick.label}`">
               <line
                 class="trend-grid-line"
                 :x1="CHART_PADDING.left"
@@ -685,7 +772,7 @@ onBeforeUnmount(() => {
               <text class="trend-axis-label" x="4" :y="tick.y + 4">{{ tick.label }}</text>
             </template>
             <text
-              v-for="tick in buildTrendChart(metric.values, metric.axisLabelKey).dateTicks"
+              v-for="tick in buildTrendChart(metric.values).dateTicks"
               :key="`${metric.key}-${tick.label}`"
               class="trend-date-label"
               :x="tick.x"
@@ -695,7 +782,7 @@ onBeforeUnmount(() => {
               {{ tick.label }}
             </text>
             <path
-              :d="buildTrendChart(metric.values, metric.axisLabelKey).path"
+              :d="buildTrendChart(metric.values).path"
               class="trend-line drawTrendLine"
               fill="none"
               :stroke="metric.color"
@@ -707,7 +794,7 @@ onBeforeUnmount(() => {
               stroke-dashoffset="1"
             />
             <circle
-              v-for="point in buildTrendChart(metric.values, metric.axisLabelKey).points"
+              v-for="point in buildTrendChart(metric.values).points"
               :key="`${metric.key}-${point.x}`"
               class="trend-point"
               :cx="point.x"

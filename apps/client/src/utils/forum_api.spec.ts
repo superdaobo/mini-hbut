@@ -27,7 +27,7 @@ describe('forum api config', () => {
   it('uses default forum endpoint when config is missing', () => {
     const config = normalizeRemoteConfig({})
 
-    expect(config.forum.api_base).toBe('https://mini-hbut-testocr1.hf.space/api/forum')
+    expect(config.forum.api_base).toBe('https://mini-hbut-ocr-service.hf.space/api/forum')
   })
 
   it('allows local forum api override for browser and Tauri verification', () => {
@@ -38,7 +38,7 @@ describe('forum api config', () => {
       const config = normalizeRemoteConfig({
         forum: {
           enabled: true,
-          api_base: 'https://mini-hbut-testocr1.hf.space/api/forum'
+          api_base: 'https://mini-hbut-ocr-service.hf.space/api/forum'
         }
       })
 
@@ -56,11 +56,11 @@ describe('forum api config', () => {
       const config = normalizeRemoteConfig({
         forum: {
           enabled: true,
-          api_base: 'https://mini-hbut-testocr1.hf.space/api/forum'
+          api_base: 'https://mini-hbut-ocr-service.hf.space/api/forum'
         }
       })
 
-      expect(config.forum.api_base).toBe('https://mini-hbut-testocr1.hf.space/api/forum')
+      expect(config.forum.api_base).toBe('https://mini-hbut-ocr-service.hf.space/api/forum')
     } finally {
       vi.unstubAllGlobals()
     }

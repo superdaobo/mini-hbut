@@ -957,7 +957,7 @@ fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {
             return v.trim().to_string();
         }
     }
-    "https://mini-hbut-testocr1.hf.space/api/temp/upload".to_string()
+    "https://mini-hbut-ocr-service.hf.space/api/temp/upload".to_string()
 }
 
 // ────────────────────────────────────────────────────────────

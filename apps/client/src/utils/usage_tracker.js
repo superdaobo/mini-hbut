@@ -1,7 +1,7 @@
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { getCurrentVersion } from './updater'
-import { scheduleUsageUpload } from './usage_uploader'
+import { scheduleUsageUpload, sendUsageHeartbeat } from './usage_uploader'
 import { isValidStudentId } from './student_id.js'
 
 const CLOUD_SYNC_DEVICE_ID_KEY = 'hbu_cloud_sync_device_id'
@@ -29,6 +29,8 @@ let activeView = { id: '', startedAt: 0 }
 let activeModule = { id: '', loadMode: '', launchMode: '', startedAt: 0 }
 let activeSession = { sessionId: '', startedAt: 0 }
 let initialized = false
+let launchTracked = false
+let launchPromise = null
 let currentStudentId = 'anonymous'
 let dailyEventCount = 0
 let dailyEventDate = ''
@@ -139,6 +141,65 @@ const resolveStudentId = () => {
   return 'anonymous'
 }
 
+const rebindWebPendingIdentity = (studentId) => {
+  const sid = toSafeText(studentId)
+  if (!isValidStudentId(sid)) return
+  const bind = (item) => {
+    if (!item || typeof item !== 'object') return item
+    const current = toSafeText(item.student_id)
+    if (isValidStudentId(current)) return item
+    return { ...item, student_id: sid }
+  }
+  writeWebQueue(WEB_QUEUE_KEY, readWebQueue(WEB_QUEUE_KEY).map(bind))
+  writeWebQueue(WEB_SESSIONS_KEY, readWebQueue(WEB_SESSIONS_KEY).map(bind))
+  try {
+    const raw = localStorage.getItem('hbu_usage_device_profile_v1')
+    const profile = raw ? JSON.parse(raw) : null
+    if (profile && typeof profile === 'object') {
+      localStorage.setItem('hbu_usage_device_profile_v1', JSON.stringify({
+        ...profile,
+        student_id: sid
+      }))
+    }
+  } catch {
+    // ignore damaged web cache
+  }
+}
+
+const syncNativeTelemetryContext = async (studentId) => {
+  if (!isTauriRuntime()) return
+  const sid = toSafeText(studentId)
+  try {
+    await invokeNative('set_ocr_telemetry_context', {
+      deviceId: ensureDeviceId(),
+      studentId: isValidStudentId(sid) ? sid : ''
+    })
+  } catch {
+    // 兼容尚未实现该命令的旧原生壳；usage 主链不依赖该调用。
+  }
+}
+
+const bindPendingIdentity = async (studentId) => {
+  const sid = toSafeText(studentId)
+  if (!isValidStudentId(sid)) return
+  const deviceId = ensureDeviceId()
+  if (isTauriRuntime()) {
+    try {
+      await invokeNative('usage_stats_rebind_pending_identity', {
+        studentId: sid,
+        deviceId
+      })
+    } catch {
+      // 后续 pending 上传仍会继续；旧壳不存在该命令时保持兼容。
+    }
+  } else {
+    rebindWebPendingIdentity(sid)
+  }
+  await upsertDeviceProfile().catch(() => null)
+  await syncNativeTelemetryContext(sid)
+  scheduleUsageUpload({ studentId: sid, reason: 'identity-bound', force: true })
+}
+
 const persistEvent = async (event) => {
   if (!bumpDailyCounter()) return false
   if (isTauriRuntime()) {
@@ -223,6 +284,41 @@ const maybeScheduleUpload = (reason = 'event') => {
 
 export const setUsageTrackingStudentId = (studentId) => {
   currentStudentId = toSafeText(studentId) || 'anonymous'
+  if (isValidStudentId(currentStudentId)) {
+    void bindPendingIdentity(currentStudentId)
+  }
+}
+
+export const trackAppLaunch = async () => {
+  if (!initialized || launchTracked) return null
+  if (launchPromise) return launchPromise
+  launchPromise = (async () => {
+    const event = await buildEvent({
+      eventType: 'app_launch',
+      targetKind: 'app',
+      targetId: 'mini-hbut',
+      loadMode: 'native'
+    })
+    await persistEvent(event)
+    launchTracked = true
+    const profile = await upsertDeviceProfile()
+    const sid = resolveStudentId()
+    await syncNativeTelemetryContext(sid)
+    if (isValidStudentId(sid)) {
+      void sendUsageHeartbeat({
+        studentId: sid,
+        event,
+        deviceProfile: profile
+      })
+      scheduleUsageUpload({ studentId: sid, reason: 'app-launch', force: true })
+    }
+    return event
+  })()
+  try {
+    return await launchPromise
+  } finally {
+    launchPromise = null
+  }
 }
 
 export const trackViewNavigation = async (fromView, toView) => {
@@ -313,7 +409,17 @@ export const trackAppForeground = async () => {
     loadMode: 'native'
   })
   await persistEvent(event)
-  await upsertDeviceProfile()
+  const profile = await upsertDeviceProfile()
+  const sid = resolveStudentId()
+  await syncNativeTelemetryContext(sid)
+  if (isValidStudentId(sid)) {
+    void sendUsageHeartbeat({
+      studentId: sid,
+      event,
+      deviceProfile: profile
+    })
+  }
+  maybeScheduleUpload('app-foreground')
 }
 
 export const trackAppBackground = async () => {
@@ -356,12 +462,13 @@ export const initUsageTracker = ({ studentId = '' } = {}) => {
       void trackAppBackground()
       return
     }
-    void trackAppForeground()
+    void trackAppLaunch().then(() => trackAppForeground()).catch(() => null)
   }
 
   document.addEventListener('visibilitychange', onVisibility)
+  const launch = trackAppLaunch()
   if (!document.hidden) {
-    void trackAppForeground()
+    void launch.then(() => trackAppForeground()).catch(() => null)
   }
 }
 
