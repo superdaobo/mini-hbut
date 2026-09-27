@@ -20,7 +20,12 @@ export const IDENTITY_SCOPE_META: Record<string, { label: string; risk: Identity
     label: '获取你的学校身份（如学号、姓名）',
     risk: 'sensitive'
   },
-  offline_access: { label: '长期保持登录状态', risk: 'basic' }
+  offline_access: { label: '长期保持登录状态', risk: 'basic' },
+  // #902b：与 Identity Core #902a 注册的 game.* scope 同步（Core 合同 §8.3 第 8 个同步点）。
+  // 本表仅作展示兜底（服务端 label/risk 优先）；风险分级与 Core domain/scope-risk.ts 的
+  // SENSITIVE_SCOPES 一致 —— game.* 属敏感 scope（需用途说明 + 管理员人工审批）。
+  'game.read': { label: '读取你的游戏平台数据（对局状态、榜单、钱包）', risk: 'sensitive' },
+  'game.play': { label: '记录游戏对局与结算（启动票据、会话、提交结果）', risk: 'sensitive' }
 }
 
 /** scope 分组展示顺序（基础在前，敏感在后） */
