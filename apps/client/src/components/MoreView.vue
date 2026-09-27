@@ -65,7 +65,7 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback
 }
 
-const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
+const DEFAULT_GAME_RANK_API = 'https://mini-hbut-ocr-service.hf.space/api/game-rank'
 const DEFAULT_GOMOKU_RELAY_API = 'https://mini-hbut-ocr-service.hf.space/api/gomoku-relay'
 const CONTEXT_AWARE_GAME_MODULE_IDS = new Set([
   'hecheng_hugongda',

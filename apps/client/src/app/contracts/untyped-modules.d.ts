@@ -120,6 +120,7 @@ declare module '*/usage_tracker.js' {
   export function setUsageTrackingStudentId(studentId: string): void
   export function trackViewNavigation(fromView: string, toView: string): Promise<unknown>
   export function trackModuleOpen(input: Record<string, unknown>): Promise<unknown>
+  export function trackAppLaunch(): Promise<unknown>
   export function trackAppForeground(): Promise<unknown>
   export function trackAppBackground(): Promise<unknown>
   export function initUsageTracker(options?: { studentId?: string }): void
@@ -137,6 +138,11 @@ declare module '*/usage_tracker.js' {
 }
 
 declare module '*/usage_uploader.js' {
+  export function sendUsageHeartbeat(input: {
+    studentId: string
+    event: Record<string, unknown>
+    deviceProfile?: Record<string, unknown> | null
+  }): Promise<unknown>
   export function scheduleUsageUpload(input: {
     studentId: string
     reason?: string
