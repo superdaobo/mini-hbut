@@ -35,6 +35,7 @@ import {
 } from '../../utils/usage_tracker.js'
 import { scheduleUsageUpload } from '../../utils/usage_uploader.js'
 import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/local_reminder_scheduler'
+import { subscribePortalLoginSucceeded } from './loginOutcome'
 import { saveRememberedUsername } from '../../utils/remembered_username'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
@@ -78,9 +79,9 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   }
 
   /** 登录后云同步（成绩快照作为学业缓存权威输入，见 cloud_sync primeAcademicCaches） */
-  const syncAfterLogin = (grades: unknown[]) => {
+  const syncAfterLogin = (sid: string, grades: unknown[]) => {
     runAutoCloudSyncAfterLogin({
-      studentId: state.studentId.value,
+      studentId: sid,
       latestGrades: grades
     }).catch((e) => {
       console.warn('[CloudSync] 登录后自动同步失败:', e)
@@ -92,6 +93,9 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
    *
    * 登录组件已不再等待成绩同步（原先让登录按钮多转约 10s），因此这里承担
    * 「拿到成绩再同步」的时序，避免用空数组顶替 latestGrades 污染学业缓存。
+   *
+   * 补拉期间可能发生切号/登出，故前后都以传入学号校验归属：迟到结果既不写入
+   * 当前账号的成绩态，也不触发以当前账号为目标的云同步（防跨账号数据污染）。
    */
   const loadGradesThenSyncAfterLogin = async (sid: string) => {
     let grades: unknown[] = []
@@ -103,12 +107,13 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       )
       if (res.data?.success && Array.isArray(res.data.data)) {
         grades = res.data.data as unknown[]
-        state.gradeData.value = grades
+        if (state.studentId.value === sid) state.gradeData.value = grades
       }
     } catch (e) {
       console.warn('[Session] 登录后成绩同步未完成，仍继续云同步:', e)
     }
-    syncAfterLogin(grades)
+    if (state.studentId.value !== sid) return
+    syncAfterLogin(sid, grades)
   }
 
   // 处理登录成功
@@ -179,7 +184,7 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
         // 否则后台补拉成绩后再同步，保证学业快照的输入不被空数组顶替。
         const gradesSnapshot = Array.isArray(data) ? (data as unknown[]) : []
         if (gradesSnapshot.length > 0) {
-          syncAfterLogin(gradesSnapshot)
+          syncAfterLogin(state.studentId.value, gradesSnapshot)
         } else {
           void loadGradesThenSyncAfterLogin(state.studentId.value)
         }
@@ -200,6 +205,15 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       }, 2500)
     }
     runtime.lifecycle.recoverViewportAfterTransition()
+  }
+
+  // #932：门户登录成功订阅应用级通道 —— 登录组件在「登录中被切走」时会随视图
+  // 卸载，Vue 会丢弃已卸载实例的 emit，全局事件才能保证结果仍被应用层接收。
+  // 测试环境下 window 被 stub（无 addEventListener），此处做了能力守卫。
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    subscribePortalLoginSucceeded(() => {
+      handleLoginSuccess([])
+    })
   }
 
   // 处理登出

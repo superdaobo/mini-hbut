@@ -36,6 +36,7 @@ import {
   waitForInFlightLogin
 } from '../app/coordinators/sessionGate'
 import { noteLoginSuccess } from '../app/coordinators/loginCooldown'
+import { publishPortalLoginSucceeded, normalizePortalLoginOutcome } from '../app/coordinators/loginOutcome'
 import { useAuthStore } from '../stores'
 import { useLocale } from '../utils/app_i18n'
 
@@ -70,6 +71,9 @@ const LOGIN_MODE_PREF_KEY = 'hbu_login_entry_mode'
 const LOGIN_TEMP_FLAG_KEY = 'hbu_login_temporary'
 const LOGOUT_REASON_KEY = 'hbu_logout_reason'
 const TEMP_SESSION_EXPIRED_REASON = 'temp_session_expired'
+/** 登录方式标记（应用级登录成功通道载荷用，#932） */
+const LOGIN_METHOD_PORTAL_PASSWORD = 'portal_password'
+const LOGIN_METHOD_PORTAL_QR = 'portal_qr_temp'
 const CHAOXING_ACCOUNT_KEY = 'hbu_cx_account'
 const CHAOXING_PASSWORD_KEY = 'hbu_cx_password'
 const CHAOXING_REMEMBER_KEY = 'hbu_cx_remember'
@@ -506,12 +510,14 @@ const applyPortalLoginResult = async (result) => {
   // 门户登录成功：Rust 侧进入 60s 登录冷却，前端同步登记，供自动恢复链让路（#931）
   noteLoginSuccess()
   statusMsg.value = t('login.status.signInSuccessSyncing')
-  // #928：成绩同步不再阻塞登录完成 —— 立即放行界面，成绩与云同步交由
-  // 登录后初始化（AuthCoordinator.handleLoginSuccess）在后台补齐。
-  emit('success', [])
+  // #928：成绩同步不再阻塞登录完成（原先要多转约 10s）。
+  // #932：结果走应用级通道 —— 登录期间被切走时本实例可能已卸载，Vue 会丢弃
+  // 已卸载实例的 emit，全局事件才能保证结果仍被应用层接收。
+  publishPortalLoginSucceeded({ studentId: sid, method: LOGIN_METHOD_PORTAL_PASSWORD })
   return true
 }
 
+/** 组件实例内的恢复序号：新一次恢复/提交会让在途的恢复结果失效 */
 let resumeWatchSeq = 0
 
 /**
@@ -524,10 +530,15 @@ const resumeInFlightLogin = async () => {
   loading.value = true
   statusMsg.value = t('login.status.signingIn')
   try {
-    const result = await waitForInFlightLogin()
-    // 组件已重新发起登录，或门在等待前已空闲：交给当前流程处理
-    if (seq !== resumeWatchSeq || result === null) return
-    await applyPortalLoginResult(result)
+    // #929：等待同样带上限 —— 门内可能是已失联的死 promise，
+    // 界面必须在有限时间内恢复可交互，而不是永久转圈。
+    const outcome = await withTimeout(
+      waitForInFlightLogin(),
+      LOGIN_SUBMIT_TIMEOUT_MS,
+      t('login.error.submitTimeout')
+    )
+    if (seq !== resumeWatchSeq || outcome === null) return
+    await applyPortalLoginResult(normalizePortalLoginOutcome(outcome))
   } catch (e) {
     if (seq !== resumeWatchSeq) return
     const errMsg = e?.response?.data?.error || e?.message || t('login.error.unknown')
@@ -773,7 +784,8 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
 
     qrState.value = 'success'
     qrStateMessage.value = t('login.qr.successSyncing')
-    await emitSuccessWithGrades(sid)
+    // #928：不再等待成绩同步；#932：走应用级通道，避免登录期间切走时结果丢失
+    publishPortalLoginSucceeded({ studentId: sid, method: LOGIN_METHOD_PORTAL_QR })
     return true
   } catch (e) {
     if (allowPending && isPortalPendingError(e)) {

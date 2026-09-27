@@ -668,6 +668,8 @@ export const reconcileLocalReminders = async (input: ReconcileInput): Promise<Re
       const native = await import('../platform/native')
       // #930：学期未知（登录后课表缓存尚未写入）时原生命令会以
       // 「semester 不能为空」直接拒绝，这里跳过本轮读取，避免无效调用与失败日志。
+      // 注：跳过的效果等价于「本轮 expected 不含自定义课程」，与修复前 invoke 报错
+      // 被吞掉一致；自定义课提醒会在学期就绪后的下一轮重建。
       if (native.isTauriRuntime() && semester) {
         const customRes = await native.invokeNative('list_custom_schedule_courses', {
           studentId: sid,

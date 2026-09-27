@@ -39,6 +39,7 @@ import { invokeNative, isTauriRuntime } from '../../platform/native'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
 import {
   isLoginCooldownActive,
+  loginCooldownRemainingMs,
   noteLoginCooldownFromError,
   noteLoginSuccess
 } from './loginCooldown'
@@ -259,6 +260,20 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     return ''
   }
 
+  // #931：冷却窗口内让路后，在冷却结束时刻补一次静默恢复。
+  // 必要性：登录后 2.5s 的 quiet 探测失败时不会自行启动轮询（relogged=false 直接返回），
+  // 若不给这一次调度，恢复要等到下一个 keep-alive 周期（20 分钟）才可能发生。
+  let cooldownResumeTimer: number | null = null
+  const scheduleCooldownResume = () => {
+    if (cooldownResumeTimer !== null) return
+    const delay = loginCooldownRemainingMs() + 2000
+    if (delay <= 2000) return
+    cooldownResumeTimer = window.setTimeout(() => {
+      cooldownResumeTimer = null
+      void attemptOnlineRecovery({ silent: true })
+    }, delay)
+  }
+
   const attemptAutoRelogin = async () => {
     if (isTestAccountSession()) return restoreTestAccountSession()
     if (!hasTauri) return false
@@ -267,8 +282,11 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     }
     // #931：门户登录成功后 Rust 侧有 60s 冷却门（http_client/mod.rs 的
     // LOGIN_COOLDOWN），窗口内的重登必然被拒并产生 ERROR 日志与维护横幅噪音。
-    // 已登记冷却时直接让路，由冷却结束后的后续轮询继续恢复。
-    if (isLoginCooldownActive()) return false
+    // 已登记冷却时直接让路，并补一次「冷却结束即恢复」的调度。
+    if (isLoginCooldownActive()) {
+      scheduleCooldownResume()
+      return false
+    }
     const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
     if (method.startsWith('chaoxing_')) {
       const chaoxingCreds = await getStoredChaoxingPassword()
