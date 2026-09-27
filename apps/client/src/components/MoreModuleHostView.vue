@@ -5,6 +5,16 @@ import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, resolveM
 import { openExternal } from '../utils/external_link'
 import { pushDebugLog } from '../utils/debug_logger'
 import { isIOSLike } from '../platform/runtime'
+import {
+  GAME_CENTER_GAME_IDS,
+  isGameFrameOriginAllowed,
+  resolveGameCenterLaunchUrl,
+  resolveGameFrameAllowedOrigins
+} from '../utils/game_center/launch'
+import { createModuleHostBridge } from '../utils/game_center/host_bridge'
+import { fetchGameLaunchTicket } from '../utils/game_center/api'
+import { DEFAULT_GAME_CENTER_FLAGS, resolveEffectiveGameCenterFlags } from '../utils/game_center/flags'
+import { fetchRemoteConfig } from '../utils/remote_config.js'
 
 const props = defineProps({
   session: {
@@ -23,10 +33,29 @@ const loadError = ref('')
 const externalOpenUrl = ref('')
 const loadHint = ref('')
 const usedCapacitorLocalFallback = ref(false)
+const usedRemoteFirst = ref(false)
+/** 游戏上报的运行模式（SDK notifyMode）：verified / compatibility / standalone */
+const gameRuntimeMode = ref('')
+/** 宿主桥拒绝记录（诊断用；不含任何 payload） */
 
 let loadingGuardTimer = null
 let frameSizeHintTimer = null
 let capacitorFallbackTimer = null
+let hostBridge = null
+/** 游乐场能力开关（远程配置驱动；必须是响应式，origin 白名单与桥都要随其更新）/ */
+const hostFlags = ref({ ...DEFAULT_GAME_CENTER_FLAGS })
+/** 会话恢复时由宿主重新签发的 Launch Ticket（只驻留内存，绝不落盘/入日志） */
+const launchTicketOverride = ref('')
+
+/** 加载游乐场能力开关（远程配置；失败时用安全默认值，不影响既有模块行为） */
+const loadHostFlags = async () => {
+  try {
+    hostFlags.value = resolveEffectiveGameCenterFlags(await fetchRemoteConfig({ force: false }))
+  } catch {
+    hostFlags.value = resolveEffectiveGameCenterFlags(null)
+  }
+  rebuildHostBridge()
+}
 
 const safeText = (value) => String(value ?? '').trim()
 
@@ -37,6 +66,11 @@ const minCompatibleVersion = computed(() => safeText(props.session?.min_compatib
 const moduleChannel = computed(() => safeText(props.session?.channel) || 'main')
 const invalidReason = computed(() => safeText(props.session?.invalid_reason || props.session?.invalidReason))
 const resolvedPreviewSource = computed(() => resolveModuleHostPreviewSource(props.session || {}))
+
+/** 是否属于「湖工游乐场」发起的对局（HTTPS-first 只作用于游戏业务层） */
+const launchedFromGameCenter = computed(
+  () => safeText(props.session?.launch_surface) === 'game_center' && GAME_CENTER_GAME_IDS.includes(moduleId.value)
+)
 const previewMode = computed(() => {
   const resolvedKind = safeText(resolvedPreviewSource.value?.sourceKind)
   if (resolvedKind && resolvedKind !== 'invalid') {
@@ -56,12 +90,44 @@ const previewUrl = computed(() => {
   }
   return raw
 })
+/**
+ * #905 远程 HTTPS-first：游乐场发起的对局优先远端 HTTPS 站点。
+ * 本地桥地址**不删除**，通过「兼容模式打开」按钮继续可用
+ * （学校网页代理、模块预览、离线缓存这些非游戏业务路径完全不受影响）。
+ * 仅当确实解析出远端 HTTPS 地址且与既有解析结果不同才切换，否则保持既有行为（零回归）。
+ */
+const remoteFirstUrl = computed(() => {
+  if (!launchedFromGameCenter.value) return ''
+  const remote = resolveGameCenterLaunchUrl({
+    resolvedPreviewUrl: resolvedPreviewSource.value?.resolvedPreviewUrl,
+    preview_url: safeText(props.session?.preview_url),
+    open_url: safeText(props.session?.open_url),
+    candidateUrls: resolvedPreviewSource.value?.candidateUrls
+  })
+  if (!remote || isLocalModuleBridgePreviewUrl(remote)) return ''
+  return remote === previewUrl.value ? '' : remote
+})
+/** 是否仍以远端 HTTPS 地址为准（失败后可由 tryClassicFallback 关闭） */
+const remoteFirstActive = ref(true)
+const activePreviewUrl = computed(() => {
+  if (usedCapacitorLocalFallback.value) {
+    const localUrl = safeText(resolvedPreviewSource.value?.localPreviewUrl || props.session?.local_preview_url)
+    if (localUrl && !isLocalModuleBridgePreviewUrl(localUrl)) return localUrl
+  }
+  if (remoteFirstActive.value && remoteFirstUrl.value) return remoteFirstUrl.value
+  return previewUrl.value
+})
 const capacitorLocalFallbackUrl = computed(() => {
   if (usedCapacitorLocalFallback.value) return ''
   const localUrl = safeText(resolvedPreviewSource.value?.localPreviewUrl || props.session?.local_preview_url)
-  if (!localUrl || localUrl === previewUrl.value) return ''
+  if (!localUrl || localUrl === activePreviewUrl.value) return ''
   if (isLocalModuleBridgePreviewUrl(localUrl)) return ''
   return localUrl
+})
+/** 兼容降级目标：远端 HTTPS 失败时切回既有解析结果（本地桥 / 本地包） */
+const classicFallbackUrl = computed(() => {
+  if (!remoteFirstActive.value || !remoteFirstUrl.value) return ''
+  return previewUrl.value && previewUrl.value !== activePreviewUrl.value ? previewUrl.value : ''
 })
 const ready = computed(() => !!previewUrl.value)
 const emptyStateMessage = computed(() => {
@@ -75,6 +141,25 @@ const emptyStateMessage = computed(() => {
     return '当前运行时已禁止桌面本地桥地址，请返回更多页重新进入模块。'
   }
   return '模块预览地址缺失，请返回更多页重新进入。'
+})
+
+/**
+ * iframe 允许来源白名单（#905 硬要求）：
+ * 由「实际加载 URL」+「兼容降级 URL」+「远程配置显式 origin」共同推导，**绝不含 '*'**。
+ *
+ * opaque origin（`'null'`）只在**本地包 / 本地桥**模式下放行：
+ * Capacitor iOS 的 `capacitor://localhost`、Tauri 的 `tauri://localhost` 等自定义 scheme
+ * 文档在部分 WebView 里上报 `event.origin === 'null'`，严格拒绝会让本地包 iframe 的
+ * 高度上报与 SDK 握手全部失效。远端 HTTPS 站点（游乐场主路径）始终严格校验 origin。
+ */
+const frameAllowedOrigins = computed(() => {
+  const allowOpaque = previewMode.value !== 'remote-site'
+  return resolveGameFrameAllowedOrigins({
+    frameUrl: activePreviewUrl.value || previewUrl.value,
+    fallbackUrl: capacitorLocalFallbackUrl.value || classicFallbackUrl.value,
+    extraOrigins: hostFlags.value.allowed_game_origins || [],
+    allowOpaqueOrigin: allowOpaque
+  })
 })
 
 const withFrameCacheBust = (url, keyParts = []) => {
@@ -93,15 +178,22 @@ const withFrameCacheBust = (url, keyParts = []) => {
   return hashPart ? `${nextUrl}#${hashPart}` : nextUrl
 }
 
-const activePreviewUrl = computed(() => {
-  if (usedCapacitorLocalFallback.value) {
-    const localUrl = safeText(resolvedPreviewSource.value?.localPreviewUrl || props.session?.local_preview_url)
-    if (localUrl && !isLocalModuleBridgePreviewUrl(localUrl)) return localUrl
+/** 会话恢复策略 A：把宿主新签发的 ticket 注入 iframe URL（渲染期拼接，不修改 session 对象） */
+const withLaunchTicket = (url) => {
+  const text = safeText(url)
+  const ticket = safeText(launchTicketOverride.value)
+  if (!text || !ticket) return text
+  try {
+    const parsed = new URL(text, window.location.origin)
+    parsed.searchParams.set('gpt', ticket)
+    return parsed.toString()
+  } catch {
+    return text
   }
-  return previewUrl.value
-})
+}
+
 const frameSrc = computed(() =>
-  withFrameCacheBust(activePreviewUrl.value, [
+  withFrameCacheBust(withLaunchTicket(activePreviewUrl.value), [
     moduleChannel.value || 'main',
     moduleVersion.value || 'unknown',
     String(frameKey.value)
@@ -132,6 +224,14 @@ const moduleRuntimeBadges = computed(() => {
   if (previewMode.value === 'capacitor-local') badges.push('安卓本地包')
   if (previewMode.value === 'tauri-local') badges.push('桌面本地包')
   if (previewMode.value === 'remote-site') badges.push('远端页面')
+  // #905：游乐场发起的对局标注 HTTPS-first / 兼容模式
+  if (remoteFirstUrl.value && remoteFirstActive.value) badges.push('远端 HTTPS 优先')
+  if (usedCapacitorLocalFallback.value || (remoteFirstUrl.value && !remoteFirstActive.value)) {
+    badges.push('兼容模式')
+  }
+  if (gameRuntimeMode.value === 'verified') badges.push('已验证会话')
+  if (gameRuntimeMode.value === 'compatibility') badges.push('经典榜模式')
+  if (gameRuntimeMode.value === 'standalone') badges.push('本地模式')
   const channel = formatModuleChannel(moduleChannel.value)
   const version = formatModuleVersion(moduleVersion.value)
   if (channel) badges.push(channel)
@@ -257,6 +357,14 @@ const handleFrameSizeMessage = (event) => {
   const frameWindow = frameRef.value?.contentWindow
   const payload = event?.data
   if (!frameWindow || event.source !== frameWindow) return
+  // #905 硬要求：**必须校验 event.origin**（旧实现只看 event.source，可被同窗口其它 iframe 冒充）
+  if (!isGameFrameOriginAllowed(event.origin, frameAllowedOrigins.value)) {
+    pushDebugLog('ModuleHost', '拒绝来源不在白名单的模块消息', 'warn', {
+      origin: safeText(event.origin),
+      allowList: frameAllowedOrigins.value.join(',')
+    })
+    return
+  }
   if (!payload || payload.type !== 'mini-hbut:module-size') return
 
   const nextModuleId = safeText(payload.module_id || payload.moduleId)
@@ -274,6 +382,58 @@ const handleFrameSizeMessage = (event) => {
   loadHint.value = ''
 }
 
+/**
+ * 处理 Game SDK 握手消息（hello / request-ticket / mode）。
+ * 桥自身已完成 source + origin + request_id + game_id + protocol_version 校验；
+ * 这里只负责把「取票」接线到 Identity AT 换 ticket 的真实链路。
+ */
+const handleHostBridgeMessage = (event) => {
+  hostBridge?.handleMessage(event)
+}
+
+/** 创建（或重建）宿主桥：iframe remount / origin 白名单变化时必须整体替换 */
+const rebuildHostBridge = () => {
+  hostBridge?.dispose()
+  hostBridge = createModuleHostBridge({
+    moduleId: moduleId.value,
+    frameWindow: frameRef.value?.contentWindow || null,
+    allowedOrigins: frameAllowedOrigins.value,
+    features: {
+      game_center_enabled: hostFlags.value.game_center_enabled === true,
+      game_verified_session_enabled: hostFlags.value.game_verified_session_enabled === true,
+      game_economy_enabled: hostFlags.value.game_economy_enabled === true,
+      drift_bottle_enabled: hostFlags.value.drift_bottle_enabled === true
+    },
+    // 只有「已验证会话」能力开启时才发 ticket；否则明确降级 compatibility/standalone，
+    // 游戏仍可玩、可上经典榜，只是不结算新奖励（协议 §6.2.3 失败降级）。
+    requestTicket: async ({ reason }) => {
+      if (hostFlags.value.game_verified_session_enabled !== true) return null
+      const result = await fetchGameLaunchTicket({
+        gameId: moduleId.value,
+        apiBase: hostFlags.value.api_base,
+        idempotencyKey: ''
+      })
+      if (!result.ticket) return null
+      return { ticket: result.ticket, expiresAt: result.expiresAt }
+    },
+    onMode: (mode) => {
+      gameRuntimeMode.value = mode
+    }
+  })
+}
+
+/** 兼容降级：从远端 HTTPS 切回既有解析地址（本地桥 / 本地包），并 remount iframe */
+const tryClassicFallback = () => {
+  if (usedCapacitorLocalFallback.value) return false
+  if (classicFallbackUrl.value) {
+    remoteFirstActive.value = false
+    frameKey.value += 1
+    resetFrameState()
+    return true
+  }
+  return tryCapacitorLocalFallback()
+}
+
 const reloadFrame = () => {
   if (!ready.value) return
   frameKey.value += 1
@@ -285,6 +445,8 @@ const handleLoad = () => {
   clearCapacitorFallbackTimer()
   loading.value = false
   loadError.value = ''
+  // iframe 完成加载后 contentWindow 才可用：在此重建宿主桥（来源白名单同步刷新）
+  rebuildHostBridge()
   pushDebugLog('ModuleHost', `iframe onload 触发`, 'info', {
     src: frameSrc.value?.slice(0, 120),
     hasHeight: frameContentHeight.value > 0
@@ -304,6 +466,8 @@ const handleError = () => {
     src: frameSrc.value?.slice(0, 120),
     previewMode: previewMode.value
   })
+  // #905：游乐场 HTTPS-first 失败时，先降级回既有解析地址（兼容模式）
+  if (classicFallbackUrl.value && tryClassicFallback()) return
   // 连接拒绝检测：本地桥接失败时尝试降级
   const currentSrc = frameSrc.value
   if (currentSrc && currentSrc.includes('127.0.0.1')) {
@@ -330,11 +494,26 @@ const handleError = () => {
 watch(
   () => previewUrl.value,
   () => {
+    remoteFirstActive.value = true
     frameKey.value += 1
     resetFrameState()
   },
   { immediate: true }
 )
+
+/**
+ * 会话恢复策略 A（协议 §6.2.3）：resume 前由**宿主重新申请 ticket**并更新 iframe URL，
+ * 游戏重新兑换；旧 ticket 是否已兑换都不阻塞（策略 B 的 exchange 幂等仍由服务端保证）。
+ * 只有「已验证会话」能力开启时才取票，否则保持既有 remount 行为（零回归）。
+ */
+const refreshLaunchTicketForResume = async () => {
+  if (hostFlags.value.game_verified_session_enabled !== true) return
+  const result = await fetchGameLaunchTicket({
+    gameId: moduleId.value,
+    apiBase: hostFlags.value.api_base
+  })
+  if (result.ticket) launchTicketOverride.value = result.ticket
+}
 
 const handleAppEmbedResumeEvent = async (event) => {
   const view = String(event?.detail?.view || '')
@@ -358,6 +537,7 @@ const handleAppEmbedResumeEvent = async (event) => {
   loadHint.value = ''
   externalOpenUrl.value = ''
   usedCapacitorLocalFallback.value = false
+  remoteFirstActive.value = true
 
   if (usesLoopback && !bridgeOk) {
     // Bridge 仍死：优先 Capacitor 本地降级，否则可操作错误（重试/外开/回更多）
@@ -374,20 +554,32 @@ const handleAppEmbedResumeEvent = async (event) => {
     return
   }
 
+  // #905 恢复策略 A：先换新 ticket 再 remount（失败不阻塞，仍按策略 B 幂等重放）
+  try {
+    await refreshLaunchTicketForResume()
+  } catch {
+    // 取票失败：保持既有 URL remount，由 SDK 走 compatibility/standalone 降级
+  }
+
   // 后台恢复：强制换 key remount iframe
   reloadFrame()
 }
 
 onMounted(() => {
   window.addEventListener('message', handleFrameSizeMessage)
+  window.addEventListener('message', handleHostBridgeMessage)
   window.addEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
+  void loadHostFlags()
 })
 
 onBeforeUnmount(() => {
   clearLoadingGuardTimer()
   clearFrameSizeHintTimer()
   clearCapacitorFallbackTimer()
+  hostBridge?.dispose()
+  hostBridge = null
   window.removeEventListener('message', handleFrameSizeMessage)
+  window.removeEventListener('message', handleHostBridgeMessage)
   window.removeEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
 })
 </script>
@@ -426,6 +618,11 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="loadError" class="module-frame-error">
           {{ loadError }}
+          <button class="external-open-btn" @click="reloadFrame">重试</button>
+          <!-- #905：远端 HTTPS 加载失败时允许切回既有解析地址（兼容模式），不是死路 -->
+          <button v-if="classicFallbackUrl || capacitorLocalFallbackUrl" class="external-open-btn" @click="tryClassicFallback">
+            以兼容模式打开
+          </button>
           <button v-if="externalOpenUrl" class="external-open-btn" @click="openExternal(externalOpenUrl)">
             在浏览器中打开
           </button>

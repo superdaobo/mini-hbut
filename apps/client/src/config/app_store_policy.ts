@@ -259,6 +259,12 @@ export const APP_STORE_BLOCKED_MODULE_IDS: ReadonlySet<string> = Object.freeze(
     'forum',
     'more',
     'more_module_host',
+    // #905 湖工游乐场：内置 11 个游戏全部是远程 bundle 执行（remoteModules /
+    // remoteCode）+ 排行榜（ranking）+ UGC 漂流瓶（userGeneratedContent），
+    // 与 'more' / 'more_module_host' 同语义，故列入黑名单。
+    // 同时 remote_config 的 game_platform 块也会被 clamp（见 applyAppStoreRemoteConfigClamp），
+    // 远程配置无法在 guest/demo 下把入口重新打开（编译期策略优先）。
+    'game_center',
     'service_stats',
     'config',
     'school_website',

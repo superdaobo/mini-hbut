@@ -18,7 +18,9 @@ export const ME_SUB_VIEWS = [
   'identity_auth_history',
   'more',
   'more_module_host',
-  'more_chaoxing_checkin'
+  'more_chaoxing_checkin',
+  // #905 湖工游乐场（Game Center）：更多页的一级子视图
+  'game_center'
 ] as const
 
 /** 需登录后才能访问的「我的」子页面 */
@@ -48,6 +50,8 @@ export const HIERARCHICAL_PARENT_VIEW_MAP: Readonly<Record<string, string>> = Ob
   more: 'me',
   more_module_host: 'more',
   more_chaoxing_checkin: 'more',
+  // #905：游乐场返回回到「更多」页（与其入口层级一致）
+  game_center: 'more',
   smart_orientation: 'home'
 })
 
