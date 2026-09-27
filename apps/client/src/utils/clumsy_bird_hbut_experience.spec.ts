@@ -107,14 +107,15 @@ describe('clumsy_bird_hbut experience contract', () => {
     expect(`${mainSource}\n${gameSource}`).not.toMatch(/[🐦🏆👆]/u)
   })
 
-  it('creates a fresh leaderboard run id when a new flight starts', () => {
+  it('starts a fresh SDK run when a new flight starts', () => {
     const mainSource = readClumsyBirdSource('main.js')
 
-    expect(mainSource).toContain('let currentRunId = createRunId()')
-    expect(mainSource).toMatch(/state === 'playing'[\s\S]*currentRunId = createRunId\(\)/)
+    // 迁移后：run 由 SDK 管理，首次 flap（state → playing）开新一局（run_id 由 SDK 生成）
+    expect(mainSource).toContain('let run = sdkGame.startRun()')
+    expect(mainSource).toMatch(/state === 'playing'[\s\S]*run = sdkGame\.startRun\(\{ replaceActive: true \}\)/)
 
     const gameOverBlock = mainSource.match(/game\.onGameOver = \(data\) => \{([\s\S]*?)\n  \}/)?.[1] || ''
-    expect(gameOverBlock).not.toContain('currentRunId = createRunId()')
+    expect(gameOverBlock).not.toContain('startRun(')
   })
 
   it('keeps compact mobile controls readable in the header', () => {
