@@ -124,7 +124,7 @@ describe('#775 fetchAuthHistory 200 响应解析', () => {
     )
     await expect(fetchAuthHistory()).resolves.toEqual(items)
     expect(identityFetchAuthHistory).toHaveBeenCalledWith(
-      expect.objectContaining({ device_id: TEST_DEVICE_ID })
+      expect.objectContaining({ deviceId: TEST_DEVICE_ID })
     )
   })
 

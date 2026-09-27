@@ -26,6 +26,7 @@ import { requestId, createLogger } from './observability/logger.js'
 import { createPgExecutor, type SqlExecutor } from './db/types.js'
 import { resolveIssuer } from './config/issuer.js'
 import { createIdentityProvider, type IdentityProviderDeps } from './oidc/provider.js'
+import { resolveGameResourceConfig, type ResolvedGameResourceConfig } from './oidc/resource-indicators.js'
 import { ensureStaticClients, loadStaticClientsFromEnv, type StaticClientEntry } from './oidc/static-clients.js'
 import { registerApiRoutes, type ApiDeps } from './api/index.js'
 import { rateLimitMiddleware, type RateLimiterOptions } from './security/rate-limit.js'
@@ -76,11 +77,16 @@ function createNoDbExecutor(): SqlExecutor {
   }
 }
 
+/** 组装后的 provider 依赖：gameResource 已完成解析（app.ts 单点） */
+interface ResolvedProviderDeps extends IdentityProviderDeps {
+  gameResource: ResolvedGameResourceConfig
+}
+
 /** 组装 Provider 依赖：显式注入 > 环境变量 */
 function resolveProviderDeps(
   executor: SqlExecutor,
   overrides: Partial<IdentityProviderDeps> | undefined,
-): IdentityProviderDeps {
+): ResolvedProviderDeps {
   const env: Record<string, string | undefined> = process.env
   const environment = (overrides?.environment ?? env.IDENTITY_ENVIRONMENT ?? 'development').trim().toLowerCase()
   let cookieKeys = overrides?.cookieKeys
@@ -117,6 +123,23 @@ function resolveProviderDeps(
     jwksJson: overrides?.jwksJson ?? env.IDENTITY_JWKS_JSON,
     authRequestTtlSeconds: overrides?.authRequestTtlSeconds,
     ttlOverrides: overrides?.ttlOverrides,
+    // #902a 游戏 resource server（协议 §6.4 方案 b）：
+    // - audience 默认 mini-hbut-hf-api（须与 ocr-service DEFAULT_HF_AUDIENCE 一致）；
+    // - 第一方 client 白名单默认【空】= 该能力整体关闭（任何带 resource 的请求
+    //   fail closed 为 invalid_target），灰度期必须显式配置宿主 client_id；
+    // - 解析在这里单点完成，provider 与 API（resume 桥）共用同一份结果，
+    //   避免两处各读一次 env 造成漂移。
+    gameResource: resolveGameResourceConfig(overrides?.gameResource ?? {
+      audience: env.IDENTITY_GAME_RESOURCE_AUDIENCE,
+      indicator: env.IDENTITY_GAME_RESOURCE_INDICATOR,
+      allowedClientIds: (env.IDENTITY_GAME_RESOURCE_CLIENTS ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      // #902 设备换票代表的 client_id：未配置 = 换票能力关闭（fail closed）；
+      // 配置时必须落在上面的白名单内（resolveGameResourceConfig 启动期校验）。
+      deviceTokenClientId: env.IDENTITY_GAME_DEVICE_TOKEN_CLIENT_ID,
+    }),
   }
 }
 
@@ -198,6 +221,8 @@ export function createApp(options: AppOptions = {}): App {
     sql: executor,
     provider,
     handoffHmacKey: providerDeps.handoffHmacKey,
+    // #902a：resume 桥需要同一份游戏 resource 配置（provider 已用同一对象装配）
+    gameResource: providerDeps.gameResource,
   }
   registerApiRoutes(router, apiDeps)
 

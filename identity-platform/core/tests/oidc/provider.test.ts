@@ -22,6 +22,8 @@ import { createPostgresAdapterFactory } from '../../src/oidc/adapter/postgres-ad
 import { createClientLoader } from '../../src/oidc/adapter/client-loader.js'
 import { createClientFixture } from '../helpers/fixtures.js'
 import { TEST_KEK } from '../helpers/keys.js'
+// 随机测试端口必须避开 fetch 的 bad-port 黑名单（见 tests/helpers.ts）
+import { listenOnFetchAllowedPort } from '../helpers.js'
 
 const ISSUER = 'https://id.example.test'
 const REDIRECT_URI = 'https://app.example.com/cb'
@@ -35,13 +37,9 @@ interface RunningProvider {
 async function startProvider(provider: Provider): Promise<RunningProvider> {
   // v9 中 Provider 实例本身就是 Koa app
   const server = http.createServer(provider.callback())
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const address = server.address()
-  if (!address || typeof address === 'string') {
-    throw new Error('无法获取测试端口')
-  }
+  const baseUrl = await listenOnFetchAllowedPort(server)
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl,
     provider,
     close: () =>
       new Promise<void>((resolve, reject) =>

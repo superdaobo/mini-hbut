@@ -67,9 +67,14 @@ declare module 'oidc-provider' {
   export interface GrantInstance extends TokenInstance {
     accountId?: string
     clientId?: string
+    /** 已授权 resource indicator → 空格分隔 scope（#902a 游戏 resource 绑定） */
+    resources?: Record<string, string>
     addOIDCScope(scope: string): void
     addOIDCClaims(claims: string[]): void
+    addResourceScope(resource: string, scope: string | string[] | Set<string>): void
     getOIDCScopeEncountered(): string
+    getResourceScope(resource: string): string
+    getResourceScopeFiltered(resource: string, filter: Set<string> | string[]): string
   }
 
   /** 动态加载的 Client 实例（client-loader 组装 metadata 后由 provider 实例化） */
@@ -190,6 +195,19 @@ declare module 'oidc-provider' {
   }
 
   /** custom interaction policy 工厂（interactionPolicy.base / Prompt / Check） */
+  /**
+   * v9 errors 命名空间（lib/helpers/errors.js）。
+   * #902a 需要 `InvalidTarget`：resource indicator 未知 / client 未获准时抛出，
+   * provider 会转成 invalid_target（400），而不是 500。
+   */
+  export const errors: {
+    InvalidTarget: new (detailOrOptions?: string | { detail?: string }) => Error & {
+      error: string
+      statusCode: number
+      expose: boolean
+    }
+  }
+
   export const interactionPolicy: {
     base(): InteractionPolicyArray
     Check: (new (

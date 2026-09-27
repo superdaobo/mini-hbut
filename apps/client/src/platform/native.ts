@@ -170,6 +170,13 @@ export const readNativeBinaryFile = async (filePath: string): Promise<Uint8Array
 
 // ── Identity 设备命令封装（#622 Rust identity_ 命令；#623 消费） ─────────────
 // 安全约定：任何 identity_ 命令都不接受/返回私钥材料；签名在 Rust 侧完成。
+//
+// ⚠️ 参数命名（Tauri v2 硬约束）：`#[tauri::command]` 默认把 Rust 参数名转成
+// lowerCamelCase 作为 payload 查找键（tauri-macros/src/command/wrapper.rs
+// `ArgumentCase::Camel`）。因此 Rust 的 `base_url` 必须由 JS 传 `baseUrl`，
+// 传 `base_url` 会在运行时以 missing required key 失败，且 TypeScript 与
+// vitest（mock 掉 invoke）都发现不了。改这里时请同步核对 Rust 侧参数名。
+// 对照：正确写法见 app/coordinators/IdentityCoordinator.ts 的 enroll 分支。
 
 /** 查询本机设备身份状态（keyring 可用性 + 是否已有密钥） */
 export const identityDeviceStatus = <T = Record<string, unknown>>() =>
@@ -181,25 +188,39 @@ export const identityGetPublicKey = <T = Record<string, unknown>>() =>
 
 /** 设备注册（enrollment）：Rust 用新私钥签名 assertion 并提交 Core */
 export const identityEnrollDevice = <T = Record<string, unknown>>(args: {
-  base_url: string
+  baseUrl: string
   challenge: string
-  device_name: string
+  deviceName: string
+  handoff: string
 }) => invokeNative<T>('identity_enroll_device', args)
 
 /** 对 AuthRequest 授权上下文签名（approve；私钥不进 JS） */
 export const identitySignAuthRequest = <T = Record<string, unknown>>(args: {
-  request_id: string
-  challenge: string
-  client_id: string
-  scopes: string[]
-  device_id: string
+  /** Rust 侧是单个结构体参数 `input: SignAuthRequestInput`（键名 `input` 单词不变） */
+  input: {
+    request_id: string
+    challenge: string
+    client_id: string
+    scopes: string[]
+    device_id: string
+  }
 }) => invokeNative<T>('identity_sign_auth_request', args)
 
-/** 撤销当前设备（提供 base_url 时先调 Core revoke 成功后再删本地 key） */
+/** 撤销当前设备（提供 baseUrl 时先调 Core revoke 成功后再删本地 key） */
 export const identityRevokeCurrentDeviceLocal = <T = Record<string, unknown>>(args: {
-  base_url?: string | null
-  device_id?: string | null
+  baseUrl?: string | null
+  deviceId?: string | null
 }) => invokeNative<T>('identity_revoke_current_device_local', args)
+
+/**
+ * #902 设备换票：challenge → 设备私钥签名 → 换取 resource-scoped JWT Access Token。
+ * 安全：私钥只在 Rust 进程内使用；返回的 AT **仅内存持有**（绝不落 localStorage/日志）；
+ * V1 无 refresh token，AT 到期后由调用方再次调用本命令重新换取。
+ */
+export const identityDeviceToken = <T = Record<string, unknown>>(args: {
+  baseUrl: string
+  deviceId: string
+}) => invokeNative<T>('identity_device_token', args)
 
 /**
  * identity_fetch_auth_history 输出（#777 结构化错误分类）：
@@ -216,8 +237,8 @@ export interface IdentityAuthHistoryNativeOutput {
 
 /** 拉取本机授权历史（设备签名认证；「授权记录」页数据源） */
 export const identityFetchAuthHistory = (args: {
-  base_url?: string
-  device_id: string
+  baseUrl?: string
+  deviceId: string
 }): Promise<IdentityAuthHistoryNativeOutput> =>
   invokeNative<IdentityAuthHistoryNativeOutput>('identity_fetch_auth_history', args)
 

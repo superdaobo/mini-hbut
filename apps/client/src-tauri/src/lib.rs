@@ -668,6 +668,8 @@ pub fn run() {
             identity::commands::identity_sign_auth_request,
             identity::commands::identity_revoke_current_device_local,
             identity::commands::identity_fetch_auth_history,
+            // #902：设备换票（Device 签名 + 一次性 challenge → resource-scoped JWT AT）
+            identity::commands::identity_device_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

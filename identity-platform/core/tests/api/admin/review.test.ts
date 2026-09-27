@@ -15,7 +15,7 @@ import { buildAdminApp, createAdminUser, adminGet, adminPost } from './helpers.j
 import { createClientFixture } from '../../helpers/fixtures.js'
 import { setClientStatus } from '../../../src/domain/clients.js'
 import { updateAppBasic } from './helpers.js'
-import { ensurePendingReview, createPendingReviewForSubmission } from '../../../src/api/admin/reviews.js'
+import { ensurePendingReview, createPendingReviewForSubmission, scopeRisk, reviewHasSensitiveScope } from '../../../src/api/admin/reviews.js'
 import { listAuditEvents } from '../../../src/db/repos/audit.repo.js'
 import { listApprovedScopes } from '../../../src/db/repos/clients.repo.js'
 import { findPendingReview } from '../../../src/api/admin/queries.js'
@@ -303,6 +303,58 @@ describe('#625 审核流（快照/TOCTOU/部分审批/幂等/step-up）', () => 
         { subject: reviewer.userId, body: { scope_decisions: [{ scope: 'openid', decision: 'approved' }] } },
       )
       expect(res.status).toBe(404)
+    })
+  })
+
+  // #902a：game.read / game.play 按敏感 scope 处理（用途说明 + step-up + 人工审批），
+  // 且 DB CHECK（0008 迁移）必须放行这两个 scope —— 三者一致才算注册完成。
+  it('#902a game.* 为敏感 scope：approve 需 step-up，批准后可被 provider 加载', async () => {
+    expect(scopeRisk('game.read')).toBe('sensitive')
+    expect(scopeRisk('game.play')).toBe('sensitive')
+    expect(scopeRisk('openid')).toBe('basic')
+
+    const reviewer = await createAdminUser(db.sql, { role: 'identity_reviewer' })
+    const { applicationId, reviewId } = await setupPendingReview({ scopes: ['openid', 'game.play'] })
+    const pending = await findPendingReview(db.sql, applicationId)
+    expect(pending && reviewHasSensitiveScope(pending)).toBe(true)
+
+    const app = buildAdminApp(db.sql, { IDENTITY_ADMIN_STEP_UP_SECONDS: '600' })
+    await withServer(app, async (baseUrl) => {
+      // 无近期认证 → step-up 拦截（敏感 scope 门禁确实生效）
+      const noStepUp = await adminPost(
+        baseUrl,
+        `/api/v1/admin/apps/${applicationId}/reviews/${reviewId}/approve`,
+        {
+          subject: reviewer.userId,
+          body: {
+            scope_decisions: [
+              { scope: 'openid', decision: 'approved' },
+              { scope: 'game.play', decision: 'approved' },
+            ],
+          },
+        },
+      )
+      expect(noStepUp.status).toBe(403)
+      expect(noStepUp.body.error).toBe('STEP_UP_REQUIRED')
+
+      // 近期认证 → 通过（同时验证 0008 迁移的 CHECK 接受 game.play）
+      const ok = await adminPost(
+        baseUrl,
+        `/api/v1/admin/apps/${applicationId}/reviews/${reviewId}/approve`,
+        {
+          subject: reviewer.userId,
+          authTime: Math.floor(Date.now() / 1000),
+          body: {
+            scope_decisions: [
+              { scope: 'openid', decision: 'approved' },
+              { scope: 'game.play', decision: 'approved' },
+            ],
+          },
+        },
+      )
+      expect(ok.status).toBe(200)
+      const approved = await listApprovedScopes(db.sql, applicationId)
+      expect(approved).toContain('game.play')
     })
   })
 })

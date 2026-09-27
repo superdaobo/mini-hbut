@@ -16,6 +16,8 @@ import {
   validateRedirectUriSet,
 } from '../lib/developer/redirect-uri'
 import {
+  SCOPE_META,
+  SCOPE_WHITELIST,
   homepageRequiredFor,
   isSensitiveScope,
   isWhitelistedScope,
@@ -169,6 +171,23 @@ describe('Scope 校验', () => {
     expect(isSensitiveScope('student.identity')).toBe(true)
     expect(isSensitiveScope('offline_access')).toBe(true)
     expect(isSensitiveScope('profile')).toBe(false)
+  })
+
+  // #902a：游戏平台 scope 必须与 Core 侧逐项一致（domain/clients.ts SCOPE_WHITELIST /
+  // oidc/provider.ts OIDC_SCOPES / 0008 迁移 CHECK / domain/scope-risk.ts），且按敏感处理
+  it('#902a game.read / game.play 在白名单内且为敏感 scope（SCOPE_META 全覆盖）', () => {
+    expect(SCOPE_WHITELIST).toContain('game.read')
+    expect(SCOPE_WHITELIST).toContain('game.play')
+    expect(isWhitelistedScope('game.read')).toBe(true)
+    expect(isWhitelistedScope('game.play')).toBe(true)
+    expect(isSensitiveScope('game.read')).toBe(true)
+    expect(isSensitiveScope('game.play')).toBe(true)
+    expect(SCOPE_META['game.play'].requiresJustification).toBe(true)
+    expect(SCOPE_META['game.read'].requiresJustification).toBe(true)
+    // SCOPE_META 必须覆盖白名单全部条目（漏填会让 UI 渲染 undefined）
+    for (const id of SCOPE_WHITELIST) {
+      expect(SCOPE_META[id]).toBeDefined()
+    }
   })
 
   it('必须包含 openid；非白名单拒绝', () => {

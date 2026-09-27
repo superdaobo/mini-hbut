@@ -55,6 +55,12 @@ describe('#623 Component 契约：应用信息与权限展示', () => {
     expect(IDENTITY_SCOPE_META.openid.label).toBe('确认你的 Mini-HBUT 身份')
     expect(IDENTITY_SCOPE_META['student.identity'].label).toBe('获取你的学校身份（如学号、姓名）')
     expect(IDENTITY_SCOPE_META['student.identity'].risk).toBe('sensitive')
+    // #902b：game.* scope 与 Core #902a 注册项同步（Core 合同 §8.3 第 8 个同步点）：
+    // 兜底元数据必须存在且风险分级与 Core SENSITIVE_SCOPES 一致（sensitive）
+    expect(IDENTITY_SCOPE_META['game.read'].label.trim().length).toBeGreaterThan(0)
+    expect(IDENTITY_SCOPE_META['game.play'].label.trim().length).toBeGreaterThan(0)
+    expect(IDENTITY_SCOPE_META['game.read'].risk).toBe('sensitive')
+    expect(IDENTITY_SCOPE_META['game.play'].risk).toBe('sensitive')
     // 组件渲染 scope.id（强标签）+ scope.label（说明）
     const source = scopeListSource()
     expect(source).toContain('scope.id')

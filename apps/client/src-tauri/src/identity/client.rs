@@ -7,6 +7,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::device_key::PublicJwk;
+use super::device_token::{
+    DeviceTokenChallengeResponse, DeviceTokenExchangeResponse, DEVICE_TOKEN_CHALLENGE_PATH,
+    DEVICE_TOKEN_EXCHANGE_PATH,
+};
 use super::errors::IdentityError;
 
 /// 设备签名 API 的 Authorization header 格式：`Device <device_id> <issued_at> <nonce> <signature>`。
@@ -147,6 +151,81 @@ impl IdentityApiClient {
             Err(parse_api_error(status.as_u16(), &text))
         }
     }
+
+    // ── #902 设备换票（device-signed token exchange） ──────────────────────
+    // 两个端点都只依赖设备签名（不携带学校 Cookie/Token，也不需要 handoff）：
+    //   challenge：Authorization 头（Device 方案，canonical 绑定 POST + 该 path）；
+    //   exchange ：body 内签名（canonical 绑定 challenge）。
+    // 明文 AT 只在 exchange 响应出现一次，调用方拿到后立即交前端内存，绝不写日志/落盘。
+
+    /// POST /api/v1/app/device-token/challenge —— 取一次性 challenge（Device 签名认证）。
+    pub async fn request_device_token_challenge(
+        &self,
+        device_id: &str,
+        issued_at: i64,
+        nonce: &str,
+        signature: &str,
+    ) -> Result<DeviceTokenChallengeResponse, IdentityError> {
+        if device_id.is_empty() || device_id.contains('/') {
+            return Err(IdentityError::InvalidInput("device_id 非法".to_string()));
+        }
+        let auth = format!("{DEVICE_AUTH_SCHEME} {device_id} {issued_at} {nonce} {signature}");
+        let resp = self
+            .http
+            .post(self.url(DEVICE_TOKEN_CHALLENGE_PATH))
+            .header(reqwest::header::AUTHORIZATION, auth)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body("{}")
+            .send()
+            .await
+            .map_err(|e| IdentityError::Network(e.to_string()))?;
+        let status = resp.status();
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| IdentityError::Network(e.to_string()))?;
+        if status.is_success() {
+            serde_json::from_str(&text)
+                .map_err(|e| IdentityError::Internal(format!("challenge 响应解析失败: {e}")))
+        } else {
+            Err(parse_api_error(status.as_u16(), &text))
+        }
+    }
+
+    /// POST /api/v1/app/device-token/exchange —— 设备签名（含 challenge）换取 JWT AT。
+    pub async fn exchange_device_token(
+        &self,
+        body: &DeviceTokenExchangeBody<'_>,
+    ) -> Result<DeviceTokenExchangeResponse, IdentityError> {
+        let resp = self
+            .http
+            .post(self.url(DEVICE_TOKEN_EXCHANGE_PATH))
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| IdentityError::Network(e.to_string()))?;
+        let status = resp.status();
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| IdentityError::Network(e.to_string()))?;
+        if status.is_success() {
+            serde_json::from_str(&text)
+                .map_err(|e| IdentityError::Internal(format!("换票响应解析失败: {e}")))
+        } else {
+            Err(parse_api_error(status.as_u16(), &text))
+        }
+    }
+}
+
+/// POST /api/v1/app/device-token/exchange 请求体（字段与 Core 严格白名单逐字对应）。
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceTokenExchangeBody<'a> {
+    pub device_id: &'a str,
+    pub challenge: &'a str,
+    pub issued_at: i64,
+    pub nonce: &'a str,
+    pub signature: &'a str,
 }
 
 /// 解析 Core 错误响应（error.message 或 error 字符串），已脱敏，不回显敏感材料。

@@ -65,6 +65,52 @@ export class AppInternalError extends DomainError {
   }
 }
 
+// ---------------------------------------------------------------------------
+// #902 设备换票（device-signed token exchange）专用错误
+//
+// 错误码口径（协议 `docs/game-platform/protocol-v1.md` §5 的 17 码，逐条对应关系）：
+//   - SCHEMA_INVALID（400）#15：请求体形状/字段非法（含"非 actor 类的服务端权威字段"）；
+//   - FORBIDDEN_ACTOR（403）#17：请求体出现 actor 字段（student_id / player_id / user_id）——
+//     本路径的身份**只能**来自设备签名 → 设备记录 → user_id，绝不接受请求体声明；
+//   - AUTH_REQUIRED（401）#1：challenge 不存在/已消费/已过期（凭据校验链 fail closed）；
+//   - FEATURE_DISABLED（403）#10：设备换票能力未配置（灰度默认关闭）→ 客户端直接回退 legacy；
+//   - RATE_LIMITED（429）#9：由 security/rate-limit.ts 中间件产出（既有 envelope）。
+// 设备签名本身失败沿用既有 DEVICE_AUTH_FAILED（401，与 /devices/me 同口径），
+// 语义上是 AUTH_REQUIRED 的设备签名子类，保持 App API 既有契约不漂移。
+// ---------------------------------------------------------------------------
+
+/** 请求体形状/字段非法（协议 §5 #15） */
+export class SchemaInvalidError extends DomainError {
+  constructor(detail: string) {
+    super('SCHEMA_INVALID', `请求体无效：${detail}`, 400)
+  }
+}
+
+/** 请求体含 actor 字段（协议 §5 #17）：身份只能来自设备签名 */
+export class ForbiddenActorError extends DomainError {
+  constructor(field: string) {
+    super('FORBIDDEN_ACTOR', `请求体不得包含身份字段 ${field}（身份只能来自设备签名）`, 403)
+  }
+}
+
+/**
+ * 设备换票 challenge 无效（协议 §5 #1）。
+ * 不存在 / 已消费 / 已过期 / 属于其它设备 **共用同一错误与文案**：
+ * 不给探测者提供状态预言机（协议 §6.2.4 探测防护），细节只进服务端日志。
+ */
+export class DeviceChallengeInvalidError extends DomainError {
+  constructor() {
+    super('AUTH_REQUIRED', '设备 challenge 无效或已失效，请重新获取', 401)
+  }
+}
+
+/** 设备换票能力未开启（协议 §5 #10）：未配置第一方换票 client 或该 client 不可用 */
+export class DeviceTokenFeatureDisabledError extends DomainError {
+  constructor() {
+    super('FEATURE_DISABLED', '设备换取身份令牌的能力未开启', 403)
+  }
+}
+
 /** 统一业务错误响应：`{ error: { code, message } }`（message 不含敏感材料） */
 export function respondError(ctx: RouterContext, err: DomainError): void {
   ctx.status = err.status

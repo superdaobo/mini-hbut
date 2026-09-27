@@ -28,6 +28,12 @@ export const CORE_ENV = {
   IDENTITY_AUTH_ORIGIN: 'IDENTITY_AUTH_ORIGIN',
   /** 第一方静态 Client（JWK Set 类似数组；仅 Preview/Test，#620） */
   IDENTITY_STATIC_CLIENTS_JSON: 'IDENTITY_STATIC_CLIENTS_JSON',
+  /** 游戏平台资源服务器 audience（#902a，协议 §6.4；默认 mini-hbut-hf-api） */
+  IDENTITY_GAME_RESOURCE_AUDIENCE: 'IDENTITY_GAME_RESOURCE_AUDIENCE',
+  /** 游戏平台 resource indicator（绝对 https URI；默认 https://<audience>） */
+  IDENTITY_GAME_RESOURCE_INDICATOR: 'IDENTITY_GAME_RESOURCE_INDICATOR',
+  /** 允许获取游戏 JWT AT 的第一方 client_id 白名单（逗号分隔；默认空 = 关闭，#902a） */
+  IDENTITY_GAME_RESOURCE_CLIENTS: 'IDENTITY_GAME_RESOURCE_CLIENTS',
 } as const
 
 /** Web 项目环境变量（Vercel Project B） */
