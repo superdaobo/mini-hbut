@@ -50,8 +50,13 @@ export const isLegacyRankContextKey = (key: unknown): boolean => {
 /**
  * 清理单条落盘上下文。
  *
+ * **两个 base 字段各自独立判定**（不得"取一个值后全删/全留"）：
+ * 同一条记录里 `rankApiBase` 与历史 `rank_api` 可能同时存在且值不同 ——
+ * 取一个值判定会漏删另一侧的跨环境值，或把另一侧的合法值连带删除。
+ * 只保留「非空且环境兼容」的字段，其余逐个删除。
+ *
  * @param raw localStorage 原始字符串
- * @returns 需要写回的 JSON 字符串；`null` = 无需改动（非对象 / 无 base 字段 / base 环境兼容）
+ * @returns 需要写回的 JSON 字符串；`null` = 无需改动（非对象 / 无 base 字段 / 全部字段都合法）
  */
 export const sanitizeLegacyRankContextRaw = (raw: unknown): string | null => {
   if (typeof raw !== 'string' || !raw.trim()) return null
@@ -64,15 +69,16 @@ export const sanitizeLegacyRankContextRaw = (raw: unknown): string | null => {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
   const record = parsed as Record<string, unknown>
 
-  const presentKeys = BASE_FIELD_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(record, key))
-  if (!presentKeys.length) return null
-
-  const base = String(record.rankApiBase ?? record.rank_api ?? '').trim()
-  // 非空且环境兼容 → 合法来源，保留
-  if (base && isStatisticsServiceUrlCompatible(base)) return null
-
-  for (const key of presentKeys) delete record[key]
-  return JSON.stringify(record)
+  let changed = false
+  for (const key of BASE_FIELD_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) continue
+    const base = String(record[key] ?? '').trim()
+    // 非空且环境兼容 → 合法来源，保留；空值与非环境中值一律删除
+    if (base && isStatisticsServiceUrlCompatible(base)) continue
+    delete record[key]
+    changed = true
+  }
+  return changed ? JSON.stringify(record) : null
 }
 
 /** 取默认存储（不可用时返回 null，不抛出） */

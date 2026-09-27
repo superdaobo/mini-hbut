@@ -112,6 +112,32 @@ describe('单条清理（sanitizeLegacyRankContextRaw）', () => {
     expect(parsed.student_id).toBe('20240111')
   })
 
+  it('两个 base 字段各自独立判定：跨环境值被删、合法值保留（无论哪个在前）', () => {
+    // camel 合法 + snake 跨环境 → 只删 snake（不得因为"取到合法值"而全留）
+    const nextA = sanitizeLegacyRankContextRaw(
+      JSON.stringify({ studentId: 's1', rankApiBase: ownBase(), rank_api: foreignBase() })
+    )
+    expect(nextA).not.toBeNull()
+    const parsedA = contextOf(nextA as string)
+    expect(parsedA.rankApiBase).toBe(ownBase())
+    expect(parsedA).not.toHaveProperty('rank_api')
+
+    // camel 跨环境 + snake 合法 → 只删 camel（不得连带删除合法的 snake 值）
+    const nextB = sanitizeLegacyRankContextRaw(
+      JSON.stringify({ studentId: 's1', rankApiBase: foreignBase(), rank_api: ownBase() })
+    )
+    expect(nextB).not.toBeNull()
+    const parsedB = contextOf(nextB as string)
+    expect(parsedB).not.toHaveProperty('rankApiBase')
+    expect(parsedB.rank_api).toBe(ownBase())
+  })
+
+  it('两个字段都合法 → 无需改动', () => {
+    expect(
+      sanitizeLegacyRankContextRaw(JSON.stringify({ rankApiBase: ownBase(), rank_api: ownBase() }))
+    ).toBeNull()
+  })
+
   it('本环境 base → 无需改动', () => {
     expect(sanitizeLegacyRankContextRaw(JSON.stringify({ rankApiBase: ownBase() }))).toBeNull()
   })
