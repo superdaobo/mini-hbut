@@ -35,6 +35,13 @@ import {
   markOnlineTimeout,
   normalizeRoomCode
 } from './game/online.js'
+import {
+  CLAIM_OUTCOMES,
+  GOMOKU_GAME_ID,
+  MATCH_TRUST_LEVEL,
+  createGomokuMatchTrustFromHost,
+  resolveGamePlatformBase
+} from './game/match_trust.js'
 
 const MODULE_ID = 'hbut_gomoku'
 const ONLINE_CONNECT_TIMEOUT_MS = 18000
@@ -54,6 +61,13 @@ let lobbyStatus = 'offline'
 let lobbyError = ''
 let activeMatchRoomCode = ''
 let lobbyPresenceTimer = 0
+// ---- #908：服务端确认的比赛（server_verified_match）----
+// 旁路设计：这一层只上报"我以为的结果"并采纳服务端复算值；任何失败都不影响下棋。
+let matchTrust = null
+let matchTrustEnabled = false
+let matchTrustOutcome = null
+let matchStats = null
+let matchTrustBusy = false
 
 const app = document.getElementById('app')
 
@@ -174,8 +188,18 @@ function statusTitle() {
 }
 
 function statusDetail() {
-  if (state.status === 'won') return isOnlineMode() ? '联机对局结束，可发起同步重开。' : '本地双人对局结束，可重新开局再战。'
-  if (state.status === 'draw') return '没有形成五连，双方平分秋色。'
+  if (state.status === 'won') {
+    if (isOnlineMode() && matchTrustOutcome?.trustLevel === MATCH_TRUST_LEVEL) {
+      return matchTrustOutcome.description
+    }
+    return isOnlineMode() ? '联机对局结束，可发起同步重开。' : '本地双人对局结束，可重新开局再战。'
+  }
+  if (state.status === 'draw') {
+    if (isOnlineMode() && matchTrustOutcome?.trustLevel === MATCH_TRUST_LEVEL) {
+      return matchTrustOutcome.description
+    }
+    return '没有形成五连，双方平分秋色。'
+  }
   if (onlineError) return onlineError
   if (lobbyError && lobbyStatus === 'failed') return lobbyError
   if (isQueuedForMatch()) return '已进入匹配队列，匹配到同学后会自动进入 PK 对局。'
@@ -251,6 +275,10 @@ function renderOnlinePanel() {
         <div>
           <span>席位</span>
           <strong>${seatText}</strong>
+        </div>
+        <div>
+          <span>赛果</span>
+          <strong>${matchOutcomeText()}</strong>
         </div>
       </div>
       <div class="room-controls">
@@ -550,6 +578,8 @@ function handlePlaceStone(row, col) {
     state = result.state
     render()
     if (result.accepted) void sendOnlineMessage(result.message)
+    // 本地落子凑成五连/平局 → 按"我以为"上报（服务端仍会独立复算）。
+    maybeReportMatchResult()
     return
   }
 
@@ -580,6 +610,101 @@ async function resetOnlineClient() {
     // 关闭旧房间失败不影响重新连接。
   }
   onlineClient = null
+}
+
+// ---------------------------------------------------------------------------
+// #908 服务端确认的比赛（server_verified_match）
+//
+// - 客户端只上报"我以为的结果"，赛果由服务端按自己记录的 move 序列复算；
+// - 一切失败都是旁路：只影响"赛果是否已确认"的展示，绝不影响下棋与联机。
+// ---------------------------------------------------------------------------
+function localOutcomeClaim() {
+  if (state.status === 'won') {
+    return state.winner === state.localPlayer ? CLAIM_OUTCOMES.win : CLAIM_OUTCOMES.loss
+  }
+  if (state.status === 'draw') return CLAIM_OUTCOMES.draw
+  return ''
+}
+
+function matchOutcomeText() {
+  if (!isOnlineMode()) return '本地'
+  if (!matchTrustEnabled) return '未接入'
+  const confirmed = matchTrustOutcome?.trustLevel === MATCH_TRUST_LEVEL
+  const label =
+    matchTrustOutcome?.authoritative === 'win'
+      ? '胜'
+      : matchTrustOutcome?.authoritative === 'loss'
+        ? '负'
+        : matchTrustOutcome?.authoritative === 'draw'
+          ? '平'
+          : ''
+  const season = matchStats?.season
+  const statsText =
+    season && Number(season.matches || 0) > 0
+      ? ` · 赛季 ${season.wins}胜${season.losses}负 ${season.points}分`
+      : ''
+  if (!matchTrustOutcome) return '待确认'
+  return `${confirmed ? '已确认' : '未确认'}${label ? `·${label}` : ''}${statsText}`
+}
+
+async function initMatchTrust() {
+  try {
+    const bootstrapped = await createGomokuMatchTrustFromHost({
+      baseUrl: resolveGamePlatformBase({
+        injected: safeUrlParam('game_platform_api') || safeUrlParam('gp_api'),
+        rankApi: safeUrlParam('rank_api')
+      }),
+      gameId: GOMOKU_GAME_ID,
+      onUpdate: () => {
+        if (matchTrust) matchStats = matchTrust.snapshot().stats || matchStats
+        render()
+      }
+    })
+    matchTrust = bootstrapped.trust
+    matchTrustEnabled = bootstrapped.enabled
+  } catch {
+    // 任何异常都只降级为"不统计"，绝不影响下棋。
+    matchTrust = null
+    matchTrustEnabled = false
+  }
+  render()
+}
+
+// 绑定席位（幂等；每次 relay 下发/更换 match_id 都会尝试一次）
+async function syncMatchSeat(event = {}) {
+  if (!matchTrustEnabled || !matchTrust || matchTrustBusy) return
+  matchTrust.rememberMatch({ matchId: event.matchId, roomCode: event.roomCode })
+  if (!matchTrust.snapshot().matchId) return
+  matchTrustBusy = true
+  try {
+    const payload = await matchTrust.claimSeat({
+      peerId: event.peerId || state.transportPeerId || state.localPeerId,
+      roomCode: event.roomCode || state.sessionId
+    })
+    if (payload) render()
+  } finally {
+    matchTrustBusy = false
+  }
+}
+
+// 上报"我以为的结果"（同一结果只上报一次；服务端幂等，重复上报不会产生第二条结果）
+async function reportMatchResult() {
+  if (!matchTrustEnabled || !matchTrust) return
+  const claim = localOutcomeClaim()
+  if (!claim && state.onlineStatus !== 'peer_left') return
+  const snapshot = matchTrust.snapshot()
+  if (!snapshot.matchId) return
+  const payload = await matchTrust.reportResult({ claimedOutcome: claim })
+  if (!payload) return
+  matchTrustOutcome = matchTrust.authoritative()
+  matchStats = matchTrust.snapshot().stats || matchStats
+  render()
+}
+
+function maybeReportMatchResult() {
+  if (!isOnlineMode()) return
+  if (state.status === 'playing' && state.onlineStatus !== 'peer_left') return
+  void reportMatchResult()
 }
 
 function strategyLabel(strategy) {
@@ -783,6 +908,12 @@ function handleOnlineEvent(event) {
   if (!event) return
   onlineError = ''
 
+  if (event.type === 'match') {
+    // #908：relay 下发服务端比赛标识 → 绑定席位（幂等）。
+    void syncMatchSeat(event)
+    return
+  }
+
   if (event.type === 'peer_join') {
     clearOnlineTimeout()
     state = applyPeerJoined(state, event.peerId)
@@ -796,6 +927,8 @@ function handleOnlineEvent(event) {
   if (event.type === 'peer_leave') {
     state = applyPeerLeft(state, event.peerId)
     render()
+    // 对手离开：服务端可能已按弃权裁定终局，本地按"我以为"上报一次（幂等）。
+    maybeReportMatchResult()
     return
   }
 
@@ -814,6 +947,7 @@ function handleOnlineEvent(event) {
   state = nextState
   if (state.onlineStatus === 'connected' && !state.lastError) clearOnlineTimeout()
   render()
+  maybeReportMatchResult()
 }
 
 window.addEventListener('resize', syncViewport)
@@ -839,3 +973,4 @@ if ('ResizeObserver' in window) {
 syncViewport()
 render()
 void connectMatchmakingLobby()
+void initMatchTrust()
