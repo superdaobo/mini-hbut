@@ -893,8 +893,16 @@ export const createHfRelayGomokuRoom = async ({
   let cursor = 0
   let knownPeers = new Set()
   let pollTimer = 0
+  // #908：relay 下发服务端比赛标识（additive 字段；服务端开关关闭时为空）。
+  let matchId = ''
 
   const selfPeerId = normalizePeerId(peerId) || createRelayPeerId()
+  const emitMatchId = (value) => {
+    const next = normalizePeerId(value)
+    if (!next || next === matchId) return
+    matchId = next
+    onEvent({ type: 'match', matchId: next, roomCode: normalizedRoom, peerId: selfPeerId })
+  }
   const emitPeerList = (peers = []) => {
     for (const peer of peers) {
       const normalizedPeer = normalizePeerId(peer)
@@ -936,6 +944,7 @@ export const createHfRelayGomokuRoom = async ({
     cursor =
       preserveCursor && joinedCursor >= previousCursor ? previousCursor : joinedCursor
     emitPeerList(joinBody.peers || [])
+    emitMatchId(joinBody.match_id)
     return joinBody
   }
 
@@ -953,6 +962,7 @@ export const createHfRelayGomokuRoom = async ({
   const applyPollBody = (body = {}) => {
     cursor = Number(body.cursor || cursor) || cursor
     emitPeerList(body.peers || [])
+    emitMatchId(body.match_id)
     for (const event of body.events || []) {
       emitRelayEvent(event)
     }
@@ -987,6 +997,8 @@ export const createHfRelayGomokuRoom = async ({
     selfPeerId,
     strategy: ONLINE_STRATEGIES.hfRelay,
     pollOnce,
+    /** 服务端比赛标识（#908；未开启比赛记录或尚未 join 时返回空串）。 */
+    getMatchId: () => matchId,
     async send(message, targetPeerId = '') {
       const sendOnce = () => fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/send`, {
         method: 'POST',
@@ -998,11 +1010,11 @@ export const createHfRelayGomokuRoom = async ({
         })
       })
       try {
-        await sendOnce()
+        emitMatchId((await sendOnce())?.match_id)
       } catch (error) {
         if (!isMissingRelayPeerError(error)) throw error
         await joinRelayRoom({ preserveCursor: true })
-        await sendOnce()
+        emitMatchId((await sendOnce())?.match_id)
       }
     },
     async close() {
@@ -1123,6 +1135,8 @@ export const createTrysteroGomokuRoom = async ({
     roomCode: normalizedRoom,
     selfPeerId: trystero.selfId || '',
     strategy: onlineStrategy,
+    /** P2P 通道没有服务端比赛标识（#908 只覆盖 HF 中转策略）。 */
+    getMatchId: () => '',
     send(message, targetPeerId) {
       return action.send(message, targetPeerId)
     },
