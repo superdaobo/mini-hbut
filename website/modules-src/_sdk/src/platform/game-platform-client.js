@@ -122,6 +122,8 @@ export const createGamePlatformClient = (options = {}) => {
         protocolVersion: data.protocol_version,
         serverVersion: safeText(data.server_version),
         features: isPlainObject(data.features) ? { ...data.features } : {},
+        /** 端点能力声明（P1-1；缺失即 {} → SDK 侧一律按 false 处理） */
+        capabilities: isPlainObject(data.capabilities) ? { ...data.capabilities } : {},
         limits: isPlainObject(data.limits) ? { ...data.limits } : {},
         registry: isPlainObject(data.registry) ? { ...data.registry } : {},
         status,

@@ -41,9 +41,9 @@ import {
 } from './legacy/legacy-rank.js'
 import { createRun, RUN_STATUS } from './run.js'
 import { ERROR_CODES, GamePlatformError, normalizeError } from './errors.js'
+import { emptyServiceCapabilities, isCapabilityDisabled, readServiceCapabilities, SERVICE_CAPABILITY_KEYS } from './capabilities.js'
 import {
   DEFAULT_GAME_PLATFORM_API_BASE,
-  DEFAULT_LEGACY_RANK_API_BASE,
   GAME_PLATFORM_API_NAMESPACE,
   MODES,
   SDK_VERSION,
@@ -65,26 +65,59 @@ export const stripPiiFields = (entry) => {
   return safe
 }
 
-const resolveApiBases = (config, params) => {
-  const explicitV2 = safeText(config.gamePlatformApiBase || config.apiBase) || safeText(params.get('game_platform_api')) || safeText(params.get('gp_api'))
-  const explicitLegacy = safeText(config.rankApiBase) || safeText(params.get('rank_api'))
-  const normalizeV2 = (value) => {
-    const text = safeText(value)
-    if (!text) return DEFAULT_GAME_PLATFORM_API_BASE
-    const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`
-    const trimmed = withProtocol.replace(/\/+$/, '')
-    if (trimmed.endsWith(GAME_PLATFORM_API_NAMESPACE)) return trimmed
-    if (/\/api\/game-rank$/i.test(trimmed)) return `${trimmed.replace(/\/api\/game-rank$/i, '')}${GAME_PLATFORM_API_NAMESPACE}`
-    if (/\/api$/i.test(trimmed)) return `${trimmed}/game-platform/v1`
-    return `${trimmed}${GAME_PLATFORM_API_NAMESPACE}`
-  }
+/** V2 base 归一：补协议、去尾斜杠、补 `/api/game-platform/v1`（末段与旧行为一致） */
+const normalizeV2ApiBase = (value) => {
+  const text = safeText(value)
+  if (!text) return DEFAULT_GAME_PLATFORM_API_BASE
+  const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`
+  const trimmed = withProtocol.replace(/\/+$/, '')
+  if (trimmed.endsWith(GAME_PLATFORM_API_NAMESPACE)) return trimmed
+  if (/\/api\/game-rank$/i.test(trimmed)) return `${trimmed.replace(/\/api\/game-rank$/i, '')}${GAME_PLATFORM_API_NAMESPACE}`
+  if (/\/api$/i.test(trimmed)) return `${trimmed}/game-platform/v1`
+  return `${trimmed}${GAME_PLATFORM_API_NAMESPACE}`
+}
+
+/**
+ * **API base 单一决策出口**（P1-5 收口）。引擎与测试都只走这里，禁止任何游戏自带默认域。
+ *
+ * 决策链（优先级从高到低；V2 与 Legacy 两条通道各自判定）：
+ *   1. `config.gamePlatformApiBase` / `config.apiBase` / `config.rankApiBase`（SDK 显式配置）
+ *   2. Host 注入的 iframe URL query：`gp_api` / `rank_api`
+ *      （宿主侧 MoreView / 游乐场把 `rank_api` 写进 iframe URL；V2 base 可由其**同源推导**）
+ *   3. 持久化上下文：localStorage 中上一次 Host 注入的 `rankApiBase`
+ *      （由 `readLegacyModuleContext` 读取；本函数只看 config/URL，引擎再叠加该层）
+ *   4. 环境默认（`DEFAULT_GAME_PLATFORM_API_BASE`，生产源）——**只有 V2 通道有**。
+ *
+ * Fail closed 规则（不可违反）：
+ * - **Legacy 无环境默认**：没有任何显式来源 → `legacyBase === ''` → 不可提交
+ *   （引擎进入 standalone，零远程请求）。这正是「网页直开模块写进测试库」的根治点。
+ * - Legacy 缺失时**不得**借用 V2 的环境默认（两者是不同后端语义，绝不互相兜底）。
+ *
+ * @param {object} config 引擎配置
+ * @param {URLSearchParams} [params] URL query（默认惰性取 location）
+ * @returns {{ v2Base: string, v2Source: string, legacyBase: string, legacySource: string, rankApiInjected: boolean }}
+ *   `source ∈ 'config' | 'host' | 'host_derived' | 'env_default'`（legacy 另有 `'none'`）
+ */
+export const resolveApiBases = (config = {}, params) => {
+  const search = params || readSearchParams()
+  const configV2 = safeText(config.gamePlatformApiBase || config.apiBase)
+  const hostV2 = safeText(search.get('game_platform_api')) || safeText(search.get('gp_api'))
+  const configLegacy = safeText(config.rankApiBase)
+  const hostLegacy = safeText(search.get('rank_api'))
+  // 显式 Legacy 决策（SDK 配置 > Host 注入）；没有显式值时**不**设置任何默认
+  const explicitLegacy = configLegacy || hostLegacy
+  const legacySource = configLegacy ? 'config' : hostLegacy ? 'host' : 'none'
   // 未显式给 V2 base 时，从宿主注入的 rank_api 同源推导（避免游戏各自硬编码生产地址）
   const derivedFromRank = explicitLegacy
-    ? normalizeV2(explicitLegacy.replace(/\/api\/game-rank.*$/i, ''))
+    ? normalizeV2ApiBase(safeText(explicitLegacy).replace(/\/api\/game-rank.*$/i, ''))
     : ''
+  const explicitV2 = configV2 || hostV2
+  const v2Source = configV2 ? 'config' : hostV2 ? 'host' : derivedFromRank ? 'host_derived' : 'env_default'
   return {
-    v2Base: normalizeV2(explicitV2 || derivedFromRank),
-    legacyBase: explicitLegacy ? explicitLegacy.replace(/\/+$/, '') : DEFAULT_LEGACY_RANK_API_BASE,
+    v2Base: normalizeV2ApiBase(explicitV2 || derivedFromRank),
+    v2Source,
+    legacyBase: explicitLegacy ? safeText(explicitLegacy).replace(/\/+$/, '') : '',
+    legacySource,
     rankApiInjected: !!explicitLegacy
   }
 }
@@ -118,7 +151,8 @@ export const createEngine = (config = {}) => {
     hostRejections: [],
     errors: [],
     legacy: {},
-    api: { v2: bases.v2Base, legacy: bases.legacyBase, rank_api_injected: bases.rankApiInjected }
+    /** API 决策结果（见 resolveApiBases；legacy 为空串 = 未配置 = 不可提交） */
+    api: { v2: bases.v2Base, legacy: bases.legacyBase, rank_api_injected: bases.rankApiInjected, sources: { v2: bases.v2Source, legacy: bases.legacySource } }
   }
   const reasons = new Set()
   const noteReason = (reason) => {
@@ -150,6 +184,15 @@ export const createEngine = (config = {}) => {
       : readLegacyModuleContext({ gameId, params, storage: config.storage, storageKeys: legacyStorageKeys })
   if (bases.rankApiInjected) legacyContext.rankApiBase = bases.legacyBase
   if (legacyProtocol === 'template') writeLegacyModuleContext(legacyContext, { storage: config.storage, storageKeys: legacyStorageKeys })
+  /**
+   * Legacy base 的**最终生效来源**（诊断用）：
+   * 显式配置 / Host 注入 → 直接来自 resolveApiBases；
+   * 都没有但 localStorage 里有上一次 Host 注入的值 → 'stored'；
+   * 仍没有 → 'none'（引擎会判定 standalone，零远程请求）。
+   */
+  const legacyBaseSource = bases.legacySource !== 'none' ? bases.legacySource : safeText(legacyContext.rankApiBase) ? 'stored' : 'none'
+  diagnostics.api.legacy = safeText(legacyContext.rankApiBase || legacyContext.rank_api)
+  diagnostics.api.sources.legacy = legacyBaseSource
 
   const legacyCapable = () => effectiveAdapter.capabilities.legacyCompatible !== false
   const customLegacy = config.legacy && typeof config.legacy.submit === 'function' ? config.legacy : null
@@ -246,6 +289,14 @@ export const createEngine = (config = {}) => {
   const runs = new Map()
   let activeRun = null
 
+  /**
+   * 服务端/宿主能力声明（P1-1）。
+   *
+   * 纯派生：从 `state.meta`（/meta，服务端权威）与 `state.welcome`（宿主转发）读取，
+   * 不落任何额外状态。**保守默认**：拿不到 /meta 或字段缺失 → false（见 capabilities.js）。
+   */
+  const readDeclaredCapabilities = () => readServiceCapabilities({ meta: state.meta, welcome: state.welcome })
+
   const engine = {
     gameId,
     get adapter() {
@@ -264,6 +315,8 @@ export const createEngine = (config = {}) => {
     isReady: () => readySettled,
     features: () => ({ ...state.features }),
     limits: () => ({ ...state.limits }),
+    /** 服务端/宿主能力声明（保守；句柄的 leaderboard 闸门与 capabilities() 共用同一读取） */
+    declaredCapabilities: () => readDeclaredCapabilities(),
     clientVersion: () => clientVersion,
     platformContext: () => ({ ...platformContext }),
     legacyContext: () => ({ ...legacyContext }),
@@ -348,16 +401,31 @@ export const createEngine = (config = {}) => {
       }
     },
 
+    /**
+     * 能力表（既有键语义不变 + 新增 `server`）。
+     *
+     * `server`＝服务端声明的端点能力（**保守**：未知即 false，见 capabilities.js），
+     * 供游戏/宿主做 UI **前置隐藏**（P1-1：flag 打开但端点未实现时不得渲染入口）。
+     *
+     * `leaderboard` 的取值规则（避免误伤已上线游戏）：
+     * - Legacy 可用 → true；
+     * - verified 且服务端**没有明确说** leaderboards 不可用 → true（保持既有探测 + 降级行为）；
+     * - 服务端**显式**声明 `leaderboards:false` → false（不再只信 flag 去点亮入口）。
+     */
     capabilities() {
       const verified = state.mode === MODES.verified
       const legacyAvailable = legacyChannel.canSubmit()
+      const declared = readDeclaredCapabilities()
+      const leaderboardDisabled = isCapabilityDisabled(declared, 'leaderboards')
       return {
         ...adapterConfig.capabilities,
         canSubmitVerified: verified,
         canSubmitLegacy: legacyAvailable,
         canSubmit: verified || legacyAvailable,
-        leaderboard: verified || legacyAvailable,
-        rewardsEnabled: verified && state.features.economy === true,
+        leaderboard: legacyAvailable || (verified && !leaderboardDisabled),
+        /** 服务端能力（保守表；键名见 SERVICE_CAPABILITY_KEYS） */
+        server: { ...declared.values },
+        rewardsEnabled: verified && state.features.economy === true && !isCapabilityDisabled(declared, 'verified_reward'),
         blocked: state.blocked ? { code: state.blocked.code } : null
       }
     },
@@ -373,6 +441,8 @@ export const createEngine = (config = {}) => {
         canSubmitLegacy: legacyAvailable,
         canSubmit,
         leaderboard: canSubmit,
+        /** ready 之前拿不到 /meta：能力表一律保守 false（UI 不得乐观渲染） */
+        server: emptyServiceCapabilities(),
         rewardsEnabled: false,
         blocked: null,
         pending: true
@@ -380,6 +450,7 @@ export const createEngine = (config = {}) => {
     },
 
     diagnosticsSnapshot() {
+      const declared = readDeclaredCapabilities()
       return {
         gameId,
         sdkVersion: SDK_VERSION,
@@ -392,7 +463,12 @@ export const createEngine = (config = {}) => {
         registrySource: state.registrySource,
         ticket: { present: !!state.ticket, source: state.ticketSource },
         session: { present: client.hasSession() },
-        api: { ...diagnostics.api },
+        api: { ...diagnostics.api, sources: { ...diagnostics.api.sources } },
+        capabilities: {
+          source: declared.source,
+          declared: declared.declared.slice(),
+          disabled: SERVICE_CAPABILITY_KEYS.filter((key) => isCapabilityDisabled(declared, key))
+        },
         legacy: { ...diagnostics.legacy }
       }
     },
@@ -724,6 +800,23 @@ export const createGame = (config = {}) => {
       }
     }
     if (mode === MODES.compatibility) return leaderboardFromLegacy({ scope, limit })
+
+    // P1-1 运行时闸门：服务端**显式**声明 `/leaderboards` 未实现时，一个请求都不发
+    // （未知/字段缺失仍走既有探测 + 降级，避免在 capabilities 字段尚未上线的过渡期误伤）。
+    if (isCapabilityDisabled(engine.declaredCapabilities(), 'leaderboards')) {
+      const gateReason = 'capability_leaderboards_disabled'
+      if (engine.legacy.canSubmit()) return leaderboardFromLegacy({ scope, limit, reason: gateReason })
+      return {
+        success: false,
+        mode,
+        source: 'none',
+        entries: [],
+        scopeApplied: scope,
+        reason: gateReason,
+        message: '排行榜暂未开放（服务端未启用）',
+        error: { code: ERROR_CODES.FEATURE_DISABLED, message: '排行榜暂未开放（服务端未启用）', retryable: false }
+      }
+    }
 
     try {
       const result = await engine.client.leaderboard({

@@ -8,11 +8,13 @@
  * - **显式标注 `trust_level = legacy`**：Legacy 通道永不产生 XP / 湖工币 / Season 排名（compatibility.md §2）；
  * - actor 自报（`student_id`）**只允许**出现在 Legacy 请求体里，绝不进入 V2 路径（trust-model.md §3）；
  * - 请求体字段名与响应处理逐字节对齐既有实现（`game_rank.js:186-208`），保证老服务端行为不变；
- * - 超时 12s、重试 `[1200,2600,5200]`、仅 submit 重试（沿用既有约定）。
+ * - 超时 12s、重试 `[1200,2600,5200]`、仅 submit 重试（沿用既有约定）；
+ * - **P1-5（fail closed）**：API base 必须由 SDK 配置 / Host 注入显式决定，无隐式默认域。
+ *   无 `rank_api` → 判定不可提交（standalone 纯本地，零远程请求），
+ *   既不发 V2 也不发 Legacy，也绝不回落测试域。
  */
 
 import {
-  DEFAULT_LEGACY_RANK_API_BASE,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_RETRY_DELAYS_MS,
   LEADERBOARD_TIMEOUT_MESSAGE
@@ -27,10 +29,17 @@ export const LEGACY_PROTOCOL = 'template_v1'
 /** Legacy 通道标识（诊断用） */
 export const LEGACY_CHANNEL_CODE = 'legacy_rank_api'
 
-/** API base 归一（与既有 normalizeApiBase 行为一致：补协议、去尾斜杠、补 /api/game-rank） */
+/**
+ * API base 归一（补协议、去尾斜杠、补 `/api/game-rank`）。
+ *
+ * **P1-5 决策：空值不再回落到任何域**（旧行为回落测试域 → 网页直开模块把成绩写进测试库）。
+ * 空值一律返回 `''` = 「未配置」：由 `canSubmitLegacyRank` 判定为不可提交（fail closed →
+ * standalone 纯本地），而**不是**静默打某个可能错误的域。测试域/生产域都只能由
+ * SDK 配置或 Host 注入（`rank_api`）显式决定。
+ */
 export const normalizeLegacyRankApiBase = (value) => {
   const text = safeText(value)
-  if (!text) return DEFAULT_LEGACY_RANK_API_BASE
+  if (!text) return ''
   const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`
   const normalized = withProtocol.replace(/\/+$/, '')
   if (/\/api\/game-rank$/i.test(normalized)) return normalized
@@ -60,6 +69,10 @@ const pickStoredText = (stored, camelKey, snakeKey) => pickText(stored?.[camelKe
 
 /**
  * 读取 Legacy 上下文（URL 参数优先，其次 localStorage）。
+ *
+ * P1-5：`rankApiBase` 不再有隐式默认 —— 未注入即 `''`，此时 `canSubmitLegacyRank` 为 false，
+ * 引擎进入 standalone（本地保留成绩，零远程请求）。
+ *
  * @param {object} options
  * @param {string} options.gameId
  * @param {string[]} [options.storageKeys] 读取顺序（写入只写第一个，避免跨模块串味）
@@ -91,7 +104,12 @@ export const readLegacyModuleContext = (options = {}) => {
   return context
 }
 
-/** 写回模块私有 key（只有存在可展示身份信息时才写，行为对齐既有实现） */
+/**
+ * 写回模块私有 key（只有存在可展示身份信息时才写，行为对齐既有实现）。
+ *
+ * P1-5：**不写入任何伪造的 API base**（旧实现会把测试域默认值写进 localStorage，
+ * 让下一次访问继承一个错误目标）。只有显式注入过 base 才落盘。
+ */
 export const writeLegacyModuleContext = (context, options = {}) => {
   const storage = options.storage || getLocalStorage()
   if (!storage || typeof storage.setItem !== 'function') return false
@@ -116,7 +134,8 @@ export const writeLegacyModuleContext = (context, options = {}) => {
         runtime: safeText(next.runtime),
         appVersion: safeText(next.appVersion),
         from: safeText(next.from),
-        rankApiBase: safeText(next.rankApiBase || DEFAULT_LEGACY_RANK_API_BASE)
+        // 未配置时写空串：下一次读取仍是「未配置」，不会继承一个隐式远程目标
+        rankApiBase: safeText(next.rankApiBase)
       })
     )
     return true
@@ -125,7 +144,12 @@ export const writeLegacyModuleContext = (context, options = {}) => {
   }
 }
 
-/** Legacy 通道可用性：需要自报身份 + 可解析的 API base（对齐既有 canUseGameRank） */
+/**
+ * Legacy 通道可用性：需要自报身份 + **显式注入**的可解析 API base（P1-5 起 fail closed）。
+ *
+ * 与既有 `canUseGameRank` 的差异只有一条：**没有 base 不再算「可用」**。
+ * 对齐 `jump_out` 旧协议的既有语义（无 `rank_api` → 不可用），两条 Legacy 通道行为一致。
+ */
 export const canSubmitLegacyRank = (context, options = {}) => {
   if (options.legacyCompatible === false) return false
   const profile = context && typeof context === 'object' ? context : {}
