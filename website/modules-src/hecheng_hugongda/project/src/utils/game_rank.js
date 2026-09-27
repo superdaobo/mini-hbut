@@ -1,8 +1,16 @@
 const DEFAULT_GAME_ID = 'hecheng_hugongda'
-const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
 const REQUEST_TIMEOUT_MS = 12000
 const MODULE_CONTEXT_STORAGE_KEY = 'hbut_game_rank_context_v1'
 const DEFAULT_RETRY_DELAYS_MS = [1200, 2600, 5200]
+
+/**
+ * P1-5 收口（standalone 默认不远程提交）：
+ * 排行榜 API 目标只能由 SDK 配置 / Host 注入（URL `rank_api`）或已落盘的显式上下文决定；
+ * 未注入即「未配置」（base 为空串）→ 判定不可提交（standalone，零远程请求），
+ * 绝不回落任何硬编码默认域（旧行为会把网页直开模块的成绩写进测试库）。
+ */
+const RANK_API_UNCONFIGURED_MESSAGE = '排行榜服务未配置（未注入 rank_api）'
+const STUDENT_ID_MISSING_MESSAGE = '当前未注入学号，无法上传排行榜成绩'
 
 const safeText = (value) => String(value ?? '').trim()
 const LEADERBOARD_TIMEOUT_MESSAGE = '排行榜请求超时，请稍后重试'
@@ -17,7 +25,8 @@ const safeParseJson = (raw, fallback = null) => {
 
 const normalizeApiBase = (value) => {
   const text = safeText(value)
-  if (!text) return DEFAULT_GAME_RANK_API
+  // 空值 = 未配置 = 不可提交（fail closed），不再回落任何默认域
+  if (!text) return ''
   const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`
   const normalized = withProtocol.replace(/\/+$/, '')
   if (/\/api\/game-rank$/i.test(normalized)) return normalized
@@ -153,7 +162,8 @@ const writeStoredContext = (context) => {
       runtime: safeText(next.runtime),
       appVersion: safeText(next.appVersion),
       from: safeText(next.from),
-      rankApiBase: safeText(next.rankApiBase || DEFAULT_GAME_RANK_API)
+      // 未配置时写空串：下次读取仍是「未配置」，不会继承一个隐式远程目标
+      rankApiBase: safeText(next.rankApiBase)
     })
   )
 }
@@ -180,14 +190,16 @@ export const readGameModuleContext = () => {
 
 export const canUseGameRank = (context) => {
   const profile = context && typeof context === 'object' ? context : {}
+  // base 为空 = 未配置（standalone）→ 不可提交；两条都满足才允许远程上传
   return !!safeText(profile.studentId) && !!normalizeApiBase(profile.rankApiBase)
 }
 
 export const submitGameRank = async (context, payload = {}, options = {}) => {
   const profile = context && typeof context === 'object' ? context : readGameModuleContext()
-  if (!canUseGameRank(profile)) {
-    throw new Error('当前未注入学号，无法上传排行榜成绩')
-  }
+  // P1-5：无身份或未配置 rank_api → 明确拒绝，且不发起任何远程请求（成绩仅本地保留）
+  if (!safeText(profile.studentId)) throw new Error(STUDENT_ID_MISSING_MESSAGE)
+  const apiBase = normalizeApiBase(profile.rankApiBase)
+  if (!apiBase) throw new Error(RANK_API_UNCONFIGURED_MESSAGE)
   const body = {
     game_id: safeText(payload.gameId || profile.gameId || DEFAULT_GAME_ID),
     run_id: safeText(payload.runId),
@@ -207,7 +219,7 @@ export const submitGameRank = async (context, payload = {}, options = {}) => {
     payload: payload.extra && typeof payload.extra === 'object' ? payload.extra : {}
   }
   return requestJsonWithRetry(
-    `${normalizeApiBase(profile.rankApiBase)}/submit`,
+    `${apiBase}/submit`,
     {
       method: 'POST',
       body: JSON.stringify(body)
@@ -218,6 +230,9 @@ export const submitGameRank = async (context, payload = {}, options = {}) => {
 
 export const fetchGameLeaderboard = async (context, options = {}) => {
   const profile = context && typeof context === 'object' ? context : readGameModuleContext()
+  // P1-5：未配置 rank_api → 不发起排行榜请求（零远程，UI 显示未配置）
+  const apiBase = normalizeApiBase(profile.rankApiBase)
+  if (!apiBase) throw new Error(RANK_API_UNCONFIGURED_MESSAGE)
   const scope = safeText(options.scope || 'class') || 'class'
   const query = new URLSearchParams({
     game_id: safeText(options.gameId || profile.gameId || DEFAULT_GAME_ID),
@@ -230,7 +245,7 @@ export const fetchGameLeaderboard = async (context, options = {}) => {
   if (studentId) query.set('student_id', studentId)
   if (className) query.set('class_name', className)
   if (schoolName) query.set('school_name', schoolName)
-  return requestJson(`${normalizeApiBase(profile.rankApiBase)}/leaderboard?${query.toString()}`)
+  return requestJson(`${apiBase}/leaderboard?${query.toString()}`)
 }
 
 export const createRunId = () => {
