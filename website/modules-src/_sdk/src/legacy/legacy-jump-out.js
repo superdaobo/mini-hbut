@@ -144,13 +144,23 @@ export const createJumpOutLegacyAdapter = () => ({
   createRunId: createJumpOutRunId,
   submit: submitJumpOutLegacyRank,
   leaderboard: fetchJumpOutLegacyLeaderboard,
-  /** 旧协议 payload 使用 snake_case（不能复用 template 的 camelCase 输入） */
-  toLegacyPayload: ({ result, durationMs }) => ({
+  /**
+   * 旧协议 payload 使用 snake_case（不能复用 template 的 camelCase 输入）。
+   *
+   * #907 修复两处与旧实现（`game_rank.js` 的 `submitGameRank`）的字段保真差异：
+   * 1. **补 `run_id`**：旧实现的 body 是 `{...payload, game_id, student_id, ...}`，而
+   *    `payload.run_id` 由调用方提供（JSDoc 明确「本局唯一 ID」）；Legacy 表存在
+   *    唯一键 `uk_game_rank_runs_run_id`，缺它可能导致提交被拒或历史行为不一致。
+   * 2. `ended_reason` 用**未归一化**的原始值（`rawEndedReason`，由 run.js 从
+   *    `diagnostics.endedReasonRaw` 透传）—— 归一化属 V2 语义，经典榜要存原值。
+   */
+  toLegacyPayload: ({ result, durationMs, runId, rawEndedReason }) => ({
+    run_id: safeText(runId),
     score: Number(result?.score) || 0,
     max_level: Number(result?.metric?.value) || 0,
     duration_ms: Number(durationMs) || 0,
     move_count: Number(result?.moves) || 0,
-    ended_reason: safeText(result?.ended_reason) || 'unknown',
+    ended_reason: safeText(rawEndedReason) || safeText(result?.ended_reason) || 'unknown',
     payload: result?.extra && typeof result.extra === 'object' ? { ...result.extra } : {}
   })
 })

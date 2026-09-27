@@ -211,16 +211,23 @@ export const createGameAdapter = (config = {}) => {
     }
   }
 
-  /** V2 envelope → Legacy 字段（dual-write 反算；max_level 逐游戏不同，见 game-registry.md §4） */
-  const toLegacyPayload = (result = {}) => {
+  /**
+   * V2 envelope → Legacy 字段（dual-write 反算；max_level 逐游戏不同，见 game-registry.md §4）。
+   *
+   * `rawEndedReason` 是**未归一化**的原始 ended_reason（由 run.js 从
+   * `buildResult().diagnostics.endedReasonRaw` 透传）。Legacy 经典榜是历史数据，
+   * 必须存原值（registry §5 / compatibility.md）—— 归一化只属 V2 语义。
+   * 未提供时回落到 envelope 的归一值，保证向后兼容（不会静默变成 'unknown'）。
+   */
+  const toLegacyPayload = ({ result = {}, durationMs = 0, rawEndedReason } = {}) => {
     const envelope = isPlainObject(result.result) ? result.result : result
     const metricValue = toIntegerOrNull(envelope?.metric?.value) ?? 0
     return {
       score: toIntegerOrNull(envelope?.score) ?? 0,
       max_level: toIntegerOrNull(toLegacyMaxLevel(metricValue)) ?? 0,
       move_count: toIntegerOrNull(envelope?.moves) ?? 0,
-      ended_reason: safeText(envelope?.ended_reason) || 'unknown',
-      duration_ms: toIntegerOrNull(result.durationMs) ?? 0,
+      ended_reason: safeText(rawEndedReason) || safeText(envelope?.ended_reason) || 'unknown',
+      duration_ms: toIntegerOrNull(durationMs) ?? 0,
       payload: isPlainObject(envelope?.extra) ? { ...envelope.extra } : {}
     }
   }
