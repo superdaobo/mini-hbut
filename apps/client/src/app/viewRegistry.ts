@@ -49,6 +49,8 @@ const loadQuickLinksView: Loader = () => import('../components/QuickLinksView.vu
 const loadCampusNetworkView: Loader = () => import('../components/CampusNetworkView.vue')
 const loadMoreView: Loader = () => import('../components/MoreView.vue')
 const loadMoreModuleHostView: Loader = () => import('../components/MoreModuleHostView.vue')
+// #905：湖工游乐场（Game Center）
+const loadGameCenterView: Loader = () => import('../components/GameCenterView.vue')
 const loadMoreChaoxingCheckinView: Loader = () => import('../components/MoreChaoxingCheckinView.vue')
 const loadTransactionHistoryView: Loader = () => import('../components/TransactionHistory.vue')
 const loadCampusCodeView: Loader = () => import('../components/CampusCodeView.vue')
@@ -102,6 +104,7 @@ export const VIEW_COMPONENTS: Record<string, Component> = {
   campus_network: createAsyncPage(loadCampusNetworkView),
   more: createAsyncPage(loadMoreView),
   more_module_host: createAsyncPage(loadMoreModuleHostView),
+  game_center: createAsyncPage(loadGameCenterView),
   more_chaoxing_checkin: createAsyncPage(loadMoreChaoxingCheckinView),
   transactions: createAsyncPage(loadTransactionHistoryView),
   campus_code: createAsyncPage(loadCampusCodeView),
@@ -139,6 +142,7 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   campus_network: loadCampusNetworkView,
   more: loadMoreView,
   more_module_host: loadMoreModuleHostView,
+  game_center: loadGameCenterView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
   grades: loadGradeView,
   electricity: loadElectricityView,

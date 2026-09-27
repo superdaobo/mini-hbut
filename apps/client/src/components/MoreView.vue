@@ -14,8 +14,13 @@ import {
   resolveModuleHostPreviewSource
 } from '../utils/more_modules.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
-import { getCloudSyncRuntimeConfig } from '../utils/cloud_sync.js'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
+import { isViewAllowed } from '../config/app_store_policy'
+import {
+  resolveEffectiveGameCenterFlags
+} from '../utils/game_center/flags'
+import { resolveGameRankApiBase } from '../utils/game_center/api'
+import { consumeGameOpen } from '../utils/game_center/pending_open'
 import {
   buildModuleCenterCards,
   normalizeModuleCenterChannel as normalizeChannel
@@ -52,6 +57,23 @@ const moduleCardsSource = ref([])
 const moduleStates = ref({})
 const moduleBusyKey = ref('')
 
+/**
+ * #905 湖工游乐场：入口开关 + 经典游戏折叠态。
+ * - flags 来自既有 remote_config 的 game_platform 块（远程改值即生效，无需发版）；
+ * - 初始值即经过合规夹紧：App Store guest/demo 会话在远端配置到达前就已隐藏入口；
+ * - 远端拉取失败时保持默认值，不阻塞入口、也不隐藏旧入口（零破坏）。
+ */
+const gameCenterFlags = ref(resolveEffectiveGameCenterFlags(null))
+/** 经典游戏默认收起但功能完整可展开（issue #905 第一阶段形态要求） */
+const classicExpanded = ref(false)
+/** 本次启动来源标记（'classic' | 'game_center'），随 host session 传给宿主 */
+const activeLaunchSurface = ref('classic')
+
+const gameCenterEntryVisible = computed(
+  () => gameCenterFlags.value.game_center_enabled && isViewAllowed('game_center')
+)
+const classicEntriesVisible = computed(() => gameCenterFlags.value.classic_game_entries_visible)
+
 const safeText = (value) => String(value ?? '').trim()
 const safeParseJson = (raw, fallback = null) => {
   try {
@@ -65,8 +87,9 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback
 }
 
-const DEFAULT_GAME_RANK_API = 'https://mini-hbut-ocr-service.hf.space/api/game-rank'
 const DEFAULT_GOMOKU_RELAY_API = 'https://mini-hbut-ocr-service.hf.space/api/gomoku-relay'
+// #905：DEFAULT_GAME_RANK_API 与解析逻辑已收敛到 utils/game_center/api（单一默认源，避免两处漂移）
+
 const CONTEXT_AWARE_GAME_MODULE_IDS = new Set([
   'hecheng_hugongda',
   'jump_out_hbut',
@@ -185,16 +208,8 @@ const ensureStudentProfile = async () => {
 }
 
 const resolveGameRankApi = () => {
-  try {
-    const runtime = getCloudSyncRuntimeConfig()
-    const endpoint = safeText(runtime?.proxyEndpoint || runtime?.endpoint)
-    if (endpoint) {
-      return endpoint.replace(/\/cloud-sync$/i, '/game-rank')
-    }
-  } catch {
-    // ignore runtime config failure
-  }
-  return DEFAULT_GAME_RANK_API
+  // 统一走 utils/game_center/api 的解析（云同步同源派生 → 默认源），保证与游乐场一致
+  return resolveGameRankApiBase()
 }
 
 const resolveGomokuRelayApi = () => DEFAULT_GOMOKU_RELAY_API
@@ -363,7 +378,9 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
       cache_dir: sessionPayload.cache_dir,
       bundle_path: sessionPayload.bundle_path,
       manifest_url: sessionPayload.manifest_url,
-      manifest_checked_at: sessionPayload.manifest_checked_at
+      manifest_checked_at: sessionPayload.manifest_checked_at,
+      // #905：标记本次启动来自湖工游乐场（宿主据此走远端 HTTPS 优先 + origin 白名单）
+      launch_surface: safeText(sessionMeta?.launch_surface || activeLaunchSurface.value) || 'classic'
     }
   })
 }
@@ -643,6 +660,20 @@ const handleModuleClick = async (moduleItem) => {
   await handleOpenRemoteModule(moduleItem)
 }
 
+/**
+ * 进入湖工游乐场（Game Center，#905）。
+ * 走 App 统一导航（受 app_store_policy 的 isViewAllowed('game_center') 门禁），
+ * 入口本身已按 policy + feature flag 前置隐藏。
+ */
+const openGameCenter = () => {
+  if (!gameCenterEntryVisible.value) return
+  emit('navigate', 'game_center')
+}
+
+const toggleClassicEntries = () => {
+  classicExpanded.value = !classicExpanded.value
+}
+
 const loadModuleCatalog = async ({ silent = false } = {}) => {
   if (!silent) moduleLoading.value = true
   moduleError.value = ''
@@ -657,6 +688,8 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
 
   try {
     const remoteConfig = await fetchRemoteConfig({ force: false })
+    // #905：同一份远程配置同时驱动游乐场 flags（不额外发请求）
+    gameCenterFlags.value = resolveEffectiveGameCenterFlags(remoteConfig)
     const configChannel = normalizeChannel(remoteConfig?.module_center?.channel, preferredChannel)
     targetChannel = configChannel
     const rawModules = Array.isArray(remoteConfig?.module_center?.modules)
@@ -700,7 +733,36 @@ onMounted(async () => {
   moduleLoading.value = false
   void ensureStudentProfile()
   void loadModuleCatalog({ silent: true })
+  void consumeGameCenterIntent()
 })
+
+/**
+ * #905：消费从湖工游乐场「游戏」Tab 传来的开局意图。
+ * 必须等卡片数据就绪后再打开，否则 moduleItem 可能尚未合并远程 catalog 字段。
+ */
+const consumeGameCenterIntent = async () => {
+  const pendingModuleId = consumeGameOpen()
+  if (!pendingModuleId) return
+  await ensureModuleCardsReady()
+  const target = moduleCards.value.find((item) => item.id === pendingModuleId)
+  if (!target) return
+  classicExpanded.value = true
+  activeLaunchSurface.value = 'game_center'
+  try {
+    await handleModuleClick(target)
+  } finally {
+    activeLaunchSurface.value = 'classic'
+  }
+}
+
+/** 等待首轮卡片数据可用（最多 3 秒），避免远程 catalog 未回来就丢弃意图 */
+const ensureModuleCardsReady = async () => {
+  if (moduleCards.value.length) return
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    if (moduleCards.value.length) return
+  }
+}
 </script>
 
 <template>
@@ -743,33 +805,70 @@ onMounted(async () => {
     </header>
 
     <main class="px-4 space-y-5 pb-6">
-      <!-- Module Grid -->
-      <div class="grid grid-cols-2 gap-3">
+      <!-- #905 湖工游乐场主入口（Game Center）：统一游戏业务层入口，远程 HTTPS-first -->
+      <button
+        v-if="gameCenterEntryVisible"
+        class="game-center-entry"
+        data-module-id="game_center"
+        @click="openGameCenter"
+      >
+        <span class="game-center-entry__icon" aria-hidden="true">🎮</span>
+        <span class="game-center-entry__body">
+          <strong class="game-center-entry__title">{{ t('more.gameCenter.title') }}</strong>
+          <span class="game-center-entry__desc">{{ t('more.gameCenter.subtitle') }}</span>
+        </span>
+        <span class="game-center-entry__cta">
+          <span class="game-center-entry__badge">{{ t('more.gameCenter.badge') }}</span>
+          <span aria-hidden="true">›</span>
+        </span>
+      </button>
+
+      <!-- 经典游戏入口：可折叠，默认收起但功能与旧版完全一致（零破坏） -->
+      <section v-if="classicEntriesVisible" class="classic-games">
         <button
-          v-for="item in moduleCards"
-          :key="item.id"
-          class="bg-white rounded-2xl p-3 card-shadow text-left transition-all hover:-translate-y-0.5 hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
-          :data-module-id="item.id"
-          :disabled="moduleBusyKey === item.id"
-          @click="handleModuleClick(item)"
+          class="classic-games__toggle"
+          data-module-id="classic_games"
+          :aria-expanded="classicExpanded ? 'true' : 'false'"
+          @click="toggleClassicEntries"
         >
-          <div class="flex justify-between items-center mb-2">
-            <span class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center text-lg">{{ item.icon || '📦' }}</span>
-            <TStatusBadge
-              :type="resolveModuleBadgeType(item, readModuleState(item.id))"
-              :text="resolveModuleStatusText(item, readModuleState(item.id))"
-            />
-          </div>
-          <div class="min-h-[52px]">
-            <strong class="block text-sm font-bold text-gray-800">{{ item.name }}</strong>
-            <p class="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">{{ item.description || t('more.descMissing') }}</p>
-          </div>
-          <div class="mt-2 pt-2 border-t border-gray-100">
-            <span class="text-[11px] text-gray-400">{{ resolveModuleMetaLine(readModuleState(item.id)) }}</span>
-            <small class="block text-[11px] text-gray-400 mt-0.5">{{ resolveModuleDetailLine(readModuleState(item.id)) }}</small>
-          </div>
+          <span class="classic-games__label">
+            <span aria-hidden="true">🕹️</span>
+            <span>{{ t('more.classic.title') }}</span>
+          </span>
+          <span class="classic-games__meta">
+            <span>{{ tr('more.classic.count', { n: moduleCards.length }) }}</span>
+            <span class="classic-games__chevron" :class="{ 'classic-games__chevron--open': classicExpanded }" aria-hidden="true">▾</span>
+          </span>
         </button>
-      </div>
+
+        <!-- Module Grid（结构与旧版逐字保持一致，仅被折叠容器包裹） -->
+        <div v-show="classicExpanded" class="classic-games__grid grid grid-cols-2 gap-3">
+          <button
+            v-for="item in moduleCards"
+            :key="item.id"
+            class="bg-white rounded-2xl p-3 card-shadow text-left transition-all hover:-translate-y-0.5 hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+            :data-module-id="item.id"
+            :disabled="moduleBusyKey === item.id"
+            @click="handleModuleClick(item)"
+          >
+            <div class="flex justify-between items-center mb-2">
+              <span class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center text-lg">{{ item.icon || '📦' }}</span>
+              <TStatusBadge
+                :type="resolveModuleBadgeType(item, readModuleState(item.id))"
+                :text="resolveModuleStatusText(item, readModuleState(item.id))"
+              />
+            </div>
+            <div class="min-h-[52px]">
+              <strong class="block text-sm font-bold text-gray-800">{{ item.name }}</strong>
+              <p class="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">{{ item.description || t('more.descMissing') }}</p>
+            </div>
+            <div class="mt-2 pt-2 border-t border-gray-100">
+              <span class="text-[11px] text-gray-400">{{ resolveModuleMetaLine(readModuleState(item.id)) }}</span>
+              <small class="block text-[11px] text-gray-400 mt-0.5">{{ resolveModuleDetailLine(readModuleState(item.id)) }}</small>
+            </div>
+          </button>
+        </div>
+      </section>
 
       <p v-if="moduleError" class="text-red-500 font-semibold text-sm px-1">{{ moduleError }}</p>
 
@@ -787,6 +886,127 @@ onMounted(async () => {
 
 .card-shadow {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+}
+
+/* #905 湖工游乐场主入口 */
+.game-center-entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 0;
+  border-radius: 18px;
+  text-align: left;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 55%, #8b5cf6 100%);
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.28);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.game-center-entry:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(59, 130, 246, 0.34);
+}
+
+.game-center-entry__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: rgba(255, 255, 255, 0.22);
+  flex: 0 0 auto;
+}
+
+.game-center-entry__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.game-center-entry__title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.game-center-entry__desc {
+  font-size: 12px;
+  opacity: 0.88;
+}
+
+.game-center-entry__cta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+.game-center-entry__badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* 经典游戏折叠区：默认收起，展开后与旧版宫格完全一致 */
+.classic-games {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.classic-games__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.classic-games__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.classic-games__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+.classic-games__chevron {
+  display: inline-block;
+  transition: transform 0.18s ease;
+}
+
+.classic-games__chevron--open {
+  transform: rotate(180deg);
+}
+
+.classic-games__grid {
+  padding-bottom: 4px;
 }
 
 .dialog-error {

@@ -4,6 +4,10 @@
  */
 import { DEFAULT_CLOUD_SYNC_ENDPOINT, useAppSettings } from './app_settings'
 import { DEFAULT_MODULE_CENTER as DEFAULT_GAME_MODULE_CENTER } from './module_center'
+// #905 湖工游乐场配置块的归一化实现放在 game_center/base（叶子模块，无反向依赖）
+import { normalizeGamePlatformConfig } from './game_center/base'
+
+export { normalizeGamePlatformConfig }
 
 /** 真·远端源（GitCode + 代理）；成功且内容变化才写本地快照 */
 export const REMOTE_CONFIG_URLS = [
@@ -79,6 +83,13 @@ export const DEFAULT_CONFIG: Record<string, unknown> = {
     channel: DEFAULT_GAME_MODULE_CENTER.channel,
     modules: [...DEFAULT_GAME_MODULE_CENTER.modules]
   },
+  // #905 湖工游乐场：五个能力开关 / API base / iframe origin 白名单的唯一远程入口
+  game_platform: {
+    enabled: true,
+    api_base: '',
+    allowed_game_origins: [],
+    flags: {}
+  },
   // #360 学习通资料库：远程只需 invite_code；课程名/教师/ID 由邀请码在线解析
   chaoxing_class: {
     enabled: true,
@@ -105,6 +116,7 @@ export const REMOTE_CONFIG_KEYS = [
   'cloud_sync',
   'module_center',
   'more_modules',
+  'game_platform',
   'chaoxing_class',
   'ai_models',
   'config_admin_ids'

@@ -200,6 +200,10 @@ describe('website 游戏模块集成契约', () => {
     expect(hostSource).toContain('referrerpolicy="no-referrer-when-downgrade"')
     expect(hostSource).toContain('loading="eager"')
     expect(hostSource).toContain('mini-hbut:module-size')
+    // #905：iframe 消息必须校验 event.origin（旧实现只看 event.source）
+    expect(hostSource).toContain('isGameFrameOriginAllowed')
+    expect(hostSource).toContain('resolveGameFrameAllowedOrigins')
+    expect(hostSource).toContain('event.source !== frameWindow')
 
     const resolved = resolveModuleHostPreviewSource(
       {
@@ -234,6 +238,53 @@ describe('website 游戏模块集成契约', () => {
         `'${id}'`
       )
     }
+  })
+
+  it('更多页保留 11 个经典入口，并新增湖工游乐场主入口（#905）', () => {
+    const moreViewSource = readText(path.join(repoRoot, 'src', 'components', 'MoreView.vue'))
+    const moduleCenterSource = readText(path.join(repoRoot, 'src', 'utils', 'module_center.js'))
+
+    // 经典入口零破坏：11 个 id 仍在 MoreView 与内置清单中，顺序不变
+    expect(moduleCenterSource).toContain('DEFAULT_MODULE_CENTER')
+    for (const id of gameModuleIds) {
+      expect(moreViewSource, `${id} 仍须经由 MoreView 打开`).toContain(`'${id}'`)
+    }
+
+    // 新的主入口（Game Center）+ 可折叠的经典入口（默认收起、功能完整）
+    expect(moreViewSource).toContain('data-module-id="game_center"')
+    expect(moreViewSource).toContain('data-module-id="classic_games"')
+    expect(moreViewSource).toContain('v-show="classicExpanded"')
+    expect(moreViewSource).toContain('gameCenterEntryVisible')
+    expect(moreViewSource).toContain('classicEntriesVisible')
+    // 游乐场对局复用既有启动链路（一次性意图），并标记 launch_surface
+    expect(moreViewSource).toContain('consumeGameOpen')
+    expect(moreViewSource).toContain('launch_surface')
+  })
+
+  it('Game Center 五 Tab 视图存在且 game_center 已注册到路由 / 策略', () => {
+    const viewSource = readText(path.join(repoRoot, 'src', 'components', 'GameCenterView.vue'))
+    for (const tab of ['home', 'games', 'rank', 'drift', 'me']) {
+      expect(viewSource, `Game Center 缺少 ${tab} Tab`).toContain(`'${tab}'`)
+    }
+    for (const component of [
+      'GameCenterHomeTab.vue',
+      'GameCenterGamesTab.vue',
+      'GameCenterRankTab.vue',
+      'GameCenterDriftTab.vue',
+      'GameCenterMeTab.vue'
+    ]) {
+      expect(
+        fs.existsSync(path.join(repoRoot, 'src', 'components', 'game-center', component)),
+        `缺少 ${component}`
+      ).toBe(true)
+    }
+
+    const registrySource = readText(path.join(repoRoot, 'src', 'app', 'viewRegistry.ts'))
+    expect(registrySource).toContain('game_center: createAsyncPage(loadGameCenterView)')
+    const appSource = readAppContractSources()
+    expect(appSource).toContain('game_center: GameCenterView')
+    const policySource = readText(path.join(repoRoot, 'src', 'config', 'app_store_policy.ts'))
+    expect(policySource).toMatch(/APP_STORE_BLOCKED_MODULE_IDS[\s\S]*'game_center'/)
   })
 
   it('小游戏排行榜请求会把底层 AbortController 错误转换为可读错误', () => {

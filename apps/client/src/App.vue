@@ -150,6 +150,7 @@ const {
   campus_network: CampusNetworkView,
   more: MoreView,
   more_module_host: MoreModuleHostView,
+  game_center: GameCenterView,
   more_chaoxing_checkin: MoreChaoxingCheckinView,
   transactions: TransactionHistory,
   campus_code: CampusCodeView,
@@ -362,6 +363,14 @@ const {
         v-else-if="currentView === 'more_module_host'"
         :session="moduleHostSession"
         @back="handleBackToMoreCenter"
+      />
+
+      <!-- 湖工游乐场（Game Center，#905）：更多页主入口，远程 HTTPS-first -->
+      <GameCenterView
+        v-else-if="currentView === 'game_center'"
+        :student-id="studentId"
+        @back="handleBackToMoreCenter"
+        @navigate="handleNavigate"
       />
 
       <MoreChaoxingCheckinView
