@@ -105,8 +105,8 @@ const revokeCurrentDevice = async (): Promise<void> => {
   setIdentityDeviceError('')
   try {
     await identityRevokeCurrentDeviceLocal({
-      base_url: getIdentityCoreBaseUrl(),
-      device_id: deviceId
+      baseUrl: getIdentityCoreBaseUrl(),
+      deviceId
     })
     // Rust 侧已先调 Core revoke（成功才删本地 key）
     clearIdentityDeviceMeta()
