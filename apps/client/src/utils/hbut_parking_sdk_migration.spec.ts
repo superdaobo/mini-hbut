@@ -267,7 +267,7 @@ describe('hbut_parking 接入形态守卫（main.js 已替换 3 处调用）', (
 })
 
 describe('hbut_parking 提交链路：payload 等价与幂等', () => {
-  it('compatibility 老 URL：Legacy body 与迁移前逐字段等价（唯一差异 = ended_reason 归一为 cleared）', async () => {
+  it('compatibility 老 URL：Legacy body 与迁移前逐字段完全等价（ended_reason 存原值 won）', async () => {
     const router = createFetchRouter([legacySubmitRoute()])
     const game = await createCompatibilityGame(router)
     expect(game.mode).toBe('compatibility')
@@ -284,11 +284,11 @@ describe('hbut_parking 提交链路：payload 等价与幂等', () => {
 
     const legacyBody = JSON.parse(String(legacyFetch.mock.calls[0][1].body))
     const sdkBody = router.callsFor('/submit')[0].body as Record<string, unknown>
-    // 除 ended_reason 外逐字段相等（数值零改动）
-    expect({ ...sdkBody, ended_reason: legacyBody.ended_reason }).toEqual(legacyBody)
-    // 唯一差异：guide §5.1 / registry §5 / protocol §4.2 规定 won → cleared
+    // #937 修复后：与迁移前**逐字段完全等价**（含 ended_reason）
+    expect(sdkBody).toEqual(legacyBody)
+    // 经典榜是历史数据：存**未归一化**的原值（归一化只属 V2 envelope，见下个用例）
     expect(legacyBody.ended_reason).toBe('won')
-    expect(sdkBody.ended_reason).toBe('cleared')
+    expect(sdkBody.ended_reason).toBe('won')
     expect(sdkBody.game_id).toBe('hbut_parking')
     expect(sdkBody.score).toBe(59482)
     expect(sdkBody.max_level).toBe(6)
