@@ -7,20 +7,43 @@
  * 3. `game_platform` 远程配置块的结构归一化 + 八个 feature flag 的默认值。
  */
 
+import { STATISTICS_SERVICE_BASE_URL } from '../statistics_environment'
+
 /** Game Platform v1 命名空间（protocol-v1.md §1.1） */
 export const GAME_PLATFORM_NAMESPACE = '/api/game-platform/v1'
 
 /** Legacy 冻结命名空间（兼容契约 2，只读展示用） */
 export const LEGACY_GAME_RANK_NAMESPACE = '/api/game-rank'
 
-/** 生产服务默认源（与 MoreView 既有 game-rank 默认保持一致，不新增第二默认值） */
-export const DEFAULT_GAME_SERVICE_ORIGIN = 'https://mini-hbut-ocr-service.hf.space'
+/** 五子棋 relay 命名空间 */
+export const GOMOKU_RELAY_NAMESPACE = '/api/gomoku-relay'
+
+/**
+ * 服务默认源：**由构建档位决定**（release → 生产域，其余 → 测试域）。
+ *
+ * 单一权威是 `utils/statistics_environment.ts`：同一权威同时约束云同步与统计端点，
+ * 且显式**拒绝跨环境 URL**（生产构建拒测试域、测试构建拒生产域）。
+ *
+ * #911 P1-⑤：此处**不得**再硬编码生产域。硬编码会让 beta / TestFlight 等非 release
+ * 构建把 `rank_api` / `game_platform_api` / 五子棋 relay 指向生产域，而同一构建的 V2 base
+ * 与 Game Session 却来自测试域 —— 测试期数据落进生产库，且席位凭证跨环境验签必失败。
+ */
+export const DEFAULT_GAME_SERVICE_ORIGIN = STATISTICS_SERVICE_BASE_URL
 
 /** 默认 V2 API base */
 export const DEFAULT_GAME_PLATFORM_API_BASE = `${DEFAULT_GAME_SERVICE_ORIGIN}${GAME_PLATFORM_NAMESPACE}`
 
 /** 默认 Legacy API base */
 export const DEFAULT_GAME_RANK_API = `${DEFAULT_GAME_SERVICE_ORIGIN}${LEGACY_GAME_RANK_NAMESPACE}`
+
+/**
+ * 默认五子棋 relay base。
+ *
+ * #911 P1-⑤：relay 目标**必须与 V2 同环境** —— 席位绑定凭证（`grb1.*`）由本环境 V2 用
+ * `GAME_PLATFORM_SESSION_HASH_KEY` 签发，relay 用本环境密钥验签，跨环境必然 403
+ * （五子棋联机不可用）。与 `DEFAULT_GAME_SERVICE_ORIGIN` **同源**，杜绝两者漂移。
+ */
+export const DEFAULT_GOMOKU_RELAY_API = `${DEFAULT_GAME_SERVICE_ORIGIN}${GOMOKU_RELAY_NAMESPACE}`
 
 /** 协议版本（请求头 X-Game-Platform-Protocol 与 body.protocol_version） */
 export const GAME_PLATFORM_PROTOCOL_VERSION = 1

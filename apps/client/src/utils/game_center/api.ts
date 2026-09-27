@@ -23,6 +23,7 @@ import {
   LEGACY_GAME_RANK_NAMESPACE,
   isSecureGamePlatformUrl
 } from './base'
+import { isStatisticsServiceUrlCompatible } from '../statistics_environment'
 
 export {
   DEFAULT_GAME_PLATFORM_API_BASE,
@@ -68,37 +69,102 @@ export const LOCAL_ERROR_CODES = Object.freeze({
   transportInsecure: 'LOCAL_TRANSPORT_INSECURE',
   transportFailed: 'LOCAL_TRANSPORT_FAILED',
   responseInvalid: 'LOCAL_RESPONSE_INVALID',
-  authMissing: 'LOCAL_AUTH_MISSING'
+  authMissing: 'LOCAL_AUTH_MISSING',
+  configMissing: 'LOCAL_CONFIG_MISSING'
 })
 
 const safeText = (value: unknown): string => String(value ?? '').trim()
 
 /**
- * 解析 Game Platform API base：远程配置覆盖 → 云同步同源派生 → 默认值。
- * 只返回通过 HTTPS 校验的地址。
+ * 从候选里挑第一个「传输安全（HTTPS / loopback）且**环境兼容**」的 base；都不合格返回 `''`。
+ *
+ * #911 P1-⑤ 运行期护栏：`statistics_environment` 的跨环境拒绝过去只在**构建期**由
+ * `VITE_BUILD_PROFILE` 把关。一旦构建漏传该变量，或运行期配置被写到另一端环境，
+ * 宿主就会把跨环境 base 注入游戏 iframe —— 生产库被写测试数据 / 测试客户端打生产库。
+ * 这里把同一约束提升为**运行期**判定：不合格候选一律不用。
+ *
+ * 自定义域与 loopback 在两端环境都放行（只有「另一端环境」的已知域被拒），
+ * 因此本地联调地址不会被误杀。导出于 `game_center_service_origin.spec.ts` 直接验证契约。
  */
-export const resolveGamePlatformApiBase = (override?: unknown): string => {
-  const explicit = safeText(override)
-  if (isSecureGamePlatformUrl(explicit)) return explicit.replace(/\/+$/, '')
-  return DEFAULT_GAME_PLATFORM_API_BASE
+export const pickEnvironmentCompatibleBase = (candidates: readonly unknown[]): string => {
+  for (const candidate of candidates) {
+    const text = safeText(candidate).replace(/\/+$/, '')
+    if (!text) continue
+    if (!isSecureGamePlatformUrl(text)) continue
+    if (!isStatisticsServiceUrlCompatible(text)) continue
+    return text
+  }
+  return ''
 }
 
 /**
- * 解析 Legacy Game Rank API base（与 MoreView 既有实现同源，避免两处默认值漂移）。
+ * 请求前取 base：不可用即抛出可读错误。
+ *
+ * 不变量：候选里总含「由构建档位派生的环境默认源」，它对本环境必然兼容，
+ * 因此正常情况下不会走到抛错分支 —— 这是**防御性守卫**，用于防止将来有人把默认源
+ * 改成空值（fail closed）时静默发出一个相对路径请求。
+ */
+const requireBase = (candidates: readonly unknown[], label: string): string => {
+  const base = pickEnvironmentCompatibleBase(candidates)
+  if (!base) {
+    throw new GamePlatformError(LOCAL_ERROR_CODES.configMissing, `${label}未配置（无环境兼容的 API 地址）`, {
+      retryable: false
+    })
+  }
+  return base
+}
+
+/**
+ * 解析 Game Platform API base：显式覆盖 → 环境默认源。只返回通过 HTTPS 校验的地址。
+ * 不可用时返回 `''`（请求前请用 `requireGamePlatformBase`）。
+ */
+export const resolveGamePlatformApiBase = (override?: unknown): string =>
+  pickEnvironmentCompatibleBase([override, DEFAULT_GAME_PLATFORM_API_BASE])
+
+/** 同 `resolveGamePlatformApiBase`，但不可用时抛错（供实际发起请求处使用） */
+const requireGamePlatformBase = (override?: unknown): string =>
+  requireBase([override, DEFAULT_GAME_PLATFORM_API_BASE], '游戏平台服务')
+
+/**
+ * 从云同步端点派生 Legacy 排行榜 base。
+ *
+ * 必须**先剥掉云同步命名空间再拼**：云同步端点是 `…/api/cloud-sync`，若直接做
+ * `replace('/cloud-sync', '/api/game-rank')` 会得到 `…/api/api/game-rank`（双 `/api`）——
+ * 该路径在服务端不存在（实测 `/api/game-rank/ping` = 200 而 `/api/api/game-rank/ping` = 404），
+ * 于是宿主注入 iframe 的 `rank_api`、经典榜请求全部 404（旧实现长期存在此缺陷）。
+ *
+ * 保留部署子路径：`…/sub/api/cloud-sync` → `…/sub/api/game-rank`。
+ */
+export const deriveLegacyRankBaseFromCloudSync = (endpoint: unknown): string => {
+  const text = safeText(endpoint).replace(/\/+$/, '')
+  if (!text) return ''
+  const stripped = text.replace(/\/api\/cloud-sync$/i, '').replace(/\/cloud-sync$/i, '')
+  return `${stripped}${LEGACY_GAME_RANK_NAMESPACE}`
+}
+
+/**
+ * 解析 Legacy Game Rank API base：云同步同源派生 → 环境默认源。
+ *
+ * 跨环境候选（release 构建里的测试域 / 测试构建里的生产域）**一律不采用**：
+ * 前者会把真实成绩写进测试库，后者会让测试数据污染生产榜。
+ * 都不可用时返回 `''` = 未配置（standalone，不远程提交）。
  */
 export const resolveGameRankApiBase = (): string => {
+  const candidates: unknown[] = []
   try {
     const runtime = getCloudSyncRuntimeConfig()
     const endpoint = safeText(runtime?.proxyEndpoint || runtime?.endpoint)
-    if (endpoint) {
-      const derived = endpoint.replace(/\/cloud-sync$/i, LEGACY_GAME_RANK_NAMESPACE)
-      if (isSecureGamePlatformUrl(derived)) return derived
-    }
+    if (endpoint) candidates.push(deriveLegacyRankBaseFromCloudSync(endpoint))
   } catch {
-    // 运行时配置读取失败：退回默认源
+    // 运行时配置读取失败：交给环境默认源
   }
-  return DEFAULT_GAME_RANK_API
+  candidates.push(DEFAULT_GAME_RANK_API)
+  return pickEnvironmentCompatibleBase(candidates)
 }
+
+/** 同 `resolveGameRankApiBase`，但不可用时抛错（供实际发起请求处使用） */
+const requireGameRankBase = (override?: unknown): string =>
+  requireBase([safeText(override), resolveGameRankApiBase()], '经典排行榜服务')
 
 interface RequestOptions {
   method?: string
@@ -346,7 +412,7 @@ export const fetchGamePlatformMeta = async (
   apiBase?: string,
   timeoutMs = GAME_PLATFORM_REQUEST_TIMEOUT_MS
 ): Promise<GamePlatformMeta> => {
-  const base = resolveGamePlatformApiBase(apiBase)
+  const base = requireGamePlatformBase(apiBase)
   const payload = await requestGamePlatformJson<Record<string, unknown>>(`${base}/meta`, {
     headers: gamePlatformHeaders(),
     timeoutMs
@@ -394,7 +460,7 @@ export const fetchGameLaunchTicket = async (options: {
   idempotencyKey?: string
   timeoutMs?: number
 }): Promise<LaunchTicketResult> => {
-  const base = resolveGamePlatformApiBase(options.apiBase)
+  const base = requireGamePlatformBase(options.apiBase)
   const accessToken = await getIdentityAccessToken()
   if (!accessToken) {
     return {
@@ -457,7 +523,7 @@ const authorizedGet = async <T = Record<string, unknown>>(
   apiBase?: string,
   timeoutMs = GAME_PLATFORM_REQUEST_TIMEOUT_MS
 ): Promise<T> => {
-  const base = resolveGamePlatformApiBase(apiBase)
+  const base = requireGamePlatformBase(apiBase)
   const accessToken = await getIdentityAccessToken()
   if (!accessToken) {
     throw new GamePlatformError(LOCAL_ERROR_CODES.authMissing, '当前未登录，无法读取游戏数据', {
@@ -491,7 +557,7 @@ export interface LeaderboardQuery {
 export const fetchGameLeaderboards = async (
   query: LeaderboardQuery
 ): Promise<Record<string, unknown>> => {
-  const base = resolveGamePlatformApiBase(query.apiBase)
+  const base = requireGamePlatformBase(query.apiBase)
   const params = new URLSearchParams()
   params.set('game_id', safeText(query.gameId))
   params.set('board', safeText(query.board || 'classic'))
@@ -525,7 +591,7 @@ export interface ClassicLeaderboardQuery {
 export const fetchClassicLeaderboard = async (
   query: ClassicLeaderboardQuery
 ): Promise<Record<string, unknown>> => {
-  const base = safeText(query.apiBase) || resolveGameRankApiBase()
+  const base = requireGameRankBase(query.apiBase)
   const params = new URLSearchParams({
     game_id: safeText(query.gameId),
     scope: safeText(query.scope || 'class') || 'class',
@@ -537,8 +603,7 @@ export const fetchClassicLeaderboard = async (
   if (studentId) params.set('student_id', studentId)
   if (className) params.set('class_name', className)
   if (schoolName) params.set('school_name', schoolName)
-  return requestGamePlatformJson<Record<string, unknown>>(
-    `${isSecureGamePlatformUrl(base) ? base : resolveGameRankApiBase()}/leaderboard?${params.toString()}`,
-    { timeoutMs: GAME_RANK_REQUEST_TIMEOUT_MS }
-  )
+  return requestGamePlatformJson<Record<string, unknown>>(`${base}/leaderboard?${params.toString()}`, {
+    timeoutMs: GAME_RANK_REQUEST_TIMEOUT_MS
+  })
 }
