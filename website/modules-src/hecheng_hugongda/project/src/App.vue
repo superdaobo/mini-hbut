@@ -301,13 +301,29 @@
 
 <script>
 import Matter from 'matter-js'
-import {
-  canUseGameRank,
-  createRunId,
-  fetchGameLeaderboard,
-  readGameModuleContext,
-  submitGameRank
-} from './utils/game_rank'
+import { MiniHBUTGame, readLegacyModuleContext } from '../../../_sdk/src/index.js'
+import { HECHENG_HUGONGDA_ADAPTER } from './utils/game_sdk_adapter.js'
+
+const MODULE_ID = 'hecheng_hugongda'
+
+// SDK 句柄（模块作用域单例，**不要**放进 Vue 实例）：Host 握手 / ticket 兑换在后台进行，不阻塞渲染与玩法
+const sdkGame = MiniHBUTGame.create({
+  gameId: MODULE_ID,
+  adapter: HECHENG_HUGONGDA_ADAPTER,
+  // 读：模块私有 key 优先、回落旧全局共享 key 兼容已落盘老上下文；写：只写模块私有 key（不再污染 hbut_game_rank_context_v1）
+  legacy: { storageKeys: HECHENG_HUGONGDA_ADAPTER.legacy.storageKeys }
+})
+
+// 展示用上下文（班级决定默认榜单 scope；from/runtime 进 extra）；身份与 API base 由 SDK 内部读取，不再由组件判定
+const launchContext = readLegacyModuleContext({
+  gameId: MODULE_ID,
+  storageKeys: HECHENG_HUGONGDA_ADAPTER.legacy.storageKeys
+})
+// 旧字段名 studentId 仅作展示兼容保留（不参与任何请求体）
+const buildRankContext = () => ({ ...launchContext, studentId: launchContext.legacyStudentId })
+
+// run 生命周期由 SDK 管理（run_id 生成、幂等、降级、pending 重试）；加载即开局
+let run = sdkGame.startRun()
 
 const MODULE_LOGO_BASE = `${import.meta.env.BASE_URL || '/'}logos/`
 const REFERENCE_STAGE_WIDTH = 360
@@ -338,7 +354,7 @@ const resolveModuleRuntimeVersion = () => {
 export default {
   name: 'App',
   data() {
-    const rankContext = readGameModuleContext()
+    const rankContext = buildRankContext()
     return {
       canvasWidth: LOGICAL_STAGE_WIDTH,
       canvasHeight: LOGICAL_STAGE_HEIGHT,
@@ -374,8 +390,8 @@ export default {
       rankSubmitError: '',
       rankSubmitSuccess: false,
       lastRankSubmission: null,
-      pendingRankPayload: null,
-      currentRunId: '',
+      // 能力预判（ready 前 = 有 ticket 或旧版上下文）；模式判定完成后会再刷新一次
+      rankAvailable: sdkGame.capabilities.canSubmit,
       gameStartedAt: 0,
       moveCount: 0,
       bestLevelReached: 0,
@@ -430,7 +446,8 @@ export default {
   },
   computed: {
     rankEnabled() {
-      return canUseGameRank(this.rankContext)
+      // 能力由 SDK 判定（compatibility/verified 均可提交；standalone 时入口隐藏）
+      return this.rankAvailable
     },
     hasClassContext() {
       return !!this.rankContext.className
@@ -505,6 +522,10 @@ export default {
       }
     })
     this.scheduleHostLayoutSync()
+    // 模式判定（Host 握手 / ticket 兑换）完成后刷新排行可用性：只影响入口显隐，不阻塞玩法
+    void sdkGame.ready.then(() => {
+      this.rankAvailable = sdkGame.capabilities.canSubmit
+    })
   },
   beforeUnmount() {
     window.removeEventListener('resize', this.handleResize)
@@ -719,7 +740,8 @@ export default {
         clearTimeout(this.rankSuccessTimer)
         this.rankSuccessTimer = null
       }
-      this.currentRunId = createRunId()
+      // 新一局 = 新 run_id（旧 run 未结算的成绩随旧 run 丢弃，与既有行为一致）
+      run = sdkGame.startRun({ replaceActive: true })
       this.gameStartedAt = Date.now()
       this.moveCount = 0
       this.bestLevelReached = 0
@@ -727,7 +749,6 @@ export default {
       this.rankSubmitBusy = false
       this.rankSubmitError = ''
       this.rankSubmitSuccess = false
-      this.pendingRankPayload = null
       this.lastRankSubmission = null
     },
 
@@ -859,7 +880,8 @@ export default {
         previewBallLevel: this.previewBallLevel,
         bodies: gameBodies,
         timestamp: Date.now(),
-        currentRunId: this.currentRunId,
+        // run_id 由 SDK 管理：这里只记录当前 run 便于追溯，加载存档时不再复用它（新会话 = 新 run）
+        currentRunId: run.id,
         gameStartedAt: this.gameStartedAt,
         moveCount: this.moveCount,
         bestLevelReached: this.bestLevelReached,
@@ -877,7 +899,7 @@ export default {
         this.score = Number(data.score || 0)
         this.nextBallLevel = Number(data.nextBallLevel || 0)
         this.previewBallLevel = Number(data.previewBallLevel || 0)
-        this.currentRunId = String(data.currentRunId || createRunId())
+        // 存档里的 run_id 不再复用：run 由 SDK 在本次页面加载时创建（run_id 语义由 SDK 统一）
         this.gameStartedAt = Number(data.gameStartedAt || Date.now())
         this.moveCount = Number(data.moveCount || 0)
         this.bestLevelReached = Number(data.bestLevelReached || 0)
@@ -885,7 +907,6 @@ export default {
         this.rankSubmitBusy = false
         this.rankSubmitError = ''
         this.rankSubmitSuccess = !!data.hasSubmittedResult
-        this.pendingRankPayload = null
         this.lastRankSubmission = null
         this.gameOver = false
         this.hasWon = false
@@ -1068,16 +1089,17 @@ export default {
       }
       this.leaderboardError = ''
       try {
-        const response = await fetchGameLeaderboard(this.rankContext, {
-          scope: resolvedScope,
-          studentId: this.rankContext.studentId,
-          className: this.rankContext.className,
-          schoolName: this.rankContext.schoolName,
-          limit: 20
-        })
-        this.leaderboardItems = Array.isArray(response.leaderboard) ? response.leaderboard : []
-        this.leaderboardPlayer = response.player || this.lastRankSubmission || null
-        this.leaderboardUpdatedAt = response.refreshed_at || ''
+        // SDK 统一榜单读取：verified 走 V2 榜，compatibility 走经典榜，失败自动降级
+        const data = await sdkGame.leaderboard({ scope: resolvedScope, limit: 20 })
+        if (!data.success) {
+          this.leaderboardItems = []
+          this.leaderboardError = this.buildLeaderboardErrorMessage({ message: data.message }, resolvedScope)
+          return
+        }
+        this.leaderboardItems = this.mapLeaderboardEntries(data)
+        // 经典榜响应仍带 player / refreshed_at（V2 榜无该字段时回落既有值）
+        this.leaderboardPlayer = data.raw?.player || this.lastRankSubmission || null
+        this.leaderboardUpdatedAt = data.raw?.refreshed_at || ''
       } catch (error) {
         this.leaderboardItems = []
         this.leaderboardError = this.buildLeaderboardErrorMessage(error, resolvedScope)
@@ -1090,9 +1112,35 @@ export default {
       }
     },
 
+    /**
+     * SDK 归一化条目 → 既有榜单 UI 字段（DOM 与展示列逐字不变）。
+     * 经典榜响应（data.raw.leaderboard）仍提供 max_level / duration_ms / player_count / avg_score；
+     * V2 榜只有归一化字段，缺失列显示为空（榜单入口由 #905/#909 决定，迁移期默认经典榜）。
+     */
+    mapLeaderboardEntries(data) {
+      const entries = Array.isArray(data.entries) ? data.entries : []
+      const legacyList = Array.isArray(data.raw?.leaderboard) ? data.raw.leaderboard : []
+      return entries.map((entry, index) => {
+        const legacy = legacyList[index] || {}
+        return {
+          rank: entry.rank,
+          player_name: entry.player_name,
+          class_name: entry.class_name,
+          score: entry.score,
+          total_score: entry.total_score ?? entry.score,
+          // school_level 与 Legacy max_level 1:1（adapter 声明），经典榜优先用原始值
+          max_level: legacy.max_level ?? entry.metric_value,
+          duration_ms: legacy.duration_ms,
+          player_count: legacy.player_count,
+          avg_score: legacy.avg_score,
+          is_self: entry.is_self
+        }
+      })
+    },
+
     buildRankPayload(endedReason) {
+      // 提交字段与迁移前逐字一致（仅去掉 runId：run_id 由 SDK 生成并保证幂等）
       return {
-        runId: this.currentRunId,
         score: this.score,
         maxLevel: this.computeCurrentMaxLevel(),
         durationMs: Math.max(0, Date.now() - Number(this.gameStartedAt || Date.now())),
@@ -1108,9 +1156,8 @@ export default {
     },
 
     async finalizeRankSubmission(endedReason) {
+      // hasSubmittedResult 保留：一局只提交一次（SDK 亦幂等，双保险）
       if (!this.rankEnabled || this.rankSubmitBusy || this.hasSubmittedResult) return
-      const payload = this.pendingRankPayload || this.buildRankPayload(endedReason)
-      this.pendingRankPayload = payload
       this.rankSubmitBusy = true
       this.rankSubmitError = ''
       this.rankSubmitSuccess = false
@@ -1119,20 +1166,10 @@ export default {
         this.rankSuccessTimer = null
       }
       try {
-        const result = await submitGameRank(this.rankContext, payload)
-        this.lastRankSubmission = result?.player || null
-        this.leaderboardPlayer = result?.player || this.leaderboardPlayer
-        this.hasSubmittedResult = true
-        this.rankSubmitSuccess = true
-        this.pendingRankPayload = null
-        this.rankSuccessTimer = setTimeout(() => {
-          this.rankSubmitSuccess = false
-          this.rankSuccessTimer = null
-        }, 3000)
-        if (this.showLeaderboard) {
-          await this.loadLeaderboard(this.leaderboardScope, { silent: true })
-        }
+        // SDK 负责 run_id、幂等、降级与重试；同一 run 只允许一份 payload
+        this.applyRankOutcome(await run.finish(this.buildRankPayload(endedReason)))
       } catch (error) {
+        // finish 正常不抛错（返回 outcome）；这里兜底保证 UI 不卡在「上传中」
         this.rankSubmitError = error?.message || '排行榜上传失败'
         this.hasSubmittedResult = false
         this.rankSubmitSuccess = false
@@ -1141,16 +1178,58 @@ export default {
       }
     },
 
+    /** 结算后统一更新 UI（SDK 已把 verified / compatibility / standalone 归一为同一 outcome） */
+    applyRankOutcome(outcome) {
+      // 模式判定可能刚刚落定（ticket 兑换失败 → standalone），刷新入口显隐
+      this.rankAvailable = sdkGame.capabilities.canSubmit
+      if (outcome?.success) {
+        const player = outcome.raw?.player || null
+        this.lastRankSubmission = player
+        this.leaderboardPlayer = player || this.leaderboardPlayer
+        this.hasSubmittedResult = true
+        // 未上传（standalone 本地记录）不显示「✓ 成绩已上传」，也不显示失败（与旧代码无排行上下文时一致）
+        this.rankSubmitSuccess = outcome.uploaded !== false
+        if (this.rankSubmitSuccess) {
+          this.rankSuccessTimer = setTimeout(() => {
+            this.rankSubmitSuccess = false
+            this.rankSuccessTimer = null
+          }, 3000)
+        }
+        if (this.showLeaderboard) {
+          void this.loadLeaderboard(this.leaderboardScope, { silent: true })
+        }
+        return
+      }
+      this.rankSubmitError = outcome?.message || '排行榜上传失败'
+      this.hasSubmittedResult = false
+      this.rankSubmitSuccess = false
+    },
+
     retryRankSubmit() {
-      if (this.rankSubmitBusy) return
-      if (this.pendingRankPayload) {
-        void this.finalizeRankSubmission(this.pendingRankPayload.endedReason)
+      if (this.rankSubmitBusy || this.hasSubmittedResult) return
+      // SDK 复用同一 run 的 pending payload（字节级一致，服务端 content_hash 稳定）
+      if (run.pendingPayload) {
+        void this.retryRankSubmission()
         return
       }
       if (this.hasWon) {
         void this.finalizeRankSubmission('cleared')
       } else if (this.gameOver) {
         void this.finalizeRankSubmission('failed')
+      }
+    },
+
+    async retryRankSubmission() {
+      if (!this.rankEnabled || this.rankSubmitBusy || this.hasSubmittedResult) return
+      this.rankSubmitBusy = true
+      this.rankSubmitError = ''
+      try {
+        this.applyRankOutcome(await run.retry())
+      } catch (error) {
+        this.rankSubmitError = error?.message || '排行榜上传失败'
+        this.hasSubmittedResult = false
+      } finally {
+        this.rankSubmitBusy = false
       }
     },
 
