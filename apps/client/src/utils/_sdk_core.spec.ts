@@ -300,11 +300,13 @@ describe('SDK：Launch Ticket 读取与 URL 清理（§6.2.3 / §10 L5）', () =
 })
 
 describe('SDK：Legacy Adapter（10 游戏模板协议冻结）', () => {
-  it('API base 归一与既有实现一致', () => {
+  it('API base 归一与既有实现一致（唯一差异：P1-5 空值不再回落任何域）', () => {
     expect(normalizeLegacyRankApiBase('https://rank.example/api/game-rank')).toBe('https://rank.example/api/game-rank')
     expect(normalizeLegacyRankApiBase('https://rank.example/api')).toBe('https://rank.example/api/game-rank')
     expect(normalizeLegacyRankApiBase('rank.example')).toBe('https://rank.example/api/game-rank')
-    expect(normalizeLegacyRankApiBase('')).toBe('https://mini-hbut-testocr1.hf.space/api/game-rank')
+    // P1-5：旧实现回落测试域（mini-hbut-testocr1）→ 网页直开模块会把成绩写进测试库。
+    // 现在空值 = 未配置 = 不可提交（fail closed → standalone 纯本地，零远程请求）。
+    expect(normalizeLegacyRankApiBase('')).toBe('')
   })
 
   it('submit body 字段名与既有 game_rank.js:186-203 逐字一致（冻结契约）', () => {

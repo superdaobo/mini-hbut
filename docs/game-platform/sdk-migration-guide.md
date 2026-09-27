@@ -58,6 +58,65 @@
 
 ---
 
+## 2.1 三模式网络行为（谁发什么请求）
+
+> 由 `apps/client/src/utils/_sdk_p1_contract.spec.ts` 用 fetch mock 逐条固化；改网络行为必须同步改该测试。
+
+| 模式 | 触发（本 SDK 判定） | 实际发出的请求 |
+|---|---|---|
+| `standalone` | 无 Launch Ticket 且 **Legacy 不可用**（无 `student_id`，或**没有显式 `rank_api`**） | **零远程请求**：`/meta`、`/sessions`、`/runs`、`/finish`、`<rank_api>/submit`、`/leaderboards`、`<rank_api>/leaderboard` **一个都不发**；成绩只在本地保留并展示「本轮成绩已记录在本地」 |
+| `compatibility` | 无 ticket（或 V2 不可用），但有 `student_id` **且** 有显式 `rank_api` | 只发 Legacy：`finish` → `POST <rank_api>/submit`；读榜 → `GET <rank_api>/leaderboard`。**不发** `/meta`、`/sessions`、`/leaderboards` |
+| `verified` | Host 签发 ticket 且 `POST /sessions` 兑换成功 | 只发 V2：`GET /meta`（协商）→ `POST /sessions` → `POST /runs`（T1）→ `POST /runs/{id}/finish`（T3）→ 读榜 `GET /leaderboards`。**不发** Legacy `/submit` |
+
+关键推论（P1-5）：**「网页直开模块」= standalone = 不写任何库**。旧实现会在没有 `rank_api` 时回落到硬编码测试域，
+把成绩写进测试库；现在这类路径一律本地化（见 §2.2）。
+
+---
+
+## 2.2 API base 决策链（唯一出口 = `resolveApiBases`，fail closed）
+
+优先级（V2 与 Legacy 两条通道各自判定，代码见 `_sdk/src/game.js`）：
+
+1. **SDK 显式配置**：`config.gamePlatformApiBase` / `config.apiBase` / `config.rankApiBase`
+2. **Host 注入**：iframe URL query 的 `gp_api` / `game_platform_api` / `rank_api`（宿主侧 MoreView 与游乐场用 `rank_api`；V2 base 可由其**同源推导**）
+3. **持久化上下文**：localStorage 中上一次 Host 注入的 `rankApiBase`（由 `readLegacyModuleContext` 读取）
+4. **环境默认**：`DEFAULT_GAME_PLATFORM_API_BASE` = **生产源**（与宿主 `game_center/base.ts` 的 `DEFAULT_GAME_SERVICE_ORIGIN` 逐字一致）——**仅 V2 通道有**
+
+Fail closed 规则（不可违反）：
+
+- **Legacy 通道没有环境默认**：无显式注入 → `legacyBase === ''` → `canSubmitLegacyRank === false` → 引擎落 `standalone`（零请求）。
+  测试域/生产域**都不得**作为兜底；`normalizeLegacyRankApiBase('')` 返回 `''`。
+- **测试环境域名绝不作为默认**：`_sdk/**` 里出现测试域字面量即视为回归（源码扫描护栏在 `_sdk_p1_contract.spec.ts`）。
+- V2 的环境默认只在「Host 已签发 ticket」时才可能被用到（无 ticket 时 bootstrap 在 `/meta` 之前就返回，零请求）。
+- 诊断：`game.diagnostics.api = { v2, legacy, rank_api_injected, sources: { v2, legacy } }`，
+  `sources.* ∈ config | host | host_derived | stored | env_default | none`。
+
+迁移要求（W4 收口 9 个 `game_rank.js` 时按此对齐）：
+
+- 游戏源码**不得**再出现任何 API 默认域（`game_rank.js` 里的 `DEFAULT_GAME_RANK_API` 是回滚路径，不在 SDK 通路上）；
+- 需要远程榜的宿主/网页必须**显式注入** `rank_api`（以及需要 V2 时的 `gp_api` 或 ticket）；
+- 无注入即本地游玩，这是**预期行为**，不是 bug。
+
+---
+
+## 2.3 服务端能力声明 `capabilities`（P1-1：flag ≠ 端点已实现）
+
+`features.*`（flag）表达「产品想不想要」；`capabilities.*` 表达「**端点是否真的实现**」。
+两者必须分开判断：flag 打开但端点未实现时，UI 必须靠 capability 前置隐藏，而不是点击后 404。
+
+读取与暴露（代码见 `_sdk/src/capabilities.js`）：
+
+- 来源优先级：`/meta.capabilities` > `/meta.features`（过渡形态）> 宿主 `welcome.capabilities` > `welcome.features`；
+- 形状（canonical key）：`{ leaderboards, daily_tasks, gomoku_competitive, verified_reward }`；
+- 游戏侧读取：`game.capabilities.server.<key>`（**保守**：拿不到 `/meta`、字段缺失、类型非法 → 一律 `false`）；
+  诊断：`game.diagnostics.capabilities = { source, declared, disabled }`；
+- **保守默认与运行时闸门是两层**：
+  - UI 前置隐藏用 `capabilities.server`（未知即 false → 不渲染入口）；
+  - 运行时只在服务端**显式声明 false** 时短路请求（`isCapabilityDisabled`），
+    字段缺失时保持既有「请求 + 失败降级」行为，避免服务端尚未上线该字段时误伤已上线的 10 个游戏。
+
+---
+
 ## 3. 迁移四步法（每个游戏都一样）
 
 ### 步骤 1：新建 `<game>/project/src/utils/game_sdk_adapter.js`
@@ -381,3 +440,6 @@ node scripts/build_website_modules.mjs --modules <你的游戏>
 | M2 | `clumsy_bird_hbut` V2 主排序是否改为本局 `score` | 是（U-R4）；Legacy 镜像仍写 bestScore |
 | M3 | 排行榜默认 board | `classic`（Stage D 前与经典榜内容一致；`verified` 榜由 #905/#909 决定入口） |
 | M4 | 迁移期是否保留旧 `game_rank.js` 的 import 作为兜底 | 否（SDK 已内含 Legacy 通道；旧文件仅用于回滚） |
+| M5 | `/meta.capabilities` 的最终字段名（Integration 对齐项） | canonical：`leaderboards` / `daily_tasks` / `gomoku_competitive` / `verified_reward`；SDK 兼容 `leaderboard`、`*_enabled`（仅 capabilities 作用域）与 `features.<同名>` 过渡形态，**任何未识别命名一律按 false** |
+| M6 | 客户端 3 个新 flag（`game_daily_tasks_enabled` / `gomoku_competitive_enabled` / `verified_reward_enabled`）的接线时机 | 由 W3 接线时并入 `GAME_CENTER_FLAG_KEYS` + `DEFAULT_GAME_CENTER_FLAGS` + `flags.ts` 夹紧；当前在 `game_center/base.ts` 以 `RESERVED_GAME_CENTER_FLAG_KEYS`（默认全 false）预留 |
+| M7 | 「无 `rank_api` 的网页直开」是否允许远程上榜（P1-5 取舍） | **不允许**（fail closed → standalone 本地游玩）；需要远程榜的宿主/网页必须显式注入 `rank_api` |

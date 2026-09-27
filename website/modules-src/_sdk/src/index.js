@@ -22,8 +22,14 @@
  *   game.leaderboard({ scope, limit, board, cursor })     → Promise<LeaderboardResult>
  */
 
-import { createGame, createEngine, initGame } from './game.js'
+import { createGame, createEngine, initGame, resolveApiBases } from './game.js'
 import { createGameAdapter, ENDED_REASONS, METRIC_SEMANTICS, RESULT_LIMITS } from './adapters/adapter.js'
+import {
+  emptyServiceCapabilities,
+  isCapabilityDisabled,
+  readServiceCapabilities,
+  SERVICE_CAPABILITY_KEYS
+} from './capabilities.js'
 import { ERROR_CODES, ERROR_CODE_TABLE, GamePlatformError, isGamePlatformError, normalizeError, FORBIDDEN_ACTOR_FIELDS } from './errors.js'
 import { HOST_MESSAGE_TYPES, MODES, PROTOCOL_VERSION, SDK_VERSION, SUPPORTED_PROTOCOL_VERSIONS, TRUST_LEVELS } from './version.js'
 import { clearLaunchTicketFromUrl, createHostOriginGuard, readLaunchTicket } from './host-bridge.js'
@@ -113,13 +119,18 @@ export {
   createGamePlatformClient,
   createRun,
   createRunId,
+  emptyServiceCapabilities,
   fetchJumpOutLegacyLeaderboard,
   finishPayloadSignature,
+  isCapabilityDisabled,
   readJumpOutLegacyContext,
+  readServiceCapabilities,
+  resolveApiBases,
   resolveLegacyPlatformText,
   resolveRegistryEntry,
   safeText,
   sanitizeTelemetryFields,
+  SERVICE_CAPABILITY_KEYS,
   stableStringify,
   stripPiiFields,
   submitJumpOutLegacyRank,

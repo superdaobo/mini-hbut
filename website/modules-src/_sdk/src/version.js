@@ -5,6 +5,7 @@
  * - SDK 自带版本号（独立版本化），但**只支持 protocol v1**；服务端 meta 声明的区间必须包含 1。
  * - V2 命名空间唯一落点 `/api/game-platform/v1/*`；Legacy `/api/game-rank/*` 冻结为兼容通道。
  * - 生产 API 地址**只在 SDK 一处默认**，游戏源码不得各自硬编码（#904 验收项）。
+ * - P1-5：测试域绝不作为默认；Legacy 通道无隐式默认（无显式注入即不可提交，fail closed）。
  */
 
 /** SDK 自身版本（与 package.json version 必须一致，见 _sdk_version.spec.ts 断言） */
@@ -22,13 +23,31 @@ export const GAME_PLATFORM_API_NAMESPACE = '/api/game-platform/v1'
 /** Legacy 冻结命名空间 */
 export const LEGACY_RANK_API_NAMESPACE = '/api/game-rank'
 
-/** 生产服务默认源（唯一默认值，游戏不得硬编码） */
-export const DEFAULT_SERVICE_ORIGIN = 'https://mini-hbut-testocr1.hf.space'
+/**
+ * 环境默认服务源（**生产源**，与宿主侧 `apps/client/src/utils/game_center/base.ts` 的
+ * `DEFAULT_GAME_SERVICE_ORIGIN` 逐字一致，消除 SDK ↔ Host 两处默认漂移）。
+ *
+ * P1-5 决策（不可回退）：
+ * - **测试环境域名绝不作为 SDK 默认**（`_sdk/**` 里出现测试域字面量即视为回归，
+ *   由 `_sdk_p1_contract.spec.ts` 的源码扫描护栏把守）：它会把「网页直开模块」
+ *   的成绩静默写进测试库；
+ * - 环境默认**只用于 V2 通道**，且 V2 请求只有拿到 Host 签发的 ticket 才可能发生
+ *   （无 ticket 时 bootstrap 在 `/meta` 之前返回，零请求）；
+ * - Legacy 通道**没有环境默认**：必须由 SDK 配置或 Host 注入 `rank_api` 显式决定，
+ *   缺失即判定不可提交（fail closed → standalone 纯本地），见 `game.js` 的 resolveApiBases。
+ */
+export const DEFAULT_SERVICE_ORIGIN = 'https://mini-hbut-ocr-service.hf.space'
 
-/** 默认 V2 API base */
+/** 默认 V2 API base（仅 V2 通道；Host 注入 `gp_api` / `rank_api` 时优先） */
 export const DEFAULT_GAME_PLATFORM_API_BASE = `${DEFAULT_SERVICE_ORIGIN}${GAME_PLATFORM_API_NAMESPACE}`
 
-/** 默认 Legacy API base */
+/**
+ * Legacy 生产地址**参考值**（诊断 / 文档 / 宿主对照用，也可由显式集成方引用）。
+ *
+ * 注意：SDK **不再**把它当作隐式提交目标（旧行为 = 无 `rank_api` 时静默打这个域，
+ * 正是 P1-5 要消灭的路径）。Legacy 可用性只由 `canSubmitLegacyRank` 判定：
+ * 必须同时具备自报身份 + **显式注入**的 base。
+ */
 export const DEFAULT_LEGACY_RANK_API_BASE = `${DEFAULT_SERVICE_ORIGIN}${LEGACY_RANK_API_NAMESPACE}`
 
 /** 请求超时（沿用既有游戏 12s 约定：website/modules-src/hbut_stack/project/src/utils/game_rank.js:3） */

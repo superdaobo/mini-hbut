@@ -147,6 +147,63 @@ export interface LeaderboardResult {
   [key: string]: unknown
 }
 
+/**
+ * 服务端/宿主声明的**端点能力**（P1-1；与 `features.*` flag 的区别：flag 表达「想不想要」，
+ * capability 表达「端点是否真的实现」）。
+ *
+ * 降级语义（fail closed）：拿不到 `/meta` 或字段缺失 → 一律 `false`（不得乐观假设可用）。
+ * 消费建议：UI 用它做**前置隐藏**（例如榜单不可用时不渲染入口），而不是点击后 404。
+ */
+export interface ServiceCapabilities {
+  /** V2 榜读取端点 `GET /leaderboards` */
+  leaderboards: boolean
+  /** 每日任务（flag `game_daily_tasks_enabled`） */
+  daily_tasks: boolean
+  /** 五子棋竞技（flag `gomoku_competitive_enabled`） */
+  gomoku_competitive: boolean
+  /** 可信结算发奖（flag `verified_reward_enabled`） */
+  verified_reward: boolean
+}
+
+export interface DeclaredServiceCapabilities {
+  /** 保守能力表（未知即 false） */
+  values: ServiceCapabilities
+  /** 被显式声明过的 canonical key（诊断用） */
+  declared: string[]
+  /** 最高优先级声明来源 */
+  source: 'meta' | 'welcome' | 'none'
+}
+
+/** 游戏句柄的能力表（既有键语义不变 + `server` 服务端能力） */
+export interface GameCapabilities {
+  ranked: boolean
+  multiplayer: boolean
+  economyEligible: boolean
+  classicMirror: boolean
+  seasonEligible: boolean
+  legacyCompatible: boolean
+  canSubmitVerified: boolean
+  canSubmitLegacy: boolean
+  canSubmit: boolean
+  leaderboard: boolean
+  /** 服务端能力（保守；见 ServiceCapabilities） */
+  server: ServiceCapabilities
+  rewardsEnabled: boolean
+  blocked: { code: string } | null
+  /** 仅 preflight（ready 之前）存在 */
+  pending?: boolean
+  [key: string]: unknown
+}
+
+/** API base 决策结果（resolveApiBases 的返回值；legacy 为空串 = 未配置 = 不可提交） */
+export interface ResolvedApiBases {
+  v2Base: string
+  v2Source: 'config' | 'host' | 'host_derived' | 'env_default'
+  legacyBase: string
+  legacySource: 'config' | 'host' | 'none'
+  rankApiInjected: boolean
+}
+
 export interface GameHandle {
   readonly sdkVersion: string
   readonly protocolVersion: number
@@ -155,7 +212,7 @@ export interface GameHandle {
   readonly ready: Promise<GameHandle>
   readonly mode: string
   readonly trustLevel: string | null
-  readonly capabilities: Record<string, unknown>
+  readonly capabilities: GameCapabilities
   readonly features: Record<string, unknown>
   readonly limits: Record<string, unknown>
   readonly diagnostics: Record<string, any>
@@ -219,7 +276,22 @@ export function clearLaunchTicketFromUrl(options?: { history?: unknown; location
 export function canSubmitLegacyRank(context: Record<string, unknown>, options?: Record<string, unknown>): boolean
 export function createJumpOutLegacyAdapter(): Record<string, any>
 export function fetchLegacyLeaderboard(params: Record<string, any>): Promise<Record<string, any>>
+/**
+ * Legacy API base 归一（补协议 / 去尾斜杠 / 补 `/api/game-rank`）。
+ * **空值返回 `''`**（P1-5：不再回落到任何默认域；未配置 = 不可提交）。
+ */
 export function normalizeLegacyRankApiBase(value: string): string
+/**
+ * API base 单一决策出口（P1-5）：SDK 配置 > Host 注入（`gp_api` / `rank_api`）> 环境默认（仅 V2）。
+ * Legacy 无环境默认：无显式注入即 `legacyBase === ''`（fail closed → standalone 纯本地）。
+ */
+export function resolveApiBases(config?: Record<string, unknown>, params?: URLSearchParams): ResolvedApiBases
+/** 读取服务端/宿主能力声明（保守：未知即 false） */
+export function readServiceCapabilities(sources?: { meta?: object; welcome?: object }): DeclaredServiceCapabilities
+/** 服务端是否**显式**声明该能力不可用（运行时闸门；未知不算禁用） */
+export function isCapabilityDisabled(capabilities: DeclaredServiceCapabilities, key: string): boolean
+export function emptyServiceCapabilities(): ServiceCapabilities
+export const SERVICE_CAPABILITY_KEYS: readonly string[]
 export function readLegacyModuleContext(options?: Record<string, any>): Record<string, string>
 export function submitLegacyRank(params: Record<string, any>): Promise<Record<string, any>>
 export function resolveLegacyPlatformText(): string

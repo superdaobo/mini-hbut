@@ -43,6 +43,46 @@ export const GAME_CENTER_FLAG_KEYS = Object.freeze([
 export type GameCenterFlagKey = (typeof GAME_CENTER_FLAG_KEYS)[number]
 
 /**
+ * **预留**：Production Readiness P1 收口由服务端新增的三个 flag（客户端侧 key 单一来源）。
+ *
+ * 为什么先「预留」而不直接并入 `GAME_CENTER_FLAG_KEYS`：
+ * - 这三个开关**尚无消费方**（W3 客户端接线 + 远程配置下发是本轮之后的工作）；
+ * - 并入 `GAME_CENTER_FLAG_KEYS` 会改变两个**冻结清单**契约测试
+ *   （`game_center_flags.spec.ts` / `game_center_wiring_contract.spec.ts` 断言恰好 5 个 key）
+ *   并要求 `flags.ts` 出现对应字面量（合规夹紧）。为避免在 SDK 契约轮次里改动
+ *   flag 生效层（flags.ts）与两个契约测试，这里先以**独立预留表**交付 key 与默认值。
+ *
+ * W3 接线步骤（一次性、机械改动）：
+ * 1. 把这 3 个 key 追加进 `GAME_CENTER_FLAG_KEYS`（保持本表作为唯一 key 来源）；
+ * 2. 把默认值并入 `DEFAULT_GAME_CENTER_FLAGS`；
+ * 3. 在 `flags.ts` 的 `applyGameCenterPolicyClamp` 里按依赖关系夹紧
+ *    （`game_daily_tasks_enabled` / `verified_reward_enabled` 依赖 V2 可信链路 →
+ *    与 `game_economy_enabled` 同组；`gomoku_competitive_enabled` 依赖榜单策略）；
+ * 4. 同步更新那两个 spec 的冻结清单断言；
+ * 5. 远程配置侧：`normalizeGamePlatformConfig` 会自动收录（它按 GAME_CENTER_FLAG_KEYS 遍历）。
+ */
+export const RESERVED_GAME_CENTER_FLAG_KEYS = Object.freeze([
+  /** 每日任务（服务端对应 capability `daily_tasks`） */
+  'game_daily_tasks_enabled',
+  /** 五子棋竞技（服务端对应 capability `gomoku_competitive`） */
+  'gomoku_competitive_enabled',
+  /** 可信结算发奖（服务端对应 capability `verified_reward`） */
+  'verified_reward_enabled'
+] as const)
+
+export type ReservedGameCenterFlagKey = (typeof RESERVED_GAME_CENTER_FLAG_KEYS)[number]
+
+/**
+ * 预留开关的默认值：**一律 false**（fail closed）。
+ * 未交付/未验证的服务端能力绝不乐观开启：远程配置下发 true 之前，UI 必须当作关闭。
+ */
+export const RESERVED_GAME_CENTER_FLAG_DEFAULTS: Readonly<Record<ReservedGameCenterFlagKey, boolean>> = Object.freeze({
+  game_daily_tasks_enabled: false,
+  gomoku_competitive_enabled: false,
+  verified_reward_enabled: false
+})
+
+/**
  * 默认值（远程配置不可达时的最终兜底）。
  *
  * - `game_center_enabled: true`：游乐场入口本身不依赖后端（经典游戏 + 本地数据）即可用；
