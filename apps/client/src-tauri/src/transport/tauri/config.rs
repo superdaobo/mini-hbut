@@ -7,7 +7,7 @@ use crate::app_state::AppState;
 use crate::modules;
 
 pub(crate) const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str =
-    "https://mini-hbut-testocr1.hf.space/api/temp/upload";
+    "https://mini-hbut-ocr-service.hf.space/api/temp/upload";
 
 static TEMP_UPLOAD_ENDPOINT: OnceLock<StdMutex<Option<String>>> = OnceLock::new();
 
@@ -62,6 +62,17 @@ pub(crate) async fn set_ocr_runtime_config(
         endpoints.unwrap_or_default(),
         local_fallback_endpoints.unwrap_or_default(),
     );
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn set_ocr_telemetry_context(
+    state: State<'_, AppState>,
+    device_id: String,
+    student_id: String,
+) -> Result<(), String> {
+    let mut client = state.client.write().await;
+    client.set_ocr_telemetry_context(device_id, student_id);
     Ok(())
 }
 
