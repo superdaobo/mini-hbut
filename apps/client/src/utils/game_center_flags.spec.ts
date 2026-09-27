@@ -2,7 +2,7 @@
  * #905 湖工游乐场 feature flags 契约测试。
  *
  * 覆盖：
- * - 五个开关的默认值（未交付能力必须默认关闭，避免「可见但必然报错」）；
+ * - 八个开关的默认值（未交付能力必须默认关闭，避免「可见但必然报错」）；
  * - 远程配置独立关闭（无需发版即可回滚）；
  * - 合规包 guest/demo 的策略夹紧（与 app_store_policy 对齐）；
  * - API base / origin 白名单只能 HTTPS（loopback 例外），拒绝 '*' / 'null' / 明文。
@@ -31,13 +31,17 @@ afterEach(() => {
 })
 
 describe('game center feature flags', () => {
-  it('定义五个独立开关，且未交付能力默认关闭', () => {
+  it('定义八个独立开关，且未交付能力默认关闭', () => {
     expect([...GAME_CENTER_FLAG_KEYS]).toEqual([
       'game_center_enabled',
       'game_verified_session_enabled',
       'game_economy_enabled',
       'drift_bottle_enabled',
-      'classic_game_entries_visible'
+      'classic_game_entries_visible',
+      // W3 接线：三个新 key 追加在既有 5 个之后（顺序冻结，保证既有语义零漂移）
+      'game_daily_tasks_enabled',
+      'gomoku_competitive_enabled',
+      'verified_reward_enabled'
     ])
     expect(DEFAULT_GAME_CENTER_FLAGS.game_center_enabled).toBe(true)
     expect(DEFAULT_GAME_CENTER_FLAGS.classic_game_entries_visible).toBe(true)
@@ -45,6 +49,32 @@ describe('game center feature flags', () => {
     expect(DEFAULT_GAME_CENTER_FLAGS.game_verified_session_enabled).toBe(false)
     expect(DEFAULT_GAME_CENTER_FLAGS.game_economy_enabled).toBe(false)
     expect(DEFAULT_GAME_CENTER_FLAGS.drift_bottle_enabled).toBe(false)
+    // W3：每日任务 / 五子棋竞技 / 可信结算奖励同样 fail closed
+    expect(DEFAULT_GAME_CENTER_FLAGS.game_daily_tasks_enabled).toBe(false)
+    expect(DEFAULT_GAME_CENTER_FLAGS.gomoku_competitive_enabled).toBe(false)
+    expect(DEFAULT_GAME_CENTER_FLAGS.verified_reward_enabled).toBe(false)
+  })
+
+  it('W3 三个新开关可由远程配置独立打开（与既有 flag 同一通道）', () => {
+    const flags = resolveGameCenterFlags({
+      game_platform: {
+        flags: {
+          game_daily_tasks_enabled: 'true',
+          gomoku_competitive_enabled: 1,
+          verified_reward_enabled: true
+        }
+      }
+    })
+    expect(flags.game_daily_tasks_enabled).toBe(true)
+    expect(flags.gomoku_competitive_enabled).toBe(true)
+    expect(flags.verified_reward_enabled).toBe(true)
+    // 平铺写法同样收录（normalizeGamePlatformConfig 按 GAME_CENTER_FLAG_KEYS 遍历）
+    const flat = resolveGameCenterFlags({
+      game_platform: { game_daily_tasks_enabled: 'on', gomoku_competitive_enabled: 'yes' }
+    })
+    expect(flat.game_daily_tasks_enabled).toBe(true)
+    expect(flat.gomoku_competitive_enabled).toBe(true)
+    expect(flat.verified_reward_enabled).toBe(false)
   })
 
   it('远程配置缺失时回落到默认值', () => {
@@ -86,6 +116,10 @@ describe('game center feature flags', () => {
     expect(rolledBack.game_verified_session_enabled).toBe(false)
     expect(rolledBack.game_economy_enabled).toBe(false)
     expect(rolledBack.drift_bottle_enabled).toBe(false)
+    // W3 三个新开关同属 V2 能力面，块级回滚一并关闭
+    expect(rolledBack.game_daily_tasks_enabled).toBe(false)
+    expect(rolledBack.gomoku_competitive_enabled).toBe(false)
+    expect(rolledBack.verified_reward_enabled).toBe(false)
     // 总开关关闭时不得接受自定义 origin 白名单
     expect(rolledBack.allowed_game_origins).toEqual([])
     // 经典入口可见性不被总开关误伤
@@ -120,7 +154,7 @@ describe('game center feature flags', () => {
     expect(block.allowed_game_origins).toEqual(['https://a.example.com'])
   })
 
-  it('合规包 guest/demo 夹紧：游乐场、赛季、经济、UGC、经典入口全部关闭', () => {
+  it('合规包 guest/demo 夹紧：游乐场、赛季、经济、UGC、经典入口与 W3 三个新开关全部关闭', () => {
     const flags = resolveGameCenterFlags({
       game_platform: {
         flags: {
@@ -128,16 +162,27 @@ describe('game center feature flags', () => {
           game_verified_session_enabled: true,
           game_economy_enabled: true,
           drift_bottle_enabled: true,
-          classic_game_entries_visible: true
+          classic_game_entries_visible: true,
+          game_daily_tasks_enabled: true,
+          gomoku_competitive_enabled: true,
+          verified_reward_enabled: true
         }
       }
     })
+    // 远程配置本身可以打开这些 flag（不做乐观默认），夹紧发生在策略层
+    expect(flags.game_daily_tasks_enabled).toBe(true)
+    expect(flags.gomoku_competitive_enabled).toBe(true)
+    expect(flags.verified_reward_enabled).toBe(true)
+
     const clamped = applyGameCenterPolicyClamp(flags, restrictedPolicy())
     expect(clamped.game_center_enabled).toBe(false)
     expect(clamped.game_verified_session_enabled).toBe(false)
     expect(clamped.game_economy_enabled).toBe(false)
     expect(clamped.drift_bottle_enabled).toBe(false)
     expect(clamped.classic_game_entries_visible).toBe(false)
+    expect(clamped.game_daily_tasks_enabled).toBe(false)
+    expect(clamped.gomoku_competitive_enabled).toBe(false)
+    expect(clamped.verified_reward_enabled).toBe(false)
   })
 
   it('非合规构建 / 真实登录（全功能策略）不夹紧', () => {

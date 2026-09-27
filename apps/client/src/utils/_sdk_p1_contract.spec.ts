@@ -475,8 +475,8 @@ describe('P1-1 服务端能力（capabilities）：保守默认 + 显式声明�
   })
 })
 
-describe('P1 收口：客户端预留 flag key（定义在 base.ts，默认 false）', () => {
-  it('三个新 flag 的 key 与默认值已预留，且尚未并入生效层（接线时同步改这里）', () => {
+describe('P1 收口：客户端新增 flag（定义在 base.ts，默认 false）', () => {
+  it('三个新 flag 已并入生效层，默认值仍然一律 false', () => {
     expect([...RESERVED_GAME_CENTER_FLAG_KEYS]).toEqual([
       'game_daily_tasks_enabled',
       'gomoku_competitive_enabled',
@@ -484,17 +484,19 @@ describe('P1 收口：客户端预留 flag key（定义在 base.ts，默认 fals
     ])
     for (const key of RESERVED_GAME_CENTER_FLAG_KEYS) {
       expect(RESERVED_GAME_CENTER_FLAG_DEFAULTS[key]).toBe(false)
-      // 半接线护栏：W3 接线时需同时把它们并入 GAME_CENTER_FLAG_KEYS 与默认值区
-      expect([...GAME_CENTER_FLAG_KEYS]).not.toContain(key)
-      expect(DEFAULT_GAME_CENTER_FLAGS).not.toHaveProperty(key)
+      // W3 接线完成：三个 key 已并入主清单与默认值区（不再只是「预留」）
+      expect([...GAME_CENTER_FLAG_KEYS]).toContain(key)
+      expect(DEFAULT_GAME_CENTER_FLAGS[key]).toBe(false)
     }
   })
 
-  it('远程配置在接线前无法打开预留 flag（不会「可见但必然报错」）', () => {
+  it('远程配置可打开新 flag，但能力未声明时 UI 仍需前置隐藏（capability-driven）', () => {
     const flags = resolveGameCenterFlags({
       game_platform: { flags: { game_daily_tasks_enabled: true, verified_reward_enabled: true } }
     })
-    expect(flags).not.toHaveProperty('game_daily_tasks_enabled')
-    expect(flags).not.toHaveProperty('verified_reward_enabled')
+    // flag 只表达「产品想不想要」：可被远程打开，但真正的显隐还要求 /meta.capabilities 显式为 true
+    expect(flags.game_daily_tasks_enabled).toBe(true)
+    expect(flags.verified_reward_enabled).toBe(true)
+    expect(flags.gomoku_competitive_enabled).toBe(false)
   })
 })

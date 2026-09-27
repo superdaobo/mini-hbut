@@ -3,9 +3,11 @@
  * 游乐场「我的」Tab（#905）。
  *
  * 数据来源与 feature-gate：
- * - 玩家摘要 / 历史最好成绩：本地缓存 + Legacy 只读榜（既有数据，始终可用）；
- * - 等级 / XP / 湖工币 / 钱包流水 / 今日任务进度：受 game_economy_enabled 前置控制，
- *   关闭时整块隐藏（协议 §5 REWARD_DISABLED client_action），不展示会报错的卡片。
+ * - 玩家摘要 / 历史最好成绩：本地缓存 + Legacy 只读榜（既有数据，始终可用，
+ *   **不受 V2 capabilities 影响**）；
+ * - 等级 / XP / 湖工币 / 钱包流水：受 `game_economy_enabled` **且**
+ *   `/meta.capabilities.wallet` 双层控制，任一不成立整块隐藏
+ *   （协议 §5 REWARD_DISABLED client_action），不展示会报错的卡片。
  */
 import { useI18n } from '../../utils/app_i18n'
 
@@ -46,7 +48,7 @@ const { t } = useI18n()
       </dl>
     </section>
 
-    <!-- 经济未开放：等级/XP/湖工币/钱包流水/任务摘要整块隐藏 -->
+    <!-- 经济未开放（flag 关 或 capabilities.wallet !== true）：等级/XP/湖工币/钱包流水整块隐藏 -->
     <section v-if="props.economyEnabled" class="gc-card">
       <header class="gc-card__header">
         <h3 class="gc-card__title">{{ t('gameCenter.me.walletTitle') }}</h3>

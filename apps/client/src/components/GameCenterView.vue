@@ -9,9 +9,13 @@
  *    关闭即前置隐藏，不发请求、不出现「可见但必然报错」；
  * 2. 未交付能力：#909（经济/赛季）→ game_economy_enabled / game_verified_session_enabled 默认关；
  *    #910（漂流瓶）→ drift_bottle_enabled 默认关，且整 Tab 不挂载；
- * 3. 游戏启动复用既有 module 打开链路（一次性开局意图 → 更多页既有链路），
+ * 3. **capability-driven（P1-1）**：flag 只表达「产品想不想要」，不能用它决定渲染。
+ *    UI 显隐一律是 **flag && /meta.capabilities** 的 AND：
+ *    拿不到 /meta 或字段缺失 → capabilities 保守 false → 相关入口前置隐藏、不发请求，
+ *    而不是「请求后 404 再报错」。经典榜走 Legacy 通道，不受 V2 capabilities 影响。
+ * 4. 游戏启动复用既有 module 打开链路（一次性开局意图 → 更多页既有链路），
  *    本组件不复制 manifest/缓存/bundle 状态机；
- * 4. 排行榜渲染前经 PII 白名单过滤（协议 §9.3：禁止展示学号）。
+ * 5. 排行榜渲染前经 PII 白名单过滤（协议 §9.3：禁止展示学号）。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { TPageHeader } from './templates'
@@ -33,6 +37,7 @@ import { GAME_CENTER_GAME_IDS } from '../utils/game_center/launch'
 import { requestGameOpen } from '../utils/game_center/pending_open'
 import { readCachedPlayerProfile } from '../utils/game_center/profile'
 import {
+  EMPTY_GAME_PLATFORM_CAPABILITIES,
   fetchClassicLeaderboard,
   fetchGameLeaderboards,
   fetchGamePlatformMeta,
@@ -58,6 +63,11 @@ const DEFAULT_FLAGS = {
 }
 
 const flags = ref({ ...DEFAULT_FLAGS })
+/**
+ * 服务端能力表（P1-1 双层闸门第二层）。
+ * 初值＝保守 false：探测 `/meta` 之前**一切能力都不可用** → 相关入口先隐藏，绝不先发请求。
+ */
+const capabilities = ref({ ...EMPTY_GAME_PLATFORM_CAPABILITIES })
 const flagsLoaded = ref(false)
 const activeTab = ref('home')
 const games = ref([])
@@ -73,9 +83,46 @@ const platformNotice = ref('')
 
 const safeText = (value) => String(value ?? '').trim()
 
-const economyEnabled = computed(() => flags.value.game_economy_enabled === true)
-const verifiedEnabled = computed(() => flags.value.game_verified_session_enabled === true)
-const driftEnabled = computed(() => flags.value.drift_bottle_enabled === true)
+/**
+ * 双层闸门：flag（产品开关，远程可回滚）AND capability（端点**真的实现了**）。
+ *
+ * 关键决策：不做成两个 prop 让子组件自己判断 —— 由本组件收敛为单一布尔，
+ * 子组件只负责「不可用就不渲染」，避免同一判据在多处漂移。
+ * 注意：下面这些名字沿用了既有 prop 契约（economyEnabled / verifiedEnabled），
+ * 语义已升级为 AND 结果。
+ */
+const economyEnabled = computed(
+  () => flags.value.game_economy_enabled === true && capabilities.value.wallet === true
+)
+const verifiedEnabled = computed(
+  () => flags.value.game_verified_session_enabled === true && capabilities.value.leaderboards === true
+)
+const driftEnabled = computed(
+  () => flags.value.drift_bottle_enabled === true && capabilities.value.drift_bottle === true
+)
+const dailyTasksEnabled = computed(
+  () => flags.value.game_daily_tasks_enabled === true && capabilities.value.daily_tasks === true
+)
+const gomokuCompetitiveEnabled = computed(
+  () => flags.value.gomoku_competitive_enabled === true && capabilities.value.gomoku_match === true
+)
+const verifiedRewardEnabled = computed(
+  () => flags.value.verified_reward_enabled === true && capabilities.value.verified_reward === true
+)
+
+/**
+ * 是否需要探测 `/meta`：仅当任一 V2 能力 flag 打开时才需要。
+ * 纯经典模式（全部 V2 flag 关闭）不产生额外请求，保持既有「兼容模式」提示。
+ */
+const requiresCapabilities = computed(
+  () =>
+    flags.value.game_verified_session_enabled === true ||
+    flags.value.game_economy_enabled === true ||
+    flags.value.game_daily_tasks_enabled === true ||
+    flags.value.gomoku_competitive_enabled === true ||
+    flags.value.drift_bottle_enabled === true ||
+    flags.value.verified_reward_enabled === true
+)
 
 /** 五个 Tab；漂流瓶未交付时**整项不出现**（feature-gate 隐藏而非可见后报错） */
 const tabs = computed(() => {
@@ -112,19 +159,25 @@ const applyFlags = (config) => {
 }
 
 /**
- * 能力可用性提示（issue #905 降级 UX）：
- * - 未开启验证会话/经济 → 当前就是兼容模式，明确告知「不结算新奖励」；
- * - 已开启时探测 /meta，探测失败同样降级提示（不阻塞任何游戏入口）。
+ * 能力可用性探测（issue #905 降级 UX + P1-1 双层闸门）：
+ * - 没有任何 V2 flag 打开 → 当前就是兼容模式，不产生额外请求；
+ * - 有 V2 flag → 读 `/meta.capabilities`：拿到后刷新当前 Tab 此前被闸门挡住的按需加载；
+ *   探测失败 / 字段缺失 → 能力表保持保守 false，相关入口继续**前置隐藏**（不发必然失败的请求）。
  */
 const refreshPlatformAvailability = async () => {
-  if (!verifiedEnabled.value && !economyEnabled.value) {
+  if (!requiresCapabilities.value) {
     platformNotice.value = t('gameCenter.status.compatibilityMode')
     return
   }
   try {
-    await fetchGamePlatformMeta(flags.value.api_base)
+    const meta = await fetchGamePlatformMeta(flags.value.api_base)
+    capabilities.value = { ...meta.capabilities }
     platformNotice.value = ''
+    // 能力表到位后补齐当前 Tab 的按需数据（此前被 capability 闸门挡住的请求在这里补发一次）
+    if (activeTab.value === 'rank') await loadVerifiedBoard()
+    if (activeTab.value === 'me') await loadWalletIfEnabled()
   } catch {
+    capabilities.value = { ...EMPTY_GAME_PLATFORM_CAPABILITIES }
     platformNotice.value = t('gameCenter.status.compatibilityMode')
   }
 }
@@ -143,13 +196,24 @@ const loadGames = async () => {
     }))
 }
 
+/** 钱包 / Verified 榜的在途标记：能力表到位补发 + Tab 切换可能并发触发，避免重复请求 */
+let walletInFlight = false
+let verifiedInFlight = false
+
 const loadWalletIfEnabled = async () => {
   if (!economyEnabled.value) {
     wallet.value = null
     return
   }
+  if (walletInFlight) return
+  walletInFlight = true
   try {
     const payload = await fetchGamePlayerWallet(flags.value.api_base)
+    // 等待期间闸门若被关闭（远程配置回滚 / 能力探测失败），丢弃本次结果
+    if (!economyEnabled.value) {
+      wallet.value = null
+      return
+    }
     const source =
       payload.wallet && typeof payload.wallet === 'object'
         ? payload.wallet
@@ -164,6 +228,8 @@ const loadWalletIfEnabled = async () => {
   } catch {
     // 经济不可用不应阻塞游戏：保持隐藏，不进错误态
     wallet.value = null
+  } finally {
+    walletInFlight = false
   }
 }
 
@@ -199,6 +265,8 @@ const loadVerifiedBoard = async () => {
     verifiedError.value = ''
     return
   }
+  if (verifiedInFlight) return
+  verifiedInFlight = true
   try {
     const payload = await fetchGameLeaderboards({
       gameId: selectedGameId.value,
@@ -207,6 +275,12 @@ const loadVerifiedBoard = async () => {
       limit: 20,
       apiBase: flags.value.api_base
     })
+    // 等待期间闸门若被关闭（能力探测失败 / flag 回滚），丢弃本次结果
+    if (!verifiedEnabled.value) {
+      verifiedBoard.value = null
+      verifiedError.value = ''
+      return
+    }
     verifiedBoard.value = normalizeGamePlatformLeaderboard(payload, {
       gameId: selectedGameId.value,
       board: 'verified'
@@ -215,6 +289,8 @@ const loadVerifiedBoard = async () => {
   } catch (error) {
     verifiedBoard.value = null
     verifiedError.value = resolveErrorMessage(error)
+  } finally {
+    verifiedInFlight = false
   }
 }
 
@@ -311,6 +387,7 @@ onMounted(async () => {
           v-if="activeTab === 'home'"
           :profile="profile"
           :economy-enabled="economyEnabled"
+          :daily-tasks-enabled="dailyTasksEnabled"
           :recent-games="recentGames"
           :recommended-games="recommendGames"
           @open-game="handleOpenGame"
@@ -318,6 +395,7 @@ onMounted(async () => {
         <GameCenterGamesTab
           v-else-if="activeTab === 'games'"
           :games="games"
+          :gomoku-competitive-enabled="gomokuCompetitiveEnabled"
           @open-game="handleOpenGame"
         />
         <GameCenterRankTab
@@ -328,6 +406,7 @@ onMounted(async () => {
           :loading="boardLoading"
           :error-message="boardError"
           :verified-enabled="verifiedEnabled"
+          :verified-reward-enabled="verifiedRewardEnabled"
           :verified-board="verifiedBoard"
           :verified-error="verifiedError"
           @select-game="handleSelectGame"

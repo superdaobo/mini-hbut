@@ -2,13 +2,16 @@
 /**
  * 游乐场「首页」Tab（#905）。
  * 只展示：玩家摘要、今日任务占位、推荐/最近游戏；不发任何写请求。
- * 等级 / XP / 湖工币 / 今日任务进度全部受 game_economy_enabled 前置控制（关闭即隐藏）。
+ * 等级 / XP / 湖工币 受 game_economy_enabled + capabilities.wallet 前置控制（关闭即隐藏）；
+ * 今日任务受 game_daily_tasks_enabled + capabilities.daily_tasks 前置控制，
+ * 能力不可用时**整卡不渲染**（而不是渲染后报错）。
  */
 import { useI18n } from '../../utils/app_i18n'
 
 const props = defineProps({
   profile: { type: Object, default: () => ({}) },
   economyEnabled: { type: Boolean, default: false },
+  dailyTasksEnabled: { type: Boolean, default: false },
   recentGames: { type: Array, default: () => [] },
   recommendedGames: { type: Array, default: () => [] }
 })
@@ -30,7 +33,8 @@ const { t } = useI18n()
           </span>
         </div>
       </div>
-      <!-- 经济未开放：整块隐藏而不是展示会报错的卡片（协议 §5 REWARD_DISABLED client_action） -->
+      <!-- 经济未开放（flag 关 或 capabilities.wallet !== true）：整块隐藏而不是展示会报错的卡片
+           （协议 §5 REWARD_DISABLED client_action） -->
       <div v-if="props.economyEnabled" class="gc-player__wallet">
         <div class="gc-stat">
           <span class="gc-stat__label">{{ t('gameCenter.me.level') }}</span>
@@ -47,11 +51,12 @@ const { t } = useI18n()
       </div>
     </section>
 
-    <section class="gc-card">
+    <!-- 每日任务：flag 与服务端能力（/meta.capabilities.daily_tasks）双门；不可用时整卡隐藏 -->
+    <section v-if="props.dailyTasksEnabled" class="gc-card" data-section="daily-tasks">
       <header class="gc-card__header">
         <h3 class="gc-card__title">{{ t('gameCenter.home.tasksTitle') }}</h3>
       </header>
-      <p class="gc-card__hint">{{ t('gameCenter.home.tasksPlaceholder') }}</p>
+      <p class="gc-card__hint">{{ t('gameCenter.home.tasksReady') }}</p>
     </section>
 
     <section v-if="props.recentGames.length" class="gc-card">
