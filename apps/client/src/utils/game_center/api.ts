@@ -7,7 +7,9 @@
  * 2. **凭据不落盘、不回显、不入日志**：Identity AT / ticket 只在内存与请求头中传递；
  *    本文件不做任何 console / debug 输出（协议 §10 L1）。
  * 3. 错误统一映射为协议 §5 的 code（服务端 message 已是可直接展示的简体中文，客户端不二次映射）。
- * 4. 未交付能力（经济 / 赛季）由 feature flag 前置关闭，本文件的对应函数不会被调用。
+ * 4. 未交付能力由 **feature flag + capability 双层闸门**前置关闭（P1-1）：
+ *    flag 表达「产品想不想要」，`/meta.capabilities` 表达「端点是否真的实现」；
+ *    两者都成立 UI 才渲染入口（`fetchGamePlatformMeta` 透出保守能力表，见其文档）。
  */
 
 import { getCloudSyncRuntimeConfig } from '../cloud_sync.js'
@@ -211,10 +213,130 @@ const gamePlatformHeaders = (extra: Record<string, string> = {}): Record<string,
   ...extra
 })
 
+/**
+ * 宿主 UI 认识的服务端能力 key（canonical）。
+ *
+ * 语义（与 feature flag 的本质区别，P1-1）：
+ * - `features.*`（flag）＝「产品想不想要」；
+ * - `capabilities.*`＝「**端点是否真的实现**」。
+ * flag 打开但端点未实现时，UI 必须靠 capabilities **前置隐藏**，而不是点击后 404。
+ */
+export const GAME_PLATFORM_CAPABILITY_KEYS = Object.freeze([
+  /** V2 榜读取端点 `GET /leaderboards`（Verified 赛季榜） */
+  'leaderboards',
+  /** `GET /me/wallet` 钱包流水（等级 / XP / 湖工币） */
+  'wallet',
+  /** 每日任务（对应 flag `game_daily_tasks_enabled`） */
+  'daily_tasks',
+  /** 五子棋竞技（对应 flag `gomoku_competitive_enabled`） */
+  'gomoku_match',
+  /** 漂流瓶 UGC（对应 flag `drift_bottle_enabled`） */
+  'drift_bottle',
+  /** 可信结算发奖（对应 flag `verified_reward_enabled`） */
+  'verified_reward'
+] as const)
+
+export type GamePlatformCapabilityKey = (typeof GAME_PLATFORM_CAPABILITY_KEYS)[number]
+
+/** 保守能力表：值 false ＝ 不可用（未声明 / 类型非法 / 拿不到 /meta 都落在这里） */
+export type GamePlatformCapabilities = Readonly<Record<GamePlatformCapabilityKey, boolean>>
+
+/** 未拿到 `/meta` 时的唯一合法初值：全部 false → UI 一律前置隐藏 */
+export const EMPTY_GAME_PLATFORM_CAPABILITIES: GamePlatformCapabilities = Object.freeze({
+  leaderboards: false,
+  wallet: false,
+  daily_tasks: false,
+  gomoku_match: false,
+  drift_bottle: false,
+  verified_reward: false
+})
+
+/**
+ * 别名表（只读兼容，不改变优先级与保守默认）：
+ * canonical 与服务端字段名可能略有差异（服务端样本用 `gomoku_match`，
+ * 而 SDK / flag 侧沿用 `gomoku_competitive`），两种都接受；
+ * **任何未识别命名一律按 false**（未声明即未知，未知即不可用）。
+ */
+const GAME_PLATFORM_CAPABILITY_ALIASES: Readonly<Record<GamePlatformCapabilityKey, readonly string[]>> =
+  Object.freeze({
+    leaderboards: ['leaderboards', 'leaderboard', 'leaderboards_enabled'],
+    wallet: ['wallet', 'me_wallet', 'wallet_enabled'],
+    daily_tasks: ['daily_tasks', 'dailyTasks', 'daily_tasks_enabled', 'game_daily_tasks'],
+    gomoku_match: [
+      'gomoku_match',
+      'gomokuMatch',
+      'gomoku_competitive',
+      'gomokuCompetitive',
+      'gomoku_competitive_enabled',
+      'competitive_gomoku'
+    ],
+    drift_bottle: ['drift_bottle', 'driftBottle', 'drift_bottle_enabled'],
+    verified_reward: ['verified_reward', 'verifiedReward', 'verified_rewards', 'verified_reward_enabled']
+  })
+
+/** 能力值解析：无法识别的类型返回 null（＝未声明，不得当作 true） */
+const toCapabilityBoolean = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') return value
+  if (value === 1 || value === '1') return true
+  if (value === 0 || value === '0') return false
+  if (typeof value === 'string') {
+    const text = safeText(value).toLowerCase()
+    if (['true', 'on', 'enabled', 'yes', 'available', 'implemented'].includes(text)) return true
+    if (['false', 'off', 'disabled', 'no', 'unavailable', 'not_implemented', 'missing'].includes(text)) {
+      return false
+    }
+  }
+  return null
+}
+
+export interface NormalizedGamePlatformCapabilities {
+  /** 保守能力表（未知即 false）：UI 直接用它做前置隐藏 */
+  values: GamePlatformCapabilities
+  /** 被显式声明过的 key（诊断用；可区分「服务端说没有」与「还没说」） */
+  declared: GamePlatformCapabilityKey[]
+}
+
+/**
+ * 读取 `/meta.capabilities`（**只看 capabilities 作用域**）。
+ *
+ * 与 SDK（`_sdk/src/capabilities.js`）的差异（有意为之，方向更保守）：
+ * SDK 额外接受 `meta.features.<纯能力名>` 作为过渡形态；宿主 UI **不读 features**——
+ * `features` 表达的是「想不想要」，把它读成「端点已实现」正是 P1-1 的成因
+ * （flag=true + 端点缺失 → 渲染后 404）。UI 前置隐藏必须 fail closed，不得乐观放行。
+ */
+export const readGamePlatformCapabilities = (meta: unknown): NormalizedGamePlatformCapabilities => {
+  const payload = meta && typeof meta === 'object' ? (meta as Record<string, unknown>) : {}
+  const scope =
+    payload.capabilities && typeof payload.capabilities === 'object'
+      ? (payload.capabilities as Record<string, unknown>)
+      : null
+  const values = { ...EMPTY_GAME_PLATFORM_CAPABILITIES } as Record<GamePlatformCapabilityKey, boolean>
+  const declared: GamePlatformCapabilityKey[] = []
+  if (!scope) return { values, declared }
+  for (const key of GAME_PLATFORM_CAPABILITY_KEYS) {
+    for (const alias of GAME_PLATFORM_CAPABILITY_ALIASES[key]) {
+      if (!Object.prototype.hasOwnProperty.call(scope, alias)) continue
+      const parsed = toCapabilityBoolean(scope[alias])
+      if (parsed === null) continue
+      values[key] = parsed
+      declared.push(key)
+      break
+    }
+  }
+  return { values, declared }
+}
+
 export interface GamePlatformMeta {
   protocolVersion: { min: number; max: number } | null
   serverVersion: string
   features: Record<string, unknown>
+  /**
+   * 服务端能力声明（**保守**：未声明 / 类型非法 / 拿不到就一律 false）。
+   * UI 前置隐藏的唯一依据：capability=false 时不渲染入口、不发请求。
+   */
+  capabilities: GamePlatformCapabilities
+  /** 被 `/meta` 显式声明过的能力 key（诊断用，便于区分「服务端说没有」与「还没说」） */
+  capabilitiesDeclared: GamePlatformCapabilityKey[]
   registryGames: number
   raw: Record<string, unknown>
 }
@@ -237,6 +359,8 @@ export const fetchGamePlatformMeta = async (
     payload.registry && typeof payload.registry === 'object'
       ? (payload.registry as Record<string, unknown>)
       : null
+  // 能力声明：缺失 / 非法 / 未识别命名一律保守 false（UI 据此前置隐藏，不发出必然 404 的请求）
+  const capabilities = readGamePlatformCapabilities(payload)
   return {
     protocolVersion: range
       ? { min: Number(range.min) || 0, max: Number(range.max) || 0 }
@@ -246,6 +370,8 @@ export const fetchGamePlatformMeta = async (
       payload.features && typeof payload.features === 'object'
         ? (payload.features as Record<string, unknown>)
         : {},
+    capabilities: capabilities.values,
+    capabilitiesDeclared: capabilities.declared,
     registryGames: Number(registry?.games) || 0,
     raw: payload
   }

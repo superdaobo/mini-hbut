@@ -4,7 +4,7 @@
  * 收敛三件事，避免多处默认值 / 校验漂移：
  * 1. Game Platform / Legacy 命名空间与默认源（与既有 MoreView 的 game-rank 默认源一致）；
  * 2. 「HTTPS 优先」传输判定（HTTPS 或 loopback http）与 origin 归一化；
- * 3. `game_platform` 远程配置块的结构归一化 + 五个 feature flag 的默认值。
+ * 3. `game_platform` 远程配置块的结构归一化 + 八个 feature flag 的默认值。
  */
 
 /** Game Platform v1 命名空间（protocol-v1.md §1.1） */
@@ -31,40 +31,27 @@ export const GAME_PLATFORM_REQUEST_TIMEOUT_MS = 12000
 /** Legacy 排行榜查询超时（公开榜，读取更快失败更快） */
 export const GAME_RANK_REQUEST_TIMEOUT_MS = 8000
 
-/** 五个独立开关（协议 §1.3 features + #905 feature gate 要求） */
-export const GAME_CENTER_FLAG_KEYS = Object.freeze([
-  'game_center_enabled',
-  'game_verified_session_enabled',
-  'game_economy_enabled',
-  'drift_bottle_enabled',
-  'classic_game_entries_visible'
-] as const)
-
-export type GameCenterFlagKey = (typeof GAME_CENTER_FLAG_KEYS)[number]
-
 /**
- * **预留**：Production Readiness P1 收口由服务端新增的三个 flag（客户端侧 key 单一来源）。
+ * Production Readiness P1 收口（W3 接线完成）由服务端新增的三个 flag（客户端侧 key 单一来源）。
  *
- * 为什么先「预留」而不直接并入 `GAME_CENTER_FLAG_KEYS`：
- * - 这三个开关**尚无消费方**（W3 客户端接线 + 远程配置下发是本轮之后的工作）；
- * - 并入 `GAME_CENTER_FLAG_KEYS` 会改变两个**冻结清单**契约测试
- *   （`game_center_flags.spec.ts` / `game_center_wiring_contract.spec.ts` 断言恰好 5 个 key）
- *   并要求 `flags.ts` 出现对应字面量（合规夹紧）。为避免在 SDK 契约轮次里改动
- *   flag 生效层（flags.ts）与两个契约测试，这里先以**独立预留表**交付 key 与默认值。
+ * 这三个开关**没有任何乐观默认值**（一律 false，fail closed）：
+ * 远程配置下发 true **且** `/meta.capabilities` 显式声明对应端点已实现之前，
+ * UI 必须把它们当作不可用并**前置隐藏**（见 `api.ts` 的 capabilities 与 `GameCenterView.vue`）。
  *
- * W3 接线步骤（一次性、机械改动）：
- * 1. 把这 3 个 key 追加进 `GAME_CENTER_FLAG_KEYS`（保持本表作为唯一 key 来源）；
- * 2. 把默认值并入 `DEFAULT_GAME_CENTER_FLAGS`；
- * 3. 在 `flags.ts` 的 `applyGameCenterPolicyClamp` 里按依赖关系夹紧
+ * 接线状态（一次性机械改动，已完成）：
+ * 1. 已由 `GAME_CENTER_FLAG_KEYS` 展开并入（追加在既有 5 个 key 之后，顺序零漂移）；
+ * 2. 默认值已由 `DEFAULT_GAME_CENTER_FLAGS` 展开并入；
+ * 3. `flags.ts` 的 `applyGameCenterPolicyClamp` 已按依赖关系夹紧
  *    （`game_daily_tasks_enabled` / `verified_reward_enabled` 依赖 V2 可信链路 →
  *    与 `game_economy_enabled` 同组；`gomoku_competitive_enabled` 依赖榜单策略）；
- * 4. 同步更新那两个 spec 的冻结清单断言；
- * 5. 远程配置侧：`normalizeGamePlatformConfig` 会自动收录（它按 GAME_CENTER_FLAG_KEYS 遍历）。
+ * 4. 冻结清单契约测试（`game_center_flags.spec.ts` / `game_center_wiring_contract.spec.ts` /
+ *    `_sdk_p1_contract.spec.ts`）已同步；
+ * 5. 远程配置侧：`normalizeGamePlatformConfig` 按 GAME_CENTER_FLAG_KEYS 遍历，自动收录。
  */
 export const RESERVED_GAME_CENTER_FLAG_KEYS = Object.freeze([
   /** 每日任务（服务端对应 capability `daily_tasks`） */
   'game_daily_tasks_enabled',
-  /** 五子棋竞技（服务端对应 capability `gomoku_competitive`） */
+  /** 五子棋竞技（服务端对应 capability `gomoku_match` / `gomoku_competitive`） */
   'gomoku_competitive_enabled',
   /** 可信结算发奖（服务端对应 capability `verified_reward`） */
   'verified_reward_enabled'
@@ -72,15 +59,30 @@ export const RESERVED_GAME_CENTER_FLAG_KEYS = Object.freeze([
 
 export type ReservedGameCenterFlagKey = (typeof RESERVED_GAME_CENTER_FLAG_KEYS)[number]
 
-/**
- * 预留开关的默认值：**一律 false**（fail closed）。
- * 未交付/未验证的服务端能力绝不乐观开启：远程配置下发 true 之前，UI 必须当作关闭。
- */
+/** 三个新开关的默认值：**一律 false**（fail closed） */
 export const RESERVED_GAME_CENTER_FLAG_DEFAULTS: Readonly<Record<ReservedGameCenterFlagKey, boolean>> = Object.freeze({
   game_daily_tasks_enabled: false,
   gomoku_competitive_enabled: false,
   verified_reward_enabled: false
 })
+
+/**
+ * 八个独立开关（协议 §1.3 features + #905 feature gate 要求）。
+ *
+ * W3 接线：后三个 key 来自 `RESERVED_GAME_CENTER_FLAG_KEYS` 的展开 —— 追加在既有 5 个 key
+ * **之后**，保证既有顺序与语义零漂移；三个新 key 的默认值同样由
+ * `RESERVED_GAME_CENTER_FLAG_DEFAULTS` 展开（一律 false）。
+ */
+export const GAME_CENTER_FLAG_KEYS = Object.freeze([
+  'game_center_enabled',
+  'game_verified_session_enabled',
+  'game_economy_enabled',
+  'drift_bottle_enabled',
+  'classic_game_entries_visible',
+  ...RESERVED_GAME_CENTER_FLAG_KEYS
+] as const)
+
+export type GameCenterFlagKey = (typeof GAME_CENTER_FLAG_KEYS)[number]
 
 /**
  * 默认值（远程配置不可达时的最终兜底）。
@@ -91,13 +93,16 @@ export const RESERVED_GAME_CENTER_FLAG_DEFAULTS: Readonly<Record<ReservedGameCen
  *   未交付 → 默认关，UI 只展示占位且**不发起任何 V2 请求**。
  * - `drift_bottle_enabled`：依赖 #910（UGC 漂流瓶），未交付 → 默认关。
  * - `classic_game_entries_visible: true`：旧「更多」页 11 个游戏入口零破坏，默认继续可见。
+ * - W3 三个新开关（每日任务 / 五子棋竞技 / 可信结算奖励）：服务端端点未验证 → 一律默认关，
+ *   由 `RESERVED_GAME_CENTER_FLAG_DEFAULTS` 展开（保持「新 key 默认值」只有一处定义）。
  */
 export const DEFAULT_GAME_CENTER_FLAGS: Readonly<Record<GameCenterFlagKey, boolean>> = Object.freeze({
   game_center_enabled: true,
   game_verified_session_enabled: false,
   game_economy_enabled: false,
   drift_bottle_enabled: false,
-  classic_game_entries_visible: true
+  classic_game_entries_visible: true,
+  ...RESERVED_GAME_CENTER_FLAG_DEFAULTS
 })
 
 /** 允许 http 的 loopback 主机（本地联调；生产必须 HTTPS） */

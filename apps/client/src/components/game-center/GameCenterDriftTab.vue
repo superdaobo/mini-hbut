@@ -2,7 +2,8 @@
 /**
  * 游乐场「漂流瓶」Tab（#905 占位）。
  *
- * 关键决策：#910（UGC 漂流瓶）未交付，本 Tab **只在 drift_bottle_enabled=true 时挂载**，
+ * 关键决策：#910（UGC 漂流瓶）未交付，本 Tab **只在
+ * `drift_bottle_enabled=true` 且 `/meta.capabilities.drift_bottle=true` 时挂载**（双层闸门），
  * 且当前阶段仅展示占位说明，不发起任何请求 —— 保证「不可用能力被前置隐藏」，
  * 而不是「可见后必然报错」。
  */

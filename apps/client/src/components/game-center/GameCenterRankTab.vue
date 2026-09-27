@@ -3,8 +3,10 @@
  * 游乐场「排行」Tab（#905）。
  * - 经典榜：读 Legacy `/api/game-rank/leaderboard`（兼容契约 2，只读展示）；渲染前经
  *   leaderboard.ts 白名单过滤，**学号等 PII 不会进入 DOM**（协议 §9.3）。
- * - Verified 赛季榜：受 game_verified_session_enabled 前置控制；关闭时只显示占位说明，
- *   **不发起任何 V2 请求**（不出现「可见但必然报错」）。
+ *   **不受 V2 capabilities 影响**：Legacy 通道与 Game Platform v1 是两套独立可用性。
+ * - Verified 赛季榜：受 `game_verified_session_enabled` **且** `/meta.capabilities.leaderboards`
+ *   双层控制；任一不成立只显示占位说明，**不发起任何 V2 请求**（P1-1：不出现「可见但必然报错」）。
+ * - 奖励结算说明：由 `verified_reward_enabled` + `capabilities.verified_reward` 决定文案。
  */
 import GameCenterNotice from './GameCenterNotice.vue'
 import { useI18n } from '../../utils/app_i18n'
@@ -16,6 +18,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   errorMessage: { type: String, default: '' },
   verifiedEnabled: { type: Boolean, default: false },
+  verifiedRewardEnabled: { type: Boolean, default: false },
   verifiedBoard: { type: Object, default: null },
   verifiedError: { type: String, default: '' }
 })
@@ -80,7 +83,7 @@ const { t } = useI18n()
       <header class="gc-card__header">
         <h3 class="gc-card__title">{{ t('gameCenter.rank.verifiedTitle') }}</h3>
       </header>
-      <!-- feature-gate：未交付（#909）时只展示占位，不发请求 -->
+      <!-- feature-gate：flag 关闭 或 服务端未声明 capabilities.leaderboards 时只展示占位，不发请求 -->
       <p v-if="!props.verifiedEnabled" class="gc-card__hint">{{ t('gameCenter.rank.verifiedPlaceholder') }}</p>
       <template v-else>
         <p v-if="props.verifiedError" class="gc-card__hint">{{ props.verifiedError }}</p>
@@ -94,6 +97,10 @@ const { t } = useI18n()
             <span class="gc-rank__score">{{ entry.score }}</span>
           </li>
         </ol>
+        <!-- 奖励结算状态：flag + capabilities.verified_reward 双门决定文案（不给不可用能力任何暗示） -->
+        <p class="gc-card__note">
+          {{ props.verifiedRewardEnabled ? t('gameCenter.rank.rewardSettled') : t('gameCenter.rank.rewardDisabled') }}
+        </p>
       </template>
     </section>
   </div>
