@@ -9,6 +9,7 @@ import { initAppSettings } from './utils/app_settings'
 import { initFontSettings } from './utils/font_settings'
 import { initThemeBridge } from './utils/theme-bridge'
 import { migrateLegacyBackgroundState } from './utils/legacy_background_migration'
+import { migrateLegacyGameRankContexts } from './utils/game_center/legacy_rank_context_migration'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
 import { installGlobalErrorCapture, attachVueErrorCapture } from './utils/crash_reporter'
 import { invokeNative, isTauriRuntime } from './platform/native'
@@ -66,6 +67,10 @@ const runDeferredInitializers = () => {
     // #616：旧 Capacitor BackgroundFetch 已退役；升级用户旧后台开关
     // 幂等迁移到新 config（hbu_notify_*），旧键同步清理。
     void migrateLegacyBackgroundState()
+
+    // #911 P1-⑤ 残留：清理旧版游戏落盘的「跨环境排行榜 API base」
+    // （老用户的测试域 base 会让「网页直开模块」继续向测试库提交成绩）。
+    migrateLegacyGameRankContexts()
 
     if (isTauriRuntime()) {
       void invokeNative<{ enableBridgeTools?: boolean } | null>('get_debug_runtime_config')
