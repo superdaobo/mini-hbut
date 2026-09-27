@@ -202,6 +202,16 @@ export const identityRevokeCurrentDeviceLocal = <T = Record<string, unknown>>(ar
 }) => invokeNative<T>('identity_revoke_current_device_local', args)
 
 /**
+ * #902 设备换票：challenge → 设备私钥签名 → 换取 resource-scoped JWT Access Token。
+ * 安全：私钥只在 Rust 进程内使用；返回的 AT **仅内存持有**（绝不落 localStorage/日志）；
+ * V1 无 refresh token，AT 到期后由调用方再次调用本命令重新换取。
+ */
+export const identityDeviceToken = <T = Record<string, unknown>>(args: {
+  baseUrl: string
+  deviceId: string
+}) => invokeNative<T>('identity_device_token', args)
+
+/**
  * identity_fetch_auth_history 输出（#777 结构化错误分类）：
  * - status=0：原生层失败（未到达 HTTP），error_kind/error_message 携带失败分类与脱敏文案；
  * - status>0：Core HTTP 状态码（200 成功，body 为响应体；非 2xx 见 #776 错误体透传）。

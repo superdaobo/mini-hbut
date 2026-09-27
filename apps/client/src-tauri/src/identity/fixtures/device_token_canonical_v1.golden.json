@@ -1,0 +1,23 @@
+{
+  "label": "Mini-HBUT Identity #902 设备换票 canonical 签名 golden fixture（Core ↔ Rust 共享，双副本逐字节一致）",
+  "version": "MINI-HBUT-DEVICE-TOKEN-V1",
+  "note": "本文件是 #902 device-signed token exchange 的跨语言 canonical 契约。双副本（内容必须逐字节一致，Core 侧测试会断言）：identity-platform/core/tests/fixtures/ 与 apps/client/src-tauri/src/identity/fixtures/。两侧各自重建 canonical 与 Ed25519 签名并与本文件比对。canonical 规范与 #622 一致：UTF-8、LF 换行、字段固定顺序（challenge/device_id/issued_at/nonce）、最后一行后有一个 LF；字段值只允许 RFC 3986 unreserved 字符；Ed25519 直接签 canonical 字节。",
+  "signing_key": {
+    "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "public_x_b64url": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "public_key_jwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    },
+    "public_key_fingerprint": "3XVRUPziMiGkvOFc1OqavGPo7hGfPu2xOhb7PusVwOA"
+  },
+  "device_token": {
+    "challenge": "7pQ2sV5wY8aB1cD4eF7gH0iJ3kL6mN9qR2sU5wX8yA1b",
+    "device_id": "0198a1b2c3d4e5f6a7b8c9d0",
+    "issued_at": 1755000000,
+    "nonce": "n4v6pR9sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j0kQm",
+    "canonical_text": "MINI-HBUT-DEVICE-TOKEN-V1\nchallenge=7pQ2sV5wY8aB1cD4eF7gH0iJ3kL6mN9qR2sU5wX8yA1b\ndevice_id=0198a1b2c3d4e5f6a7b8c9d0\nissued_at=1755000000\nnonce=n4v6pR9sU1wY3aB5cD7eF9gH1iJ3kL5mN7qX7x2L8j0kQm\n",
+    "signature": "ONnOiaP8u0lE6zklLDKQ_FfGES9TFZWcntmzFBjoqLOsI-9Aj9fUAFpRHLdGVNx-jn4LmvU0zfdM8ehrOWJ4Bg"
+  }
+}

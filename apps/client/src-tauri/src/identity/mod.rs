@@ -11,6 +11,7 @@ pub mod canonical;
 pub mod client;
 pub mod commands;
 pub mod device_key;
+pub mod device_token;
 pub mod enrollment;
 pub mod errors;
 pub mod keyring;
