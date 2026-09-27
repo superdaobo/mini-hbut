@@ -48,12 +48,25 @@ export interface GameResourceOptions {
   indicator?: string
   /** 允许申请游戏 resource 的第一方 client_id 白名单；**空数组 = fail closed（默认）** */
   allowedClientIds?: readonly string[]
+  /**
+   * #902 第一方设备换票（device-signed token exchange）所代表的 client_id。
+   *
+   * 设备换票签发的 JWT AT 必须与 `/oauth/token` 的产物同构：同 audience、同 scope、
+   * 同 claim 规则；而 `hbut_student_id` 等受控 claim 的注入前提是 **第一方 client**
+   * （见 createExtraTokenClaims）。因此换票路径必须显式声明它代表哪个第一方 client：
+   * - 未配置（默认）= 该能力整体关闭（换票端点 fail closed，不签发任何 AT）；
+   * - 配置时必须 ∈ allowedClientIds（否则启动期抛错，防止把 AT 签给未获准的 client）。
+   * `null` 与缺省等价（能力关闭）：允许把已 resolve 的配置再次传入（幂等解析）。
+   */
+  deviceTokenClientId?: string | null
 }
 
 export interface ResolvedGameResourceConfig {
   audience: string
   indicator: string
   allowedClientIds: readonly string[]
+  /** 设备换票代表的 client_id；null = 能力关闭（fail closed 默认值） */
+  deviceTokenClientId: string | null
   /** 空格分隔的 resource server scope（v9 ResourceServer.scopes 解析用） */
   scope: string
 }
@@ -63,7 +76,8 @@ export interface ResolvedGameResourceConfig {
  * - audience 非空；
  * - indicator 必须是绝对 https URI（oidc-provider 的 check_resource 也要求绝对 URI，
  *   这里提前失败以给出可读错误，而不是运行期 invalid_target）；
- * - 白名单去重、去空白；空 = 任何请求都不放行（灰度默认，行为零暴露）。
+ * - 白名单去重、去空白；空 = 任何请求都不放行（灰度默认，行为零暴露）；
+ * - deviceTokenClientId 若配置，必须落在白名单内（设备换票的信任边界）。
  */
 export function resolveGameResourceConfig(opts: GameResourceOptions = {}): ResolvedGameResourceConfig {
   const audience = (opts.audience ?? DEFAULT_GAME_AUDIENCE).trim()
@@ -85,7 +99,24 @@ export function resolveGameResourceConfig(opts: GameResourceOptions = {}): Resol
   const allowedClientIds = [
     ...new Set((opts.allowedClientIds ?? []).map((s) => s.trim()).filter(Boolean)),
   ]
-  return { audience, indicator, allowedClientIds, scope: GAME_RESOURCE_SCOPES.join(' ') }
+  const deviceTokenClientId = (opts.deviceTokenClientId ?? '').trim() || null
+  if (deviceTokenClientId && !allowedClientIds.includes(deviceTokenClientId)) {
+    throw new Error(
+      '[oidc.game-resource] IDENTITY_GAME_DEVICE_TOKEN_CLIENT_ID 必须在 IDENTITY_GAME_RESOURCE_CLIENTS 白名单内',
+    )
+  }
+  return {
+    audience,
+    indicator,
+    allowedClientIds,
+    deviceTokenClientId,
+    scope: GAME_RESOURCE_SCOPES.join(' '),
+  }
+}
+
+/** 设备换票能力是否开启（未配置 client 白名单或未指定换票 client → 关闭） */
+export function isDeviceTokenExchangeEnabled(config: ResolvedGameResourceConfig): boolean {
+  return config.deviceTokenClientId !== null
 }
 
 /** 判断 token 是否属于游戏 resource server（按 audience 精确匹配） */

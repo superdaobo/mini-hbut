@@ -14,6 +14,7 @@ export {
 } from './users.js'
 export {
   createEnrollmentChallenge,
+  createDeviceTokenChallenge,
   registerDevice,
   activateDevice,
   revokeDevice,

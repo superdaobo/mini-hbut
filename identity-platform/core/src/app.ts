@@ -136,6 +136,9 @@ function resolveProviderDeps(
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
+      // #902 设备换票代表的 client_id：未配置 = 换票能力关闭（fail closed）；
+      // 配置时必须落在上面的白名单内（resolveGameResourceConfig 启动期校验）。
+      deviceTokenClientId: env.IDENTITY_GAME_DEVICE_TOKEN_CLIENT_ID,
     }),
   }
 }

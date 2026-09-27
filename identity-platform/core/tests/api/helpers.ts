@@ -16,10 +16,13 @@ import { createAuthRequest, transitionAuthRequestStatus } from '../../src/domain
 import {
   buildAuthCanonical,
   buildEnrollCanonical,
+  buildDeviceApiCanonical,
+  buildDeviceTokenCanonical,
   normalizeScopes,
   scopeHash,
   jwkFingerprint,
 } from '../../src/api/app/canonical.js'
+import { resolveGameResourceConfig, type GameResourceOptions } from '../../src/oidc/resource-indicators.js'
 
 /** 测试设备密钥：持有私钥能力（仅测试进程内，私钥绝不上传） */
 export interface TestDeviceKey {
@@ -81,13 +84,21 @@ export async function createHandoffRequest(
 }
 
 /** 组装仅含 app 路由的 Koa app（测试用；生产组装由 app.ts + api/index.ts 完成） */
-export function buildApp(sql: SqlExecutor): Koa {
+export function buildApp(
+  sql: SqlExecutor,
+  opts: {
+    provider?: unknown
+    /** 缺省 = resolveGameResourceConfig()（空白名单 → 设备换票能力关闭，fail closed） */
+    gameResource?: GameResourceOptions
+  } = {},
+): Koa {
   const app = new Koa()
   const router = new Router()
   registerAppRoutes(router, {
     sql,
-    provider: null as never,
+    provider: opts.provider ?? (null as never),
     handoffHmacKey: TEST_HANDOFF_HMAC_KEY,
+    gameResource: opts.gameResource ? resolveGameResourceConfig(opts.gameResource) : undefined,
   })
   app.use(router.routes())
   app.use(router.allowedMethods())
@@ -190,4 +201,84 @@ export async function postJson(
   })
   const parsed = (await res.json()) as Record<string, unknown>
   return { status: res.status, body: parsed }
+}
+
+// ---------------------------------------------------------------------------
+// #902 设备换票（device-signed token exchange）测试辅助
+// ---------------------------------------------------------------------------
+
+export const DEVICE_TOKEN_CHALLENGE_PATH = '/api/v1/app/device-token/challenge'
+export const DEVICE_TOKEN_EXCHANGE_PATH = '/api/v1/app/device-token/exchange'
+
+/**
+ * 构建设备签名认证头（MINI-HBUT-DEVICE-API-V1）。
+ * method/path 必须与真实请求逐字一致（服务端从请求自身取值重建 canonical）。
+ */
+export function buildDeviceAuthHeader(input: {
+  key: TestDeviceKey
+  deviceId: string
+  method: string
+  path: string
+  issuedAt?: number
+  nonce?: string
+}): { authorization: string; issuedAt: number; nonce: string } {
+  const issuedAt = input.issuedAt ?? Math.floor(Date.now() / 1000)
+  const nonce = input.nonce ?? `nonce_${Math.random().toString(36).slice(2, 14)}`
+  const canonical = buildDeviceApiCanonical({
+    method: input.method,
+    path: input.path,
+    deviceId: input.deviceId,
+    issuedAt,
+    nonce,
+  })
+  return {
+    authorization: `Device ${input.deviceId} ${issuedAt} ${nonce} ${input.key.sign(canonical)}`,
+    issuedAt,
+    nonce,
+  }
+}
+
+export interface DeviceTokenExchangeInput {
+  key: TestDeviceKey
+  deviceId: string
+  challenge: string
+  issuedAt?: number
+  nonce?: string
+  /** 覆盖签名（invalid signature 测试用） */
+  signatureOverride?: string
+}
+
+/** 构建 exchange body：设备对 MINI-HBUT-DEVICE-TOKEN-V1 canonical（含 challenge）签名 */
+export function buildDeviceTokenExchangeBody(
+  input: DeviceTokenExchangeInput,
+): Record<string, unknown> {
+  const issuedAt = input.issuedAt ?? Math.floor(Date.now() / 1000)
+  const nonce = input.nonce ?? `nonce_${Math.random().toString(36).slice(2, 14)}`
+  const canonical = buildDeviceTokenCanonical({
+    challenge: input.challenge,
+    deviceId: input.deviceId,
+    issuedAt,
+    nonce,
+  })
+  return {
+    device_id: input.deviceId,
+    challenge: input.challenge,
+    issued_at: issuedAt,
+    nonce,
+    signature: input.signatureOverride ?? input.key.sign(canonical),
+  }
+}
+
+/** 请求一次性 challenge（设备签名认证） */
+export async function requestDeviceTokenChallenge(
+  baseUrl: string,
+  input: { key: TestDeviceKey; deviceId: string },
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const headers = buildDeviceAuthHeader({
+    key: input.key,
+    deviceId: input.deviceId,
+    method: 'POST',
+    path: DEVICE_TOKEN_CHALLENGE_PATH,
+  })
+  return postJson(baseUrl, DEVICE_TOKEN_CHALLENGE_PATH, {}, { authorization: headers.authorization })
 }
