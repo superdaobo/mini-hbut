@@ -35,6 +35,7 @@ import {
   persistOcrConfig,
   resolveAnnouncements,
   resolveModuleCenter,
+  normalizeGamePlatformConfig,
   toArray,
   toText,
   withCacheBust,
@@ -70,6 +71,17 @@ export interface RemoteModuleEntry {
   [key: string]: unknown
 }
 
+/**
+ * #905 湖工游乐场远程配置块（归一化后的形态）。
+ * flags 语义见 src/utils/game_center/base.ts 的 DEFAULT_GAME_CENTER_FLAGS。
+ */
+export interface GamePlatformRemoteConfig {
+  enabled: boolean
+  api_base: string
+  allowed_game_origins: string[]
+  flags: Record<string, unknown>
+}
+
 export interface RemoteConfig {
   announcements: AnnouncementConfig
   force_update: {
@@ -86,6 +98,7 @@ export interface RemoteConfig {
     channel: string
     modules: RemoteModuleEntry[]
   }
+  game_platform: GamePlatformRemoteConfig
   chaoxing_class: ChaoxingClassConfig
   ai_models: unknown[]
   config_admin_ids: string[]
@@ -336,6 +349,7 @@ export function normalizeRemoteConfig(raw: unknown): RemoteConfig {
       )
     },
     module_center: resolveModuleCenter(cfg),
+    game_platform: normalizeGamePlatformConfig(cfg.game_platform),
     chaoxing_class: normalizeChaoxingClassConfig(cfg.chaoxing_class || cfg.chaoxingClass, {
       // 远程 payload 里有 invite 时写入本地缓存（断网可复用）
       persistInvite: !!(cfg.chaoxing_class || cfg.chaoxingClass)
@@ -373,6 +387,22 @@ export function applyAppStoreRemoteConfigClamp(config: RemoteConfigInput): Remot
   }
   next.ai_models = []
   next.config_admin_ids = []
+  // #905：合规 guest/demo 会强制隐藏湖工游乐场（远程模块 + 排行 + UGC 三重收紧），
+  // 远程配置不得把游乐场重新打开；origin 白名单同时清空。
+  const gamePlatform = normalizeGamePlatformConfig((config as Record<string, unknown>).game_platform)
+  next.game_platform = {
+    ...gamePlatform,
+    enabled: false,
+    allowed_game_origins: [],
+    flags: {
+      ...gamePlatform.flags,
+      game_center_enabled: false,
+      game_verified_session_enabled: false,
+      game_economy_enabled: false,
+      drift_bottle_enabled: false,
+      classic_game_entries_visible: false
+    }
+  }
   // 禁用 HTTP OCR fallback（仅保留 https）
   const ocr = { ...(config.ocr || {}) } as Record<string, unknown>
   const httpsOnly = (list: unknown): string[] =>

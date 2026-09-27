@@ -106,7 +106,10 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       cache_dir: String(raw.cache_dir || '').trim(),
       bundle_path: String(raw.bundle_path || '').trim(),
       manifest_url: String(raw.manifest_url || raw.manifestUrl || resolved.manifestUrl || '').trim(),
-      manifest_checked_at: String(raw.manifest_checked_at || raw.manifestCheckedAt || '').trim()
+      manifest_checked_at: String(raw.manifest_checked_at || raw.manifestCheckedAt || '').trim(),
+      // #905：启动来源（'classic' | 'game_center'）。宿主据此走远程 HTTPS 优先 + 会话恢复取票；
+      // 缺省 'classic' 保证旧持久化 session 行为完全不变（零破坏）。
+      launch_surface: String(raw.launch_surface || raw.launchSurface || 'classic').trim() || 'classic'
     }
   }
 
