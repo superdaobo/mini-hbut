@@ -30,7 +30,23 @@ import {
 } from '../config/app_store_policy'
 import { saveRememberedUsername } from '../utils/remembered_username.js'
 import { isValidStudentId as isLikelyStudentId } from '../utils/student_id.js'
-import { runExclusiveLogin } from '../app/coordinators/sessionGate'
+import {
+  isLoginInFlight,
+  loginInFlightMethod,
+  resetLoginGateIfStale,
+  runExclusiveLogin,
+  waitForInFlightLogin
+} from '../app/coordinators/sessionGate'
+import { noteLoginSuccess } from '../app/coordinators/loginCooldown'
+import {
+  LOGIN_METHOD_CHAOXING_PASSWORD,
+  LOGIN_METHOD_CHAOXING_QR,
+  LOGIN_METHOD_PORTAL_PASSWORD,
+  LOGIN_METHOD_PORTAL_QR,
+  normalizePortalLoginOutcome,
+  publishPortalLoginSucceeded,
+  triggersLoginCooldown
+} from '../app/coordinators/loginOutcome'
 import { useAuthStore } from '../stores'
 import { useLocale } from '../utils/app_i18n'
 
@@ -115,13 +131,19 @@ const chaoxingAccount = ref('')
 const chaoxingPassword = ref('')
 const rememberMe = ref(true)
 const agreePolicy = ref(true)
-const loading = ref(false)
+// #932：登录期间切走再切回时，沿用模块级单飞门的在飞状态，避免丢失「登录中」
+const loading = ref(isLoginInFlight())
 const statusMsg = ref('')
 const ocrConfigMode = ref(t('login.ocr.local'))
 const debugLogs = ref([])
 const portalQrVisible = ref(false)
 const chaoxingQrVisible = ref(false)
 const OCR_READY_REUSE_MS = 90 * 1000
+/**
+ * #929：登录提交的前端超时兜底。正常链路（含验证码 OCR 与 CAS 补偿）约 9s，
+ * 最坏不超过 HttpClient 单请求 30s；超过该值视为本次等待已不可靠，放行界面重试。
+ */
+const LOGIN_SUBMIT_TIMEOUT_MS = 60 * 1000
 let ocrReadyInFlight = null
 let ocrReadyAt = 0
 
@@ -220,9 +242,27 @@ const resolveChaoxingStudentId = async (payload = null) => {
   return ''
 }
 
+/**
+ * 归一化登录方式标记：写入本地存储的值只会是下面几个字面量之一。
+ *
+ * 显式白名单而非直接透传入参：`applyLoginMethodStorage` 现在会收到来自
+ * 「复用路径」的变量（门内标注的登录方式），白名单既保证存储值恒可枚举，
+ * 也让静态分析能确认落入 localStorage 的不会是任意内容（CodeQL
+ * js/clear-text-storage-of-sensitive-data）。
+ */
+const resolveStoredLoginMethod = (mode) => {
+  // 演示会话标记：test_account.js 以该值判定「测试账号会话」，不可被归一化掉
+  if (mode === TEST_ACCOUNT_LOGIN_METHOD) return 'test_account'
+  if (mode === LOGIN_METHOD_PORTAL_QR) return 'portal_qr_temp'
+  if (mode === LOGIN_METHOD_CHAOXING_PASSWORD) return 'chaoxing_password'
+  if (mode === LOGIN_METHOD_CHAOXING_QR) return 'chaoxing_qr_temp'
+  return 'portal_password'
+}
+
 const applyLoginMethodStorage = (mode) => {
-  const isTemp = mode.endsWith('_temp')
-  localStorage.setItem(LOGIN_METHOD_KEY, mode)
+  const safeMode = resolveStoredLoginMethod(String(mode || ''))
+  const isTemp = safeMode.endsWith('_temp')
+  localStorage.setItem(LOGIN_METHOD_KEY, safeMode)
   localStorage.setItem(LOGIN_TEMP_FLAG_KEY, isTemp ? '1' : '0')
 }
 
@@ -466,26 +506,83 @@ const scheduleCxQrPoll = () => {
   }, 1200)
 }
 
-const fetchGradesAfterLogin = async (sid) => {
-  const res = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: sid })
-  return res.data
+/**
+ * 登录结果落地（手动提交与「登录中切回页面」复用两条路径共用）。
+ *
+ * `method` 标注本次登录方式：复用路径必须先读取门内标注（loginInFlightMethod），
+ * 否则扫码/学习通登录会被错误落成门户密码登录 —— 临时会话标记与自动重登的凭据
+ * 选择都会跟着错；且只有门户密码登录才应登记 Rust 侧登录冷却。
+ *
+ * @returns 是否登录成功
+ */
+const applyPortalLoginResult = async (result, { method = LOGIN_METHOD_PORTAL_PASSWORD } = {}) => {
+  if (!result?.success) {
+    statusMsg.value = `❌ ${friendlyLoginError(result?.error || '')}`
+    return false
+  }
+
+  const sid = String(
+    result?.data?.student_id || result?.data?.studentId || username.value || ''
+  ).trim()
+  if (sid) {
+    saveRememberedUsername(sid)
+  }
+  await syncPortalRememberCredential({
+    username: username.value,
+    studentId: sid,
+    password: password.value,
+    remember: rememberMe.value
+  })
+  if (rememberMe.value) {
+    localStorage.setItem('hbu_remember', 'true')
+  }
+  applyLoginMethodStorage(method)
+  localStorage.removeItem(LOGOUT_REASON_KEY)
+  markLoginOnline()
+  // 只有门户密码登录会进入 Rust 的 60s 冷却门（其余登录命令不经过 client.login），
+  // 登记冷却供自动恢复链在窗口内让路（#931）
+  if (triggersLoginCooldown(method)) {
+    noteLoginSuccess()
+  }
+  statusMsg.value = t('login.status.signInSuccessSyncing')
+  // #928：成绩同步不再阻塞登录完成（原先要多转约 10s）。
+  // #932：结果走应用级通道 —— 登录期间被切走时本实例可能已卸载，Vue 会丢弃
+  // 已卸载实例的 emit，全局事件才能保证结果仍被应用层接收。
+  publishPortalLoginSucceeded({ studentId: sid, method })
+  return true
 }
 
-const emitSuccessWithGrades = async (sid) => {
+/** 组件实例内的恢复序号：新一次恢复/提交会让在途的恢复结果失效 */
+let resumeWatchSeq = 0
+
+/**
+ * #932：挂载时若单飞门已有登录在飞（登录期间切走再切回），
+ * 复用同一请求并把结果同步到界面，避免回到空白表单或永久停留在「登录中」。
+ */
+const resumeInFlightLogin = async () => {
+  if (!isLoginInFlight()) return
+  // 门内在飞期间读取登录方式（请求结束会在 finally 中清理该标记）
+  const method = loginInFlightMethod()
+  const seq = ++resumeWatchSeq
+  loading.value = true
+  statusMsg.value = t('login.status.signingIn')
   try {
-    const gradesData = await fetchGradesAfterLogin(sid)
-    if (gradesData?.success) {
-      emit('success', gradesData.data || [])
-      return
-    }
-    statusMsg.value = tr('login.status.gradesSyncFailed', {
-      err: gradesData?.error || t('login.error.unknown')
-    })
-    emit('success', [])
+    // #929：等待同样带上限 —— 门内可能是已失联的死 promise，
+    // 界面必须在有限时间内恢复可交互，而不是永久转圈。
+    const outcome = await withTimeout(
+      waitForInFlightLogin(),
+      LOGIN_SUBMIT_TIMEOUT_MS,
+      t('login.error.submitTimeout')
+    )
+    if (seq !== resumeWatchSeq || outcome === null) return
+    // 按门内标注的登录方式落地，避免把扫码/学习通登录落成门户密码登录（N2）
+    await applyPortalLoginResult(normalizePortalLoginOutcome(outcome), { method })
   } catch (e) {
-    const errMsg = e.response?.data?.error || e.message || t('login.error.unknown')
-    statusMsg.value = tr('login.status.gradesSyncFailed', { err: errMsg })
-    emit('success', [])
+    if (seq !== resumeWatchSeq) return
+    const errMsg = e?.response?.data?.error || e?.message || t('login.error.unknown')
+    statusMsg.value = `⚠️ ${friendlyLoginError(errMsg)}`
+  } finally {
+    if (seq === resumeWatchSeq) loading.value = false
   }
 }
 
@@ -565,41 +662,26 @@ const handlePasswordLogin = async () => {
   await savePortalCredentials()
 
   try {
-    const res = await axios.post(`${API_BASE}/v2/start_login`, {
-      username: username.value,
-      password: password.value,
-      captcha: '',
-      lt: '',
-      execution: ''
-    })
-    const result = res.data
-
-    if (!result?.success) {
-      statusMsg.value = `❌ ${friendlyLoginError(result?.error || '')}`
-      return
-    }
-
-    const sid = String(result?.data?.student_id || username.value || '').trim()
-    if (sid) {
-      saveRememberedUsername(sid)
-    }
-    await syncPortalRememberCredential({
-      username: username.value,
-      studentId: sid,
-      password: password.value,
-      remember: rememberMe.value
-    })
-    if (rememberMe.value) {
-      localStorage.setItem('hbu_remember', 'true')
-    }
-    applyLoginMethodStorage('portal_password')
-    localStorage.removeItem(LOGOUT_REASON_KEY)
-    markLoginOnline()
-    statusMsg.value = t('login.status.signInSuccessSyncing')
-    await emitSuccessWithGrades(sid || username.value)
+    // #929：提交带超时兜底 —— 单飞门复用（后台重登在飞）或原生侧失联时，
+    // 界面也能在有限时间内恢复可交互，而不是永久转圈且无任何提示。
+    const res = await withTimeout(
+      axios.post(`${API_BASE}/v2/start_login`, {
+        username: username.value,
+        password: password.value,
+        captcha: '',
+        lt: '',
+        execution: ''
+      }),
+      LOGIN_SUBMIT_TIMEOUT_MS,
+      t('login.error.submitTimeout')
+    )
+    await applyPortalLoginResult(res.data)
   } catch (e) {
     const errMsg = e.response?.data?.error || e.message || t('login.error.unknown')
     statusMsg.value = `⚠️ ${friendlyLoginError(errMsg)}`
+    // #929：超时/失败后，若门内请求已超过失联阈值则立即清理，
+    // 让用户的下一次点击能发起真实登录，而不是继续复用同一个死 promise。
+    resetLoginGateIfStale()
   } finally {
     loading.value = false
     await refreshOcrMode(String(getStoredOcrConfig().endpoint || '').trim())
@@ -723,11 +805,13 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
   clearQrTimer()
 
   try {
-    const userInfo = await runExclusiveLogin(() =>
-      invoke('portal_qr_confirm_login', {
-        uuid: qrUuid.value,
-        service: 'https://e.hbut.edu.cn/login#/'
-      })
+    const userInfo = await runExclusiveLogin(
+      () =>
+        invoke('portal_qr_confirm_login', {
+          uuid: qrUuid.value,
+          service: 'https://e.hbut.edu.cn/login#/'
+        }),
+      { method: LOGIN_METHOD_PORTAL_QR }
     )
     const sid = String(userInfo?.student_id || '').trim()
     if (!sid) {
@@ -743,7 +827,8 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
 
     qrState.value = 'success'
     qrStateMessage.value = t('login.qr.successSyncing')
-    await emitSuccessWithGrades(sid)
+    // #928：不再等待成绩同步；#932：走应用级通道，避免登录期间切走时结果丢失
+    publishPortalLoginSucceeded({ studentId: sid, method: LOGIN_METHOD_PORTAL_QR })
     return true
   } catch (e) {
     if (allowPending && isPortalPendingError(e)) {
@@ -793,11 +878,13 @@ const handleChaoxingPasswordLogin = async () => {
   loading.value = true
   statusMsg.value = t('login.error.cx.signingIn')
   try {
-    const payload = await runExclusiveLogin(() =>
-      invoke('chaoxing_password_login', {
-        account: chaoxingAccount.value,
-        password: chaoxingPassword.value
-      })
+    const payload = await runExclusiveLogin(
+      () =>
+        invoke('chaoxing_password_login', {
+          account: chaoxingAccount.value,
+          password: chaoxingPassword.value
+        }),
+      { method: LOGIN_METHOD_CHAOXING_PASSWORD }
     )
     await handleChaoxingLoginSuccess(payload, 'chaoxing_password')
   } catch (e) {
@@ -943,12 +1030,14 @@ const confirmChaoxingQrLogin = async () => {
   clearCxQrTimer()
 
   try {
-    const payload = await runExclusiveLogin(() =>
-      invoke('chaoxing_qr_confirm_login', {
-        uuid: cxQrUuid.value,
-        enc: cxQrEnc.value,
-        account_hint: chaoxingAccount.value || undefined
-      })
+    const payload = await runExclusiveLogin(
+      () =>
+        invoke('chaoxing_qr_confirm_login', {
+          uuid: cxQrUuid.value,
+          enc: cxQrEnc.value,
+          account_hint: chaoxingAccount.value || undefined
+        }),
+      { method: LOGIN_METHOD_CHAOXING_QR }
     )
     cxQrState.value = 'success'
     cxQrStateMessage.value = t('login.cx.qr.successSyncing')
@@ -1039,6 +1128,8 @@ onMounted(async () => {
     console.warn('[Login] OCR 初始化失败（后台重试）:', e)
   })
   window.addEventListener('hbu-ocr-config-updated', handleOcrConfigUpdated)
+  // #932：登录仍在进行中（登录期间切走再切回）时恢复「登录中」并按结果落地
+  void resumeInFlightLogin()
 })
 
 onBeforeUnmount(() => {

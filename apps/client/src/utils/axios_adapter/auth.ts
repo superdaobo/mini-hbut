@@ -7,6 +7,7 @@ import {
   type JsonObject
 } from './bridge';
 import { runExclusiveLogin } from '../../app/coordinators/sessionGate';
+import { LOGIN_METHOD_PORTAL_PASSWORD } from '../../app/coordinators/loginOutcome';
 
 /** 处理登录与验证码端点；非认证端点返回 null。 */
 export const handleAuthPost = async (url: string, data: JsonObject): Promise<unknown | null> => {
@@ -35,14 +36,16 @@ export const handleAuthPost = async (url: string, data: JsonObject): Promise<unk
       }
       // #659：手动登录提交走全局单飞门 —— 后台恢复已在登录时复用同一请求，
       // 反之手动登录进行中时后台恢复也会让路，保证同一时刻只有一个 login
-      const response = await runExclusiveLogin(() =>
-        invoke('login', {
-          username,
-          password,
-          captcha,
-          lt,
-          execution
-        })
+      const response = await runExclusiveLogin(
+        () =>
+          invoke('login', {
+            username,
+            password,
+            captcha,
+            lt,
+            execution
+          }),
+        { method: LOGIN_METHOD_PORTAL_PASSWORD }
       );
       return mockResponse({ success: true, data: response });
     } catch (error) {

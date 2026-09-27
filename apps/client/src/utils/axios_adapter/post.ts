@@ -126,10 +126,16 @@ export const post = async (url: string, data: JsonObject = {}, _config: JsonObje
         }
         if (url.includes('/v2/schedule/custom/list')) {
             try {
+                // #930：学期未知时不发起原生命令（其会以「semester 不能为空」拒绝）；
+                // 学期缺失语义上等价于「该学期没有自定义课程」。
+                const semester = String(data?.semester || '').trim();
                 if (hasTauri) {
+                    if (!semester) {
+                        return mockResponse({ success: true, data: [] });
+                    }
                     const payload = await invoke('list_custom_schedule_courses', {
                         studentId: data?.student_id || '',
-                        semester: data?.semester || ''
+                        semester
                     });
                     return mockResponse(payload);
                 }

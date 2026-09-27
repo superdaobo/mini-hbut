@@ -1353,6 +1353,7 @@ export const messages: Record<string, string> = {
   'login.error.enterCredentials': '完全なアカウント番号とパスワードを入力してください',
   'login.error.networkPrefix': 'ネットワークエラー:',
   'login.error.signinFailedRetry': 'ログインに失敗しました。後でもう一度お試しください',
+  'login.error.submitTimeout': 'ログイン処理が進行中です。しばらくしてから再試行してください。',
   'login.error.unknown': '不明なエラー',
   'login.label.cxAccount': '学通アカウント',
   'login.label.cxPassword': 'パスワードを学ぶ',

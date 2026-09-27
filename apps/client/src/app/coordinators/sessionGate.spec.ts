@@ -10,10 +10,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import {
+  LOGIN_IN_FLIGHT_TIMEOUT_MS,
   isLoginInFlight,
+  isLoginInFlightStale,
+  loginInFlightMethod,
   resetLoginGate,
-  runExclusiveLogin
+  resetLoginGateIfStale,
+  runExclusiveLogin,
+  waitForInFlightLogin
 } from './sessionGate'
+import { resetLoginCooldown } from './loginCooldown'
 import { createSessionCoordinator } from './SessionCoordinator'
 import { invokeNative } from '../../platform/native'
 import { loadChaoxingStoredPassword, loadPortalStoredPassword } from '../../composables/useSessionCredentials.js'
@@ -119,6 +125,9 @@ const flushAsync = async (times = 10) => {
 beforeEach(() => {
   storageMap.clear()
   resetLoginGate()
+  // #931：冷却登记是模块级状态，必须在用例间清理 —— 否则上一用例
+  // attemptAutoRelogin 成功登记的窗口会让后续用例的恢复链直接让路。
+  resetLoginCooldown()
   vi.clearAllMocks()
   vi.stubGlobal('localStorage', stubStorage)
   // SessionCoordinator 内部定时器 / notifySessionOnline 等依赖 window
@@ -293,5 +302,96 @@ describe('#659 manual login 与后台恢复竞争', () => {
     expect(restoreCalls).toHaveLength(0)
     expect(recoveryOk).toBe(false)
     expect(manualResult).toMatchObject({ data: { success: true } })
+  })
+})
+
+// ─── #929：在飞失联自愈 ──────────────────────────────────────────────────────
+// 背景：iOS 后台冻结/进程回收会让 Tauri invoke 的响应永久丢失，单飞门被一个
+// 永不 settle 的 promise 占住，此后所有登录（含手动点击）都只能复用死结果。
+describe('登录单飞门失联自愈（#929）', () => {
+  beforeEach(() => {
+    resetLoginGate()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-27T00:00:00Z'))
+  })
+
+  afterEach(() => {
+    resetLoginGate()
+    vi.useRealTimers()
+  })
+
+  it('未失联时保持单飞：复用同一 promise，不执行新的 fn', async () => {
+    // resolve 存于对象属性：TS 会把「闭包内赋值 + 闭包外调用」的 let 收窄为 never
+    const holder: { resolve: ((v: string) => void) | null } = { resolve: null }
+    const stuck = runExclusiveLogin(
+      () => new Promise<string>((r) => { holder.resolve = r })
+    )
+
+    let executed = false
+    const reused = runExclusiveLogin(async () => {
+      executed = true
+      return 'fresh'
+    })
+
+    expect(executed).toBe(false)
+    expect(isLoginInFlightStale()).toBe(false)
+
+    holder.resolve?.('stuck-result')
+    await expect(stuck).resolves.toBe('stuck-result')
+    await expect(reused).resolves.toBe('stuck-result')
+    expect(isLoginInFlight()).toBe(false)
+  })
+
+  it('失联后接管：新调用真实执行 fn，不再复用死 promise', async () => {
+    const stuck = runExclusiveLogin(() => new Promise<string>(() => {}))
+    expect(isLoginInFlight()).toBe(true)
+
+    vi.setSystemTime(new Date(Date.now() + LOGIN_IN_FLIGHT_TIMEOUT_MS + 1000))
+    expect(isLoginInFlightStale()).toBe(true)
+
+    await expect(runExclusiveLogin(async () => 'taken-over')).resolves.toBe('taken-over')
+    // 新持有者完成后正常释放门
+    expect(isLoginInFlight()).toBe(false)
+    void stuck.catch(() => {})
+  })
+
+  it('resetLoginGateIfStale：未失联不清理，失联后清理并返回 true', () => {
+    void runExclusiveLogin(() => new Promise<string>(() => {}))
+    expect(resetLoginGateIfStale()).toBe(false)
+    expect(isLoginInFlight()).toBe(true)
+
+    vi.setSystemTime(new Date(Date.now() + LOGIN_IN_FLIGHT_TIMEOUT_MS + 1000))
+    expect(resetLoginGateIfStale()).toBe(true)
+    expect(isLoginInFlight()).toBe(false)
+    // 已清理后重复调用不再报「已清理」
+    expect(resetLoginGateIfStale()).toBe(false)
+  })
+
+  it('waitForInFlightLogin：门空闲返回 null，在飞时复用同一结果', async () => {
+    await expect(waitForInFlightLogin()).resolves.toBeNull()
+
+    const holder: { resolve: ((v: string) => void) | null } = { resolve: null }
+    const stuck = runExclusiveLogin(
+      () => new Promise<string>((r) => { holder.resolve = r })
+    )
+    const waiting = waitForInFlightLogin<string>()
+    holder.resolve?.('shared-result')
+
+    await expect(waiting).resolves.toBe('shared-result')
+    await expect(stuck).resolves.toBe('shared-result')
+  })
+
+  it('门内标注登录方式：在飞期间可读、释放后清空（复用路径据此还原落地语义）', async () => {
+    const holder: { resolve: ((v: string) => void) | null } = { resolve: null }
+    const stuck = runExclusiveLogin(
+      () => new Promise<string>((r) => { holder.resolve = r }),
+      { method: 'portal_qr_temp' }
+    )
+
+    expect(loginInFlightMethod()).toBe('portal_qr_temp')
+
+    holder.resolve?.('done')
+    await stuck
+    expect(loginInFlightMethod()).toBe('')
   })
 })

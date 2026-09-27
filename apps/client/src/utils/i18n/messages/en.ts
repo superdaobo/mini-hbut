@@ -1354,6 +1354,7 @@ export const messages: Record<string, string> = {
   'login.error.enterCredentials': 'Please enter both account and password',
   'login.error.networkPrefix': 'Network error: ',
   'login.error.signinFailedRetry': 'Sign-in failed. Please try again later',
+  'login.error.submitTimeout': 'Sign-in is still in progress. Please try again shortly.',
   'login.error.unknown': 'Unknown error',
   'login.label.cxAccount': 'Chaoxing account',
   'login.label.cxPassword': 'Chaoxing password',

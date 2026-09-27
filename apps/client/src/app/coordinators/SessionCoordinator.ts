@@ -37,6 +37,16 @@ import { startNotificationMonitor } from '../../utils/notify_center.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
+import {
+  LOGIN_METHOD_CHAOXING_PASSWORD,
+  LOGIN_METHOD_PORTAL_PASSWORD
+} from './loginOutcome'
+import {
+  isLoginCooldownActive,
+  loginCooldownRemainingMs,
+  noteLoginCooldownFromError,
+  noteLoginSuccess
+} from './loginCooldown'
 
 export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinator => {
   const { state } = runtime
@@ -254,10 +264,40 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     return ''
   }
 
+  // #931：冷却窗口内让路后，在冷却结束时刻补一次静默恢复。
+  // 必要性：登录后 2.5s 的 quiet 探测失败时不会自行启动轮询（relogged=false 直接返回），
+  // 若不给这一次调度，恢复要等到下一个 keep-alive 周期（20 分钟）才可能发生。
+  let cooldownResumeTimer: number | null = null
+  const scheduleCooldownResume = () => {
+    if (cooldownResumeTimer !== null) return
+    const delay = loginCooldownRemainingMs() + 2000
+    if (delay <= 2000) return
+    cooldownResumeTimer = window.setTimeout(() => {
+      cooldownResumeTimer = null
+      void attemptOnlineRecovery({ silent: true }).then((ok) => {
+        // attemptOnlineRecovery 入口即把状态置为 recovering，而静默路径失败时不弹横幅
+        // 也不回落状态 —— 必须显式落回，否则 Dashboard 会话点会一直闪到下一个
+        // keep-alive 周期（20 分钟）才被修正。让路（仍有登录在飞）同样按未成功处理。
+        if (!ok) {
+          markJwxtMaintenance(sessionFailureHint('会话恢复失败，稍后自动重试'), {
+            phase: 'failed'
+          })
+        }
+      })
+    }, delay)
+  }
+
   const attemptAutoRelogin = async () => {
     if (isTestAccountSession()) return restoreTestAccountSession()
     if (!hasTauri) return false
     if (isManualLogout()) {
+      return false
+    }
+    // #931：门户登录成功后 Rust 侧有 60s 冷却门（http_client/mod.rs 的
+    // LOGIN_COOLDOWN），窗口内的重登必然被拒并产生 ERROR 日志与维护横幅噪音。
+    // 已登记冷却时直接让路，并补一次「冷却结束即恢复」的调度。
+    if (isLoginCooldownActive()) {
+      scheduleCooldownResume()
       return false
     }
     const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
@@ -266,11 +306,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       if (!chaoxingCreds) return false
       try {
         // #659：自动重登与手动登录互斥单飞 —— 已有登录在飞时复用同一请求
-        const payload = await runExclusiveLogin(() =>
-          invoke('chaoxing_password_login', {
-            account: chaoxingCreds.account,
-            password: chaoxingCreds.password
-          })
+        const payload = await runExclusiveLogin(
+          () =>
+            invoke('chaoxing_password_login', {
+              account: chaoxingCreds.account,
+              password: chaoxingCreds.password
+            }),
+          { method: LOGIN_METHOD_CHAOXING_PASSWORD }
         )
         const sid = await resolveAutoLoginStudentId(payload as Record<string, unknown>)
         if (sid) {
@@ -298,10 +340,12 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     // 直接调用后端 auto_relogin_from_stored 走完整 CAS 登录，立即恢复而非等轮询。
     if (creds.backendRestorable) {
       try {
-        const userInfo = await runExclusiveLogin(() =>
-          invoke('auto_relogin_from_stored', {
-            studentId: creds.username
-          })
+        const userInfo = await runExclusiveLogin(
+          () =>
+            invoke('auto_relogin_from_stored', {
+              studentId: creds.username
+            }),
+          { method: LOGIN_METHOD_PORTAL_PASSWORD }
         )
         await persistSessionCookies()
         const sid = String(
@@ -311,6 +355,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
           state.studentId.value = sid
           saveRememberedUsername(sid)
         }
+        // #931：后端凭据走完整 CAS 登录，同样进入 Rust 冷却窗口
+        noteLoginSuccess()
         return true
       } catch (e) {
         state.jwxtSessionLastError.value = formatSessionError(e)
@@ -322,31 +368,38 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     const doLogin = () =>
       // #659：invoke('login') 走全局单飞门 —— 与手动登录互斥复用，
       // 绝不在已有登录请求在飞时再次触发
-      runExclusiveLogin(async () => {
-        const userInfo = await invoke('login', {
-          username: creds.username,
-          password: creds.password,
-          captcha: '',
-          lt: '',
-          execution: ''
-        })
-        await persistSessionCookies()
-        const sid = String(userInfo?.student_id || creds.username || '').trim()
-        if (sid) {
-          state.studentId.value = sid
-          saveRememberedUsername(sid)
-        }
-        return userInfo
-      })
+      runExclusiveLogin(
+        async () => {
+          const userInfo = await invoke('login', {
+            username: creds.username,
+            password: creds.password,
+            captcha: '',
+            lt: '',
+            execution: ''
+          })
+          await persistSessionCookies()
+          const sid = String(userInfo?.student_id || creds.username || '').trim()
+          if (sid) {
+            state.studentId.value = sid
+            saveRememberedUsername(sid)
+          }
+          return userInfo
+        },
+        { method: LOGIN_METHOD_PORTAL_PASSWORD }
+      )
 
     try {
       await doLogin()
+      // #931：门户登录成功即进入 Rust 冷却窗口，登记后让恢复链在窗口内让路
+      noteLoginSuccess()
       return true
     } catch (e) {
       // 检测登录冷却错误，等待后重试一次
       const msg = String((e as Error)?.message || e || '')
       const cooldownMatch = msg.match(/登录频率过高，请(\d+)秒后再试/)
       if (cooldownMatch) {
+        // #931：按服务端给出的剩余时长登记冷却，避免后续恢复链继续撞门
+        noteLoginCooldownFromError(msg)
         const waitSec = parseInt(cooldownMatch[1], 10)
         if (waitSec > 0 && waitSec <= 120) {
           console.info(`[Session] 登录冷却中，${waitSec}秒后重试...`)

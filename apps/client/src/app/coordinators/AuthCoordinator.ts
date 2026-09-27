@@ -35,8 +35,32 @@ import {
 } from '../../utils/usage_tracker.js'
 import { scheduleUsageUpload } from '../../utils/usage_uploader.js'
 import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/local_reminder_scheduler'
+import { subscribePortalLoginSucceeded } from './loginOutcome'
 import { saveRememberedUsername } from '../../utils/remembered_username'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
+
+/** 登录后成绩补拉的等待上限：超时以空快照兜底继续云同步，不无限等待 */
+const LOGIN_GRADES_TIMEOUT_MS = 20 * 1000
+
+/** 同一次登录被「组件交付 + 复用交付」两条路径重复投递的去重时间窗 */
+const LOGIN_DELIVERY_DEDUPE_WINDOW_MS = 5 * 1000
+
+/** Promise 超时包装：超时即抛错，迟到结果被丢弃（不中止底层请求） */
+const waitPromiseWithTimeout = <T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return Promise.race([
+    task,
+    new Promise<T>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
 
 export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   const { state } = runtime
@@ -55,6 +79,44 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     clearCacheByPrefix(`training:options:${TEST_ACCOUNT.studentId}`)
     clearCacheByPrefix(`training:jys:${TEST_ACCOUNT.studentId}`)
     clearCacheByPrefix(`electricity:${TEST_ACCOUNT.studentId}`)
+  }
+
+  /** 登录后云同步（成绩快照作为学业缓存权威输入，见 cloud_sync primeAcademicCaches） */
+  const syncAfterLogin = (sid: string, grades: unknown[]) => {
+    runAutoCloudSyncAfterLogin({
+      studentId: sid,
+      latestGrades: grades
+    }).catch((e) => {
+      console.warn('[CloudSync] 登录后自动同步失败:', e)
+    })
+  }
+
+  /**
+   * #928：登录后补拉成绩（不阻塞界面）→ 回填首页成绩态 → 再触发云同步。
+   *
+   * 登录组件已不再等待成绩同步（原先让登录按钮多转约 10s），因此这里承担
+   * 「拿到成绩再同步」的时序，避免用空数组顶替 latestGrades 污染学业缓存。
+   *
+   * 补拉期间可能发生切号/登出，故前后都以传入学号校验归属：迟到结果既不写入
+   * 当前账号的成绩态，也不触发以当前账号为目标的云同步（防跨账号数据污染）。
+   */
+  const loadGradesThenSyncAfterLogin = async (sid: string) => {
+    let grades: unknown[] = []
+    try {
+      const res = await waitPromiseWithTimeout(
+        axios.post<Record<string, any>>(`${API_BASE}/v2/quick_fetch`, { student_id: sid }),
+        LOGIN_GRADES_TIMEOUT_MS,
+        '登录后成绩同步超时'
+      )
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        grades = res.data.data as unknown[]
+        if (state.studentId.value === sid) state.gradeData.value = grades
+      }
+    } catch (e) {
+      console.warn('[Session] 登录后成绩同步未完成，仍继续云同步:', e)
+    }
+    if (state.studentId.value !== sid) return
+    syncAfterLogin(sid, grades)
   }
 
   // 处理登录成功
@@ -121,12 +183,14 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
           console.warn('[Reminder] 登录后预调度 reconcile 失败:', e)
         })
         resetCloudSyncCooldownForSession(state.studentId.value)
-        runAutoCloudSyncAfterLogin({
-          studentId: state.studentId.value,
-          latestGrades: Array.isArray(data) ? data : []
-        }).catch((e) => {
-          console.warn('[CloudSync] 登录后自动同步失败:', e)
-        })
+        // #928：登录事件不再携带成绩（登录组件已先放行界面）——有成绩直接同步，
+        // 否则后台补拉成绩后再同步，保证学业快照的输入不被空数组顶替。
+        const gradesSnapshot = Array.isArray(data) ? (data as unknown[]) : []
+        if (gradesSnapshot.length > 0) {
+          syncAfterLogin(state.studentId.value, gradesSnapshot)
+        } else {
+          void loadGradesThenSyncAfterLogin(state.studentId.value)
+        }
         setUsageTrackingStudentId(state.studentId.value)
         initUsageTracker({ studentId: state.studentId.value })
         scheduleUsageUpload({ studentId: state.studentId.value, reason: 'login', force: true })
@@ -144,6 +208,27 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       }, 2500)
     }
     runtime.lifecycle.recoverViewportAfterTransition()
+  }
+
+  // #932：门户登录成功订阅应用级通道 —— 登录组件在「登录中被切走」时会随视图
+  // 卸载，Vue 会丢弃已卸载实例的 emit，全局事件才能保证结果仍被应用层接收。
+  // 测试环境下 window 被 stub（无 addEventListener），此处做了能力守卫。
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    // 去重：同一次登录可能被两条路径交付 —— 发起提交的组件（publish 不受组件卸载
+    // 影响）与「登录中切回页面」的新实例（复用同一请求后又交付一次）。按学号+方式+
+    // 时间窗判定为同一次登录，避免整套登录后初始化被重复执行。
+    let lastHandledKey = ''
+    let lastHandledAt = 0
+    subscribePortalLoginSucceeded((detail) => {
+      const key = `${detail?.studentId || ''}|${detail?.method || ''}`
+      const now = Date.now()
+      if (key === lastHandledKey && now - lastHandledAt < LOGIN_DELIVERY_DEDUPE_WINDOW_MS) {
+        return
+      }
+      lastHandledKey = key
+      lastHandledAt = now
+      handleLoginSuccess([])
+    })
   }
 
   // 处理登出

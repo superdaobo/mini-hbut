@@ -1355,6 +1355,7 @@ export const messages: Record<string, string> = {
   'login.error.enterCredentials': '请输入完整的账号和密码',
   'login.error.networkPrefix': '网络错误: ',
   'login.error.signinFailedRetry': '登录失败，请稍后重试',
+  'login.error.submitTimeout': '登录仍在进行，请稍候再试',
   'login.error.unknown': '未知错误',
   'login.label.cxAccount': '学习通账号',
   'login.label.cxPassword': '学习通密码',
