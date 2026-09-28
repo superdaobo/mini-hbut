@@ -13,7 +13,7 @@ import {
   SCHEDULE_POPUP_PENDING_KEY,
   SCHEDULE_SWITCH_PENDING_KEY
 } from '../../utils/schedule_prefetch.js'
-import { fetchWithCache, clearUserScopedCaches, clearCacheByPrefix, setCachedData } from '../../utils/api.js'
+import { fetchWithCache, clearUserScopedCaches, clearGameIdentityCaches, clearCacheByPrefix, setCachedData } from '../../utils/api.js'
 import { clearDailyAccessGrant } from '../../utils/daily_access_key.js'
 import { preservePortalRememberedPasswordOnLogout } from '../../utils/credential_storage.js'
 import {
@@ -261,6 +261,13 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       })
     }
 
+    // P0：游戏落盘身份必须在**每次**登出时清理（手动登出已由 clearUserScopedCaches 覆盖，
+    // 这里补齐会话失效的自动登出路径）。登出后学号归零，但设备级的 `<gameId>_rank_context_v1`
+    // 与模块中心学生档案仍是上一位用户的昵称/班级快照 —— 未登录时打开模块会被当作
+    // 「当前用户」展示、甚至以其身份提交成绩。只清游戏身份，不动教务缓存（离线展示仍可用）。
+    // 幂等：与 clearUserScopedCaches 内的清理重复时无副作用。
+    clearGameIdentityCaches(logoutSid)
+
     runtime.navigation.applyViewState('home')
     state.gradeData.value = []
     state.gradeTeacherCache.value = null
@@ -324,8 +331,13 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   // 3. 派发 hbu-session-online 触发各模块全量刷新（课表等现有链路），
   //    并主动走一遍成绩刷新链路；keep-alive / 通知监控 / 云同步切到新账号
   const handleAccountSwitch = (studentId: string) => {
+    const previousSid = String(state.studentId.value || '').trim()
     const sid = saveRememberedUsername(studentId)
     if (!sid) return
+    // P0：换号属于「上一用户身份归零」的另一条路径 —— 旧账号的昵称/班级快照仍留存在
+    // 设备级游戏上下文 `<gameId>_rank_context_v1` 与旧档案键里，会被新账号的游乐场摘要
+    // 与游戏模块回落读取。这里立即清理（只清游戏身份，不动任何教务缓存）。
+    if (previousSid !== sid) clearGameIdentityCaches(previousSid)
     state.studentId.value = sid
     state.gradeData.value = []
     state.gradeTeacherCache.value = null

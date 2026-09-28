@@ -2,6 +2,8 @@ import { pushDebugLog } from './debug_logger'
 import { isTestAccountSession } from './test_account.js'
 import { resolveTestAccountCachePayload } from './test_account_fixtures.js'
 import { withTimeout } from './fetch_timeout.js'
+import { isLegacyRankContextKey } from './game_center/legacy_rank_context_migration'
+import { PROFILE_STORAGE_PREFIX } from './game_center/profile'
 
 
 export interface CacheEnvelope<T = unknown> {
@@ -284,11 +286,46 @@ export function clearCacheByPrefix(prefix: unknown): void {
 }
 
 /**
+ * 清除游戏相关落盘身份（P0：登出 / 会话失效 / 切换账号时调用）。
+ *
+ * 只碰两类「身份快照」键，绝不触碰与登录无关的键：
+ * - 全部 `<gameId>_rank_context_v1`（含 hecheng 的历史共享键）：**设备级共享键**，不区分会话，
+ *   内含 {studentId, playerName, className, schoolName, major} 快照；后缀约定复用
+ *   `game_center/legacy_rank_context_migration` 的 `isLegacyRankContextKey`（10+ 个游戏共用模板）；
+ * - `hbu_more_module_student_profile:<sid>`：模块中心写入的学生档案（仅当前登出用户那一条）。
+ *
+ * 这些键不参与 memoryCache / 跨实例失效广播（不是 `cache:` 前缀，也不是缓存条目），
+ * 因此只做本地删除、不发广播；其他标签页读取的是同一份 localStorage，天然同步可见。
+ */
+export function clearGameIdentityCaches(studentId: unknown): void {
+  const sid = String(studentId || '').trim()
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i)
+    if (!key) continue
+    if (isLegacyRankContextKey(key)) {
+      keysToRemove.push(key)
+      continue
+    }
+    if (sid && key === `${PROFILE_STORAGE_PREFIX}${sid}`) {
+      keysToRemove.push(key)
+    }
+  }
+  // 先收集后删除：避免边遍历边改动导致索引漂移。
+  keysToRemove.forEach((key) => localStorage.removeItem(key))
+}
+
+/**
  * 清除指定学号的教务/课表等用户级缓存（退出登录时调用）。
+ *
+ * 同时清理该学号的游戏落盘身份（游戏上下文属于设备级共享键，见
+ * `clearGameIdentityCaches`）—— 手动登出路径复用本函数即可覆盖。
  */
 export function clearUserScopedCaches(studentId: unknown): void {
   const sid = String(studentId || '').trim()
   if (!sid) return
+
+  clearGameIdentityCaches(sid)
 
   const prefixes: string[] = []
   for (const prefix of JWXT_KEY_PREFIXES) {

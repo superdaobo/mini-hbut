@@ -301,11 +301,23 @@ export const createPlatformMatchTransport = ({
       payload = null
     }
     if (!response.ok || payload?.success === false) {
+      // S2：服务端把**细粒度机器码**放在 `error.details.error_code`（顶层 `error.code` 只是
+      // 大类，例如席位所有权不足时顶层是 `FORBIDDEN_ACTOR`）。自愈分支（relay 重绑 /
+      // `SEAT_PEER_OWNERSHIP_REQUIRED` / `RELAY_BINDING_REQUIRED`）必须按细粒度码判定，
+      // 否则永远拿到大类、分支永不触发。顶层码保留在 `error.envelopeCode` 供诊断，不丢信息。
+      const envelope =
+        payload?.error && typeof payload.error === 'object' ? payload.error : {}
+      const details =
+        envelope.details && typeof envelope.details === 'object' ? envelope.details : {}
+      const envelopeCode = safeText(envelope.code)
+      const machineCode = safeText(details.error_code) || envelopeCode
       const error = new Error(
-        payload?.error?.message || `服务端请求失败 ${Number(response.status || 0)}`.trim()
+        safeText(envelope.message) || `服务端请求失败 ${Number(response.status || 0)}`.trim()
       )
       error.status = Number(response.status || 0)
-      error.code = safeText(payload?.error?.code)
+      error.code = machineCode
+      error.envelopeCode = envelopeCode
+      error.details = details
       error.payload = payload
       throw error
     }

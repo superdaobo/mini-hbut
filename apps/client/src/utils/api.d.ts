@@ -21,6 +21,8 @@ export interface CacheEntry<T = unknown> {
 export function getCacheKey(key: string): string
 export function clearCacheByPrefix(prefix: string): void
 export function clearUserScopedCaches(studentId: string): void
+/** P0：清理游戏落盘身份（`*_rank_context_v1` 与当前学号的模块档案键）；登出/会话失效/换号时调用 */
+export function clearGameIdentityCaches(studentId: string): void
 export function getCachedData<T = unknown>(key: string, ttl?: number): CacheEntry<T> | null
 export function getStaleCachedData<T = unknown>(key: string): CacheEntry<T> | null
 export function setCachedData(key: string, data: unknown): void

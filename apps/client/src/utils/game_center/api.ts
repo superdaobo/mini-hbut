@@ -41,6 +41,8 @@ export interface GamePlatformErrorShape {
   message: string
   retryable: boolean
   request_id?: string
+  /** 顶层 `error.code`（大类，如 FORBIDDEN_ACTOR）；`code` 取细粒度码时用于诊断 */
+  envelope_code?: string
 }
 
 /** 统一的 Game Platform 错误（code 取值见 protocol-v1.md §5） */
@@ -49,11 +51,16 @@ export class GamePlatformError extends Error {
   readonly retryable: boolean
   readonly httpStatus: number
   readonly requestId: string
+  /**
+   * S2：服务端顶层 `error.code`（大类）。当细粒度机器码 `error.details.error_code`
+   * 存在时 `code` 取细粒度码，本字段保留顶层码供诊断（不丢信息）。
+   */
+  readonly envelopeCode: string
 
   constructor(
     code: string,
     message: string,
-    options: { retryable?: boolean; httpStatus?: number; requestId?: string } = {}
+    options: { retryable?: boolean; httpStatus?: number; requestId?: string; envelopeCode?: string } = {}
   ) {
     super(message)
     this.name = 'GamePlatformError'
@@ -61,6 +68,7 @@ export class GamePlatformError extends Error {
     this.retryable = options.retryable === true
     this.httpStatus = Number(options.httpStatus || 0)
     this.requestId = String(options.requestId || '')
+    this.envelopeCode = String(options.envelopeCode || '')
   }
 }
 
@@ -187,13 +195,22 @@ const parseEnvelopeError = (payload: unknown, httpStatus: number): GamePlatformE
   const error = body.error
   if (error && typeof error === 'object') {
     const shaped = error as Record<string, unknown>
-    const code = safeText(shaped.code)
+    const details =
+      shaped.details && typeof shaped.details === 'object'
+        ? (shaped.details as Record<string, unknown>)
+        : {}
+    const envelopeCode = safeText(shaped.code)
+    // S2：服务端把**细粒度机器码**放在 `error.details.error_code`（顶层 `error.code` 只是大类，
+    // 例如席位所有权不足时顶层是 `FORBIDDEN_ACTOR`）。细粒度码优先作为 `code`，否则调用方的
+    // 自愈 / 文案分支永远只能拿到大类、永不触发；顶层码保留在 `envelope_code` 供诊断。
+    const code = safeText(details.error_code) || envelopeCode
     if (code) {
       return {
         code,
         message: safeText(shaped.message) || '游戏服务暂时不可用',
         retryable: shaped.retryable === true,
-        request_id: safeText(shaped.request_id)
+        request_id: safeText(shaped.request_id),
+        envelope_code: envelopeCode
       }
     }
   }
@@ -256,7 +273,8 @@ export const requestGamePlatformJson = async <T = Record<string, unknown>>(
     throw new GamePlatformError(shapedError.code, shapedError.message, {
       retryable: shapedError.retryable,
       httpStatus: response.status,
-      requestId: shapedError.request_id
+      requestId: shapedError.request_id,
+      envelopeCode: shapedError.envelope_code
     })
   }
   if (!response.ok) {
