@@ -1,5 +1,6 @@
 /**
- * 湖工游乐场（Game Center，#905）共享基座（叶子模块，**不得** import 其他 game_center 模块）。
+ * 湖工游乐场（Game Center，#905）共享基座（叶子模块，**不得** import 其他 game_center 模块；
+ * 唯一例外是同样无依赖的纯函数叶子 `canary.ts`，用于远程 `game_platform.canary` 归一化）。
  *
  * 收敛三件事，避免多处默认值 / 校验漂移：
  * 1. Game Platform / Legacy 命名空间与默认源（与既有 MoreView 的 game-rank 默认源一致）；
@@ -8,6 +9,7 @@
  */
 
 import { STATISTICS_SERVICE_BASE_URL } from '../statistics_environment'
+import { normalizeGamePlatformCanary, type GamePlatformCanary } from './canary'
 
 /** Game Platform v1 命名空间（protocol-v1.md §1.1） */
 export const GAME_PLATFORM_NAMESPACE = '/api/game-platform/v1'
@@ -110,17 +112,21 @@ export type GameCenterFlagKey = (typeof GAME_CENTER_FLAG_KEYS)[number]
 /**
  * 默认值（远程配置不可达时的最终兜底）。
  *
- * - `game_center_enabled: true`：游乐场入口本身不依赖后端（经典游戏 + 本地数据）即可用；
- *   紧急回滚由远程配置置 false 完成，**无需发版**。
+ * - `game_center_enabled: false`（第十轮 Phase 0 契约 A）：**默认关闭**。
+ *   包内兜底 `public/remote_config.json` 无 `game_platform` 块，远程拉取失败的用户
+ *   一律看不到游乐场入口；开启由运维在配置仓显式下发 `enabled=true` +
+ *   `flags.game_center_enabled=true` 完成（改配置无需发版；灰度见 `canary` 块）。
+ *   安全姿态：宁可默认不可见，也不默认把游乐场暴露给未灰度的用户。
  * - `game_verified_session_enabled` / `game_economy_enabled`：依赖 #909（经济与赛季账本），
  *   未交付 → 默认关，UI 只展示占位且**不发起任何 V2 请求**。
  * - `drift_bottle_enabled`：依赖 #910（UGC 漂流瓶），未交付 → 默认关。
- * - `classic_game_entries_visible: true`：旧「更多」页 11 个游戏入口零破坏，默认继续可见。
+ * - `classic_game_entries_visible: true`：旧「更多」页 11 个游戏入口零破坏，默认继续可见
+ *   （语义与本轮灰度无关，**不在**灰度 / 块级开关的坍缩范围内）。
  * - W3 三个新开关（每日任务 / 五子棋竞技 / 可信结算奖励）：服务端端点未验证 → 一律默认关，
  *   由 `RESERVED_GAME_CENTER_FLAG_DEFAULTS` 展开（保持「新 key 默认值」只有一处定义）。
  */
 export const DEFAULT_GAME_CENTER_FLAGS: Readonly<Record<GameCenterFlagKey, boolean>> = Object.freeze({
-  game_center_enabled: true,
+  game_center_enabled: false,
   game_verified_session_enabled: false,
   game_economy_enabled: false,
   drift_bottle_enabled: false,
@@ -170,14 +176,19 @@ export const normalizeGameOrigin = (value: unknown): string => {
 }
 
 export interface GamePlatformConfig {
-  /** 块级总开关（false 时等价于所有子开关关闭 + 清空 origin 白名单） */
+  /** 块级总开关（false 时等价于所有子开关关闭 + 清空 origin 白名单；紧急 kill switch 优先级最高） */
   enabled: boolean
   /** Game Platform v1 API base（必须 HTTPS 或 loopback，否则丢弃） */
   api_base: string
   /** 宿主允许的游戏 iframe origin 白名单（追加到 URL 推导白名单之后） */
   allowed_game_origins: string[]
-  /** 五个业务开关（远程可平铺或嵌套在 flags 对象中） */
+  /** 业务开关（远程可平铺或嵌套在 flags 对象中） */
   flags: Record<string, unknown>
+  /**
+   * 灰度块（契约 A）：`null` = 字段缺省（不做灰度）；非法 = 全关哨兵。
+   * 判定与生效见 `canary.ts` / `flags.ts`，此处只做结构归一化。
+   */
+  canary: GamePlatformCanary | null
 }
 
 const toFlagBoolean = (value: unknown, fallback: boolean): boolean => {
@@ -194,6 +205,9 @@ const toFlagBoolean = (value: unknown, fallback: boolean): boolean => {
 /**
  * 归一化远程 `game_platform` 配置块（容忍 flags 平铺 / 嵌套两种写法）。
  * 纯函数，无副作用；远端下发非法值时一律丢弃（安全默认）。
+ *
+ * `canary`（契约 A）交 `normalizeGamePlatformCanary` 严格校验：
+ * 字段缺省 → `null`（不做灰度）；存在但非法 → 全关哨兵（fail closed，绝不回落成"全量"）。
  */
 export const normalizeGamePlatformConfig = (raw: unknown): GamePlatformConfig => {
   const block = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
@@ -213,7 +227,8 @@ export const normalizeGamePlatformConfig = (raw: unknown): GamePlatformConfig =>
     enabled: toFlagBoolean(block.enabled, true),
     api_base: isSecureGamePlatformUrl(apiBase) ? apiBase.replace(/\/+$/, '') : '',
     allowed_game_origins: [...new Set(rawOrigins.map(normalizeGameOrigin).filter(Boolean))],
-    flags: { ...nestedFlags, ...flatFlags }
+    flags: { ...nestedFlags, ...flatFlags },
+    canary: normalizeGamePlatformCanary(block.canary)
   }
 }
 

@@ -2,7 +2,8 @@
  * #905 湖工游乐场 feature flags 契约测试。
  *
  * 覆盖：
- * - 八个开关的默认值（未交付能力必须默认关闭，避免「可见但必然报错」）；
+ * - 八个开关的默认值（契约 A：游乐场 `game_center_enabled` **默认关闭**；
+ *   未交付能力同样默认关闭，避免「可见但必然报错」）；
  * - 远程配置独立关闭（无需发版即可回滚）；
  * - 合规包 guest/demo 的策略夹紧（与 app_store_policy 对齐）；
  * - API base / origin 白名单只能 HTTPS（loopback 例外），拒绝 '*' / 'null' / 明文。
@@ -43,7 +44,7 @@ describe('game center feature flags', () => {
       'gomoku_competitive_enabled',
       'verified_reward_enabled'
     ])
-    expect(DEFAULT_GAME_CENTER_FLAGS.game_center_enabled).toBe(true)
+    expect(DEFAULT_GAME_CENTER_FLAGS.game_center_enabled).toBe(false)
     expect(DEFAULT_GAME_CENTER_FLAGS.classic_game_entries_visible).toBe(true)
     // #909（经济 / 赛季）与 #910（漂流瓶）未交付 → 默认关闭
     expect(DEFAULT_GAME_CENTER_FLAGS.game_verified_session_enabled).toBe(false)
@@ -190,6 +191,9 @@ describe('game center feature flags', () => {
     const fullPolicy = getFeaturePolicy()
     const clamped = applyGameCenterPolicyClamp(flags, fullPolicy)
     expect(clamped).toEqual(flags)
-    expect(resolveEffectiveGameCenterFlags(null, fullPolicy).game_center_enabled).toBe(true)
+    // 契约 A（第十轮 Phase 0）：无远程配置 = 无任何可用配置 → 游乐场默认关闭（安全姿态）。
+    // 注意这不是夹紧的效果（全功能策略不夹紧），而是「默认值即最安全形态」的同步；
+    // 开启由运维在配置仓显式下发 enabled=true + flags.game_center_enabled=true 完成。
+    expect(resolveEffectiveGameCenterFlags(null, fullPolicy).game_center_enabled).toBe(false)
   })
 })
