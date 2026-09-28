@@ -300,11 +300,18 @@ export const useAppRuntime = () => {
       })
       .catch((error) => console.warn('[Boot] session restore failed:', error))
       .finally(() => {
-        // P0：会话恢复流程**收口**（含恢复链异常路径）—— 未确认可用会话且当前无身份时，
-        // 设备级游戏身份键（`*_rank_context_v1`）仍是上一用户快照（强杀/崩溃冷启动不会
-        // 经过任何登出入口），必须在这里清掉，否则未登录打开模块会被模块自身回落读取
-        // 并以其身份提交成绩。有会话 / 有缓存身份 / 恢复中一律零动作（幂等）。
-        reconcileGameIdentityOnBoot(sessionRestoreVerified, state.studentId.value)
+        // P0：会话恢复流程**收口**（含恢复链异常路径）—— 未确认可用会话时，设备级游戏身份键
+        // （`*_rank_context_v1`）仍是上一用户快照（强杀/崩溃冷启动不会经过任何登出入口），
+        // 必须在这里清掉，否则未登录打开模块会被模块自身回落读取并以其身份提交成绩。
+        //
+        // 契约 D（身份收紧与游客态）：`state.studentId` 可能只是 #355 的**离线缓存身份**
+        // （会话未确认）—— 只有恢复链**确认**了会话才把它交给收口，否则一律按「无身份」处理
+        // （缓存学号不得豁免清理、不得用于游戏身份）。游戏侧读取会话确认状态见
+        // `stores/auth.sessionVerified`（单一事实源）。幂等：重复执行零删除、零写入。
+        reconcileGameIdentityOnBoot(
+          sessionRestoreVerified,
+          sessionRestoreVerified ? state.studentId.value : ''
+        )
       })
 
     void runtime.remoteConfig.applyRemoteConfig().finally(runtime.remoteConfig.startRemoteConfigRefresh)
