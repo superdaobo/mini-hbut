@@ -21,6 +21,10 @@ import {
 } from '../utils/game_center/flags'
 import { resolveGameRankApiBase } from '../utils/game_center/api'
 import { appendIdentityQueryParams } from '../utils/game_center/profile'
+import {
+  appendModuleEnvQueryParams,
+  resolveBuildAppVersion
+} from '../utils/game_center/module_context'
 import { DEFAULT_GOMOKU_RELAY_API } from '../utils/game_center/base'
 import { consumeGameOpen } from '../utils/game_center/pending_open'
 import {
@@ -276,6 +280,13 @@ const appendModuleContextQuery = (
       const gomokuRelayApi = resolveGomokuRelayApi()
       if (gomokuRelayApi) url.searchParams.set('gomoku_api', gomokuRelayApi)
     }
+    // P1-A：构建版本必须**始终注入**（灰度 deny 名单按版本串匹配；缺失 → 服务端永远匹配不到）。
+    // P1-B 契约 C：宿主显式声明自身 origin —— SDK 只接受显式来源，无此参数即 fail closed
+    //（不握手、零 V2 请求）。两者都不是身份，与登录态无关（游客态同样注入，见 module_context.ts）。
+    appendModuleEnvQueryParams(url, {
+      appVersion: resolveBuildAppVersion(),
+      hostOrigin: window.location.origin
+    })
     return url.toString()
   } catch {
     return previewUrl
@@ -527,7 +538,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
   // （`<gameId>_rank_context_v1`，含上一用户学号 + rank_api）；打开前按启动收口**同一路径**
   // 清理（幂等：有确认会话零动作、无身份键零删除），保证「模块侧拿不到任何学号 →
   // game_rank.js / SDK 判定不可提交、零 fetch」。本地游玩不受影响（不阻断打开）。
-  if (!sessionVerified.value) reconcileGameIdentityOnBoot(false, '')
+  if (!sessionVerified.value) reconcileGameIdentityOnBoot(false)
   const profile = moduleId === 'hecheng_hugongda' ? await ensureStudentProfile() : readCachedStudentProfile()
 
   if (!safeText(moduleItem?.manifest_url)) {

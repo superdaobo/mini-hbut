@@ -274,7 +274,7 @@ describe('契约 D-3 游客态端到端：离线冷启打开游戏 → 学号空
   it('落盘上一用户身份 + 会话未确认 → 收口清理 + 零注入 → Legacy/SDK 全链零身份零提交', async () => {
     // 1) 启动收口（真实接线：会话未确认 ⇒ 按「无身份」交给收口）→ 设备级键被清，
     //    模块自身的 localStorage 回落通道被斩断（否则模块会读到上一用户学号）。
-    reconcileGameIdentityOnBoot(false, '')
+    reconcileGameIdentityOnBoot(false)
     for (const gameId of GAME_CENTER_GAME_IDS) {
       expect(storage.values.has(`${gameId}_rank_context_v1`), `${gameId}_rank_context_v1 必须被清`).toBe(false)
     }
@@ -351,7 +351,7 @@ describe('契约 D-3 游客态端到端：离线冷启打开游戏 → 学号空
   it('宿主打开模块前（会话未确认）按启动收口清理：模块回落读取也拿不到任何学号', () => {
     // 模拟 MoreView.handleOpenRemoteModule 的防御（接线由 D-5 的源码护栏锁定）：
     // 打开模块前按启动收口同一路径清理，覆盖「会话恢复链仍在飞、收口未跑」的窗口。
-    reconcileGameIdentityOnBoot(false, '')
+    reconcileGameIdentityOnBoot(false)
     for (const gameId of GAME_CENTER_GAME_IDS) {
       expect(storage.values.has(`${gameId}_rank_context_v1`)).toBe(false)
     }
@@ -457,11 +457,15 @@ describe('契约 D-5 接线护栏：游戏侧只从单一事实源读取「会�
     const src = readSource('../components/MoreView.vue')
     expect(src).toMatch(/const sessionVerified = computed\(\(\) => authStore\.sessionVerified === true\)/)
     expect(src).toContain('appendIdentityQueryParams(url, profile, sessionVerified.value)')
-    expect(src).toMatch(/if \(!sessionVerified\.value\) reconcileGameIdentityOnBoot\(false, ''\)/)
+    // P2-1：收口函数已删除「缓存身份」第二参 —— 未确认即无条件清理（接线不得回退成两参）
+    expect(src).toMatch(/if \(!sessionVerified\.value\) reconcileGameIdentityOnBoot\(false\)/)
+    expect(src).not.toMatch(/reconcileGameIdentityOnBoot\(false,/)
   })
 
-  it('useAppRuntime.ts：启动收口只在会话确认时承认 state.studentId（缓存身份不得豁免清理）', () => {
+  it('useAppRuntime.ts：启动收口只读会话确认事实源（缓存身份不豁免清理）', () => {
     const src = readSource('../app/useAppRuntime.ts')
-    expect(src).toContain("sessionRestoreVerified ? state.studentId.value : ''")
+    // P2-1：收口函数改为单参（会话是否确认）；不得再把缓存学号当作豁免条件传进去
+    expect(src).toContain('reconcileGameIdentityOnBoot(sessionRestoreVerified)')
+    expect(src).not.toMatch(/reconcileGameIdentityOnBoot\(\s*sessionRestoreVerified\s*,/)
   })
 })

@@ -304,14 +304,11 @@ export const useAppRuntime = () => {
         // （`*_rank_context_v1`）仍是上一用户快照（强杀/崩溃冷启动不会经过任何登出入口），
         // 必须在这里清掉，否则未登录打开模块会被模块自身回落读取并以其身份提交成绩。
         //
-        // 契约 D（身份收紧与游客态）：`state.studentId` 可能只是 #355 的**离线缓存身份**
-        // （会话未确认）—— 只有恢复链**确认**了会话才把它交给收口，否则一律按「无身份」处理
-        // （缓存学号不得豁免清理、不得用于游戏身份）。游戏侧读取会话确认状态见
-        // `stores/auth.sessionVerified`（单一事实源）。幂等：重复执行零删除、零写入。
-        reconcileGameIdentityOnBoot(
-          sessionRestoreVerified,
-          sessionRestoreVerified ? state.studentId.value : ''
-        )
+        // 契约 D（身份收紧与游客态）：收口只看**会话是否确认**这唯一事实源
+        //（`stores/auth.sessionVerified` 的启动期结果 `sessionRestoreVerified`）；
+        // `state.studentId` 可能只是 #355 的离线缓存身份 —— 缓存身份不豁免清理，故不再传入。
+        // 幂等：重复执行零删除、零写入。
+        reconcileGameIdentityOnBoot(sessionRestoreVerified)
       })
 
     void runtime.remoteConfig.applyRemoteConfig().finally(runtime.remoteConfig.startRemoteConfigRefresh)

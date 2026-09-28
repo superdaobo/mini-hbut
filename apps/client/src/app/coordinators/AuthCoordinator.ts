@@ -289,6 +289,11 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     state.gradeTeacherCacheSid.value = ''
     state.studentId.value = ''
     state.userUuid.value = ''
+    // 契约 D：登出必须把在线会话态一并重置为未确认（`unknown`）。只清学号会留下
+    // 「sessionVerified=true 但身份为空」的不一致态 —— 当前虽无身份可注入，但任何
+    // studentId 回填（缓存/恢复链）都会立刻被当作「已确认会话」放行游戏身份。
+    // 复用认证状态层的既有状态机（同一 ref，见 appState 的 authRefs.onlineSessionState）。
+    state.onlineSessionState.value = 'unknown'
     runtime.navigation.replaceHistorySnapshot('home')
 
     runtime.session.stopSessionKeepAlive()
