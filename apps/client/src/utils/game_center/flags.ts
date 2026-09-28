@@ -1,13 +1,17 @@
 /**
  * 湖工游乐场（Game Center，#905）feature flags 生效层。
  *
- * 关键决策（issue #905 + compatibility.md 契约 3）：
+ * 关键决策（issue #905 + compatibility.md 契约 3 + 第十轮 Phase 0 契约 A）：
  * - flags **只走既有 remote_config 体系**（`game_platform` 块），不引入新的配置通道；
  *   远程改值即生效，无需发版，紧急回滚可用；
  * - 每个能力独立开关，未交付能力（#909 经济/赛季、#910 漂流瓶）默认关闭，
  *   由 UI **前置隐藏**（feature-gate），绝不出现「可见但必然报错」；
  * - 合规包（App Store / TestFlight）guest/demo 会话强制关闭远程游乐场与 UGC，
  *   与 app_store_policy 的 remoteModules / ranking / userGeneratedContent 保持一致。
+ * - **灰度（canary，契约 A）**：`game_platform.canary` 未纳入的用户在本层被**坍缩**为
+ *   块级关闭（等价 `enabled=false`，复用同一条坍缩分支，不新增第二套开关链路）；
+ *   判定是纯同步的（见 `canary.ts`），分桶键 `hbu_game_install_id` 惰性生成
+ *   （见 `install_id.ts`）；夹紧（applyGameCenterPolicyClamp）只会更严，不会把关打开。
  *
  * W3 接线：新增三个 flag（每日任务 / 五子棋竞技 / 可信结算奖励）与既有 flag 走**同一套**
  * 远程配置 + 合规夹紧，不引入第二通道；它们的默认值与 key 定义在 base.ts。
@@ -15,6 +19,7 @@
  */
 
 import { getFeaturePolicy, type AppStoreFeaturePolicy } from '../../config/app_store_policy'
+import { normalizeStudentId } from '../student_id.js'
 import {
   DEFAULT_GAME_CENTER_FLAGS,
   DEFAULT_GAME_PLATFORM_API_BASE,
@@ -24,6 +29,8 @@ import {
   type GameCenterFlagKey,
   type GamePlatformConfig
 } from './base'
+import { canaryRequiresBucket, evaluateGamePlatformCanary } from './canary'
+import { getOrCreateGameInstallId } from './install_id'
 
 export {
   DEFAULT_GAME_CENTER_FLAGS,
@@ -49,19 +56,79 @@ export interface GameCenterFlagSource {
 }
 
 /**
- * 解析远程配置 → 生效 flags。
- * 远程块缺失 → 全部落到默认值（默认值本身即最安全形态）。
+ * 灰度判定上下文（可选注入；缺省走生产默认读取，测试与未来接线显式传入）。
+ * 三个字段都允许 `''`（显式表达「不可得」），与「未传」严格区分。
  */
-export const resolveGameCenterFlags = (config?: GameCenterFlagSource | null): GameCenterFlags => {
+export interface GameCenterCanaryContext {
+  /** 客户端版本（默认取构建期 VITE_APP_VERSION） */
+  appVersion?: string
+  /** 当前会话学号（默认尽力读 `hbu_username`，仅合法学号采纳） */
+  studentId?: string
+  /** 安装 id（默认惰性生成 / 读取 `hbu_game_install_id`） */
+  installId?: string
+}
+
+/**
+ * 构建期注入的客户端版本（vite.config define；用于 allow/deny 版本匹配）。
+ * 必须以 `import.meta.env.VITE_APP_VERSION` 精确形态书写，`?.` 之类的变体不会被 define 替换。
+ */
+const readGameClientVersion = (): string => {
+  try {
+    return String(import.meta.env.VITE_APP_VERSION || '')
+      .trim()
+      .replace(/^v/i, '')
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 读取当前会话学号（灰度 `allow_students` 匹配用）。
+ *
+ * 只认既有账号标记 `hbu_username` 且必须是合法学号（9/10 位数字，仓库 `student_id` 契约）；
+ * 读不到 / 非学号 / 存储不可用 → `''`（不命中白名单，落回分桶），绝不猜测身份。
+ */
+const readCurrentCanaryStudentId = (): string => {
+  try {
+    return normalizeStudentId(globalThis.localStorage?.getItem('hbu_username'))
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 解析远程配置 → 生效 flags。
+ * 远程块缺失 → 全部落到默认值（默认值本身即最安全形态：游乐场默认关）。
+ *
+ * 灰度（契约 A）：canary 未配置 = 不做灰度（由 enabled / flags 决定）；
+ * canary 未纳入 ⇒ 与块级 `enabled=false` 走**同一条**坍缩分支（不新增开关链路）。
+ */
+export const resolveGameCenterFlags = (
+  config?: GameCenterFlagSource | null,
+  canaryContext?: GameCenterCanaryContext
+): GameCenterFlags => {
   const block: GamePlatformConfig = normalizeGamePlatformConfig(config?.game_platform)
   const flags = {} as GameCenterFlags
   for (const key of GAME_CENTER_FLAG_KEYS) {
     flags[key] = toFlagBoolean(block.flags[key], DEFAULT_GAME_CENTER_FLAGS[key])
   }
+  // 灰度判定：canary 缺省时不读版本 / 学号 / 安装 id（零副作用，保持既有纯解析语义）
+  const canary = block.canary
+  const appVersion = canaryContext?.appVersion ?? (canary !== null ? readGameClientVersion() : '')
+  const studentId = canaryContext?.studentId ?? (canary !== null ? readCurrentCanaryStudentId() : '')
+  const installId =
+    canaryContext?.installId ??
+    (canary !== null && canaryRequiresBucket(canary, appVersion, studentId)
+      ? getOrCreateGameInstallId()
+      : '')
+  const canaryDecision = evaluateGamePlatformCanary({ canary, appVersion, studentId, installId })
+  // 灰度未纳入 ⇒ 等价「块级关闭」：清空 origin 白名单 + 坍缩所有 V2 子 flag（同一条分支）
+  const effectiveEnabled = block.enabled && canaryDecision.included
+
   flags.api_base = block.api_base || DEFAULT_GAME_PLATFORM_API_BASE
-  flags.allowed_game_origins = block.enabled ? [...block.allowed_game_origins] : []
-  if (!block.enabled) {
-    // 块级总开关关闭 = 游乐场整体回滚（等价 game_center_enabled=false）；
+  flags.allowed_game_origins = effectiveEnabled ? [...block.allowed_game_origins] : []
+  if (!effectiveEnabled) {
+    // 块级总开关关闭 / 灰度未纳入 = 游乐场整体回滚（等价 game_center_enabled=false）；
     // 经典入口可见性保持远程/默认值，避免回滚误伤旧「更多」页。
     // W3 三个新开关同属 V2 能力面（每日任务 / 竞技 / 可信结算），一并回滚关闭。
     flags.game_center_enabled = false
@@ -78,6 +145,9 @@ export const resolveGameCenterFlags = (config?: GameCenterFlagSource | null): Ga
 /**
  * 合规策略夹紧：与 app_store_policy 的能力矩阵对齐。
  * 只有「合规包 + guest/demo 会话」会收紧；真实登录与非合规构建保持原值。
+ *
+ * 注意：本函数**只关不开** —— 灰度未纳入（`game_center_enabled=false`）在夹紧前后
+ * 都是关，夹紧不会把任何开关重新打开（契约 A 的「关就是关」）。
  */
 export const applyGameCenterPolicyClamp = (
   flags: GameCenterFlags,
@@ -114,8 +184,10 @@ export const applyGameCenterPolicyClamp = (
   return next
 }
 
-/** 一站式：远程配置 + 合规夹紧 → 最终生效 flags */
+/** 一站式：远程配置 + 灰度（契约 A）+ 合规夹紧 → 最终生效 flags */
 export const resolveEffectiveGameCenterFlags = (
   config?: GameCenterFlagSource | null,
-  policy: AppStoreFeaturePolicy = getFeaturePolicy()
-): GameCenterFlags => applyGameCenterPolicyClamp(resolveGameCenterFlags(config), policy)
+  policy: AppStoreFeaturePolicy = getFeaturePolicy(),
+  canaryContext?: GameCenterCanaryContext
+): GameCenterFlags =>
+  applyGameCenterPolicyClamp(resolveGameCenterFlags(config, canaryContext), policy)
