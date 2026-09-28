@@ -7,6 +7,10 @@
  * - `<gameId>_rank_context_v1`（各游戏排行榜上下文，含昵称/班级/学校快照）
  *
  * 注意：本模块**绝不**读取/返回学号用于展示；学号只作为查询键在调用方使用。
+ *
+ * 契约 D（身份收紧与游客态）：读取面与注入面都以「会话是否已确认」（`sessionVerified`，
+ * 由调用方从 `stores/auth` 的单一事实源读取后显式传入）为前提；未确认一律按空档案 /
+ * 零注入处理，`studentId` 的缓存身份（#355）不得用于游戏身份。
  */
 
 export interface PlayerProfileSummary {
@@ -105,17 +109,26 @@ const readOwnedGameContextProfile = (gameId: string, sid: string): PlayerProfile
 }
 
 /**
- * 读取玩家摘要（本地缓存合并；全部缺失 / 无会话时返回全空对象）。
+ * 读取玩家摘要（本地缓存合并；会话未确认 / 无会话时返回全空对象）。
  *
  * P0（隐私 / 数据归属）：**无会话（学号为空）时一律返回空档案**，不读取、不合并任何来源。
  * 根因是 `<gameId>_rank_context_v1` 属于**设备级共享键**（不区分会话），登出后仍残留上一位
  * 用户的昵称 / 班级 / 学校；若把它当作「当前用户」展示，就会在未登录页面上把上一用户身份
  * 呈现给下一位使用者。有会话时也只合并**归属当前会话**（`stored.studentId === sid`）的上下文。
+ *
+ * 契约 D（身份收紧与游客态）：`sessionVerified` 是「当前会话是否已确认」的单一事实源
+ * （`stores/auth.sessionVerified` 的投影，调用方读取后传入，本模块保持纯函数）。
+ * **未确认（离线冷启 / 恢复中）⇒ 游客态**：一律返回空档案 —— `studentId` 此时可能只是
+ * #355 的离线缓存身份（上一用户落盘），不得用于游戏身份（展示 / 注入 / 提交）。
+ * fail-closed：默认 `false`，调用方忘记显式传入时按游客态处理。
  */
 export const readCachedPlayerProfile = (
   studentId: unknown,
-  gameIds: readonly string[] = []
+  gameIds: readonly string[] = [],
+  sessionVerified = false
 ): PlayerProfileSummary => {
+  if (sessionVerified !== true) return { ...EMPTY_PLAYER_PROFILE }
+
   const sid = safeText(studentId)
   if (!sid) return { ...EMPTY_PLAYER_PROFILE }
 
@@ -154,12 +167,21 @@ const IDENTITY_QUERY_PARAM_FIELDS = Object.freeze([
  * 与「宿主根本没声明」两种语义混在一起；统一改为「非空才注入」，宿主侧就不再有任何
  * 上一用户字段（哪怕是空串形态）流出到模块 URL 里。
  *
+ * 契约 D（身份收紧与游客态）：`sessionVerified` 是「当前会话是否已确认」的单一事实源
+ * （`stores/auth.sessionVerified` 的投影，调用方读取后传入，本模块保持纯函数）。
+ * **未确认 ⇒ 一律不注入身份**（返回 `[]`），即使 profile 携带非空身份 —— 离线冷启时
+ * `state.studentId` 只是 #355 的离线缓存身份，用它注入会让模块以其学号提交 Legacy Rank。
+ * fail-closed：默认 `false`，调用方忘记显式传入时按游客态处理。
+ *
  * @returns 实际注入的参数名（供诊断与测试断言）
  */
 export const appendIdentityQueryParams = (
   url: URL,
-  profile: ModuleContextIdentityProfile = {}
+  profile: ModuleContextIdentityProfile = {},
+  sessionVerified = false
 ): string[] => {
+  if (sessionVerified !== true) return []
+
   const applied: string[] = []
   for (const [param, field] of IDENTITY_QUERY_PARAM_FIELDS) {
     const text = safeText(profile?.[field])
