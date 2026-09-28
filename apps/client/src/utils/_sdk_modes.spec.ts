@@ -406,14 +406,26 @@ describe('SDK 模式：SDK 版本与 protocol 版本不匹配', () => {
   })
 
   it('/meta 的 [min,max] 与本 SDK 不兼容 → PROTOCOL_VERSION_UNSUPPORTED 降级，不重试', async () => {
-    vi.stubGlobal(
-      'fetch',
-      createFetchRouter([metaRoute({ protocol_version: { min: 2, max: 3 } }), sessionRoute()]).fetch
-    )
-    const game = await createGame({ params: new URLSearchParams(`gpt=${TICKET}&${LEGACY_QUERY}`) })
+    // 契约 C：verified 的前置条件是「可信 Host 握手」，本用例验证的是 /meta 协议区间，
+    // 因此必须先建立宿主握手（否则判定会前置降级，根本到不了 /meta）。
+    const host = createFakeHostWindow({ search: `?gpt=${TICKET}&${LEGACY_QUERY}`, origin: 'https://app.example' })
+    vi.stubGlobal('window', host.win)
+    const router = createFetchRouter([metaRoute({ protocol_version: { min: 2, max: 3 } }), sessionRoute()])
+    vi.stubGlobal('fetch', router.fetch)
+    const pending = createGame()
+    const hello = host.lastPosted('mini-hbut:game-sdk:hello') as Record<string, unknown>
+    host.deliver({
+      type: 'mini-hbut:game-sdk:welcome',
+      protocol_version: 1,
+      game_id: 'hbut_stack',
+      request_id: hello.request_id
+    })
+    const game = await pending
     expect(game.mode).toBe('compatibility')
     expect(game.capabilities.blocked).toMatchObject({ code: 'PROTOCOL_VERSION_UNSUPPORTED' })
     expect(game.diagnostics.reasons).toContain('protocol_version_unsupported')
+    // 协议不兼容 → 不得再兑换 Game Session
+    expect(router.callsFor('/sessions')).toHaveLength(0)
     game.dispose()
   })
 
@@ -487,11 +499,23 @@ describe('SDK 模式：SDK 版本与 protocol 版本不匹配', () => {
 
 describe('SDK 模式：网络故障（契约 3：故障不能让游戏整体不可玩）', () => {
   it('断网（fetch 全部 reject）→ 降级 compatibility，ready 不抛错', async () => {
+    // 契约 C：先建立可信 Host 握手（postMessage 不依赖网络），再验证断网时的降级行为；
+    // 若连握手都没有（浏览器直开），判定会前置降级且不发任何 V2 请求（另有专门用例）。
+    const host = createFakeHostWindow({ search: `?gpt=${TICKET}&${LEGACY_QUERY}`, origin: 'https://app.example' })
+    vi.stubGlobal('window', host.win)
     vi.stubGlobal(
       'fetch',
       vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
     )
-    const game = await createGame({ params: new URLSearchParams(`gpt=${TICKET}&${LEGACY_QUERY}`) })
+    const pending = createGame()
+    const hello = host.lastPosted('mini-hbut:game-sdk:hello') as Record<string, unknown>
+    host.deliver({
+      type: 'mini-hbut:game-sdk:welcome',
+      protocol_version: 1,
+      game_id: 'hbut_stack',
+      request_id: hello.request_id
+    })
+    const game = await pending
     expect(game.mode).toBe('compatibility')
     expect(game.diagnostics.errors.length).toBeGreaterThan(0)
     expect(game.diagnostics.errors[0].code).toBe('INTERNAL_ERROR')
@@ -544,12 +568,21 @@ describe('SDK 模式：初始化契约', () => {
   })
 
   it('模式降级单向：verified → compatibility 生效，反向升级被忽略', async () => {
+    // 契约 C：verified 必须先有可信 Host 握手（本用例验证的是降级单向性，不是握手本身）
+    const host = createFakeHostWindow({ search: `?gpt=${TICKET}&${LEGACY_QUERY}`, origin: 'https://app.example' })
+    vi.stubGlobal('window', host.win)
     vi.stubGlobal('fetch', createFetchRouter([metaRoute(), sessionRoute()]).fetch)
     const engine = MiniHBUTGame.createEngine({
       gameId: 'hbut_stack',
       adapter: HBUT_STACK_ADAPTER,
-      params: new URLSearchParams(`gpt=${TICKET}&${LEGACY_QUERY}`),
-      timeouts: { welcome: 1, ticket: 1 }
+      timeouts: { welcome: 20, ticket: 20 }
+    })
+    const hello = host.lastPosted('mini-hbut:game-sdk:hello') as Record<string, unknown>
+    host.deliver({
+      type: 'mini-hbut:game-sdk:welcome',
+      protocol_version: 1,
+      game_id: 'hbut_stack',
+      request_id: hello.request_id
     })
     await engine.ready
     expect(engine.getMode()).toBe('verified')

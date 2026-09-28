@@ -65,6 +65,16 @@ export const stripPiiFields = (entry) => {
   return safe
 }
 
+/**
+ * 可信 Host 握手的最大尝试次数（契约 C）。
+ *
+ * verified 现在**必须**建立在「可信 Host 握手」之上；而宿主桥可能在 iframe 页面执行
+ * SDK init 之后才创建（宿主在 onload / 远程配置返回后才重建桥），首次 hello 有被丢弃的
+ * 风险 —— 因此做一次有界重试，避免把「宿主迟到」误判为「无宿主」而整体降级。
+ * 仍未握手成功 → standalone/compatibility，且**零 V2 请求**（不兑换 ticket）。
+ */
+const HOST_HANDSHAKE_ATTEMPTS = 2
+
 /** V2 base 归一：补协议、去尾斜杠、补 `/api/game-platform/v1`（末段与旧行为一致） */
 const normalizeV2ApiBase = (value) => {
   const text = safeText(value)
@@ -434,13 +444,15 @@ export const createEngine = (config = {}) => {
     preflightCapabilities() {
       const ticketInfo = readLaunchTicket({ params })
       const legacyAvailable = legacyChannel.canSubmit()
-      const canSubmit = !!ticketInfo || legacyAvailable
+      // 契约 C：verified 需要「可信 Host 握手」，iframe 外（浏览器直开）的 URL ticket
+      // 不得被预判为可提交 —— 预判必须与最终判定同口径（否则 UI 会先乐观渲染 verified 入口）。
+      const verifiedCandidate = !!ticketInfo && bridge.embedded
       return {
         ...adapterConfig.capabilities,
-        canSubmitVerified: !!ticketInfo,
+        canSubmitVerified: verifiedCandidate,
         canSubmitLegacy: legacyAvailable,
-        canSubmit,
-        leaderboard: canSubmit,
+        canSubmit: verifiedCandidate || legacyAvailable,
+        leaderboard: verifiedCandidate || legacyAvailable,
         /** ready 之前拿不到 /meta：能力表一律保守 false（UI 不得乐观渲染） */
         server: emptyServiceCapabilities(),
         rewardsEnabled: false,
@@ -550,12 +562,16 @@ export const createEngine = (config = {}) => {
       state.blocked = { code: ERROR_CODES.GAME_SESSION_EXPIRED, message: '游戏标识不一致，已禁用可信提交' }
     }
 
-    // 1) Host 握手（有界超时，失败不阻塞）
+    // 1) Host 握手（有界超时，失败不阻塞）：这是进入 verified 的**前置条件**（契约 C ①）。
+    //    宿主桥可能晚于 iframe 页面就绪，故做一次有界重试；仍失败 → 后续判定必须降级。
     if (bridge.embedded) {
-      const welcome = await bridge.requestWelcome({ gameId })
-      state.welcome = welcome || null
+      for (let attempt = 0; attempt < HOST_HANDSHAKE_ATTEMPTS && !state.welcome; attempt += 1) {
+        if (attempt > 0) noteReason('host_welcome_retry')
+        const welcome = await bridge.requestWelcome({ gameId })
+        state.welcome = welcome || null
+      }
       diagnostics.hostRejections = bridge.rejections().slice()
-      if (!welcome) noteReason('host_welcome_unavailable')
+      if (!state.welcome) noteReason('host_welcome_unavailable')
     } else {
       noteReason('not_embedded')
     }
@@ -587,7 +603,24 @@ export const createEngine = (config = {}) => {
       state.ticketSource = 'host_message'
     }
 
-    // 4) 无 ticket → 直接判定降级模式（不额外发请求）
+    // 4) 契约 C 前置判定（**不发请求即可判定** → 绝不发请求）：
+    //    a) 无「可信 Host 握手」：浏览器直开 / 非白名单 origin 冒充宿主 / 握手被拒
+    //       → 禁止 Identity AT 与 Game Session —— URL 里的 ticket 一并作废，不得兑换；
+    //    b) 宿主显式声明 `capabilities.launch_ticket === false`：宿主侧前置判定未通过
+    //       → 宿主声明优先于 URL 凭据（纵深防御），同样不得进入 verified。
+    //    两种情况都只降级（compatibility 可玩 / standalone 本地），且后续不会发出任何 V2 请求。
+    const hostTicketDenied = state.welcome?.capabilities?.launch_ticket === false
+    if (!state.welcome || hostTicketDenied) {
+      const gateReason = !state.welcome ? 'host_handshake_required' : 'host_ticket_disabled'
+      if (state.ticket) noteReason('launch_ticket_discarded')
+      state.ticket = ''
+      state.ticketSource = ''
+      state.sessionIdempotencyKey = ''
+      settleMode(legacyChannel.canSubmit() ? MODES.compatibility : MODES.standalone, gateReason)
+      return
+    }
+
+    // 5) 无 ticket → 直接判定降级模式（不额外发请求）
     if (!state.ticket) {
       settleMode(legacyChannel.canSubmit() ? MODES.compatibility : MODES.standalone, 'no_launch_ticket')
       return
@@ -597,7 +630,7 @@ export const createEngine = (config = {}) => {
       return
     }
 
-    // 5) /meta 版本协商（V2 可用性 + 协议区间 + registry）
+    // 6) /meta 版本协商（V2 可用性 + 协议区间 + registry）
     let metaOk = false
     let platformUnavailable = false
     try {
@@ -648,7 +681,7 @@ export const createEngine = (config = {}) => {
       return
     }
 
-    // 6) ticket → session 兑换
+    // 7) ticket → session 兑换（仅当可信 Host 握手成立；无宿主/被拒在此前已降级返回）
     const exchanged = await exchangeSession(state.ticket, { allowHostTicket: true })
     if (exchanged.ok) {
       settleMode(MODES.verified, exchanged.replayed ? 'verified_session_replayed' : 'verified_session_issued')

@@ -13,8 +13,10 @@ import {
 } from '../utils/game_center/launch'
 import { createModuleHostBridge } from '../utils/game_center/host_bridge'
 import { fetchGameLaunchTicket } from '../utils/game_center/api'
+import { createGatedTicketRequest, resolveGameTrustPolicy } from '../utils/game_center/origin_policy'
 import { DEFAULT_GAME_CENTER_FLAGS, resolveEffectiveGameCenterFlags } from '../utils/game_center/flags'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
+import { useAuthStore } from '../stores/auth'
 
 const props = defineProps({
   session: {
@@ -46,6 +48,19 @@ let hostBridge = null
 const hostFlags = ref({ ...DEFAULT_GAME_CENTER_FLAGS })
 /** 会话恢复时由宿主重新签发的 Launch Ticket（只驻留内存，绝不落盘/入日志） */
 const launchTicketOverride = ref('')
+
+/** 认证状态层（契约 C 前提③「会话已确认」的事实源；只读，不修改） */
+const authStore = useAuthStore()
+/**
+ * ③ 会话已确认：语义等价于 `useAppRuntime.ts` 的 `sessionRestoreVerified`
+ *（「恢复流程确认过可用会话」）——仅缓存身份（`cached_offline`）不算确认，游客态一律 false。
+ *
+ * 依赖说明：identity-guest 任务会把该事实源统一到认证状态层；届时这里改为读取同一导出即可，
+ * 判定结构（`resolveGameTrustPolicy`）不变。
+ */
+const sessionVerified = computed(
+  () => authStore.isLoggedIn === true && authStore.onlineSessionState === 'online'
+)
 
 /** 加载游乐场能力开关（远程配置；失败时用安全默认值，不影响既有模块行为） */
 const loadHostFlags = async () => {
@@ -391,31 +406,66 @@ const handleHostBridgeMessage = (event) => {
   hostBridge?.handleMessage(event)
 }
 
-/** 创建（或重建）宿主桥：iframe remount / origin 白名单变化时必须整体替换 */
-const rebuildHostBridge = () => {
-  hostBridge?.dispose()
-  hostBridge = createModuleHostBridge({
-    moduleId: moduleId.value,
-    frameWindow: frameRef.value?.contentWindow || null,
-    allowedOrigins: frameAllowedOrigins.value,
-    features: {
+/**
+ * 契约 C「单一前置判定」：是否允许进入 verified（向游戏声明 verified 能力 / 下发 ticket）。
+ *
+ * 三前提在此**唯一**收敛（不得在别处各写一遍）：
+ *   ① 有可信 Host 握手（桥拿到 frameWindow 且来源白名单非空）；
+ *   ② 实际加载地址的 origin 落在**显式白名单**（远程配置 `allowed_game_origins`）内；
+ *   ③ 会话已确认（游客态 / 仅缓存身份 → false）。
+ * 另含既有前提：产品开关打开 + 取票渠道已接线。
+ *
+ * 判定不通过 → 对游戏声明保守能力、**零请求**不下发 ticket；游戏仍可玩
+ *（SDK 降级 compatibility/standalone，本地成绩保留）。
+ */
+const evaluateGameTrustPolicy = () =>
+  resolveGameTrustPolicy({
+    handshakeTrusted: Boolean(frameRef.value?.contentWindow) && frameAllowedOrigins.value.length > 0,
+    origin: activePreviewUrl.value || previewUrl.value,
+    allowedOrigins: hostFlags.value.allowed_game_origins || [],
+    sessionVerified: sessionVerified.value,
+    verifiedFeatureEnabled: hostFlags.value.game_verified_session_enabled === true,
+    // 取票渠道在本组件内固定接线（真实失败仍由 fetchGameLaunchTicket 自身降级为空 ticket）
+    ticketSourceAvailable: true,
+    baseFeatures: {
       game_center_enabled: hostFlags.value.game_center_enabled === true,
       game_verified_session_enabled: hostFlags.value.game_verified_session_enabled === true,
       game_economy_enabled: hostFlags.value.game_economy_enabled === true,
       drift_bottle_enabled: hostFlags.value.drift_bottle_enabled === true
-    },
-    // 只有「已验证会话」能力开启时才发 ticket；否则明确降级 compatibility/standalone，
-    // 游戏仍可玩、可上经典榜，只是不结算新奖励（协议 §6.2.3 失败降级）。
-    requestTicket: async ({ reason }) => {
-      if (hostFlags.value.game_verified_session_enabled !== true) return null
-      const result = await fetchGameLaunchTicket({
-        gameId: moduleId.value,
-        apiBase: hostFlags.value.api_base,
-        idempotencyKey: ''
-      })
-      if (!result.ticket) return null
-      return { ticket: result.ticket, expiresAt: result.expiresAt }
-    },
+    }
+  })
+
+/**
+ * 真实取票实现（唯一调用点）。
+ * 必须先经 `createGatedTicketRequest` 判定；判定不通过时本函数**不会被调用**（零请求）。
+ */
+const requestLaunchTicket = async () => {
+  const result = await fetchGameLaunchTicket({
+    gameId: moduleId.value,
+    apiBase: hostFlags.value.api_base,
+    idempotencyKey: ''
+  })
+  if (!result.ticket) return null
+  return { ticket: result.ticket, expiresAt: result.expiresAt }
+}
+
+/** 创建（或重建）宿主桥：iframe remount / origin 白名单变化时必须整体替换 */
+const rebuildHostBridge = () => {
+  hostBridge?.dispose()
+  const policy = evaluateGameTrustPolicy()
+  hostBridge = createModuleHostBridge({
+    moduleId: moduleId.value,
+    frameWindow: frameRef.value?.contentWindow || null,
+    allowedOrigins: frameAllowedOrigins.value,
+    // 契约 C：判定不通过 → 声明的 verified / economy / drift 能力一律保守 false，
+    // 游戏侧据此前置隐藏入口（不得「先发请求再吞 403」）。
+    features: policy.features,
+    // 取票唯一入口：判定不通过时零请求直接返回 null（不发 /tickets）；
+    // 判定通过才落到真实取票（失败仍按协议 §6.2.3 降级 compatibility/standalone）。
+    requestTicket: createGatedTicketRequest({
+      resolvePolicy: evaluateGameTrustPolicy,
+      requestTicket: requestLaunchTicket
+    }),
     onMode: (mode) => {
       gameRuntimeMode.value = mode
     }
@@ -502,12 +552,22 @@ watch(
 )
 
 /**
+ * 契约 C：会话确认状态可能在 iframe 加载**之后**才落定（冷启动恢复 / 自动重登）。
+ * 落定时重建宿主桥，保证下一次 hello 拿到的能力声明与当前判定一致
+ *（未确认期间一律保守：不声明 verified、不下发 ticket）。
+ */
+watch(sessionVerified, () => {
+  rebuildHostBridge()
+})
+
+/**
  * 会话恢复策略 A（协议 §6.2.3）：resume 前由**宿主重新申请 ticket**并更新 iframe URL，
  * 游戏重新兑换；旧 ticket 是否已兑换都不阻塞（策略 B 的 exchange 幂等仍由服务端保证）。
- * 只有「已验证会话」能力开启时才取票，否则保持既有 remount 行为（零回归）。
+ * 契约 C：单一前置判定不通过（未登录 / origin 不在白名单 / 开关关闭）→ **零请求**保持既有 remount。
  */
 const refreshLaunchTicketForResume = async () => {
-  if (hostFlags.value.game_verified_session_enabled !== true) return
+  const policy = evaluateGameTrustPolicy()
+  if (!policy.verifiedEligible || !policy.launchTicketAllowed) return
   const result = await fetchGameLaunchTicket({
     gameId: moduleId.value,
     apiBase: hostFlags.value.api_base
