@@ -224,7 +224,10 @@ const withHostContextParams = (url) => {
     const parsed = new URL(text, window.location.origin)
     appendModuleEnvQueryParams(parsed, {
       appVersion: resolveBuildAppVersion(),
-      hostOrigin: window.location.origin
+      hostOrigin: window.location.origin,
+      // G10 兜底：非特殊 scheme（tauri: / capacitor:）下 location.origin === 'null'；
+      // 传入 location 对象后由注入层退化为 `${protocol}//${host}`（仍然 fail closed）。
+      hostLocation: window.location
     })
     return parsed.toString()
   } catch {

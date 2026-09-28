@@ -285,7 +285,10 @@ const appendModuleContextQuery = (
     //（不握手、零 V2 请求）。两者都不是身份，与登录态无关（游客态同样注入，见 module_context.ts）。
     appendModuleEnvQueryParams(url, {
       appVersion: resolveBuildAppVersion(),
-      hostOrigin: window.location.origin
+      hostOrigin: window.location.origin,
+      // G10 兜底：非特殊 scheme（tauri: / capacitor:）下 location.origin === 'null'，
+      // 必须把 location 对象一并交给注入层，才能退化为 `${protocol}//${host}`（而不是空）。
+      hostLocation: window.location
     })
     return url.toString()
   } catch {
