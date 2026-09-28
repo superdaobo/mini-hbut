@@ -203,7 +203,10 @@ const parseEnvelopeError = (payload: unknown, httpStatus: number): GamePlatformE
     // S2：服务端把**细粒度机器码**放在 `error.details.error_code`（顶层 `error.code` 只是大类，
     // 例如席位所有权不足时顶层是 `FORBIDDEN_ACTOR`）。细粒度码优先作为 `code`，否则调用方的
     // 自愈 / 文案分支永远只能拿到大类、永不触发；顶层码保留在 `envelope_code` 供诊断。
-    const code = safeText(details.error_code) || envelopeCode
+    // F3：只有**字符串**才算有效机器码 —— 数字 / 布尔 / 对象一律视为缺失并回落顶层码
+    // （等效修复前行为），绝不把 `42` / `[object Object]` 强转进 code。
+    const detailCode = typeof details.error_code === 'string' ? safeText(details.error_code) : ''
+    const code = detailCode || envelopeCode
     if (code) {
       return {
         code,

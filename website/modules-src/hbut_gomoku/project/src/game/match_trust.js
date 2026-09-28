@@ -310,7 +310,10 @@ export const createPlatformMatchTransport = ({
       const details =
         envelope.details && typeof envelope.details === 'object' ? envelope.details : {}
       const envelopeCode = safeText(envelope.code)
-      const machineCode = safeText(details.error_code) || envelopeCode
+      // F3：只有**字符串**才是有效机器码 —— 数字 / 布尔 / 对象一律视为缺失并回落顶层大类码
+      // （等效修复前行为：不匹配任何自愈分支），绝不把 `42` / `[object Object]` 强转成 code。
+      const detailCode = typeof details.error_code === 'string' ? safeText(details.error_code) : ''
+      const machineCode = detailCode || envelopeCode
       const error = new Error(
         safeText(envelope.message) || `服务端请求失败 ${Number(response.status || 0)}`.trim()
       )

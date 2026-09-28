@@ -734,4 +734,46 @@ describe('S2 收口：席位 403 的机器码在 error.details.error_code（真�
     expect(snapshot.lastErrorCode).toBe(SEAT_PEER_OWNERSHIP_REQUIRED)
     expect(snapshot.lastError).toContain('席位身份凭证所有权不足')
   })
+
+  it.each([
+    ['数字', 42],
+    ['对象', { a: 1 }],
+    ['布尔', true]
+  ])('details.error_code 非字符串（%s）→ 不采纳，回落顶层码（F3）', async (_label, rawDetailCode) => {
+    const transport = createPlatformMatchTransport({
+      sessionToken: TOKEN,
+      baseUrl: 'https://x.example/api/game-platform/v1',
+      fetchImpl: createFetchRouter([
+        {
+          match: '/seat',
+          method: 'POST',
+          respond: () =>
+            jsonResponse(
+              {
+                success: false,
+                error: {
+                  code: 'FORBIDDEN_ACTOR',
+                  message: '席位身份凭证所有权不足，需要重新绑定',
+                  retryable: false,
+                  details: { error_code: rawDetailCode }
+                }
+              },
+              403
+            )
+        }
+      ]).fetch
+    })
+
+    let error: Record<string, any> | null = null
+    try {
+      await transport.claimSeat({ matchId: MATCH_ID, roomCode: 'HBUT1', peerId: 'peer-a' })
+    } catch (caught) {
+      error = caught as Record<string, any>
+    }
+    expect(error).toBeTruthy()
+    expect(error!.code).toBe('FORBIDDEN_ACTOR')
+    expect(error!.envelopeCode).toBe('FORBIDDEN_ACTOR')
+    // 不把 `42` / `[object Object]` / `true` 强转成机器码（等效修复前行为：不匹配自愈分支）
+    expect(error!.code).not.toBe(String(rawDetailCode))
+  })
 })

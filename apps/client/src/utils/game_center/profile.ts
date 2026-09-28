@@ -85,12 +85,32 @@ export const EMPTY_PLAYER_PROFILE: Readonly<PlayerProfileSummary> = Object.freez
 })
 
 /**
+ * 读取某个游戏的设备级上下文身份：**只在归属校验通过时**返回（F1）。
+ *
+ * `<gameId>_rank_context_v1` 是设备级共享键（不区分会话），上下文里的 `studentId` 即
+ * 「写入时的会话学号」（宿主注入 `student_id` → 模块 `writeStoredContext` 落盘，
+ * SDK 侧同口径）。只有它与当前会话学号**严格一致**时，才可把这批昵称/班级当作
+ * 「当前用户」展示 —— 换号竞态（恢复收口前用户已完成登录）、异常终止等场景下，
+ * 键里可能仍是上一账号快照。
+ *
+ * 归属未知（学号缺失 / 类型异常）与归属不一致**一律不采纳**：宁可空档案，
+ * 也不把他人身份挂到当前会话名下（这正是 P0 的隐私 / 数据归属要求）。
+ */
+const readOwnedGameContextProfile = (gameId: string, sid: string): PlayerProfileSummary | null => {
+  const payload = safeParseJson(readStorage(`${gameId}_rank_context_v1`))
+  const source = unwrapPayload(payload)
+  const owner = pickText(source.studentId, source.student_id)
+  if (!owner || owner !== sid) return null
+  return extractProfile(payload)
+}
+
+/**
  * 读取玩家摘要（本地缓存合并；全部缺失 / 无会话时返回全空对象）。
  *
  * P0（隐私 / 数据归属）：**无会话（学号为空）时一律返回空档案**，不读取、不合并任何来源。
  * 根因是 `<gameId>_rank_context_v1` 属于**设备级共享键**（不区分会话），登出后仍残留上一位
  * 用户的昵称 / 班级 / 学校；若把它当作「当前用户」展示，就会在未登录页面上把上一用户身份
- * 呈现给下一位使用者。有会话时才允许合并（此时登出清理已保证键归属当前会话）。
+ * 呈现给下一位使用者。有会话时也只合并**归属当前会话**（`stored.studentId === sid`）的上下文。
  */
 export const readCachedPlayerProfile = (
   studentId: unknown,
@@ -110,7 +130,8 @@ export const readCachedPlayerProfile = (
   for (const gameId of gameIds) {
     const id = safeText(gameId)
     if (!id) continue
-    merged = mergeProfile(merged, extractProfile(safeParseJson(readStorage(`${id}_rank_context_v1`))))
+    const owned = readOwnedGameContextProfile(id, sid)
+    if (owned) merged = mergeProfile(merged, owned)
   }
 
   return merged

@@ -286,13 +286,29 @@ export function clearCacheByPrefix(prefix: unknown): void {
 }
 
 /**
- * 清除游戏相关落盘身份（P0：登出 / 会话失效 / 切换账号时调用）。
+ * 历史裸键（jump_out_hbut 异构旧协议）：该模块的身份读取会回落到
+ * `localStorage` 的 `student_id` / `player_name` / `class_name` / `rank_api`
+ * （见 `jump_out_hbut/project/src/utils/game_rank.js` 的 `_getStorage`）。
  *
- * 只碰两类「身份快照」键，绝不触碰与登录无关的键：
+ * **当前全仓无生产写入方**（唯一写入点是该模块自己的单测），因此这里只做**纵深防御**：
+ * 存在即删（值存在才是身份快照残留），不存在零动作；不引入任何新通道。
+ */
+const LEGACY_BARE_IDENTITY_KEYS: readonly string[] = [
+  'student_id',
+  'player_name',
+  'class_name',
+  'rank_api'
+]
+
+/**
+ * 清除游戏相关落盘身份（P0：登出 / 会话失效 / 切换账号 / 无身份冷启动时调用）。
+ *
+ * 只碰「身份快照」三类键，绝不触碰与登录无关的键：
  * - 全部 `<gameId>_rank_context_v1`（含 hecheng 的历史共享键）：**设备级共享键**，不区分会话，
  *   内含 {studentId, playerName, className, schoolName, major} 快照；后缀约定复用
  *   `game_center/legacy_rank_context_migration` 的 `isLegacyRankContextKey`（10+ 个游戏共用模板）；
- * - `hbu_more_module_student_profile:<sid>`：模块中心写入的学生档案（仅当前登出用户那一条）。
+ * - `hbu_more_module_student_profile:<sid>`：模块中心写入的学生档案（仅当前登出用户那一条）；
+ * - 历史裸键（见 `LEGACY_BARE_IDENTITY_KEYS`）：纵深防御，当前无生产写入方。
  *
  * 这些键不参与 memoryCache / 跨实例失效广播（不是 `cache:` 前缀，也不是缓存条目），
  * 因此只做本地删除、不发广播；其他标签页读取的是同一份 localStorage，天然同步可见。
@@ -303,7 +319,7 @@ export function clearGameIdentityCaches(studentId: unknown): void {
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i)
     if (!key) continue
-    if (isLegacyRankContextKey(key)) {
+    if (isLegacyRankContextKey(key) || LEGACY_BARE_IDENTITY_KEYS.includes(key)) {
       keysToRemove.push(key)
       continue
     }
@@ -311,7 +327,7 @@ export function clearGameIdentityCaches(studentId: unknown): void {
       keysToRemove.push(key)
     }
   }
-  // 先收集后删除：避免边遍历边改动导致索引漂移。
+  // 先收集后删除：避免边遍历边改动导致索引漂移；不存在的键不会被收集 → 重复调用零删除。
   keysToRemove.forEach((key) => localStorage.removeItem(key))
 }
 

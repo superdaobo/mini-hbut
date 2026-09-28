@@ -69,6 +69,31 @@ describe('S2：宿主 parseEnvelopeError 优先 details.error_code', () => {
     expect(error.retryable).toBe(true)
   })
 
+  it.each([
+    ['数字', 42],
+    ['对象', { a: 1 }],
+    ['布尔', true]
+  ])('details.error_code 非字符串（%s）→ 回落顶层码，绝不把强转值当作机器码（F3）', async (_label, rawDetailCode) => {
+    const error = await requestError(
+      {
+        success: false,
+        error: {
+          code: 'FORBIDDEN_ACTOR',
+          message: '席位身份凭证所有权不足，需要重新绑定',
+          retryable: false,
+          request_id: 'req_seat_403',
+          details: { error_code: rawDetailCode }
+        }
+      },
+      403
+    )
+
+    expect(error.code).toBe('FORBIDDEN_ACTOR')
+    expect(error.envelopeCode).toBe('FORBIDDEN_ACTOR')
+    // 不匹配任何自愈分支，也不把 `42` / `[object Object]` / `true` 当机器码（等效修复前行为）
+    expect(error.code).not.toBe(String(rawDetailCode))
+  })
+
   it('Legacy 文本 error 形状解析不变（HTTP 状态码 + 原文案）', async () => {
     const error = await requestError({ success: false, error: '排行榜暂不可用' }, 502)
     expect(error.code).toBe('HTTP_502')

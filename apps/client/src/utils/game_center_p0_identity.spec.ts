@@ -69,7 +69,15 @@ const seedPreviousUserIdentity = () => {
     `cache:studentinfo:${PREVIOUS_SID}`,
     JSON.stringify({ data: { name: PREVIOUS_NAME, class_name: PREVIOUS_CLASS }, timestamp: Date.now() })
   )
+  // jump_out_hbut 异构旧协议的裸键（当前全仓无生产写入方；纵深防御清理）
+  localStorage.setItem('student_id', PREVIOUS_SID)
+  localStorage.setItem('player_name', PREVIOUS_NAME)
+  localStorage.setItem('class_name', PREVIOUS_CLASS)
+  localStorage.setItem('rank_api', RANK_API_BASE)
 }
+
+/** jump_out_hbut 裸键（纵深防御清理目标） */
+const LEGACY_BARE_KEYS = ['student_id', 'player_name', 'class_name', 'rank_api'] as const
 
 const createStorage = () => {
   const values = new Map<string, string>()
@@ -261,6 +269,35 @@ describe('P0-1 无会话（学号为空）不得读取/合并任何游戏上下�
     expect(profile.name).toBe(PREVIOUS_NAME)
     expect(profile.className).toBe(PREVIOUS_CLASS)
   })
+
+  it('换号 A→B：以 B 读取的档案不得包含 A 的 name / className（归属校验，F1）', () => {
+    // 落盘上下文仍属于 A（seedPreviousUserIdentity），当前身份是 B
+    const profile = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS)
+    expect(profile).toEqual({ name: '', className: '', schoolName: '' })
+    expect(JSON.stringify(profile)).not.toContain(PREVIOUS_NAME)
+    expect(JSON.stringify(profile)).not.toContain(PREVIOUS_CLASS)
+  })
+
+  it('上下文归属当前会话 → 照常展示；归属未知（缺 studentId）→ 不采纳（F1）', () => {
+    // 归属当前会话的上下文仍正常展示（回归护栏：归属校验不得误伤正常路径）
+    localStorage.setItem(
+      'hbut_stack_rank_context_v1',
+      JSON.stringify({ studentId: CURRENT_SID, playerName: '当前用户', className: '电气2402' })
+    )
+    const owned = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS)
+    expect(owned.name).toBe('当前用户')
+    expect(owned.className).toBe('电气2402')
+
+    // 归属未知（缺 studentId 的旧数据）→ 不采纳，绝不挂到当前会话名下
+    localStorage.setItem(
+      'hbut_miner_rank_context_v1',
+      JSON.stringify({ playerName: '无主昵称', className: '无主班级' })
+    )
+    const unknownOwner = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS)
+    expect(unknownOwner.name).toBe('当前用户')
+    expect(JSON.stringify(unknownOwner)).not.toContain('无主昵称')
+    expect(JSON.stringify(unknownOwner)).not.toContain('无主班级')
+  })
 })
 
 describe('P0-3 空身份不注入（appendIdentityQueryParams 非空才注入）', () => {
@@ -368,6 +405,10 @@ describe('P0-2 登出 / 会话失效 / 换号时清理游戏落盘身份', () =>
     }
     expect(storage.values.has('hbut_game_rank_context_v1')).toBe(false)
     expect(storage.values.has(`${PROFILE_STORAGE_PREFIX}${PREVIOUS_SID}`)).toBe(false)
+    // 裸键（jump_out_hbut 异构旧协议）：纵深防御清理
+    for (const key of LEGACY_BARE_KEYS) {
+      expect(storage.values.has(key), `${key} 必须被清（纵深防御）`).toBe(false)
+    }
   }
 
   const expectUnrelatedKeysKept = () => {
@@ -410,6 +451,9 @@ describe('P0-2 登出 / 会话失效 / 换号时清理游戏落盘身份', () =>
       expect(storage.values.has(`${gameId}_rank_context_v1`)).toBe(false)
     }
     expect(storage.values.has('hbut_game_rank_context_v1')).toBe(false)
+    for (const key of LEGACY_BARE_KEYS) {
+      expect(storage.values.has(key), `${key} 必须被清（纵深防御）`).toBe(false)
+    }
     expect(storage.values.has(`${PROFILE_STORAGE_PREFIX}${PREVIOUS_SID}`)).toBe(true)
     expect(storage.values.has(`${PROFILE_STORAGE_PREFIX}${CURRENT_SID}`)).toBe(true)
   })
@@ -514,6 +558,9 @@ describe('P0-4 启动期收口：异常终止（强杀/崩溃）后的残留通�
       expect(storage.values.has(`${gameId}_rank_context_v1`), `${gameId}_rank_context_v1 必须被清`).toBe(false)
     }
     expect(storage.values.has('hbut_game_rank_context_v1')).toBe(false)
+    for (const key of LEGACY_BARE_KEYS) {
+      expect(storage.values.has(key), `${key} 必须被清（纵深防御）`).toBe(false)
+    }
     // 无 sid 时不动任何档案键（档案键按 sid 归属，永不跨用户读取）
     expect(storage.values.has(`${PROFILE_STORAGE_PREFIX}${PREVIOUS_SID}`)).toBe(true)
 
@@ -528,6 +575,9 @@ describe('P0-4 启动期收口：异常终止（强杀/崩溃）后的残留通�
       expect(storage.values.has(`${gameId}_rank_context_v1`), `${gameId}_rank_context_v1 不得被清`).toBe(true)
     }
     expect(storage.values.has(`${PROFILE_STORAGE_PREFIX}${PREVIOUS_SID}`)).toBe(true)
+    for (const key of LEGACY_BARE_KEYS) {
+      expect(storage.values.has(key), `${key} 不得被清（有会话）`).toBe(true)
+    }
 
     // 展示语义不变
     const profile = readCachedPlayerProfile(PREVIOUS_SID, GAME_CENTER_GAME_IDS)
