@@ -245,25 +245,57 @@ describe('SDK：遥测脱敏（protocol §10 L4）', () => {
 
 describe('SDK：Host 握手来源校验（wrong origin 必须被拒绝）', () => {
   it('显式 hostOrigins 精确匹配；未知来源拒绝', () => {
-    const guard = createHostOriginGuard({ hostOrigins: ['https://app.example'], pageOrigin: '', referrerOrigin: '' })
+    const guard = createHostOriginGuard({ hostOrigins: ['https://app.example'] })
     expect(guard({ origin: 'https://app.example' }).ok).toBe(true)
     expect(guard({ origin: 'https://evil.example' })).toMatchObject({ ok: false, reason: 'origin_rejected' })
     expect(guard({ origin: 'https://app.example.evil.com' }).ok).toBe(false)
     expect(guard({ origin: '' })).toMatchObject({ ok: false, reason: 'origin_missing' })
   })
 
-  it('opaque origin（null）默认拒绝，显式 opt-in 才放行', () => {
-    const strict = createHostOriginGuard({ pageOrigin: 'https://app.example' })
-    expect(strict({ origin: 'null' })).toMatchObject({ ok: false, reason: 'origin_opaque_rejected' })
-    const relaxed = createHostOriginGuard({ pageOrigin: 'https://app.example', allowOpaqueOrigin: true })
-    expect(relaxed({ origin: 'null' }).ok).toBe(true)
+  it('显式 hostOrigins 优先级最高（URL 注入的 host_origin 被忽略）', () => {
+    const guard = createHostOriginGuard({
+      hostOrigins: ['https://app.example'],
+      params: new URLSearchParams('host_origin=https://evil.example')
+    })
+    expect(guard.allowList).toEqual(['https://app.example'])
+    expect(guard({ origin: 'https://evil.example' })).toMatchObject({ ok: false, reason: 'origin_rejected' })
+    expect(guard({ origin: 'https://app.example' }).ok).toBe(true)
   })
 
-  it('未显式配置时从 referrer / 自身 origin 推导允许集合；无法验证则拒绝', () => {
-    const derived = createHostOriginGuard({ pageOrigin: 'https://cdn.example', referrerOrigin: 'https://app.example' })
-    expect(derived.allowList).toEqual(['https://cdn.example', 'https://app.example'])
-    const empty = createHostOriginGuard({ pageOrigin: '', referrerOrigin: '' })
-    expect(empty({ origin: 'https://app.example' })).toMatchObject({ ok: false, reason: 'origin_unverifiable' })
+  it('P1-B：URL 注入 host_origin 才构成显式来源；通配 / opaque / 非法值一律丢弃', () => {
+    const injected = createHostOriginGuard({ params: new URLSearchParams('host_origin=https://app.example') })
+    expect(injected.allowList).toEqual(['https://app.example'])
+    expect(injected({ origin: 'https://app.example' }).ok).toBe(true)
+    expect(injected({ origin: 'https://evil.example' })).toMatchObject({ ok: false, reason: 'origin_rejected' })
+    // 自定义 scheme（Tauri/Capacitor 本地宿主）按 `${protocol}//${host}` 归一（origin 是 "null" 的特例）
+    const custom = createHostOriginGuard({ params: new URLSearchParams('host_origin=tauri%3A%2F%2Flocalhost') })
+    expect(custom.allowList).toEqual(['tauri://localhost'])
+    expect(custom({ origin: 'tauri://localhost' }).ok).toBe(true)
+    for (const bad of ['*', 'null', 'javascript:alert(1)', 'not a url']) {
+      const guard = createHostOriginGuard({
+        params: new URLSearchParams(`host_origin=${encodeURIComponent(bad)}`)
+      })
+      expect(guard.allowList, `非法 host_origin=${bad} 不得进入允许集合`).toEqual([])
+    }
+  })
+
+  it('P1-B fail closed：无任何显式来源 → 允许集合为空（绝不回落 referrer / 自身 origin）', () => {
+    const guard = createHostOriginGuard({
+      params: new URLSearchParams(''),
+      // 旧实现会把这两个值当成允许集合（漏洞面）；修复后必须被完全忽略
+      pageOrigin: 'https://cdn.example',
+      referrerOrigin: 'https://app.example'
+    })
+    expect(guard.allowList).toEqual([])
+    expect(guard({ origin: 'https://app.example' })).toMatchObject({ ok: false, reason: 'origin_unverifiable' })
+    expect(guard({ origin: 'https://cdn.example' })).toMatchObject({ ok: false, reason: 'origin_unverifiable' })
+  })
+
+  it('opaque origin（null）默认拒绝，显式 opt-in 才放行', () => {
+    const strict = createHostOriginGuard({ hostOrigins: ['https://app.example'] })
+    expect(strict({ origin: 'null' })).toMatchObject({ ok: false, reason: 'origin_opaque_rejected' })
+    const relaxed = createHostOriginGuard({ hostOrigins: ['https://app.example'], allowOpaqueOrigin: true })
+    expect(relaxed({ origin: 'null' }).ok).toBe(true)
   })
 })
 

@@ -69,6 +69,27 @@ const RETRYABLE_STATUS = new Set([0, 408, 425, 429, 500, 502, 503, 504])
 
 const safeText = (value) => String(value ?? '').trim()
 
+/** 客户端版本字面量形状（与 SDK `runtime.resolveClientVersion` 同口径） */
+const CLIENT_VERSION_RE = /^[0-9A-Za-z._+-]{1,64}$/
+
+/** P1-A：宿主注入的客户端版本参数（`app_version` 优先，`client_version` 为等价别名）。 */
+export const MODULE_CLIENT_VERSION_KEYS = Object.freeze(['app_version', 'client_version'])
+
+/**
+ * P1-A：解析客户端版本（跨仓灰度 deny 名单的匹配依据）。
+ *
+ * 来源：宿主在 iframe URL 注入的 `app_version`（等价别名 `client_version`）。
+ * 缺失 / 非法 → 空串（**不**注入假版本、**不**回落 localStorage 历史值）；调用方
+ * `createGomokuMatchTrustFromHost` 收到空串时不带任何版本字段，请求形状与旧版逐字一致。
+ */
+export const resolveModuleClientVersion = (params) => {
+  for (const key of MODULE_CLIENT_VERSION_KEYS) {
+    const value = safeText(params?.get?.(key))
+    if (CLIENT_VERSION_RE.test(value)) return value
+  }
+  return ''
+}
+
 /**
  * V2 API base 推导（与 SDK `resolveApiBases` 同规则，避免游戏各自硬编码生产地址）：
  * 显式注入 `game_platform_api`/`gp_api` 优先，其次从宿主注入的 `rank_api` 同源推导。
@@ -135,11 +156,15 @@ export const buildSeatClaimBody = ({
   return body
 }
 
-/** 结果上报请求体：只有"我以为的结果"，没有 winner/score/actor。 */
-export const buildResultClaimBody = ({ claimedOutcome = '' } = {}) => {
+/** 结果上报请求体：只有"我以为的结果"（没有 winner/score/actor）。
+ *  `client_version`（additive，P1-A）：服务端灰度 deny 名单的 body 回退位
+ *  （头 `X-Client-Version` 优先）；缺失时请求形状与旧版逐字一致。 */
+export const buildResultClaimBody = ({ claimedOutcome = '', clientVersion = '' } = {}) => {
   const body = { protocol_version: PROTOCOL_VERSION }
   const claim = safeText(claimedOutcome)
   if (claim) body.claimed_outcome = claim
+  const version = safeText(clientVersion)
+  if (version) body.client_version = version
   assertNoForbiddenFields(body)
   return body
 }
@@ -338,7 +363,7 @@ export const createPlatformMatchTransport = ({
     },
     async reportResult({ matchId, claimedOutcome = '' }) {
       return request(matchPaths(matchId).result, {
-        body: buildResultClaimBody({ claimedOutcome }),
+        body: buildResultClaimBody({ claimedOutcome, clientVersion }),
         idempotencyKey: safeText(matchId)
       })
     },

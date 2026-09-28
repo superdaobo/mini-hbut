@@ -40,7 +40,8 @@ import {
   GOMOKU_GAME_ID,
   MATCH_TRUST_LEVEL,
   createGomokuMatchTrustFromHost,
-  resolveGamePlatformBase
+  resolveGamePlatformBase,
+  resolveModuleClientVersion
 } from './game/match_trust.js'
 
 const MODULE_ID = 'hbut_gomoku'
@@ -79,6 +80,18 @@ const app = document.getElementById('app')
 function safeUrlParam(name) {
   try {
     return String(new URLSearchParams(window.location.search || '').get(name) || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * P1-A：宿主注入的客户端版本（URL 参数 `app_version`，等价别名 `client_version`）。
+ * 服务端灰度 deny 名单按版本串匹配；缺失即空串 → 可信层不带任何版本字段（不注入假版本）。
+ */
+function resolveHostClientVersion() {
+  try {
+    return resolveModuleClientVersion(new URLSearchParams(window.location.search || ''))
   } catch {
     return ''
   }
@@ -669,6 +682,8 @@ async function initMatchTrust() {
         rankApi: safeUrlParam('rank_api')
       }),
       gameId: GOMOKU_GAME_ID,
+      // P1-A：版本串随每次比赛请求上报（头 X-Client-Version + 结果体 client_version 回退）。
+      clientVersion: resolveHostClientVersion(),
       onUpdate: () => {
         if (matchTrust) matchStats = matchTrust.snapshot().stats || matchStats
         render()

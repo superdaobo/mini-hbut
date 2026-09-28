@@ -268,6 +268,7 @@ export const createEngine = (config = {}) => {
   const bridge = createHostBridge({
     windowRef: config.windowRef,
     hostOrigins: config.hostOrigins,
+    params,
     allowOpaqueOrigin: config.allowOpaqueOrigin,
     welcomeTimeoutMs: config.timeouts?.welcome,
     ticketTimeoutMs: config.timeouts?.ticket,
@@ -446,7 +447,9 @@ export const createEngine = (config = {}) => {
       const legacyAvailable = legacyChannel.canSubmit()
       // 契约 C：verified 需要「可信 Host 握手」，iframe 外（浏览器直开）的 URL ticket
       // 不得被预判为可提交 —— 预判必须与最终判定同口径（否则 UI 会先乐观渲染 verified 入口）。
-      const verifiedCandidate = !!ticketInfo && bridge.embedded
+      // P1-B fail closed：仅「在 iframe 内」还不够，**必须存在显式宿主来源**
+      //（config.hostOrigins 或 URL 注入的 host_origin）；否则桥不会握手，预判也不得乐观。
+      const verifiedCandidate = !!ticketInfo && bridge.embedded && bridge.allowedOrigins.length > 0
       return {
         ...adapterConfig.capabilities,
         canSubmitVerified: verifiedCandidate,
@@ -564,6 +567,8 @@ export const createEngine = (config = {}) => {
 
     // 1) Host 握手（有界超时，失败不阻塞）：这是进入 verified 的**前置条件**（契约 C ①）。
     //    宿主桥可能晚于 iframe 页面就绪，故做一次有界重试；仍失败 → 后续判定必须降级。
+    //    P1-B fail closed：宿主来源只认显式配置 / URL 注入的 `host_origin`；都没有时桥不握手
+    //    （requestWelcome 直接返回 null）→ 这里必然记为 host_welcome_unavailable，零 V2 请求。
     if (bridge.embedded) {
       for (let attempt = 0; attempt < HOST_HANDSHAKE_ATTEMPTS && !state.welcome; attempt += 1) {
         if (attempt > 0) noteReason('host_welcome_retry')

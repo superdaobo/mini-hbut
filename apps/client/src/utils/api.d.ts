@@ -23,8 +23,8 @@ export function clearCacheByPrefix(prefix: string): void
 export function clearUserScopedCaches(studentId: string): void
 /** P0：清理游戏落盘身份（`*_rank_context_v1` 与当前学号的模块档案键）；登出/会话失效/换号时调用 */
 export function clearGameIdentityCaches(studentId: string): void
-/** P0：启动期会话收口——未确认可用会话且当前无身份时清设备级游戏身份键（幂等） */
-export function reconcileGameIdentityOnBoot(sessionVerified: boolean, currentStudentId: string): void
+/** P0：启动期会话收口——**会话未确认时无条件**清设备级游戏身份键（缓存身份不得豁免，幂等） */
+export function reconcileGameIdentityOnBoot(sessionVerified: boolean): void
 export function getCachedData<T = unknown>(key: string, ttl?: number): CacheEntry<T> | null
 export function getStaleCachedData<T = unknown>(key: string): CacheEntry<T> | null
 export function setCachedData(key: string, data: unknown): void

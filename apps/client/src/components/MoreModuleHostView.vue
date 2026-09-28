@@ -17,6 +17,10 @@ import { createGatedTicketRequest, resolveGameTrustPolicy } from '../utils/game_
 import { DEFAULT_GAME_CENTER_FLAGS, resolveEffectiveGameCenterFlags } from '../utils/game_center/flags'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
 import { useAuthStore } from '../stores/auth'
+import {
+  appendModuleEnvQueryParams,
+  resolveBuildAppVersion
+} from '../utils/game_center/module_context'
 
 const props = defineProps({
   session: {
@@ -207,12 +211,32 @@ const withLaunchTicket = (url) => {
   }
 }
 
+/**
+ * P1-A / P1-B：托管页的宿主上下文注入（additive，渲染期拼接）。
+ * - `app_version`：构建版本（灰度 deny 名单匹配用，必须始终注入）；
+ * - `host_origin`：宿主自身 origin —— SDK 只接受显式来源（配置 > 本参数），
+ *   无此参数即 fail closed（不握手、零 V2 请求）。两者都不是身份，与登录态无关。
+ */
+const withHostContextParams = (url) => {
+  const text = safeText(url)
+  if (!text) return text
+  try {
+    const parsed = new URL(text, window.location.origin)
+    appendModuleEnvQueryParams(parsed, {
+      appVersion: resolveBuildAppVersion(),
+      hostOrigin: window.location.origin
+    })
+    return parsed.toString()
+  } catch {
+    return text
+  }
+}
+
 const frameSrc = computed(() =>
-  withFrameCacheBust(withLaunchTicket(activePreviewUrl.value), [
-    moduleChannel.value || 'main',
-    moduleVersion.value || 'unknown',
-    String(frameKey.value)
-  ])
+  withFrameCacheBust(
+    withLaunchTicket(withHostContextParams(activePreviewUrl.value)),
+    [moduleChannel.value || 'main', moduleVersion.value || 'unknown', String(frameKey.value)]
+  )
 )
 
 const formatModuleChannel = (value) => {

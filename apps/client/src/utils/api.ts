@@ -332,24 +332,25 @@ export function clearGameIdentityCaches(studentId: unknown): void {
 }
 
 /**
- * 启动期会话收口：**未确认可用会话且当前无身份**时，清设备级游戏身份键（P0 残留通道补齐）。
+ * 启动期会话收口：**会话未确认时无条件**清设备级游戏身份键（P0 残留通道 + 契约 D 收口）。
  *
  * 背景（PRR#2 残留通道）：强杀 / 崩溃后的冷启动**不会经过**登出 / 会话失效 / 换号入口，
  * 落盘的 `<gameId>_rank_context_v1` 仍是上一用户快照；此时宿主既无会话也无身份
  * （游乐场展示与 iframe URL 注入都已安全），但游戏模块自身仍会从 localStorage
  * 回落读取该学号，并在注入了 `rank_api` 的情况下**以其身份提交成绩**。
  *
- * 判定条件（缺一不可，必须在会话恢复流程**收口之后**调用）：
+ * 判定条件（本函数**只在会话恢复流程收口之后**由调用方调用）：
  * - `sessionVerified === true`（恢复 / 自动重登拿到可用会话）→ **零动作**，绝不误伤登录态；
- * - 当前学号非空（#355 的缓存身份离线态）→ 零动作：宿主会以该身份注入，设备级上下文与
- *   当前身份同源，清理并不改变归属（「无会话是否可保留缓存身份」属产品决策，不在此函数内定夺）；
- * - 否则 → `clearGameIdentityCaches('')`：只删设备级共享键，不触碰任何 sid 档案键。
+ * - 否则 → `clearGameIdentityCaches('')`：只删设备级共享键（含 `*_rank_context_v1` 与
+ *   jump_out 裸键），不触碰任何 sid 档案键。
  *
+ * 契约 D（身份收紧与游客态）：**缓存身份不得豁免清理** —— 旧实现在 `currentStudentId` 非空时
+ * 直接返回，让离线冷启（`cached_offline`：#355 的落盘学号）保留了设备级快照；本函数是
+ * 「未确认即收口」的唯一入口，学号是否非空与「会话是否确认」无关，一律执行清理。
  * 幂等：纯删除操作，键不存在时第二次执行零删除、零写入；恢复中状态未定时**不得**调用。
  */
-export function reconcileGameIdentityOnBoot(sessionVerified: unknown, currentStudentId: unknown): void {
+export function reconcileGameIdentityOnBoot(sessionVerified: unknown): void {
   if (sessionVerified === true) return
-  if (String(currentStudentId ?? '').trim()) return
   try {
     clearGameIdentityCaches('')
   } catch {

@@ -9,8 +9,11 @@
  *
  * 安全模型（关键决策）：
  * 1. 结构校验：`event.source` 必须是宿主窗口（window.parent）；
- * 2. 来源校验：`event.origin` 必须落在允许集合内 ——
- *      显式配置 `hostOrigins` > `document.referrer` 的 origin + 自身页面 origin；
+ * 2. 来源校验：`event.origin` 必须落在允许集合内 —— 允许集合**只来自显式来源**：
+ *      显式配置 `hostOrigins` > Host 在 iframe URL 注入的 `host_origin`；
+ *    **绝不回落 `document.referrer` / 自身页面 origin**（P1-B 契约 C：任意第三方页面
+ *    嵌入游戏不得被当成可信宿主）。无任何显式来源 → 不允许集合为空 → 拒绝一切来源
+ *    （`origin_unverifiable`），且宿主桥不发送握手消息、不发起 V2 请求（fail closed）。
  *    `'null'`（opaque origin，file:// / sandbox iframe）默认**拒绝**，需显式 opt-in；
  * 3. 关联校验：`request_id` 必须与本次握手请求一致（拒绝陈旧/串台响应）；
  * 4. 绑定校验：`game_id` / `protocol_version` 不匹配 → 拒绝并降级（不使用该响应携带的 ticket）；
@@ -22,8 +25,6 @@ import {
   getHistory,
   getHostWindow,
   getLocation,
-  getPageOrigin,
-  getReferrerOrigin,
   getWindow,
   isEmbedded,
   readSearchParams
@@ -34,6 +35,39 @@ const MAX_TICKET_LENGTH = 512
 /** gpt_ 前缀 + base64url 32 字节（§6.2.1）；其余形状按 legacy_shape 接受并记诊断 */
 const MODERN_TICKET_RE = /^gpt_[A-Za-z0-9_-]{16,}$/
 const GENERIC_TICKET_RE = /^[A-Za-z0-9._~-]{16,512}$/
+/**
+ * P1-B：宿主显式注入自身 origin 的 URL 参数（additive）。
+ * 这是除 `config.hostOrigins` 之外**唯一**的宿主自证渠道 —— 绝不回落 referrer / 自身 origin。
+ */
+export const HOST_ORIGIN_QUERY_KEY = 'host_origin'
+
+/**
+ * 归一化 origin（与宿主侧 `game_center/base.ts#normalizeGameOrigin` 同规则）：
+ * http(s) → `URL.origin`；Capacitor/Tauri 等自定义 scheme → `${protocol}//${host}`
+ *（`new URL('tauri://localhost').origin` 是字符串 `"null"`，直接取值会把本地宿主误杀）。
+ * `*` / `'null'` / 无 host / 非法输入 → 空串。
+ */
+export const normalizeHostOrigin = (value) => {
+  const text = safeText(value)
+  if (!text || text === '*' || text === 'null') return ''
+  try {
+    const url = new URL(text)
+    if (url.protocol === 'https:' || url.protocol === 'http:') return url.origin
+    if (!url.host) return ''
+    if (!/^[a-z][a-z0-9+.-]*:$/i.test(url.protocol)) return ''
+    return `${url.protocol}//${url.host}`
+  } catch {
+    return ''
+  }
+}
+
+/** 读取 URL 注入的 `host_origin`：优先显式 params（引擎注入 / 测试），其次当前页面 URL。 */
+const readInjectedHostOrigin = (options = {}) => {
+  const params = options.params || readSearchParams()
+  const fromParams = safeText(params?.get?.(HOST_ORIGIN_QUERY_KEY))
+  if (fromParams) return fromParams
+  return safeText(readSearchParams().get(HOST_ORIGIN_QUERY_KEY))
+}
 
 /** 读取 URL 中的 Launch Ticket（只读一次；**不得**落盘） */
 export const readLaunchTicket = (options = {}) => {
@@ -76,17 +110,22 @@ export const clearLaunchTicketFromUrl = (options = {}) => {
 }
 
 /**
- * 创建来源守卫。
+ * 创建来源守卫（fail closed）。
+ *
+ * 允许集合的解析顺序（P1-B 契约 C，**只有这两级**）：
+ *   ① 显式配置 `options.hostOrigins`（数组，逐项 `normalizeHostOrigin`）；
+ *   ② Host 在 iframe URL 注入的 `host_origin`（`options.params` 或当前页面 URL）。
+ * 都没有 → 允许集合为空 → 一切来源 `origin_unverifiable`（**绝不**回落 referrer / 自身 origin）。
+ *
  * @returns {(event: MessageEvent) => { ok: boolean, reason: string }}
  */
 export const createHostOriginGuard = (options = {}) => {
   const explicit = Array.isArray(options.hostOrigins)
-    ? options.hostOrigins.map((item) => safeText(item)).filter(Boolean)
+    ? options.hostOrigins.map((item) => normalizeHostOrigin(item)).filter(Boolean)
     : []
   const allowOpaque = options.allowOpaqueOrigin === true
-  const pageOrigin = safeText(options.pageOrigin) || getPageOrigin()
-  const referrerOrigin = safeText(options.referrerOrigin) || getReferrerOrigin()
-  const allowList = explicit.length ? explicit.slice() : [pageOrigin, referrerOrigin].filter(Boolean)
+  const injected = explicit.length ? [] : [normalizeHostOrigin(readInjectedHostOrigin(options))].filter(Boolean)
+  const allowList = explicit.length ? explicit.slice() : injected
 
   const guard = (event) => {
     const origin = safeText(event?.origin)
@@ -109,6 +148,7 @@ export const createHostOriginGuard = (options = {}) => {
  * @param {object} [options]
  * @param {object} [options.windowRef] 注入 window（默认惰性取全局）
  * @param {string[]} [options.hostOrigins] 显式允许的宿主 origin（优先级最高）
+ * @param {URLSearchParams} [options.params] 引擎注入的 URL query（缺省取当前页面 URL）
  * @param {boolean} [options.allowOpaqueOrigin] 是否接受 'null' origin（默认 false）
  * @param {number} [options.welcomeTimeoutMs] 握手超时（默认 1200ms，超时即降级，不阻塞游戏）
  * @param {number} [options.ticketTimeoutMs] 申请新 ticket 超时（默认 3000ms）
@@ -123,9 +163,16 @@ export const createHostBridge = (options = {}) => {
   const embedded = !!hostWindow
   const guard = createHostOriginGuard({
     hostOrigins: options.hostOrigins,
+    params: options.params,
     allowOpaqueOrigin: options.allowOpaqueOrigin
   })
-  /** 握手/取票的目标 origin：优先显式配置，其次 referrer，最后 '*'（消息本身不含任何秘密） */
+  /**
+   * P1-B fail closed：没有任何显式宿主来源 → 不承认任何「可信宿主」：
+   * 不发握手（hello / request-ticket）、不广播 mode；上位判定因此走
+   * compatibility / standalone，且**零 V2 请求**（无 welcome 即不兑换 ticket）。
+   */
+  const trustedHost = guard.allowList.length > 0
+  /** 握手/取票的目标 origin：显式来源的第一个（无显式来源时不会被使用） */
   const targetOrigin = guard.allowList[0] || '*'
 
   /** 单条待响应请求（按类型区分，避免 welcome 与 ticket 串台） */
@@ -212,7 +259,7 @@ export const createHostBridge = (options = {}) => {
 
   /** 发送消息（目标 origin 已做收敛；消息体永不包含任何凭据明细之外的秘密） */
   const post = (payload) => {
-    if (!embedded || !hostWindow || typeof hostWindow.postMessage !== 'function') return false
+    if (!trustedHost || !embedded || !hostWindow || typeof hostWindow.postMessage !== 'function') return false
     try {
       hostWindow.postMessage(payload, targetOrigin)
       return true
@@ -223,8 +270,8 @@ export const createHostBridge = (options = {}) => {
 
   const request = (kind, payload, timeoutMs) =>
     new Promise((resolve) => {
-      if (!embedded) {
-        resolve({ welcome: null, ticket: '', error: 'not_embedded' })
+      if (!trustedHost || !embedded) {
+        resolve({ welcome: null, ticket: '', error: !embedded ? 'not_embedded' : 'host_origin_untrusted' })
         return
       }
       install()

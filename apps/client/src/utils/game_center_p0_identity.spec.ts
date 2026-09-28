@@ -26,7 +26,8 @@ import { createFetchRouter } from './_sdk_test_harness'
  * 4. 端到端：登出清理后无会话打开模块（Legacy 模板模块 + SDK 模块）→ 不会得到上一用户学号、
  *    不会以其身份提交（零提交请求）；
  * 5. 启动期收口（P0-4）：强杀 / 崩溃后**不经过任何登出入口**的冷启动 → 设备级游戏身份被清，
- *    模块链路同样零身份零提交；有会话 / 有缓存身份 / 重复执行都零动作（幂等）。
+ *    模块链路同样零身份零提交；有会话零动作，**缓存身份不豁免清理（P2-1 复验收口）**，
+ *    重复执行零删除零写入（幂等）。
  *
  * 写法说明：`appendIdentityQueryParams` / `clearGameIdentityCaches` / `reconcileGameIdentityOnBoot`
  * 是本次新增导出，修复前不存在，因此对新导出用**动态 import + 类型断言**访问（修复前测试文件仍能
@@ -145,9 +146,7 @@ const requireClearGameIdentityCaches = async () => {
 
 const requireReconcileGameIdentityOnBoot = async () => {
   const api = await loadApiModule()
-  const fn = api.reconcileGameIdentityOnBoot as
-    | ((sessionVerified: unknown, currentStudentId: unknown) => void)
-    | undefined
+  const fn = api.reconcileGameIdentityOnBoot as ((sessionVerified: unknown) => void) | undefined
   expect(typeof fn, 'reconcileGameIdentityOnBoot 必须是可用的真实函数（P0-4）').toBe('function')
   return fn!
 }
@@ -568,8 +567,8 @@ describe('P0-4 启动期收口：异常终止（强杀/崩溃）后的残留通�
     expect(storage.values.get('hbut_2048_rank_context_v1')).toContain(PREVIOUS_NAME)
     expect(storage.values.has(`${PROFILE_STORAGE_PREFIX}${PREVIOUS_SID}`)).toBe(true)
 
-    // 冷启动收口：未确认可用会话 + 当前无身份
-    reconcileGameIdentityOnBoot(false, '')
+    // 冷启动收口：未确认可用会话
+    reconcileGameIdentityOnBoot(false)
 
     for (const gameId of GAME_CENTER_GAME_IDS) {
       expect(storage.values.has(`${gameId}_rank_context_v1`), `${gameId}_rank_context_v1 必须被清`).toBe(false)
@@ -586,7 +585,7 @@ describe('P0-4 启动期收口：异常终止（强杀/崩溃）后的残留通�
 
   it('有会话冷启动 → 落盘上下文不被清理，展示与注入语义不变（回归护栏）', async () => {
     const reconcileGameIdentityOnBoot = await requireReconcileGameIdentityOnBoot()
-    reconcileGameIdentityOnBoot(true, PREVIOUS_SID)
+    reconcileGameIdentityOnBoot(true)
 
     for (const gameId of GAME_CENTER_GAME_IDS) {
       expect(storage.values.has(`${gameId}_rank_context_v1`), `${gameId}_rank_context_v1 不得被清`).toBe(true)
@@ -620,43 +619,59 @@ describe('P0-4 启动期收口：异常终止（强杀/崩溃）后的残留通�
   })
 
   /**
-   * #948 的函数级豁免：`reconcileGameIdentityOnBoot(false, sid)` 本身仍零动作（函数行为未变）。
+   * 契约 D 收口（P2-1 复验修复）：**缓存身份不得豁免清理**。
    *
-   * 契约 D 已**覆盖**这条取舍：生产接线（useAppRuntime 的 .finally）只在会话**已确认**时才把
-   * `state.studentId` 交给收口，否则按无身份处理 → 该豁免在游客态不再被走到（见
-   * `game_center_guest_identity.spec.ts` 的接线护栏）。本用例只锁定函数自身的既有行为。
+   * 旧实现在 `currentStudentId` 非空时直接返回（#948 的函数级豁免），复验实测：
+   * 传非空缓存身份 → 设备级键仍在 → 离线冷启（`cached_offline`）下模块仍能回落读到
+   * 上一用户学号。修复后第二个参数被删除，**任何形态的调用**都按「未确认即清理」处理；
+   * 本用例故意保留旧的两参调用形态，锁死「豁免通道不再存在」。
    */
-  it('无会话但保留缓存身份（#355 离线态）→ 函数自身零动作（接线已在契约 D 收紧）', async () => {
+  it('无会话（离线态）传非空缓存身份 → 设备级键同样被清（缓存身份不豁免）', async () => {
     const reconcileGameIdentityOnBoot = await requireReconcileGameIdentityOnBoot()
-    reconcileGameIdentityOnBoot(false, PREVIOUS_SID)
+    // 完整复现复验探针：设备级上下文 + 档案都在，学号正是缓存身份
+    expect(storage.values.get('hbut_2048_rank_context_v1')).toContain(PREVIOUS_NAME)
+
+    // 旧调用形态（第二个参数已被删除，运行时多传也必须是零豁免）
+    ;(reconcileGameIdentityOnBoot as (verified: unknown, legacyCachedStudentId?: unknown) => void)(
+      false,
+      PREVIOUS_SID
+    )
 
     for (const gameId of GAME_CENTER_GAME_IDS) {
-      expect(storage.values.has(`${gameId}_rank_context_v1`)).toBe(true)
+      expect(storage.values.has(`${gameId}_rank_context_v1`), `${gameId}_rank_context_v1 必须被清`).toBe(false)
     }
+    expect(storage.values.has('hbut_game_rank_context_v1')).toBe(false)
+    for (const key of LEGACY_BARE_KEYS) {
+      expect(storage.values.has(key), `${key} 必须被清（纵深防御）`).toBe(false)
+    }
+    // 档案键按 sid 归属，不随「无身份」收口删除（#948 语义保留）
     expect(storage.values.has(`${PROFILE_STORAGE_PREFIX}${PREVIOUS_SID}`)).toBe(true)
+
+    // 模块链路：清理后即使宿主以「缓存身份」打开模块，模块也拿不到任何学号、零提交
+    await expectNoIdentityModuleChain('p2_1_cached_identity')
   })
 
   it('幂等：同一冷启动收口连续执行两次 → 第二次零删除、零写入', async () => {
     const reconcileGameIdentityOnBoot = await requireReconcileGameIdentityOnBoot()
-    reconcileGameIdentityOnBoot(false, '')
+    reconcileGameIdentityOnBoot(false)
 
     const removeCalls = storage.removeItem.mock.calls.length
     const setCalls = storage.setItem.mock.calls.length
     expect(removeCalls).toBeGreaterThan(0)
 
-    reconcileGameIdentityOnBoot(false, '')
+    reconcileGameIdentityOnBoot(false)
     expect(storage.removeItem.mock.calls.length).toBe(removeCalls)
     expect(storage.setItem.mock.calls.length).toBe(setCalls)
   })
 
-  it('接线契约：启动会话恢复收口（.finally）按「是否确认会话」调用收口函数', () => {
+  it('接线契约：启动会话恢复收口（.finally）只按「是否确认会话」调用收口函数', () => {
     const src = readFileSync(new URL('../app/useAppRuntime.ts', import.meta.url), 'utf8')
 
     expect(src).toContain('sessionRestoreVerified = restored || relogged')
-    // 契约 D：只有会话已确认才把 state.studentId 交给收口；否则按无身份处理
-    // （缓存身份不得豁免清理）——不得回退成无条件传 state.studentId.value。
-    expect(src).toContain('reconcileGameIdentityOnBoot(')
-    expect(src).toContain("sessionRestoreVerified ? state.studentId.value : ''")
+    // 契约 D：收口只看会话确认状态（单一事实源）；第二个参数（缓存身份）已被删除，
+    // 不得回退成「会话未确认时仍把 state.studentId 传进去」的两参形态。
+    expect(src).toContain('reconcileGameIdentityOnBoot(sessionRestoreVerified)')
+    expect(src).not.toMatch(/reconcileGameIdentityOnBoot\(\s*sessionRestoreVerified\s*,/)
     expect(src).toContain('.finally(')
   })
 })

@@ -26,15 +26,38 @@ export type FakeHostWindow = {
   lastPosted: (type?: string) => Record<string, unknown> | null
 }
 
+/**
+ * 按宿主契约把 `host_origin` 注入 iframe URL query（已存在时不覆盖）。
+ * 与宿主侧 `game_center/module_context.appendModuleEnvQueryParams` 的行为一致：
+ * 参数由 `URLSearchParams` 编码，值原样交给 SDK 侧归一化。
+ */
+const withInjectedHostOrigin = (search: string, hostOrigin: string): string => {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  if (!params.get('host_origin')) params.set('host_origin', hostOrigin)
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
 export const createFakeHostWindow = (options: {
   search?: string
   origin?: string
   referrer?: string
   hostOrigin?: string
+  /**
+   * 是否模拟宿主注入 `host_origin`（P1-B 契约 C：SDK 只接受显式来源）。
+   *
+   * 真实宿主（MoreView.appendModuleContextQuery / MoreModuleHostView.frameSrc）都会在
+   * iframe URL 上显式注入该参数；夹具默认按同一契约注入，否则所有「宿主可信」用例
+   * 都会因 SDK 的 fail closed 而失真。只有专测「无任何显式来源」的用例才显式关闭。
+   */
+  injectHostOrigin?: boolean
 } = {}): FakeHostWindow => {
   const origin = options.origin ?? 'https://app.example'
   const hostOrigin = options.hostOrigin ?? origin
   const referrer = options.referrer ?? `${hostOrigin}/more`
+  const rawSearch = options.search ?? ''
+  const search =
+    options.injectHostOrigin === false ? rawSearch : withInjectedHostOrigin(rawSearch, hostOrigin)
   const listeners = new Map<string, Array<(event: unknown) => void>>()
   const posted: FakeHostWindow['posted'] = []
   let delivered = 0
@@ -48,7 +71,7 @@ export const createFakeHostWindow = (options: {
   const storageWrites: Array<{ key: string; value: string }> = []
   const storageValues = new Map<string, string>()
   const win: Record<string, unknown> = {
-    location: { search: options.search ?? '', pathname: '/index.html', hash: '', origin, protocol: 'https:' },
+    location: { search, pathname: '/index.html', hash: '', origin, protocol: 'https:' },
     document: { referrer },
     parent,
     history: {

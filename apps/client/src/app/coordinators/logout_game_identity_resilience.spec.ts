@@ -92,6 +92,8 @@ const makeRuntime = () => {
   const state = {
     studentId: ref(CURRENT_SID),
     userUuid: ref('uuid-a'),
+    // 契约 D / P2-2：登出必须把在线会话态一并重置为未确认（复用认证状态层同一 ref）
+    onlineSessionState: ref<'unknown' | 'cached_offline' | 'recovering' | 'online' | 'needs_login'>('online'),
     gradeData: ref<unknown[]>([{ id: 1 }]),
     gradeTeacherCache: ref(null),
     gradeTeacherCacheSid: ref(CURRENT_SID)
@@ -179,5 +181,38 @@ describe('F2：限制存储下游戏身份清理失败不得阻断登出 / 换�
     expect(state.studentId.value).toBe('')
     expect(applyViewState).toHaveBeenCalledWith('home')
     expect(storageMap.get('hbu_manual_logout')).toBe('true')
+  })
+
+  /**
+   * P2-2（复验修复）：登出必须把在线会话态重置为未确认（`unknown`）。
+   *
+   * 旧实现只清 `studentId`，留下「sessionVerified=true 但身份为空」的不一致态：
+   * 当前虽无身份可注入，但任何 `studentId` 回填（缓存 / 恢复链）都会立刻被当作
+   * 「已确认会话」放行游戏身份。行为级断言直接驱动真实 `AuthCoordinator.handleLogout`。
+   */
+  it('登出后会话态重置为未确认（sessionVerified=false），不再遗留 online', async () => {
+    storageMap.set('hbu_username', CURRENT_SID)
+    const { runtime, state } = makeRuntime()
+    const auth = createAuthCoordinator(runtime)
+
+    // 前置：会话已确认（online）—— 这正是复验实测的不一致态起点
+    expect(state.onlineSessionState.value).toBe('online')
+
+    await expect(auth.handleLogout({ manual: false, reason: 'temp_session_expired' })).resolves.toBeUndefined()
+
+    expect(state.onlineSessionState.value).toBe('unknown')
+    // 与 auth store 的 sessionVerified 同源：unknown ⇒ 未确认 ⇒ 游戏侧不承认身份
+    expect(state.onlineSessionState.value === 'online').toBe(false)
+    expect(state.studentId.value).toBe('')
+  })
+
+  it('手动登出同样把会话态重置为未确认（两条登出路径不得分叉）', async () => {
+    storageMap.set('hbu_username', CURRENT_SID)
+    const { runtime, state } = makeRuntime()
+    const auth = createAuthCoordinator(runtime)
+
+    expect(state.onlineSessionState.value).toBe('online')
+    await expect(auth.handleLogout({ manual: true })).resolves.toBeUndefined()
+    expect(state.onlineSessionState.value).toBe('unknown')
   })
 })
