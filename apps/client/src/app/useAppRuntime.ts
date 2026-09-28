@@ -19,6 +19,7 @@ import { createNotificationCoordinator } from './coordinators/NotificationCoordi
 import { createIdentityCoordinator } from './coordinators/IdentityCoordinator'
 import { isIOSLike as detectIOSLike } from '../platform/runtime'
 import { isTestAccountSession } from '../utils/test_account.js'
+import { reconcileGameIdentityOnBoot } from '../utils/api.js'
 import { startNotificationMonitor, stopNotificationMonitor } from '../utils/notify_center.js'
 import { tryWriteSnapshotFromCache } from '../utils/widget_bridge'
 import { initUsageTracker } from '../utils/usage_tracker.js'
@@ -217,9 +218,14 @@ export const useAppRuntime = () => {
     runtime.session.ensureConfigAccess()
     window.clearTimeout(splashFailsafe)
 
+    // P0（残留通道补齐）：`sessionRestoreVerified` 记录「恢复流程是否确认过可用会话」，
+    // 必须在恢复流程内部赋值 —— 若写在 .then 里，.then 自身抛错会被误判为「无会话」。
+    let sessionRestoreVerified = false
     const restoreTask = (async () => {
       if (isTestAccountSession()) {
-        return { restored: runtime.session.restoreTestAccountSession(), relogged: false }
+        const restored = runtime.session.restoreTestAccountSession()
+        sessionRestoreVerified = restored
+        return { restored, relogged: false }
       }
       let restored = await runtime.session.tryRestoreSession()
       if (!restored) restored = await runtime.session.tryRestoreLatestSession()
@@ -227,6 +233,7 @@ export const useAppRuntime = () => {
       if (!restored && !runtime.session.isTemporaryLoginSession()) {
         relogged = await runtime.session.attemptAutoRelogin()
       }
+      sessionRestoreVerified = restored || relogged
       return { restored, relogged }
     })()
     void restoreTask
@@ -292,6 +299,13 @@ export const useAppRuntime = () => {
         }
       })
       .catch((error) => console.warn('[Boot] session restore failed:', error))
+      .finally(() => {
+        // P0：会话恢复流程**收口**（含恢复链异常路径）—— 未确认可用会话且当前无身份时，
+        // 设备级游戏身份键（`*_rank_context_v1`）仍是上一用户快照（强杀/崩溃冷启动不会
+        // 经过任何登出入口），必须在这里清掉，否则未登录打开模块会被模块自身回落读取
+        // 并以其身份提交成绩。有会话 / 有缓存身份 / 恢复中一律零动作（幂等）。
+        reconcileGameIdentityOnBoot(sessionRestoreVerified, state.studentId.value)
+      })
 
     void runtime.remoteConfig.applyRemoteConfig().finally(runtime.remoteConfig.startRemoteConfigRefresh)
     void runtime.remoteConfig.primeOcrEndpointFromCache()

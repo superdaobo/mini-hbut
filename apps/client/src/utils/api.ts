@@ -2,6 +2,8 @@ import { pushDebugLog } from './debug_logger'
 import { isTestAccountSession } from './test_account.js'
 import { resolveTestAccountCachePayload } from './test_account_fixtures.js'
 import { withTimeout } from './fetch_timeout.js'
+import { isLegacyRankContextKey } from './game_center/legacy_rank_context_migration'
+import { PROFILE_STORAGE_PREFIX } from './game_center/profile'
 
 
 export interface CacheEnvelope<T = unknown> {
@@ -284,11 +286,89 @@ export function clearCacheByPrefix(prefix: unknown): void {
 }
 
 /**
+ * 历史裸键（jump_out_hbut 异构旧协议）：该模块的身份读取会回落到
+ * `localStorage` 的 `student_id` / `player_name` / `class_name` / `rank_api`
+ * （见 `jump_out_hbut/project/src/utils/game_rank.js` 的 `_getStorage`）。
+ *
+ * **当前全仓无生产写入方**（唯一写入点是该模块自己的单测），因此这里只做**纵深防御**：
+ * 存在即删（值存在才是身份快照残留），不存在零动作；不引入任何新通道。
+ */
+const LEGACY_BARE_IDENTITY_KEYS: readonly string[] = [
+  'student_id',
+  'player_name',
+  'class_name',
+  'rank_api'
+]
+
+/**
+ * 清除游戏相关落盘身份（P0：登出 / 会话失效 / 切换账号 / 无身份冷启动时调用）。
+ *
+ * 只碰「身份快照」三类键，绝不触碰与登录无关的键：
+ * - 全部 `<gameId>_rank_context_v1`（含 hecheng 的历史共享键）：**设备级共享键**，不区分会话，
+ *   内含 {studentId, playerName, className, schoolName, major} 快照；后缀约定复用
+ *   `game_center/legacy_rank_context_migration` 的 `isLegacyRankContextKey`（10+ 个游戏共用模板）；
+ * - `hbu_more_module_student_profile:<sid>`：模块中心写入的学生档案（仅当前登出用户那一条）；
+ * - 历史裸键（见 `LEGACY_BARE_IDENTITY_KEYS`）：纵深防御，当前无生产写入方。
+ *
+ * 这些键不参与 memoryCache / 跨实例失效广播（不是 `cache:` 前缀，也不是缓存条目），
+ * 因此只做本地删除、不发广播；其他标签页读取的是同一份 localStorage，天然同步可见。
+ */
+export function clearGameIdentityCaches(studentId: unknown): void {
+  const sid = String(studentId || '').trim()
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i)
+    if (!key) continue
+    if (isLegacyRankContextKey(key) || LEGACY_BARE_IDENTITY_KEYS.includes(key)) {
+      keysToRemove.push(key)
+      continue
+    }
+    if (sid && key === `${PROFILE_STORAGE_PREFIX}${sid}`) {
+      keysToRemove.push(key)
+    }
+  }
+  // 先收集后删除：避免边遍历边改动导致索引漂移；不存在的键不会被收集 → 重复调用零删除。
+  keysToRemove.forEach((key) => localStorage.removeItem(key))
+}
+
+/**
+ * 启动期会话收口：**未确认可用会话且当前无身份**时，清设备级游戏身份键（P0 残留通道补齐）。
+ *
+ * 背景（PRR#2 残留通道）：强杀 / 崩溃后的冷启动**不会经过**登出 / 会话失效 / 换号入口，
+ * 落盘的 `<gameId>_rank_context_v1` 仍是上一用户快照；此时宿主既无会话也无身份
+ * （游乐场展示与 iframe URL 注入都已安全），但游戏模块自身仍会从 localStorage
+ * 回落读取该学号，并在注入了 `rank_api` 的情况下**以其身份提交成绩**。
+ *
+ * 判定条件（缺一不可，必须在会话恢复流程**收口之后**调用）：
+ * - `sessionVerified === true`（恢复 / 自动重登拿到可用会话）→ **零动作**，绝不误伤登录态；
+ * - 当前学号非空（#355 的缓存身份离线态）→ 零动作：宿主会以该身份注入，设备级上下文与
+ *   当前身份同源，清理并不改变归属（「无会话是否可保留缓存身份」属产品决策，不在此函数内定夺）；
+ * - 否则 → `clearGameIdentityCaches('')`：只删设备级共享键，不触碰任何 sid 档案键。
+ *
+ * 幂等：纯删除操作，键不存在时第二次执行零删除、零写入；恢复中状态未定时**不得**调用。
+ */
+export function reconcileGameIdentityOnBoot(sessionVerified: unknown, currentStudentId: unknown): void {
+  if (sessionVerified === true) return
+  if (String(currentStudentId ?? '').trim()) return
+  try {
+    clearGameIdentityCaches('')
+  } catch {
+    // 存储不可用（隐私模式 / 配额异常）不得影响启动链路：本次跳过，下次冷启动重试。
+    console.warn('[Boot] 游戏落盘身份清理失败，将在下次启动重试')
+  }
+}
+
+/**
  * 清除指定学号的教务/课表等用户级缓存（退出登录时调用）。
+ *
+ * 同时清理该学号的游戏落盘身份（游戏上下文属于设备级共享键，见
+ * `clearGameIdentityCaches`）—— 手动登出路径复用本函数即可覆盖。
  */
 export function clearUserScopedCaches(studentId: unknown): void {
   const sid = String(studentId || '').trim()
   if (!sid) return
+
+  clearGameIdentityCaches(sid)
 
   const prefixes: string[] = []
   for (const prefix of JWXT_KEY_PREFIXES) {

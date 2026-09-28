@@ -20,6 +20,7 @@ import {
   resolveEffectiveGameCenterFlags
 } from '../utils/game_center/flags'
 import { resolveGameRankApiBase } from '../utils/game_center/api'
+import { appendIdentityQueryParams } from '../utils/game_center/profile'
 import { DEFAULT_GOMOKU_RELAY_API } from '../utils/game_center/base'
 import { consumeGameOpen } from '../utils/game_center/pending_open'
 import {
@@ -251,11 +252,9 @@ const appendModuleContextQuery = (
     const url = new URL(previewUrl, window.location.origin)
     url.searchParams.set('from', 'mini_hbut')
     url.searchParams.set('runtime', safeText(runtimeTag) || 'module-host')
-    url.searchParams.set('student_id', safeText(profile.student_id))
-    url.searchParams.set('player_name', safeText(profile.name))
-    url.searchParams.set('class_name', safeText(profile.class_name))
-    url.searchParams.set('major', safeText(profile.major))
-    url.searchParams.set('school_name', safeText(profile.school_name))
+    // P0：身份字段**非空才注入**（实现见 utils/game_center/profile.appendIdentityQueryParams）——
+    // 未登录 / 字段缺失时宿主不再输出任何上一用户字段，也不输出空值形态的身份参数。
+    appendIdentityQueryParams(url, profile)
     // #911 P1-⑤：无环境兼容的 base 时**不注入**该参数（而不是注入空值）。
     // 注入空值会被游戏侧 pickText 判为缺省 → 回落 localStorage 里的历史值，
     // 等于重新打开「已落盘的测试域」这条通道；不注入则 SDK 判定未配置 → standalone。

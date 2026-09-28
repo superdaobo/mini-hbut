@@ -13,7 +13,7 @@ import {
   SCHEDULE_POPUP_PENDING_KEY,
   SCHEDULE_SWITCH_PENDING_KEY
 } from '../../utils/schedule_prefetch.js'
-import { fetchWithCache, clearUserScopedCaches, clearCacheByPrefix, setCachedData } from '../../utils/api.js'
+import { fetchWithCache, clearUserScopedCaches, clearGameIdentityCaches, clearCacheByPrefix, setCachedData } from '../../utils/api.js'
 import { clearDailyAccessGrant } from '../../utils/daily_access_key.js'
 import { preservePortalRememberedPasswordOnLogout } from '../../utils/credential_storage.js'
 import {
@@ -79,6 +79,19 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     clearCacheByPrefix(`training:options:${TEST_ACCOUNT.studentId}`)
     clearCacheByPrefix(`training:jys:${TEST_ACCOUNT.studentId}`)
     clearCacheByPrefix(`electricity:${TEST_ACCOUNT.studentId}`)
+  }
+
+  /**
+   * F2：登出 / 换号链路上的本地清理一律**尽力而为** —— 限制存储（隐私模式 / 权限拒绝）下
+   * 任何 `localStorage` 访问都可能抛 `SecurityError`；清理失败绝不能成为「登出不收口」
+   * （学号未置空、UI 仍停留「已登录」）的原因。失败只记录日志，不向上抛。
+   */
+  const runLogoutCleanupSafely = (label: string, action: () => void) => {
+    try {
+      action()
+    } catch (error) {
+      console.warn(`[Session] ${label}失败（不影响登出 / 换号）:`, error)
+    }
   }
 
   /** 登录后云同步（成绩快照作为学业缓存权威输入，见 cloud_sync primeAcademicCaches） */
@@ -249,8 +262,10 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     }
 
     if (manual && logoutSid) {
-      clearUserScopedCaches(logoutSid)
-      clearScheduleRenderSnapshot(logoutSid)
+      // F2：清缓存 / 渲染快照同样是 localStorage 访问，限制存储下会抛错；
+      // 逐项尽力而为，确保「登出收口」（学号置空 / 回到首页）不被清理异常打断。
+      runLogoutCleanupSafely('用户级缓存清理', () => clearUserScopedCaches(logoutSid))
+      runLogoutCleanupSafely('课表渲染快照清理', () => clearScheduleRenderSnapshot(logoutSid))
       window.dispatchEvent(new CustomEvent('hbu-session-logout', {
         detail: { studentId: logoutSid, manual: true }
       }))
@@ -260,6 +275,13 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
         console.warn('[Reminder] 登出清理预调度提醒失败:', e)
       })
     }
+
+    // P0：游戏落盘身份必须在**每次**登出时清理（手动登出已由 clearUserScopedCaches 覆盖，
+    // 这里补齐会话失效的自动登出路径）。登出后学号归零，但设备级的 `<gameId>_rank_context_v1`
+    // 与模块中心学生档案仍是上一位用户的昵称/班级快照 —— 未登录时打开模块会被当作
+    // 「当前用户」展示、甚至以其身份提交成绩。只清游戏身份，不动教务缓存（离线展示仍可用）。
+    // 尽力而为（F2）：限制存储环境下清理抛错不得打断登出流程，必须在 state 重置之前就被吞掉。
+    runLogoutCleanupSafely('游戏落盘身份清理', () => clearGameIdentityCaches(logoutSid))
 
     runtime.navigation.applyViewState('home')
     state.gradeData.value = []
@@ -324,8 +346,16 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   // 3. 派发 hbu-session-online 触发各模块全量刷新（课表等现有链路），
   //    并主动走一遍成绩刷新链路；keep-alive / 通知监控 / 云同步切到新账号
   const handleAccountSwitch = (studentId: string) => {
+    const previousSid = String(state.studentId.value || '').trim()
     const sid = saveRememberedUsername(studentId)
     if (!sid) return
+    // P0：换号属于「上一用户身份归零」的另一条路径 —— 旧账号的昵称/班级快照仍留存在
+    // 设备级游戏上下文 `<gameId>_rank_context_v1` 与旧档案键里，会被新账号的游乐场摘要
+    // 与游戏模块回落读取。这里立即清理（只清游戏身份，不动任何教务缓存）；
+    // 同样尽力而为（F2）：限制存储环境下抛错不得阻断换号主流程。
+    if (previousSid !== sid) {
+      runLogoutCleanupSafely('游戏落盘身份清理', () => clearGameIdentityCaches(previousSid))
+    }
     state.studentId.value = sid
     state.gradeData.value = []
     state.gradeTeacherCache.value = null
