@@ -67,7 +67,12 @@ let matchTrust = null
 let matchTrustEnabled = false
 let matchTrustOutcome = null
 let matchStats = null
-let matchTrustBusy = false
+// 席位绑定串行化：同一时刻只允许一次 claim，后来的调用等待前一次完成（不并发重复声明）。
+let matchTrustInflight = null
+// 冻结字段 peer_secret：只存内存（不落盘 / 不进 postMessage / 不进日志），等可信层就绪后转交。
+let pendingPeerSecret = ''
+// relay 层写入的中断文案（区分于发送失败等其它 onlineError，恢复时只清自己写的那条）。
+let relayOnlineError = ''
 
 const app = document.getElementById('app')
 
@@ -603,6 +608,8 @@ function handleRestart() {
 
 async function resetOnlineClient() {
   clearOnlineTimeout()
+  // F1：离开/重置房间时显式作废 relay 凭证，避免同房号重连时把上一局凭证带进新连接。
+  matchTrust?.forgetRelayBinding?.()
   if (!onlineClient) return
   try {
     onlineClient.close()
@@ -643,7 +650,14 @@ function matchOutcomeText() {
     season && Number(season.matches || 0) > 0
       ? ` · 赛季 ${season.wins}胜${season.losses}负 ${season.points}分`
       : ''
-  if (!matchTrustOutcome) return '待确认'
+  if (!matchTrustOutcome) {
+    // F3：把可信层的可判别错误码渲染出来（此前 lastError/lastErrorCode 从未被展示）。
+    const code = matchTrust?.snapshot?.().lastErrorCode || ''
+    if (code === 'SEAT_PEER_OWNERSHIP_REQUIRED' || code === 'RELAY_BINDING_REQUIRED') {
+      return '待确认·身份校验'
+    }
+    return '待确认'
+  }
   return `${confirmed ? '已确认' : '未确认'}${label ? `·${label}` : ''}${statsText}`
 }
 
@@ -662,6 +676,11 @@ async function initMatchTrust() {
     })
     matchTrust = bootstrapped.trust
     matchTrustEnabled = bootstrapped.enabled
+    // 房间 join 可能早于可信层就绪：把已捕获的 peer_secret 补给可信层与房间层（仍只在内存）。
+    if (pendingPeerSecret) {
+      matchTrust.setPeerSecret(pendingPeerSecret)
+      onlineClient?.setPeerSecret?.(pendingPeerSecret)
+    }
   } catch {
     // 任何异常都只降级为"不统计"，绝不影响下棋。
     matchTrust = null
@@ -671,20 +690,108 @@ async function initMatchTrust() {
 }
 
 // 绑定席位（幂等；每次 relay 下发/更换 match_id 都会尝试一次）
-async function syncMatchSeat(event = {}) {
-  if (!matchTrustEnabled || !matchTrust || matchTrustBusy) return
+// 返回 `{ ok, token, changed, code }`：供 relay 的"有界重绑"判定是否真的拿到了新凭证。
+async function syncMatchSeat(event = {}, { force = false } = {}) {
+  if (!matchTrustEnabled || !matchTrust) return { ok: false, code: 'TRUST_DISABLED' }
   matchTrust.rememberMatch({ matchId: event.matchId, roomCode: event.roomCode })
-  if (!matchTrust.snapshot().matchId) return
-  matchTrustBusy = true
-  try {
+  if (!matchTrust.snapshot().matchId) return { ok: false, code: 'NO_MATCH_ID' }
+  // F5：串行化同一时刻的声明（不并发重复声明）；频次上限由 relay 房间的退避状态机保证。
+  while (matchTrustInflight) {
+    try {
+      await matchTrustInflight
+    } catch {
+      // claimSeat 由 guard 兜底不 throw；这里只防御意外异常，不影响本次声明。
+    }
+  }
+  const before = matchTrust.relayBinding()
+  const inflight = (async () => {
     const payload = await matchTrust.claimSeat({
       peerId: event.peerId || state.transportPeerId || state.localPeerId,
-      roomCode: event.roomCode || state.sessionId
+      roomCode: event.roomCode || state.sessionId,
+      force
     })
-    if (payload) render()
+    if (payload) {
+      applyRelayBinding()
+      render()
+    }
+    return payload
+  })()
+  matchTrustInflight = inflight
+  let payload = null
+  try {
+    payload = await inflight
   } finally {
-    matchTrustBusy = false
+    if (matchTrustInflight === inflight) matchTrustInflight = null
   }
+  const snapshot = matchTrust.snapshot()
+  if (!payload) {
+    // 同一 match_id 已绑定且非强制 → 幂等跳过，不是失败。
+    if (snapshot.seatClaimed && !force) {
+      return { ok: true, skipped: true, token: matchTrust.relayBinding() }
+    }
+    return { ok: false, code: snapshot.lastErrorCode || 'SEAT_CLAIM_FAILED' }
+  }
+  const token = matchTrust.relayBinding()
+  return { ok: Boolean(token), changed: Boolean(token) && token !== before, token }
+}
+
+// W1：把服务端签发的 relay 绑定凭证交给 relay 房间（内存态）——relay 侧据此把
+// peer_id 与已验证身份绑定，对手不能再用他人 peer_id 落子。
+function applyRelayBinding() {
+  if (!onlineClient?.setRelayBinding) return
+  // 空凭证也要下发：否则换场/复位后房间侧仍持有上一局的旧凭证，无法主动清除。
+  const token = matchTrust?.relayBinding?.() || ''
+  onlineClient.setRelayBinding(token)
+}
+
+// relay 侧发现凭证缺失/过期（403 RELAY_BINDING_REQUIRED / SEAT_PEER_OWNERSHIP_REQUIRED）时
+// 由房间回调触发：重新绑定席位（服务端幂等）取回新凭证并回填；失败只降级为"未认证"。
+// 返回 Promise：relay 房间会 await 它，确保重试发生在拿到新凭证之后（F2）。
+async function handleRelayBindingRequired() {
+  if (!matchTrustEnabled || !matchTrust) return { ok: false, code: 'TRUST_DISABLED' }
+  const snapshot = matchTrust.snapshot()
+  if (!snapshot.matchId) return { ok: false, code: 'NO_MATCH_ID' }
+  const rebindEvent = {
+    matchId: snapshot.matchId,
+    roomCode: state.sessionId || snapshot.roomCode,
+    peerId: state.transportPeerId || state.localPeerId
+  }
+  let result = await syncMatchSeat(rebindEvent, { force: true })
+  if (result.code === 'SEAT_PEER_OWNERSHIP_REQUIRED' && onlineClient?.rejoin) {
+    // 冻结语义：席位身份凭证所有权不足 → 重新 join 刷新 peer_secret 后再声明一次。
+    try {
+      await onlineClient.rejoin()
+    } catch {
+      // 重新 join 失败由 relay 房间的有界退避接管，这里不再叠加重试。
+    }
+    result = await syncMatchSeat(rebindEvent, { force: true })
+  }
+  return result
+}
+
+// 冻结字段 peer_secret：只存内存，绝不落盘 / 进 postMessage / 进日志。
+// 服务端只在"首次 join"或"出示匹配的当前值"时重签，响应缺失/为空不清空旧值；
+// 因此这里只接受非空值，并同时补给可信层与房间层（房间层后续 re-join 要带回当前值）。
+function handlePeerSecret(secret) {
+  const next = String(secret || '').trim()
+  if (!next) return
+  pendingPeerSecret = next
+  matchTrust?.setPeerSecret?.(next)
+  onlineClient?.setPeerSecret?.(next)
+}
+
+// F3：relay 层的持久错误/恢复文案（连续轮询失败、重绑停机）写入 onlineError。
+function handleRelayError(event = {}) {
+  if (event.type === 'poll_recovered') {
+    // 只清除本回调写入的那条，避免覆盖其它错误提示。
+    if (relayOnlineError && onlineError === relayOnlineError) onlineError = ''
+    relayOnlineError = ''
+    render()
+    return
+  }
+  relayOnlineError = event.message || '联机中断'
+  onlineError = relayOnlineError
+  render()
 }
 
 // 上报"我以为的结果"（同一结果只上报一次；服务端幂等，重复上报不会产生第二条结果）
@@ -714,11 +821,25 @@ function strategyLabel(strategy) {
 
 function createNetworkRoom({ roomCode, strategy, onEvent, peerId }) {
   if (strategy === HF_RELAY_STRATEGY) {
+    // F1：凭证只在"凭证所属 match_id === 当前房间已下发 match_id"时携带；新连接的 match_id
+    // 尚未下发（join 之后才拿到），因此首个 join 绝不携带上一局凭证，等 claim 成功后回填。
+    const roomMatchId = onlineClient?.getMatchId?.() || ''
+    const relayBinding = matchTrust?.relayBindingForMatch?.(roomMatchId) || ''
+    // 冻结字段：把已持有的 peer_secret 交给新房间（re-join 需带回当前值，服务端匹配才重签）。
+    const peerSecret = matchTrust?.peerSecret?.() || pendingPeerSecret || ''
     return createHfRelayGomokuRoom({
       roomCode,
       peerId,
       baseUrl: GOMOKU_RELAY_BASE_URL,
-      onEvent
+      onEvent,
+      // W1/F2：承载服务端下发的 relay 绑定凭证；凭证失效时回调触发有界重绑（等待宿主 Promise）。
+      relayBinding,
+      onBindingRequired: handleRelayBindingRequired,
+      // 冻结字段：join 下发的新 peer_secret 只经此回调进内存（不落盘 / 不广播 / 不写日志）。
+      peerSecret,
+      onPeerSecret: handlePeerSecret,
+      // F3：轮询连续失败 / 重绑停机的可读文案上报给 UI。
+      onError: handleRelayError
     })
   }
   return createTrysteroGomokuRoom({
@@ -767,6 +888,10 @@ async function connectOnlineRoom(role, rawRoomCode, options = {}) {
       }
     }
     roomInputValue = formatRoomCode(roomCode)
+    // 席位绑定可能已完成（join 响应里的 match_id 触发）而房间对象刚刚才赋值：补一次回填。
+    applyRelayBinding()
+    // 冻结字段：把已持有的 peer_secret 同步给新房间（join 早于回调/可信层就绪的方向）。
+    if (pendingPeerSecret) onlineClient.setPeerSecret?.(pendingPeerSecret)
     armOnlineTimeout(role, roomCode)
   } catch (error) {
     onlineClient = null
@@ -910,7 +1035,8 @@ function handleOnlineEvent(event) {
 
   if (event.type === 'match') {
     // #908：relay 下发服务端比赛标识 → 绑定席位（幂等）。
-    void syncMatchSeat(event)
+    // 席位绑定是旁路：任何失败都不影响对局；这里只兜住 promise，避免 unhandled rejection。
+    void syncMatchSeat(event).catch(() => {})
     return
   }
 
