@@ -19,7 +19,8 @@ import {
   RESERVED_GAME_CENTER_FLAG_DEFAULTS,
   RESERVED_GAME_CENTER_FLAG_KEYS
 } from './game_center/base'
-import { resolveGameCenterFlags } from './game_center/flags'
+import { resolveEffectiveGameCenterFlags, resolveGameCenterFlags } from './game_center/flags'
+import { getFeaturePolicy, setAppStoreBuildOverrideForTests } from '../config/app_store_policy'
 
 /**
  * Production Readiness P1 收口契约（SDK 侧）：
@@ -475,26 +476,57 @@ describe('P1-1 服务端能力（capabilities）：保守默认 + 显式声明�
   })
 })
 
-describe('P1 收口：客户端预留 flag key（定义在 base.ts，默认 false）', () => {
-  it('三个新 flag 的 key 与默认值已预留，且尚未并入生效层（接线时同步改这里）', () => {
+describe('P1 收口：客户端新增 flag（定义在 base.ts，默认 false）', () => {
+  afterEach(() => {
+    setAppStoreBuildOverrideForTests(null)
+  })
+
+  it('三个新 flag 的 key 与默认值被精确冻结，且默认一律 false', () => {
+    // 精确冻结（可失败的护栏）：多一个/少一个/改名都会红
     expect([...RESERVED_GAME_CENTER_FLAG_KEYS]).toEqual([
       'game_daily_tasks_enabled',
       'gomoku_competitive_enabled',
       'verified_reward_enabled'
     ])
     for (const key of RESERVED_GAME_CENTER_FLAG_KEYS) {
-      expect(RESERVED_GAME_CENTER_FLAG_DEFAULTS[key]).toBe(false)
-      // 半接线护栏：W3 接线时需同时把它们并入 GAME_CENTER_FLAG_KEYS 与默认值区
-      expect([...GAME_CENTER_FLAG_KEYS]).not.toContain(key)
-      expect(DEFAULT_GAME_CENTER_FLAGS).not.toHaveProperty(key)
+      expect(RESERVED_GAME_CENTER_FLAG_DEFAULTS[key], key).toBe(false)
+      expect(DEFAULT_GAME_CENTER_FLAGS[key], key).toBe(false)
+      expect(GAME_CENTER_FLAG_KEYS, key).toContain(key)
+    }
+    // 未下发任何配置时的生效值：一律关（fail closed，读不到不得当开启）
+    const effective = resolveGameCenterFlags({})
+    for (const key of RESERVED_GAME_CENTER_FLAG_KEYS) {
+      expect(effective[key], key).toBe(false)
     }
   })
 
-  it('远程配置在接线前无法打开预留 flag（不会「可见但必然报错」）', () => {
+  it('远程配置可打开新 flag（仅表达"产品想不想要"，不等于能力可用）', () => {
     const flags = resolveGameCenterFlags({
       game_platform: { flags: { game_daily_tasks_enabled: true, verified_reward_enabled: true } }
     })
-    expect(flags).not.toHaveProperty('game_daily_tasks_enabled')
-    expect(flags).not.toHaveProperty('verified_reward_enabled')
+    expect(flags.game_daily_tasks_enabled).toBe(true)
+    expect(flags.verified_reward_enabled).toBe(true)
+    // 未下发的那一个仍然 false（不因同块里有 true 而被带开）
+    expect(flags.gomoku_competitive_enabled).toBe(false)
+  })
+
+  it('合规包（guest/demo）下三个新 flag 被策略夹紧为 false，即使远程下发 true', () => {
+    setAppStoreBuildOverrideForTests(true)
+    const policy = getFeaturePolicy({ isLoggedIn: false, isDemoSession: true })
+    const flags = resolveEffectiveGameCenterFlags(
+      {
+        game_platform: {
+          flags: {
+            game_daily_tasks_enabled: true,
+            gomoku_competitive_enabled: true,
+            verified_reward_enabled: true
+          }
+        }
+      },
+      policy
+    )
+    for (const key of RESERVED_GAME_CENTER_FLAG_KEYS) {
+      expect(flags[key], `${key} 必须在合规包下被夹紧`).toBe(false)
+    }
   })
 })

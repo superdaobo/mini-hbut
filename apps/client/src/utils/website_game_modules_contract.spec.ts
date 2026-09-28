@@ -232,7 +232,12 @@ describe('website 游戏模块集成契约', () => {
     expect(moreViewSource).toContain('CONTEXT_AWARE_GAME_MODULE_IDS.has(moduleId)')
     expect(moreViewSource).toContain('resolveGomokuRelayApi')
     expect(moreViewSource).toContain("moduleId === 'hbut_gomoku'")
-    expect(moreViewSource).toContain("url.searchParams.set('gomoku_api', resolveGomokuRelayApi())")
+    // #911 P1-⑤：relay/排行榜 base 都必须**先解析再按非空注入** ——
+    // 空串注入会被游戏侧判为缺省而回落 localStorage 历史值（重新打开跨环境通道）。
+    expect(moreViewSource).toContain('const rankApiBase = resolveGameRankApi()')
+    expect(moreViewSource).toContain("if (rankApiBase) url.searchParams.set('rank_api', rankApiBase)")
+    expect(moreViewSource).toContain('const gomokuRelayApi = resolveGomokuRelayApi()')
+    expect(moreViewSource).toContain("if (gomokuRelayApi) url.searchParams.set('gomoku_api', gomokuRelayApi)")
     for (const id of gameModuleIds) {
       expect(moreViewSource, `${id} 需要携带学生信息、runtime 和 rank_api 上下文`).toContain(
         `'${id}'`

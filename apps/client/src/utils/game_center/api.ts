@@ -7,7 +7,9 @@
  * 2. **凭据不落盘、不回显、不入日志**：Identity AT / ticket 只在内存与请求头中传递；
  *    本文件不做任何 console / debug 输出（协议 §10 L1）。
  * 3. 错误统一映射为协议 §5 的 code（服务端 message 已是可直接展示的简体中文，客户端不二次映射）。
- * 4. 未交付能力（经济 / 赛季）由 feature flag 前置关闭，本文件的对应函数不会被调用。
+ * 4. 未交付能力由 **feature flag + capability 双层闸门**前置关闭（P1-1）：
+ *    flag 表达「产品想不想要」，`/meta.capabilities` 表达「端点是否真的实现」；
+ *    两者都成立 UI 才渲染入口（`fetchGamePlatformMeta` 透出保守能力表，见其文档）。
  */
 
 import { getCloudSyncRuntimeConfig } from '../cloud_sync.js'
@@ -21,6 +23,7 @@ import {
   LEGACY_GAME_RANK_NAMESPACE,
   isSecureGamePlatformUrl
 } from './base'
+import { isStatisticsServiceUrlCompatible } from '../statistics_environment'
 
 export {
   DEFAULT_GAME_PLATFORM_API_BASE,
@@ -66,37 +69,102 @@ export const LOCAL_ERROR_CODES = Object.freeze({
   transportInsecure: 'LOCAL_TRANSPORT_INSECURE',
   transportFailed: 'LOCAL_TRANSPORT_FAILED',
   responseInvalid: 'LOCAL_RESPONSE_INVALID',
-  authMissing: 'LOCAL_AUTH_MISSING'
+  authMissing: 'LOCAL_AUTH_MISSING',
+  configMissing: 'LOCAL_CONFIG_MISSING'
 })
 
 const safeText = (value: unknown): string => String(value ?? '').trim()
 
 /**
- * 解析 Game Platform API base：远程配置覆盖 → 云同步同源派生 → 默认值。
- * 只返回通过 HTTPS 校验的地址。
+ * 从候选里挑第一个「传输安全（HTTPS / loopback）且**环境兼容**」的 base；都不合格返回 `''`。
+ *
+ * #911 P1-⑤ 运行期护栏：`statistics_environment` 的跨环境拒绝过去只在**构建期**由
+ * `VITE_BUILD_PROFILE` 把关。一旦构建漏传该变量，或运行期配置被写到另一端环境，
+ * 宿主就会把跨环境 base 注入游戏 iframe —— 生产库被写测试数据 / 测试客户端打生产库。
+ * 这里把同一约束提升为**运行期**判定：不合格候选一律不用。
+ *
+ * 自定义域与 loopback 在两端环境都放行（只有「另一端环境」的已知域被拒），
+ * 因此本地联调地址不会被误杀。导出于 `game_center_service_origin.spec.ts` 直接验证契约。
  */
-export const resolveGamePlatformApiBase = (override?: unknown): string => {
-  const explicit = safeText(override)
-  if (isSecureGamePlatformUrl(explicit)) return explicit.replace(/\/+$/, '')
-  return DEFAULT_GAME_PLATFORM_API_BASE
+export const pickEnvironmentCompatibleBase = (candidates: readonly unknown[]): string => {
+  for (const candidate of candidates) {
+    const text = safeText(candidate).replace(/\/+$/, '')
+    if (!text) continue
+    if (!isSecureGamePlatformUrl(text)) continue
+    if (!isStatisticsServiceUrlCompatible(text)) continue
+    return text
+  }
+  return ''
 }
 
 /**
- * 解析 Legacy Game Rank API base（与 MoreView 既有实现同源，避免两处默认值漂移）。
+ * 请求前取 base：不可用即抛出可读错误。
+ *
+ * 不变量：候选里总含「由构建档位派生的环境默认源」，它对本环境必然兼容，
+ * 因此正常情况下不会走到抛错分支 —— 这是**防御性守卫**，用于防止将来有人把默认源
+ * 改成空值（fail closed）时静默发出一个相对路径请求。
+ */
+const requireBase = (candidates: readonly unknown[], label: string): string => {
+  const base = pickEnvironmentCompatibleBase(candidates)
+  if (!base) {
+    throw new GamePlatformError(LOCAL_ERROR_CODES.configMissing, `${label}未配置（无环境兼容的 API 地址）`, {
+      retryable: false
+    })
+  }
+  return base
+}
+
+/**
+ * 解析 Game Platform API base：显式覆盖 → 环境默认源。只返回通过 HTTPS 校验的地址。
+ * 不可用时返回 `''`（请求前请用 `requireGamePlatformBase`）。
+ */
+export const resolveGamePlatformApiBase = (override?: unknown): string =>
+  pickEnvironmentCompatibleBase([override, DEFAULT_GAME_PLATFORM_API_BASE])
+
+/** 同 `resolveGamePlatformApiBase`，但不可用时抛错（供实际发起请求处使用） */
+const requireGamePlatformBase = (override?: unknown): string =>
+  requireBase([override, DEFAULT_GAME_PLATFORM_API_BASE], '游戏平台服务')
+
+/**
+ * 从云同步端点派生 Legacy 排行榜 base。
+ *
+ * 必须**先剥掉云同步命名空间再拼**：云同步端点是 `…/api/cloud-sync`，若直接做
+ * `replace('/cloud-sync', '/api/game-rank')` 会得到 `…/api/api/game-rank`（双 `/api`）——
+ * 该路径在服务端不存在（实测 `/api/game-rank/ping` = 200 而 `/api/api/game-rank/ping` = 404），
+ * 于是宿主注入 iframe 的 `rank_api`、经典榜请求全部 404（旧实现长期存在此缺陷）。
+ *
+ * 保留部署子路径：`…/sub/api/cloud-sync` → `…/sub/api/game-rank`。
+ */
+export const deriveLegacyRankBaseFromCloudSync = (endpoint: unknown): string => {
+  const text = safeText(endpoint).replace(/\/+$/, '')
+  if (!text) return ''
+  const stripped = text.replace(/\/api\/cloud-sync$/i, '').replace(/\/cloud-sync$/i, '')
+  return `${stripped}${LEGACY_GAME_RANK_NAMESPACE}`
+}
+
+/**
+ * 解析 Legacy Game Rank API base：云同步同源派生 → 环境默认源。
+ *
+ * 跨环境候选（release 构建里的测试域 / 测试构建里的生产域）**一律不采用**：
+ * 前者会把真实成绩写进测试库，后者会让测试数据污染生产榜。
+ * 都不可用时返回 `''` = 未配置（standalone，不远程提交）。
  */
 export const resolveGameRankApiBase = (): string => {
+  const candidates: unknown[] = []
   try {
     const runtime = getCloudSyncRuntimeConfig()
     const endpoint = safeText(runtime?.proxyEndpoint || runtime?.endpoint)
-    if (endpoint) {
-      const derived = endpoint.replace(/\/cloud-sync$/i, LEGACY_GAME_RANK_NAMESPACE)
-      if (isSecureGamePlatformUrl(derived)) return derived
-    }
+    if (endpoint) candidates.push(deriveLegacyRankBaseFromCloudSync(endpoint))
   } catch {
-    // 运行时配置读取失败：退回默认源
+    // 运行时配置读取失败：交给环境默认源
   }
-  return DEFAULT_GAME_RANK_API
+  candidates.push(DEFAULT_GAME_RANK_API)
+  return pickEnvironmentCompatibleBase(candidates)
 }
+
+/** 同 `resolveGameRankApiBase`，但不可用时抛错（供实际发起请求处使用） */
+const requireGameRankBase = (override?: unknown): string =>
+  requireBase([safeText(override), resolveGameRankApiBase()], '经典排行榜服务')
 
 interface RequestOptions {
   method?: string
@@ -211,10 +279,130 @@ const gamePlatformHeaders = (extra: Record<string, string> = {}): Record<string,
   ...extra
 })
 
+/**
+ * 宿主 UI 认识的服务端能力 key（canonical）。
+ *
+ * 语义（与 feature flag 的本质区别，P1-1）：
+ * - `features.*`（flag）＝「产品想不想要」；
+ * - `capabilities.*`＝「**端点是否真的实现**」。
+ * flag 打开但端点未实现时，UI 必须靠 capabilities **前置隐藏**，而不是点击后 404。
+ */
+export const GAME_PLATFORM_CAPABILITY_KEYS = Object.freeze([
+  /** V2 榜读取端点 `GET /leaderboards`（Verified 赛季榜） */
+  'leaderboards',
+  /** `GET /me/wallet` 钱包流水（等级 / XP / 湖工币） */
+  'wallet',
+  /** 每日任务（对应 flag `game_daily_tasks_enabled`） */
+  'daily_tasks',
+  /** 五子棋竞技（对应 flag `gomoku_competitive_enabled`） */
+  'gomoku_match',
+  /** 漂流瓶 UGC（对应 flag `drift_bottle_enabled`） */
+  'drift_bottle',
+  /** 可信结算发奖（对应 flag `verified_reward_enabled`） */
+  'verified_reward'
+] as const)
+
+export type GamePlatformCapabilityKey = (typeof GAME_PLATFORM_CAPABILITY_KEYS)[number]
+
+/** 保守能力表：值 false ＝ 不可用（未声明 / 类型非法 / 拿不到 /meta 都落在这里） */
+export type GamePlatformCapabilities = Readonly<Record<GamePlatformCapabilityKey, boolean>>
+
+/** 未拿到 `/meta` 时的唯一合法初值：全部 false → UI 一律前置隐藏 */
+export const EMPTY_GAME_PLATFORM_CAPABILITIES: GamePlatformCapabilities = Object.freeze({
+  leaderboards: false,
+  wallet: false,
+  daily_tasks: false,
+  gomoku_match: false,
+  drift_bottle: false,
+  verified_reward: false
+})
+
+/**
+ * 别名表（只读兼容，不改变优先级与保守默认）：
+ * canonical 与服务端字段名可能略有差异（服务端样本用 `gomoku_match`，
+ * 而 SDK / flag 侧沿用 `gomoku_competitive`），两种都接受；
+ * **任何未识别命名一律按 false**（未声明即未知，未知即不可用）。
+ */
+const GAME_PLATFORM_CAPABILITY_ALIASES: Readonly<Record<GamePlatformCapabilityKey, readonly string[]>> =
+  Object.freeze({
+    leaderboards: ['leaderboards', 'leaderboard', 'leaderboards_enabled'],
+    wallet: ['wallet', 'me_wallet', 'wallet_enabled'],
+    daily_tasks: ['daily_tasks', 'dailyTasks', 'daily_tasks_enabled', 'game_daily_tasks'],
+    gomoku_match: [
+      'gomoku_match',
+      'gomokuMatch',
+      'gomoku_competitive',
+      'gomokuCompetitive',
+      'gomoku_competitive_enabled',
+      'competitive_gomoku'
+    ],
+    drift_bottle: ['drift_bottle', 'driftBottle', 'drift_bottle_enabled'],
+    verified_reward: ['verified_reward', 'verifiedReward', 'verified_rewards', 'verified_reward_enabled']
+  })
+
+/** 能力值解析：无法识别的类型返回 null（＝未声明，不得当作 true） */
+const toCapabilityBoolean = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') return value
+  if (value === 1 || value === '1') return true
+  if (value === 0 || value === '0') return false
+  if (typeof value === 'string') {
+    const text = safeText(value).toLowerCase()
+    if (['true', 'on', 'enabled', 'yes', 'available', 'implemented'].includes(text)) return true
+    if (['false', 'off', 'disabled', 'no', 'unavailable', 'not_implemented', 'missing'].includes(text)) {
+      return false
+    }
+  }
+  return null
+}
+
+export interface NormalizedGamePlatformCapabilities {
+  /** 保守能力表（未知即 false）：UI 直接用它做前置隐藏 */
+  values: GamePlatformCapabilities
+  /** 被显式声明过的 key（诊断用；可区分「服务端说没有」与「还没说」） */
+  declared: GamePlatformCapabilityKey[]
+}
+
+/**
+ * 读取 `/meta.capabilities`（**只看 capabilities 作用域**）。
+ *
+ * 与 SDK（`_sdk/src/capabilities.js`）的差异（有意为之，方向更保守）：
+ * SDK 额外接受 `meta.features.<纯能力名>` 作为过渡形态；宿主 UI **不读 features**——
+ * `features` 表达的是「想不想要」，把它读成「端点已实现」正是 P1-1 的成因
+ * （flag=true + 端点缺失 → 渲染后 404）。UI 前置隐藏必须 fail closed，不得乐观放行。
+ */
+export const readGamePlatformCapabilities = (meta: unknown): NormalizedGamePlatformCapabilities => {
+  const payload = meta && typeof meta === 'object' ? (meta as Record<string, unknown>) : {}
+  const scope =
+    payload.capabilities && typeof payload.capabilities === 'object'
+      ? (payload.capabilities as Record<string, unknown>)
+      : null
+  const values = { ...EMPTY_GAME_PLATFORM_CAPABILITIES } as Record<GamePlatformCapabilityKey, boolean>
+  const declared: GamePlatformCapabilityKey[] = []
+  if (!scope) return { values, declared }
+  for (const key of GAME_PLATFORM_CAPABILITY_KEYS) {
+    for (const alias of GAME_PLATFORM_CAPABILITY_ALIASES[key]) {
+      if (!Object.prototype.hasOwnProperty.call(scope, alias)) continue
+      const parsed = toCapabilityBoolean(scope[alias])
+      if (parsed === null) continue
+      values[key] = parsed
+      declared.push(key)
+      break
+    }
+  }
+  return { values, declared }
+}
+
 export interface GamePlatformMeta {
   protocolVersion: { min: number; max: number } | null
   serverVersion: string
   features: Record<string, unknown>
+  /**
+   * 服务端能力声明（**保守**：未声明 / 类型非法 / 拿不到就一律 false）。
+   * UI 前置隐藏的唯一依据：capability=false 时不渲染入口、不发请求。
+   */
+  capabilities: GamePlatformCapabilities
+  /** 被 `/meta` 显式声明过的能力 key（诊断用，便于区分「服务端说没有」与「还没说」） */
+  capabilitiesDeclared: GamePlatformCapabilityKey[]
   registryGames: number
   raw: Record<string, unknown>
 }
@@ -224,7 +412,7 @@ export const fetchGamePlatformMeta = async (
   apiBase?: string,
   timeoutMs = GAME_PLATFORM_REQUEST_TIMEOUT_MS
 ): Promise<GamePlatformMeta> => {
-  const base = resolveGamePlatformApiBase(apiBase)
+  const base = requireGamePlatformBase(apiBase)
   const payload = await requestGamePlatformJson<Record<string, unknown>>(`${base}/meta`, {
     headers: gamePlatformHeaders(),
     timeoutMs
@@ -237,6 +425,8 @@ export const fetchGamePlatformMeta = async (
     payload.registry && typeof payload.registry === 'object'
       ? (payload.registry as Record<string, unknown>)
       : null
+  // 能力声明：缺失 / 非法 / 未识别命名一律保守 false（UI 据此前置隐藏，不发出必然 404 的请求）
+  const capabilities = readGamePlatformCapabilities(payload)
   return {
     protocolVersion: range
       ? { min: Number(range.min) || 0, max: Number(range.max) || 0 }
@@ -246,6 +436,8 @@ export const fetchGamePlatformMeta = async (
       payload.features && typeof payload.features === 'object'
         ? (payload.features as Record<string, unknown>)
         : {},
+    capabilities: capabilities.values,
+    capabilitiesDeclared: capabilities.declared,
     registryGames: Number(registry?.games) || 0,
     raw: payload
   }
@@ -268,7 +460,7 @@ export const fetchGameLaunchTicket = async (options: {
   idempotencyKey?: string
   timeoutMs?: number
 }): Promise<LaunchTicketResult> => {
-  const base = resolveGamePlatformApiBase(options.apiBase)
+  const base = requireGamePlatformBase(options.apiBase)
   const accessToken = await getIdentityAccessToken()
   if (!accessToken) {
     return {
@@ -331,7 +523,7 @@ const authorizedGet = async <T = Record<string, unknown>>(
   apiBase?: string,
   timeoutMs = GAME_PLATFORM_REQUEST_TIMEOUT_MS
 ): Promise<T> => {
-  const base = resolveGamePlatformApiBase(apiBase)
+  const base = requireGamePlatformBase(apiBase)
   const accessToken = await getIdentityAccessToken()
   if (!accessToken) {
     throw new GamePlatformError(LOCAL_ERROR_CODES.authMissing, '当前未登录，无法读取游戏数据', {
@@ -365,7 +557,7 @@ export interface LeaderboardQuery {
 export const fetchGameLeaderboards = async (
   query: LeaderboardQuery
 ): Promise<Record<string, unknown>> => {
-  const base = resolveGamePlatformApiBase(query.apiBase)
+  const base = requireGamePlatformBase(query.apiBase)
   const params = new URLSearchParams()
   params.set('game_id', safeText(query.gameId))
   params.set('board', safeText(query.board || 'classic'))
@@ -399,7 +591,7 @@ export interface ClassicLeaderboardQuery {
 export const fetchClassicLeaderboard = async (
   query: ClassicLeaderboardQuery
 ): Promise<Record<string, unknown>> => {
-  const base = safeText(query.apiBase) || resolveGameRankApiBase()
+  const base = requireGameRankBase(query.apiBase)
   const params = new URLSearchParams({
     game_id: safeText(query.gameId),
     scope: safeText(query.scope || 'class') || 'class',
@@ -411,8 +603,7 @@ export const fetchClassicLeaderboard = async (
   if (studentId) params.set('student_id', studentId)
   if (className) params.set('class_name', className)
   if (schoolName) params.set('school_name', schoolName)
-  return requestGamePlatformJson<Record<string, unknown>>(
-    `${isSecureGamePlatformUrl(base) ? base : resolveGameRankApiBase()}/leaderboard?${params.toString()}`,
-    { timeoutMs: GAME_RANK_REQUEST_TIMEOUT_MS }
-  )
+  return requestGamePlatformJson<Record<string, unknown>>(`${base}/leaderboard?${params.toString()}`, {
+    timeoutMs: GAME_RANK_REQUEST_TIMEOUT_MS
+  })
 }

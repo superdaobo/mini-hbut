@@ -1,11 +1,13 @@
 /**
  * #905 湖工游乐场接线契约（仓库门禁）。
  *
- * 覆盖四类不可回退的约束：
+ * 覆盖五类不可回退的约束：
  * 1. SDK 消息类型 / ticket query 参数与 `website/modules-src/_sdk` **逐字一致**（防止两侧漂移）；
  * 2. 宿主必须有 origin 校验（复制粘贴回来的旧实现会立刻失败）；
  * 3. 视图注册 / 导航 / app_store_policy 必须覆盖 `game_center`（防漏过滤）；
- * 4. 三语字典 key 集合一致（新增文案不得只加一种语言）。
+ * 4. 三语字典 key 集合一致（新增文案不得只加一种语言）；
+ * 5. **capability-driven（P1-1）**：UI 显隐必须是 flag AND `/meta.capabilities`，
+ *    未实现能力前置隐藏（不渲染、不发请求），而不是请求后 404 报错。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -156,13 +158,64 @@ describe('game center 接线契约（#905）', () => {
     }
   })
 
-  it('feature flag key 与协议 / issue 约定完全一致', () => {
+  it('capability-driven（P1-1）：显隐是 flag AND /meta.capabilities，未实现能力前置隐藏', () => {
+    const view = read('src/components/GameCenterView.vue')
+    // 能力表初值保守 false（探测前一律不可用）→ 由 /meta 填充
+    expect(view).toContain('EMPTY_GAME_PLATFORM_CAPABILITIES')
+    expect(view).toContain('fetchGamePlatformMeta')
+    expect(view).toContain('meta.capabilities')
+    // 六条双层闸门：flag === true && capabilities.value.<key> === true
+    for (const [flagKey, capabilityKey] of [
+      ['game_verified_session_enabled', 'leaderboards'],
+      ['game_economy_enabled', 'wallet'],
+      ['drift_bottle_enabled', 'drift_bottle'],
+      ['game_daily_tasks_enabled', 'daily_tasks'],
+      ['gomoku_competitive_enabled', 'gomoku_match'],
+      ['verified_reward_enabled', 'verified_reward']
+    ] as const) {
+      expect(view, `${flagKey} 必须与 capabilities.${capabilityKey} 取 AND`).toMatch(
+        new RegExp(`flags\\.value\\.${flagKey} === true && capabilities\\.value\\.${capabilityKey} === true`)
+      )
+    }
+    // 请求函数自己再判一次闸门（防止调用方绕过；闸门关闭时零请求）
+    expect(view).toMatch(/const loadVerifiedBoard[\s\S]{0,160}!verifiedEnabled\.value/)
+    expect(view).toMatch(/const loadWalletIfEnabled[\s\S]{0,160}!economyEnabled\.value/)
+    // 探测失败 / 无 V2 flag 时不产生额外请求，且能力表回落保守值
+    expect(view).toMatch(/catch \{[\s\S]{0,200}EMPTY_GAME_PLATFORM_CAPABILITIES/)
+    // 经典榜走 Legacy 通道，**不受** V2 capabilities 影响（不得误伤已上线能力）
+    expect(view).toContain('fetchClassicLeaderboard')
+    expect(view).toMatch(/const loadClassicBoard[\s\S]{0,240}fetchClassicLeaderboard/)
+    expect(view).not.toMatch(/classicEnabled|classicBoardAvailable/)
+
+    // 宿主 api 层透出 capabilities（保守 fail closed；UI 只读 capabilities 作用域）
+    const api = read('src/utils/game_center/api.ts')
+    expect(api).toContain('readGamePlatformCapabilities')
+    expect(api).toContain('EMPTY_GAME_PLATFORM_CAPABILITIES')
+    expect(api).toContain('capabilitiesDeclared')
+    expect(api).toContain('GAME_PLATFORM_CAPABILITY_KEYS')
+
+    // 子组件：能力不可用时「不渲染」，而不是渲染后报错
+    const home = read('src/components/game-center/GameCenterHomeTab.vue')
+    expect(home).toMatch(/v-if="props\.dailyTasksEnabled"/)
+    const gamesTab = read('src/components/game-center/GameCenterGamesTab.vue')
+    expect(gamesTab).toMatch(/v-if="props\.gomokuCompetitiveEnabled"/)
+    const rank = read('src/components/game-center/GameCenterRankTab.vue')
+    expect(rank).toContain('verifiedRewardEnabled')
+    // 占位/隐藏替代报错：三个 Tab 都不存在「先请求再显示错误」的 verified/drift/wallet 入口
+    expect(rank).toMatch(/v-if="!props\.verifiedEnabled"/)
+    expect(view).toMatch(/activeTab === 'drift' && driftEnabled/)
+  })
+
+  it('feature flag key 与协议 / issue 约定完全一致（含 W3 三个新开关）', () => {
     expect([...GAME_CENTER_FLAG_KEYS]).toEqual([
       'game_center_enabled',
       'game_verified_session_enabled',
       'game_economy_enabled',
       'drift_bottle_enabled',
-      'classic_game_entries_visible'
+      'classic_game_entries_visible',
+      'game_daily_tasks_enabled',
+      'gomoku_competitive_enabled',
+      'verified_reward_enabled'
     ])
     const flagsSource = read('src/utils/game_center/flags.ts')
     for (const key of GAME_CENTER_FLAG_KEYS) {

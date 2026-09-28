@@ -60,4 +60,18 @@ describe('hbut_match3 rank contract', () => {
     expect(body.game_id).toBe('hbut_match3')
     expect(body.score).toBe(1280)
   })
+
+  it('无 rank_api 注入（网页直开）→ 未配置：不判定可提交、零远程请求', async () => {
+    // P1-5 收口：有身份但无 API 决策时必须 fail closed（standalone），绝不回落任何默认域
+    setSearch('?student_id=20240111&player_name=消消乐&class_name=机械2401')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const context = readGameModuleContext()
+    expect(context.rankApiBase).toBe('')
+    expect(canUseGameRank(context)).toBe(false)
+    await expect(
+      submitGameRank(context, { runId: 'run_match3_standalone', score: 1280 })
+    ).rejects.toThrow(/未注入 rank_api/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })

@@ -3,12 +3,19 @@
  * 游乐场「游戏」Tab（#905）。
  * 11 个经典游戏入口：点击后**复用既有 module 打开链路**（见 pending_open.ts 的决策说明），
  * 不在本组件内复制 manifest/缓存/bundle 状态机。
+ *
+ * W3：五子棋竞技入口受 `gomoku_competitive_enabled` + `/meta.capabilities.gomoku_match`
+ * 双层控制；能力未就绪时**整块不渲染**（P1-1：不显示一个点了必然失败的入口）。
  */
 import { useI18n } from '../../utils/app_i18n'
 
+/** 竞技入口指向的五子棋模块（与 module_center / launch.ts 的 id 一致） */
+const COMPETITIVE_GOMOKU_MODULE_ID = 'hbut_gomoku'
+
 const props = defineProps({
   games: { type: Array, default: () => [] },
-  busyGameId: { type: String, default: '' }
+  busyGameId: { type: String, default: '' },
+  gomokuCompetitiveEnabled: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['open-game'])
@@ -17,6 +24,19 @@ const { t } = useI18n()
 
 <template>
   <div class="gc-games">
+    <!-- 五子棋竞技：capability-gated，未就绪整块隐藏 -->
+    <section v-if="props.gomokuCompetitiveEnabled" class="gc-competitive" data-section="gomoku-competitive">
+      <strong class="gc-competitive__title">{{ t('gameCenter.games.competitiveTitle') }}</strong>
+      <span class="gc-competitive__desc">{{ t('gameCenter.games.competitiveBody') }}</span>
+      <button
+        class="gc-competitive__action"
+        type="button"
+        @click="emit('open-game', COMPETITIVE_GOMOKU_MODULE_ID)"
+      >
+        {{ t('gameCenter.games.competitiveAction') }}
+      </button>
+    </section>
+
     <p class="gc-games__hint">{{ t('gameCenter.games.hint') }}</p>
     <div class="gc-games__grid">
       <button
@@ -106,5 +126,38 @@ const { t } = useI18n()
   margin-top: 4px;
   font-size: calc(11px * var(--ui-font-scale, 1));
   color: var(--ui-primary, #3b82f6);
+}
+
+.gc-competitive {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: calc(16px * var(--ui-radius-scale, 1));
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.gc-competitive__title {
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--ui-text, #1f2937);
+}
+
+.gc-competitive__desc {
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  color: var(--ui-muted, #64748b);
+}
+
+.gc-competitive__action {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ui-primary, #3b82f6);
+  color: #fff;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
 }
 </style>

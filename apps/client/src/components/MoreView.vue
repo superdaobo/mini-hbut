@@ -20,6 +20,7 @@ import {
   resolveEffectiveGameCenterFlags
 } from '../utils/game_center/flags'
 import { resolveGameRankApiBase } from '../utils/game_center/api'
+import { DEFAULT_GOMOKU_RELAY_API } from '../utils/game_center/base'
 import { consumeGameOpen } from '../utils/game_center/pending_open'
 import {
   buildModuleCenterCards,
@@ -87,8 +88,9 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback
 }
 
-const DEFAULT_GOMOKU_RELAY_API = 'https://mini-hbut-ocr-service.hf.space/api/gomoku-relay'
 // #905：DEFAULT_GAME_RANK_API 与解析逻辑已收敛到 utils/game_center/api（单一默认源，避免两处漂移）
+// #911 P1-⑤：五子棋 relay base 同步收敛到 utils/game_center/base 的环境派生默认源
+// （原硬编码生产域会让非 release 构建的 relay 与 V2 跨环境，席位凭证验签必失败）
 
 const CONTEXT_AWARE_GAME_MODULE_IDS = new Set([
   'hecheng_hugongda',
@@ -254,9 +256,14 @@ const appendModuleContextQuery = (
     url.searchParams.set('class_name', safeText(profile.class_name))
     url.searchParams.set('major', safeText(profile.major))
     url.searchParams.set('school_name', safeText(profile.school_name))
-    url.searchParams.set('rank_api', resolveGameRankApi())
+    // #911 P1-⑤：无环境兼容的 base 时**不注入**该参数（而不是注入空值）。
+    // 注入空值会被游戏侧 pickText 判为缺省 → 回落 localStorage 里的历史值，
+    // 等于重新打开「已落盘的测试域」这条通道；不注入则 SDK 判定未配置 → standalone。
+    const rankApiBase = resolveGameRankApi()
+    if (rankApiBase) url.searchParams.set('rank_api', rankApiBase)
     if (moduleId === 'hbut_gomoku') {
-      url.searchParams.set('gomoku_api', resolveGomokuRelayApi())
+      const gomokuRelayApi = resolveGomokuRelayApi()
+      if (gomokuRelayApi) url.searchParams.set('gomoku_api', gomokuRelayApi)
     }
     return url.toString()
   } catch {
