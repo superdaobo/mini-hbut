@@ -26,6 +26,7 @@ import GameCenterDriftTab from './game-center/GameCenterDriftTab.vue'
 import GameCenterMeTab from './game-center/GameCenterMeTab.vue'
 import GameCenterNotice from './game-center/GameCenterNotice.vue'
 import { useI18n } from '../utils/app_i18n'
+import { useAuthStore } from '../stores'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
 import { buildModuleCenterCards, normalizeModuleCenterChannel } from '../utils/module_center.js'
 import { getLocalModuleState, resolveModuleChannel } from '../utils/more_modules.js'
@@ -56,6 +57,15 @@ const emit = defineEmits(['back', 'navigate'])
 
 const { t } = useI18n()
 
+/**
+ * 契约 D（身份收紧与游客态）：游戏身份以「会话是否已确认（verified）」为唯一前提。
+ * 事实源是认证状态层的 `sessionVerified`（见 stores/auth.ts，由 SessionCoordinator 在
+ * 会话建立 / 恢复成功时维护），**不得**用 `studentId` 非空代替 —— 后者可能是 #355 的
+ * 离线缓存身份（冷启动只恢复了「上次是谁」）。未确认（离线冷启 / 恢复中）⇒ 游客态。
+ */
+const authStore = useAuthStore()
+const sessionVerified = computed(() => authStore.sessionVerified === true)
+
 const DEFAULT_FLAGS = {
   ...DEFAULT_GAME_CENTER_FLAGS,
   api_base: '',
@@ -73,6 +83,16 @@ const activeTab = ref('home')
 const games = ref([])
 const selectedGameId = ref(GAME_CENTER_GAME_IDS[0])
 const profile = ref({ name: '', className: '', schoolName: '' })
+
+/**
+ * 契约 D：会话未确认 ⇒ 空档案（游客态），**不展示上一用户姓名 / 班级**；
+ * 会话确认后才按 #948 的归属校验合并缓存（`stored.studentId === sid`）。
+ * 会话恢复成功（cached_offline → online）后 watch 自动补齐展示。
+ */
+const refreshProfile = () => {
+  profile.value = readCachedPlayerProfile(props.studentId, GAME_CENTER_GAME_IDS, sessionVerified.value)
+}
+watch([() => props.studentId, sessionVerified], refreshProfile, { immediate: true })
 const classicBoard = ref(null)
 const boardLoading = ref(false)
 const boardError = ref('')
@@ -241,14 +261,15 @@ const loadClassicBoard = async () => {
     const payload = await fetchClassicLeaderboard({
       gameId: selectedGameId.value,
       scope: className ? 'class' : 'school',
-      studentId: safeText(props.studentId),
+      // 契约 D：游客态（会话未确认）不把缓存学号当作「当前用户」查询 / 高亮榜单
+      studentId: sessionVerified.value ? safeText(props.studentId) : '',
       className,
       schoolName: safeText(profile.value.schoolName) || '湖北工业大学',
       limit: 20
     })
     classicBoard.value = normalizeLegacyLeaderboard(payload, {
       gameId: selectedGameId.value,
-      selfStudentId: safeText(props.studentId),
+      selfStudentId: sessionVerified.value ? safeText(props.studentId) : '',
       selfPlayerName: safeText(profile.value.name)
     })
   } catch (error) {
@@ -332,7 +353,7 @@ watch(activeTab, (next) => {
 })
 
 onMounted(async () => {
-  profile.value = readCachedPlayerProfile(props.studentId, GAME_CENTER_GAME_IDS)
+  // profile 由 refreshProfile（会话确认状态 / 学号变化的 watch）负责，这里不再直接读取缓存
   // 先用本地渠道把游戏列表渲染出来（不阻塞首屏），再拉远程配置更新能力开关
   await loadGames()
   void (async () => {

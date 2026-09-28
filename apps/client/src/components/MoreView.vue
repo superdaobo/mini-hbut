@@ -29,6 +29,8 @@ import {
 } from '../utils/module_center.js'
 import { trackModuleOpen } from '../utils/usage_tracker.js'
 import { useLocale } from '../utils/app_i18n'
+import { useAuthStore } from '../stores'
+import { reconcileGameIdentityOnBoot } from '../utils/api.js'
 
 const { t } = useLocale()
 
@@ -77,6 +79,14 @@ const gameCenterEntryVisible = computed(
 const classicEntriesVisible = computed(() => gameCenterFlags.value.classic_game_entries_visible)
 
 const safeText = (value) => String(value ?? '').trim()
+
+/**
+ * 契约 D（身份收紧与游客态）：游戏模块身份注入以「会话是否已确认（verified）」为唯一前提。
+ * 事实源是认证状态层的 `sessionVerified`（见 stores/auth.ts），**不得**用 `studentId` 非空
+ * 代替 —— 离线冷启时它可能只是 #355 的离线缓存身份（上一用户落盘）。
+ */
+const authStore = useAuthStore()
+const sessionVerified = computed(() => authStore.sessionVerified === true)
 const safeParseJson = (raw, fallback = null) => {
   try {
     return JSON.parse(raw || '')
@@ -254,7 +264,9 @@ const appendModuleContextQuery = (
     url.searchParams.set('runtime', safeText(runtimeTag) || 'module-host')
     // P0：身份字段**非空才注入**（实现见 utils/game_center/profile.appendIdentityQueryParams）——
     // 未登录 / 字段缺失时宿主不再输出任何上一用户字段，也不输出空值形态的身份参数。
-    appendIdentityQueryParams(url, profile)
+    // 契约 D：会话未确认（离线冷启 / 恢复中）⇒ 一律不注入身份，即使缓存里仍有上一用户的
+    // 学号 / 姓名 / 班级（`studentId` 的缓存身份不得用于游戏身份）。
+    appendIdentityQueryParams(url, profile, sessionVerified.value)
     // #911 P1-⑤：无环境兼容的 base 时**不注入**该参数（而不是注入空值）。
     // 注入空值会被游戏侧 pickText 判为缺省 → 回落 localStorage 里的历史值，
     // 等于重新打开「已落盘的测试域」这条通道；不注入则 SDK 判定未配置 → standalone。
@@ -511,6 +523,11 @@ const handleOpenInternalModule = (moduleItem) => {
 const handleOpenRemoteModule = async (moduleItem) => {
   const moduleId = safeText(moduleItem?.id)
   if (!moduleId) return
+  // 契约 D：会话未确认 ⇒ 游客态。游戏模块会从 localStorage 回落读取设备级身份快照
+  // （`<gameId>_rank_context_v1`，含上一用户学号 + rank_api）；打开前按启动收口**同一路径**
+  // 清理（幂等：有确认会话零动作、无身份键零删除），保证「模块侧拿不到任何学号 →
+  // game_rank.js / SDK 判定不可提交、零 fetch」。本地游玩不受影响（不阻断打开）。
+  if (!sessionVerified.value) reconcileGameIdentityOnBoot(false, '')
   const profile = moduleId === 'hecheng_hugongda' ? await ensureStudentProfile() : readCachedStudentProfile()
 
   if (!safeText(moduleItem?.manifest_url)) {

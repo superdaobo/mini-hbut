@@ -32,6 +32,11 @@ import { createFetchRouter } from './_sdk_test_harness'
  * 是本次新增导出，修复前不存在，因此对新导出用**动态 import + 类型断言**访问（修复前测试文件仍能
  * 加载并逐条断言失败，而不是整文件因缺导出而报错）——与 `hbut_gomoku_relay_rebind_contract.spec.ts`
  * 同一写法。
+ *
+ * 契约 D（第十轮 Phase 0）叠加（不删除既有语义）：`readCachedPlayerProfile` /
+ * `appendIdentityQueryParams` 增加「会话是否已确认」参数（fail-closed，默认 false）——本文件中
+ * 需要「有会话」语义的用例显式传 `true`（有会话 = 会话已确认）；无会话 / 游客态语义与断言保持
+ * 不变。契约 D 的游客态端到端、单一事实源与接线护栏见 `game_center_guest_identity.spec.ts`。
  */
 
 const PREVIOUS_SID = '20240001'
@@ -125,7 +130,7 @@ const loadApiModule = async (): Promise<Record<string, any>> =>
 const requireAppendIdentityQueryParams = async () => {
   const mod = await loadProfileModule()
   const fn = mod.appendIdentityQueryParams as
-    | ((url: URL, profile: ModuleContextIdentityProfile) => string[])
+    | ((url: URL, profile: ModuleContextIdentityProfile, sessionVerified?: boolean) => string[])
     | undefined
   expect(typeof fn, 'appendIdentityQueryParams 必须是可用的真实函数（P0-3）').toBe('function')
   return fn!
@@ -151,18 +156,22 @@ const requireReconcileGameIdentityOnBoot = async () => {
  * 宿主模块 URL 的测试替身：**身份部分走真实函数** `appendIdentityQueryParams`
  * （MoreView.appendModuleContextQuery 的注入点），其余按宿主既有语义补 from / runtime / rank_api。
  * 用于端到端模拟「宿主在无会话时打开模块」的最终 URL。
+ *
+ * 契约 D：`sessionVerified` 模拟「当前会话是否已确认」；默认 false（游客态）—— 调用方
+ * 需要「会话已确认」语义时必须显式传 true（不得用学号非空代替）。
  */
 const buildHostModuleSearch = async (options: {
   moduleId: string
   rawUrl: string
   profile: ModuleContextIdentityProfile
   rankApiBase?: string
+  sessionVerified?: boolean
 }) => {
   const appendIdentityQueryParams = await requireAppendIdentityQueryParams()
   const url = new URL(options.rawUrl)
   url.searchParams.set('from', 'mini_hbut')
   url.searchParams.set('runtime', 'remote-site')
-  appendIdentityQueryParams(url, options.profile)
+  appendIdentityQueryParams(url, options.profile, options.sessionVerified === true)
   if (options.rankApiBase) url.searchParams.set('rank_api', options.rankApiBase)
   return url
 }
@@ -256,7 +265,8 @@ describe('P0-1 无会话（学号为空）不得读取/合并任何游戏上下�
 
   it('空白 / null / undefined 学号一律视为无会话（同样不得合并游戏上下文）', () => {
     for (const sid of ['', '   ', null, undefined]) {
-      expect(readCachedPlayerProfile(sid, GAME_CENTER_GAME_IDS)).toEqual({
+      // 契约 D：会话已确认（true）时也必须是「学号空 → 空档案」，与会话状态无关
+      expect(readCachedPlayerProfile(sid, GAME_CENTER_GAME_IDS, true)).toEqual({
         name: '',
         className: '',
         schoolName: ''
@@ -265,14 +275,15 @@ describe('P0-1 无会话（学号为空）不得读取/合并任何游戏上下�
   })
 
   it('有会话时仍按既有语义合并（回归护栏：修复不得扩大到登录态展示）', () => {
-    const profile = readCachedPlayerProfile(PREVIOUS_SID, GAME_CENTER_GAME_IDS)
+    // 契约 D：有会话 = 会话已确认（sessionVerified=true），此时读取面与 #948 逐字一致
+    const profile = readCachedPlayerProfile(PREVIOUS_SID, GAME_CENTER_GAME_IDS, true)
     expect(profile.name).toBe(PREVIOUS_NAME)
     expect(profile.className).toBe(PREVIOUS_CLASS)
   })
 
   it('换号 A→B：以 B 读取的档案不得包含 A 的 name / className（归属校验，F1）', () => {
-    // 落盘上下文仍属于 A（seedPreviousUserIdentity），当前身份是 B
-    const profile = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS)
+    // 落盘上下文仍属于 A（seedPreviousUserIdentity），当前身份是 B（已确认会话）
+    const profile = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS, true)
     expect(profile).toEqual({ name: '', className: '', schoolName: '' })
     expect(JSON.stringify(profile)).not.toContain(PREVIOUS_NAME)
     expect(JSON.stringify(profile)).not.toContain(PREVIOUS_CLASS)
@@ -284,7 +295,7 @@ describe('P0-1 无会话（学号为空）不得读取/合并任何游戏上下�
       'hbut_stack_rank_context_v1',
       JSON.stringify({ studentId: CURRENT_SID, playerName: '当前用户', className: '电气2402' })
     )
-    const owned = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS)
+    const owned = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS, true)
     expect(owned.name).toBe('当前用户')
     expect(owned.className).toBe('电气2402')
 
@@ -293,7 +304,7 @@ describe('P0-1 无会话（学号为空）不得读取/合并任何游戏上下�
       'hbut_miner_rank_context_v1',
       JSON.stringify({ playerName: '无主昵称', className: '无主班级' })
     )
-    const unknownOwner = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS)
+    const unknownOwner = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS, true)
     expect(unknownOwner.name).toBe('当前用户')
     expect(JSON.stringify(unknownOwner)).not.toContain('无主昵称')
     expect(JSON.stringify(unknownOwner)).not.toContain('无主班级')
@@ -315,14 +326,14 @@ describe('P0-3 空身份不注入（appendIdentityQueryParams 非空才注入）
     vi.restoreAllMocks()
   })
 
-  /** 宿主 iframe URL：先有 from/runtime/rank_api，再由真实注入函数处理身份 */
-  const hostUrl = async (profile: Record<string, unknown>) => {
+  /** 宿主 iframe URL：先有 from/runtime/rank_api，再由真实注入函数处理身份（契约 D：默认游客态） */
+  const hostUrl = async (profile: Record<string, unknown>, sessionVerified = false) => {
     const appendIdentityQueryParams = await requireAppendIdentityQueryParams()
     const url = new URL(GAME_URL)
     url.searchParams.set('from', 'mini_hbut')
     url.searchParams.set('runtime', 'remote-site')
     url.searchParams.set('rank_api', RANK_API_BASE)
-    const applied = appendIdentityQueryParams(url, profile)
+    const applied = appendIdentityQueryParams(url, profile, sessionVerified)
     return { url, applied }
   }
 
@@ -347,7 +358,10 @@ describe('P0-3 空身份不注入（appendIdentityQueryParams 非空才注入）
   })
 
   it('部分字段为空 → 只注入非空字段；绝不携带上一用户残值', async () => {
-    const { url, applied } = await hostUrl({ student_id: CURRENT_SID, name: '', class_name: '', major: '' })
+    const { url, applied } = await hostUrl(
+      { student_id: CURRENT_SID, name: '', class_name: '', major: '' },
+      true
+    )
     expect(applied).toEqual(['student_id'])
     expect(url.searchParams.get('student_id')).toBe(CURRENT_SID)
     expect(url.searchParams.has('player_name')).toBe(false)
@@ -362,14 +376,17 @@ describe('P0-3 空身份不注入（appendIdentityQueryParams 非空才注入）
       `${PROFILE_STORAGE_PREFIX}${CURRENT_SID}`,
       JSON.stringify({ name: '当前用户', class_name: '电气2402', school_name: '湖北工业大学' })
     )
-    const profile = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS)
-    const { url, applied } = await hostUrl({
-      student_id: CURRENT_SID,
-      name: profile.name,
-      class_name: profile.className,
-      major: '电气工程',
-      school_name: profile.schoolName
-    })
+    const profile = readCachedPlayerProfile(CURRENT_SID, GAME_CENTER_GAME_IDS, true)
+    const { url, applied } = await hostUrl(
+      {
+        student_id: CURRENT_SID,
+        name: profile.name,
+        class_name: profile.className,
+        major: '电气工程',
+        school_name: profile.schoolName
+      },
+      true
+    )
     expect(applied).toEqual(['student_id', 'player_name', 'class_name', 'major', 'school_name'])
     expect(url.searchParams.get('student_id')).toBe(CURRENT_SID)
     expect(url.searchParams.get('player_name')).toBe('当前用户')
@@ -579,26 +596,37 @@ describe('P0-4 启动期收口：异常终止（强杀/崩溃）后的残留通�
       expect(storage.values.has(key), `${key} 不得被清（有会话）`).toBe(true)
     }
 
-    // 展示语义不变
-    const profile = readCachedPlayerProfile(PREVIOUS_SID, GAME_CENTER_GAME_IDS)
+    // 展示语义不变（契约 D：有会话 = 会话已确认，读取面与 #948 逐字一致）
+    const profile = readCachedPlayerProfile(PREVIOUS_SID, GAME_CENTER_GAME_IDS, true)
     expect(profile.name).toBe(PREVIOUS_NAME)
     expect(profile.className).toBe(PREVIOUS_CLASS)
 
     // 注入语义不变
     const appendIdentityQueryParams = await requireAppendIdentityQueryParams()
     const url = new URL(GAME_URL)
-    const applied = appendIdentityQueryParams(url, {
-      student_id: PREVIOUS_SID,
-      name: profile.name,
-      class_name: profile.className,
-      school_name: profile.schoolName
-    })
+    const applied = appendIdentityQueryParams(
+      url,
+      {
+        student_id: PREVIOUS_SID,
+        name: profile.name,
+        class_name: profile.className,
+        school_name: profile.schoolName
+      },
+      true
+    )
     expect(applied).toContain('student_id')
     expect(url.searchParams.get('student_id')).toBe(PREVIOUS_SID)
     expect(url.searchParams.get('player_name')).toBe(PREVIOUS_NAME)
   })
 
-  it('无会话但保留缓存身份（#355 离线态）→ 零动作（不误伤进行中的会话恢复）', async () => {
+  /**
+   * #948 的函数级豁免：`reconcileGameIdentityOnBoot(false, sid)` 本身仍零动作（函数行为未变）。
+   *
+   * 契约 D 已**覆盖**这条取舍：生产接线（useAppRuntime 的 .finally）只在会话**已确认**时才把
+   * `state.studentId` 交给收口，否则按无身份处理 → 该豁免在游客态不再被走到（见
+   * `game_center_guest_identity.spec.ts` 的接线护栏）。本用例只锁定函数自身的既有行为。
+   */
+  it('无会话但保留缓存身份（#355 离线态）→ 函数自身零动作（接线已在契约 D 收紧）', async () => {
     const reconcileGameIdentityOnBoot = await requireReconcileGameIdentityOnBoot()
     reconcileGameIdentityOnBoot(false, PREVIOUS_SID)
 
@@ -625,7 +653,10 @@ describe('P0-4 启动期收口：异常终止（强杀/崩溃）后的残留通�
     const src = readFileSync(new URL('../app/useAppRuntime.ts', import.meta.url), 'utf8')
 
     expect(src).toContain('sessionRestoreVerified = restored || relogged')
-    expect(src).toContain('reconcileGameIdentityOnBoot(sessionRestoreVerified, state.studentId.value)')
+    // 契约 D：只有会话已确认才把 state.studentId 交给收口；否则按无身份处理
+    // （缓存身份不得豁免清理）——不得回退成无条件传 state.studentId.value。
+    expect(src).toContain('reconcileGameIdentityOnBoot(')
+    expect(src).toContain("sessionRestoreVerified ? state.studentId.value : ''")
     expect(src).toContain('.finally(')
   })
 })
