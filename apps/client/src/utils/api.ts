@@ -316,6 +316,33 @@ export function clearGameIdentityCaches(studentId: unknown): void {
 }
 
 /**
+ * 启动期会话收口：**未确认可用会话且当前无身份**时，清设备级游戏身份键（P0 残留通道补齐）。
+ *
+ * 背景（PRR#2 残留通道）：强杀 / 崩溃后的冷启动**不会经过**登出 / 会话失效 / 换号入口，
+ * 落盘的 `<gameId>_rank_context_v1` 仍是上一用户快照；此时宿主既无会话也无身份
+ * （游乐场展示与 iframe URL 注入都已安全），但游戏模块自身仍会从 localStorage
+ * 回落读取该学号，并在注入了 `rank_api` 的情况下**以其身份提交成绩**。
+ *
+ * 判定条件（缺一不可，必须在会话恢复流程**收口之后**调用）：
+ * - `sessionVerified === true`（恢复 / 自动重登拿到可用会话）→ **零动作**，绝不误伤登录态；
+ * - 当前学号非空（#355 的缓存身份离线态）→ 零动作：宿主会以该身份注入，设备级上下文与
+ *   当前身份同源，清理并不改变归属（「无会话是否可保留缓存身份」属产品决策，不在此函数内定夺）；
+ * - 否则 → `clearGameIdentityCaches('')`：只删设备级共享键，不触碰任何 sid 档案键。
+ *
+ * 幂等：纯删除操作，键不存在时第二次执行零删除、零写入；恢复中状态未定时**不得**调用。
+ */
+export function reconcileGameIdentityOnBoot(sessionVerified: unknown, currentStudentId: unknown): void {
+  if (sessionVerified === true) return
+  if (String(currentStudentId ?? '').trim()) return
+  try {
+    clearGameIdentityCaches('')
+  } catch {
+    // 存储不可用（隐私模式 / 配额异常）不得影响启动链路：本次跳过，下次冷启动重试。
+    console.warn('[Boot] 游戏落盘身份清理失败，将在下次启动重试')
+  }
+}
+
+/**
  * 清除指定学号的教务/课表等用户级缓存（退出登录时调用）。
  *
  * 同时清理该学号的游戏落盘身份（游戏上下文属于设备级共享键，见
