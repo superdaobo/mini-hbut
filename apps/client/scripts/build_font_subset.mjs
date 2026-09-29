@@ -1,148 +1,194 @@
-// Build subset Material Symbols font containing only icons used in source code.
-// Requires: pip install fonttools brotli
+// 生成 Material Symbols 图标子集字体（只保留源码真正用到的 ligature 字形）。
+//
+// 用法：
+//   node scripts/build_font_subset.mjs                  重新扫描源码并生成子集 + manifest
+//   node scripts/build_font_subset.mjs --manifest-only  只根据现有 woff2 刷新 glyph-manifest.json（不改字体）
+//   node scripts/build_font_subset.mjs --check          只校验「源码用到的图标名 ⊆ 字体可渲染名」，缺失则退出码 1
+//
+// 依赖：pip install fonttools brotli（Python 解释器优先取 MINI_HBUT_PYTHON，其次
+// python3 / python / py -3.13）。
+//
+// 字形集合来自 icon_source_scan.mjs 的源码扫描（strong + weak 宽口径），不再维护任何
+// 硬编码名单：硬编码名单正是历史上子集与源码脱节的根因。
 
-import { execSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
-import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { scanIconNames } from './icon_source_scan.mjs'
+import { PYTHON_HELPER_NAME, resolvePythonCommand } from './font_subset_python.mjs'
 
-const WALK_EXTS = ['.vue', '.ts', '.js', '.css', '.rs']
-const SRC_DIR = join(process.cwd(), 'src')
-const FONT_SRC = join(process.cwd(), 'node_modules/material-symbols/material-symbols-outlined.woff2')
-const OUTPUT_DIR = join(process.cwd(), 'public/fonts')
-const OUTPUT_FILE = join(OUTPUT_DIR, 'material-symbols-outlined.subset.woff2')
+const PROJECT_ROOT = process.cwd()
+const SRC_FONT = join(PROJECT_ROOT, 'node_modules/material-symbols/material-symbols-outlined.woff2')
+const OUTPUT_DIR = join(PROJECT_ROOT, 'public/fonts')
+const OUTPUT_FONT = join(OUTPUT_DIR, 'material-symbols-outlined.subset.woff2')
+const MANIFEST_PATH = join(OUTPUT_DIR, 'glyph-manifest.json')
+const PY_HELPER = join(PROJECT_ROOT, 'scripts', PYTHON_HELPER_NAME)
 
-function walk(dir, exts, out = []) {
-  const entries = readdirSync(dir, { withFileTypes: true })
-  for (const e of entries) {
-    const fp = join(dir, e.name)
-    if (e.isDirectory()) { walk(fp, exts, out) }
-    else if (exts.some(x => fp.endsWith(x))) { out.push(fp) }
+/** 与仓库根 website/modules-src 对齐（Worktree 布局下 apps/client 深度固定） */
+const EXTRA_SCAN_ROOTS = [resolve(PROJECT_ROOT, '../../website/modules-src')]
+
+const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
+
+/** 收集本次要交给子集器的图标名：strong 全要，weak 由 Python 侧按源字体过滤 */
+export const collectIconNames = ({ cwd = PROJECT_ROOT } = {}) => {
+  const scanned = scanIconNames({ cwd, extraRoots: EXTRA_SCAN_ROOTS })
+  const requested = new Set([...scanned.strong, ...scanned.weak])
+  return {
+    requested: [...requested].sort(),
+    strong: scanned.strong,
+    weak: scanned.weak,
+    iconKeys: scanned.iconKeys,
+    unresolvedIconKeys: scanned.unresolvedIconKeys
   }
-  return out
 }
 
-function collectIcons() {
-  const files = walk(SRC_DIR, WALK_EXTS)
-  const icons = new Set()
-
-  for (const f of files) {
-    const content = readFileSync(f, 'utf8')
-    // Hardcoded: <span class="material-symbols-outlined ...">ICON</span>（允许空白/换行）
-    for (const m of content.matchAll(
-      /material-symbols-outlined[^>]*>\s*([a-z][a-z0-9_]*)\s*<\/span>/g
-    )) {
-      if (m[1] && !m[1].startsWith('fa-')) icons.add(m[1])
-    }
-    // 三元表达式内图标：? 'download' : 'progress_activity'
-    for (const m of content.matchAll(
-      /material-symbols-outlined[\s\S]{0,120}?\?\s*'([a-z][a-z0-9_]*)'\s*:\s*'([a-z][a-z0-9_]*)'/g
-    )) {
-      if (m[1]) icons.add(m[1])
-      if (m[2]) icons.add(m[2])
-    }
-    // Data-driven: icon: 'ICON'
-    for (const m of content.matchAll(/icon\s*:\s*'([a-z_]+)'/g)) {
-      if (m[1] && !m[1].startsWith('fa-') && m[1].length > 2) icons.add(m[1])
-    }
-    // Icon map values: '任意key': 'ICON_NAME'（如 StudentInfoView 的 iconMap）
-    for (const m of content.matchAll(/'[^']*'\s*:\s*'([a-z][a-z0-9_]*)'/g)) {
-      if (m[1] && !m[1].startsWith('fa-') && m[1].length > 2) icons.add(m[1])
-    }
-    // 动态 iconMap 块（ThemeModuleIcon 等）
-    for (const m of content.matchAll(/iconMap\s*=\s*\{([\s\S]*?)\}/g)) {
-      for (const icon of m[1].matchAll(/:\s*'([a-z][a-z0-9_]*)'/g)) {
-        if (icon[1]) icons.add(icon[1])
-      }
-    }
-  }
-
-  // Weather icons from Rust backend
-  for (const name of ['sunny', 'partly_cloudy_day', 'cloud', 'mist', 'rainy', 'thunderstorm', 'cloudy_snowing']) {
-    icons.add(name)
-  }
-
-  // 学习通预览底栏等常用图标（防止子集过期漏扫）
-  for (const name of [
-    'swap_horiz',
-    'open_in_browser',
-    'progress_activity',
-    'expand_less',
-    'expand_more',
-    'preview',
-    'visibility',
-    'visibility_off',
-    'download',
-    'close',
-    'error',
-    'check',
-    'image',
-    'movie'
-  ]) {
-    icons.add(name)
-  }
-
-  return [...icons].sort()
+const runPython = (args, pythonCommand) => {
+  const [executable, ...prefixArgs] = pythonCommand
+  execFileSync(executable, [...prefixArgs, PY_HELPER, ...args], { stdio: 'inherit', cwd: PROJECT_ROOT })
 }
 
-function run() {
-  if (!statSync(FONT_SRC, { throwIfNoEntry: false })) {
-    console.warn('[font-subset] material-symbols npm package not found. Run npm install first.')
-    return
-  }
-
-  const icons = collectIcons()
-  console.log(`[font-subset] Found ${icons.length} unique icons`)
-
-  mkdirSync(OUTPUT_DIR, { recursive: true })
-
-  const pyScript = join(tmpdir(), `mini-hbut-font-subset-${process.pid}.py`)
-  const pySource = `
-from fontTools.ttLib import TTFont
-from fontTools.subset import Subsetter, Options
-
-font = TTFont(r'''${FONT_SRC.replace(/\\/g, '/')}''')
-text = ${JSON.stringify(icons.join(''))}
-
-options = Options()
-# liga/clig/calt：Material Symbols 用图标名连字渲染（缺了会显示英文 icon name）
-options.layout_features = ['rclt', 'rlig', 'liga', 'clig', 'calt', 'dlig']
-options.drop_tables = ['DSIG', 'fvar', 'gvar', 'STAT', 'avar', 'MVAR']
-options.notdef_outline = True
-options.name_IDs = [1, 2]
-options.name_legacy = True
-options.recalc_bounds = True
-options.recalc_timestamp = False
-
-subsetter = Subsetter(options=options)
-subsetter.populate(text=text)
-subsetter.subset(font)
-
-font.flavor = 'woff2'
-font.save(r'''${OUTPUT_FILE.replace(/\\/g, '/')}''')
-`
-
-  writeFileSync(pyScript, pySource, 'utf8')
+const readManifest = () => {
+  if (!existsSync(MANIFEST_PATH)) return null
   try {
-    execSync(`python "${pyScript}"`, { stdio: 'inherit' })
-  } finally {
-    try {
-      unlinkSync(pyScript)
-    } catch {
-      // 临时脚本清理失败不影响子集产物。
+    return JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** 只校验缺口：源码 strong ⊆ manifest.ligatureNames */
+const checkOnly = () => {
+  const manifest = readManifest()
+  if (!manifest) {
+    console.error('[font-subset] glyph-manifest.json 不存在，先运行 node scripts/build_font_subset.mjs')
+    return 1
+  }
+  const { strong } = collectIconNames()
+  const available = new Set(manifest.ligatureNames || [])
+  const missing = strong.filter((name) => !available.has(name))
+  console.log(`[font-subset] 源码用到 ${strong.length} 个图标名，字体可渲染 ${available.size} 个`)
+  if (missing.length) {
+    console.error(`[font-subset] 缺失 ${missing.length} 个字形：${missing.join(', ')}`)
+    return 1
+  }
+  console.log('[font-subset] 缺口为零')
+  return 0
+}
+
+/** 只刷新 manifest：解析现有字体，不重新生成 */
+const manifestOnly = (pythonCommand) => {
+  if (!existsSync(OUTPUT_FONT)) {
+    console.error(`[font-subset] 字体不存在：${OUTPUT_FONT}`)
+    return 1
+  }
+  const tmp = mkdtempSync(join(tmpdir(), 'mini-hbut-font-manifest-'))
+  const dumpPath = join(tmp, 'font-facts.json')
+  try {
+    runPython(['dump-names', '--font', OUTPUT_FONT, '--output', dumpPath], pythonCommand)
+    const facts = JSON.parse(readFileSync(dumpPath, 'utf8'))
+    const manifest = {
+      schemaVersion: 1,
+      fontFile: 'material-symbols-outlined.subset.woff2',
+      fontSha256: sha256(OUTPUT_FONT),
+      fontBytes: statSync(OUTPUT_FONT).size,
+      glyphCount: facts.glyphCount,
+      cmapChars: facts.cmapChars,
+      ligatureNameCount: facts.ligatureNameCount,
+      ligatureNames: facts.ligatureNames
     }
+    writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    console.log(
+      `[font-subset] manifest 已刷新：${manifest.ligatureNameCount} 个 ligature，` +
+        `${manifest.glyphCount} 个字形，sha256=${manifest.fontSha256.slice(0, 12)}…`
+    )
+    return 0
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+}
+
+/** 重新生成子集字体与 manifest */
+const regenerate = (pythonCommand) => {
+  if (!existsSync(SRC_FONT)) {
+    console.warn('[font-subset] 未找到 material-symbols 源字体，先执行 npm install')
+    return 1
   }
 
-  const size = statSync(OUTPUT_FILE).size
-  const origSize = statSync(FONT_SRC).size
-  console.log(`[font-subset] ${(origSize / 1024 / 1024).toFixed(1)} MB → ${(size / 1024).toFixed(0)} KB (${((1 - size / origSize) * 100).toFixed(0)}% reduction)`)
+  const { requested, strong, weak } = collectIconNames()
+  console.log(`[font-subset] 源码扫描：strong=${strong.length} weak=${weak.length} 合计=${requested.length}`)
+
+  const tmp = mkdtempSync(join(tmpdir(), 'mini-hbut-font-subset-'))
+  const namesPath = join(tmp, 'icon-names.json')
+  const manifestPath = join(tmp, 'font-facts.json')
+  try {
+    writeFileSync(namesPath, JSON.stringify(requested), 'utf8')
+    runPython(
+      [
+        'subset',
+        '--source', SRC_FONT,
+        '--output', OUTPUT_FONT,
+        '--names', namesPath,
+        '--manifest', manifestPath
+      ],
+      pythonCommand
+    )
+
+    const facts = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    const manifest = {
+      schemaVersion: 1,
+      fontFile: 'material-symbols-outlined.subset.woff2',
+      fontSha256: sha256(OUTPUT_FONT),
+      fontBytes: statSync(OUTPUT_FONT).size,
+      glyphCount: facts.glyphCount,
+      cmapChars: facts.cmapChars,
+      ligatureNameCount: facts.ligatureNames.length,
+      ligatureNames: facts.ligatureNames,
+      requestedNameCount: facts.requestedNameCount,
+      missingFromSourceFont: facts.missingFromSourceFont
+    }
+    writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+
+    const srcSize = statSync(SRC_FONT).size
+    console.log(
+      `[font-subset] ${(srcSize / 1024 / 1024).toFixed(1)} MB → ${(manifest.fontBytes / 1024).toFixed(0)} KB ` +
+        `(${manifest.ligatureNameCount} 个 ligature)`
+    )
+
+    const available = new Set(manifest.ligatureNames)
+    const missingStrong = strong.filter((name) => !available.has(name))
+    if (missingStrong.length) {
+      console.error(`[font-subset] 生成后仍缺失 ${missingStrong.length} 个源码图标名：${missingStrong.join(', ')}`)
+      return 1
+    }
+    return 0
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
 }
 
-try {
-  run()
-} catch (e) {
-  console.warn('[font-subset] Failed:', e.message)
-  console.warn('[font-subset] The full Material Symbols font from npm will be used as fallback.')
+const main = () => {
+  const args = process.argv.slice(2)
+  if (args.includes('--check')) return checkOnly()
+
+  const pythonCommand = resolvePythonCommand()
+  if (!pythonCommand) {
+    console.warn('[font-subset] 未找到可用的 Python + fontTools，跳过字体处理')
+    return 1
+  }
+
+  if (args.includes('--manifest-only')) return manifestOnly(pythonCommand)
+  return regenerate(pythonCommand)
 }
 
-export { collectIcons }
+// 作为脚本执行时才跑 main；被 import 时只导出纯函数，方便单测
+const isDirectRun = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('scripts/build_font_subset.mjs')
+if (isDirectRun) {
+  try {
+    process.exitCode = main()
+  } catch (error) {
+    console.error('[font-subset] 失败：', error?.message || error)
+    process.exitCode = 1
+  }
+}
