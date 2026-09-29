@@ -1,11 +1,27 @@
-import { defineConfig } from 'vite'
+import { defineConfig, searchForWorkspaceRoot } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import { TAURI_DEV_VITE_PORT } from './scripts/tauri_dev_port.mjs'
 
 // 读取 package.json 中的版本号
-import { readFileSync } from 'fs'
+import { readFileSync, realpathSync } from 'fs'
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+
+/**
+ * 取「解析软链接后的真实路径」，不存在则返回 ''。
+ *
+ * 为什么需要：worktree 开发时 `node_modules` 常被做成 junction/软链接（指向主仓），
+ * Vite 的 `server.fs` 白名单按 **realpath** 判定 → 其真实路径在 workspace root 之外 →
+ * 字体等资源被拒（**403**），表现为「图标全部丢失」（Font Awesome `fa-solid-900.woff2`）。
+ */
+const resolveRealPathIfExists = (relative: string): string => {
+  try {
+    return realpathSync(path.resolve(process.cwd(), relative)).replace(/\\/g, '/')
+  } catch {
+    return ''
+  }
+}
+
 const buildProfile = process.env.MINI_HBUT_BUILD_PROFILE || 'standard'
 const isReleaseProfile = buildProfile === 'release'
 const isDevFastProfile = buildProfile === 'dev-fast'
@@ -137,6 +153,13 @@ export default defineConfig({
     },
     fs: {
       strict: true,
+      /**
+       * 显式放行 **node_modules 的真实路径**：worktree 开发时 `node_modules` 常被做成 junction/软链接
+       * （指向主仓），Vite 的 `server.fs` 按 realpath 判定 → 真实路径在 workspace root 之外 →
+       * 字体等资源被拒（**403**），表现为「图标全部丢失」（Font Awesome `fa-solid-900.woff2`）。
+       * 此处只追加**解析后的真实 node_modules 目录**，不放宽 `strict`、不整目录放开仓库外路径。
+       */
+      allow: [searchForWorkspaceRoot(process.cwd()), resolveRealPathIfExists('node_modules')].filter(Boolean),
       deny: ['**/website/**', '**/android/**', '**/ios/**', '**/src-tauri/target/**']
     },
     proxy: {
