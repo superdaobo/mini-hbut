@@ -15,7 +15,7 @@
     "deploy:prod": "node scripts/deploy.mjs prod"
   },
   "devDependencies": {
-    "undici": "^8.10.0",
+    "undici": "^8.10.2",
     "vercel": "^58.11.0"
   }
 }
