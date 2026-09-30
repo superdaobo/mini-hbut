@@ -10,6 +10,10 @@
  * 4. 未交付能力由 **feature flag + capability 双层闸门**前置关闭（P1-1）：
  *    flag 表达「产品想不想要」，`/meta.capabilities` 表达「端点是否真的实现」；
  *    两者都成立 UI 才渲染入口（`fetchGamePlatformMeta` 透出保守能力表，见其文档）。
+ * 5. **门面收敛**：#909 积分中心（`points.ts`）的入口函数在文件末尾**转接导出**，
+ *    调用方只认本文件。该域访问层反过来从本文件取传输层，因此形成模块循环 ——
+ *    约束是「域文件不在模块顶层读本文件定义的绑定」：`LOCAL_ERROR_CODES` 因而
+ *    定义在叶子 `base.ts`（此处只转接导出），勿改回。
  */
 
 import { getCloudSyncRuntimeConfig } from '../cloud_sync.js'
@@ -21,6 +25,7 @@ import {
   GAME_PLATFORM_REQUEST_TIMEOUT_MS,
   GAME_RANK_REQUEST_TIMEOUT_MS,
   LEGACY_GAME_RANK_NAMESPACE,
+  LOCAL_ERROR_CODES,
   isSecureGamePlatformUrl
 } from './base'
 import { isStatisticsServiceUrlCompatible } from '../statistics_environment'
@@ -33,7 +38,8 @@ export {
   GAME_PLATFORM_PROTOCOL_VERSION,
   GAME_PLATFORM_REQUEST_TIMEOUT_MS,
   GAME_RANK_REQUEST_TIMEOUT_MS,
-  LEGACY_GAME_RANK_NAMESPACE
+  LEGACY_GAME_RANK_NAMESPACE,
+  LOCAL_ERROR_CODES
 } from './base'
 
 export interface GamePlatformErrorShape {
@@ -71,15 +77,6 @@ export class GamePlatformError extends Error {
     this.envelopeCode = String(options.envelopeCode || '')
   }
 }
-
-/** 客户端本地失败码（非服务端错误码，用于 UI 区分「网络/配置」类降级） */
-export const LOCAL_ERROR_CODES = Object.freeze({
-  transportInsecure: 'LOCAL_TRANSPORT_INSECURE',
-  transportFailed: 'LOCAL_TRANSPORT_FAILED',
-  responseInvalid: 'LOCAL_RESPONSE_INVALID',
-  authMissing: 'LOCAL_AUTH_MISSING',
-  configMissing: 'LOCAL_CONFIG_MISSING'
-})
 
 const safeText = (value: unknown): string => String(value ?? '').trim()
 
@@ -628,3 +625,24 @@ export const fetchClassicLeaderboard = async (
     timeoutMs: GAME_RANK_REQUEST_TIMEOUT_MS
   })
 }
+
+// ---------------------------------------------------------------------------
+// #909 域访问层入口转接（「API 只经 api.ts」惯例，Integration 接线）
+// ---------------------------------------------------------------------------
+
+/**
+ * 积分中心（#909）的入口函数在此**转接导出**：
+ * 调用方只认 `utils/game_center/api.ts` 一个门面，不必知道域访问层文件；
+ * 实现仍留在 `points.ts` 里，本文件不复制任何请求逻辑。
+ *
+ * 注意（集成实测，勿改回局部定义）：`points.ts` 从本文件取传输层，因此这里形成
+ * `api.ts ↔ points.ts` 循环。循环本身可控 —— 条件是**域文件不在模块顶层读取本文件
+ * 定义的绑定**。`LOCAL_ERROR_CODES` 因此已下沉到叶子 `base.ts`；新增跨层常量时
+ * 同样要放在叶子里，否则模块初始化顺序（谁先被 import）会决定成败。
+ */
+export {
+  fetchPointsWallet,
+  fetchPointsDailyTasks,
+  fetchPointsLedger,
+  fetchGlobalXpLeaderboard
+} from './points'

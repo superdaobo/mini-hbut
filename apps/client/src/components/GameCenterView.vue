@@ -7,7 +7,9 @@
  * 关键决策：
  * 1. 能力开关全部来自既有 remote_config 的 `game_platform` 块（见 utils/game_center/flags.ts），
  *    关闭即前置隐藏，不发请求、不出现「可见但必然报错」；
- * 2. 未交付能力：#909（经济/赛季）→ game_economy_enabled / game_verified_session_enabled 默认关；
+ * 2. 能力开关（#909 积分中心 / 每日任务 / 总排行榜已交付，默认仍全关，由远程配置灰度打开）：
+ *    #909 → game_economy_enabled / game_daily_tasks_enabled / game_verified_session_enabled
+ *    （总榜复用 leaderboards 能力闸门）；
  *    #910（漂流瓶）→ drift_bottle_enabled 默认关，且整 Tab 不挂载；
  * 3. **capability-driven（P1-1）**：flag 只表达「产品想不想要」，不能用它决定渲染。
  *    UI 显隐一律是 **flag && /meta.capabilities** 的 AND：
@@ -22,6 +24,8 @@ import { TPageHeader } from './templates'
 import GameCenterHomeTab from './game-center/GameCenterHomeTab.vue'
 import GameCenterGamesTab from './game-center/GameCenterGamesTab.vue'
 import GameCenterRankTab from './game-center/GameCenterRankTab.vue'
+import GameCenterGlobalRankTab from './game-center/GameCenterGlobalRankTab.vue'
+import GameCenterPointsTab from './game-center/GameCenterPointsTab.vue'
 import GameCenterDriftTab from './game-center/GameCenterDriftTab.vue'
 import GameCenterMeTab from './game-center/GameCenterMeTab.vue'
 import GameCenterNotice from './game-center/GameCenterNotice.vue'
@@ -144,13 +148,28 @@ const requiresCapabilities = computed(
     flags.value.verified_reward_enabled === true
 )
 
-/** 五个 Tab；漂流瓶未交付时**整项不出现**（feature-gate 隐藏而非可见后报错） */
+/**
+ * 七个 Tab（#909 积分中心 / 总排行榜交付后）。
+ *
+ * 顺序：home / games / rank / globalRank / points / [drift] / me
+ * - `globalRank`（总榜，#909）紧邻 `rank`：与单游戏榜同属「榜单」心智，不插到 `me` 之后；
+ * - `points`（积分中心，#909）紧随其后：等级 / 湖工币 / 每日任务；经济**或**每日任务任一可用即出现
+ *   （每日任务单独灰度时，积分中心仍需展示任务进度，但钱包区块由 walletEnabled 单独闸门控制）；
+ * - `drift`（漂流瓶，#910）双层闸门未就绪（flag 关 / UGC 策略夹紧 / 端点未实现）时**整项不出现**
+ *   （feature-gate 隐藏而非可见后报错）。
+ */
 const tabs = computed(() => {
   const list = [
     { key: 'home', label: t('gameCenter.tabs.home'), icon: '🏠' },
     { key: 'games', label: t('gameCenter.tabs.games'), icon: '🎮' },
     { key: 'rank', label: t('gameCenter.tabs.rank'), icon: '🏆' }
   ]
+  if (verifiedEnabled.value) {
+    list.push({ key: 'globalRank', label: t('gameCenter.tabs.globalRank'), icon: '🌍' })
+  }
+  if (economyEnabled.value || dailyTasksEnabled.value) {
+    list.push({ key: 'points', label: t('gameCenter.tabs.points'), icon: '💰' })
+  }
   if (driftEnabled.value) {
     list.push({ key: 'drift', label: t('gameCenter.tabs.drift'), icon: '🍾' })
   }
@@ -432,6 +451,17 @@ onMounted(async () => {
           :verified-error="verifiedError"
           @select-game="handleSelectGame"
           @retry="handleRetry"
+        />
+        <GameCenterGlobalRankTab
+          v-else-if="activeTab === 'globalRank'"
+          :api-base="flags.api_base"
+          :leaderboards-enabled="verifiedEnabled"
+        />
+        <GameCenterPointsTab
+          v-else-if="activeTab === 'points'"
+          :api-base="flags.api_base"
+          :wallet-enabled="economyEnabled"
+          :daily-tasks-enabled="dailyTasksEnabled"
         />
         <GameCenterDriftTab v-else-if="activeTab === 'drift' && driftEnabled" />
         <GameCenterMeTab
