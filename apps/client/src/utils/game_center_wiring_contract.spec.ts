@@ -222,4 +222,30 @@ describe('game center 接线契约（#905）', () => {
       expect(flagsSource).toContain(key)
     }
   })
+
+  it('Integration 接线（#909）：积分中心 / 总排行榜 Tab 与可见条件', () => {
+    const view = read('src/components/GameCenterView.vue')
+    // Tab 项存在，且位置在 rank 之后、me 之前（不插到 me 之后）
+    expect(view).toContain("{ key: 'globalRank', label: t('gameCenter.tabs.globalRank')")
+    expect(view).toContain("{ key: 'points', label: t('gameCenter.tabs.points')")
+    const tankIndex = view.indexOf("{ key: 'rank'")
+    const globalRankIndex = view.indexOf("{ key: 'globalRank'")
+    const pointsIndex = view.indexOf("{ key: 'points'")
+    const meIndex = view.indexOf("{ key: 'me'")
+    expect(tankIndex).toBeGreaterThan(-1)
+    expect(tankIndex).toBeLessThan(globalRankIndex)
+    expect(globalRankIndex).toBeLessThan(pointsIndex)
+    expect(pointsIndex).toBeLessThan(meIndex)
+    // 可见条件：总榜 = 榜单双闸门；积分 = 经济 OR 每日任务任一可用
+    expect(view).toMatch(/if \(verifiedEnabled\.value\) \{[\s\S]{0,120}'globalRank'/)
+    expect(view).toMatch(/if \(economyEnabled\.value \|\| dailyTasksEnabled\.value\) \{[\s\S]{0,200}'points'/)
+    // 组件挂载 + props 与 defineProps 一一对应
+    expect(view).toContain("v-else-if=\"activeTab === 'globalRank'\"")
+    expect(view).toContain(':leaderboards-enabled="verifiedEnabled"')
+    expect(view).toContain("v-else-if=\"activeTab === 'points'\"")
+    expect(view).toContain(':wallet-enabled="economyEnabled"')
+    expect(view).toContain(':daily-tasks-enabled="dailyTasksEnabled"')
+    expect(view).toContain("import GameCenterPointsTab from './game-center/GameCenterPointsTab.vue'")
+    expect(view).toContain("import GameCenterGlobalRankTab from './game-center/GameCenterGlobalRankTab.vue'")
+  })
 })

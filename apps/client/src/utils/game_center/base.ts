@@ -6,6 +6,10 @@
  * 1. Game Platform / Legacy 命名空间与默认源（与既有 MoreView 的 game-rank 默认源一致）；
  * 2. 「HTTPS 优先」传输判定（HTTPS 或 loopback http）与 origin 归一化；
  * 3. `game_platform` 远程配置块的结构归一化 + 八个 feature flag 的默认值。
+ *
+ * #909 集成追加第 4 件事：客户端本地错误码表 `LOCAL_ERROR_CODES`（叶子化，
+ * 见其定义处的注释 —— 避免 api.ts ↔ points.ts 转接导出循环在模块
+ * 初始化期读到未初始化绑定）。本文件仍是**零 game_center 内部依赖**的叶子。
  */
 
 import { STATISTICS_SERVICE_BASE_URL } from '../statistics_environment'
@@ -55,6 +59,29 @@ export const GAME_PLATFORM_REQUEST_TIMEOUT_MS = 12000
 
 /** Legacy 排行榜查询超时（公开榜，读取更快失败更快） */
 export const GAME_RANK_REQUEST_TIMEOUT_MS = 8000
+
+// ---------------------------------------------------------------------------
+// 错误模型：客户端本地失败码（#909 Integration 下沉到叶子基座）
+// ---------------------------------------------------------------------------
+
+/**
+ * 客户端本地失败码（非服务端错误码，用于 UI 区分「网络 / 配置 / 凭据」类降级）。
+ *
+ * **为什么定义在叶子基座而不是 `api.ts`**（#909 集成实测结论，不是风格偏好）：
+ * 积分域访问层（`points.ts`）在**模块顶层**读本表（如
+ * `POINTS_AUTH_ERROR_CODES` 取 `LOCAL_ERROR_CODES.authMissing`），而它同时从 `api.ts`
+ * 取传输层；`api.ts` 又要按「API 只经 api.ts」的惯例把域访问层的入口**转接导出**，
+ * 于是形成 `api.ts ↔ points.ts` 循环。循环下模块求值顺序取决于「谁先被 import」，
+ * 顶层读取会拿到 `undefined`（实测：`TypeError: Cannot access 'authMissing'`，整测试文件挂掉）。
+ * 本表无任何依赖，放在叶子里即可保证**两种求值顺序下绑定都已初始化**。
+ */
+export const LOCAL_ERROR_CODES = Object.freeze({
+  transportInsecure: 'LOCAL_TRANSPORT_INSECURE',
+  transportFailed: 'LOCAL_TRANSPORT_FAILED',
+  responseInvalid: 'LOCAL_RESPONSE_INVALID',
+  authMissing: 'LOCAL_AUTH_MISSING',
+  configMissing: 'LOCAL_CONFIG_MISSING'
+})
 
 /**
  * Production Readiness P1 收口（W3 接线完成）由服务端新增的三个 flag（客户端侧 key 单一来源）。
