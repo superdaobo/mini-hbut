@@ -7,10 +7,10 @@
  * 关键决策：
  * 1. 能力开关全部来自既有 remote_config 的 `game_platform` 块（见 utils/game_center/flags.ts），
  *    关闭即前置隐藏，不发请求、不出现「可见但必然报错」；
- * 2. 能力开关（#909 积分中心 / 每日任务 / 总排行榜已交付，默认仍全关，由远程配置灰度打开）：
- *    #909 → game_economy_enabled / game_daily_tasks_enabled / game_verified_session_enabled
- *    （总榜复用 leaderboards 能力闸门）；
- *    #910（漂流瓶）→ drift_bottle_enabled 默认关，且整 Tab 不挂载；
+ * 2. 能力开关（#909 / #910 已交付，默认仍全关，由远程配置灰度打开）：
+ *    #909 积分中心 / 每日任务 / 总排行榜 → game_economy_enabled / game_daily_tasks_enabled /
+ *    game_verified_session_enabled（总榜复用 leaderboards 能力闸门）；
+ *    #910 漂流瓶 → drift_bottle_enabled；关闭时相关 Tab **整项不挂载**；
  * 3. **capability-driven（P1-1）**：flag 只表达「产品想不想要」，不能用它决定渲染。
  *    UI 显隐一律是 **flag && /meta.capabilities** 的 AND：
  *    拿不到 /meta 或字段缺失 → capabilities 保守 false → 相关入口前置隐藏、不发请求，
@@ -52,6 +52,7 @@ import {
   normalizeGamePlatformLeaderboard,
   normalizeLegacyLeaderboard
 } from '../utils/game_center/leaderboard'
+import { consumeGameCenterTab } from '../utils/game_center/quick_entries'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -149,7 +150,7 @@ const requiresCapabilities = computed(
 )
 
 /**
- * 七个 Tab（#909 积分中心 / 总排行榜交付后）。
+ * 七个 Tab（#909 / #910 集成后）。
  *
  * 顺序：home / games / rank / globalRank / points / [drift] / me
  * - `globalRank`（总榜，#909）紧邻 `rank`：与单游戏榜同属「榜单」心智，不插到 `me` 之后；
@@ -381,12 +382,21 @@ onMounted(async () => {
     } catch {
       applyFlags(null)
     }
+    // #910「更多」页快捷入口的一次性 Tab 意图：在 flags 就绪后立即**消费一次**
+    // （consume 即清空，历史恢复 / 二次进入不会重复跳 Tab）。落位推迟到能力表就绪之后，
+    // 因为 `points` / `globalRank` / `drift` 三个 Tab 是否存在取决于双层闸门结果。
+    const requestedTab = consumeGameCenterTab()
     // 紧急回滚：开关关闭时不再停留（深链 / 历史恢复也能收敛回「更多」页）
     if (flags.value.game_center_enabled !== true) {
       emit('navigate', 'more')
       return
     }
     await refreshPlatformAvailability()
+    // 落位守卫：目标 Tab 必须真实存在（Tab 不可用 / 请求越权时保持默认首页，
+    // 绝不把用户带到一个渲染不出来的页面 —— 这就是「点了不会报错」的兜底）
+    if (requestedTab && tabs.value.some((tab) => tab.key === requestedTab)) {
+      activeTab.value = requestedTab
+    }
     if (activeTab.value === 'rank' || activeTab.value === 'me') await loadBoards()
   })()
 })
@@ -463,7 +473,7 @@ onMounted(async () => {
           :wallet-enabled="economyEnabled"
           :daily-tasks-enabled="dailyTasksEnabled"
         />
-        <GameCenterDriftTab v-else-if="activeTab === 'drift' && driftEnabled" />
+        <GameCenterDriftTab v-else-if="activeTab === 'drift' && driftEnabled" :api-base="flags.api_base" />
         <GameCenterMeTab
           v-else-if="activeTab === 'me'"
           :profile="profile"

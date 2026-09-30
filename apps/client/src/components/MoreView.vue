@@ -27,6 +27,7 @@ import {
 } from '../utils/game_center/module_context'
 import { DEFAULT_GOMOKU_RELAY_API } from '../utils/game_center/base'
 import { consumeGameOpen } from '../utils/game_center/pending_open'
+import GameCenterQuickEntries from './game-center/GameCenterQuickEntries.vue'
 import {
   buildModuleCenterCards,
   normalizeModuleCenterChannel as normalizeChannel
@@ -859,6 +860,19 @@ const ensureModuleCardsReady = async () => {
           <span aria-hidden="true">›</span>
         </span>
       </button>
+
+      <!--
+        #910 游乐场快捷入口：积分中心 / 总排行榜 / 漂流瓶 / 全部游戏。
+        独立 section（组件自带标题与 2×2 卡片网格）：
+        - 只读 flags 并派发既有 `openGameCenter`（内部受 isViewAllowed 门禁），不复制模块打开状态机；
+        - flags 全关 / 未就绪时组件渲染为空（内部 v-if="entries.length"），不产生空白占位；
+        - 经典 11 个游戏入口与旧版路径完全不受影响（本块在折叠区之前，不触碰 moduleCards）。
+      -->
+      <GameCenterQuickEntries
+        v-if="gameCenterEntryVisible"
+        :flags="gameCenterFlags"
+        @open="openGameCenter"
+      />
 
       <!-- 经典游戏入口：可折叠，默认收起但功能与旧版完全一致（零破坏） -->
       <section v-if="classicEntriesVisible" class="classic-games">

@@ -7,8 +7,8 @@
  * 2. 「HTTPS 优先」传输判定（HTTPS 或 loopback http）与 origin 归一化；
  * 3. `game_platform` 远程配置块的结构归一化 + 八个 feature flag 的默认值。
  *
- * #909 集成追加第 4 件事：客户端本地错误码表 `LOCAL_ERROR_CODES`（叶子化，
- * 见其定义处的注释 —— 避免 api.ts ↔ points.ts 转接导出循环在模块
+ * #909/#910 集成追加第 4 件事：客户端本地错误码表 `LOCAL_ERROR_CODES`（叶子化，
+ * 见其定义处的注释 —— 避免 api.ts ↔ points.ts / drift.ts 转接导出循环在模块
  * 初始化期读到未初始化绑定）。本文件仍是**零 game_center 内部依赖**的叶子。
  */
 
@@ -61,16 +61,16 @@ export const GAME_PLATFORM_REQUEST_TIMEOUT_MS = 12000
 export const GAME_RANK_REQUEST_TIMEOUT_MS = 8000
 
 // ---------------------------------------------------------------------------
-// 错误模型：客户端本地失败码（#909 Integration 下沉到叶子基座）
+// 错误模型：客户端本地失败码（#909/#910 Integration 下沉到叶子基座）
 // ---------------------------------------------------------------------------
 
 /**
  * 客户端本地失败码（非服务端错误码，用于 UI 区分「网络 / 配置 / 凭据」类降级）。
  *
- * **为什么定义在叶子基座而不是 `api.ts`**（#909 集成实测结论，不是风格偏好）：
- * 积分域访问层（`points.ts`）在**模块顶层**读本表（如
- * `POINTS_AUTH_ERROR_CODES` 取 `LOCAL_ERROR_CODES.authMissing`），而它同时从 `api.ts`
- * 取传输层；`api.ts` 又要按「API 只经 api.ts」的惯例把域访问层的入口**转接导出**，
+ * **为什么定义在叶子基座而不是 `api.ts`**（#909/#910 集成实测结论，不是风格偏好）：
+ * 各域访问层（`points.ts` / `drift.ts`）在**模块顶层**读本表（如
+ * `POINTS_AUTH_ERROR_CODES` 取 `LOCAL_ERROR_CODES.authMissing`），而它们同时从 `api.ts`
+ * 取传输层；`api.ts` 又要按「API 只经 api.ts」的惯例把两个域访问层的入口**转接导出**，
  * 于是形成 `api.ts ↔ points.ts` 循环。循环下模块求值顺序取决于「谁先被 import」，
  * 顶层读取会拿到 `undefined`（实测：`TypeError: Cannot access 'authMissing'`，整测试文件挂掉）。
  * 本表无任何依赖，放在叶子里即可保证**两种求值顺序下绑定都已初始化**。
