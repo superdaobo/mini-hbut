@@ -1,8 +1,8 @@
 /**
- * `api.ts` 域入口转接契约（#909 Integration 门禁）。
+ * `api.ts` 域入口转接契约（#909 / #910 Integration 门禁）。
  *
  * 三个不可回退的约束：
- * 1. **转接导出存在且同一函数**：`points.ts` 的入口函数必须能从
+ * 1. **转接导出存在且同一函数**：`points.ts` / `drift.ts` 的入口函数必须能从
  *    `utils/game_center/api.ts` 取到（「API 只经 api.ts」惯例），且与域文件里的
  *    是**同一个函数对象**（不是复制实现）；
  * 2. **既有导出零破坏**：转接导出不得挤掉任何既有导出（传输层、能力表、钱包 / 榜单端点）；
@@ -10,19 +10,28 @@
  *    api.ts 先求值 → api.ts ↔ points.ts 循环 → points.ts 顶层先于 api.ts 体执行）。
  *    这就是实测出问题的那条路径（`TypeError: Cannot access 'authMissing'`），
  *    因此把「跨层常量必须放在叶子模块」固化为回归门禁：
- *    `LOCAL_ERROR_CODES` 定义在 `base.ts`，`points.ts` 从叶子取。
+ *    `LOCAL_ERROR_CODES` 定义在 `base.ts`，`points.ts` / `drift.ts` 从叶子取。
  */
 import { describe, expect, it } from 'vitest'
 import * as api from './api'
 import * as points from './points'
+import * as drift from './drift'
 import { LOCAL_ERROR_CODES } from './base'
 
-describe('api.ts 域入口转接（#909）', () => {
+describe('api.ts 域入口转接（#909 / #910）', () => {
   it('积分中心入口已转接，且与 points.ts 是同一函数', () => {
     expect(api.fetchPointsWallet).toBe(points.fetchPointsWallet)
     expect(api.fetchPointsDailyTasks).toBe(points.fetchPointsDailyTasks)
     expect(api.fetchPointsLedger).toBe(points.fetchPointsLedger)
     expect(api.fetchGlobalXpLeaderboard).toBe(points.fetchGlobalXpLeaderboard)
+  })
+
+  it('漂流瓶入口已转接，且与 drift.ts 是同一函数', () => {
+    expect(api.publishDriftBottle).toBe(drift.publishDriftBottle)
+    expect(api.drawRandomDriftBottle).toBe(drift.drawRandomDriftBottle)
+    expect(api.claimDriftBottle).toBe(drift.claimDriftBottle)
+    expect(api.reportDriftBottle).toBe(drift.reportDriftBottle)
+    expect(api.hideDriftBottle).toBe(drift.hideDriftBottle)
   })
 
   it('模块初始化顺序无关：顶层常量在 api.ts 先求值时也已初始化', () => {
@@ -33,6 +42,7 @@ describe('api.ts 域入口转接（#909）', () => {
       'GAME_SESSION_EXPIRED',
       'UNAUTHORIZED'
     ])
+    expect(drift.DRIFT_LOCAL_ERROR_CODES.invalidText).toBe('LOCAL_DRIFT_INVALID_TEXT')
     // 本作用域内 from './api' 取得的本地错误码与叶子定义是同一对象（转接而非复制）
     expect(api.LOCAL_ERROR_CODES).toBe(LOCAL_ERROR_CODES)
     expect(api.LOCAL_ERROR_CODES.authMissing).toBe('LOCAL_AUTH_MISSING')

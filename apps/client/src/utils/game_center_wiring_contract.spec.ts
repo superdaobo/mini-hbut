@@ -90,7 +90,7 @@ describe('game center 接线契约（#905）', () => {
     expect(more).toContain('launch_surface')
   })
 
-  it('GameCenterView 五个 Tab，且未交付能力是 feature-gated 占位', () => {
+  it('GameCenterView 五个 Tab，且未交付能力是 feature-gated（#910 漂流瓶已交付为真实 UI）', () => {
     const view = read('src/components/GameCenterView.vue')
     for (const tab of ['home', 'games', 'rank', 'drift', 'me']) {
       expect(view, `缺少 Tab ${tab}`).toContain(`'${tab}'`)
@@ -100,7 +100,7 @@ describe('game center 接线契约（#905）', () => {
     expect(view).toContain('verifiedEnabled')
     // 紧急回滚：开关关闭时自身收敛回「更多」页（深链 / 历史恢复也能兜住）
     expect(view).toMatch(/game_center_enabled !== true[\s\S]{0,80}emit\('navigate', 'more'\)/)
-    // 未交付 Tab 整块不挂载（而不是可见后报错）
+    // 未交付 / 未声明 Tab 整块不挂载（而不是可见后报错）
     expect(view).toMatch(/activeTab === 'drift' && driftEnabled/)
 
     const home = read('src/components/game-center/GameCenterHomeTab.vue')
@@ -110,8 +110,21 @@ describe('game center 接线契约（#905）', () => {
     expect(rank).toContain('verifiedPlaceholder')
     const me = read('src/components/game-center/GameCenterMeTab.vue')
     expect(me).toContain('economyDisabledNote')
+    // #910 漂流瓶已从占位替换为真实 UI：看守闭环动作锚点与前置闸门（UGC 策略 + 登录态），
+    // 且不得回退成占位文案。
     const drift = read('src/components/game-center/GameCenterDriftTab.vue')
-    expect(drift).toContain('placeholderTitle')
+    expect(drift).not.toContain('placeholderTitle')
+    for (const anchor of [
+      'data-action="draw"',
+      'data-action="publish"',
+      'data-action="claim"',
+      'data-action="report-submit"',
+      'data-action="hide"'
+    ]) {
+      expect(drift, `漂流瓶缺少动作锚点 ${anchor}`).toContain(anchor)
+    }
+    expect(drift).toContain('userGeneratedContent')
+    expect(drift).toContain('gameCenter.drift.guestTitle')
   })
 
   it('视图注册 / 导航 / 预取均已覆盖 game_center', () => {
@@ -247,5 +260,39 @@ describe('game center 接线契约（#905）', () => {
     expect(view).toContain(':daily-tasks-enabled="dailyTasksEnabled"')
     expect(view).toContain("import GameCenterPointsTab from './game-center/GameCenterPointsTab.vue'")
     expect(view).toContain("import GameCenterGlobalRankTab from './game-center/GameCenterGlobalRankTab.vue'")
+  })
+
+  it('Integration 接线（#910）：快捷入口深链落位用一次性意图 + 存在性守卫', () => {
+    const view = read('src/components/GameCenterView.vue')
+    expect(view).toContain("import { consumeGameCenterTab } from '../utils/game_center/quick_entries'")
+    // 一次性消费：只允许一处调用（consume 即清空，二次进入不会重复跳 Tab）
+    expect(view.match(/consumeGameCenterTab\(\)/g)).toHaveLength(1)
+    // 落位必须在能力表就绪（tabs 已按双层闸门算完）之后，并用 tabs 存在性守卫
+    expect(view).toMatch(
+      /await refreshPlatformAvailability\(\)[\s\S]{0,600}requestedTab[\s\S]{0,300}tabs\.value\.some\(\(tab\) => tab\.key === requestedTab\)/
+    )
+    expect(view).toMatch(
+      /requestedTab && tabs\.value\.some\(\(tab\) => tab\.key === requestedTab\)[\s\S]{0,160}activeTab\.value = requestedTab/
+    )
+    // 漂流瓶 Tab 仍按 flag && capability 双层闸门挂载（真实 UI，不是占位）
+    expect(view).toMatch(/activeTab === 'drift' && driftEnabled/)
+    expect(view).toContain(':api-base="flags.api_base"')
+
+    // 「更多」页：快捷入口是新增独立 section，且位于经典游戏折叠区**之前**
+    const more = read('src/components/MoreView.vue')
+    expect(more).toContain("import GameCenterQuickEntries from './game-center/GameCenterQuickEntries.vue'")
+    expect(more).toMatch(/<GameCenterQuickEntries[\s\S]{0,160}:flags="gameCenterFlags"[\s\S]{0,160}@open="openGameCenter"/)
+    // 快捷入口区块的 DOM 锚点由组件自身提供（E2E / 手工回归据此定位）
+    expect(read('src/components/game-center/GameCenterQuickEntries.vue')).toContain(
+      'data-section="game-center-quick-entries"'
+    )
+    const quickIndex = more.indexOf('GameCenterQuickEntries')
+    const classicIndex = more.indexOf('classic-games')
+    expect(quickIndex).toBeGreaterThan(-1)
+    expect(classicIndex).toBeGreaterThan(quickIndex)
+    // 经典入口链路零改动（折叠态 / 开局意图 / 远端 base 解析仍是同一套）
+    expect(more).toContain('classicExpanded')
+    expect(more).toContain('consumeGameOpen')
+    expect(more).toContain('resolveGameRankApiBase')
   })
 })
