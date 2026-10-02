@@ -31,6 +31,8 @@ import {
 } from './base'
 import { canaryRequiresBucket, evaluateGamePlatformCanary } from './canary'
 import { getOrCreateGameInstallId } from './install_id'
+// 统一解析入口：宿主 `api_base` 必须与游戏内 `rank_api` 同源同组（契约 I1，票据同源）
+import { resolveGamePlatformApiBase } from './api'
 
 export {
   DEFAULT_GAME_CENTER_FLAGS,
@@ -125,7 +127,8 @@ export const resolveGameCenterFlags = (
   // 灰度未纳入 ⇒ 等价「块级关闭」：清空 origin 白名单 + 坍缩所有 V2 子 flag（同一条分支）
   const effectiveEnabled = block.enabled && canaryDecision.included
 
-  flags.api_base = block.api_base || DEFAULT_GAME_PLATFORM_API_BASE
+  // 与游戏内 rank_api 同源同组（契约 I1）：走统一候选解析，镜像写入的显式值不破坏兜底
+  flags.api_base = resolveGamePlatformApiBase(block.api_base) || DEFAULT_GAME_PLATFORM_API_BASE
   flags.allowed_game_origins = effectiveEnabled ? [...block.allowed_game_origins] : []
   if (!effectiveEnabled) {
     // 块级总开关关闭 / 灰度未纳入 = 游乐场整体回滚（等价 game_center_enabled=false）；

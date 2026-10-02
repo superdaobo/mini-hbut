@@ -18,6 +18,9 @@
 
 import { getCloudSyncRuntimeConfig } from '../cloud_sync.js'
 import { getIdentityAccessToken } from '../identity_access_token'
+import { REMOTE_CONFIG_SNAPSHOT_KEY } from '../cloud_sync_storage'
+import { markGroupFailed, markGroupSucceeded, orderCandidatesById } from '../backend_failover'
+import { normalizeBackendFailover, type BackendFailoverConfig } from '../backend_endpoints'
 import {
   DEFAULT_GAME_PLATFORM_API_BASE,
   DEFAULT_GAME_RANK_API,
@@ -26,7 +29,9 @@ import {
   GAME_RANK_REQUEST_TIMEOUT_MS,
   LEGACY_GAME_RANK_NAMESPACE,
   LOCAL_ERROR_CODES,
-  isSecureGamePlatformUrl
+  isSecureGamePlatformUrl,
+  resolveGameBackendCandidates,
+  type GameBackendCandidate
 } from './base'
 import { isStatisticsServiceUrlCompatible } from '../statistics_environment'
 
@@ -102,33 +107,55 @@ export const pickEnvironmentCompatibleBase = (candidates: readonly unknown[]): s
   return ''
 }
 
-/**
- * 请求前取 base：不可用即抛出可读错误。
- *
- * 不变量：候选里总含「由构建档位派生的环境默认源」，它对本环境必然兼容，
- * 因此正常情况下不会走到抛错分支 —— 这是**防御性守卫**，用于防止将来有人把默认源
- * 改成空值（fail closed）时静默发出一个相对路径请求。
- */
-const requireBase = (candidates: readonly unknown[], label: string): string => {
-  const base = pickEnvironmentCompatibleBase(candidates)
-  if (!base) {
-    throw new GamePlatformError(LOCAL_ERROR_CODES.configMissing, `${label}未配置（无环境兼容的 API 地址）`, {
-      retryable: false
-    })
+// 注：原先的 `requireBase`（取 base 不可用即抛错）已被 `withGameCandidateFailover` 取代 ——
+// 候选解析统一走 `resolveGameBackendCandidateList`，解析失败时抛 `LOCAL_CONFIG_MISSING`（fail closed）。
+
+const readRemoteConfigSnapshotSafe = (): Record<string, unknown> => {
+  try {
+    const raw = localStorage.getItem(REMOTE_CONFIG_SNAPSHOT_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
   }
-  return base
 }
 
 /**
- * 解析 Game Platform API base：显式覆盖 → 环境默认源。只返回通过 HTTPS 校验的地址。
- * 不可用时返回 `''`（请求前请用 `requireGamePlatformBase`）。
+ * 游戏后端候选组（主 + 兜底）：`apiBase` 与 `rankApi` 同源同组（契约 I1）。
+ * 输入源 = 远程快照的 `backend` / `game_platform` 块 + 云同步运行时端点。
  */
-export const resolveGamePlatformApiBase = (override?: unknown): string =>
-  pickEnvironmentCompatibleBase([override, DEFAULT_GAME_PLATFORM_API_BASE])
+export const resolveGameBackendCandidateList = (
+  gamePlatformApiBaseOverride?: unknown
+): GameBackendCandidate[] => {
+  const snapshot = readRemoteConfigSnapshotSafe()
+  const gamePlatformBlock =
+    snapshot?.game_platform && typeof snapshot.game_platform === 'object'
+      ? (snapshot.game_platform as Record<string, unknown>)
+      : {}
+  let runtime: ReturnType<typeof getCloudSyncRuntimeConfig> | null = null
+  try {
+    runtime = getCloudSyncRuntimeConfig()
+  } catch {
+    runtime = null
+  }
+  const explicit = safeText(gamePlatformApiBaseOverride)
+  return resolveGameBackendCandidates({
+    backend: snapshot?.backend,
+    gamePlatformApiBase: explicit || gamePlatformBlock?.api_base || gamePlatformBlock?.apiBase,
+    includeGroups: runtime?.useRemoteConfig !== false,
+    cloudSyncEndpoint: runtime?.proxyEndpoint || runtime?.endpoint
+  })
+}
 
-/** 同 `resolveGamePlatformApiBase`，但不可用时抛错（供实际发起请求处使用） */
-const requireGamePlatformBase = (override?: unknown): string =>
-  requireBase([override, DEFAULT_GAME_PLATFORM_API_BASE], '游戏平台服务')
+/**
+ * 解析 Game Platform API base（主候选）。只返回通过 HTTPS 与环境兼容校验的地址。
+ * 不可用时返回 `''`（请求前请用 `withGameCandidateFailover`）。
+ */
+export const resolveGamePlatformApiBase = (override?: unknown): string => {
+  const candidates = resolveGameBackendCandidateList(override)
+  return candidates[0]?.apiBase || pickEnvironmentCompatibleBase([DEFAULT_GAME_PLATFORM_API_BASE])
+}
 
 /**
  * 从云同步端点派生 Legacy 排行榜 base。
@@ -155,21 +182,79 @@ export const deriveLegacyRankBaseFromCloudSync = (endpoint: unknown): string => 
  * 都不可用时返回 `''` = 未配置（standalone，不远程提交）。
  */
 export const resolveGameRankApiBase = (): string => {
-  const candidates: unknown[] = []
+  const candidates = resolveGameBackendCandidateList()
+  const fromGroups = candidates[0]?.rankApi
+  if (fromGroups) return fromGroups
+  // 组模型不可用：回退"云同步端点同源派生 → 环境默认源"（保持历史行为）
+  const legacyCandidates: unknown[] = []
   try {
     const runtime = getCloudSyncRuntimeConfig()
     const endpoint = safeText(runtime?.proxyEndpoint || runtime?.endpoint)
-    if (endpoint) candidates.push(deriveLegacyRankBaseFromCloudSync(endpoint))
+    if (endpoint) legacyCandidates.push(deriveLegacyRankBaseFromCloudSync(endpoint))
   } catch {
     // 运行时配置读取失败：交给环境默认源
   }
-  candidates.push(DEFAULT_GAME_RANK_API)
-  return pickEnvironmentCompatibleBase(candidates)
+  legacyCandidates.push(DEFAULT_GAME_RANK_API)
+  return pickEnvironmentCompatibleBase(legacyCandidates)
 }
 
-/** 同 `resolveGameRankApiBase`，但不可用时抛错（供实际发起请求处使用） */
-const requireGameRankBase = (override?: unknown): string =>
-  requireBase([safeText(override), resolveGameRankApiBase()], '经典排行榜服务')
+/**
+ * 是否应触发跨组故障转移（契约 §6.1/§6.2）：
+ * - 网络错误 / 超时（`LOCAL_TRANSPORT_FAILED`）与 5xx → 是；
+ * - 4xx、配置错误、凭据缺失、响应非法 → 否（服务活着或属调用方问题）。
+ */
+const isGameFailoverWorthy = (error: unknown): boolean => {
+  if (!(error instanceof GamePlatformError)) return false
+  if (error.httpStatus >= 400) return error.httpStatus >= 500
+  return error.code === LOCAL_ERROR_CODES.transportFailed
+}
+
+const resolveGameFailoverConfig = (): BackendFailoverConfig => {
+  const snapshot = readRemoteConfigSnapshotSafe()
+  const backend =
+    snapshot?.backend && typeof snapshot.backend === 'object'
+      ? (snapshot.backend as Record<string, unknown>)
+      : undefined
+  return normalizeBackendFailover(backend?.failover)
+}
+
+/**
+ * 在候选组上执行请求（契约 §6.4：仅幂等请求跨组重试 —— ticket 带 Idempotency-Key、
+ * 其余为只读查询）。5xx / 网络错误 / 超时触发切换并冷却该组；4xx 与业务错误直接上抛。
+ * `apiBaseOverride` 与主候选相同时仍使用完整候选列表（保留兜底能力）。
+ */
+const withGameCandidateFailover = async <T>(
+  run: (candidate: GameBackendCandidate) => Promise<T>,
+  apiBaseOverride?: unknown
+): Promise<T> => {
+  const candidates = resolveGameBackendCandidateList(apiBaseOverride)
+  if (candidates.length === 0) {
+    throw new GamePlatformError(
+      LOCAL_ERROR_CODES.configMissing,
+      '游戏服务未配置（无环境兼容的 API 地址）',
+      { retryable: false }
+    )
+  }
+  const failover = resolveGameFailoverConfig()
+  const order = orderCandidatesById(candidates, (candidate) => candidate.failoverKey, failover)
+  let lastError: unknown = null
+  for (const candidate of order) {
+    try {
+      const result = await run(candidate)
+      markGroupSucceeded(candidate.failoverKey)
+      return result
+    } catch (error) {
+      if (!isGameFailoverWorthy(error)) throw error
+      markGroupFailed(candidate.failoverKey, failover)
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new GamePlatformError(LOCAL_ERROR_CODES.transportFailed, '游戏服务不可用', {
+        retryable: true
+      })
+}
 
 interface RequestOptions {
   method?: string
@@ -430,11 +515,14 @@ export const fetchGamePlatformMeta = async (
   apiBase?: string,
   timeoutMs = GAME_PLATFORM_REQUEST_TIMEOUT_MS
 ): Promise<GamePlatformMeta> => {
-  const base = requireGamePlatformBase(apiBase)
-  const payload = await requestGamePlatformJson<Record<string, unknown>>(`${base}/meta`, {
-    headers: gamePlatformHeaders(),
-    timeoutMs
-  })
+  const payload = await withGameCandidateFailover(
+    (candidate) =>
+      requestGamePlatformJson<Record<string, unknown>>(`${candidate.apiBase}/meta`, {
+        headers: gamePlatformHeaders(),
+        timeoutMs
+      }),
+    apiBase
+  )
   const range =
     payload.protocol_version && typeof payload.protocol_version === 'object'
       ? (payload.protocol_version as Record<string, unknown>)
@@ -478,7 +566,6 @@ export const fetchGameLaunchTicket = async (options: {
   idempotencyKey?: string
   timeoutMs?: number
 }): Promise<LaunchTicketResult> => {
-  const base = requireGamePlatformBase(options.apiBase)
   const accessToken = await getIdentityAccessToken()
   if (!accessToken) {
     return {
@@ -491,18 +578,23 @@ export const fetchGameLaunchTicket = async (options: {
   }
   const idempotencyKey = safeText(options.idempotencyKey) || createIdempotencyKey()
   try {
-    const payload = await requestGamePlatformJson<Record<string, unknown>>(`${base}/tickets`, {
-      method: 'POST',
-      headers: gamePlatformHeaders({
-        Authorization: `Bearer ${accessToken}`,
-        'Idempotency-Key': idempotencyKey
-      }),
-      body: {
-        protocol_version: GAME_PLATFORM_PROTOCOL_VERSION,
-        game_id: safeText(options.gameId)
-      },
-      timeoutMs: options.timeoutMs
-    })
+    // 幂等键在候选间复用：跨组重试不会重复签发（服务端按 Idempotency-Key 去重）
+    const payload = await withGameCandidateFailover(
+      (candidate) =>
+        requestGamePlatformJson<Record<string, unknown>>(`${candidate.apiBase}/tickets`, {
+          method: 'POST',
+          headers: gamePlatformHeaders({
+            Authorization: `Bearer ${accessToken}`,
+            'Idempotency-Key': idempotencyKey
+          }),
+          body: {
+            protocol_version: GAME_PLATFORM_PROTOCOL_VERSION,
+            game_id: safeText(options.gameId)
+          },
+          timeoutMs: options.timeoutMs
+        }),
+      options.apiBase
+    )
     return {
       ticket: safeText(payload.ticket),
       expiresAt: safeText(payload.expires_at)
@@ -541,17 +633,20 @@ const authorizedGet = async <T = Record<string, unknown>>(
   apiBase?: string,
   timeoutMs = GAME_PLATFORM_REQUEST_TIMEOUT_MS
 ): Promise<T> => {
-  const base = requireGamePlatformBase(apiBase)
   const accessToken = await getIdentityAccessToken()
   if (!accessToken) {
     throw new GamePlatformError(LOCAL_ERROR_CODES.authMissing, '当前未登录，无法读取游戏数据', {
       retryable: false
     })
   }
-  return requestGamePlatformJson<T>(`${base}${path}`, {
-    headers: gamePlatformHeaders({ Authorization: `Bearer ${accessToken}` }),
-    timeoutMs
-  })
+  return withGameCandidateFailover(
+    (candidate) =>
+      requestGamePlatformJson<T>(`${candidate.apiBase}${path}`, {
+        headers: gamePlatformHeaders({ Authorization: `Bearer ${accessToken}` }),
+        timeoutMs
+      }),
+    apiBase
+  )
 }
 
 /** GET /me/profile：玩家展示快照（#903；未交付时由 feature flag 前置关闭） */
@@ -575,17 +670,23 @@ export interface LeaderboardQuery {
 export const fetchGameLeaderboards = async (
   query: LeaderboardQuery
 ): Promise<Record<string, unknown>> => {
-  const base = requireGamePlatformBase(query.apiBase)
   const params = new URLSearchParams()
   params.set('game_id', safeText(query.gameId))
   params.set('board', safeText(query.board || 'classic'))
   params.set('scope', safeText(query.scope || 'school'))
   params.set('limit', String(Math.min(Math.max(Number(query.limit) || 20, 1), 100)))
   if (safeText(query.cursor)) params.set('cursor', safeText(query.cursor))
-  return requestGamePlatformJson<Record<string, unknown>>(`${base}/leaderboards?${params.toString()}`, {
-    headers: gamePlatformHeaders(),
-    timeoutMs: GAME_PLATFORM_REQUEST_TIMEOUT_MS
-  })
+  return withGameCandidateFailover(
+    (candidate) =>
+      requestGamePlatformJson<Record<string, unknown>>(
+        `${candidate.apiBase}/leaderboards?${params.toString()}`,
+        {
+          headers: gamePlatformHeaders(),
+          timeoutMs: GAME_PLATFORM_REQUEST_TIMEOUT_MS
+        }
+      ),
+    query.apiBase
+  )
 }
 
 export interface ClassicLeaderboardQuery {
@@ -609,7 +710,6 @@ export interface ClassicLeaderboardQuery {
 export const fetchClassicLeaderboard = async (
   query: ClassicLeaderboardQuery
 ): Promise<Record<string, unknown>> => {
-  const base = requireGameRankBase(query.apiBase)
   const params = new URLSearchParams({
     game_id: safeText(query.gameId),
     scope: safeText(query.scope || 'class') || 'class',
@@ -621,9 +721,32 @@ export const fetchClassicLeaderboard = async (
   if (studentId) params.set('student_id', studentId)
   if (className) params.set('class_name', className)
   if (schoolName) params.set('school_name', schoolName)
-  return requestGamePlatformJson<Record<string, unknown>>(`${base}/leaderboard?${params.toString()}`, {
-    timeoutMs: GAME_RANK_REQUEST_TIMEOUT_MS
-  })
+
+  const runOnBase = (base: string): Promise<Record<string, unknown>> =>
+    requestGamePlatformJson<Record<string, unknown>>(`${base}/leaderboard?${params.toString()}`, {
+      timeoutMs: GAME_RANK_REQUEST_TIMEOUT_MS
+    })
+
+  // 显式 rank base：与候选主项相同（镜像）→ 走候选列表保留兜底；否则视为显式锁定
+  const explicitRank = safeText(query.apiBase).replace(/\/+$/, '')
+  const candidates = resolveGameBackendCandidateList()
+  const mirrored =
+    !!explicitRank && candidates.some((candidate) => candidate.rankApi === explicitRank)
+  if (explicitRank && !mirrored) {
+    if (
+      !isSecureGamePlatformUrl(explicitRank) ||
+      !isStatisticsServiceUrlCompatible(explicitRank)
+    ) {
+      throw new GamePlatformError(
+        LOCAL_ERROR_CODES.transportInsecure,
+        '经典排行榜服务地址不安全或与环境不兼容，已拒绝连接',
+        { retryable: false }
+      )
+    }
+    return runOnBase(explicitRank)
+  }
+
+  return withGameCandidateFailover((candidate) => runOnBase(candidate.rankApi))
 }
 
 // ---------------------------------------------------------------------------
