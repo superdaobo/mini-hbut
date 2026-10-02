@@ -49,12 +49,12 @@ const extractHandler = (src: string, name: string) => {
 }
 
 describe('Phase 3 architecture convergence', () => {
-  it('keeps api.ts as the typed cache entry and server_api.ts as the HTTP client entry', () => {
+  it('keeps api.ts as the typed cache entry (server_api.ts 已随两域模型删除)', () => {
     expect(exists('src/utils/api.ts')).toBe(true)
-    expect(exists('src/utils/server_api.ts')).toBe(true)
     expect(exists('src/utils/api.js')).toBe(false)
+    // 2026-10：server_api.ts（硬编码自建机 IP 的死代码）随端点契约 §9 删除
+    expect(exists('src/utils/server_api.ts')).toBe(false)
     expect(utilsReadme).toContain('api.ts')
-    expect(utilsReadme).toContain('server_api.ts')
   })
 
   it('routes grade sync through grade::service::GradeService in both transports', () => {

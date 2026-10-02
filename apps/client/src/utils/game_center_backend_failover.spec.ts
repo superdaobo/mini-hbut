@@ -62,14 +62,14 @@ describe('resolveGameBackendCandidates（契约 §4）', () => {
     const candidates = resolveGameBackendCandidates({
       backend: {
         groups: [
-          { id: 'mini', base: 'https://mini.hbut.site' },
+          { id: 'mini', base: 'https://primary.example.com' },
           { id: 'hf', base: 'https://mirror.example.com' }
         ]
       }
     })
     expect(candidates.map((item) => item.groupId)).toEqual(['mini', 'hf'])
-    expect(candidates[0].apiBase).toBe('https://mini.hbut.site/api/game-platform/v1')
-    expect(candidates[0].rankApi).toBe('https://mini.hbut.site/api/game-rank')
+    expect(candidates[0].apiBase).toBe('https://primary.example.com/api/game-platform/v1')
+    expect(candidates[0].rankApi).toBe('https://primary.example.com/api/game-rank')
     for (const candidate of candidates) {
       expect(originOf(candidate.apiBase)).toBe(originOf(candidate.rankApi))
     }
@@ -78,11 +78,11 @@ describe('resolveGameBackendCandidates（契约 §4）', () => {
   it('组内路径覆盖同时作用于两个通道（保持同源）', () => {
     const candidates = resolveGameBackendCandidates({
       backend: {
-        groups: [{ id: 'mini', base: 'https://mini.hbut.site', paths: { game_platform: '/gp/v1' } }]
+        groups: [{ id: 'mini', base: 'https://primary.example.com', paths: { game_platform: '/gp/v1' } }]
       }
     })
-    expect(candidates[0].apiBase).toBe('https://mini.hbut.site/gp/v1')
-    expect(candidates[0].rankApi).toBe('https://mini.hbut.site/api/game-rank')
+    expect(candidates[0].apiBase).toBe('https://primary.example.com/gp/v1')
+    expect(candidates[0].rankApi).toBe('https://primary.example.com/api/game-rank')
     expect(originOf(candidates[0].apiBase)).toBe(originOf(candidates[0].rankApi))
   })
 
@@ -104,10 +104,10 @@ describe('resolveGameBackendCandidates（契约 §4）', () => {
 
   it('兼容镜像：显式 api_base == 组首项 → 走组模型保留兜底', () => {
     const candidates = resolveGameBackendCandidates({
-      gamePlatformApiBase: 'https://mini.hbut.site/api/game-platform/v1',
+      gamePlatformApiBase: 'https://primary.example.com/api/game-platform/v1',
       backend: {
         groups: [
-          { id: 'mini', base: 'https://mini.hbut.site' },
+          { id: 'mini', base: 'https://primary.example.com' },
           { id: 'hf', base: 'https://mirror.example.com' }
         ]
       }
@@ -118,7 +118,7 @@ describe('resolveGameBackendCandidates（契约 §4）', () => {
   it('非镜像显式 api_base → 锁定单候选，且 rankApi 与其同源', () => {
     const candidates = resolveGameBackendCandidates({
       gamePlatformApiBase: 'https://override.example.com/api/game-platform/v1',
-      backend: { groups: [{ id: 'mini', base: 'https://mini.hbut.site' }] }
+      backend: { groups: [{ id: 'mini', base: 'https://primary.example.com' }] }
     })
     expect(candidates).toHaveLength(1)
     expect(candidates[0].groupId).toBe('override')
@@ -143,7 +143,7 @@ describe('resolveGameBackendCandidates（契约 §4）', () => {
   it('includeGroups=false → 忽略远程组，用环境隔离域', () => {
     const candidates = resolveGameBackendCandidates({
       includeGroups: false,
-      backend: { groups: [{ id: 'mini', base: 'https://mini.hbut.site' }] },
+      backend: { groups: [{ id: 'mini', base: 'https://primary.example.com' }] },
       gamePlatformApiBase: 'https://override.example.com/api/game-platform/v1'
     })
     expect(candidates).toHaveLength(1)

@@ -224,7 +224,7 @@ describe('P1-5 API base 决策链（fail closed）', () => {
     expect(bases.legacySource).toBe('none')
     expect(bases.rankApiInjected).toBe(false)
     expect(bases.v2Source).toBe('env_default')
-    expect(bases.v2Base).toBe('https://mini-hbut-ocr-service.hf.space/api/game-platform/v1')
+    expect(bases.v2Base).toBe('https://mini.hbut.site/api/game-platform/v1')
     // 回归护栏：测试域绝不出现（P1-5 根因）
     expect(bases.v2Base).not.toContain('mini-hbut-testocr1')
     expect(canSubmitLegacyRank({ legacyStudentId: '20240111', rankApiBase: bases.legacyBase })).toBe(false)

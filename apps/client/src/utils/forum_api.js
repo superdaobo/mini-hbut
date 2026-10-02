@@ -3,9 +3,9 @@ import { resolveTestAccountForumResponse } from './test_account_fixtures.js'
 import { encryptData, decryptData } from './encryption.js'
 import { getIdentityAccessToken } from './identity_access_token.js'
 // 后端端点组解析（契约 §4）：论坛通道与云同步/游戏共用同一候选来源
-import { buildChannelEndpointList } from './backend_endpoints'
+import { PRIMARY_BACKEND_ORIGIN, buildChannelEndpointList } from './backend_endpoints'
 
-const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/forum'
+const DEFAULT_FORUM_ENDPOINT = `${PRIMARY_BACKEND_ORIGIN}/api/forum`
 const TOKEN_CACHE_KEY_PREFIX = 'hbu_forum_token:'
 const PROFILE_CACHE_KEY_PREFIX = 'hbu_forum_profile:'
 const ADMIN_SECRET_CACHE_KEY_PREFIX = 'hbu_forum_admin_secret:'

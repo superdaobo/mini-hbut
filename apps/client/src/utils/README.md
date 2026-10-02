@@ -4,12 +4,11 @@
 
 ## 📁 文件说明
 
-### api.ts / server_api.ts
-
-同名入口已收敛：
+### api.ts
 
 - `api.ts`：类型安全的前端 HTTP 缓存层（`fetchWithCache` / `getCachedData` / `setCachedData` / TTL 常量等）。
-- `server_api.ts`：服务器端 OCR / 数据同步配置（`SERVER_API_BASE` / `serverOcrRecognize` / `syncDataToServer`）。
+- `server_api.ts`（历史遗留）已于 2026-10 随两域模型（`docs/architecture/backend-endpoints-contract.md`）删除：
+  该文件硬编码自建机 `http://1.94.167.18:5080`，且无任何业务调用点 —— OCR 请走 `remote_config` 的候选端点与 Rust `http_client`。
 
 ```typescript
 // 示例：带缓存的请求

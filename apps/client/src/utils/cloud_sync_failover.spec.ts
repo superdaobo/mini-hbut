@@ -18,7 +18,6 @@ vi.mock('./identity_access_token.js', () => ({
 vi.setConfig({ testTimeout: 20_000 })
 
 const SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
-const FAILED_KEY = 'hbu_backend_failed_groups_v1'
 
 const createMemoryStorage = (): Storage => {
   const map = new Map<string, string>()

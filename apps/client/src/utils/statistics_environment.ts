@@ -1,5 +1,8 @@
 export type StatisticsEnvironment = 'production' | 'test'
 
+// 生产主域/兜底域的唯一权威（契约 docs/architecture/backend-endpoints-contract.md §9）
+import { FALLBACK_BACKEND_ORIGIN, PRIMARY_BACKEND_ORIGIN } from './backend_endpoints'
+
 const buildProfile = String(import.meta.env.VITE_BUILD_PROFILE || 'standard').trim().toLowerCase()
 
 export const resolveStatisticsEnvironment = (profile: unknown): StatisticsEnvironment =>
@@ -7,8 +10,9 @@ export const resolveStatisticsEnvironment = (profile: unknown): StatisticsEnviro
 
 export const STATISTICS_ENVIRONMENT: StatisticsEnvironment = resolveStatisticsEnvironment(buildProfile)
 
+/** 生产 = mini.hbut.site（主域）；测试 = testocr1（环境隔离，不进生产配置） */
 export const STATISTICS_SERVICE_BASE_URL = STATISTICS_ENVIRONMENT === 'production'
-  ? 'https://mini-hbut-ocr-service.hf.space'
+  ? PRIMARY_BACKEND_ORIGIN
   : 'https://mini-hbut-testocr1.hf.space'
 
 export const STATISTICS_HEALTH_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/health`
@@ -17,8 +21,24 @@ export const STATISTICS_OCR_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/api/ocr/r
 
 export const isProductionStatisticsEnvironment = () => STATISTICS_ENVIRONMENT === 'production'
 
-/** 各环境的已知服务域（**按 hostname 精确匹配**，不得做子串匹配 —— 见下方说明） */
-const PRODUCTION_HOSTS = ['mini-hbut-ocr-service.hf.space', 'superdaobo-ocr-service.hf.space'] as const
+/**
+ * 各环境的已知服务域（**按 hostname 精确匹配**，不得做子串匹配 —— 见下方说明）。
+ *
+ * 生产域集合收敛为两域（契约 §9）：`mini.hbut.site`（主）+ 兜底域。
+ * 历史第三方 OCR 域已下架：不再视为生产域（存量配置在两端环境均放行，不做硬拒绝，
+ * 避免历史用户配置失效）。
+ */
+const hostOf = (origin: string): string => {
+  try {
+    return new URL(origin).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+const PRODUCTION_HOSTS = [hostOf(PRIMARY_BACKEND_ORIGIN), hostOf(FALLBACK_BACKEND_ORIGIN)].filter(
+  Boolean
+)
 const TEST_HOSTS = ['mini-hbut-testocr1.hf.space'] as const
 
 const hostMatches = (hostname: string, host: string): boolean =>

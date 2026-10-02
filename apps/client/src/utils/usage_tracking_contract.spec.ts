@@ -85,15 +85,19 @@ describe('usage tracking contract', () => {
     const devWorkflow = readSource('../../.github/workflows/dev-build.yml')
     const releaseWorkflow = readSource('../../.github/workflows/release.yml')
 
-    expect(remoteDefaults).toContain('mini-hbut-ocr-service.hf.space/api/ocr/recognize')
-    expect(appSettings).toContain('mini-hbut-ocr-service.hf.space/api/cloud-sync')
+    // 两域模型（契约 §9）：主域与兜底域均由 backend_endpoints 的契约常量派生，
+    // 前端不再出现第二处硬编码生产域。
+    expect(remoteDefaults).toContain('PRIMARY_BACKEND_ORIGIN')
+    expect(remoteDefaults).toContain('FALLBACK_BACKEND_ORIGIN')
+    expect(appSettings).toContain('PRIMARY_BACKEND_ORIGIN')
     expect(statisticsEnvironment).toContain('resolveStatisticsEnvironment')
     expect(statisticsEnvironment).toContain("=== 'release' ? 'production' : 'test'")
     expect(statisticsEnvironment).toContain('mini-hbut-testocr1.hf.space')
-    expect(statisticsEnvironment).toContain('mini-hbut-ocr-service.hf.space')
+    expect(statisticsEnvironment).toContain('PRIMARY_BACKEND_ORIGIN')
     expect(cloudSyncConfig).toContain('STATISTICS_CLOUD_SYNC_ENDPOINT')
     expect(cloudSyncConfig).toContain('isStatisticsServiceUrlCompatible')
-    expect(rustHttp).toContain('DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] = &[PRODUCTION_OCR_ENDPOINT]')
+    expect(rustHttp).toContain('DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] =')
+    expect(rustHttp).toContain('&[PRODUCTION_OCR_ENDPOINT, FALLBACK_OCR_ENDPOINT]')
     expect(rustHttp).toContain('option_env!("MINI_HBUT_BUILD_PROFILE")')
     expect(rustHttp).toContain('!is_test_ocr_endpoint(endpoint)')
     expect(rustHttp).toContain('!is_production_ocr_endpoint(endpoint)')

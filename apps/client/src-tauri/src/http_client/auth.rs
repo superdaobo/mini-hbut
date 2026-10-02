@@ -265,10 +265,11 @@ fn html_looks_like_login_form(html: &str) -> bool {
 }
 
 fn is_first_party_ocr_endpoint(url: &str) -> bool {
+    // 两域白名单（契约 §9）+ 测试隔离域：只有一方域名才附带 x-mini-hbut-* 遥测头
     [
+        "https://mini.hbut.site/",
         "https://mini-hbut-ocr-service.hf.space/",
         "https://mini-hbut-testocr1.hf.space/",
-        "https://superdaobo-ocr-service.hf.space/",
     ]
     .iter()
     .any(|prefix| url.starts_with(prefix))

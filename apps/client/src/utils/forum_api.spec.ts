@@ -27,7 +27,7 @@ describe('forum api config', () => {
   it('uses default forum endpoint when config is missing', () => {
     const config = normalizeRemoteConfig({})
 
-    expect(config.forum.api_base).toBe('https://mini-hbut-ocr-service.hf.space/api/forum')
+    expect(config.forum.api_base).toBe('https://mini.hbut.site/api/forum')
   })
 
   it('allows local forum api override for browser and Tauri verification', () => {
@@ -60,6 +60,7 @@ describe('forum api config', () => {
         }
       })
 
+      // override 被忽略后使用配置里的值（此处输入即兜底域，与默认值无关）
       expect(config.forum.api_base).toBe('https://mini-hbut-ocr-service.hf.space/api/forum')
     } finally {
       vi.unstubAllGlobals()

@@ -3,8 +3,9 @@
  * 统一以 OCR 服务公开接口为准，不在前端做本地教师富化，
  * 这样返回字段能与 SQLPub / ocr-service 保持一致。
  */
+import { PRIMARY_BACKEND_ORIGIN } from './backend_endpoints'
 
-// 从 OCR 端点推导服务基址
+// 从 OCR 端点推导服务基址（跟随主域；无端点时回落主域常量）
 function getServiceBaseUrl() {
   try {
     const endpoint = localStorage.getItem('hbu_ocr_endpoint') || ''
@@ -13,7 +14,7 @@ function getServiceBaseUrl() {
       return `${url.protocol}//${url.host}`
     }
   } catch { /* ignore */ }
-  return 'https://mini-hbut-ocr-service.hf.space'
+  return PRIMARY_BACKEND_ORIGIN
 }
 
 const GRADE_API_PREFIX = '/api/grade-distribution'
