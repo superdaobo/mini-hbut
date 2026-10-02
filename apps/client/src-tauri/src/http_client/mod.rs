@@ -71,8 +71,7 @@ pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/?loginType=1";
 /// 生产主域（契约 docs/architecture/backend-endpoints-contract.md §9：两域模型）
-pub(super) const PRODUCTION_OCR_ENDPOINT: &str =
-    "https://mini.hbut.site/api/ocr/recognize";
+pub(super) const PRODUCTION_OCR_ENDPOINT: &str = "https://mini.hbut.site/api/ocr/recognize";
 pub(super) const TEST_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
 /// 唯一兜底域（原自建机明文端点已随两域模型下架；契约 §9）
 pub(super) const FALLBACK_OCR_ENDPOINT: &str =
