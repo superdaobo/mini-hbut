@@ -2,6 +2,8 @@ import { isTestAccountSession } from './test_account.js'
 import { resolveTestAccountForumResponse } from './test_account_fixtures.js'
 import { encryptData, decryptData } from './encryption.js'
 import { getIdentityAccessToken } from './identity_access_token.js'
+// 后端端点组解析（契约 §4）：论坛通道与云同步/游戏共用同一候选来源
+import { buildChannelEndpointList } from './backend_endpoints'
 
 const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/forum'
 const TOKEN_CACHE_KEY_PREFIX = 'hbu_forum_token:'
@@ -30,6 +32,33 @@ export const buildForumApiBase = (forumConfig = {}) => {
       forumConfig?.endpoint ||
       DEFAULT_FORUM_ENDPOINT
   )
+}
+
+/**
+ * 覆盖值归一化：**空值必须返回空串**。
+ * 注意不能直接用 `normalizeForumEndpoint`（它对空值返回默认端点）—— 否则会被
+ * `buildChannelEndpointList` 当成"存在通道级覆盖"，把组模型整个压住。
+ */
+const normalizeForumOverride = (value) => {
+  const text = toText(value).trim()
+  return text ? normalizeForumEndpoint(text) : ''
+}
+
+/**
+ * 论坛通道候选端点（主 + 兜底，契约 §4）：
+ * 显式 `forum.api_base` 优先（非镜像）；否则 `backend.groups`；再否则内置默认。
+ * 返回空数组表示论坛被显式关闭。
+ */
+export const buildForumApiBases = (forumConfig = {}, backendConfig = undefined) => {
+  if (forumConfig?.enabled === false) return []
+  const resolution = buildChannelEndpointList({
+    channel: 'forum',
+    override: forumConfig?.api_base || forumConfig?.apiBase || forumConfig?.endpoint,
+    backend: backendConfig,
+    includeGroups: true,
+    normalizeUrl: normalizeForumOverride
+  })
+  return resolution.endpoints.map((item) => item.url).filter(Boolean)
 }
 
 const tokenCacheKey = (studentId, apiBase = '') => `${TOKEN_CACHE_KEY_PREFIX}${encodeCachePart(studentId)}:${encodeCachePart(apiBase)}`
@@ -183,6 +212,7 @@ const appendQuery = (path, params = {}) => {
 
 export const createForumApiClient = ({
   apiBase,
+  apiBases,
   studentId = '',
   nickname = '',
   avatarUrl = '',
@@ -190,7 +220,13 @@ export const createForumApiClient = ({
   adminSecret = '',
   fetcher = fetch
 } = {}) => {
-  const base = normalizeForumEndpoint(apiBase || DEFAULT_FORUM_ENDPOINT)
+  // 候选端点（主 + 兜底）：网络错误时按序切换；缺省退回单一 apiBase
+  const bases = (
+    Array.isArray(apiBases) && apiBases.length > 0
+      ? apiBases.map((item) => normalizeForumEndpoint(item))
+      : [normalizeForumEndpoint(apiBase || DEFAULT_FORUM_ENDPOINT)]
+  ).filter(Boolean)
+  const base = bases[0] || normalizeForumEndpoint(DEFAULT_FORUM_ENDPOINT)
   const sid = toText(studentId).trim()
   let tokenPromise = null
   let memoryToken = ''
@@ -224,11 +260,22 @@ export const createForumApiClient = ({
       return reqHeaders
     }
     const createBody = () => (body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body))
-    const fetchRequest = async (forceTokenRefresh = false) => fetcher(`${base}${path}`, {
-      method,
-      headers: await createHeaders(forceTokenRefresh),
-      body: createBody()
-    })
+    // 契约 §6：仅网络错误触发跨候选切换（5xx/4xx 交给既有响应处理，不改变语义）
+    const fetchRequest = async (forceTokenRefresh = false) => {
+      let lastError = null
+      for (const targetBase of bases) {
+        try {
+          return await fetcher(`${targetBase}${path}`, {
+            method,
+            headers: await createHeaders(forceTokenRefresh),
+            body: createBody()
+          })
+        } catch (error) {
+          lastError = error
+        }
+      }
+      throw lastError || new Error('论坛服务连接失败')
+    }
     let response = await fetchRequest()
     if (auth && response.status === 401) {
       // #629：401 统一单次 refresh（identity 优先，失败回退 legacy 重取），不无限循环

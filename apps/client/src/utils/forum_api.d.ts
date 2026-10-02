@@ -62,6 +62,11 @@ export interface ForumApiClient {
 
 export function normalizeForumEndpoint(value: unknown): string
 export function buildForumApiBase(forumConfig?: Record<string, unknown>): string
+/** 论坛通道候选端点（主 + 兜底，契约 §4）；论坛被显式关闭时返回空数组 */
+export function buildForumApiBases(
+  forumConfig?: Record<string, unknown>,
+  backendConfig?: unknown
+): string[]
 export function readForumProfile(studentId: string): ForumProfile
 export function writeForumProfile(studentId: string, profile?: Partial<ForumProfile>): ForumProfile
 
@@ -74,4 +79,5 @@ export function saveForumAdminSecret(studentId: string, secret: string): Promise
 /** 读取加密存储的管理员口令；无密文或解密失败返回空串（无明文回退）。 */
 export function loadForumAdminSecret(studentId: string): Promise<string>
 
+/** 创建论坛客户端；`apiBases`（主 + 兜底）优先于单一 `apiBase`（网络错误时按序切换） */
 export function createForumApiClient(options: Record<string, unknown>): ForumApiClient
