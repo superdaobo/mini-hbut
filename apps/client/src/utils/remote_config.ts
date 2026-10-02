@@ -7,6 +7,8 @@ import { detectRuntime } from '../platform/runtime'
 import { DEFAULT_CLOUD_SYNC_ENDPOINT } from './app_settings'
 import { isTestAccountSession } from './test_account.js'
 import { shouldApplyAppStoreRestrictions } from '../config/app_store_policy'
+// 后端端点组归一化（叶子模块）：契约 §3，组顺序即优先级、组内通道同源
+import { normalizeBackendConfig, type BackendConfig } from './backend_endpoints'
 import {
   CHAOXING_INVITE_CACHE_KEY,
   DEFAULT_CHAOXING_INVITE_CODE,
@@ -99,6 +101,8 @@ export interface RemoteConfig {
     modules: RemoteModuleEntry[]
   }
   game_platform: GamePlatformRemoteConfig
+  /** 后端端点组（契约 §3）：组顺序即优先级，组内所有通道同源 */
+  backend: BackendConfig
   chaoxing_class: ChaoxingClassConfig
   ai_models: unknown[]
   config_admin_ids: string[]
@@ -114,6 +118,7 @@ export interface RemoteConfigInput extends Record<string, unknown> {
   forum?: Record<string, unknown>
   cloud_sync?: Record<string, unknown>
   module_center?: Partial<RemoteConfig['module_center']>
+  backend?: unknown
   chaoxing_class?: Partial<ChaoxingClassConfig>
   ai_models?: unknown[]
   config_admin_ids?: string[]
@@ -350,6 +355,7 @@ export function normalizeRemoteConfig(raw: unknown): RemoteConfig {
     },
     module_center: resolveModuleCenter(cfg),
     game_platform: normalizeGamePlatformConfig(cfg.game_platform),
+    backend: normalizeBackendConfig(cfg.backend),
     chaoxing_class: normalizeChaoxingClassConfig(cfg.chaoxing_class || cfg.chaoxingClass, {
       // 远程 payload 里有 invite 时写入本地缓存（断网可复用）
       persistInvite: !!(cfg.chaoxing_class || cfg.chaoxingClass)

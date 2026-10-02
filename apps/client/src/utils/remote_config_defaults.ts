@@ -6,6 +6,12 @@ import { DEFAULT_CLOUD_SYNC_ENDPOINT, useAppSettings } from './app_settings'
 import { DEFAULT_MODULE_CENTER as DEFAULT_GAME_MODULE_CENTER } from './module_center'
 // #905 湖工游乐场配置块的归一化实现放在 game_center/base（叶子模块，无反向依赖）
 import { normalizeGamePlatformConfig } from './game_center/base'
+// 后端端点组默认值（叶子模块）：生产域白名单 = mini.hbut.site 主 + hf.space 唯一兜底
+import {
+  DEFAULT_BACKEND_CHANNEL_PATHS,
+  DEFAULT_BACKEND_FAILOVER,
+  DEFAULT_BACKEND_GROUPS
+} from './backend_endpoints'
 
 export { normalizeGamePlatformConfig }
 
@@ -90,6 +96,17 @@ export const DEFAULT_CONFIG: Record<string, unknown> = {
     allowed_game_origins: [],
     flags: {}
   },
+  // 后端端点组（契约 docs/architecture/backend-endpoints-contract.md）：
+  // 顺序即优先级；组内所有通道同源。默认 = mini.hbut.site 主 + hf.space 唯一兜底。
+  backend: {
+    groups: DEFAULT_BACKEND_GROUPS.map((group) => ({
+      id: group.id,
+      base: group.base,
+      enabled: group.enabled
+    })),
+    paths: { ...DEFAULT_BACKEND_CHANNEL_PATHS },
+    failover: { ...DEFAULT_BACKEND_FAILOVER }
+  },
   // #360 学习通资料库：远程只需 invite_code；课程名/教师/ID 由邀请码在线解析
   chaoxing_class: {
     enabled: true,
@@ -117,6 +134,7 @@ export const REMOTE_CONFIG_KEYS = [
   'module_center',
   'more_modules',
   'game_platform',
+  'backend',
   'chaoxing_class',
   'ai_models',
   'config_admin_ids'

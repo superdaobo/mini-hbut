@@ -239,8 +239,10 @@ export const deriveChannelUrl = (
 }
 
 export interface ChannelEndpoint {
-  /** 来源组 id；通道级显式覆盖固定为 `'override'`（不参与组冷却） */
+  /** 来源组 id；通道级显式覆盖固定为 `'override'`（仅供诊断/展示） */
   groupId: string
+  /** 冷却表键：组来源用组 id；覆盖来源用完整 URL（多兜底端点互相独立） */
+  failoverKey: string
   /** 完整 URL（已归一化、去重） */
   url: string
 }
@@ -297,7 +299,7 @@ export const buildChannelEndpointList = (input: {
   ])
   if (overrides.length > 0) {
     return {
-      endpoints: overrides.map((url) => ({ groupId: 'override', url })),
+      endpoints: overrides.map((url) => ({ groupId: 'override', failoverKey: url, url })),
       source: 'override'
     }
   }
@@ -308,6 +310,7 @@ export const buildChannelEndpointList = (input: {
       .filter((group) => group.enabled)
       .map((group) => ({
         groupId: group.id,
+        failoverKey: group.id,
         url: deriveChannelUrl(group, input.channel, config.paths)
       }))
     const endpoints = dedupeEndpoints(fromGroups)
@@ -318,6 +321,7 @@ export const buildChannelEndpointList = (input: {
 
   const defaults = DEFAULT_BACKEND_GROUPS.filter((group) => group.enabled).map((group) => ({
     groupId: group.id,
+    failoverKey: group.id,
     url: deriveChannelUrl(group, input.channel, DEFAULT_BACKEND_CHANNEL_PATHS)
   }))
   return { endpoints: dedupeEndpoints(defaults), source: 'default' }
