@@ -535,8 +535,9 @@ export const messages: Record<string, string> = {
   'schedule.weeks.noneSelected': '週が選択されていません',
   // 管理课程弹窗
   'schedule.manageCourses.title': 'マネジメントコース',
-  'schedule.manageCourses.loading': 'カスタムコースを読み込んでいます...',
-  'schedule.manageCourses.empty': 'カスタム授業はまだありません',
+  'schedule.manageCourses.loading': 'コース一覧を読み込んでいます...',
+  // #870: 空状態は「教务 / 削除済み / カスタム」3 分類すべてを対象にした中立的な表現
+  'schedule.manageCourses.empty': '管理できるコースはまだありません。時間割を更新するかカスタムコースを追加すると表示されます。',
   'schedule.manageCourses.courseCount': '{n} ドア',
   'schedule.manageCourses.collapse': '近い',
   'schedule.manageCourses.expand': '拡大する',

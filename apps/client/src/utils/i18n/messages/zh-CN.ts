@@ -537,8 +537,9 @@ export const messages: Record<string, string> = {
   'schedule.weeks.noneSelected': '未选择周次',
   // 管理课程弹窗
   'schedule.manageCourses.title': '管理课程',
-  'schedule.manageCourses.loading': '正在加载自定义课程...',
-  'schedule.manageCourses.empty': '暂未添加自定义课程',
+  'schedule.manageCourses.loading': '正在加载课程列表...',
+  // #870：空态已覆盖「教务 / 已移除 / 自定义」三类分组语义，不再只描述自定义课程
+  'schedule.manageCourses.empty': '暂无可管理的课程：刷新课表或添加自定义课程后会显示在这里',
   'schedule.manageCourses.courseCount': '{n} 门',
   'schedule.manageCourses.collapse': '收起',
   'schedule.manageCourses.expand': '展开',

@@ -21,6 +21,7 @@ import {
 } from './notification_event_ledger'
 import { hasUnconsumedPresentedEvent } from './background_notification'
 import { t, tf } from './app_i18n'
+import { filterVisibleOfficialCourses } from './schedule_visibility'
 import { checkElectricity } from './notify_center_electricity.js'
 export type { ElectricityCheckResult } from './notify_center_electricity.js'
 import {
@@ -642,10 +643,13 @@ const checkClassReminder = async (
     toPositiveInt(payload?.meta?.current_week, 0) ||
     toPositiveInt(readJSON<{ current_week?: number }>('hbu_schedule_meta', {})?.current_week, 1) ||
     1
+  // Issue #871：通知中心课前提醒与课表页消费同一份有效课表——
+  // 已移除（整学期/按周）的教务课程不再触发提醒；自定义课程不受可见性影响。
+  const visibleCourses = filterVisibleOfficialCourses(sid, semesterForCustom, courses)
   const weekday = getTodayWeekday()
   const leadMinutes = Math.min(120, Math.max(5, Number(settings.classLeadMinutes || 30)))
   const todayKey = toDayKey(new Date())
-  const todayClasses = getMergedTodayClasses(courses, currentWeek, weekday)
+  const todayClasses = getMergedTodayClasses(visibleCourses, currentWeek, weekday)
   const candidates = toCourseReminderItems(todayClasses, leadMinutes)
   const nowMinute = getCurrentMinutePrecise()
   const nextUpcomingCourse =
