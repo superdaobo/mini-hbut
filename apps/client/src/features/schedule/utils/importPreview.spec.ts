@@ -175,3 +175,75 @@ describe('buildPreviewGridCourses（批量构造）', () => {
     expect(buildPreviewGridCourses([])).toEqual([])
   })
 })
+
+describe('预览周过滤（#821：预览课程必须按预览周过滤）', () => {
+  it('week 在课程 weeks 内 → 保留；不在 → null', () => {
+    const item = makeItem({ course: makeCourse({ weeks: [1, 2, 3] }) })
+    expect(toPreviewGridCourse(item, 2)).not.toBeNull()
+    expect(toPreviewGridCourse(item, 5)).toBeNull()
+  })
+
+  it('不提供 week 时保持旧行为（不过滤周次）', () => {
+    const item = makeItem({ course: makeCourse({ weeks: [1, 2, 3] }) })
+    expect(toPreviewGridCourse(item)).not.toBeNull()
+  })
+
+  it('单双周课程在不同周正确显隐', () => {
+    const oddItem = makeItem({
+      key: 'import-0',
+      course: makeCourse({ sourceIndex: 0, name: '单周课', weeks: [1, 3, 5, 7, 9, 11, 13, 15] })
+    })
+    const evenItem = makeItem({
+      key: 'import-1',
+      course: makeCourse({ sourceIndex: 1, name: '双周课', weeks: [2, 4, 6, 8, 10, 12, 14, 16] })
+    })
+
+    // 单周：奇数周只显示单周课
+    const week3 = buildPreviewGridCourses([oddItem, evenItem], 3)
+    expect(week3.map((node) => node.name)).toEqual(['单周课'])
+
+    // 双周：偶数周只显示双周课
+    const week4 = buildPreviewGridCourses([oddItem, evenItem], 4)
+    expect(week4.map((node) => node.name)).toEqual(['双周课'])
+  })
+
+  it('区间周课程在区间外周不渲染', () => {
+    const item = makeItem({ course: makeCourse({ weeks: [5, 6, 7, 8] }) })
+    expect(toPreviewGridCourse(item, 4)).toBeNull()
+    expect(toPreviewGridCourse(item, 9)).toBeNull()
+    expect(toPreviewGridCourse(item, 6)).not.toBeNull()
+  })
+
+  it('批量构造按周过滤后，未勾选 / 精确重复 / 非本周三者同时生效', () => {
+    const nodes = buildPreviewGridCourses(
+      [
+        makeItem({ key: 'import-0', course: makeCourse({ sourceIndex: 0, weeks: [1] }) }),
+        makeItem({ key: 'import-1', course: makeCourse({ sourceIndex: 1, weeks: [2] }) }),
+        makeItem({
+          key: 'import-2',
+          course: makeCourse({ sourceIndex: 2, weeks: [2] }),
+          selected: false
+        }),
+        makeItem({
+          key: 'import-3',
+          course: makeCourse({ sourceIndex: 3, weeks: [2] }),
+          duplicateKind: 'exact'
+        })
+      ],
+      2
+    )
+    // 第 2 周：import-1 生效；import-0 非本周、import-2 未勾选、import-3 精确重复均排除
+    expect(nodes.map((node) => node._uid)).toEqual(['import-1'])
+  })
+
+  it('按周过滤后冲突标记仍来自 #817 共享结果（不受过滤影响）', () => {
+    const item = makeItem({
+      course: makeCourse({ weeks: [2] }),
+      conflicts: [makeConflict({ overlapWeeks: [2] })]
+    })
+    const week2 = toPreviewGridCourse(item, 2)
+    expect(week2?.is_conflict).toBe(true)
+    // 非冲突周被过滤后自然不渲染，无需伪造 is_conflict=false
+    expect(toPreviewGridCourse(item, 3)).toBeNull()
+  })
+})

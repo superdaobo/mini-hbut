@@ -114,14 +114,20 @@ export interface PreviewGridCourse {
  *
  * 以下情况返回 null（不参与网格渲染）：
  *   - 未勾选（`selected === false`）；
- *   - 精确重复（`duplicateKind === 'exact'`，与默认不勾选策略一致）。
+ *   - 精确重复（`duplicateKind === 'exact'`，与默认不勾选策略一致）；
+ *   - 提供了 `week` 且课程 weeks 不覆盖该周（#821：预览课程必须按预览周过滤，
+ *     否则非本周课程也会堆在网格上，制造大量假冲突）。
  *
  * 颜色取 `colorOverride`；为保证用户选色在卡片上真正生效，
  * 节点按「自定义课程」渲染（`is_custom`），与导入后落库为 custom 课程的语义一致。
  */
-export const toPreviewGridCourse = (item: ImportPreviewCourse): PreviewGridCourse | null => {
+export const toPreviewGridCourse = (
+  item: ImportPreviewCourse,
+  week?: number
+): PreviewGridCourse | null => {
   if (!item || !item.selected) return null
   if (item.duplicateKind === 'exact') return null
+  if (week !== undefined && !isWeekActive(item.course.weeks, week)) return null
 
   const course = item.course
   const color = String(item.colorOverride || DEFAULT_COURSE_COLOR || '').trim()
@@ -146,12 +152,20 @@ export const toPreviewGridCourse = (item: ImportPreviewCourse): PreviewGridCours
   }
 }
 
-/** 批量转换预览条目，过滤掉不可渲染项（未勾选 / 精确重复） */
-export const buildPreviewGridCourses = (items: ImportPreviewCourse[]): PreviewGridCourse[] => {
+/**
+ * 批量转换预览条目，过滤掉不可渲染项（未勾选 / 精确重复）。
+ *
+ * #821：`week` 提供时只保留在该预览周生效的课程（单双周课程在不同周正确显隐），
+ * 未提供时保持旧行为（不过滤周次），供既有调用方兼容。
+ */
+export const buildPreviewGridCourses = (
+  items: ImportPreviewCourse[],
+  week?: number
+): PreviewGridCourse[] => {
   if (!Array.isArray(items)) return []
   const nodes: PreviewGridCourse[] = []
   for (const item of items) {
-    const node = toPreviewGridCourse(item)
+    const node = toPreviewGridCourse(item, week)
     if (node) nodes.push(node)
   }
   return nodes

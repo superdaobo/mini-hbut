@@ -1,12 +1,16 @@
 /**
- * #820 Phase-1 持久化提交层单测。
+ * #820 持久化提交层单测。
  *
  * 覆盖清单：
  *   buildPersistPayload 剥离 preview-only 字段；semester 来自参数而非 course；
  *   color 三级回退（override > requestedColor > 默认）；非法 requestedColor 回退默认；
  *   weeks 规范化；
  *   commitImportCourses 筛选规则（未选中 / exact duplicate / 有 error 诊断 → skipped）；
- *   axios 模拟下：单条失败不影响其他条目、汇总 added/skipped/failed 正确、异常被捕获为 failed。
+ *   axios 模拟下：单条失败不影响其他条目、汇总 added/skipped/failed 正确、异常被捕获为 failed；
+ *   #820 批量写入编排：全失败、写入前全量硬校验拦截（blocked=validation，零请求，
+ *   items 按 preview 下标排列且可定位到字段）、与既有课表 exact duplicate 复检、
+ *   时间冲突不拦截、onlyKeys 重试集；
+ *   summarizeCommitItems 重试合并后的汇总收敛。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -17,7 +21,7 @@ vi.mock('axios', () => ({
   default: { post: postMock }
 }))
 
-import { buildPersistPayload, commitImportCourses } from './importCommit'
+import { buildPersistPayload, commitImportCourses, summarizeCommitItems } from './importCommit'
 import type { ImportCommitContext } from './importCommit'
 import type {
   ImportDiagnostic,
@@ -308,5 +312,171 @@ describe('commitImportCourses（提交与汇总）', () => {
     const result = await commitImportCourses([], CTX)
     expect(result).toEqual({ ok: true, added: 0, skipped: 0, failed: 0, items: [] })
     expect(postMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('commitImportCourses（#820 批量写入编排）', () => {
+  it('全失败：每条请求都失败 → failed 全量，ok=false，失败原因逐条保留', async () => {
+    postMock.mockRejectedValue(new Error('Network Error'))
+    const preview = [0, 1, 2].map((i) => makePreview({ course: makeCourse({ sourceIndex: i }) }))
+
+    const result = await commitImportCourses(preview, CTX)
+
+    expect(result.ok).toBe(false)
+    expect(result.added).toBe(0)
+    expect(result.failed).toBe(3)
+    expect(postMock).toHaveBeenCalledTimes(3)
+    // 逐条结果可回溯：items 恒按 preview 下标排列
+    expect(result.items.map((i) => i.sourceIndex)).toEqual([0, 1, 2])
+    for (const item of result.items) {
+      expect(item.status).toBe('failed')
+      expect(item.error).toBe('Network Error')
+    }
+  })
+
+  it('校验拦截：任一条字段非法 → 整批零写入并标记 blocked=validation', async () => {
+    const preview = [
+      makePreview({ course: makeCourse({ sourceIndex: 0 }) }),
+      // weekday 非法（应为 1..7）：触发写入前全量硬校验失败
+      makePreview({ course: makeCourse({ sourceIndex: 1, weekday: 9 }) }),
+      makePreview({ course: makeCourse({ sourceIndex: 2 }) })
+    ]
+
+    const result = await commitImportCourses(preview, CTX)
+
+    // 前置校验：不发任何请求（atomic 校验语义）
+    expect(postMock).not.toHaveBeenCalled()
+    expect(result.blocked).toBe('validation')
+    expect(result.ok).toBe(false)
+    expect(result.added).toBe(0)
+    expect(result.failed).toBe(3)
+
+    // items 按 preview 下标排列；非法条目带字段定位，合法条目说明被同批连坐
+    expect(result.items.map((i) => i.sourceIndex)).toEqual([0, 1, 2])
+    expect(result.items[1].error).toContain('weekday')
+    expect(result.items[0].error).toContain('同批')
+    expect(result.items[2].error).toContain('同批')
+  })
+
+  it('校验拦截只作用于待提交条目：未勾选条目保持 skipped', async () => {
+    const preview = [
+      makePreview({ course: makeCourse({ sourceIndex: 0 }), selected: false }),
+      makePreview({ course: makeCourse({ sourceIndex: 1, weekday: 0 }) })
+    ]
+
+    const result = await commitImportCourses(preview, CTX)
+
+    expect(postMock).not.toHaveBeenCalled()
+    expect(result.blocked).toBe('validation')
+    expect(result.skipped).toBe(1)
+    expect(result.failed).toBe(1)
+    expect(result.items.map((i) => i.status)).toEqual(['skipped', 'failed'])
+  })
+
+  it('与既有 official/custom 课表 exact duplicate 复检 → skipped 且不重复写入', async () => {
+    postMock.mockResolvedValue({ data: { success: true } })
+    const preview = [
+      makePreview({ course: makeCourse({ sourceIndex: 0 }) }),
+      makePreview({
+        course: makeCourse({ sourceIndex: 1, name: '新课程', weekday: 5, period: 3, weeks: [4, 5] })
+      })
+    ]
+    const existing = [
+      // 与 sourceIndex 0 完全等价（六项字段 + weeks 集合）
+      {
+        name: '高等数学',
+        teacher: '张三',
+        room: 'A101',
+        weekday: 1,
+        period: 1,
+        djs: 2,
+        weeks: [1, 2, 3],
+        source: 'custom' as const
+      }
+    ]
+
+    const result = await commitImportCourses(preview, { ...CTX, existingCourses: existing })
+
+    // 只有新课程真正发出写入请求；重复条目被拦截
+    expect(postMock).toHaveBeenCalledTimes(1)
+    expect(result.added).toBe(1)
+    expect(result.skipped).toBe(1)
+    expect(result.items.map((i) => i.status)).toEqual(['skipped', 'added'])
+  })
+
+  it('时间冲突课程不被复检拦截（冲突是 warning，允许写入）', async () => {
+    postMock.mockResolvedValue({ data: { success: true } })
+    const preview = [makePreview({ course: makeCourse({ sourceIndex: 0 }) })]
+    // 同时段但老师不同 → possible 而非 exact；复检只拦截 exact
+    const existing = [
+      {
+        name: '高等数学',
+        teacher: '李四',
+        room: 'A101',
+        weekday: 1,
+        period: 1,
+        djs: 2,
+        weeks: [1, 2, 3],
+        source: 'official' as const
+      }
+    ]
+
+    const result = await commitImportCourses(preview, { ...CTX, existingCourses: existing })
+
+    expect(postMock).toHaveBeenCalledTimes(1)
+    expect(result.added).toBe(1)
+  })
+
+  it('onlyKeys 限定重试集：仅重试条目发起请求，其余收敛为 skipped', async () => {
+    postMock.mockResolvedValue({ data: { success: true } })
+    const preview = [0, 1, 2].map((i) => makePreview({ course: makeCourse({ sourceIndex: i }) }))
+
+    const result = await commitImportCourses(preview, CTX, { onlyKeys: ['k-1'] })
+
+    expect(postMock).toHaveBeenCalledTimes(1)
+    expect(result.added).toBe(1)
+    expect(result.skipped).toBe(2)
+    expect(result.items.map((i) => i.status)).toEqual(['skipped', 'added', 'skipped'])
+  })
+
+  it('重试集条目仍受写入前硬校验约束（校验拦截同样适用于 onlyKeys）', async () => {
+    const preview = [
+      makePreview({ course: makeCourse({ sourceIndex: 0 }) }),
+      makePreview({ course: makeCourse({ sourceIndex: 1, weekday: 12 }) })
+    ]
+
+    const result = await commitImportCourses(preview, CTX, { onlyKeys: ['k-0', 'k-1'] })
+
+    expect(postMock).not.toHaveBeenCalled()
+    expect(result.blocked).toBe('validation')
+    expect(result.failed).toBe(2)
+  })
+})
+
+describe('summarizeCommitItems（#820 重试合并后的汇总收敛）', () => {
+  it('按最终态 items 重新统计 added / skipped / failed 与 ok', () => {
+    const items = [
+      { key: 'k-0', sourceIndex: 0, status: 'added' as const },
+      { key: 'k-1', sourceIndex: 1, status: 'skipped' as const },
+      { key: 'k-2', sourceIndex: 2, status: 'failed' as const, error: 'x' }
+    ]
+
+    const summary = summarizeCommitItems(items)
+
+    expect(summary).toEqual({ ok: false, added: 1, skipped: 1, failed: 1, items })
+  })
+
+  it('重试全部成功后 ok 翻转为 true', () => {
+    const items = [
+      { key: 'k-0', sourceIndex: 0, status: 'added' as const },
+      { key: 'k-1', sourceIndex: 1, status: 'failed' as const, error: 'x' }
+    ]
+    expect(summarizeCommitItems(items).ok).toBe(false)
+
+    const recovered = [
+      { key: 'k-0', sourceIndex: 0, status: 'added' as const },
+      { key: 'k-1', sourceIndex: 1, status: 'added' as const }
+    ]
+    expect(summarizeCommitItems(recovered)).toMatchObject({ ok: true, added: 2, failed: 0 })
   })
 })
