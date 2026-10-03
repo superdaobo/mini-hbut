@@ -536,8 +536,9 @@ export const messages: Record<string, string> = {
   'schedule.weeks.noneSelected': 'No weeks selected',
   // Manage courses dialog
   'schedule.manageCourses.title': 'Manage Courses',
-  'schedule.manageCourses.loading': 'Loading custom courses...',
-  'schedule.manageCourses.empty': 'No custom courses yet',
+  'schedule.manageCourses.loading': 'Loading courses...',
+  // #870: empty state now covers all three groups (official / removed / custom)
+  'schedule.manageCourses.empty': 'No courses to manage yet. Refresh your schedule or add custom courses and they will appear here.',
   'schedule.manageCourses.courseCount': '{n}',
   'schedule.manageCourses.collapse': 'Collapse',
   'schedule.manageCourses.expand': 'Expand',

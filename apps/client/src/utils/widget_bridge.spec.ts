@@ -35,6 +35,7 @@ vi.mock('./debug_logger', () => ({
 import { afterScheduleRefresh, tryWriteSnapshotFromCache, writeWidgetThemeMode } from './widget_bridge'
 import { writeSnapshotWithRetry, writeThemeMode } from '@/platform/capacitor/widget'
 import { getCacheKey } from './api.js'
+import { removeOfficialCourseFromSchedule, restoreOfficialCourseToSchedule } from './schedule_visibility'
 
 const mockWrite = vi.mocked(writeSnapshotWithRetry)
 const mockWriteThemeMode = vi.mocked(writeThemeMode)
@@ -183,5 +184,85 @@ describe('#759 afterScheduleRefresh 真实周优先', () => {
   it('payload 缺少 data 数组时不写快照', async () => {
     await afterScheduleRefresh(SID, { foo: 'bar' }, { selectedWeek: 2 })
     expect(mockWrite).not.toHaveBeenCalled()
+  })
+})
+
+// ─── #871：Widget 快照统一消费「有效课表」（教务课程可见性） ─────────────────
+// Widget 数据链路：前端把课表缓存 + 自定义课程合并成快照 payload 后写入原生端，
+// 因此可见性过滤在前端构建快照时收口（widget_bridge 内 buildEffectiveSchedule）。
+
+const WIDGET_SEMESTER = '2026-2027-1'
+
+const todayIsoWeekday = () => {
+  const day = new Date().getDay()
+  return day === 0 ? 7 : day
+}
+
+const widgetCourse = (overrides: Record<string, unknown> = {}) => ({
+  id: 'slot-a',
+  name: '通信原理',
+  teacher: '张老师',
+  class_name: '通信2501-教学班',
+  credit: '3.0',
+  weekday: todayIsoWeekday(),
+  period: 1,
+  djs: 2,
+  weeks: [3],
+  weeks_text: '3周',
+  room: '一教101',
+  ...overrides
+})
+
+const snapshotCourseNames = () =>
+  (lastSnapshot().courses as Array<{ name?: string }>).map((course) => course.name)
+
+describe('#871 Widget 快照遵循教务课程可见性', () => {
+  beforeEach(() => {
+    storageMap.set('hbu_schedule_meta', JSON.stringify({ semester: WIDGET_SEMESTER, current_week: 3 }))
+  })
+
+  it('afterScheduleRefresh：整学期移除的课程不进入 Widget 快照，其余课程正常展示', async () => {
+    const removed = widgetCourse({ id: 'slot-a', name: '已移除课程' })
+    const kept = widgetCourse({ id: 'slot-b', name: '保留课程', class_name: '通信2502-教学班', period: 3 })
+    expect(removeOfficialCourseFromSchedule(SID, WIDGET_SEMESTER, removed, [removed, kept])).not.toBeNull()
+
+    await afterScheduleRefresh(SID, { data: [removed, kept], meta: { semester: WIDGET_SEMESTER } }, { selectedWeek: 3 })
+
+    const names = snapshotCourseNames()
+    expect(names).not.toContain('已移除课程')
+    expect(names).toContain('保留课程')
+  })
+
+  it('afterScheduleRefresh：仅移除当前周后该周快照为空，恢复后重新展示', async () => {
+    const course = widgetCourse({ weeks: [3, 4], weeks_text: '3-4周' })
+    await afterScheduleRefresh(SID, { data: [course], meta: { semester: WIDGET_SEMESTER } }, { selectedWeek: 3 })
+    expect(lastSnapshot().courses).toHaveLength(1)
+
+    const record = removeOfficialCourseFromSchedule(SID, WIDGET_SEMESTER, course, [course], {
+      mode: 'current_week',
+      currentWeek: 3
+    })
+    expect(record).not.toBeNull()
+    await afterScheduleRefresh(SID, { data: [course], meta: { semester: WIDGET_SEMESTER } }, { selectedWeek: 3 })
+    expect(lastSnapshot().courses).toHaveLength(0)
+
+    expect(restoreOfficialCourseToSchedule(SID, WIDGET_SEMESTER, record!)).toBe(true)
+    await afterScheduleRefresh(SID, { data: [course], meta: { semester: WIDGET_SEMESTER } }, { selectedWeek: 3 })
+    expect(lastSnapshot().courses).toHaveLength(1)
+  })
+
+  it('tryWriteSnapshotFromCache：锁定学期路径同样过滤已移除课程（跨天重写不闪回）', async () => {
+    storageMap.set('hbu_schedule_lock', JSON.stringify({ student_id: SID, semester: WIDGET_SEMESTER }))
+    const removed = widgetCourse({ id: 'slot-a', name: '已移除课程' })
+    const kept = widgetCourse({ id: 'slot-b', name: '保留课程', class_name: '通信2502-教学班', period: 3 })
+    expect(removeOfficialCourseFromSchedule(SID, WIDGET_SEMESTER, removed, [removed, kept])).not.toBeNull()
+    // 锁定学期时走 scoped 缓存键 schedule:{sid}:{sem}
+    storageMap.set(getCacheKey(`schedule:${SID}:${WIDGET_SEMESTER}`), JSON.stringify({ data: { data: [removed, kept] } }))
+
+    await tryWriteSnapshotFromCache(SID)
+
+    const names = snapshotCourseNames()
+    expect(names).not.toContain('已移除课程')
+    expect(names).toContain('保留课程')
   })
 })

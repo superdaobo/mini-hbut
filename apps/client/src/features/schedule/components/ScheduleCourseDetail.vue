@@ -229,6 +229,24 @@ const canRemoveCurrentWeek = computed(() => {
   line-height: 1.5;
 }
 
+/* #869：暗色模式下移除入口保持可读——全局 dark-mode.css 只覆盖容器级规则，
+   这里在组件内补齐按钮与提示文字的暗色配色（html.dark 前缀保证优先级覆盖亮色规则）。 */
+html.dark .official-remove-btn.week {
+  background: rgba(251, 146, 60, 0.16);
+  border-color: rgba(251, 146, 60, 0.42);
+  color: #fdba74;
+}
+
+html.dark .official-remove-btn.all {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(248, 113, 113, 0.42);
+  color: #fca5a5;
+}
+
+html.dark .official-remove-hint {
+  color: #94a3b8;
+}
+
 .detail-copy-actions {
   margin-top: 12px;
 }
