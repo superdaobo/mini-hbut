@@ -51,7 +51,15 @@ import {
   TRUST_LEVELS,
   isProtocolRangeCompatible
 } from './version.js'
-import { createPrefixedId, isPlainObject, safeText, toIntegerOrNull } from './utils.js'
+import {
+  createPrefixedId,
+  endsWithCi,
+  isPlainObject,
+  safeText,
+  stripFirstSuffixAndRestCi,
+  stripTrailingSlashes,
+  toIntegerOrNull
+} from './utils.js'
 
 /** PII 守卫：任何对外返回的榜单条目都必须剔除身份字段（protocol-v1.md §9.3） */
 const PII_KEY_RE = /^(student_id|hbut_student_id|player_id|user_id|sub|openid|unionid)$/i
@@ -79,11 +87,15 @@ const HOST_HANDSHAKE_ATTEMPTS = 2
 const normalizeV2ApiBase = (value) => {
   const text = safeText(value)
   if (!text) return DEFAULT_GAME_PLATFORM_API_BASE
-  const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`
-  const trimmed = withProtocol.replace(/\/+$/, '')
+  // #967：协议判定与后缀剥离全部走非正则路径（见 utils.js stripTrailingSlashes 说明）
+  const lower = text.toLowerCase()
+  const withProtocol =
+    lower.startsWith('http://') || lower.startsWith('https://') ? text : `https://${text}`
+  const trimmed = stripTrailingSlashes(withProtocol)
   if (trimmed.endsWith(GAME_PLATFORM_API_NAMESPACE)) return trimmed
-  if (/\/api\/game-rank$/i.test(trimmed)) return `${trimmed.replace(/\/api\/game-rank$/i, '')}${GAME_PLATFORM_API_NAMESPACE}`
-  if (/\/api$/i.test(trimmed)) return `${trimmed}/game-platform/v1`
+  if (endsWithCi(trimmed, '/api/game-rank'))
+    return `${stripFirstSuffixAndRestCi(trimmed, '/api/game-rank')}${GAME_PLATFORM_API_NAMESPACE}`
+  if (endsWithCi(trimmed, '/api')) return `${trimmed}/game-platform/v1`
   return `${trimmed}${GAME_PLATFORM_API_NAMESPACE}`
 }
 
@@ -118,15 +130,16 @@ export const resolveApiBases = (config = {}, params) => {
   const explicitLegacy = configLegacy || hostLegacy
   const legacySource = configLegacy ? 'config' : hostLegacy ? 'host' : 'none'
   // 未显式给 V2 base 时，从宿主注入的 rank_api 同源推导（避免游戏各自硬编码生产地址）
+  // #967：`/\/api\/game-rank.*$/i` 的 replace 换成非正则剥离（等价：第一个出现位置到串尾）
   const derivedFromRank = explicitLegacy
-    ? normalizeV2ApiBase(safeText(explicitLegacy).replace(/\/api\/game-rank.*$/i, ''))
+    ? normalizeV2ApiBase(stripFirstSuffixAndRestCi(safeText(explicitLegacy), '/api/game-rank'))
     : ''
   const explicitV2 = configV2 || hostV2
   const v2Source = configV2 ? 'config' : hostV2 ? 'host' : derivedFromRank ? 'host_derived' : 'env_default'
   return {
     v2Base: normalizeV2ApiBase(explicitV2 || derivedFromRank),
     v2Source,
-    legacyBase: explicitLegacy ? safeText(explicitLegacy).replace(/\/+$/, '') : '',
+    legacyBase: explicitLegacy ? stripTrailingSlashes(safeText(explicitLegacy)) : '',
     legacySource,
     rankApiInjected: !!explicitLegacy
   }

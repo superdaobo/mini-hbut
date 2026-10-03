@@ -15,13 +15,13 @@
 import { DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_RETRY_DELAYS_MS } from '../version.js'
 import { ERROR_CODES, GamePlatformError, normalizeError } from '../errors.js'
 import { getLocalStorage, readSearchParams } from '../env.js'
-import { safeText } from '../utils.js'
+import { safeText, stripTrailingSlashes } from '../utils.js'
 
 export const JUMP_OUT_LEGACY_PROTOCOL = 'snake_case_legacy_v0'
 export const JUMP_OUT_CHANNEL_CODE = 'legacy_rank_api_old'
 
-/** 旧协议：无默认 base；`rank_api` 缺失即不可用 */
-export const normalizeJumpOutRankApiBase = (value) => safeText(value).replace(/\/+$/, '')
+/** 旧协议：无默认 base；`rank_api` 缺失即不可用（#967：尾斜杠剥离走非正则路径，行为等价） */
+export const normalizeJumpOutRankApiBase = (value) => stripTrailingSlashes(safeText(value))
 
 /** 旧协议上下文：snake_case 字段 + 无 API base 默认值 */
 export const readJumpOutLegacyContext = (options = {}) => {

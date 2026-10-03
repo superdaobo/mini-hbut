@@ -16,7 +16,7 @@ import {
   GamePlatformError
 } from '../errors.js'
 import { buildUrl } from '../transport.js'
-import { isPlainObject, safeText } from '../utils.js'
+import { isPlainObject, safeText, stripTrailingSlashes } from '../utils.js'
 
 /**
  * 本地防线：V2 请求体不得出现 actor 类字段与奖励数量类字段。
@@ -62,7 +62,8 @@ const normalizeSettlement = (raw) => {
  * @param {string} [options.correlationId]
  */
 export const createGamePlatformClient = (options = {}) => {
-  const baseUrl = safeText(options.baseUrl).replace(/\/+$/, '')
+  // #967：尾斜杠剥离走非正则路径，消除 js/polynomial-redos 告警面（行为等价）
+  const baseUrl = stripTrailingSlashes(safeText(options.baseUrl))
   const transport = options.transport
   if (!transport) throw new TypeError('createGamePlatformClient 需要 transport')
   const gameId = safeText(options.gameId)

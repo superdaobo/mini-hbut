@@ -22,7 +22,7 @@ import {
   isAbortError,
   normalizeErrorCode
 } from './errors.js'
-import { delay, normalizeNfc, safeText } from './utils.js'
+import { delay, normalizeNfc, safeText, stripTrailingSlashes } from './utils.js'
 
 const PROTOCOL_HEADER = 'X-Game-Platform-Protocol'
 const CORRELATION_HEADER = 'X-Game-Client-Correlation'
@@ -258,9 +258,9 @@ export const createTransport = (deps = {}) => {
   }
 }
 
-/** 拼接 URL（避免双斜杠；query 只接受字符串/数字，值做 NFC 归一） */
+/** 拼接 URL（避免双斜杠；query 只接受字符串/数字，值做 NFC 归一；#967 尾斜杠剥离走非正则路径） */
 export const buildUrl = (base, path, query) => {
-  const root = safeText(base).replace(/\/+$/, '')
+  const root = stripTrailingSlashes(safeText(base))
   const suffix = safeText(path)
   const url = `${root}${suffix.startsWith('/') ? suffix : `/${suffix}`}`
   if (!query) return url
