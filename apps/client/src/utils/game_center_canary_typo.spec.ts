@@ -54,6 +54,19 @@ describe('#958 canary 键名手误检测（detectSuspectedCanaryTypoKeys，纯�
     ).toEqual([])
   })
 
+  it('诊断字段自身（canary_typo_keys）永不自举误报（快照 round-trip 回归）', () => {
+    // normalize 的输出含 canary_typo_keys 诊断字段；写快照 → 读回 → 二次 normalize 时
+    // 该字段会作为输入键出现（以 canary 开头），必须排除，否则污染指纹与快照内容。
+    const first = normalizeGamePlatformConfig({ enabled: true, canary: { percent: 5 } })
+    expect(first.canary_typo_keys).toEqual([])
+    const second = normalizeGamePlatformConfig({
+      ...first,
+      canary_typo_keys: ['canary_typo_keys']
+    } as unknown as Record<string, unknown>)
+    expect(second.canary_typo_keys).toEqual([])
+    expect(detectSuspectedCanaryTypoKeys({ canary_typo_keys: [] })).toEqual([])
+  })
+
   it('非对象输入（null / 数组 / 标量）→ 空数组', () => {
     expect(detectSuspectedCanaryTypoKeys(null)).toEqual([])
     expect(detectSuspectedCanaryTypoKeys([1, 2])).toEqual([])

@@ -303,13 +303,16 @@ const GRAYSCALE_TYPO_KEYS = Object.freeze(['gray', 'grey', 'grayscale', 'greysca
  * 2. 与 `canary` 编辑距离 ≤ 2（`canaryy` / `canaray` / `Canary` …）；
  * 3. 命中灰度别名（`gray` / `grayscale` …）。
  *
- * 已知键（`canary` 本身等）永不命中；检测不到任何疑似键 → 空数组。
+ * 已知键（`canary` 本身等）永不命中；本函数自己的诊断输出字段 `canary_typo_keys`
+ * 也必须排除——否则快照 round-trip（normalize 输出被二次 normalize）会把诊断字段
+ * 自举误报成手误键（remote_config_snapshot.spec 回归场景）；检测不到任何疑似键 → 空数组。
  */
 export const detectSuspectedCanaryTypoKeys = (raw: unknown): string[] => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
   const keys = Object.keys(raw as Record<string, unknown>)
   const typos: string[] = []
   for (const key of keys) {
+    if (key === 'canary_typo_keys') continue
     if ((GAME_PLATFORM_KNOWN_KEYS as readonly string[]).includes(key)) continue
     const lower = key.toLowerCase()
     if (lower.startsWith('canary') || lower.startsWith('canaries')) {
