@@ -36,7 +36,7 @@ export const LEGACY_RANK_API_NAMESPACE = '/api/game-rank'
  * - Legacy 通道**没有环境默认**：必须由 SDK 配置或 Host 注入 `rank_api` 显式决定，
  *   缺失即判定不可提交（fail closed → standalone 纯本地），见 `game.js` 的 resolveApiBases。
  */
-export const DEFAULT_SERVICE_ORIGIN = 'https://mini-hbut-ocr-service.hf.space'
+export const DEFAULT_SERVICE_ORIGIN = 'https://mini.hbut.site'
 
 /** 默认 V2 API base（仅 V2 通道；Host 注入 `gp_api` / `rank_api` 时优先） */
 export const DEFAULT_GAME_PLATFORM_API_BASE = `${DEFAULT_SERVICE_ORIGIN}${GAME_PLATFORM_API_NAMESPACE}`

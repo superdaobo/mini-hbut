@@ -6,8 +6,8 @@ use tauri::State;
 use crate::app_state::AppState;
 use crate::modules;
 
-pub(crate) const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str =
-    "https://mini-hbut-ocr-service.hf.space/api/temp/upload";
+/// 临时上传默认端点（契约 §9：主域 mini.hbut.site；可被前端/远程配置覆盖）
+pub(crate) const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://mini.hbut.site/api/temp/upload";
 
 static TEMP_UPLOAD_ENDPOINT: OnceLock<StdMutex<Option<String>>> = OnceLock::new();
 

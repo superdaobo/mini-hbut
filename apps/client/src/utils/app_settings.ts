@@ -1,9 +1,11 @@
 import { reactive, watch } from 'vue'
+// 后端域唯一权威（契约 docs/architecture/backend-endpoints-contract.md §9）
+import { PRIMARY_BACKEND_ORIGIN } from './backend_endpoints'
 
 const STORAGE_KEY = 'hbu_app_settings_v1'
 const LOCAL_HOST_PATTERN =
   /^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i
-const DEFAULT_CLOUD_SYNC_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/cloud-sync'
+const DEFAULT_CLOUD_SYNC_ENDPOINT = `${PRIMARY_BACKEND_ORIGIN}/api/cloud-sync`
 
 const DEFAULT_BACKEND_TARGETS = {
   portal: 'https://e.hbut.edu.cn/stu/index.html#/',

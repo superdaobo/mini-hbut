@@ -4,7 +4,7 @@ export const ONLINE_APP_ID = 'mini-hbut-gomoku'
 export const MATCHMAKING_ROOM_CODE = 'HBUTGOMOKUMATCH'
 export const HF_RELAY_STRATEGY = 'hf-relay'
 export const DEFAULT_HF_RELAY_BASE_URL =
-  'https://mini-hbut-ocr-service.hf.space/api/gomoku-relay'
+  'https://mini.hbut.site/api/gomoku-relay'
 export const TRYSTERO_NOSTR_URL = 'https://esm.sh/trystero/nostr?bundle'
 export const TRYSTERO_TORRENT_URL = 'https://esm.sh/@trystero-p2p/torrent?bundle'
 export const DEFAULT_NOSTR_RELAY_URLS = Object.freeze([

@@ -4,6 +4,8 @@ import { renderMarkdown } from '../utils/markdown'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import { showToast } from '../utils/toast'
 import { useI18n } from '../utils/app_i18n'
+// 后端域唯一权威（契约 docs/architecture/backend-endpoints-contract.md §9）
+import { FALLBACK_BACKEND_ORIGIN, PRIMARY_BACKEND_ORIGIN } from '../utils/backend_endpoints'
 
 const emit = defineEmits(['back'])
 
@@ -41,10 +43,19 @@ const defaultConfig = {
   cloud_sync: {
     enabled: true,
     mode: 'proxy',
-    proxy_endpoint: 'https://mini-hbut-ocr-service.hf.space/api/cloud-sync',
+    proxy_endpoint: `${PRIMARY_BACKEND_ORIGIN}/api/cloud-sync`,
+    fallback_endpoints: [`${FALLBACK_BACKEND_ORIGIN}/api/cloud-sync`],
     secret_ref: 'kv1-main',
     timeout_ms: 12000,
     cooldown_seconds: 180
+  },
+  // 后端端点组（契约 §3）：顺序即优先级；组内所有通道同源切换
+  backend: {
+    groups: [
+      { id: 'mini', base: PRIMARY_BACKEND_ORIGIN, enabled: true },
+      { id: 'hf-prod', base: FALLBACK_BACKEND_ORIGIN, enabled: true }
+    ],
+    failover: { enabled: true, failure_ttl_seconds: 300, max_attempts_per_request: 2 }
   },
   // 学习通资料库：远程配置只需邀请码；课程信息由客户端在线解析
   chaoxing_class: {
@@ -108,6 +119,31 @@ const ensureStruct = () => {
   config.value.cloud_sync.secret_ref = String(
     config.value.cloud_sync.secret_ref || defaultConfig.cloud_sync.secret_ref
   ).trim()
+  // 后端端点组（契约 §3）：结构归一化 + 去空白；非法项在导出前由 validateBackendGroups 拦截
+  if (!config.value.backend || typeof config.value.backend !== 'object') {
+    config.value.backend = JSON.parse(JSON.stringify(defaultConfig.backend))
+  }
+  if (!Array.isArray(config.value.backend.groups)) {
+    config.value.backend.groups = []
+  }
+  config.value.backend.groups = config.value.backend.groups
+    .filter((group) => group && typeof group === 'object')
+    .map((group) => ({
+      id: String(group.id || '').trim(),
+      base: String(group.base || '').trim(),
+      enabled: group.enabled !== false
+    }))
+  if (!config.value.backend.failover || typeof config.value.backend.failover !== 'object') {
+    config.value.backend.failover = { ...defaultConfig.backend.failover }
+  }
+  config.value.backend.failover.failure_ttl_seconds = Number(
+    config.value.backend.failover.failure_ttl_seconds ||
+      defaultConfig.backend.failover.failure_ttl_seconds
+  )
+  config.value.backend.failover.max_attempts_per_request = Number(
+    config.value.backend.failover.max_attempts_per_request ||
+      defaultConfig.backend.failover.max_attempts_per_request
+  )
   if (!config.value.chaoxing_class || typeof config.value.chaoxing_class !== 'object') {
     config.value.chaoxing_class = { ...defaultConfig.chaoxing_class }
   }
@@ -146,12 +182,59 @@ const loadRemoteConfig = async () => {
   }
 }
 
+const addEndpointGroup = () => {
+  const groups = config.value.backend?.groups || []
+  groups.push({ id: `group-${Date.now().toString(36)}`, base: '', enabled: true })
+}
+
+const removeEndpointGroup = (index) => {
+  const groups = config.value.backend?.groups || []
+  groups.splice(index, 1)
+}
+
+const moveEndpointGroup = (index, delta) => {
+  const groups = config.value.backend?.groups || []
+  const target = index + delta
+  if (target < 0 || target >= groups.length) return
+  const [item] = groups.splice(index, 1)
+  groups.splice(target, 0, item)
+}
+
+/**
+ * 端点组导出前校验（契约 §3.1）：至少一个启用组、ID 唯一、origin 仅 https
+ * （loopback 明文例外）。返回空串表示通过。
+ */
+const validateBackendGroups = (backend) => {
+  const groups = Array.isArray(backend?.groups) ? backend.groups : []
+  const enabled = groups.filter((group) => group && group.enabled !== false)
+  if (enabled.length === 0) return t('config.error.noEnabledGroup')
+  const seen = new Set()
+  for (const group of enabled) {
+    const id = String(group?.id || '').trim()
+    const base = String(group?.base || '').trim()
+    if (!id) return t('config.error.groupIdEmpty')
+    if (seen.has(id)) return t('config.error.groupIdDuplicate')
+    seen.add(id)
+    const secure =
+      /^https:\/\//i.test(base) ||
+      /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(base)
+    if (!secure) return t('config.error.groupBaseInvalid')
+  }
+  return ''
+}
+
 const exportJson = async () => {
   ensureStruct()
   const invite = String(config.value.chaoxing_class?.invite_code || '').trim()
   if (!invite) {
     jsonError.value = t('config.error.inviteCodeEmpty')
     showToast(t('config.toast.inviteCodeRequired'), 'error')
+    return
+  }
+  const groupError = validateBackendGroups(config.value.backend)
+  if (groupError) {
+    jsonError.value = groupError
+    showToast(groupError, 'error')
     return
   }
   jsonError.value = ''
@@ -196,7 +279,7 @@ onMounted(() => {
       <div class="form-grid">
         <label>
           {{ t('config.label.ocrEndpoint') }}
-          <input v-model="config.ocr.endpoint" placeholder="https://mini-hbut-ocr-service.hf.space/api/ocr/recognize" />
+          <input v-model="config.ocr.endpoint" placeholder="https://mini.hbut.site/api/ocr/recognize" />
         </label>
         <label class="toggle">
           <input v-model="config.ocr.enabled" type="checkbox" />
@@ -206,7 +289,7 @@ onMounted(() => {
           {{ t('config.label.tempUpload') }}
           <input
             v-model="config.temp_file_server.schedule_upload_endpoint"
-            placeholder="https://mini-hbut-ocr-service.hf.space/api/temp/upload"
+            placeholder="https://mini.hbut.site/api/temp/upload"
           />
         </label>
         <label class="toggle">
@@ -246,7 +329,7 @@ onMounted(() => {
           {{ t('config.label.officeTempUpload') }}
           <input
             v-model="config.resource_share.temp_upload_endpoint"
-            placeholder="https://mini-hbut-ocr-service.hf.space/api/temp/upload"
+            placeholder="https://mini.hbut.site/api/temp/upload"
           />
         </label>
       </div>
@@ -267,7 +350,7 @@ onMounted(() => {
           {{ t('config.label.cloudSyncEndpoint') }}
           <input
             v-model="config.cloud_sync.proxy_endpoint"
-            placeholder="https://mini-hbut-ocr-service.hf.space/api/cloud-sync"
+            placeholder="https://mini.hbut.site/api/cloud-sync"
           />
         </label>
         <label>
@@ -281,6 +364,74 @@ onMounted(() => {
         <label>
           {{ t('config.label.cooldown') }}
           <input v-model.number="config.cloud_sync.cooldown_seconds" type="number" min="30" max="3600" step="10" />
+        </label>
+      </div>
+    </section>
+
+    <section class="editor-card">
+      <h3>{{ t('config.section.backendGroups') }}</h3>
+      <p class="hint">{{ t('config.hint.backendGroups') }}</p>
+      <div
+        v-for="(group, index) in config.backend.groups"
+        :key="`${group.id}-${index}`"
+        class="endpoint-group"
+      >
+        <div class="form-grid">
+          <label>
+            {{ t('config.label.groupId') }}
+            <input v-model="group.id" placeholder="mini" />
+          </label>
+          <label>
+            {{ t('config.label.groupBase') }}
+            <input v-model="group.base" placeholder="https://mini.hbut.site" />
+          </label>
+          <label class="toggle">
+            <input v-model="group.enabled" type="checkbox" />
+            {{ t('config.label.groupEnabled') }}
+          </label>
+        </div>
+        <div class="actions">
+          <button class="btn-secondary" :disabled="index === 0" @click="moveEndpointGroup(index, -1)">
+            {{ t('config.action.moveUp') }}
+          </button>
+          <button
+            class="btn-secondary"
+            :disabled="index === config.backend.groups.length - 1"
+            @click="moveEndpointGroup(index, 1)"
+          >
+            {{ t('config.action.moveDown') }}
+          </button>
+          <button class="remove-btn" @click="removeEndpointGroup(index)">
+            {{ t('config.action.remove') }}
+          </button>
+        </div>
+      </div>
+      <p v-if="config.backend.groups.length === 0" class="empty">
+        {{ t('config.error.noEnabledGroup') }}
+      </p>
+      <div class="actions">
+        <button class="add-btn" @click="addEndpointGroup">{{ t('config.action.addGroup') }}</button>
+      </div>
+      <div class="form-grid">
+        <label>
+          {{ t('config.label.failoverTtl') }}
+          <input
+            v-model.number="config.backend.failover.failure_ttl_seconds"
+            type="number"
+            min="30"
+            max="3600"
+            step="30"
+          />
+        </label>
+        <label>
+          {{ t('config.label.maxAttempts') }}
+          <input
+            v-model.number="config.backend.failover.max_attempts_per_request"
+            type="number"
+            min="1"
+            max="8"
+            step="1"
+          />
         </label>
       </div>
     </section>
@@ -501,6 +652,18 @@ textarea {
   background: #10b981;
   color: #fff;
   cursor: pointer;
+}
+
+.endpoint-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.endpoint-group .actions {
+  margin-top: 8px;
 }
 
 .notice-editor {

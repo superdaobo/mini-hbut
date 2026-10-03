@@ -70,16 +70,19 @@ pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/?loginType=1";
-pub(super) const PRODUCTION_OCR_ENDPOINT: &str =
-    "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize";
+/// 生产主域（契约 docs/architecture/backend-endpoints-contract.md §9：两域模型）
+pub(super) const PRODUCTION_OCR_ENDPOINT: &str = "https://mini.hbut.site/api/ocr/recognize";
 pub(super) const TEST_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
-pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
+/// 唯一兜底域（原自建机明文端点已随两域模型下架；契约 §9）
+pub(super) const FALLBACK_OCR_ENDPOINT: &str =
+    "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize";
 pub(super) const SECONDARY_OCR_ENDPOINT: &str = TEST_OCR_ENDPOINT;
 pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] =
-    &[DEFAULT_OCR_ENDPOINT, SECONDARY_OCR_ENDPOINT];
+    &[FALLBACK_OCR_ENDPOINT, SECONDARY_OCR_ENDPOINT];
 /// Release 构建仅允许 production HTTPS OCR，避免验证码图片经明文 HTTP 外传，
-/// 同时防止正式用户的 OCR 与统计数据落入 testocr1。
-pub(super) const DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] = &[PRODUCTION_OCR_ENDPOINT];
+/// 同时防止正式用户的 OCR 与统计数据落入 testocr1。主域失败时按序回落唯一兜底域。
+pub(super) const DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] =
+    &[PRODUCTION_OCR_ENDPOINT, FALLBACK_OCR_ENDPOINT];
 
 /// 登录风控：完整 CAS 尝试（收到认证服务器真实响应）的冷却时长（60s）。
 pub(super) const LOGIN_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
@@ -151,8 +154,8 @@ pub(super) fn is_transport_error(err: &(dyn std::error::Error + Send + Sync + 's
 
 fn is_production_ocr_endpoint(endpoint: &str) -> bool {
     let normalized = endpoint.trim().to_ascii_lowercase();
-    normalized.contains("mini-hbut-ocr-service.hf.space")
-        || normalized.contains("superdaobo-ocr-service.hf.space")
+    // 两域白名单（契约 §9）：主域 + 唯一兜底域；历史第三方 OCR 域已下架（按自定义域放行）
+    normalized.contains("mini.hbut.site") || normalized.contains("mini-hbut-ocr-service.hf.space")
 }
 
 fn is_test_ocr_endpoint(endpoint: &str) -> bool {
@@ -647,7 +650,7 @@ impl HbutClient {
             "configured_endpoints": self.ocr_remote_endpoints.clone(),
             "local_fallback_endpoints": self.ocr_local_fallback_endpoints.clone(),
             "default_remote_endpoint": default_remote_ocr_endpoint(),
-            "fallback_endpoint": DEFAULT_OCR_ENDPOINT,
+            "fallback_endpoint": FALLBACK_OCR_ENDPOINT,
             "default_local_fallback_endpoints": DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS,
             "active_endpoint": self.ocr_active_endpoint.clone(),
             "active_source": self.ocr_active_source.clone().unwrap_or_else(|| "unknown".to_string()),

@@ -3,6 +3,7 @@
 export {
   normalizeForumEndpoint,
   buildForumApiBase,
+  buildForumApiBases,
   readForumProfile,
   writeForumProfile,
   saveForumAdminSecret,

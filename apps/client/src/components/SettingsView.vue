@@ -19,6 +19,8 @@ import {
   useFontSettings
 } from '../utils/font_settings'
 import { applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config'
+// 后端域唯一权威（契约 docs/architecture/backend-endpoints-contract.md §9）
+import { PRIMARY_BACKEND_ORIGIN } from '../utils/backend_endpoints'
 import {
   CLOUD_SYNC_UPDATED_EVENT,
   getCloudSyncLocalStatus,
@@ -67,7 +69,7 @@ const props = defineProps({
 const REMOTE_CONFIG_MODE_EVENT = 'hbu-remote-config-mode-changed'
 const REMOTE_UPLOAD_ENDPOINT_KEY = 'hbu_temp_upload_endpoint'
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
-const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/ocr/recognize'
+const DEFAULT_OCR_ENDPOINT = `${PRIMARY_BACKEND_ORIGIN}/api/ocr/recognize`
 const LOCAL_HOST_PATTERN =
   /^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i
 
@@ -787,7 +789,18 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
     }
 
     if (!silent) {
-      showToast(t('settings.toast.backendApplied'), 'success')
+      // D3（契约 §4）：远程有效时覆盖本地端点 —— 本地填了值却"不生效"时必须明确告知，
+      // 否则用户会误以为设置坏了（逃生舱：切到「仅本地配置」模式）。
+      const hasLocalEndpointOverride = Boolean(
+        String(appSettings.backend.ocrEndpoint || '').trim() ||
+          String(appSettings.backend.tempUploadEndpoint || '').trim() ||
+          String(appSettings.backend.cloudSyncEndpoint || '').trim()
+      )
+      if (appSettings.backend.useRemoteConfig && hasLocalEndpointOverride) {
+        showToast(t('settings.toast.localEndpointManagedByRemote'), 'info')
+      } else {
+        showToast(t('settings.toast.backendApplied'), 'success')
+      }
     }
     pushDebugLog('Settings', t('settings.debug.log.applyBackendOk'), 'info')
     return true

@@ -4,6 +4,7 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { fetchRemoteConfig } from '../../../utils/remote_config'
 import {
   buildForumApiBase,
+  buildForumApiBases,
   createForumApiClient,
   loadForumAdminSecret,
   readForumProfile
@@ -111,9 +112,11 @@ export const createForumSession = (props: { studentId: string }, emit: (event: s
   const buildClient = async (): Promise<void> => {
     const config = await fetchRemoteConfig()
     forumEnabled.value = config?.forum?.enabled !== false
-    apiBase.value = buildForumApiBase(config?.forum)
+    const forumBases = buildForumApiBases(config?.forum, config?.backend)
+    apiBase.value = forumBases[0] || buildForumApiBase(config?.forum)
     client = createForumApiClient({
       apiBase: apiBase.value,
+      apiBases: forumBases,
       studentId,
       nickname: profile.value.nickname,
       avatarUrl: profile.value.avatar_url,

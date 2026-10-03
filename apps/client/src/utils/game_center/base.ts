@@ -12,8 +12,17 @@
  * 初始化期读到未初始化绑定）。本文件仍是**零 game_center 内部依赖**的叶子。
  */
 
-import { STATISTICS_SERVICE_BASE_URL } from '../statistics_environment'
+import { STATISTICS_SERVICE_BASE_URL, isStatisticsServiceUrlCompatible } from '../statistics_environment'
 import { normalizeGamePlatformCanary, type GamePlatformCanary } from './canary'
+import {
+  DEFAULT_BACKEND_CHANNEL_PATHS,
+  DEFAULT_BACKEND_GROUPS,
+  deriveChannelUrl,
+  normalizeBackendBase,
+  normalizeBackendConfig,
+  type BackendChannel,
+  type BackendGroup
+} from '../backend_endpoints'
 
 /** Game Platform v1 命名空间（protocol-v1.md §1.1） */
 export const GAME_PLATFORM_NAMESPACE = '/api/game-platform/v1'
@@ -260,3 +269,135 @@ export const normalizeGamePlatformConfig = (raw: unknown): GamePlatformConfig =>
 }
 
 export { toFlagBoolean }
+
+// ---------------------------------------------------------------------------
+// 后端候选组解析（契约 docs/architecture/backend-endpoints-contract.md）
+// ---------------------------------------------------------------------------
+
+/**
+ * 游戏后端候选：`apiBase`（V2）与 `rankApi`（Legacy）**同源同组**（契约 I1 —— 票据同源）。
+ * 故障转移到哪一组，两个通道一起切，杜绝"票在 A 组签、游戏在 B 组验"。
+ */
+export interface GameBackendCandidate {
+  groupId: string
+  failoverKey: string
+  origin: string
+  apiBase: string
+  rankApi: string
+}
+
+const safeText = (value: unknown): string => String(value ?? '').trim()
+
+/**
+ * 剥离云同步命名空间得到后端基址（保留部署子路径）。
+ * 例：`https://x.com/sub/api/cloud-sync` → `https://x.com/sub`。
+ */
+export const stripCloudSyncNamespace = (endpoint: unknown): string => {
+  const text = safeText(endpoint).replace(/\/+$/, '')
+  if (!text) return ''
+  return text.replace(/\/api\/cloud-sync$/i, '').replace(/\/cloud-sync$/i, '')
+}
+
+/**
+ * 把显式 API base 折成"虚拟组"：**origin 作基址**、原 pathname 作 game_platform 路径。
+ * 注意 base 必须是 origin（不含路径），否则派生时会与 paths 重复拼接
+ * （曾出现 `…/api/game-platform/v1/api/game-platform/v1/…`）。
+ */
+const toVirtualGameGroup = (apiBase: string): BackendGroup | null => {
+  if (!isSecureGamePlatformUrl(apiBase)) return null
+  let origin = ''
+  let path = GAME_PLATFORM_NAMESPACE
+  try {
+    const parsed = new URL(apiBase)
+    origin = parsed.origin
+    if (parsed.pathname && parsed.pathname !== '/') {
+      path = parsed.pathname.replace(/\/+$/, '') || GAME_PLATFORM_NAMESPACE
+    }
+  } catch {
+    return null
+  }
+  if (!origin) return null
+  return { id: 'override', base: origin, enabled: true, paths: { game_platform: path } }
+}
+
+const toGameCandidate = (
+  group: BackendGroup,
+  paths: Record<BackendChannel, string>
+): GameBackendCandidate | null => {
+  const apiBase = deriveChannelUrl(group, 'game_platform', paths)
+  const rankApi = deriveChannelUrl(group, 'game_rank', paths)
+  if (!apiBase || !rankApi) return null
+  if (!isSecureGamePlatformUrl(apiBase) || !isSecureGamePlatformUrl(rankApi)) return null
+  // 跨环境候选一律不用（#911 P1-⑤：生产构建拒测试域，测试构建拒生产域）
+  if (!isStatisticsServiceUrlCompatible(apiBase) || !isStatisticsServiceUrlCompatible(rankApi)) return null
+  return {
+    groupId: group.id,
+    failoverKey: group.id,
+    origin: normalizeBackendBase(group.base),
+    apiBase,
+    rankApi
+  }
+}
+
+/**
+ * 解析游戏后端候选（顺序即优先级，契约 §4）：
+ *   ① 通道级显式覆盖 `game_platform.api_base`（与组首项不同时锁定为单候选）
+ *   ② `backend.groups`；无组模型时用**云同步端点同源合成单组**（保证与云同步切到同一后端）
+ *   ③ 内置默认：release 用组模型内置默认（生产主域 + 唯一兜底）；
+ *      非 release 强制环境隔离域（dev/beta 不得打到生产）
+ * `includeGroups=false`（`useRemoteConfig=false`）时跳过 ①②，直接用 ③。
+ */
+export const resolveGameBackendCandidates = (input: {
+  backend?: unknown
+  gamePlatformApiBase?: unknown
+  includeGroups?: boolean
+  /** 云同步主端点；用于无组模型时同源合成候选 */
+  cloudSyncEndpoint?: unknown
+}): GameBackendCandidate[] => {
+  const includeRemote = input.includeGroups !== false
+  const config = normalizeBackendConfig(includeRemote ? input.backend : undefined)
+  let groups: BackendGroup[] = config.groups.filter((group) => group.enabled)
+
+  if (includeRemote) {
+    const explicit = safeText(input.gamePlatformApiBase)
+    if (explicit && isSecureGamePlatformUrl(explicit) && isStatisticsServiceUrlCompatible(explicit)) {
+      const normalized = explicit.replace(/\/+$/, '')
+      const firstFromGroups =
+        groups.length > 0 ? deriveChannelUrl(groups[0], 'game_platform', config.paths) : ''
+      // 兼容镜像：显式值与组首项相同 → 忽略显式值走组模型（保留兜底）
+      if (firstFromGroups !== normalized) {
+        const virtual = toVirtualGameGroup(normalized)
+        const candidate = virtual ? toGameCandidate(virtual, config.paths) : null
+        return candidate ? [candidate] : []
+      }
+    }
+
+    if (groups.length === 0) {
+      const syncBase = stripCloudSyncNamespace(input.cloudSyncEndpoint)
+      if (syncBase && isSecureGamePlatformUrl(syncBase)) {
+        groups = [{ id: 'cloud-sync', base: syncBase, enabled: true, paths: {} }]
+      }
+    }
+  }
+
+  if (groups.length === 0) {
+    // ③ 环境隔离：非 release 只用构建档位派生的环境域；release 用组模型内置默认
+    const isReleaseBuild =
+      String(import.meta.env.VITE_BUILD_PROFILE || '').trim().toLowerCase() === 'release'
+    groups = isReleaseBuild
+      ? DEFAULT_BACKEND_GROUPS.filter((group) => group.enabled).map((group) => ({ ...group }))
+      : [{ id: 'environment', base: DEFAULT_GAME_SERVICE_ORIGIN, enabled: true, paths: {} }]
+  }
+
+  const candidates = groups
+    .map((group) => toGameCandidate(group, config.paths))
+    .filter((item): item is GameBackendCandidate => item !== null)
+  if (candidates.length > 0) return candidates
+
+  // 兜底：环境默认源单候选（standalone；仍受环境兼容过滤）
+  const fallback = toGameCandidate(
+    { id: 'environment', base: DEFAULT_GAME_SERVICE_ORIGIN, enabled: true, paths: {} },
+    DEFAULT_BACKEND_CHANNEL_PATHS
+  )
+  return fallback ? [fallback] : []
+}

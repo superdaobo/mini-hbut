@@ -59,25 +59,39 @@
     "download_url": "https://example.com/download"
   },
   "ocr": {
-    "endpoint": "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize",
+    "endpoint": "https://mini.hbut.site/api/ocr/recognize",
     "endpoints": [
-      "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize"
+      "https://mini.hbut.site/api/ocr/recognize"
     ],
     "local_fallback_endpoints": [
-      "http://1.94.167.18:5080/api/ocr/recognize"
+      "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize"
     ],
     "enabled": true
   },
   "temp_upload": {
-    "endpoint": "https://mini-hbut-ocr-service.hf.space/api/temp/upload"
+    "endpoint": "https://mini.hbut.site/api/temp/upload"
   },
   "cloud_sync": {
     "enabled": true,
     "mode": "proxy",
-    "proxy_endpoint": "https://mini-hbut-ocr-service.hf.space/api/cloud-sync",
+    "proxy_endpoint": "https://mini.hbut.site/api/cloud-sync",
+    "fallback_endpoints": [
+      "https://mini-hbut-ocr-service.hf.space/api/cloud-sync"
+    ],
     "secret_ref": "kv1-main",
     "timeout_ms": 12000,
     "cooldown_seconds": 180
+  },
+  "backend": {
+    "groups": [
+      { "id": "mini", "base": "https://mini.hbut.site" },
+      { "id": "hf-prod", "base": "https://mini-hbut-ocr-service.hf.space" }
+    ],
+    "failover": {
+      "enabled": true,
+      "failure_ttl_seconds": 300,
+      "max_attempts_per_request": 2
+    }
   },
   "ai_models": [
     { "label": "Qwen-Plus", "value": "qwen-plus" },
