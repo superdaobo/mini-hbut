@@ -209,6 +209,9 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
         scheduleUsageUpload({ studentId: state.studentId.value, reason: 'login', force: true })
       }
     }
+    // #962：清理函数不再改动 onlineSessionState —— 手动登录的 online 已由
+    // LoginV3.markLoginOnline() 在 emit/publish 登录成功事件**之前**显式写入
+    //（两条投递链时序均已确认），这里只负责清维护横幅。
     runtime.session.clearJwxtMaintenance()
     runtime.session.stopJwxtRecoveryPolling()
     // #520：登录成功后主动探测教务会话是否真正恢复（刷新学习通短票/CAS 桥接）。

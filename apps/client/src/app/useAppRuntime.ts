@@ -201,6 +201,9 @@ export const useAppRuntime = () => {
     runtime.lifecycle.scheduleViewportUpdate()
     runtime.notification.installWidgetDeeplinkListeners()
     void runtime.notification.installNotificationActionListener()
+    // #962：boot 早期只清理上次会话遗留的维护横幅（localStorage + 展示态），
+    // **没有任何网络验证** —— 不得升级 onlineSessionState（cached_offline/unknown 保持，
+    // 等待下方恢复链的真实结果经 notifySessionOnline 确认）。
     runtime.session.clearJwxtMaintenance()
 
     let cachedIdentity = false

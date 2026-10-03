@@ -56,15 +56,16 @@ const launchTicketOverride = ref('')
 /** 认证状态层（契约 C 前提③「会话已确认」的事实源；只读，不修改） */
 const authStore = useAuthStore()
 /**
- * ③ 会话已确认：语义等价于 `useAppRuntime.ts` 的 `sessionRestoreVerified`
- *（「恢复流程确认过可用会话」）——仅缓存身份（`cached_offline`）不算确认，游客态一律 false。
+ * ③ 会话已确认：契约 D 的**单一事实源**（`stores/auth.ts` 的 `sessionVerified`，
+ * 仅判 `onlineSessionState === 'online'`）。identity-guest 任务（#950）已交付统一，
+ * 这里不再保留第二实现（此前多合取的 `isLoggedIn` 与单一事实源存在漂移风险）。
  *
- * 依赖说明：identity-guest 任务会把该事实源统一到认证状态层；届时这里改为读取同一导出即可，
- * 判定结构（`resolveGameTrustPolicy`）不变。
+ * 等价性说明：登录/恢复成功的 `online` 写入点都伴随 studentId 非空；登出收口
+ *（AuthCoordinator.handleLogout）同步清空 studentId 并把 onlineSessionState 置回
+ * `unknown`，不存在「online 且 studentId 为空」的稳定态 —— 因此旧公式的额外
+ * `isLoggedIn` 合取项是冗余条件，读取 store 导出即语义一致（契约 D，#963）。
  */
-const sessionVerified = computed(
-  () => authStore.isLoggedIn === true && authStore.onlineSessionState === 'online'
-)
+const sessionVerified = computed(() => authStore.sessionVerified)
 
 /** 加载游乐场能力开关（远程配置；失败时用安全默认值，不影响既有模块行为） */
 const loadHostFlags = async () => {
