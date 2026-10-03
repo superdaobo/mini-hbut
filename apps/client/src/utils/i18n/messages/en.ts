@@ -1121,7 +1121,7 @@ export const messages: Record<string, string> = {
   'gameCenter.home.classUnknown': 'Class not synced',
   'gameCenter.home.recentTitle': 'Recently played',
   'gameCenter.home.recommendTitle': 'Recommended',
-  'gameCenter.home.tasksReady': 'Daily tasks are live: progress syncs here after you finish matches.',
+  'gameCenter.home.tasksCompletedCount': '{done}/{total} done',
   'gameCenter.home.tasksTitle': 'Today\u2019s tasks',
   'gameCenter.loading': 'Loading playground...',
   'gameCenter.me.bestMaxLevel': 'Best level',

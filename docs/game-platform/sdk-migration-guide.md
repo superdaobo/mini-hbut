@@ -115,7 +115,12 @@ Fail closed 规则（不可违反）：
 
 读取与暴露（代码见 `_sdk/src/capabilities.js`）：
 
-- 来源优先级：`/meta.capabilities` > `/meta.features`（过渡形态）> 宿主 `welcome.capabilities` > `welcome.features`；
+- 来源优先级：`/meta.capabilities`（**唯一权威**）> `/meta.features`（集成期过渡兼容，
+  仅兜底读取，计划在服务端全面下发 `capabilities` 后移除）> 宿主 `welcome.capabilities` > `welcome.features`；
+- 形状（canonical key）：`{ leaderboards, daily_tasks, gomoku_competitive, verified_reward }`；
+- **flag 形态名一律拒绝（#965）**：`*_enabled` / `*Enabled` / `*_available` 等与 flag 同形的键
+  在**任何作用域**（`capabilities` / `features`、meta / welcome）都不能被读成「端点已实现」；
+  别名表只保留命名差异条目（`leaderboard` / `dailyTasks` / `game_daily_tasks` 等纯能力名变体）；
 - 游戏侧读取：`game.capabilities.server.<key>`（**保守**：拿不到 `/meta`、字段缺失、类型非法 → 一律 `false`）；
   诊断：`game.diagnostics.capabilities = { source, declared, disabled }`；
 - **保守默认与运行时闸门是两层**：
@@ -145,7 +150,10 @@ Fail closed 规则（不可违反）：
   `game_center/api.ts` 的 `GAME_PLATFORM_CAPABILITY_ALIASES`），**任何未识别命名一律按 false**；
 - SDK 表只有 4 键（游戏内消费面），宿主 UI 表有 6 键（游乐场 UI 消费面），
   服务端声明可多于两者 —— 消费方只读自己认识的 key，多余 key 忽略；
-- 别名容错的精确清单以**代码现状**为准（本文不复制别名表，避免文档与实现漂移）。
+- 别名容错的精确清单以**代码现状**为准（本文不复制别名表，避免文档与实现漂移）；
+- 服务端声明是**权威超集**（9 键）：宿主 6 键 + `gomoku_competitive` +
+  `launch_ticket` / `session_recovery`（后两键是**宿主握手能力**，launch ticket / 会话恢复，
+  不属于服务能力表，SDK / 宿主按各自 key 消费）。
 
 ---
 
@@ -473,6 +481,6 @@ node scripts/build_website_modules.mjs --modules <你的游戏>
 | M2 | `clumsy_bird_hbut` V2 主排序是否改为本局 `score` | 是（U-R4）；Legacy 镜像仍写 bestScore |
 | M3 | 排行榜默认 board | `classic`（Stage D 前与经典榜内容一致；`verified` 榜由 #905/#909 决定入口） |
 | M4 | 迁移期是否保留旧 `game_rank.js` 的 import 作为兜底 | 否（SDK 已内含 Legacy 通道；旧文件仅用于回滚） |
-| M5 | `/meta.capabilities` 的最终字段名（Integration 对齐项） | 三处 canonical 对应关系见 §2.3.1 映射表（SDK 4 键 / 宿主 UI 6 键 / 服务端权威超集；`gomoku_competitive`（SDK/flag 侧）≡ `gomoku_match`（宿主/服务端））；SDK 兼容少量只读别名（以 `_sdk/src/capabilities.js` 现状为准）与 `features.<同名>` 过渡形态，**任何未识别命名一律按 false** |
+| M5 | `/meta.capabilities` 的最终字段名（Integration 对齐项） | 三处 canonical 对应关系见 §2.3.1 映射表（SDK 4 键 / 宿主 UI 6 键 / 服务端权威超集 9 键；`gomoku_competitive`（SDK/flag 侧）≡ `gomoku_match`（宿主/服务端））；SDK 兼容命名差异别名（`leaderboard`、`dailyTasks` 等纯能力名变体）与 `features.<纯能力名>` 过渡形态，**任何 flag 形态名（`*_enabled` 等）与未识别命名一律按 false（#965）** |
 | M6 | 客户端 3 个新 flag（`game_daily_tasks_enabled` / `gomoku_competitive_enabled` / `verified_reward_enabled`）的接线时机 | **已完成接线**（`game_center/base.ts` 的 `RESERVED_GAME_CENTER_FLAG_KEYS` 已由 `GAME_CENTER_FLAG_KEYS` 展开并入、默认值并入 `DEFAULT_GAME_CENTER_FLAGS`、`flags.ts` 夹紧完成；`RESERVED_*` 常量名保留作为 key 的单一来源，不再是"预留"状态） |
 | M7 | 「无 `rank_api` 的网页直开」是否允许远程上榜（P1-5 取舍） | **不允许**（fail closed → standalone 本地游玩）；需要远程榜的宿主/网页必须显式注入 `rank_api` |

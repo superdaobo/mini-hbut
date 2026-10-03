@@ -80,6 +80,15 @@ export const stripPiiFields = (entry) => {
  * SDK init 之后才创建（宿主在 onload / 远程配置返回后才重建桥），首次 hello 有被丢弃的
  * 风险 —— 因此做一次有界重试，避免把「宿主迟到」误判为「无宿主」而整体降级。
  * 仍未握手成功 → standalone/compatibility，且**零 V2 请求**（不兑换 ticket）。
+ *
+ * #970c 已知取舍（慢网首开降级无本轮自愈）：两次 hello 都超时后，本轮会话直接落定
+ * compatibility/standalone，**不再**延迟自愈重试，依据：
+ * 1. 「宿主迟到」与「根本无宿主（网页直开）」在本轮已不可区分，继续等待只会把
+ *    零请求的 fail closed 边界拉长成不确定的挂起；
+ * 2. 自愈需要重建 welcome → ticket → session 的整条状态机（且 URL 里的 ticket 已作废），
+ *    复杂度与收益不匹配 —— 实际慢网首开的用户下一轮冷启动即恢复正常握手；
+ * 3. 降级不是静默的：`mode` 消息会通知宿主（宿主可展示「经典榜模式/本地模式」角标），
+ *    `host_welcome_unavailable` 也写入 diagnostics.reasons 供诊断。
  */
 const HOST_HANDSHAKE_ATTEMPTS = 2
 
@@ -582,6 +591,8 @@ export const createEngine = (config = {}) => {
     //    宿主桥可能晚于 iframe 页面就绪，故做一次有界重试；仍失败 → 后续判定必须降级。
     //    P1-B fail closed：宿主来源只认显式配置 / URL 注入的 `host_origin`；都没有时桥不握手
     //    （requestWelcome 直接返回 null）→ 这里必然记为 host_welcome_unavailable，零 V2 请求。
+    //    #970c：慢网首开「宿主迟到」的取舍见 HOST_HANDSHAKE_ATTEMPTS 注释 —— 本轮降级、
+    //    无自愈，降级原因写进 reasons 并经 mode 消息告知宿主（非静默）。
     if (bridge.embedded) {
       for (let attempt = 0; attempt < HOST_HANDSHAKE_ATTEMPTS && !state.welcome; attempt += 1) {
         if (attempt > 0) noteReason('host_welcome_retry')

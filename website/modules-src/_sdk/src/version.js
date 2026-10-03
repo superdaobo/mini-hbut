@@ -42,13 +42,13 @@ export const DEFAULT_SERVICE_ORIGIN = 'https://mini.hbut.site'
 export const DEFAULT_GAME_PLATFORM_API_BASE = `${DEFAULT_SERVICE_ORIGIN}${GAME_PLATFORM_API_NAMESPACE}`
 
 /**
- * Legacy 生产地址**参考值**（诊断 / 文档 / 宿主对照用，也可由显式集成方引用）。
+ * Legacy 通道**没有默认地址**（#970b：原 `DEFAULT_LEGACY_RANK_API_BASE` 死导出已删除，
+ * 全仓零运行时引用，留着只会诱导后续把它当隐式提交源 —— 那正是 P1-5 要消灭的路径）。
  *
- * 注意：SDK **不再**把它当作隐式提交目标（旧行为 = 无 `rank_api` 时静默打这个域，
- * 正是 P1-5 要消灭的路径）。Legacy 可用性只由 `canSubmitLegacyRank` 判定：
- * 必须同时具备自报身份 + **显式注入**的 base。
+ * Legacy 可用性只由 `canSubmitLegacyRank` 判定：必须同时具备自报身份 + **显式注入**的
+ * `rank_api`（SDK 配置或 Host 注入）；缺失即判定不可提交（fail closed → standalone 纯本地），
+ * 见 `game.js` 的 resolveApiBases。生产 Legacy 地址属**运维配置**，不进 SDK 常量。
  */
-export const DEFAULT_LEGACY_RANK_API_BASE = `${DEFAULT_SERVICE_ORIGIN}${LEGACY_RANK_API_NAMESPACE}`
 
 /** 请求超时（沿用既有游戏 12s 约定：website/modules-src/hbut_stack/project/src/utils/game_rank.js:3） */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 12000

@@ -1122,7 +1122,7 @@ export const messages: Record<string, string> = {
   'gameCenter.home.classUnknown': '班级未同步',
   'gameCenter.home.recentTitle': '最近在玩',
   'gameCenter.home.recommendTitle': '推荐游戏',
-  'gameCenter.home.tasksReady': '每日任务已开放：完成对局后进度会同步到这里。',
+  'gameCenter.home.tasksCompletedCount': '已完成 {done}/{total}',
   'gameCenter.home.tasksTitle': '今日任务',
   'gameCenter.loading': '正在加载游乐场...',
   'gameCenter.me.bestMaxLevel': '最高关卡',

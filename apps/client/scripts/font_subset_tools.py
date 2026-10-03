@@ -103,13 +103,19 @@ def cmd_subset(args):
     kept = [name for name in requested if name in available]
     dropped = sorted(set(requested) - set(kept))
 
-    # 延迟导入：只有真正要生成字体时才需要 subset 模块
+    # 延迟导入：只有真正要生成字体时才需要 subset / instancer 模块
     from fontTools.subset import Options, Subsetter
+    from fontTools.varLib import instancer
 
+    # 变体轴必须保留（#974）：`font-variation-settings: 'FILL' 1`（实心图标，全仓
+    # .fill 类 19 处 + 内联 17 处）依赖 fvar（轴定义）+ gvar（字形轮廓变化）+
+    # avar（轴映射，若存在）三者齐备才能生效 —— 此前显式 drop 导致全部实心声明
+    # 退化为 outline。STAT（样式名元数据）与 MVAR（逐字形度量变化，对图标排版无
+    # 影响）允许丢弃。产物回读时校验 fvar 存在，缺失即失败。
     options = Options()
     # liga/clig/calt：Material Symbols 用图标名连字渲染（缺了会显示英文 icon name）
     options.layout_features = ["rclt", "rlig", "liga", "clig", "calt", "dlig"]
-    options.drop_tables = ["DSIG", "fvar", "gvar", "STAT", "avar", "MVAR"]
+    options.drop_tables = ["DSIG", "STAT", "MVAR"]
     options.notdef_outline = True
     options.name_IDs = [1, 2]
     options.name_legacy = True
@@ -119,23 +125,62 @@ def cmd_subset(args):
     # ligature 名的审计走 manifest（从 GSUB 解析），不依赖 post 表。
     options.glyph_names = False
 
+    # 顺序刻意为「先子集化、后 pin 轴」：
+    # 1) Subsetter 在**原始可变字体**上做 layout closure（rvrn / FeatureVariations
+    #    尚未被改写），字形名与源字体一致 —— 先 instancer 会把 FILL 轴的 variation
+    #    alternates（`*.fill` 字形名）内联进 GSUB，subsetter 闭包后引用到不存在于
+    #    glyf 的字形（实测 KeyError 'readiness_score.fill'）；
+    # 2) pin 轴放在子集之后：只对保留下来的少量字形做实例化，gvar 被裁剪到仅剩
+    #    FILL 轴 —— 若保留全量 gvar，子集字体会从 ~320KB 暴涨到 ~3.8MB。
     subsetter = Subsetter(options=options)
     subsetter.populate(text="".join(kept) + DEFAULT_FALLBACK_CHARS)
     subsetter.subset(source)
 
+    # #974：CSS 只用 `FILL` 轴切换实心/空心（基础类 'FILL' 0，.fill 类 'FILL' 1），
+    # 其余三轴在 CSS 中的声明值（wght 400 / GRAD 0 / opsz 24）与轴默认值一致。
+    # 把这三轴**钉死**为默认值，只保留 FILL 轴可变；被 pin 轴的 CSS 声明成为 no-op
+    # （产物字体已无该轴），FILL 0/1 继续生效。
+    instancer.instantiateVariableFont(
+        source,
+        {"wght": 400.0, "GRAD": 0, "opsz": 24},
+        inplace=True,
+    )
+
     source.flavor = "woff2"
     source.save(args.output)
 
+    # 产物回读：变体轴护栏（#974）—— fvar 缺失意味着 font-variation-settings 全部失效，
+    # 属于静默回归，这里直接失败而不是写出一个"看起来成功"的字体。
+    produced_font = TTFont(args.output)
+    if produced_font.get("fvar") is None:
+        print(
+            "[font-tools] ERROR: produced font has no `fvar` table — "
+            "variation axes (FILL/wght/GRAD/opsz) would be dead. "
+            "Check `drop_tables` in cmd_subset.",
+            file=sys.stderr,
+        )
+        return 1
+
     produced = _font_facts(args.output)
+    # 变体轴清单（#974）：写进 manifest 供契约测试断言（FILL 轴必须在场）
+    produced_font_axes = []
+    if produced_font.get("fvar") is not None:
+        produced_font_axes = [
+            {"tag": axis.axisTag, "min": axis.minValue, "default": axis.defaultValue, "max": axis.maxValue}
+            for axis in produced_font["fvar"].axes
+        ]
     manifest = {
         "schemaVersion": 1,
         "fontFile": args.output,
         "sourceFont": args.source,
         "requestedNameCount": len(requested),
         "missingFromSourceFont": dropped,
-        "fontGlyphNames": produced["ligatureNames"],
+        # 键名与 dump-names 输出保持一致（build_font_subset.mjs 的 regenerate 按
+        # `ligatureNames` 读取；旧键 `fontGlyphNames` 是一次不匹配的笔误，已统一）
+        "ligatureNames": produced["ligatureNames"],
         "cmapChars": produced["cmapChars"],
         "glyphCount": produced["glyphCount"],
+        "variationAxes": produced_font_axes,
     }
     with open(args.manifest, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, ensure_ascii=False, indent=2)
