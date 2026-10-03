@@ -97,7 +97,8 @@ async fn debug_dom_screenshot(
         Err(DebugScreenshotBridgeError::Timeout) => Err(err(
             StatusCode::GATEWAY_TIMEOUT,
             "截图超时",
-            "15 秒内未收到页面截图响应".to_string(),
+            "15 秒内未收到页面截图响应（页面侧未回包：可能仍在等待字体/图片加载，或渲染耗时超出窗口；页面侧自身的失败/超时会以 [capture_failed]/[capture_timeout] 前缀回报）"
+                .to_string(),
         )),
         Err(DebugScreenshotBridgeError::Failed(message)) => {
             Err(err(StatusCode::UNPROCESSABLE_ENTITY, "截图失败", message))
@@ -258,7 +259,8 @@ async fn debug_routes_list(
             { "method": "POST", "path": "/debug/chaoxing/courses", "desc": "拉课程列表并计时 body.force" },
             { "method": "POST", "path": "/debug/inbox", "desc": "拉收件箱 body.login_mode / force" },
             { "method": "GET", "path": "/debug/state", "desc": "前端页面状态" },
-            { "method": "POST", "path": "/debug/screenshot", "desc": "原生截图" },
+            { "method": "POST", "path": "/debug/screenshot", "desc": "原生整窗截图" },
+            { "method": "POST", "path": "/debug/dom_screenshot", "desc": "页面内 DOM 截图（按 selector，页面侧渲染，失败带 [capture_failed]/[capture_timeout] 归因）" },
             { "method": "POST", "path": "/debug/navigate", "desc": "导航到视图" },
         ]
     })))

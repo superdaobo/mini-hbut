@@ -74,6 +74,82 @@ const completeState = async (payload: Record<string, unknown>) => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * 页面侧截图捕获整体超时（毫秒）。
+ *
+ * 必须小于原生侧等待窗口（15 秒）：超时后页面主动回报失败原因，
+ * 避免 HTTP 侧只能等满 15 秒拿到无差异的 504「页面未回包」（#975）。
+ */
+export const DEBUG_SCREENSHOT_CAPTURE_TIMEOUT_MS = 12_000
+
+type DebugScreenshotRequestDeps = {
+  /** 执行「页面捕获 → 保存文件」并返回回包字段（不含 requestId / success） */
+  captureAndEncode: () => Promise<Record<string, unknown>>
+  /** 回传结果给原生层（complete_debug_screenshot） */
+  complete: (payload: Record<string, unknown>) => Promise<unknown> | unknown
+  /** 页面侧整体超时（毫秒） */
+  timeoutMs?: number
+}
+
+/**
+ * 执行一次页面侧截图请求：整体超时保护、保证只回一次包、失败原因归因。
+ *
+ * #975：字体/图片等待或 html2canvas 渲染可能长时间不返回，此前页面侧
+ * 无兜底回包，HTTP 侧只能 504。这里在超时时主动回报 `capture_timeout`，
+ * 捕获抛错回报 `capture_failed`，原生侧可据此区分「页面侧未回包」
+ * 「页面侧捕获失败」「页面侧超时」三类原因。
+ */
+export const executeDebugScreenshotRequest = async (
+  payload: Record<string, unknown>,
+  deps: DebugScreenshotRequestDeps
+): Promise<void> => {
+  const requestId = String(payload?.requestId || '')
+  if (!requestId) return
+
+  // 下限 1ms 仅防非法值;生产调用方不传 timeoutMs,走 12s 默认窗口
+  const timeoutMs = Math.max(1, Number(deps.timeoutMs ?? DEBUG_SCREENSHOT_CAPTURE_TIMEOUT_MS))
+  let settled = false
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  const completeOnce = async (result: Record<string, unknown>) => {
+    if (settled) return
+    settled = true
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    try {
+      await deps.complete({ requestId, ...result })
+    } catch {
+      // 回包失败不向外抛出，避免事件监听里出现未处理拒绝。
+    }
+  }
+
+  timer = setTimeout(() => {
+    void completeOnce({
+      success: false,
+      reason: 'capture_timeout',
+      error: `页面侧截图捕获超时（${Math.round(timeoutMs / 1000)} 秒）：等待字体/图片或页面渲染未在窗口内完成`
+    })
+  }, timeoutMs)
+
+  try {
+    const result = await deps.captureAndEncode()
+    await completeOnce({ success: true, ...result })
+  } catch (error) {
+    await completeOnce({
+      success: false,
+      reason: 'capture_failed',
+      error: error instanceof Error ? error.message : String(error ?? '截图失败')
+    })
+  } finally {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+}
+
 const waitForNextPaint = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 
@@ -263,6 +339,23 @@ const readModuleHostLayoutState = () => {
   }
 }
 
+/**
+ * 读取 usage 上传诊断快照（失败计数/最近错误/退避状态，#933 可观测）。
+ *
+ * 通过动态导入 + 运行时校验引用，避免在模块加载图上强依赖 usage_uploader；
+ * 读取失败时返回 null，不影响调试状态主流程。
+ */
+const readUsageUploadDiagnostics = async (): Promise<Record<string, unknown> | null> => {
+  try {
+    const mod = (await import('./usage_uploader.js')) as unknown as Record<string, unknown>
+    const getter = mod.getUsageUploadDiagnostics
+    if (typeof getter !== 'function') return null
+    return (getter as () => Record<string, unknown>)()
+  } catch {
+    return null
+  }
+}
+
 export const initDebugBridgeClient = async () => {
   if (initialized || !isTauriRuntime()) return
   const eventApi = await import('@tauri-apps/api/event')
@@ -274,54 +367,56 @@ export const initDebugBridgeClient = async () => {
     const returnMode = String(payload.return || payload.returnMode || 'path').toLowerCase()
     pushDebugLog('DebugBridge', `收到截图请求：${requestId || 'unknown'}`, 'debug', payload)
 
-    if (!requestId) {
-      return
-    }
-
-    try {
-      const viewportHeight = Math.max(
-        window.innerHeight || 0,
-        document.documentElement?.clientHeight || 0,
-        900
-      )
-      const captured = await captureElementToBlob({
-        selector: typeof payload.selector === 'string' ? payload.selector : undefined,
-        format,
-        backgroundColor: resolveDebugScreenshotBackgroundColor(payload) ?? undefined,
-        maxHeight: viewportHeight + 120,
-        scale: 1.5
-      })
-      const dataUrl = await blobToDataUrl(captured.blob)
-      const base64 = dataUrl.split(',')[1] || ''
-      const saved = await invokeNative<DebugCaptureSaveResult>('save_debug_capture_file', {
-        req: {
-          filename: payload.filename || '',
-          mimeType: captured.mime,
-          contentBase64: base64
+    await executeDebugScreenshotRequest(payload, {
+      captureAndEncode: async () => {
+        const viewportHeight = Math.max(
+          window.innerHeight || 0,
+          document.documentElement?.clientHeight || 0,
+          900
+        )
+        const captured = await captureElementToBlob({
+          selector: typeof payload.selector === 'string' ? payload.selector : undefined,
+          format,
+          backgroundColor: resolveDebugScreenshotBackgroundColor(payload) ?? undefined,
+          maxHeight: viewportHeight + 120,
+          scale: 1.5
+        })
+        const dataUrl = await blobToDataUrl(captured.blob)
+        const base64 = dataUrl.split(',')[1] || ''
+        const saved = await invokeNative<DebugCaptureSaveResult>('save_debug_capture_file', {
+          req: {
+            filename: payload.filename || '',
+            mimeType: captured.mime,
+            contentBase64: base64
+          }
+        })
+        return {
+          savedPath: saved?.path || '',
+          mime: captured.mime,
+          width: captured.width,
+          height: captured.height,
+          base64: returnMode === 'base64' || returnMode === 'both' ? base64 : null
         }
-      })
-      await completeScreenshot({
-        requestId,
-        success: true,
-        savedPath: saved?.path || '',
-        mime: captured.mime,
-        width: captured.width,
-        height: captured.height,
-        base64: returnMode === 'base64' || returnMode === 'both' ? base64 : null
-      })
-      pushDebugLog('DebugBridge', `截图完成：${requestId}`, 'info', {
-        path: saved?.path,
-        width: captured.width,
-        height: captured.height
-      })
-    } catch (error) {
-      await completeScreenshot({
-        requestId,
-        success: false,
-        error: error instanceof Error ? error.message : String(error ?? '截图失败')
-      }).catch(() => {})
-      pushDebugLog('DebugBridge', `截图失败：${requestId}`, 'error', error)
-    }
+      },
+      complete: async (result) => {
+        if (result.success) {
+          await completeScreenshot(result)
+          pushDebugLog('DebugBridge', `截图完成：${requestId}`, 'info', {
+            path: result.savedPath,
+            width: result.width,
+            height: result.height
+          })
+        } else {
+          pushDebugLog(
+            'DebugBridge',
+            `截图失败：${requestId}（reason=${String(result.reason || 'unknown')}）`,
+            'error',
+            result.error
+          )
+          await completeScreenshot(result).catch(() => {})
+        }
+      }
+    })
   })
 
   unlistenOpenModule = await eventApi.listen(OPEN_MODULE_EVENT_NAME, async (event) => {
@@ -513,7 +608,8 @@ export const initDebugBridgeClient = async () => {
           capturedAt: new Date().toISOString(),
           bootMetrics: getBootMetricsSnapshot(),
           moduleHostSession: readStoredModuleHostSession(),
-          moduleHostLayout: readModuleHostLayoutState()
+          moduleHostLayout: readModuleHostLayoutState(),
+          usageUpload: await readUsageUploadDiagnostics()
         }
       })
     } catch (error) {
