@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "module_id": "hbut_2048",
+  "module_name": "2048 湖工大版",
+  "version": "20261003042459-0dad6ed",
+  "package_url": "https://hbut.6661111.xyz/modules/dev/hbut_2048/20261003042459-0dad6ed/bundle.zip",
+  "package_sha256": "ec20ffc3d242b48ab59f2695766956fa440cba82c6d1f04fa752efe62e1fca79",
+  "package_size": 28435,
+  "entry_path": "index.html",
+  "published_at": "2026-10-03T04:25:03.276Z",
+  "release_notes": "2048 湖工大版模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/dev/hbut_2048/20261003042459-0dad6ed/site/index.html",
+  "published_channel": "dev",
+  "source_channel": "main",
+  "sdk_version": "1.0.0",
+  "sdk_sha256": "0957d5875bd46e840071e889c5cdf5ea8ec6507655ce07c6a312dc106af1ed31",
+  "sdk_protocol_version": 1
+}
