@@ -30,7 +30,7 @@ import {
   resetImportColors,
   collectImportColorDiagnostics
 } from '../utils/importColors'
-import { commitImportCourses } from '../utils/importCommit'
+import { commitImportCourses, summarizeCommitItems } from '../utils/importCommit'
 import type {
   ImportCommitResult,
   ImportDiagnostic,
@@ -199,7 +199,8 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
   )
 
   /**
-   * 预览网格某一列的课程：既有课表（该预览周生效）+ 本次预览课程。
+   * 预览网格某一列的课程：既有课表（该预览周生效）+ 本次预览课程（同样按预览周过滤，
+   * #821：单双周/区间周课程只在生效周显示，避免非本周课程制造假冲突）。
    * 纯内存计算，绝不写数据库；既有课程点击在 Dialog 内会被忽略。
    */
   const previewGetCoursesForDay = (dayIndex: number): any[] => {
@@ -211,7 +212,7 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     const existing = existingList.filter(
       (course: any) => Number(course?.weekday) === day && isWeekActive(course?.weeks, week)
     )
-    const preview = buildPreviewGridCourses(previewCourses.value).filter(
+    const preview = buildPreviewGridCourses(previewCourses.value, week).filter(
       (node) => node.weekday === day
     )
     return [...existing, ...preview]
@@ -415,8 +416,12 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
   )
 
   /**
-   * 确认导入：提交勾选项 → 统一 refresh 一次 → 展示 added/skipped/failed 汇总。
-   * 失败时保留预览态，允许用户修正后重试。
+   * 确认导入（#820）：
+   *   1. commitImportCourses 内部先做全量复用校验（字段硬校验 + 与既有课表
+   *      exact duplicate 复检），任一条硬校验失败 → 整批拦截，零写入；
+   *   2. 校验通过后受控并发逐条写入，单条失败不中断、逐条结果收集；
+   *   3. 成功后统一 refresh 一次 → 展示 added/skipped/failed 汇总与失败明细；
+   *   4. 校验拦截时留在 preview 阶段（无任何写入），用户修正后可重试。
    */
   const commitImport = async () => {
     const sid = String(props.studentId || '').trim()
@@ -439,8 +444,19 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
       const result = await commitImportCourses(previewCourses.value, {
         apiBase: API_BASE,
         studentId: sid,
-        semester: target
+        semester: target,
+        // #820：导入前与既有 official/custom 课表全量比对，前置于任何写入
+        existingCourses: allExistingCourses.value
       })
+      if (result.blocked === 'validation') {
+        // 校验拦截：没有任何写入发生，留在 preview 供用户修正
+        showToast(
+          t('schedule.import.toast.validationBlocked').replace('{n}', String(result.failed)),
+          'error',
+          4500
+        )
+        return
+      }
       importResult.value = result
       // 统一刷新一次课表视图（不在循环内逐条刷新）
       await editor.refreshCustomCourseViews(target)
@@ -459,6 +475,65 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     } finally {
       committing.value = false
     }
+  }
+
+  /**
+   * 重试失败项（#820 关键中间失败的重试路径）：
+   * 只重新提交上次结果中 failed 的条目，成功后把结果合并回同一份汇总，
+   * 保证 added/skipped/failed 始终反映整批最终状态。
+   */
+  const retryFailedImport = async () => {
+    const previous = importResult.value
+    if (!previous || committing.value) return
+    const failedKeys = previous.items
+      .filter((item) => item.status === 'failed')
+      .map((item) => item.key)
+    if (!failedKeys.length) return
+
+    const sid = String(props.studentId || '').trim()
+    const target = String(targetSemester.value || '').trim()
+    if (!sid || !target) {
+      showToast(t('schedule.import.toast.needLogin'), 'error')
+      return
+    }
+
+    committing.value = true
+    try {
+      const retryResult = await commitImportCourses(previewCourses.value, {
+        apiBase: API_BASE,
+        studentId: sid,
+        semester: target,
+        existingCourses: allExistingCourses.value
+      }, { onlyKeys: failedKeys })
+
+      // 把重试结果替换回同一份汇总（未重试或仍失败的条目保持原状态）
+      const mergedItems = previous.items.map((old) => {
+        if (old.status !== 'failed') return old
+        const retried = retryResult.items.find((item) => item.key === old.key)
+        return retried || old
+      })
+      const merged = summarizeCommitItems(mergedItems)
+      importResult.value = merged
+      await editor.refreshCustomCourseViews(target)
+      if (merged.failed > 0) {
+        showToast(
+          t('schedule.import.toast.partial').replace('{a}', String(merged.added)).replace('{f}', String(merged.failed)),
+          'warning',
+          4500
+        )
+      } else {
+        showToast(t('schedule.import.toast.success').replace('{n}', String(merged.added)), 'success')
+      }
+    } catch (error) {
+      showToast(String((error as any)?.message || t('schedule.import.toast.commitFailed')), 'error')
+    } finally {
+      committing.value = false
+    }
+  }
+
+  /** 从结果页返回预览：保留全部预览态与勾选，供用户修正后重试 */
+  const backToPreviewFromResult = () => {
+    stage.value = 'preview'
   }
 
   return {
@@ -500,7 +575,9 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     setPreviewWeek,
     prevPreviewWeek,
     nextPreviewWeek,
-    commitImport
+    commitImport,
+    retryFailedImport,
+    backToPreviewFromResult
   }
 }
 
