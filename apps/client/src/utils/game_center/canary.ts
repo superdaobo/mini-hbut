@@ -67,7 +67,11 @@ export const isValidGameVersionPattern = (pattern: unknown): pattern is string =
  * - 区分大小写；版本串为空或模式非法 → 不匹配。
  *
  * 契约 B（服务端 `GAME_PLATFORM_WRITE_DENY_CLIENT_VERSIONS`）使用同一语义：
- * 逗号分隔的「字面前缀 + 末尾 `*`」模式，如 `1.4.11-beta.*`。
+ * 逗号分隔的「字面前缀 + 末尾 `*`」模式。
+ *
+ * ⚠ 通配前缀是**字面**匹配（#958）：`1.4.11-beta*` 才能同时匹配裸版本
+ * `1.4.11-beta` 与子版本 `1.4.11-beta.1`；而 `1.4.11-beta.*` 要求版本以
+ * `1.4.11-beta.` 开头，**不匹配**裸 `1.4.11-beta`（官方文档示例已按此修正）。
  */
 export const matchGameVersionPattern = (pattern: string, version: string): boolean => {
   const target = String(version ?? '').trim()
