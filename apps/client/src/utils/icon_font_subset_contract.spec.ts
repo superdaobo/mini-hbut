@@ -20,7 +20,9 @@ import { extractIconNamesFromSource, scanIconNames } from '../../scripts/icon_so
 
 const CLIENT_ROOT = process.cwd()
 const FONT_DIR = path.join(CLIENT_ROOT, 'public/fonts')
-const MANIFEST_PATH = path.join(FONT_DIR, 'glyph-manifest.json')
+// #973：manifest 是开发/审计元数据，放在 scripts/fonts/（不随 public/ 打进安装包），
+// 与 scripts/build_font_subset.mjs 的 MANIFEST_PATH 保持一致
+const MANIFEST_PATH = path.join(CLIENT_ROOT, 'scripts/fonts/glyph-manifest.json')
 const FONT_PATH = path.join(FONT_DIR, 'material-symbols-outlined.subset.woff2')
 
 /** 与 scripts/build_font_subset.mjs 的扫描范围保持一致 */
@@ -35,6 +37,8 @@ type GlyphManifest = {
   cmapChars: string
   ligatureNameCount: number
   ligatureNames: string[]
+  /** #974：产物字体保留的变体轴（由生成器回读 fvar 写入） */
+  variationAxes?: Array<{ tag: string; min: number; default: number; max: number }>
 }
 
 const readManifest = (): GlyphManifest => {
@@ -57,6 +61,21 @@ describe('Material Symbols 子集字体契约', () => {
     expect(manifest.ligatureNames.length).toBe(manifest.ligatureNameCount)
     expect(manifest.ligatureNameCount).toBeGreaterThan(0)
     expect(manifest.glyphCount).toBeGreaterThan(0)
+  })
+
+  it('#974：子集字体保留 FILL 变体轴（font-variation-settings 必须生效）', () => {
+    const manifest = readManifest()
+    const axes = manifest.variationAxes ?? []
+    const fill = axes.find((axis) => axis.tag === 'FILL')
+    expect(
+      fill,
+      'manifest 缺少 FILL 轴 —— CSS 的 font-variation-settings: \'FILL\' 1 会全部失效。' +
+        '请用 npm run font:subset 重新生成（生成器会校验 fvar 表存在）'
+    ).toBeDefined()
+    expect(fill?.min).toBe(0)
+    expect(fill?.max).toBe(1)
+    // 全量保留四轴会让 gvar 把子集撑到 ~3.8MB：非 FILL 轴被 pin 为默认值（wght 400 / GRAD 0 / opsz 24）
+    expect(axes.map((axis) => axis.tag).sort()).toEqual(['FILL'])
   })
 
   it('源码用到的 ligature 名全部包含在子集字体里', () => {

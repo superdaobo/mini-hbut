@@ -1088,7 +1088,7 @@ export const messages: Record<string, string> = {
   'gameCenter.home.classUnknown': 'クラス未同期',
   'gameCenter.home.recentTitle': '最近プレイ',
   'gameCenter.home.recommendTitle': 'おすすめ',
-  'gameCenter.home.tasksReady': 'デイリータスクが公開されました。対局後にここへ進捗が同期されます。',
+  'gameCenter.home.tasksCompletedCount': '{done}/{total} 完了',
   'gameCenter.home.tasksTitle': '今日のタスク',
   'gameCenter.loading': 'プレイグラウンドを読み込み中...',
   'gameCenter.me.bestMaxLevel': '最高レベル',

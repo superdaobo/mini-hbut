@@ -23,7 +23,16 @@ export const JUMP_OUT_CHANNEL_CODE = 'legacy_rank_api_old'
 /** 旧协议：无默认 base；`rank_api` 缺失即不可用 */
 export const normalizeJumpOutRankApiBase = (value) => safeText(value).replace(/\/+$/, '')
 
-/** 旧协议上下文：snake_case 字段 + 无 API base 默认值 */
+/**
+ * 旧协议上下文：snake_case 字段 + 无 API base 默认值。
+ *
+ * #968c：「生产无写入方」核对结论 —— `student_id` / `rank_api` 等**顶层裸键**在全仓的
+ * `setItem` 只出现在测试夹具（`game_center_p0_identity.spec.ts`、jump_out 的
+ * `game_rank.test.js`），生产链路统一走 URL 注入或 `<gameId>_rank_context_v1`
+ * 私有上下文。这里保留裸键读取是**只读历史兼容**（SDK 不写新存储）；裸键的
+ * 迁移/清理在游戏侧 `game_rank.js` 完成（读到即迁入私有上下文并清除裸键），
+ * 迁移后的记录同时纳入宿主启动清理器的跨环境 base 校验范围。
+ */
 export const readJumpOutLegacyContext = (options = {}) => {
   const params = options.params || readSearchParams()
   const storage = options.storage || getLocalStorage()

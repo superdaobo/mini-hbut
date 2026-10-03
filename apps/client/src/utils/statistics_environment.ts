@@ -47,14 +47,25 @@ const hostMatches = (hostname: string, host: string): boolean =>
 /**
  * 取 URL 的 hostname（含 IDNA / 百分号 / Unicode 点规范化）。不可解析返回 `''`。
  *
- * 无 scheme 的写法（`host/path`）按 https 再试一次，兼容历史配置形态。
+ * 解析规则（#968b 收口，两处非直觉行为的明确结论）：
+ * 1. **相对路径**（以 `/` 开头，如 `/api/game-rank`）不是服务地址，直接判不可解析：
+ *    若交给 `https://` 前缀兜底，`/api/...` 会被拼成假主机名 `api` 而**误判兼容**
+ *    （清理器会保留一个不可提交的死值）。结论：不兼容 → 落盘清理（fail closed）。
+ * 2. **无 scheme 的 `host:port`**（如 `localhost:3000/api/...`）：WHATWG URL 会把
+ *    `localhost:` 整体当作 opaque scheme、"成功"解析出空 hostname —— 空 hostname
+ *    不采纳，回落按 `https://` 前缀再解析一次得到真实 hostname（`localhost`）。
+ *    结论：识别为本地地址（loopback 语义）→ 两端环境都放行，**不误清**（本地联调可用）。
+ * 3. 其余形态先按原字符串、再按 `https://` 前缀尝试（兼容历史「无 scheme 域名」配置）。
  */
 const resolveHostname = (value: unknown): string => {
   const text = String(value ?? '').trim()
-  if (!text) return ''
+  if (!text || text.startsWith('/')) return ''
   for (const candidate of [text, `https://${text}`]) {
     try {
-      return new URL(candidate).hostname.toLowerCase()
+      const url = new URL(candidate)
+      // hostname 为空 = opaque scheme 误读（`localhost:3000/...` → scheme `localhost:`），
+      // 不是可路由的服务地址形态，继续试下一候选
+      if (url.hostname) return url.hostname.toLowerCase()
     } catch {
       // 换下一种形态
     }
