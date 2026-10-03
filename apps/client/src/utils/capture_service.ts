@@ -11,13 +11,46 @@ export const blobToDataUrl = (blob: Blob): Promise<string> =>
     reader.readAsDataURL(blob)
   })
 
-export const waitForCaptureReady = async (rootEl: HTMLElement | null | undefined) => {
+/**
+ * 截图就绪等待总预算（毫秒）。
+ *
+ * `document.fonts.ready` 与 `<img>` 的 load 在 WebView 内可能无限悬挂
+ * （字体请求 403 重试、图片长连接等）。此前无超时会让页面侧永不回包，
+ * 导致 /debug/dom_screenshot 只能等满原生侧 15 秒窗口后 504（#975）。
+ * 这里给出总预算：超时后按当前状态继续走兜底截图流程。
+ */
+export const CAPTURE_READY_TIMEOUT_MS = 3000
+
+// 有界等待：promise 落定（成功或失败）或超时，二者先到先返回；等待值本身不重要。
+const boundedWait = (promise: Promise<unknown>, timeoutMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    if (!(timeoutMs > 0)) {
+      resolve()
+      return
+    }
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const finish = () => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      resolve()
+    }
+    timer = setTimeout(finish, timeoutMs)
+    promise.then(finish, finish)
+  })
+
+export const waitForCaptureReady = async (
+  rootEl: HTMLElement | null | undefined,
+  timeoutMs: number = CAPTURE_READY_TIMEOUT_MS
+) => {
   if (!rootEl) return
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0)
 
   const fonts = document?.fonts
   if (fonts?.ready) {
     try {
-      await fonts.ready
+      await boundedWait(fonts.ready, Math.max(0, deadline - Date.now()))
     } catch {
       // 忽略字体检测异常，继续走兜底截图流程。
     }
@@ -25,15 +58,18 @@ export const waitForCaptureReady = async (rootEl: HTMLElement | null | undefined
 
   const images = Array.from(rootEl.querySelectorAll('img'))
   if (images.length > 0) {
-    await Promise.all(
-      images.map((img) => {
-        if (img.complete && img.naturalWidth > 0) return Promise.resolve()
-        return new Promise<void>((resolve) => {
-          const done = () => resolve()
-          img.addEventListener('load', done, { once: true })
-          img.addEventListener('error', done, { once: true })
+    await boundedWait(
+      Promise.all(
+        images.map((img) => {
+          if (img.complete && img.naturalWidth > 0) return Promise.resolve()
+          return new Promise<void>((resolve) => {
+            const done = () => resolve()
+            img.addEventListener('load', done, { once: true })
+            img.addEventListener('error', done, { once: true })
+          })
         })
-      })
+      ),
+      Math.max(0, deadline - Date.now())
     )
   }
 

@@ -1,0 +1,11 @@
+{
+  "_comment": "npm audit 无法修复项的显式豁免清单(#982 CI 收口)。字段:ghsa=公告编号,package=受影响包,reason=豁免理由,added=登记日期。上游发布修复版本后必须移除对应条目并重跑 audit:dependencies。",
+  "exemptions": [
+    {
+      "ghsa": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "reason": "advisory 标记全部版本受影响、npm 无补丁版本可升(唯一 npm 建议路径是 tailwindcss 3→4 breaking 迁移)。braces 仅存在于 tailwindcss 构建工具链(chokidar/fast-glob/micromatch)的 devDependency 链,不进入运行时产物,ReDoS 输入为仓库内部构建时的 glob 模式而非不可信外部输入。tailwindcss v4 迁移另行立项。",
+      "added": "2026-10-04"
+    }
+  ]
+}

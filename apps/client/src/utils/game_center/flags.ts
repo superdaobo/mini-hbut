@@ -50,6 +50,13 @@ export interface GameCenterFlags extends Record<GameCenterFlagKey, boolean> {
   api_base: string
   /** 归一化后的额外允许 origin（HTTPS-only，且不含 'null'/'*'） */
   allowed_game_origins: string[]
+  /**
+   * #958 手误诊断：远程 `game_platform` 块里疑似 canary 键名手误的未知键
+   * （原样罗列，如 `['canaries']`）。**只诊断、不参与判定**（判定语义不变）；
+   * 无疑似键时不设置该字段。项目禁 console，故经此数据字段暴露给消费方 /
+   * 诊断快照观测（详见 `base.ts#detectSuspectedCanaryTypoKeys`）。
+   */
+  canary_typo_keys?: readonly string[]
 }
 
 export interface GameCenterFlagSource {
@@ -126,6 +133,12 @@ export const resolveGameCenterFlags = (
   const canaryDecision = evaluateGamePlatformCanary({ canary, appVersion, studentId, installId })
   // 灰度未纳入 ⇒ 等价「块级关闭」：清空 origin 白名单 + 坍缩所有 V2 子 flag（同一条分支）
   const effectiveEnabled = block.enabled && canaryDecision.included
+
+  // #958 手误诊断透传：疑似 canary 键名手误时把键名带到生效 flags 上（只诊断、不判定），
+  // 让「以为配了灰度、实际键名写错（等价全量）」这类手误在诊断面可见。
+  if (block.canary_typo_keys.length > 0) {
+    flags.canary_typo_keys = [...block.canary_typo_keys]
+  }
 
   // 与游戏内 rank_api 同源同组（契约 I1）：走统一候选解析，镜像写入的显式值不破坏兜底
   flags.api_base = resolveGamePlatformApiBase(block.api_base) || DEFAULT_GAME_PLATFORM_API_BASE

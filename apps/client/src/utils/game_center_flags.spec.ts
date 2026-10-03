@@ -20,6 +20,7 @@ import {
   resolveGameCenterFlags
 } from './game_center/flags'
 import { getFeaturePolicy, setAppStoreBuildOverrideForTests } from '../config/app_store_policy'
+import { STATISTICS_SERVICE_BASE_URL } from './statistics_environment'
 
 /** 复现「合规包 + guest/demo 会话」的收紧策略（与 app_store_policy 单测同构） */
 const restrictedPolicy = () => {
@@ -139,6 +140,25 @@ describe('game center feature flags', () => {
     expect(
       resolveGameCenterFlags({ game_platform: { api_base: 'https://ok.example.com/v1/' } }).api_base
     ).toBe('https://ok.example.com/v1')
+  })
+
+  it('#970a：跨环境 api_base 在 flags 层被拒（只过 HTTPS 不够，还须环境兼容）', () => {
+    // 本测试运行在 test 构建档位（VITE_BUILD_PROFILE 非 release）→ 两个生产域都是跨环境配置，
+    // 即使它们是合法 HTTPS 地址也**不得**被采纳为 flags.api_base（下游 resolver 的护栏
+    // 不是该字段的唯一入口，flags 层必须独立拒绝 —— #947 在 resolver 侧收口后的 flags 级补断言）
+    const foreignBases = [
+      'https://mini.hbut.site/api/game-platform/v1',
+      'https://mini-hbut-ocr-service.hf.space/api/game-platform/v1'
+    ]
+    for (const foreign of foreignBases) {
+      const flags = resolveGameCenterFlags({ game_platform: { api_base: foreign } })
+      expect(flags.api_base, `${foreign} 不应被采纳`).not.toBe(foreign)
+      expect(flags.api_base).not.toContain('mini.hbut.site')
+      expect(flags.api_base).not.toContain('mini-hbut-ocr-service.hf.space')
+    }
+    // 本环境域（与构建档位同环境）保留为显式 override
+    const ownBase = `${STATISTICS_SERVICE_BASE_URL}/api/game-platform/v1`
+    expect(resolveGameCenterFlags({ game_platform: { api_base: ownBase } }).api_base).toBe(ownBase)
   })
 
   it('origin 白名单只接受可解析的 http(s) origin，拒绝 * 与 null', () => {

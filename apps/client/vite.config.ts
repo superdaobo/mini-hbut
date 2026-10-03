@@ -8,6 +8,25 @@ import { readFileSync, realpathSync } from 'fs'
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
 /**
+ * #976：`VITE_APP_VERSION` 的口径 —— 版本名单（canary `allow_versions` / `deny_versions`
+ * 与服务端 `GAME_PLATFORM_WRITE_DENY_CLIENT_VERSIONS`）匹配的唯一串，必须能区分构建来源。
+ *
+ * - **CI 构建**（GitHub Actions 会设置 `GITHUB_ACTIONS=true`）：保持原值不变 ——
+ *   dev/beta 档位构建前由 `scripts/ci/stamp_app_version.mjs` 把 package.json stamp 成
+ *   `X.Y.Z-beta.N`（与模块版本标签同串）；release 档位上报冻结的正式版号。
+ * - **本地 / dev worktree 等未 stamp 构建**：package.json 停留在上一个正式版号，若原样上报
+ *   会与线上正式版**同串**（版本名单层面无法区分、排障也无法分辨来源），故注入 `+local`
+ *   后缀（如 `1.4.11+local`）。该串仍满足 `module_context.ts` 的版本字符集校验
+ *   （`[0-9A-Za-z._+-]`），会被正常注入 iframe `app_version`，但**不会误中**按正式版
+ *   或 beta 标签形态配置的名单（前缀通配 `1.4.11*` 除外 —— 见
+ *   `docs/game-platform/canary-release-control.md` §9/§10）。
+ *
+ * 口径详情与发布前核对清单：`docs/game-platform/canary-release-control.md` §9。
+ */
+const isCiBuild = process.env.GITHUB_ACTIONS === 'true'
+const appVersion = isCiBuild ? pkg.version : `${pkg.version}+local`
+
+/**
  * 取「解析软链接后的真实路径」，不存在则返回 ''。
  *
  * 为什么需要：worktree 开发时 `node_modules` 常被做成 junction/软链接（指向主仓），
@@ -83,7 +102,7 @@ const manualChunks = (id: string) => {
 export default defineConfig({
   plugins: [vue()],
   define: {
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_BUILD_PROFILE': JSON.stringify(buildProfile),
     'import.meta.env.VITE_APP_STORE_BUILD': JSON.stringify(appStoreBuildFlag),
     'import.meta.env.VITE_APPLE_APP_ID': JSON.stringify(appleAppId),

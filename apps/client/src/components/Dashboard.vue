@@ -29,6 +29,10 @@ import { useLocale } from '../utils/app_i18n'
 import {
   SCHEDULE_EVENT_CHANGED_EVENT
 } from '../utils/schedule_event_signal'
+import {
+  SCHEDULE_VISIBILITY_CHANGED_EVENT,
+  buildEffectiveSchedule
+} from '../utils/schedule_visibility'
 
 // 响应式取词：必须经 useLocale() 解构 t（locale 变化触发重渲染），不可直接 import { t }
 const { t } = useLocale()
@@ -291,6 +295,12 @@ const todayBlockTitle = computed(() => {
 const syncNowTick = () => { nowTick.value = Date.now() }
 const handleVisibilityRefresh = () => { if (document.visibilityState === 'visible') syncNowTick() }
 const handleScheduleEventChanged = (event) => {
+  const detail = event?.detail || {}
+  if (String(detail?.studentId || '').trim() !== String(props.studentId || '').trim()) return
+  void fetchTodayCourses()
+}
+// #871：教务课程可见性变化（移除/恢复/云同步）后，首页今日安排与课程搜索即时重算
+const handleScheduleVisibilityChanged = (event) => {
   const detail = event?.detail || {}
   if (String(detail?.studentId || '').trim() !== String(props.studentId || '').trim()) return
   void fetchTodayCourses()
@@ -578,7 +588,8 @@ const fetchTodayCourses = async () => {
     }
     const week = getCurrentWeek(payload?.meta?.current_week)
     const remoteCourses = Array.isArray(payload?.data) ? payload.data : []
-    const mergedCourses = [...remoteCourses, ...customCourses]
+    // #871：首页与课表页消费同一份有效课表——已移除的教务课程不得出现在今日安排与课程搜索
+    const mergedCourses = buildEffectiveSchedule(props.studentId, semesterForCustom, remoteCourses, customCourses)
     todayCourses.value = mergeTodayTimelineItems(buildTodayCourses(mergedCourses, week), personalItems)
     homeSearchCourses.value = buildWeeklyCourseSearchEntries({ courses: mergedCourses, currentWeek: week, periodTimeMap })
     todayError.value = ''
@@ -1468,6 +1479,7 @@ onMounted(() => {
   window.addEventListener('resize', handleNoticeResize)
   window.addEventListener('focus', syncNowTick)
   window.addEventListener(SCHEDULE_EVENT_CHANGED_EVENT, handleScheduleEventChanged)
+  window.addEventListener(SCHEDULE_VISIBILITY_CHANGED_EVENT, handleScheduleVisibilityChanged)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
 })
 
@@ -1484,6 +1496,7 @@ onBeforeUnmount(() => {
   if (noticeResizeRaf) { window.cancelAnimationFrame(noticeResizeRaf); noticeResizeRaf = 0 }
   window.removeEventListener('focus', syncNowTick)
   window.removeEventListener(SCHEDULE_EVENT_CHANGED_EVENT, handleScheduleEventChanged)
+  window.removeEventListener(SCHEDULE_VISIBILITY_CHANGED_EVENT, handleScheduleVisibilityChanged)
   document.removeEventListener('visibilitychange', handleVisibilityRefresh)
 })
 

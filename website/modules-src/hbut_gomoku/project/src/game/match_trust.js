@@ -69,6 +69,21 @@ const RETRYABLE_STATUS = new Set([0, 408, 425, 429, 500, 502, 503, 504])
 
 const safeText = (value) => String(value ?? '').trim()
 
+/**
+ * #964：生成平台请求 ID：`req_` + 32 位小写 hex（与服务端 `req_<hex>` 形状兼容，
+ * 限长 ≤64、字符集安全）。仅用于链路关联，**不含任何身份/凭据**。
+ * crypto 不可用时回落随机字节（仍保持 hex 字符集与长度约束）。
+ */
+const createMatchRequestId = () => {
+  const bytes =
+    typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
+      ? crypto.getRandomValues(new Uint8Array(16))
+      : Uint8Array.from({ length: 16 }, () => Math.floor(Math.random() * 256))
+  let hex = ''
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0')
+  return `req_${hex}`
+}
+
 /** 客户端版本字面量形状（与 SDK `runtime.resolveClientVersion` 同口径） */
 const CLIENT_VERSION_RE = /^[0-9A-Za-z._+-]{1,64}$/
 
@@ -301,9 +316,19 @@ export const createPlatformMatchTransport = ({
     { method = 'POST', body = null, idempotencyKey = '', headers: extraHeaders = null } = {}
   ) => {
     if (typeof fetchImpl !== 'function') throw new Error('当前环境不支持 fetch')
+    // #964：为每次请求生成可关联的请求 ID（调用方显式传入 X-Request-Id 时复用同值）。
+    // 服务端 `request_id_of` 优先复用该头 → 响应 request_id / 错误对象可与之对齐。
+    const providedRequestId = extraHeaders
+      ? Object.keys(extraHeaders)
+          .filter((key) => String(key).toLowerCase() === 'x-request-id')
+          .map((key) => safeText(extraHeaders[key]))
+          .find(Boolean) || ''
+      : ''
+    const clientRequestId = providedRequestId || createMatchRequestId()
     const headers = {
       'content-type': 'application/json',
-      'X-Game-Platform-Protocol': String(PROTOCOL_VERSION)
+      'X-Game-Platform-Protocol': String(PROTOCOL_VERSION),
+      'X-Request-Id': clientRequestId
     }
     if (extraHeaders && typeof extraHeaders === 'object') {
       for (const [key, value] of Object.entries(extraHeaders)) {
@@ -347,6 +372,9 @@ export const createPlatformMatchTransport = ({
       error.envelopeCode = envelopeCode
       error.details = details
       error.payload = payload
+      // #964：错误对象携带请求 ID（服务端响应值优先 —— 复用模式下与发送值相同，回退客户端值）
+      error.requestId =
+        safeText(payload?.request_id) || safeText(envelope.request_id) || clientRequestId
       throw error
     }
     return payload || {}
@@ -400,6 +428,9 @@ export const createGomokuMatchTrust = ({
     reported: '',
     lastError: '',
     lastErrorCode: '',
+    // #964：最近一次失败的请求 ID（服务端响应值优先；成功后清空）——
+    // 用户侧反馈可凭它与服务端日志对齐
+    lastErrorRequestId: '',
     lastPayload: null,
     stats: null,
     // W1：服务端签发的 relay 绑定凭证（内存态；随席位绑定下发、随换场/复位清空）。
@@ -438,6 +469,7 @@ export const createGomokuMatchTrust = ({
         state.enabled = true
         state.lastError = ''
         state.lastErrorCode = ''
+        state.lastErrorRequestId = ''
         state.lastPayload = payload
         emit()
         return payload
@@ -449,6 +481,8 @@ export const createGomokuMatchTrust = ({
         }
         state.lastError = safeText(error?.message) || `${label}失败`
         state.lastErrorCode = safeText(error?.code)
+        // #964：记录失败请求的请求 ID（错误对象 requestId；服务端响应值已在其内优先）
+        state.lastErrorRequestId = safeText(error?.requestId)
         if (logger && typeof logger.warn === 'function') {
           logger.warn(`[gomoku] ${label}失败：${state.lastErrorCode || state.lastError}`)
         }

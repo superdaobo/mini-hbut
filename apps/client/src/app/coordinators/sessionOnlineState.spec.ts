@@ -278,3 +278,88 @@ describe('#659 状态流转', () => {
     expect(state.onlineSessionState.value).toBe('unknown')
   })
 })
+
+// ─── 3. #962：clearJwxtMaintenance 无验证不得升级为 online ─────────────────
+
+describe('#962 维护解除 ≠ 会话确认（无验证不得升级 online）', () => {
+  it('cached_offline + 维护解除事件（active:false）→ 保持 cached_offline，sessionVerified 语义不被污染', async () => {
+    const { coordinator, state } = makeCoordinator()
+    storageMap.set('hbu_username', '2023000001')
+    storageMap.set('hbu_login_method', 'portal_password')
+    storageMap.set('hbu_login_temporary', '0')
+    await coordinator.restoreCachedIdentityFromLocal()
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+
+    // 先处于维护态，再收到「维护解除」事件（无任何网络验证）
+    coordinator.markJwxtMaintenance('教务系统维护中', { phase: 'maintenance' })
+    expect(state.jwxtMaintenanceMode.value).toBe(true)
+    coordinator.handleJwxtMaintenanceEvent({ detail: { active: false } })
+
+    // 修复前：cached_offline 被无验证升级为 online；修复后：保持 cached_offline 等真实验证
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+    expect(state.jwxtMaintenanceMode.value).toBe(false)
+    expect(state.jwxtRecoveryPhase.value).toBe('idle')
+  })
+
+  it('boot 早期 clearJwxtMaintenance（无验证）：cached_offline 保持，不升级', async () => {
+    const { coordinator, state } = makeCoordinator()
+    storageMap.set('hbu_username', '2023000001')
+    storageMap.set('hbu_login_method', 'portal_password')
+    storageMap.set('hbu_login_temporary', '0')
+    await coordinator.restoreCachedIdentityFromLocal()
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+
+    // useAppRuntime.ts:204 的 boot 早期调用：只清维护横幅，不动会话状态
+    coordinator.clearJwxtMaintenance()
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+  })
+
+  it('unknown + boot 早期清理：保持 unknown（身份为空时仍回到 unknown 的登出收口语义保留）', async () => {
+    const { coordinator, state } = makeCoordinator()
+    coordinator.clearJwxtMaintenance()
+    expect(state.onlineSessionState.value).toBe('unknown')
+  })
+
+  it('后台自动重登成功（显式登录信号，confirmOnline 内部路径）→ online 仍被建立', async () => {
+    const { coordinator, state } = makeCoordinator()
+    storageMap.set('hbu_username', '2023000001')
+    storageMap.set('hbu_login_method', 'portal_password')
+    storageMap.set('hbu_login_temporary', '0')
+    storageMap.set('hbu_session_cookies', 'cookie=1')
+    await coordinator.restoreCachedIdentityFromLocal()
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+
+    // 会话刷新失败（auth 类错误）→ 走后台自动重登；门户密码登录成功
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'refresh_session') throw new Error('登录已过期')
+      if (command === 'login') return { student_id: '2023000001' }
+      if (command === 'get_cookies') return 'session_cookie=1'
+      if (command === 'set_offline_user_context') return null
+      throw new Error(`unexpected native command: ${command}`)
+    })
+    vi.mocked(loadPortalStoredPassword).mockResolvedValue({
+      username: '2023000001',
+      password: 'stored-password',
+      backendRestorable: false
+    } as unknown as Awaited<ReturnType<typeof loadPortalStoredPassword>>)
+
+    await coordinator.refreshSessionSilently({})
+    // relogged 成功 = 真实 CAS 登录成功 → online（该分支没有后续 notifySessionOnline）
+    expect(state.onlineSessionState.value).toBe('online')
+    expect(state.jwxtMaintenanceMode.value).toBe(false)
+  })
+
+  it('恢复成功路径仍正常：attemptOnlineRecovery 成功 → notifySessionOnline → online（回归护栏）', async () => {
+    const { coordinator, state } = makeCoordinator()
+    storageMap.set('hbu_username', '2023000001')
+    storageMap.set('hbu_login_method', 'portal_password')
+    storageMap.set('hbu_login_temporary', '0')
+    storageMap.set('hbu_session_cookies', 'cookie=1')
+    await coordinator.restoreCachedIdentityFromLocal()
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+
+    const ok = await coordinator.attemptOnlineRecovery({ silent: true })
+    expect(ok).toBe(true)
+    expect(state.onlineSessionState.value).toBe('online')
+  })
+})

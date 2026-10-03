@@ -152,6 +152,46 @@ describe('契约 D-0 单一事实源：会话已确认（sessionVerified）与 s
     expect(store.sessionVerified).toBe(false)
     expect(store.verifiedStudentId).toBe('')
   })
+
+  it('MoreModuleHostView 读取同一事实源：不再保留 isLoggedIn 合取的第二实现（#963）', () => {
+    const source = readSource('../components/MoreModuleHostView.vue')
+
+    // 旧第二实现（`isLoggedIn === true && authStore.onlineSessionState === 'online'`）必须删除，
+    // 防止与 stores/auth.sessionVerified 再次漂移
+    expect(source).not.toMatch(/isLoggedIn\s*===?\s*true\s*&&\s*authStore\.onlineSessionState/)
+
+    // 判定必须来自认证状态层的单一事实源（computed 包装保持响应式，供 watch / trust 判定使用）
+    expect(source).toMatch(
+      /sessionVerified\s*=\s*computed\(\(\)\s*=>\s*authStore\.sessionVerified\)/
+    )
+  })
+
+  it('两处判定的一致性：同一状态快照下 store.sessionVerified 与旧本地公式在全部可达态结论相同（#963）', () => {
+    const store = useAuthStore()
+    store.hydrate({ studentId: PREVIOUS_SID })
+
+    // 旧本地公式（MoreModuleHostView 第二实现，#963 前）：isLoggedIn && onlineSessionState === 'online'
+    const legacyFormula = () => store.isLoggedIn === true && store.onlineSessionState === 'online'
+
+    // 未确认相位：两处判定一致，且一律 false（游客态）
+    for (const state of ['unknown', 'cached_offline', 'recovering', 'needs_login'] as const) {
+      store.onlineSessionState = state
+      expect(store.sessionVerified, `onlineSessionState=${state} 时两处判定一致`).toBe(
+        legacyFormula()
+      )
+      expect(store.sessionVerified).toBe(false)
+    }
+
+    // online：登录/恢复成功写入点都伴随 studentId 非空 → 两处判定一致
+    store.onlineSessionState = 'online'
+    expect(store.sessionVerified).toBe(true)
+    expect(legacyFormula()).toBe(true)
+
+    // 登出收口（handleLogout 同步清空 studentId + 置 unknown）：终态下两处判定一致
+    store.clearSession()
+    expect(store.sessionVerified).toBe(false)
+    expect(legacyFormula()).toBe(false)
+  })
 })
 
 describe('契约 D-1 游客态展示：不展示上一用户姓名 / 班级', () => {

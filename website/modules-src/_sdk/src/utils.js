@@ -183,3 +183,38 @@ export const readParam = (params, key) => {
   if (typeof params.get === 'function') return safeText(params.get(key))
   return safeText(params[key])
 }
+
+/**
+ * 剥离尾部斜杠（#967）。
+ *
+ * 用循环替代 `s.replace(/\/+$/, '')`：CodeQL `js/polynomial-redos` 对「可控 URL 输入 +
+ * 正则替换」给出保守告警，非正则实现在行为完全等价（NFC/原始串、空串、全斜杠）的前提下
+ * 消除全部正则回溯面。SDK 的 API base 均来自宿主注入/页面 URL，属输入可控场景。
+ */
+export const stripTrailingSlashes = (value) => {
+  const s = String(value ?? '')
+  let end = s.length
+  while (end > 0 && s.charCodeAt(end - 1) === 47 /* '/' */) end -= 1
+  return end === s.length ? s : s.slice(0, end)
+}
+
+/** 大小写不敏感的固定后缀判断（非正则；等价于 `/suffix$/i.test(s)`，suffix 须为字面量） */
+export const endsWithCi = (value, suffix) => {
+  const s = String(value ?? '')
+  const fixed = String(suffix ?? '')
+  if (!fixed || s.length < fixed.length) return false
+  return s.slice(s.length - fixed.length).toLowerCase() === fixed.toLowerCase()
+}
+
+/**
+ * 剥离第一个固定后缀及其后所有内容（非正则；#967）。
+ * 等价于 `s.replace(new RegExp(escaped(suffix) + '.*$', 'i'), '')`：
+ * 替换「第一个出现位置」到串尾的整段。用于 `rank_api` → V2 base 的同源推导。
+ */
+export const stripFirstSuffixAndRestCi = (value, suffix) => {
+  const s = String(value ?? '')
+  const fixed = String(suffix ?? '').toLowerCase()
+  if (!fixed) return s
+  const idx = s.toLowerCase().indexOf(fixed)
+  return idx >= 0 ? s.slice(0, idx) : s
+}

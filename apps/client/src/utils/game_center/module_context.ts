@@ -5,7 +5,9 @@
  * **不是身份** 的两个参数，两者都与登录态无关，必须**始终注入**（含游客态）：
  *
  * - `app_version`：客户端构建版本（`import.meta.env.VITE_APP_VERSION`，由
- *   `vite.config.ts` 注入 `pkg.version`）。服务端灰度 deny 名单按版本串匹配；
+ *   `vite.config.ts` 注入；CI stamp 构建为 `X.Y.Z-beta.N` / 正式版号，本地未 stamp
+ *   构建自动带 `+local` 后缀 —— 见 `vite.config.ts` 与 canary 文档 §9 的口径声明）。
+ *   服务端灰度 deny 名单按版本串匹配；
  *   不注入（或注入空值）会让客户端上报 `unknown`，灰度在生产**空转**（跨仓阻塞点）。
  * - `host_origin`：宿主自身 origin（用既有 `normalizeGameOrigin` 归一，不手写字符串比较）。
  *   SDK 侧只接受**显式**来源（`config.hostOrigins` > URL 注入的 `host_origin`），

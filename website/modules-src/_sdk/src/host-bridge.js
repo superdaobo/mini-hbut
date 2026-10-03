@@ -38,6 +38,19 @@ const GENERIC_TICKET_RE = /^[A-Za-z0-9._~-]{16,512}$/
 /**
  * P1-B：宿主显式注入自身 origin 的 URL 参数（additive）。
  * 这是除 `config.hostOrigins` 之外**唯一**的宿主自证渠道 —— 绝不回落 referrer / 自身 origin。
+ *
+ * ⚠ 信任级别 / 能力边界（issue #959，结论性声明）：
+ * `host_origin` 是**宿主自声明**参数 —— 由被嵌入页面自己的 iframe URL 携带，SDK 在
+ * 客户端侧**无法验证其真实性**：任何第三方页面嵌入游戏并自带
+ * `?host_origin=<自身 origin>` 即会被本 SDK 视为"可信宿主"，从而触发宿主握手并发出
+ * `GET /meta` 与 `POST /sessions` 请求。这是**已知并接受的风险边界**（降级防御）：
+ *  - 第三方页面拿不到合法 Launch Ticket（ticket 由 App 宿主签发并经 iframe URL 传入），
+ *    因此 `/sessions` 兑换必然失败，**无法取得真正 verified、零写入**；
+ *  - 但"第三方嵌入零 V2 请求"的纵深防御会被打破（可被用于探测与噪声）；
+ *  - 真正的身份边界在服务端：ticket/session 兑换不信任客户端声明的宿主来源；
+ *    长期方向（选项 A）是在 Launch Ticket 签发时绑定宿主 origin、兑换时复核，
+ *    落地后本参数的自声明语义即失效。
+ * 详见 `docs/game-platform/trust-model.md` §2.4 与 `docs/game-platform/host-injection.md`。
  */
 export const HOST_ORIGIN_QUERY_KEY = 'host_origin'
 
@@ -116,6 +129,12 @@ export const clearLaunchTicketFromUrl = (options = {}) => {
  *   ① 显式配置 `options.hostOrigins`（数组，逐项 `normalizeHostOrigin`）；
  *   ② Host 在 iframe URL 注入的 `host_origin`（`options.params` 或当前页面 URL）。
  * 都没有 → 允许集合为空 → 一切来源 `origin_unverifiable`（**绝不**回落 referrer / 自身 origin）。
+ *
+ * ⚠ 信任级别（issue #959）：两级来源都是**页面自声明**（② 更是页面 URL 自带），
+ * 本守卫校验的是"消息来源与声明一致"，**不是宿主身份证明** —— 第三方页面可声明任意
+ * origin 并通过握手（拿不到合法 ticket，verified 不可达，但会发出 /meta 与失败的
+ * /sessions 请求）。SDK 侧只做降级防御，最终边界在服务端 ticket/session；
+ * 详见 `HOST_ORIGIN_QUERY_KEY` 处声明与 `docs/game-platform/trust-model.md` §2.4。
  *
  * @returns {(event: MessageEvent) => { ok: boolean, reason: string }}
  */

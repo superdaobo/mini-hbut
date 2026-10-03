@@ -85,6 +85,38 @@ export class GamePlatformError extends Error {
 
 const safeText = (value: unknown): string => String(value ?? '').trim()
 
+/** 请求 ID 头名（服务端 `request_id_of` 优先复用该头的值，#964） */
+const REQUEST_ID_HEADER = 'X-Request-Id'
+
+/**
+ * 生成客户端请求 ID（#964）：`req_` + 32 位小写 hex —— 与服务端 `req_<hex>` 形状兼容，
+ * 总长 36 ≤ 64、字符集落在服务端白名单内。仅用于链路关联，**不含任何身份/凭据**。
+ * crypto 不可用时回落随机字节（仍保持 hex 字符集与长度约束）。
+ */
+export const createRequestId = (): string => {
+  const bytes = new Uint8Array(16)
+  const cryptoRef = globalThis.crypto
+  if (cryptoRef && typeof cryptoRef.getRandomValues === 'function') {
+    cryptoRef.getRandomValues(bytes)
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256)
+    }
+  }
+  let hex = ''
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0')
+  return `req_${hex}`
+}
+
+/** 从调用方 headers 里读取已提供的请求 ID（大小写不敏感；无则空串） */
+const readProvidedRequestId = (headers: Record<string, string> | undefined): string => {
+  if (!headers) return ''
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === 'x-request-id') return safeText(headers[key])
+  }
+  return ''
+}
+
 /**
  * 从候选里挑第一个「传输安全（HTTPS / loopback）且**环境兼容**」的 base；都不合格返回 `''`。
  *
@@ -310,7 +342,10 @@ const parseEnvelopeError = (payload: unknown, httpStatus: number): GamePlatformE
  * 执行一次 JSON 请求。
  * - 传输层强制 HTTPS（loopback 例外）；
  * - 非 2xx 但带协议 envelope 时抛服务端 code；
- * - 其它失败统一抛 LOCAL_* 本地码，调用方据此降级。
+ * - 其它失败统一抛 LOCAL_* 本地码，调用方据此降级；
+ * - #964：每个请求携带 `X-Request-Id`（调用方显式传入时复用同值），并把该 id
+ *   透出到错误对象（`GamePlatformError.requestId`）——服务端复用客户端 ID 时，
+ *   响应头 / `error.request_id` / 客户端错误对象三者可对齐。
  */
 export const requestGamePlatformJson = async <T = Record<string, unknown>>(
   url: string,
@@ -322,6 +357,9 @@ export const requestGamePlatformJson = async <T = Record<string, unknown>>(
       retryable: false
     })
   }
+  // #964：请求 ID —— 调用方已提供（任意大小写的头名）则复用同值，否则生成新值
+  const providedRequestId = readProvidedRequestId(options.headers)
+  const clientRequestId = providedRequestId || createRequestId()
   const { signal, clear } = buildTimeoutSignal(options.timeoutMs || GAME_PLATFORM_REQUEST_TIMEOUT_MS)
   let response: Response
   try {
@@ -330,7 +368,9 @@ export const requestGamePlatformJson = async <T = Record<string, unknown>>(
       headers: {
         Accept: 'application/json',
         ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...(options.headers || {})
+        ...(options.headers || {}),
+        // 仅在调用方未提供时注入（展开顺序保证调用方的同名头不被覆盖）
+        ...(providedRequestId ? {} : { [REQUEST_ID_HEADER]: clientRequestId })
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       cache: 'no-store',
@@ -341,7 +381,7 @@ export const requestGamePlatformJson = async <T = Record<string, unknown>>(
     throw new GamePlatformError(
       LOCAL_ERROR_CODES.transportFailed,
       aborted ? '游戏服务请求超时，请稍后重试' : '游戏服务连接失败，请检查网络',
-      { retryable: true }
+      { retryable: true, requestId: clientRequestId }
     )
   } finally {
     clear()
@@ -358,20 +398,23 @@ export const requestGamePlatformJson = async <T = Record<string, unknown>>(
     throw new GamePlatformError(shapedError.code, shapedError.message, {
       retryable: shapedError.retryable,
       httpStatus: response.status,
-      requestId: shapedError.request_id,
+      // 服务端返回值优先（复用模式下与客户端发送值相同），回退客户端生成值
+      requestId: shapedError.request_id || clientRequestId,
       envelopeCode: shapedError.envelope_code
     })
   }
   if (!response.ok) {
     throw new GamePlatformError(`HTTP_${response.status}`, '游戏服务暂时不可用', {
       retryable: response.status >= 500,
-      httpStatus: response.status
+      httpStatus: response.status,
+      requestId: clientRequestId
     })
   }
   if (!payload || typeof payload !== 'object') {
     throw new GamePlatformError(LOCAL_ERROR_CODES.responseInvalid, '游戏服务返回内容异常', {
       retryable: false,
-      httpStatus: response.status
+      httpStatus: response.status,
+      requestId: clientRequestId
     })
   }
   return payload as T

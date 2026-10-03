@@ -13,6 +13,8 @@
     "prebuild:web": "node scripts/prepare_dist.mjs",
     "dev": "node scripts/vite_run.mjs",
     "dev:lowmem": "node scripts/vite_dev_lowmem.mjs",
+    "font:subset": "node scripts/build_font_subset.mjs",
+    "font:check": "node scripts/build_font_subset.mjs --check",
     "tauri:dev": "tauri dev",
     "tauri:dev:lowmem": "node scripts/tauri_dev_lowmem.mjs",
     "tauri:dev:static": "node scripts/tauri_dev_static.mjs",
