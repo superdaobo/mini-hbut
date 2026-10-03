@@ -75,6 +75,25 @@ P1 推荐方案 (b) 下 AT 在 3600s 内不可即时撤销，因此**撤销能�
 | 与资产的关系 | 撤销**不回滚**已 `SETTLED` 的 run 与已写账本（账本不可变，`protocol-v1.md` §8.1） |
 | 失败姿态 | session 校验所需的 DB 不可用 → `500 INTERNAL_ERROR`；**绝不**退化为"无 session 放行"或"改用 body 里的 student_id" |
 
+### 2.4 宿主来源（`host_origin`）的信任级别（#959）
+
+**结论：`host_origin` 是宿主自声明参数，SDK 侧的宿主来源校验是降级防御，不是身份边界；verified 的最终边界在服务端 ticket/session。**
+
+- **自声明语义**：`host_origin` 经 iframe URL 注入（`website/modules-src/_sdk/src/host-bridge.js` 的
+  `HOST_ORIGIN_QUERY_KEY`），值由**被嵌入页面自己的 URL** 决定；SDK 允许集合只有两级显式来源
+  （`config.hostOrigins` > URL 注入的 `host_origin`），两者都无法在客户端侧验证真实性。
+- **第三方嵌入的已知后果（接受的风险）**：任何第三方页面嵌入游戏并自带
+  `?host_origin=<自身 origin>` + 发起宿主握手，即被 SDK 视为可信宿主并发出
+  `GET /meta` 与 `POST /sessions` 请求 —— 打破"第三方嵌入零 V2 请求"的纵深防御，
+  可被用于探测与噪声。**风险接受记录**：该路径零写入 —— 第三方页面拿不到合法
+  Launch Ticket（ticket 由 App 宿主签发并经 iframe URL 传入），`/sessions` 兑换必然失败，
+  **无法取得真正 verified**，也不产生任何写操作。
+- **服务端不信任客户端声明的宿主来源**：ticket 签发 / 兑换不绑定、不校验宿主 origin；
+  actor 由验证后的 principal 推导（§3），会话与结算边界由 Game Session 承担（§2.3）。
+  客户端声明的 `host_origin` 对服务端而言**没有任何证据效力**。
+- **长期方向（选项 A，未排期）**：Launch Ticket 签发时绑定宿主 origin、兑换时校验来源一致；
+  落地后 `host_origin` 的自声明语义即失去安全相关性。灰度前按本节口径执行（选项 B：文档声明边界）。
+
 ---
 
 ## 3. 硬约束：actor 必须来自验证后的 principal

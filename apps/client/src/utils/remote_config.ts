@@ -609,6 +609,23 @@ const readMemoryConfig = (): RemoteConfig | null => {
   return remoteConfigMemory
 }
 
+/**
+ * 读取本地快照（`hbu_remote_config_snapshot`，localStorage 明文 JSON）。
+ *
+ * ⚠ 威胁模型 / 能力边界（issue #957，结论性声明，与
+ * `docs/game-platform/canary-release-control.md`「信任模型与能力边界」一致）：
+ *
+ * - 本快照**无签名、无完整性保护、无来源校验**：`JSON.parse` 后直接归一化采纳；
+ * - 能写本机 WebView 存储的攻击者（改包 / root / 同源 XSS / 手动调试）可把快照改写成
+ *   `game_platform.enabled=true + flags.game_center_enabled=true`，在远程明确关闭的
+ *   状态下把自己"灰度进来"（在线首帧即生效）——**客户端侧的灰度 / canary / kill switch
+ *   对这类用户不是安全边界**；
+ * - 这是**已接受的产品开关边界，不是提权漏洞**：真正的权威防线在**服务端** ——
+ *   Launch Ticket / Game Session 签发、契约 B 写入隔离（版本 / 环境名单复核）、
+ *   经济结算规则全部由服务端独立把关，客户端自启用拿不到任何服务端权益；
+ * - 因此本函数不做任何"防篡改"努力（客户端无法自我验证本机存储的真实性），
+ *   只保证解析失败时安全回落（fail closed）。
+ */
 const loadSnapshot = (): unknown => {
   try {
     const raw = localStorage.getItem(REMOTE_CONFIG_SNAPSHOT_KEY)
@@ -861,7 +878,11 @@ export async function fetchRemoteConfig(
       return remoteConfigInFlight
     }
 
-    // 冷启动优先：先返回上次远端快照，再后台拉真远端覆盖
+    // 冷启动优先：先返回上次远端快照，再后台拉真远端覆盖。
+    // ⚠ 能力边界（issue #957，同 loadSnapshot 处声明）：快照是本机可改写的 localStorage，
+    // 被篡改的配置会在此**首帧**即生效（在线也如此）；这是"首帧体验优先"的已知取舍 ——
+    // 客户端开关不是安全边界，服务端 flag 复核与写入名单才是权威防线（详见
+    // docs/game-platform/canary-release-control.md「信任模型与能力边界」）。
     const snapshot = loadSnapshot()
     if (snapshot) {
       const normalized = normalizeRemoteConfig(snapshot)
