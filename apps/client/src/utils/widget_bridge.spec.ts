@@ -7,7 +7,7 @@
 // 3. tryWriteSnapshotFromCache：snapshot.date/weekday 始终按当下时间重算
 // 4. afterScheduleRefresh：meta.current_week 可用 → 用真实周；缺失 → 退回 selectedWeek
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/platform/capacitor/widget', () => ({
   writeSnapshotWithRetry: vi.fn(async () => {}),
@@ -218,7 +218,15 @@ const snapshotCourseNames = () =>
 
 describe('#871 Widget 快照遵循教务课程可见性', () => {
   beforeEach(() => {
+    // 「今天」必须钉死：快照链路按真实日期推导 weekday/当前周,CI(UTC) 与本地(UTC+8)
+    // 跨日时 weeks:[3] 的课程会被周次判定过滤光（CI 实测 flaky）。只 fake Date、
+    // 不动计时器,避免影响链路内真实 setTimeout；取 2026-10-05（周一）上午,与 current_week: 3 同周。
+    vi.useFakeTimers({ now: new Date('2026-10-05T10:00:00+08:00'), toFake: ['Date'] })
     storageMap.set('hbu_schedule_meta', JSON.stringify({ semester: WIDGET_SEMESTER, current_week: 3 }))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('afterScheduleRefresh：整学期移除的课程不进入 Widget 快照，其余课程正常展示', async () => {
