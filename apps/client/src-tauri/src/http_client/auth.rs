@@ -505,7 +505,7 @@ impl HbutClient {
         #[cfg(not(test))]
         let (status, final_url) = Self::request_caslogin(&self.client, caslogin_url).await?;
 
-        crate::hbut_debug!(
+        crate::hbut_auth_log!(
             "[Auth] JWXT caslogin status={} final_url={}",
             status,
             final_url
@@ -577,7 +577,7 @@ impl HbutClient {
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let caslogin_url = format!("{}/admin/caslogin", super::JWXT_BASE_URL);
         let outcome = self.bootstrap_jwxt_caslogin(&caslogin_url).await?;
-        crate::hbut_debug!("[Auth] JWXT bootstrap result={:?}", outcome);
+        crate::hbut_auth_log!("[Auth] JWXT bootstrap result={:?}", outcome);
 
         match outcome {
             JwxtBootstrapOutcome::TransportError => {
@@ -1287,12 +1287,24 @@ impl HbutClient {
     /// 登录收口日志：成功/失败各一行。失败行必带 stage 与错误分类（kind）。
     ///
     /// 只输出阶段名、错误分类与错误文案；不打印密码、完整 Cookie 或完整 execution。
+    ///
+    /// 通道说明（缺一不可）：
+    /// - `runtime_log`（info）→ 应用内调试窗 + bridge `/debug/logs` + stderr，dev/release 均可读；
+    /// - `log` crate → 落盘 `mini-hbut.log`。**失败用 `warn!`**：release 的文件日志默认只收
+    ///   Warn 及以上，用 `info!` 会被全局过滤器丢掉，线上就拿不到登录失败记录。
     fn log_login_outcome(
         label: &str,
         stage: LoginStage,
         result: &Result<UserInfo, Box<dyn std::error::Error + Send + Sync>>,
     ) {
-        println!("{}", Self::format_login_outcome_line(label, stage, result));
+        let line = Self::format_login_outcome_line(label, stage, result);
+        let body = line.strip_prefix("[Auth] ").unwrap_or(line.as_str());
+        crate::runtime_log::log_info("Auth", body);
+        if result.is_ok() {
+            log::info!("{}", line);
+        } else {
+            log::warn!("{}", line);
+        }
     }
 
     /// 纯函数：生成收口日志行。抽出来是为了让「日志格式含 stage / kind / msg」
@@ -1501,7 +1513,7 @@ impl HbutClient {
             // #984 实现要求 E：日志必须能回答「本次是否真的 POST 了用户输入的账号密码」。
             // 只记录用户名与表单字段名，绝不打印明文密码 / 完整 execution / Cookie。
             *stage = LoginStage::PasswordPost;
-            crate::hbut_debug!(
+            crate::hbut_auth_log!(
                 "[Auth] CAS password POST started attempt={}/{} service={} username={} fields={:?}",
                 attempt + 1,
                 max_retries,
@@ -1623,7 +1635,7 @@ impl HbutClient {
             // #984 实现要求 D：不再用 `!response_url.contains("login")` 这种「任何含 login 字样
             // 的合法 URL 都判为未成功」的粗判断，改用统一的「是否仍是登录落地页」判定。
             let landed_on_login_page = looks_like_login_landing_url(&response_url);
-            crate::hbut_debug!(
+            crate::hbut_auth_log!(
                 "[Auth] CAS password POST final_url={} status={} landed_on_login_page={}",
                 response_url,
                 status,
@@ -2456,5 +2468,149 @@ mod login_log_contract_tests {
         assert!(!line.contains("password="), "line={line}");
         assert!(!line.contains("Cookie"), "line={line}");
         assert!(!line.contains("execution="), "line={line}");
+    }
+}
+
+/// #984 要求 E 的**实测**保证：登录失败后，运行时调试日志（应用内调试窗 /
+/// bridge `/debug/logs` 读的就是这个通道）里确实出现带阶段归因的收口行。
+///
+/// 与 `login_log_contract_tests` 的区别：那边只测格式化函数，这边真的跑一次
+/// 失败登录再从日志通道里把行捞出来。
+#[cfg(test)]
+mod login_runtime_log_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn test_client() -> HbutClient {
+        let dir = tempfile::tempdir().expect("创建临时数据目录");
+        std::env::set_var("HBUT_APP_DATA_DIR", dir.path());
+        HbutClient::new()
+    }
+
+    fn latest_log_id() -> u64 {
+        crate::runtime_log::query_logs(crate::runtime_log::LogQuery {
+            limit: 1,
+            ..Default::default()
+        })
+        .first()
+        .map(|item| item.id)
+        .unwrap_or(0)
+    }
+
+    fn auth_lines_since(id: u64) -> Vec<String> {
+        crate::runtime_log::query_logs(crate::runtime_log::LogQuery {
+            limit: 2000,
+            since_id: Some(id),
+            scope_contains: Some("Auth".to_string()),
+            ..Default::default()
+        })
+        .into_iter()
+        .map(|item| item.message)
+        .collect()
+    }
+
+    /// 教务会话落地失败 → 调试日志里必须出现 `stage=JwxtBootstrap kind=Some(JwxtBootstrapFailed)`。
+    #[tokio::test]
+    async fn runtime_log_records_bootstrap_failure_with_stage() {
+        let mut client = test_client();
+        client.test_login_page = Some(Arc::new(|| {
+            Ok(LoginPageInfo {
+                lt: "lt".to_string(),
+                execution: "exec".to_string(),
+                captcha_required: false,
+                salt: "0123456789abcdef".to_string(),
+                is_already_logged_in: false,
+            })
+        }));
+        client.test_cas_post = Some(Arc::new(|| {
+            Ok((
+                "https://jwxt.hbut.edu.cn/admin/?loginType=1".to_string(),
+                200u16,
+                String::new(),
+            ))
+        }));
+        client.test_caslogin = Some(Arc::new(|| {
+            Ok((
+                "https://jwxt.hbut.edu.cn/admin/login".to_string(),
+                200u16,
+                String::new(),
+            ))
+        }));
+
+        let before = latest_log_id();
+        let _ = client.login("2024000000", "pwd", "", "", "").await;
+
+        let lines = auth_lines_since(before);
+        let joined = lines.join("\n");
+        assert!(
+            lines.iter().any(|l| l.contains("失败")
+                && l.contains("stage=JwxtBootstrap")
+                && l.contains("kind=Some(JwxtBootstrapFailed)")),
+            "调试日志里必须出现带阶段归因的失败收口行，实际抓到：\n{joined}"
+        );
+    }
+
+    /// 成功登录 → 调试日志里必须出现 `成功 stage=Done`。
+    #[tokio::test]
+    async fn runtime_log_records_success_with_done_stage() {
+        let mut client = test_client();
+        client.test_login_page = Some(Arc::new(|| {
+            Ok(LoginPageInfo {
+                lt: "lt".to_string(),
+                execution: "exec".to_string(),
+                captcha_required: false,
+                salt: "0123456789abcdef".to_string(),
+                is_already_logged_in: false,
+            })
+        }));
+        client.test_cas_post = Some(Arc::new(|| {
+            Ok((
+                "https://jwxt.hbut.edu.cn/admin/?loginType=1".to_string(),
+                200u16,
+                String::new(),
+            ))
+        }));
+        client.test_finalize = Some(Arc::new(|| {
+            Ok(UserInfo {
+                student_id: "2024000000".to_string(),
+                student_name: "测试".to_string(),
+                college: None,
+                major: None,
+                class_name: None,
+                grade: None,
+            })
+        }));
+
+        let before = latest_log_id();
+        let _ = client.login("2024000000", "pwd", "", "", "").await;
+
+        let lines = auth_lines_since(before);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("成功") && l.contains("stage=Done")),
+            "调试日志里必须出现成功收口行，实际抓到：\n{}",
+            lines.join("\n")
+        );
+    }
+
+    /// 冷却门拦截也要有痕迹（失败发生在最前面的阶段）。
+    #[tokio::test]
+    async fn runtime_log_records_gate_failure() {
+        let mut client = test_client();
+        client.last_login_attempt =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(500));
+
+        let before = latest_log_id();
+        let _ = client.login("2024000000", "pwd", "", "", "").await;
+
+        let lines = auth_lines_since(before);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("失败") && l.contains("stage=Gate")),
+            "冷却门拦截也必须留痕，实际抓到：\n{}",
+            lines.join("\n")
+        );
     }
 }

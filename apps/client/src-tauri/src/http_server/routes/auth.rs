@@ -61,7 +61,7 @@ async fn login(
             // #984：Tauri 命令层与 bridge 层都必须留下登录失败痕迹，
             // 否则 dev / web 模式下登录失败在后端日志里不可见。
             let message = e.to_string();
-            println!("[Auth] bridge /login 返回失败 msg={}", message);
+            crate::hbut_auth_log!("[Auth] bridge /login 返回失败 msg={}", message);
             err(StatusCode::BAD_REQUEST, "业务错误", message)
         })
 }

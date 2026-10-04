@@ -1317,7 +1317,7 @@ pub(crate) async fn login(
     execution: Option<String>,
 ) -> Result<UserInfo, String> {
     // #984 实现要求 E：只记录长度与是否存在，不打印明文密码 / 完整 execution / 完整 captcha。
-    println!(
+    crate::hbut_auth_log!(
         "[Auth] command login 收到请求 username={} password_len={} captcha_len={} lt_len={} execution_len={}",
         username,
         password.len(),
@@ -1337,7 +1337,7 @@ pub(crate) async fn login(
         Err(err) => {
             // 传输层收口：即便 http_client 内部已记录阶段，这里也保证「命令层」一定留下痕迹。
             let message = err.to_string();
-            println!("[Auth] command login 返回失败 msg={}", message);
+            crate::hbut_auth_log!("[Auth] command login 返回失败 msg={}", message);
             return Err(message);
         }
     };

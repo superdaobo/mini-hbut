@@ -585,7 +585,7 @@ impl HbutClient {
             let status = response.status();
             let final_url = response.url().to_string();
             // #984 实现要求 E：业务 Session 是否命中登录页，必须能从日志直接读出。
-            println!(
+            crate::hbut_auth_log!(
                 "[Auth] fetch_user_info status={} final_url={} landed_on_login_page={}",
                 status,
                 final_url,
@@ -598,35 +598,44 @@ impl HbutClient {
                     if self.prefer_chaoxing_jwxt {
                         if self.ensure_chaoxing_academic_session().await {
                             repaired = true;
-                            println!("[Auth] fetch_user_info 命中登录页，学习通补票成功，重试一次");
+                            crate::hbut_auth_log!(
+                                "[Auth] fetch_user_info 命中登录页，学习通补票成功，重试一次"
+                            );
                             continue;
                         }
-                        println!(
+                        crate::hbut_auth_log!(
                             "[Auth] fetch_user_info 命中登录页，学习通补票失败（prefer_chaoxing_jwxt=true，不尝试教务 caslogin 恢复）"
                         );
                     } else {
                         let caslogin_url = format!("{}/admin/caslogin", super::JWXT_BASE_URL);
-                        println!("[Auth] fetch_user_info 命中登录页，尝试 /admin/caslogin 恢复");
+                        crate::hbut_auth_log!(
+                            "[Auth] fetch_user_info 命中登录页，尝试 /admin/caslogin 恢复"
+                        );
                         let caslogin_resp = self.client.get(&caslogin_url).send().await;
                         if let Ok(resp) = caslogin_resp {
                             let cas_final = resp.url().to_string();
-                            println!(
+                            crate::hbut_auth_log!(
                                 "[Auth] fetch_user_info 的 caslogin 恢复 final_url={} 仍为登录页={}",
                                 cas_final,
                                 super::looks_like_academic_login_url(&cas_final)
                             );
                             if !super::looks_like_academic_login_url(&cas_final) {
                                 repaired = true;
-                                println!("[Auth] /admin/caslogin 会话恢复成功，重试获取用户信息");
+                                crate::hbut_auth_log!(
+                                    "[Auth] /admin/caslogin 会话恢复成功，重试获取用户信息"
+                                );
                                 continue;
                             }
                         } else if let Err(err) = caslogin_resp {
-                            println!("[Auth] fetch_user_info 的 caslogin 恢复传输层失败: {}", err);
+                            crate::hbut_auth_log!(
+                                "[Auth] fetch_user_info 的 caslogin 恢复传输层失败: {}",
+                                err
+                            );
                         }
                     }
                 }
                 // 走到这里说明：命中登录页且（未修复 或 修复后仍命中）
-                println!(
+                crate::hbut_auth_log!(
                     "[Auth] fetch_user_info 判定会话已过期（已尝试修复={}）",
                     repaired
                 );
@@ -634,7 +643,7 @@ impl HbutClient {
             }
 
             if status.as_u16() != 200 {
-                println!(
+                crate::hbut_auth_log!(
                     "[Auth] fetch_user_info 非 200（status={}），判定业务会话不可用",
                     status
                 );

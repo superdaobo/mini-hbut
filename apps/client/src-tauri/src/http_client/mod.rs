@@ -39,6 +39,23 @@ macro_rules! hbut_session_log {
     }};
 }
 
+/// 登录/会话链路的关键日志出口（#984 要求 E）。
+///
+/// 同时写两个通道，保证 dev 与 release 两种构建都「看得见」：
+/// 1. `runtime_log`（info）→ 应用内调试窗、bridge `/debug/logs`、stderr；
+/// 2. `log` crate（info）→ 落盘 `%LOCALAPPDATA%\com.hbut.mini\logs\mini-hbut.log`。
+///
+/// 只用 `println!` 是不够的：release 版 GUI 的 stdout 会被丢弃，日志不落盘。
+#[macro_export]
+macro_rules! hbut_auth_log {
+    ($($arg:tt)*) => {{
+        let __msg = format!($($arg)*);
+        let __body = __msg.strip_prefix("[Auth] ").unwrap_or(__msg.as_str());
+        $crate::runtime_log::log_info("Auth", __body);
+        log::info!("{}", __msg);
+    }};
+}
+
 use chrono::{DateTime, Utc};
 use reqwest::{
     cookie::{CookieStore, Jar},
