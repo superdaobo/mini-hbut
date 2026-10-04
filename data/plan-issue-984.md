@@ -170,3 +170,81 @@ enum JwxtBootstrapOutcome {
 | R2：Cookie 定向自愈过宽，破坏 #659 静默恢复 | 只清认证域 Cookie、限一次、不碰业务缓存；单独测试 |
 | R3：误改 `looks_like_academic_login_url` 影响 10+ 调用点（成绩/课表/考试/排名…） | 该函数本身不改，只做「调用方收敛」；跑全量 `http_client::` 测试 |
 | R4：浏览器抓包发现门户已改版，Phase 3 需重做 | Phase 1 先于 Phase 3 落地；Phase 2 的枚举设计对链路变化不敏感 |
+
+---
+
+## 九、执行结果（2026-10-04 收口）
+
+### 9.1 实测推翻了 Issue 的核心假设 —— 找到了更深的根因
+
+Issue 假设「CAS 看似有状态但 JWXT 落 `/admin/login`」时会走 `finalize_jwxt_user_session()`
+并因不校验结果而失败。实测发现两层问题：
+
+1. **该分支根本不会进入 `finalize_jwxt_user_session()`**（`auth.rs:1099` 直接
+   `fetch_user_info()`），所以连唯一能建立会话的步骤也被绕过；
+2. **更根本的是 service 字符串选错了**。对照实验（唯一变量 = service）：
+
+   | service | 最终 URL | 结果 |
+   |---------|----------|------|
+   | `/admin/?loginType=1` | `/admin/login` | ❌ 教务 303 丢弃 ticket |
+   | `/admin/caslogin` | `/admin/?loginType=1` | ✅ 一步建立会话 |
+
+   因此 `/admin/caslogin` 不是「可选补偿」，而是**建立教务会话的必要步骤**。
+
+详见 `data/issue-984-link-map.md`。
+
+### 9.2 交付物
+
+| 项 | 内容 |
+|----|------|
+| 分支 | `fix/984-cas-jwxt-session-bootstrap` |
+| 提交 | `1329f266` |
+| PR | https://github.com/superdaobo/mini-hbut/pull/994 |
+| 抓包档案 | `data/issue-984-link-map.md`（四条链路 + 四类错误形态） |
+| Epic / Sub | #985 ← #984 + #986–#990 |
+
+### 9.3 代码改动
+
+1. `TARGET_SERVICE` → `https://jwxt.hbut.edu.cn/admin/caslogin`（根因）
+2. `compute_is_already_logged_in()` 纯函数取代 `!contains("authserver/login")` 启发式
+3. 统一 helper 收敛到 `mod.rs`（`looks_like_cas_login_url` / `looks_like_portal_login_url` /
+   `looks_like_login_landing_url` / `response_indicates_service_success`）
+4. `bootstrap_jwxt_caslogin()` 显式校验 status + final_url，分类为 `JwxtBootstrapOutcome`；
+   删除两处 `let _ = …`
+5. 新增 `HttpClientErrorKind::JwxtBootstrapFailed` + 独立文案
+6. 残留会话定向自愈 `reset_hbut_auth_cookies()`（只清 `.hbut.edu.cn` 认证 Cookie，最多一次）
+7. 错误词表补齐门户真实文案（「图形动态码错误」/「用户名或者密码有误」）
+8. 关键日志 `[Auth] CAS password POST started` / `final_url=` / `JWXT caslogin status=` /
+   `JWXT bootstrap result=`，不打印密码 / 完整 Cookie / 完整 execution
+9. `chaoxing_sso` 静默重登首选 service 同步修正（同根因第二个受害点）
+
+### 9.4 验证
+
+| 检查 | 结果 |
+|------|------|
+| `cargo test -p hbut-helper --lib` | 380 passed / 0 failed |
+| `cargo test -p hbut-helper --lib http_client::` | 44 passed（基线 33） |
+| `cargo fmt --all -- --check` | 通过 |
+| `cargo clippy -p hbut-helper --lib --tests` | 0 error |
+| 真实账号 HTTP 对照实验 | 新 service 一步建立会话，xskp 返回 213KB 真实数据 |
+
+新增 `test_caslogin` 注入点 —— 此前 `test_finalize` 整体替换 finalize，
+`/admin/caslogin` 这一跳在测试中从未被真实执行。
+
+### 9.5 剩余风险与未做项
+
+- **未做**：Tauri 开发构建里的端到端点击验证与真机四类错误复测。
+  建议合入后在开发构建上冒烟一次再关闭 #984。
+- **未做**：前端 `vue-tsc` / `vitest` 本地运行（本 PR 零前端改动、工作区无 `node_modules`），
+  交由 CI 覆盖。
+- **未完成**：学习通登录 + `xxtlogin` 桥接全链（缺学习通凭证）。
+- **未实测**：传输层错误四点的真实样本（未人为断网，避免影响会话）。
+- **顺带发现（未修，建议另立）**：
+  1. `check_code_login()`（`auth.rs`）依赖 `/server/auth/getLoginUser` 返回 `success:true`，
+     但一码通移动端流程下该端点返回 **401**（会话走 URL 的 `tid` 参数，Cookie 为空）
+     → 该函数在用户一码通完全可用时仍返回 `false`。
+  2. `auth.rs` 中 `final_url.contains("code.hbut.edu.cn/server/auth/host/open")` 判定失效：
+     成功后的最终 URL 是 `/?tid=…`，不含该路径。
+  3. CAS 会**重排** service 的查询串（`host=28&org=2` → `org=2&host=28`），
+     任何依赖 service 精确匹配的逻辑都需注意。
+
