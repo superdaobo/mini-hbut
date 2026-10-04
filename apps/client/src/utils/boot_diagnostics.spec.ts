@@ -1,0 +1,230 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import {
+  BOOT_DIAG_STORAGE_KEY,
+  formatBootDiagnosticsReport,
+  getBootDiagBridge,
+  markBootFinished,
+  readBootDiagnostics,
+  readStoredBootDiagnostics,
+  recordBootStage,
+  replayBootDiagnostics,
+  sanitizeDetail,
+  sanitizeText,
+  sanitizeUrl
+} from './boot_diagnostics'
+import type { BootDiagSnapshot } from './boot_diagnostics'
+import { clearDebugLogs, getDebugLogs } from './debug_logger'
+
+const makeSnapshot = (over: Partial<BootDiagSnapshot> = {}): BootDiagSnapshot => ({
+  v: 1,
+  bootId: 'boot-test-1',
+  startedAtWall: 1_700_000_000_000,
+  entries: [],
+  stalls: [],
+  finished: true,
+  finishedAt: 120,
+  meta: {},
+  ...over
+})
+
+/** 最小 localStorage 替身（node 环境下没有 Web Storage） */
+const installStorage = (seed?: Record<string, string>) => {
+  const store = new Map<string, string>(Object.entries(seed ?? {}))
+  const fake = {
+    getItem: (key: string) => (store.has(key) ? (store.get(key) as string) : null),
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value))
+    },
+    removeItem: (key: string) => {
+      store.delete(key)
+    },
+    clear: () => store.clear()
+  }
+  ;(globalThis as unknown as { localStorage: unknown }).localStorage = fake
+  return store
+}
+
+const installWindow = (value: Record<string, unknown> = {}) => {
+  ;(globalThis as unknown as { window: unknown }).window = value
+  return value as Window & Record<string, unknown>
+}
+
+beforeEach(() => {
+  clearDebugLogs()
+  installStorage()
+  installWindow()
+})
+
+describe('boot_diagnostics 脱敏与截断', () => {
+  it('sanitizeUrl 只保留 origin + pathname', () => {
+    expect(sanitizeUrl('tauri://localhost/splash/app_icon.png?token=abc#frag')).toBe(
+      'tauri://localhost/splash/app_icon.png'
+    )
+  })
+
+  it('sanitizeText 抹掉敏感键值并截断', () => {
+    const redacted = sanitizeText('access_token=secret-value cookie=abc')
+    expect(redacted).not.toContain('secret-value')
+    expect(redacted).toContain('[已脱敏]')
+
+    const long = sanitizeText('x'.repeat(500), 10)
+    expect(long.length).toBeLessThanOrEqual(11)
+    expect(long.endsWith('…')).toBe(true)
+  })
+
+  it('sanitizeDetail 对 url 类键走 sanitizeUrl，丢弃 undefined', () => {
+    const detail = sanitizeDetail({
+      url: '/assets/index.js?v=1',
+      gap: 1234,
+      ok: true,
+      missing: undefined,
+      note: 'token=leak'
+    })
+    expect(detail).toBeDefined()
+    expect(String(detail?.url)).not.toContain('?')
+    expect(detail?.gap).toBe(1234)
+    expect(detail?.ok).toBe(true)
+    expect('missing' in (detail ?? {})).toBe(false)
+    expect(String(detail?.note)).toContain('[已脱敏]')
+  })
+
+  it('空 detail 归一为 undefined', () => {
+    expect(sanitizeDetail({})).toBeUndefined()
+    expect(sanitizeDetail(undefined)).toBeUndefined()
+  })
+})
+
+describe('boot_diagnostics 读取与持久化', () => {
+  it('无 window 桥时读取不抛错且返回空', () => {
+    expect(getBootDiagBridge()).toBeNull()
+    expect(readStoredBootDiagnostics()).toEqual({})
+    expect(readBootDiagnostics()).toEqual({ current: null, previous: null })
+    expect(() => recordBootStage('x')).not.toThrow()
+    expect(() => markBootFinished()).not.toThrow()
+  })
+
+  it('从 localStorage 读取本次与上次启动', () => {
+    const previous = makeSnapshot({ bootId: 'boot-prev', finished: false })
+    const current = makeSnapshot({ bootId: 'boot-cur' })
+    installStorage({
+      [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current, previous, restarts: 3 })
+    })
+    const read = readBootDiagnostics()
+    expect(read.current?.bootId).toBe('boot-cur')
+    expect(read.previous?.bootId).toBe('boot-prev')
+    expect(read.previous?.finished).toBe(false)
+  })
+
+  it('损坏的持久化内容被安全忽略', () => {
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: '{not-json' })
+    expect(readStoredBootDiagnostics()).toEqual({})
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current: { nope: 1 } }) })
+    expect(readStoredBootDiagnostics().current).toBeUndefined()
+  })
+
+  it('内存中的实时快照优先于持久化值', () => {
+    installStorage({
+      [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current: makeSnapshot({ bootId: 'stored' }) })
+    })
+    installWindow({ __HBU_BOOT_DIAG__: makeSnapshot({ bootId: 'live' }) })
+    expect(readBootDiagnostics().current?.bootId).toBe('live')
+  })
+
+  it('recordBootStage 经桥写入并脱敏 detail', () => {
+    const pushed: Array<{ name: string; detail?: Record<string, unknown> }> = []
+    installWindow({
+      __hbuBootDiag: {
+        push: (name: string, detail?: Record<string, unknown>) => pushed.push({ name, detail }),
+        flush: () => {},
+        markFinished: () => {},
+        snapshot: () => makeSnapshot()
+      }
+    })
+    recordBootStage('splash-removed', { reason: 'timeout-5s', url: '/x?token=leak' })
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]?.name).toBe('splash-removed')
+    expect(pushed[0]?.detail?.reason).toBe('timeout-5s')
+    expect(String(pushed[0]?.detail?.url)).toBe('http://localhost/x')
+  })
+
+  it('markBootFinished 转发到桥', () => {
+    let finishedWith = ''
+    installWindow({
+      __hbuBootDiag: {
+        push: () => {},
+        flush: () => {},
+        markFinished: (name: string) => {
+          finishedWith = name
+        },
+        snapshot: () => makeSnapshot()
+      }
+    })
+    markBootFinished('app-mounted')
+    expect(finishedWith).toBe('app-mounted')
+  })
+})
+
+describe('boot_diagnostics 回放', () => {
+  it('把启动页阶段记录回放进调试日志，并标记上次未走完的启动', () => {
+    const previous = makeSnapshot({
+      bootId: 'boot-prev',
+      finished: false,
+      entries: [{ t: 10, name: 'inline-script' }]
+    })
+    const current = makeSnapshot({
+      bootId: 'boot-cur',
+      finished: true,
+      entries: [
+        { t: 5, name: 'inline-script' },
+        { t: 900, name: 'resource-error', detail: { tag: 'img', url: 'tauri://localhost/splash/app_icon.png' } }
+      ],
+      stalls: [{ from: 400, to: 20_400, gap: 20_000 }]
+    })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current, previous }) })
+
+    const replayed = replayBootDiagnostics()
+    expect(replayed).toBeGreaterThan(0)
+
+    const bootLogs = getDebugLogs(200).filter((item) => item.scope === 'Boot')
+    const text = bootLogs.map((item) => item.message).join('\n')
+    expect(text).toContain('上次启动未走完')
+    expect(text).toContain('inline-script')
+    expect(text).toContain('主线程冻结 20000ms')
+    // 资源加载失败以 error 级别写入，便于在设置页筛选
+    expect(bootLogs.some((item) => item.level === 'error' && item.message.includes('resource-error'))).toBe(true)
+  })
+
+  it('无记录时回放不抛错', () => {
+    expect(() => replayBootDiagnostics()).not.toThrow()
+  })
+})
+
+describe('boot_diagnostics 报告', () => {
+  it('报告包含关键分区、长阻塞与资源失败明细', () => {
+    const current = makeSnapshot({
+      bootId: 'boot-cur',
+      entries: [
+        { t: 5, name: 'inline-script' },
+        { t: 900, name: 'resource-error', detail: { tag: 'img', url: 'tauri://localhost/splash/cas_bg.webp' } }
+      ],
+      stalls: [{ from: 400, to: 20_400, gap: 20_000 }]
+    })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current, previous: undefined }) })
+
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('=== Mini-HBUT 启动诊断报告 ===')
+    expect(report).toContain('本次启动时间线')
+    expect(report).toContain('上次启动时间线')
+    expect(report).toContain('[主线程冻结]')
+    expect(report).toContain('资源加载失败汇总')
+    expect(report).toContain('/splash/cas_bg.webp')
+    expect(report).toContain('启动阶段指标（boot_metrics）')
+    expect(report).toContain('=== 报告结束 ===')
+  })
+
+  it('无记录时报告仍然可用', () => {
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('（无记录）')
+    expect(report).toContain('=== 报告结束 ===')
+  })
+})

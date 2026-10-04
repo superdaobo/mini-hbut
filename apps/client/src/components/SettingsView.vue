@@ -40,6 +40,8 @@ import {
   pushDebugLog,
   subscribeDebugLogs
 } from '../utils/debug_logger'
+// #991 / #992：启动诊断（启动页阶段证据 + 主线程冻结 + 资源加载失败清单）
+import { formatBootDiagnosticsReport } from '../utils/boot_diagnostics'
 import {
   getNightModePreference,
   initNightModeClass,
@@ -704,6 +706,29 @@ const handleCopyDebugLogs = async () => {
   }
 }
 
+// ── #991 / #992：启动诊断（含启动页阶段证据；跨启动保留最近两次） ──
+const bootDiagReport = ref('')
+const bootDiagExpanded = ref(false)
+
+const refreshBootDiag = () => {
+  bootDiagReport.value = formatBootDiagnosticsReport()
+}
+
+const toggleBootDiag = () => {
+  bootDiagExpanded.value = !bootDiagExpanded.value
+  if (bootDiagExpanded.value) refreshBootDiag()
+}
+
+const handleCopyBootDiag = async () => {
+  refreshBootDiag()
+  try {
+    await navigator.clipboard.writeText(bootDiagReport.value)
+    showToast(t('settings.toast.debugCopied'), 'success')
+  } catch {
+    showToast(t('settings.toast.debugCopyFail'), 'error')
+  }
+}
+
 const setProfileOption = (field, value, label) => {
   if (uiSettings.profile[field] === value) {
     flushUiSettings()
@@ -895,6 +920,7 @@ watch(
   (tab) => {
     if (tab !== 'debug') return
     refreshDebugPanel()
+    refreshBootDiag()
     scrollDebugToBottom()
   }
 )

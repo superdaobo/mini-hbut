@@ -20,7 +20,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { messages } from './app_i18n'
+import { messages, ensureLocaleMessages } from './app_i18n'
 
 /**
  * 已迁移文件白名单（相对 apps/client/src 的 POSIX 路径，正斜杠分隔）。
@@ -164,7 +164,11 @@ describe('i18n 完整性契约（#785，#784 各批次共同看守）', () => {
     expect(violations).toEqual([])
   })
 
-  it('测试 2：zh-CN / en / ja 字典 key 集合完全一致', () => {
+  it('测试 2：zh-CN / en / ja 字典 key 集合完全一致', async () => {
+    // #993：en / ja 字典改为按需动态加载，断言前必须显式预热，
+    // 否则会读到空对象而误判「全部 key 缺失」。
+    await ensureLocaleMessages('en')
+    await ensureLocaleMessages('ja')
     const zhKeys = Object.keys(messages['zh-CN']).sort()
     const enKeys = Object.keys(messages.en).sort()
     const jaKeys = Object.keys(messages.ja).sort()

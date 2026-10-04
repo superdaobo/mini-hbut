@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { messages } from './app_i18n'
+import { messages, ensureLocaleMessages } from './app_i18n'
 import { HOST_MESSAGE_TYPES } from './game_center/host_bridge'
 import { GAME_CENTER_FLAG_KEYS } from './game_center/flags'
 
@@ -159,7 +159,10 @@ describe('game center 接线契约（#905）', () => {
     expect(config).toMatch(/next\.game_platform\s*=\s*{[\s\S]*?enabled: false/)
   })
 
-  it('五语言 key 集合一致：新增文案三语齐全', () => {
+  it('五语言 key 集合一致：新增文案三语齐全', async () => {
+    // #993：非默认语言字典改为按需加载，断言前显式预热
+    await ensureLocaleMessages('en')
+    await ensureLocaleMessages('ja')
     const zhKeys = Object.keys(messages['zh-CN'])
     const enKeys = Object.keys(messages.en)
     const jaKeys = Object.keys(messages.ja)

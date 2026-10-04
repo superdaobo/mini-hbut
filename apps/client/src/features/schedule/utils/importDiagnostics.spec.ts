@@ -6,7 +6,7 @@
  * 以及「Parser 诊断 → 用户可见文案」的端到端契约。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { setLocale } from '../../../utils/app_i18n'
+import { setLocale, ensureLocaleMessages } from '../../../utils/app_i18n'
 import { parseAiCourseImport } from './importParser'
 import type { ImportDiagnostic } from './importTypes'
 import { describeImportDiagnostic, describeImportDiagnosticLocation } from './importDiagnostics'
@@ -58,7 +58,9 @@ describe('describeImportDiagnosticLocation（#827）', () => {
     )
   })
 
-  it('英文语言下整行英文化', () => {
+  it('英文语言下整行英文化', async () => {
+    // #993：非默认语言字典按需加载，断言前显式预热
+    await ensureLocaleMessages('en')
     setLocale('en')
     const diag = makeDiag({
       field: 'periods',
@@ -118,7 +120,9 @@ describe('describeImportDiagnostic（#819：按 code 取 i18n 词）', () => {
     expect(describeImportDiagnostic(diag)).toBe('颜色格式无法识别，已忽略该颜色')
   })
 
-  it('en 语言下按 code 输出英文文案（不再透出硬编码中文）', () => {
+  it('en 语言下按 code 输出英文文案（不再透出硬编码中文）', async () => {
+    // #993：非默认语言字典按需加载，断言前显式预热
+    await ensureLocaleMessages('en')
     setLocale('en')
     const diag = makeDiag({ code: 'missing_teacher', message: '缺少教师信息' })
     expect(describeImportDiagnostic(diag)).toBe('Teacher information is missing')

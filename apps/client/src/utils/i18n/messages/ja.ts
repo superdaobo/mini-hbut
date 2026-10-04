@@ -246,6 +246,12 @@ export const messages: Record<string, string> = {
   'settings.debug.filter.error': 'エラー',
   'settings.debug.filter.log': 'ログ',
   'settings.debug.empty': 'まだログはありませんが、関数を一度実行すると自動的に表示されます。',
+  // —— #991/#992 起動診断（スプラッシュ段階の証跡、直近 2 回の起動を保持）——
+  'settings.debug.bootDiag.title': '起動診断',
+  'settings.debug.bootDiag.hint': 'スプラッシュ段階のタイムライン、メインスレッドの停止、リソース読み込み失敗を含みます。コールドスタートが異常な場合はこのレポートをコピーしてください。',
+  'settings.debug.bootDiag.expand': '表示',
+  'settings.debug.bootDiag.collapse': '閉じる',
+  'settings.debug.bootDiag.copy': '起動診断をコピー',
   // —— #787 设置中心：调试日志内容（debug 面板用户可见）——
   'settings.debug.log.probeStart': '{label}: {url} の検出を開始します',
   'settings.debug.log.probeRunStart': '関数速度テストの開始: ターゲット番号 = {count}、タイムアウト = {timeout}ms',
