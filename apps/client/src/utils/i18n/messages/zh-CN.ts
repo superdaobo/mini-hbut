@@ -247,6 +247,12 @@ export const messages: Record<string, string> = {
   'settings.debug.filter.error': 'Error',
   'settings.debug.filter.log': 'Log',
   'settings.debug.empty': '暂无日志，执行一次功能后会自动出现。',
+  // —— #991/#992 启动诊断（启动页阶段证据，跨启动保留最近两次）——
+  'settings.debug.bootDiag.title': '启动诊断',
+  'settings.debug.bootDiag.hint': '包含启动页阶段的时间线、主线程冻结与资源加载失败记录；冷启动异常时请复制此报告。',
+  'settings.debug.bootDiag.expand': '显示',
+  'settings.debug.bootDiag.collapse': '收起',
+  'settings.debug.bootDiag.copy': '复制启动诊断',
   // —— #787 设置中心：调试日志内容（debug 面板用户可见）——
   'settings.debug.log.probeStart': '开始检测 {label}: {url}',
   'settings.debug.log.probeRunStart': '开始功能测速：目标数={count}，超时={timeout}ms',

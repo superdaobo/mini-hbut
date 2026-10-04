@@ -471,6 +471,32 @@
         </div>
       </div>
 
+      <!-- #991 / #992：启动诊断。启动页阶段的记录不在下方日志列表里（initDebugLogger 之前产生），
+           且崩溃那一轮的日志会随进程消失，故单独提供跨启动保留的报告。 -->
+      <div class="boot-diag-card">
+        <div class="boot-diag-head">
+          <div class="boot-diag-copy">
+            <p class="boot-diag-title">{{ t('settings.debug.bootDiag.title') }}</p>
+            <p class="boot-diag-hint">{{ t('settings.debug.bootDiag.hint') }}</p>
+          </div>
+          <div class="boot-diag-actions">
+            <button class="mini-btn btn-ripple" @click="toggleBootDiag">
+              {{ bootDiagExpanded ? t('settings.debug.bootDiag.collapse') : t('settings.debug.bootDiag.expand') }}
+            </button>
+            <button class="mini-btn btn-ripple" @click="handleCopyBootDiag">
+              {{ t('settings.debug.bootDiag.copy') }}
+            </button>
+          </div>
+        </div>
+        <textarea
+          v-if="bootDiagExpanded"
+          class="boot-diag-output"
+          :value="bootDiagReport"
+          readonly
+          rows="14"
+        />
+      </div>
+
       <div class="backend-summary">
         <span class="status-pill">{{ t('settings.debug.stats.total') }}{{ debugStats.total }}</span>
         <span class="status-pill">{{ t('settings.debug.stats.warns') }}{{ debugStats.warns }}</span>

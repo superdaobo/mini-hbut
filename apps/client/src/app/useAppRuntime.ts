@@ -32,6 +32,7 @@ import {
 } from '../utils/identity_device_token'
 import { showToast } from '../utils/toast'
 import { markBootMetric } from '../utils/boot_metrics.js'
+import { recordBootStage } from '../utils/boot_diagnostics'
 import { ensureRememberedPasswordCached } from '../utils/credential_storage.js'
 import { loadChaoxingStoredPassword, loadPortalStoredPassword } from '../composables/useSessionCredentials.js'
 import { REMOTE_CONFIG_UPDATED_EVENT } from '../utils/remote_config.js'
@@ -97,6 +98,8 @@ export const useAppRuntime = () => {
     } catch (error) {
       console.warn('[Boot] splash dismiss failed:', error)
     }
+    // #991：启动页移除原因必须留痕（此前只有 console.info，崩溃后无从追溯）
+    recordBootStage('splash-dismissed', { reason })
     handleSplashDismissed()
     if (reason) console.info('[Boot] dismissSplash:', reason)
   }
@@ -184,6 +187,8 @@ export const useAppRuntime = () => {
   onMounted(async () => {
     console.time('[Boot] total')
     const splashFailsafe = window.setTimeout(() => {
+      // #991：兜底被触发说明常规启动路径超时，必须留痕
+      recordBootStage('splash-failsafe-fired', { show_splash: state.showSplash.value })
       if (state.showSplash.value) dismissSplash('failsafe-2.5s')
       state.mutable.appBootstrapped = true
       // #621：bootstrap 完成后冲刷冷启动深链缓冲（内存 PendingExternalIntent -> Identity 调度）
@@ -326,6 +331,7 @@ export const useAppRuntime = () => {
     startUsageUploadScheduler(() => state.studentId.value)
     void runCampusNetworkAutoLogin({ studentId: state.studentId.value, reason: 'app-boot' })
     markBootMetric('app_runtime_ready', { current_view: state.currentView.value })
+    recordBootStage('runtime-ready', { current_view: state.currentView.value })
     console.timeEnd('[Boot] total')
   })
 

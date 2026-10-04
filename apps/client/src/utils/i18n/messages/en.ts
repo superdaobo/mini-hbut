@@ -246,6 +246,12 @@ export const messages: Record<string, string> = {
   'settings.debug.filter.error': 'Error',
   'settings.debug.filter.log': 'Log',
   'settings.debug.empty': 'No logs yet; they appear automatically after using a feature.',
+  // —— #991/#992 Startup diagnostics (splash-phase evidence, last two boots kept) ——
+  'settings.debug.bootDiag.title': 'Startup diagnostics',
+  'settings.debug.bootDiag.hint': 'Includes the splash-phase timeline, main-thread stalls and failed resource loads. Copy this report when a cold start misbehaves.',
+  'settings.debug.bootDiag.expand': 'Show',
+  'settings.debug.bootDiag.collapse': 'Hide',
+  'settings.debug.bootDiag.copy': 'Copy startup diagnostics',
   // —— #787 Settings: debug log lines (user-visible in debug panel) ——
   'settings.debug.log.probeStart': 'Probing {label}: {url}',
   'settings.debug.log.probeRunStart': 'Connectivity test started: targets={count}, timeout={timeout}ms',
