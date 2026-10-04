@@ -39,6 +39,23 @@ macro_rules! hbut_session_log {
     }};
 }
 
+/// 登录/会话链路的关键日志出口（#984 要求 E）。
+///
+/// 同时写两个通道，保证 dev 与 release 两种构建都「看得见」：
+/// 1. `runtime_log`（info）→ 应用内调试窗、bridge `/debug/logs`、stderr；
+/// 2. `log` crate（info）→ 落盘 `%LOCALAPPDATA%\com.hbut.mini\logs\mini-hbut.log`。
+///
+/// 只用 `println!` 是不够的：release 版 GUI 的 stdout 会被丢弃，日志不落盘。
+#[macro_export]
+macro_rules! hbut_auth_log {
+    ($($arg:tt)*) => {{
+        let __msg = format!($($arg)*);
+        let __body = __msg.strip_prefix("[Auth] ").unwrap_or(__msg.as_str());
+        $crate::runtime_log::log_info("Auth", __body);
+        log::info!("{}", __msg);
+    }};
+}
+
 use chrono::{DateTime, Utc};
 use reqwest::{
     cookie::{CookieStore, Jar},
@@ -69,7 +86,16 @@ pub(super) type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
-pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/?loginType=1";
+/// 教务 CAS service：**必须**用 `/admin/caslogin`，不能用 `/admin/?loginType=1`。
+///
+/// 依据 #984 实测（`data/issue-984-link-map.md` 路径 A/C 对照实验）：
+/// - service = `/admin/?loginType=1`：CAS 发出有效 ticket 后，教务在
+///   `/admin/?loginType=1&ticket=ST-…` 上返回 **303 → `/admin/login`**，会话始终建立不起来；
+/// - service = `/admin/caslogin`：CAS → `/admin/caslogin?ticket=ST-…` → **302 → `/admin/?loginType=1`**，
+///   一步建立会话。
+/// 两条路径除 service 字符串外条件完全相同，因此 service 是决定性变量。
+pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/caslogin";
+
 /// 生产主域（契约 docs/architecture/backend-endpoints-contract.md §9：两域模型）
 pub(super) const PRODUCTION_OCR_ENDPOINT: &str = "https://mini.hbut.site/api/ocr/recognize";
 pub(super) const TEST_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
@@ -97,8 +123,27 @@ pub enum HttpClientErrorKind {
     Transport,
     /// 认证失败：收到认证服务器返回的业务失败响应（账号/密码/验证码/锁定等）。
     AuthFailed,
+    /// 教务会话落地失败：CAS 认证已通过（拿到 ticket 或已持 TGT），
+    /// 但教务系统的 Session 没有建立起来（#984 情况 C）。
+    /// 必须与「账号密码错误」「历史会话自然过期」「网络错误」区分开。
+    JwxtBootstrapFailed,
     /// 其它/业务错误（参数缺失、登录页异常、未知）。
     Other,
+}
+
+/// 教务 Session 落地结果（#984 实现要求 C）。
+///
+/// 语义收敛点：CAS 认证状态、教务会话落地状态、业务 Session 过期状态三者不再互相覆盖。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum JwxtBootstrapOutcome {
+    /// 教务在线会话确实可用。
+    Authenticated,
+    /// 回到 CAS 登录页：需要重新认证。
+    NeedsCasAuth,
+    /// CAS 通过但教务会话未建立。
+    JwxtBootstrapFailed,
+    /// 传输层失败（网络/DNS/TLS/超时）。
+    TransportError,
 }
 
 /// 带分类的客户端错误。`Display` 只输出原始消息，保持对外字符串/结构兼容；
@@ -120,6 +165,14 @@ impl HttpClientError {
     /// 构造认证失败类错误（收到认证服务器业务失败响应）。
     pub fn auth_failed(message: impl Into<String>) -> Self {
         Self::new(HttpClientErrorKind::AuthFailed, message)
+    }
+
+    /// 构造教务会话落地失败类错误（CAS 已通过但教务 Session 未建立，#984 情况 C）。
+    pub fn jwxt_bootstrap_failed() -> Self {
+        Self::new(
+            HttpClientErrorKind::JwxtBootstrapFailed,
+            "统一身份认证已通过，但教务会话建立失败，请稍后重试",
+        )
     }
 
     /// 构造其它/业务类错误。
@@ -150,6 +203,16 @@ pub(super) fn is_transport_error(err: &(dyn std::error::Error + Send + Sync + 's
         return re.is_timeout() || re.is_connect() || re.is_request() || re.is_body();
     }
     false
+}
+
+/// 判定错误是否为「教务会话落地失败」（CAS 已通过但教务 Session 建不起来，#984 情况 C）。
+/// 用于触发一次定向自愈，并保证不会把它误当成「历史会话自然过期」。
+pub(super) fn is_jwxt_bootstrap_failure(
+    err: &(dyn std::error::Error + Send + Sync + 'static),
+) -> bool {
+    err.downcast_ref::<HttpClientError>()
+        .map(|e| e.kind() == HttpClientErrorKind::JwxtBootstrapFailed)
+        .unwrap_or(false)
 }
 
 fn is_production_ocr_endpoint(endpoint: &str) -> bool {
@@ -209,6 +272,46 @@ pub(super) fn looks_like_academic_login_url(url: &str) -> bool {
     let lower = url.to_lowercase();
     lower.contains("authserver/login")
         || (lower.contains("/admin/login") && !lower.contains("/admin/login2"))
+}
+
+/// CAS 登录页判定（唯一权威入口，禁止各文件自写 `contains("authserver/login")`）。
+pub(super) fn looks_like_cas_login_url(url: &str) -> bool {
+    url.to_lowercase().contains("authserver/login")
+}
+
+/// 门户自身登录页判定。
+///
+/// 门户换票成功的那一跳是 `e.hbut.edu.cn/login?portalService=…&ticket=ST-…`，
+/// **带 ticket 时是成功页**；不带 ticket 的 `e.hbut.edu.cn/login` 才是登录页。
+pub(super) fn looks_like_portal_login_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    lower.contains("e.hbut.edu.cn/login") && !lower.contains("ticket=")
+}
+
+/// 「是否仍停留在登录落地页」的统一判定。
+///
+/// 覆盖三个概念：CAS 登录页 / 教务自身登录页（`/admin/login`，排除 `/admin/login2`）/ 门户登录页。
+/// 注意：**不匹配 `/admin/caslogin`** —— 它既是 CAS service 本身，也是换票成功后的中间跳转路径。
+pub(super) fn looks_like_login_landing_url(url: &str) -> bool {
+    looks_like_cas_login_url(url)
+        || looks_like_academic_login_url(url)
+        || looks_like_portal_login_url(url)
+}
+
+/// 判断 service 登录是否真的成功：既不在任何登录落地页，又确实回到了 service 域名。
+///
+/// 收敛自原 `auth.rs` 私有实现（#984 实现要求 A / D），避免「A 文件认为已登录、B 文件认为未登录」。
+pub(super) fn response_indicates_service_success(response_url: &str, service_url: &str) -> bool {
+    if looks_like_login_landing_url(response_url) {
+        return false;
+    }
+    let Some(host) = reqwest::Url::parse(service_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+    else {
+        return false;
+    };
+    response_url.contains(&host)
 }
 
 /// 教务业务域名选择（排名 / 校历等复用）。
@@ -378,6 +481,20 @@ pub struct HbutClient {
             dyn Fn() -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> + Send + Sync,
         >,
     >,
+    /// 测试专用：注入 `/admin/caslogin` 请求结果（None = 走真实链路）。
+    ///
+    /// #984 新增。此前只有 `test_finalize`，它整体替换 `finalize_jwxt_user_session()`，
+    /// 导致 `/admin/caslogin` 这一跳在测试中**从未被真实执行过** —— 这正是 T4/T5
+    /// （CAS 成功但教务落地失败 / 回到 CAS 登录页）此前写不出来的原因。
+    /// 返回 `(final_url, status, html)`，与 `test_cas_post` 形状一致。
+    #[cfg(test)]
+    pub(super) test_caslogin: Option<
+        std::sync::Arc<
+            dyn Fn() -> Result<(String, u16, String), Box<dyn std::error::Error + Send + Sync>>
+                + Send
+                + Sync,
+        >,
+    >,
     pub(super) last_login_time: Option<std::time::Instant>,
     pub(super) last_relogin_attempt: Option<std::time::Instant>,
     pub(super) last_relogin_failed_at: Option<std::time::Instant>,
@@ -531,6 +648,8 @@ impl HbutClient {
             test_cas_post: None,
             #[cfg(test)]
             test_finalize: None,
+            #[cfg(test)]
+            test_caslogin: None,
             last_login_time: None,
             last_relogin_attempt: None,
             last_relogin_failed_at: None,
@@ -712,6 +831,51 @@ impl HbutClient {
         self.client = Self::build_http_client(jar);
         self.ocr_client = Self::build_ocr_client();
         self.prefer_chaoxing_jwxt = false;
+    }
+
+    /// 定向自愈（#984 实现要求 B）：只清掉 `.hbut.edu.cn` 域的认证 Cookie
+    /// （CAS / 教务 / 门户 / 一码通 共用该域），保留学习通域（`.chaoxing.com`）Cookie。
+    ///
+    /// 与 `clear_session()` 的区别（后者是登出语义，会连带清 DB 持久化 Cookie 与快照）：
+    /// - 不动任何业务缓存（成绩 / 课表 / 用户信息）；
+    /// - 不动数据库里的凭据与记住的密码；
+    /// - 不重置 `is_logged_in` / `user_info`。
+    ///
+    /// 用途：出现「CAS 看似有状态但教务落在 `/admin/login`」时做一次最小范围修复，
+    /// 之后重新拉取新鲜 CAS 登录页参数再提交用户本次密码。
+    /// **调用方必须限制次数（最多一次）**，避免形成无限重试。
+    pub(super) fn reset_hbut_auth_cookies(&mut self) {
+        const CHAOXING_ORIGINS: &[&str] = &[
+            "https://passport2.chaoxing.com",
+            "https://i.chaoxing.com",
+            "https://mooc1.chaoxing.com",
+            "https://hbut.jw.chaoxing.com",
+        ];
+        let jar = Arc::new(Jar::default());
+        for origin in CHAOXING_ORIGINS {
+            let Ok(url) = reqwest::Url::parse(origin) else {
+                continue;
+            };
+            let Some(raw) = self
+                .cookie_jar
+                .cookies(&url)
+                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+            else {
+                continue;
+            };
+            for pair in raw.split(';') {
+                let pair = pair.trim();
+                if pair.is_empty() {
+                    continue;
+                }
+                jar.add_cookie_str(&format!("{}; Domain=.chaoxing.com; Path=/", pair), &url);
+            }
+        }
+        self.cookie_jar = Arc::clone(&jar);
+        self.client = Self::build_http_client(jar);
+        // 登录页参数（execution 一次性）必须重取，否则复用旧值必然失败
+        self.last_login_inputs = None;
+        println!("[Auth] 定向自愈：已清理 .hbut.edu.cn 域认证 Cookie，保留学习通域 Cookie");
     }
 
     /// 登录频率控制：至少间隔 60 秒，降低 CAS 风控风险。

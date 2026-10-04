@@ -110,7 +110,11 @@ pub fn run() {
             log::LevelFilter::Warn
         })
         .level_for("hbut_helper::identity", log::LevelFilter::Info)
-        .level_for("hbut_helper::credential_store", log::LevelFilter::Info);
+        .level_for("hbut_helper::credential_store", log::LevelFilter::Info)
+        // #984：登录链路（CAS POST / caslogin / fetch_user_info 的最终 URL 与阶段归因）
+        // 需要在 release 的文件日志里也留痕，否则线上只能拿到失败收口那一行。
+        // http_client 此前没有任何 log:: 调用，这里放行 Info 不会引入第三方刷屏。
+        .level_for("hbut_helper::http_client", log::LevelFilter::Info);
     #[cfg(debug_assertions)]
     {
         log_plugin = log_plugin.level_for("hbut_helper", log::LevelFilter::Debug);
