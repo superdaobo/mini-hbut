@@ -686,6 +686,8 @@ export const messages: Record<string, string> = {
   'schedule.import.toast.partial': 'インポートが完了しました: {a} が追加されましたが、{f} は失敗しました',
   'schedule.import.toast.success': 'インポートが完了しました: {n} コースが追加されました',
   'schedule.import.toast.commitFailed': 'インポートに失敗しました。後でもう一度お試しください',
+  'schedule.import.toast.semesterMismatch': '対象の学期が現在読み込まれている課表の学期と一致しません。先に課表ページで対象の学期に切り替えてからインポートしてください',
+  'schedule.import.toast.retryRefreshFailed': '再試行前の課表データ更新に失敗しました。ネットワークを確認してもう一度お試しください',
   // —— #821 课表布局预览与冲突可视化 ——
   'schedule.import.preview.modeList': 'リストのプレビュー',
   'schedule.import.preview.modeGrid': 'クラススケジュールのプレビュー',

@@ -688,6 +688,8 @@ export const messages: Record<string, string> = {
   'schedule.import.toast.partial': '导入完成：新增 {a}，失败 {f}',
   'schedule.import.toast.success': '导入完成：新增 {n} 门课程',
   'schedule.import.toast.commitFailed': '导入失败，请稍后重试',
+  'schedule.import.toast.semesterMismatch': '目标学期与当前已加载的课表学期不一致，请先在课表页切换到目标学期后再导入',
+  'schedule.import.toast.retryRefreshFailed': '重试前刷新课表数据失败，请检查网络后重试',
   // —— #821 课表布局预览与冲突可视化 ——
   'schedule.import.preview.modeList': '列表预览',
   'schedule.import.preview.modeGrid': '课表预览',
