@@ -264,6 +264,27 @@ fn html_looks_like_login_form(html: &str) -> bool {
     html.contains("pwdEncryptSalt") && html.contains("execution")
 }
 
+/// 登录阶段：让「失败发生在哪一环」在日志里直接可读（#984 实现要求 E）。
+///
+/// 收口日志格式：
+/// - 成功 `[Auth] <label>成功 stage=Done student_id=…`
+/// - 失败 `[Auth] <label>失败 stage=PasswordPost kind=AuthFailed msg=…`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoginStage {
+    /// 60s 冷却门 / 5s 短 backoff 门
+    Gate,
+    /// 获取并解析 CAS 登录页（salt / execution / 是否已登录）
+    FetchLoginPage,
+    /// 验证码获取与 OCR 识别
+    Captcha,
+    /// 提交账号密码（CAS POST）
+    PasswordPost,
+    /// 建立教务会话（`/admin/caslogin`）与拉取用户信息
+    JwxtBootstrap,
+    /// 已完成
+    Done,
+}
+
 /// 纯函数：根据「获取登录页」的最终 URL 判定是否已登录（#984 实现要求 A）。
 ///
 /// 独立出来是为了让 T1（`/admin/login` 不得被判为已登录）能直接断言语义，
@@ -867,29 +888,56 @@ impl HbutClient {
         })
     }
 
-    /// 使用指定 service 发起 CAS 登录，返回用户信息
+    /// 使用指定 service 发起 CAS 登录，返回用户信息。
+    ///
+    /// 用于一码通 / 电费 / 学习通静默重登等「按 service 登录」链路。
+    /// 与 [`Self::login`] 一样带收口日志：无论从哪个阶段失败，都会输出
+    /// `[Auth] 服务登录(service=…)失败 stage=… kind=… msg=…`。
     pub async fn login_for_service(
         &mut self,
         username: &str,
         password: &str,
         service_url: &str,
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        let mut stage = LoginStage::FetchLoginPage;
+        let result = self
+            .login_for_service_inner(username, password, service_url, &mut stage)
+            .await;
+        Self::log_login_outcome(&format!("服务登录(service={service_url})"), stage, &result);
+        result
+    }
+
+    async fn login_for_service_inner(
+        &mut self,
+        username: &str,
+        password: &str,
+        service_url: &str,
+        stage: &mut LoginStage,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let encoded_service = urlencoding::encode(service_url);
         let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
-        crate::hbut_debug!("[调试] 登录地址（服务）: {}", login_url);
-        crate::hbut_debug!("[调试] 用户名: {}", username);
-        crate::hbut_debug!("[调试] 密码长度 (plain): {}", password.len());
+        crate::hbut_debug!("[Auth] 服务登录开始 service={}", service_url);
+        crate::hbut_debug!("[Auth] 服务登录用户名: {}", username);
+        crate::hbut_debug!("[Auth] 密码长度 (plain): {}", password.len());
 
         // 缓存最近一次登录凭据（仅内存）
         self.last_username = Some(username.to_string());
         self.last_password = Some(password.to_string());
 
-        crate::hbut_debug!("[调试] 开始服务登录: {}", service_url);
+        // 只记录 Cookie 的域与数量，不打印完整值（#984 禁止打印完整 Cookie）
         let cookies_before = self.get_cookies();
-        crate::hbut_debug!("[调试] 登录前 Cookie: {}", cookies_before);
+        crate::hbut_debug!(
+            "[Auth] 登录前 Cookie 条目数={} 长度={}",
+            cookies_before
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .count(),
+            cookies_before.len()
+        );
 
         let max_attempts = 3;
         for attempt in 0..max_attempts {
+            *stage = LoginStage::FetchLoginPage;
             // 获取登录页面参数（execution 一次性），增加重试次数以应对验证码识别错误
             let page_info = self.get_login_page_with_service(service_url).await?;
             let current_salt = page_info.salt;
@@ -930,6 +978,13 @@ impl HbutClient {
                 captcha_for_form.as_deref(),
             );
 
+            *stage = LoginStage::PasswordPost;
+            crate::hbut_debug!(
+                "[Auth] 服务登录 CAS POST started attempt={}/{} service={}",
+                attempt + 1,
+                max_attempts,
+                service_url
+            );
             let response = self
                 .client
                 .post(&login_url)
@@ -1011,14 +1066,17 @@ impl HbutClient {
 
         // 成功登录后尝试获取用户信息（如不可用则忽略）
         if service_url.contains("jwxt.hbut.edu.cn") {
+            *stage = LoginStage::JwxtBootstrap;
             let user_info = self.finalize_jwxt_user_session().await?;
+            *stage = LoginStage::Done;
             self.is_logged_in = true;
             self.set_chaoxing_login_mode(false);
             self.user_info = Some(user_info.clone());
             self.save_cookie_snapshot_to_file();
             return Ok(user_info);
         } else {
-            crate::hbut_debug!("[调试] 服务登录成功: {}", service_url);
+            crate::hbut_debug!("[Auth] 服务登录成功: {}", service_url);
+            *stage = LoginStage::Done;
             self.is_logged_in = true;
             self.set_chaoxing_login_mode(false);
             self.save_cookie_snapshot_to_file();
@@ -1196,7 +1254,13 @@ impl HbutClient {
         self.recognize_captcha_base64(&base64_image).await
     }
 
-    /// 主登录入口（含验证码流程与会话保存）
+    /// 主登录入口（含验证码流程与会话保存）。
+    ///
+    /// **收口保证**：无论 `login_inner` 从哪个阶段失败，返回前都会输出一行
+    /// `[Auth] 门户密码登录失败 stage=… kind=… msg=…`，
+    /// 配合各阶段的分步日志（登录页 / CAS POST / caslogin / fetch_user_info），
+    /// 后端日志可以直接回答「本次是否真的 POST 了密码、CAS 与教务各自的最终 URL、
+    /// 失败发生在哪一环」。
     pub async fn login(
         &mut self,
         username: &str,
@@ -1205,6 +1269,65 @@ impl HbutClient {
         _lt: &str,        // 忽略前端传入的值
         _execution: &str, // 忽略前端传入的值
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        let mut stage = LoginStage::Gate;
+        let result = self
+            .login_inner(
+                username,
+                password,
+                captcha_input,
+                _lt,
+                _execution,
+                &mut stage,
+            )
+            .await;
+        Self::log_login_outcome("门户密码登录", stage, &result);
+        result
+    }
+
+    /// 登录收口日志：成功/失败各一行。失败行必带 stage 与错误分类（kind）。
+    ///
+    /// 只输出阶段名、错误分类与错误文案；不打印密码、完整 Cookie 或完整 execution。
+    fn log_login_outcome(
+        label: &str,
+        stage: LoginStage,
+        result: &Result<UserInfo, Box<dyn std::error::Error + Send + Sync>>,
+    ) {
+        println!("{}", Self::format_login_outcome_line(label, stage, result));
+    }
+
+    /// 纯函数：生成收口日志行。抽出来是为了让「日志格式含 stage / kind / msg」
+    /// 成为可单测的契约（#984 要求 E：失败必须能定位到阶段）。
+    fn format_login_outcome_line(
+        label: &str,
+        stage: LoginStage,
+        result: &Result<UserInfo, Box<dyn std::error::Error + Send + Sync>>,
+    ) -> String {
+        match result {
+            Ok(info) => format!(
+                "[Auth] {}成功 stage={:?} student_id={}",
+                label, stage, info.student_id
+            ),
+            Err(err) => {
+                let kind = err.downcast_ref::<HttpClientError>().map(|e| e.kind());
+                format!(
+                    "[Auth] {}失败 stage={:?} kind={:?} msg={}",
+                    label, stage, kind, err
+                )
+            }
+        }
+    }
+
+    /// 登录实现主体。`stage` 由调用方持有，用于失败时定位阶段。
+    async fn login_inner(
+        &mut self,
+        username: &str,
+        password: &str, // 原始明文密码！加密在此函数内完成
+        captcha_input: &str,
+        _lt: &str,        // 忽略前端传入的值
+        _execution: &str, // 忽略前端传入的值
+        stage: &mut LoginStage,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        *stage = LoginStage::Gate;
         // 60s 冷却门：只有「收到认证服务器真实响应」的记录才会触发（#659 根因 5）
         if let Some(remaining) = self.login_cooldown_remaining() {
             return Err(format!("登录频率过高，请{}秒后再试", remaining.as_secs()).into());
@@ -1231,6 +1354,7 @@ impl HbutClient {
         // #984 实现要求 B：残留 Cookie 的定向自愈最多执行一次，避免无限重试。
         let mut healed_once = false;
         for attempt in 0..max_retries {
+            *stage = LoginStage::FetchLoginPage;
             let mut page_info = match self.login_fetch_login_page().await {
                 Ok(page) => page,
                 Err(err) => {
@@ -1247,8 +1371,10 @@ impl HbutClient {
             // 做一次定向自愈（只清 .hbut.edu.cn 认证 Cookie）后重走一次正常登录。
             if page_info.is_already_logged_in {
                 crate::hbut_debug!("[Auth] 检测到已登录，走教务会话落地校验（不跳过校验）");
+                *stage = LoginStage::JwxtBootstrap;
                 match self.login_finalize_session().await {
                     Ok(user_info) => {
+                        *stage = LoginStage::Done;
                         self.is_logged_in = true;
                         self.set_chaoxing_login_mode(false);
                         self.user_info = Some(user_info.clone());
@@ -1295,6 +1421,7 @@ impl HbutClient {
             crate::hbut_debug!("[调试] 密码已加密, length: {}", encrypted_password.len());
 
             // 3. 获取并识别验证码（始终后端 OCR）
+            *stage = LoginStage::Captcha;
             let captcha_code = if captcha_required {
                 if !captcha_input.trim().is_empty() {
                     crate::hbut_debug!("[调试] 需要验证码, using user input.");
@@ -1373,6 +1500,7 @@ impl HbutClient {
             // 5. 提交登录请求
             // #984 实现要求 E：日志必须能回答「本次是否真的 POST 了用户输入的账号密码」。
             // 只记录用户名与表单字段名，绝不打印明文密码 / 完整 execution / Cookie。
+            *stage = LoginStage::PasswordPost;
             crate::hbut_debug!(
                 "[Auth] CAS password POST started attempt={}/{} service={} username={} fields={:?}",
                 attempt + 1,
@@ -1520,8 +1648,10 @@ impl HbutClient {
                 return Err(HttpClientError::other("登录失败，请稍后重试").into());
             }
 
+            *stage = LoginStage::JwxtBootstrap;
             let user_info = self.login_finalize_session().await?;
             // 成功登录
+            *stage = LoginStage::Done;
             self.last_login_time = Some(std::time::Instant::now());
             self.is_logged_in = true;
             self.set_chaoxing_login_mode(false);
@@ -2205,7 +2335,6 @@ mod jwxt_bootstrap_tests {
     }
 
     // --------------------------------------------- 错误文案分类（#984 实测）
-
     /// 门户 CAS 真实文案必须被正确分类（此前词表缺失，只能靠 401 兜底）。
     #[test]
     fn real_portal_error_wordings_are_classified() {
@@ -2221,5 +2350,111 @@ mod jwxt_bootstrap_tests {
         .expect("门户真实密码错误文案应被识别");
         assert!(msg2.contains("密码错误"), "msg={msg2}");
         assert!(!retryable2, "密码错误不可重试");
+    }
+}
+
+/// #984 要求 E：登录失败必须在后端日志里「非常清晰」地显现。
+///
+/// 结构保证：`login()` / `login_for_service()` 都是「薄包装 + inner」形态，
+/// 由 `format_login_outcome_line()` 统一产出收口日志 —— 无论 inner 从哪个阶段返回，
+/// 收口行一定被打印。本模块把「收口行的格式契约」固化成可单测的断言。
+#[cfg(test)]
+mod login_log_contract_tests {
+    use super::*;
+
+    fn err_of(kind: HttpClientErrorKind, msg: &str) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(HttpClientError::new(kind, msg))
+    }
+
+    /// 失败行必须同时包含：标签、`失败`、`stage=`、`kind=`、`msg=`。
+    #[test]
+    fn failure_line_carries_stage_kind_and_message() {
+        let err = err_of(
+            HttpClientErrorKind::JwxtBootstrapFailed,
+            "统一身份认证已通过，但教务会话建立失败，请稍后重试",
+        );
+        let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> = Err(err);
+        let line = HbutClient::format_login_outcome_line(
+            "门户密码登录",
+            LoginStage::JwxtBootstrap,
+            &result,
+        );
+
+        assert!(line.starts_with("[Auth] "), "line={line}");
+        assert!(line.contains("门户密码登录"), "line={line}");
+        assert!(line.contains("失败"), "line={line}");
+        assert!(line.contains("stage=JwxtBootstrap"), "line={line}");
+        assert!(
+            line.contains("kind=Some(JwxtBootstrapFailed)"),
+            "line={line}"
+        );
+        assert!(line.contains("教务会话建立失败"), "line={line}");
+    }
+
+    /// 成功行必须带 `成功` 与 `student_id`，且 stage 为 Done。
+    #[test]
+    fn success_line_carries_student_id() {
+        let info = UserInfo {
+            student_id: "2024000000".to_string(),
+            student_name: "测试".to_string(),
+            college: None,
+            major: None,
+            class_name: None,
+            grade: None,
+        };
+        let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> = Ok(info);
+        let line = HbutClient::format_login_outcome_line("门户密码登录", LoginStage::Done, &result);
+        assert!(line.contains("成功"), "line={line}");
+        assert!(line.contains("stage=Done"), "line={line}");
+        assert!(line.contains("2024000000"), "line={line}");
+    }
+
+    /// 非 `HttpClientError` 的裸错误（例如 `?` 透传的 reqwest 错误）也必须能输出，
+    /// kind 显示为 None 而不是 panic 或空行。
+    #[test]
+    fn bare_error_still_produces_line() {
+        let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> =
+            Err("raw transport failure".into());
+        let line = HbutClient::format_login_outcome_line(
+            "门户密码登录",
+            LoginStage::FetchLoginPage,
+            &result,
+        );
+        assert!(line.contains("stage=FetchLoginPage"), "line={line}");
+        assert!(line.contains("kind=None"), "line={line}");
+        assert!(line.contains("raw transport failure"), "line={line}");
+    }
+
+    /// 每个阶段的 Debug 名必须互不相同 —— 否则日志无法定位「失败发生在哪一环」。
+    #[test]
+    fn all_stages_render_distinct_names() {
+        let names = [
+            format!("{:?}", LoginStage::Gate),
+            format!("{:?}", LoginStage::FetchLoginPage),
+            format!("{:?}", LoginStage::Captcha),
+            format!("{:?}", LoginStage::PasswordPost),
+            format!("{:?}", LoginStage::JwxtBootstrap),
+            format!("{:?}", LoginStage::Done),
+        ];
+        let mut uniq = names.to_vec();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(uniq.len(), names.len(), "阶段名必须互不相同: {names:?}");
+    }
+
+    /// 收口行不得泄漏明文密码：把密码放进错误消息是调用方责任，
+    /// 这里断言格式化函数本身不会额外拼接任何凭据字段。
+    #[test]
+    fn outcome_line_does_not_add_credentials() {
+        let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> =
+            Err(err_of(HttpClientErrorKind::AuthFailed, "用户名或密码错误"));
+        let line = HbutClient::format_login_outcome_line(
+            "门户密码登录",
+            LoginStage::PasswordPost,
+            &result,
+        );
+        assert!(!line.contains("password="), "line={line}");
+        assert!(!line.contains("Cookie"), "line={line}");
+        assert!(!line.contains("execution="), "line={line}");
     }
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { friendlyLoginError, readableErrorText } from './login_errors'
+import {
+  BACKEND_LOGIN_ERROR_SAMPLES,
+  friendlyLoginError,
+  readableErrorText
+} from './login_errors'
 
 describe('readableErrorText', () => {
   it('Error 实例取 message', () => {
@@ -73,5 +77,45 @@ describe('friendlyLoginError', () => {
 
   it('其它技术英文给兜底前缀', () => {
     expect(friendlyLoginError('weird internal error')).toBe('登录失败：weird internal error')
+  })
+})
+
+describe('后端登录错误文案契约（#984）', () => {
+  it('每一条已知后端错误都映射为非空、含中文、且不泄漏英文技术原文', () => {
+    for (const raw of BACKEND_LOGIN_ERROR_SAMPLES) {
+      const message = friendlyLoginError(raw)
+      expect(message.trim(), `raw=${raw}`).not.toBe('')
+      // 必须含中文：保证前台不会把英文技术原文直接抛给用户
+      expect(/[\u4e00-\u9fff]/.test(message), `raw=${raw} → ${message}`).toBe(true)
+      // 不得出现后端内部字段名 / 英文技术词
+      expect(message, `raw=${raw} → ${message}`).not.toMatch(
+        /[A-Za-z]{4,}(?: [A-Za-z]{3,})*/,
+      )
+      expect(message, `raw=${raw} → ${message}`).not.toContain('[object Object]')
+      // 文案里不得残留内部术语
+      for (const term of ['加密盐值', 'execution', 'base64', 'service=']) {
+        expect(message, `raw=${raw} → ${message}`).not.toContain(term)
+      }
+    }
+  })
+
+  it('关键失败场景给出一致且可操作的文案', () => {
+    // 凭据错误
+    expect(friendlyLoginError('username或密码错误')).toBe('用户名或密码错误，请重新输入')
+    // 教务会话落地失败（#984 情况 C）
+    expect(friendlyLoginError('统一身份认证已通过，但教务会话建立失败，请稍后重试')).toBe(
+      '统一身份认证已通过，但教务会话建立失败，请稍后重试',
+    )
+    // 网络错误不得被压成会话过期
+    expect(friendlyLoginError('无法连接教务系统，请检查网络后重试')).toBe(
+      '无法连接教务系统，请检查网络后重试',
+    )
+    // 误导性文案被纠正：解析失败 ≠ 会话过期
+    expect(friendlyLoginError('无法解析用户信息，可能会话已过期')).not.toContain('会话已过期')
+    // 技术术语被翻译
+    expect(friendlyLoginError('无法获取加密盐值')).toBe('暂时无法获取登录信息，请稍后重试')
+    expect(friendlyLoginError('获取个人信息失败: 500')).toBe(
+      '登录已通过，但获取个人信息失败，请稍后重试',
+    )
   })
 })
