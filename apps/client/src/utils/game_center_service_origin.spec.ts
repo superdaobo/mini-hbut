@@ -88,10 +88,35 @@ describe('游戏服务目标的环境权威', () => {
             ? [resolve(dir, entry.name)]
             : []
       )
-    const files = [...walkTs(gameCenterDir), resolve(process.cwd(), 'src/components/MoreView.vue')]
+    // #969：扫描面必须覆盖**全部**游戏平台消费面 —— 不只 utils 层，还包括
+    // 游乐场视图（GameCenterView + 其各 tab 组件）与托管页宿主（MoreModuleHostView），
+    // 否则「测试域字面量」可以在未覆盖的 .vue 里静默回归（文档宣称的护栏强度 = 实际覆盖）。
+    const componentsDir = resolve(process.cwd(), 'src/components')
+    const gameCenterComponentsDir = resolve(componentsDir, 'game-center')
+    const walkVue = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory()
+          ? entry.name === '__tests__'
+            ? []
+            : walkVue(resolve(dir, entry.name))
+          : entry.name.endsWith('.vue')
+            ? [resolve(dir, entry.name)]
+            : []
+      )
+    const files = [
+      ...walkTs(gameCenterDir),
+      resolve(process.cwd(), 'src/components/MoreView.vue'),
+      resolve(componentsDir, 'GameCenterView.vue'),
+      resolve(componentsDir, 'MoreModuleHostView.vue'),
+      ...walkVue(gameCenterComponentsDir)
+    ]
     // 扫描面非空：护栏本身不得因为「一个文件都没扫到」而静默通过
     expect(files.length).toBeGreaterThan(5)
     expect(files).toContain(resolve(process.cwd(), 'src/components/MoreView.vue'))
+    // 覆盖面锁定（#969）：这三处此前不在扫描面内，属护栏宣称 > 实际覆盖
+    expect(files).toContain(resolve(componentsDir, 'GameCenterView.vue'))
+    expect(files).toContain(resolve(componentsDir, 'MoreModuleHostView.vue'))
+    expect(files.some((file) => file.startsWith(gameCenterComponentsDir))).toBe(true)
     for (const file of files) {
       expect(readFileSync(file, 'utf8'), `${file} 不得硬编码服务域`).not.toContain('hf.space')
     }

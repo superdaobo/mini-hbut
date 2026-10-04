@@ -826,6 +826,8 @@ onBeforeUnmount(() => {
       @prev-preview-week="importApi.prevPreviewWeek"
       @next-preview-week="importApi.nextPreviewWeek"
       @commit="importApi.commitImport"
+      @retry-failed="importApi.retryFailedImport"
+      @back-to-preview="importApi.backToPreviewFromResult"
     />
 
     <!-- 周次选择器 -->

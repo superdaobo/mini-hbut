@@ -15,6 +15,95 @@ const DEFAULT_TIMEOUT_MS = 12000
 const DEFAULT_UPLOAD_COOLDOWN_MS = 15 * 60 * 1000
 const BATCH_LIMIT = 200
 
+// ── 失败退避与降噪（#933）───────────────────────────────────────
+// 服务端 401/500 期间，此前每次页面切换都会全量重试 200 条事件并全部失败、
+// 刷同级别 warn 日志。现在：连续失败按指数退避暂停自动上传，日志按计数聚合。
+const USAGE_UPLOAD_BACKOFF_BASE_MS = 30 * 1000
+const USAGE_UPLOAD_BACKOFF_MAX_MS = 15 * 60 * 1000
+const USAGE_UPLOAD_FAILURE_LOG_INTERVAL = 10
+
+const uploadFailureState = {
+  consecutiveFailures: 0,
+  totalFailures: 0,
+  suppressedLogCount: 0,
+  lastError: '',
+  lastErrorKind: '',
+  lastErrorAt: 0,
+  backoffUntil: 0,
+  lastSuccessAt: 0
+}
+
+/**
+ * usage 上传诊断快照。
+ * 供调试状态接口（/debug/state）与失败日志 details 读取：
+ * 失败计数、最近错误、退避剩余时间均可观测。
+ */
+export const getUsageUploadDiagnostics = () => ({
+  consecutiveFailures: uploadFailureState.consecutiveFailures,
+  totalFailures: uploadFailureState.totalFailures,
+  suppressedLogCount: uploadFailureState.suppressedLogCount,
+  lastError: uploadFailureState.lastError,
+  lastErrorKind: uploadFailureState.lastErrorKind,
+  lastErrorAt: uploadFailureState.lastErrorAt,
+  backoffUntil: uploadFailureState.backoffUntil,
+  backoffRemainingMs: Math.max(0, uploadFailureState.backoffUntil - Date.now()),
+  lastSuccessAt: uploadFailureState.lastSuccessAt
+})
+
+// 从错误消息归类失败级别（http_401 / http_500 / timeout / network），用于聚合降噪。
+const classifyUsageUploadErrorKind = (error) => {
+  if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return 'timeout'
+  const message = String(error?.message || error || '')
+  const status = message.match(/\((\d{3})\)/)?.[1]
+  if (status) return `http_${status}`
+  if (/abort|timeout/i.test(message)) return 'timeout'
+  return 'network'
+}
+
+const nextUploadBackoffMs = (consecutiveFailures) =>
+  Math.min(
+    USAGE_UPLOAD_BACKOFF_BASE_MS * 2 ** Math.max(0, consecutiveFailures - 1),
+    USAGE_UPLOAD_BACKOFF_MAX_MS
+  )
+
+const recordUploadFailure = (error, studentId) => {
+  const state = uploadFailureState
+  const kind = classifyUsageUploadErrorKind(error)
+  const backoffMs = nextUploadBackoffMs(state.consecutiveFailures + 1)
+  state.consecutiveFailures += 1
+  state.totalFailures += 1
+  state.lastError = String(error?.message || error || 'usage 上传失败')
+  state.lastErrorKind = kind
+  state.lastErrorAt = Date.now()
+  state.backoffUntil = state.lastErrorAt + backoffMs
+
+  // 失败降噪：连续失败只在首次与每第 N 次输出同级别日志，其余聚合计数（#933）
+  const shouldLog =
+    state.consecutiveFailures === 1 ||
+    state.consecutiveFailures % USAGE_UPLOAD_FAILURE_LOG_INTERVAL === 0
+  if (!shouldLog) {
+    state.suppressedLogCount += 1
+    return
+  }
+  pushDebugLog(
+    'UsageStats',
+    `上传失败 student=${studentId} 连续第 ${state.consecutiveFailures} 次 kind=${kind} 退避 ${Math.round(backoffMs / 1000)}s`,
+    'warn',
+    { error: state.lastError, diagnostics: getUsageUploadDiagnostics() }
+  )
+  state.suppressedLogCount = 0
+}
+
+const resetUploadFailureState = () => {
+  uploadFailureState.consecutiveFailures = 0
+  uploadFailureState.suppressedLogCount = 0
+  uploadFailureState.lastError = ''
+  uploadFailureState.lastErrorKind = ''
+  uploadFailureState.lastErrorAt = 0
+  uploadFailureState.backoffUntil = 0
+  uploadFailureState.lastSuccessAt = Date.now()
+}
+
 let uploadTimer = null
 let uploadInFlight = null
 
@@ -95,7 +184,13 @@ const loadUsageStatsChallenge = async (config) => {
     })
     const parsed = safeParseJson(await response.text(), null)
     if (!response.ok) {
-      throw new Error(toSafeText(parsed?.error) || `usage-stats ping 失败 (${response.status})`)
+      // 错误消息带状态码，供失败级别归类（http_401/http_500）与排障（#933）
+      const detail = toSafeText(parsed?.error)
+      throw new Error(
+        detail
+          ? `usage-stats ping 失败 (${response.status}): ${detail}`
+          : `usage-stats ping 失败 (${response.status})`
+      )
     }
     const token = toSafeText(parsed?.challenge)
     if (!token) throw new Error('usage-stats 鉴权挑战获取失败')
@@ -124,7 +219,13 @@ const requestUsageStats = async (path, { method = 'GET', body, config, skipChall
     })
     const parsed = safeParseJson(await response.text(), null)
     if (!response.ok) {
-      throw new Error(toSafeText(parsed?.error) || `usage-stats 请求失败 (${response.status})`)
+      // 错误消息带状态码，供失败级别归类（http_401/http_500）与排障（#933）
+      const detail = toSafeText(parsed?.error)
+      throw new Error(
+        detail
+          ? `usage-stats 请求失败 (${response.status}): ${detail}`
+          : `usage-stats 请求失败 (${response.status})`
+      )
     }
     return parsed
   } finally {
@@ -184,6 +285,16 @@ export const runUsageStatsUpload = async ({
     if (lastTs > 0 && remain > 0) {
       return { success: false, cooldown: true, remainingMs: remain, error: 'usage 上传冷却中' }
     }
+    // 连续失败退避：服务端 401/500 期间不再每次页面切换都全量重试（#933）
+    const backoffRemain = uploadFailureState.backoffUntil - Date.now()
+    if (backoffRemain > 0) {
+      return {
+        success: false,
+        backoff: true,
+        remainingMs: backoffRemain,
+        error: 'usage 上传退避中（此前连续失败）'
+      }
+    }
   }
 
   const deviceId = ensureDeviceId()
@@ -213,10 +324,11 @@ export const runUsageStatsUpload = async ({
     const acceptedSessionIds = sessions.map((item) => toSafeText(item?.session_id)).filter(Boolean)
     await markBatchUploaded(sid, acceptedEventIds, acceptedSessionIds)
     setLastUploadTs(sid)
+    resetUploadFailureState()
     pushDebugLog('UsageStats', `上传成功 student=${sid} accepted=${response?.accepted ?? acceptedEventIds.length}`, 'info')
     return { success: true, response }
   } catch (error) {
-    pushDebugLog('UsageStats', `上传失败 student=${sid}`, 'warn', error)
+    recordUploadFailure(error, sid)
     return { success: false, error: String(error?.message || error || 'usage 上传失败') }
   }
 }

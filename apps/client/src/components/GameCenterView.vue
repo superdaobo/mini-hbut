@@ -438,6 +438,7 @@ onMounted(async () => {
           :profile="profile"
           :economy-enabled="economyEnabled"
           :daily-tasks-enabled="dailyTasksEnabled"
+          :api-base="flags.api_base"
           :recent-games="recentGames"
           :recommended-games="recommendGames"
           @open-game="handleOpenGame"

@@ -12,6 +12,7 @@ import {
   collectExportCenterPersonalEvents,
   personalEventTimeLabel
 } from '../features/schedule/utils/exportCenterSchedule'
+import { filterVisibleOfficialCourses } from '../utils/schedule_visibility'
 import { TPageHeader } from './templates'
 
 // i18n（#794 批次 I）：响应式取词用于模板/computed，tf 用于整句插值
@@ -481,7 +482,14 @@ const fetchScheduleData = async (selected) => {
 
     const meta = payload.meta || {}
     const semester = String(meta.semester || requestedSemester || '').trim() || t('export.semester.current')
-    const courses = sortCourses(Array.isArray(payload.data) ? payload.data : [])
+    // #871：导出中心（图片/JSON 数据导出）与课表页消费同一份有效课表，
+    // 已移除的教务课程不进入导出结果；可见性按导出目标学期严格匹配。
+    const semesterForVisibility = String(meta.semester || requestedSemester || '').trim()
+    const courses = sortCourses(filterVisibleOfficialCourses(
+      props.studentId,
+      semesterForVisibility,
+      Array.isArray(payload.data) ? payload.data : []
+    ))
     const range = resolveSemesterDateRange(String(meta.start_date || '').trim(), courses)
     if (!range) {
       throw new Error(tf('export.error.scheduleEventRange', { semester }))

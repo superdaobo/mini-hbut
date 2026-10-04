@@ -30,7 +30,7 @@ import {
   resetImportColors,
   collectImportColorDiagnostics
 } from '../utils/importColors'
-import { commitImportCourses } from '../utils/importCommit'
+import { commitImportCourses, summarizeCommitItems } from '../utils/importCommit'
 import type {
   ImportCommitResult,
   ImportDiagnostic,
@@ -108,6 +108,40 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     ...customCourses.value
   ])
 
+  /**
+   * 当前「已加载数据」对应的学期：data.remoteScheduleData / customScheduleData
+   * 恒为主课表当前学期（semester.semester / semesterDraft）的数据，
+   * 因此 allExistingCourses 复检基线仅对该学期有效。
+   */
+  const loadedSemester = computed(() =>
+    String(semester.semester.value || semester.semesterDraft.value || '').trim()
+  )
+
+  /** 目标学期是否与已加载学期不一致（不一致时复检基线失效，提交/重试前必须阻断） */
+  const semesterMismatched = computed(() => {
+    const target = String(targetSemester.value || '').trim()
+    const loaded = String(loadedSemester.value || '').trim()
+    return !!target && !!loaded && target !== loaded
+  })
+
+  /**
+   * 提交 / 重试前的学期一致性校验（P1 修复）。
+   *
+   * allExistingCourses 恒为已加载学期（主课表当前学期）的 official/custom 数据：
+   *   - 目标学期 ≠ 已加载学期时，exact-duplicate 复检基线完全错误——
+   *     仅与当前学期课程等价的条目会被误判为重复而静默 skip（实际未写入目标学期）；
+   *   - 现有加载入口均不适合在导入流程内复用：data.loadCustomCourses(target) 会用
+   *     目标学期 custom 覆盖共享 customScheduleData（污染主课表渲染），而
+   *     data.fetchSchedule(target) 是整页切学期（改主课表学期 + 清空两路数据 +
+   *     写 Widget 快照），副作用过重且离线失败时主视图数据被清空。
+   * 因此选择阻断：提示用户先在课表页切换到目标学期再导入。
+   */
+  const ensureTargetMatchesLoadedSemester = (): boolean => {
+    if (!semesterMismatched.value) return true
+    showToast(t('schedule.import.toast.semesterMismatch'), 'error', 4500)
+    return false
+  }
+
   /** 既有课程已使用的颜色，供均衡配色参考 */
   const existingColors = computed<string[]>(() => {
     const list = Array.isArray(data.scheduleData?.value) ? data.scheduleData.value : []
@@ -147,6 +181,19 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
       source
     }
   }
+
+  /** 把预览条目收敛成 existing 视图（重试时把上次成功写入条目并入复检基线用） */
+  const previewToExisting = (item: ImportPreviewCourse): ImportExistingCourse => ({
+    id: '',
+    name: item.course.name,
+    teacher: item.course.teacher,
+    room: item.course.room,
+    weekday: item.course.weekday,
+    period: item.course.period,
+    djs: item.course.djs,
+    weeks: normalizeWeeks(item.course.weeks),
+    source: 'custom'
+  })
 
   /** 重置全部预览态（不影响 rawText，便于用户返回修改） */
   const resetPreviewState = () => {
@@ -199,7 +246,8 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
   )
 
   /**
-   * 预览网格某一列的课程：既有课表（该预览周生效）+ 本次预览课程。
+   * 预览网格某一列的课程：既有课表（该预览周生效）+ 本次预览课程（同样按预览周过滤，
+   * #821：单双周/区间周课程只在生效周显示，避免非本周课程制造假冲突）。
    * 纯内存计算，绝不写数据库；既有课程点击在 Dialog 内会被忽略。
    */
   const previewGetCoursesForDay = (dayIndex: number): any[] => {
@@ -211,7 +259,7 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     const existing = existingList.filter(
       (course: any) => Number(course?.weekday) === day && isWeekActive(course?.weeks, week)
     )
-    const preview = buildPreviewGridCourses(previewCourses.value).filter(
+    const preview = buildPreviewGridCourses(previewCourses.value, week).filter(
       (node) => node.weekday === day
     )
     return [...existing, ...preview]
@@ -415,8 +463,12 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
   )
 
   /**
-   * 确认导入：提交勾选项 → 统一 refresh 一次 → 展示 added/skipped/failed 汇总。
-   * 失败时保留预览态，允许用户修正后重试。
+   * 确认导入（#820）：
+   *   1. commitImportCourses 内部先做全量复用校验（字段硬校验 + 与既有课表
+   *      exact duplicate 复检），任一条硬校验失败 → 整批拦截，零写入；
+   *   2. 校验通过后受控并发逐条写入，单条失败不中断、逐条结果收集；
+   *   3. 成功后统一 refresh 一次 → 展示 added/skipped/failed 汇总与失败明细；
+   *   4. 校验拦截时留在 preview 阶段（无任何写入），用户修正后可重试。
    */
   const commitImport = async () => {
     const sid = String(props.studentId || '').trim()
@@ -433,14 +485,46 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
       showToast(t('schedule.import.toast.nothingToImport'), 'warning')
       return
     }
+    // P1 修复：目标学期与已加载学期不一致时复检基线失效，先阻断
+    if (!ensureTargetMatchesLoadedSemester()) return
     if (committing.value) return
     committing.value = true
+    // 保存解析期诊断快照：校验拦截时会在其上追加字段级错误明细，成功后恢复
+    const parseDiagSnapshot = globalDiagnostics.value.slice()
     try {
       const result = await commitImportCourses(previewCourses.value, {
         apiBase: API_BASE,
         studentId: sid,
-        semester: target
+        semester: target,
+        // #820：导入前与既有 official/custom 课表全量比对，前置于任何写入
+        existingCourses: allExistingCourses.value
       })
+      if (result.blocked === 'validation') {
+        // 校验拦截：没有任何写入发生，留在 preview 供用户修正。
+        // P2(b)：把字段级错误明细追加进全局诊断区（带第 N 条 / 课程名定位），
+        // 让用户在预览列表直接看到每条被拦截的具体原因；重新解析会整体重置。
+        const blockedDetails: ImportDiagnostic[] = result.items
+          .filter((item) => item.status === 'failed' && item.error)
+          .map((item) => {
+            const previewItem = previewCourses.value.find((entry) => entry.key === item.key)
+            return {
+              level: 'error',
+              code: 'commit_validation_blocked',
+              message: String(item.error || ''),
+              sourceIndex: item.sourceIndex,
+              courseName: previewItem?.course?.name
+            }
+          })
+        globalDiagnostics.value = [...globalDiagnostics.value, ...blockedDetails]
+        showToast(
+          t('schedule.import.toast.validationBlocked').replace('{n}', String(result.failed)),
+          'error',
+          4500
+        )
+        return
+      }
+      // 提交已发生（未拦截）：恢复解析期诊断，避免拦截明细残留误导
+      globalDiagnostics.value = parseDiagSnapshot
       importResult.value = result
       // 统一刷新一次课表视图（不在循环内逐条刷新）
       await editor.refreshCustomCourseViews(target)
@@ -461,6 +545,101 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     }
   }
 
+  /**
+   * 重试失败项（#820 关键中间失败的重试路径）：
+   * 只重新提交上次结果中 failed 的条目，成功后把结果合并回同一份汇总，
+   * 保证 added/skipped/failed 始终反映整批最终状态。
+   *
+   * P1 修复（防重复写入）：
+   *   - 重试前先从服务端刷新已加载学期的 custom 数据，让「请求超时但服务端已成功」
+   *     的条目进入 exact-duplicate 复检基线（这类条目在客户端视角是 failed，
+   *     唯一可靠的防重手段就是重试前拉服务端真值）；刷新失败绝不带陈旧基线重试；
+   *   - 兜底：把上次成功写入（added）的条目并入复检基线，覆盖刷新与提交之间的窗口。
+   */
+  const retryFailedImport = async () => {
+    const previous = importResult.value
+    if (!previous || committing.value) return
+    const failedKeys = previous.items
+      .filter((item) => item.status === 'failed')
+      .map((item) => item.key)
+    if (!failedKeys.length) return
+
+    const sid = String(props.studentId || '').trim()
+    const target = String(targetSemester.value || '').trim()
+    if (!sid || !target) {
+      showToast(t('schedule.import.toast.needLogin'), 'error')
+      return
+    }
+    // P1 修复：与 commitImport 同一学期一致性约束
+    if (!ensureTargetMatchesLoadedSemester()) return
+
+    committing.value = true
+    try {
+      // 刷新复检基线：loadCustomCourses 成功后 allExistingCourses 即服务端真值
+      const refreshed = await data.loadCustomCourses(String(loadedSemester.value || target))
+      if (!refreshed) {
+        showToast(t('schedule.import.toast.retryRefreshFailed'), 'error', 4500)
+        return
+      }
+      // 兜底：上次成功写入的条目并入基线（source 标记 custom，与真实写入一致）
+      const previouslyAdded: ImportExistingCourse[] = previous.items
+        .filter((item) => item.status === 'added')
+        .map((item) => previewCourses.value.find((entry) => entry.key === item.key))
+        .filter((entry): entry is ImportPreviewCourse => !!entry)
+        .map(previewToExisting)
+
+      const retryResult = await commitImportCourses(previewCourses.value, {
+        apiBase: API_BASE,
+        studentId: sid,
+        semester: target,
+        existingCourses: [...allExistingCourses.value, ...previouslyAdded]
+      }, { onlyKeys: failedKeys })
+
+      // P2(a)：校验拦截是零写入态，走专用提示并回预览修正；不得覆盖上次汇总
+      if (retryResult.blocked === 'validation') {
+        showToast(
+          t('schedule.import.toast.validationBlocked').replace('{n}', String(retryResult.failed)),
+          'error',
+          4500
+        )
+        stage.value = 'preview'
+        return
+      }
+
+      // 把重试结果替换回同一份汇总（未重试或仍失败的条目保持原状态）
+      const mergedItems = previous.items.map((old) => {
+        if (old.status !== 'failed') return old
+        const retried = retryResult.items.find((item) => item.key === old.key)
+        return retried || old
+      })
+      const merged = summarizeCommitItems(mergedItems)
+      importResult.value = merged
+      // 上次拦截遗留的字段级明细已过时（对应条目本次已重试收口），清理避免误导
+      globalDiagnostics.value = globalDiagnostics.value.filter(
+        (diag) => diag.code !== 'commit_validation_blocked'
+      )
+      await editor.refreshCustomCourseViews(target)
+      if (merged.failed > 0) {
+        showToast(
+          t('schedule.import.toast.partial').replace('{a}', String(merged.added)).replace('{f}', String(merged.failed)),
+          'warning',
+          4500
+        )
+      } else {
+        showToast(t('schedule.import.toast.success').replace('{n}', String(merged.added)), 'success')
+      }
+    } catch (error) {
+      showToast(String((error as any)?.message || t('schedule.import.toast.commitFailed')), 'error')
+    } finally {
+      committing.value = false
+    }
+  }
+
+  /** 从结果页返回预览：保留全部预览态与勾选，供用户修正后重试 */
+  const backToPreviewFromResult = () => {
+    stage.value = 'preview'
+  }
+
   return {
     // 状态
     showImportDialog,
@@ -476,6 +655,7 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     importResult,
     summary,
     hasImportable,
+    semesterMismatched,
     // 课表预览（#821）
     previewMode,
     previewWeek,
@@ -500,7 +680,9 @@ export const useScheduleImport = (options: ScheduleImportOptions) => {
     setPreviewWeek,
     prevPreviewWeek,
     nextPreviewWeek,
-    commitImport
+    commitImport,
+    retryFailedImport,
+    backToPreviewFromResult
   }
 }
 

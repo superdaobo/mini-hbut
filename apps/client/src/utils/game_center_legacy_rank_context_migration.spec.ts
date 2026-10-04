@@ -161,6 +161,62 @@ describe('单条清理（sanitizeLegacyRankContextRaw）', () => {
     expect(sanitizeLegacyRankContextRaw('')).toBeNull()
     expect(sanitizeLegacyRankContextRaw(null)).toBeNull()
   })
+
+  it('#968a：清理只移除目标字段，其余字段逐字节等价（无 JSON 往返变形）', () => {
+    // 构造会暴露「parse→stringify 往返」变形的原文：超 2^53 大整数、嵌套结构、
+    // 非常规空白、转义字符串 —— 逐字段手术后这些字节必须原样保留
+    const raw =
+      '{"note":"保留我，别动","huge":123456789012345678901234567890,"nested":{"deep":[1,2,{"k":"v"}]},' +
+      '"pad" : true, "esc":"a\\"b\\\\c", "rankApiBase":"' +
+      foreignBase() +
+      '"}'
+    const next = sanitizeLegacyRankContextRaw(raw)
+    expect(next).not.toBeNull()
+    // 期望结果 = 原文仅去掉「, "rankApiBase":"..."」这一段（最后一个条目 → 前置逗号一并删除），
+    // 其余字节（含大整数、空格、转义、中文）逐字节一致
+    expect(next).toBe(
+      '{"note":"保留我，别动","huge":123456789012345678901234567890,"nested":{"deep":[1,2,{"k":"v"}]},' +
+        '"pad" : true, "esc":"a\\"b\\\\c"}'
+    )
+    // 大整数未被 stringify 改写精度（旧实现会把它变成 123456789012345677877656654848）
+    expect(next).toContain('123456789012345678901234567890')
+    // 写回仍是合法 JSON 且语义正确
+    expect(contextOf(next as string)).not.toHaveProperty('rankApiBase')
+    expect(contextOf(next as string).huge).toBe(1.2345678901234568e29)
+  })
+
+  it('#968a：删除首个条目时保留后续条目分隔（JSON 仍合法、缩进原样）', () => {
+    const raw = JSON.stringify(
+      { rankApiBase: foreignBase(), studentId: '20240111', playerName: '叠塔' },
+      null,
+      2
+    )
+    const next = sanitizeLegacyRankContextRaw(raw) as string
+    expect(next).not.toBeNull()
+    const parsed = contextOf(next)
+    expect(parsed).not.toHaveProperty('rankApiBase')
+    expect(parsed.studentId).toBe('20240111')
+    expect(parsed.playerName).toBe('叠塔')
+    // 两空格缩进原样保留（stringify 往返会把整个记录压平/重排）
+    expect(next).toContain('\n  "studentId"')
+    expect(() => JSON.parse(next)).not.toThrow()
+  })
+
+  it('#968b：localhost:port（本地联调）base 不被误清', () => {
+    expect(
+      sanitizeLegacyRankContextRaw(JSON.stringify({ studentId: 's1', rankApiBase: 'localhost:3000/api/game-rank' }))
+    ).toBeNull()
+    expect(
+      sanitizeLegacyRankContextRaw(JSON.stringify({ studentId: 's1', rankApiBase: 'http://localhost:8080/api/game-rank' }))
+    ).toBeNull()
+  })
+
+  it('#968b：相对路径 base 判不兼容 → 被清理（不可提交的死值不落盘）', () => {
+    const next = sanitizeLegacyRankContextRaw(JSON.stringify({ studentId: 's1', rankApiBase: '/api/game-rank' }))
+    expect(next).not.toBeNull()
+    expect(contextOf(next as string)).not.toHaveProperty('rankApiBase')
+    expect(contextOf(next as string).studentId).toBe('s1')
+  })
 })
 
 describe('批量清理（migrateLegacyGameRankContexts）', () => {

@@ -23,7 +23,9 @@ const PROJECT_ROOT = process.cwd()
 const SRC_FONT = join(PROJECT_ROOT, 'node_modules/material-symbols/material-symbols-outlined.woff2')
 const OUTPUT_DIR = join(PROJECT_ROOT, 'public/fonts')
 const OUTPUT_FONT = join(OUTPUT_DIR, 'material-symbols-outlined.subset.woff2')
-const MANIFEST_PATH = join(OUTPUT_DIR, 'glyph-manifest.json')
+// #973：manifest 是开发/审计元数据（运行时零消费者），放 scripts/fonts/ 避免被 Vite
+// 从 public/ 原样复制进 dist 随安装包发布；生成器与契约测试共用这一路径。
+const MANIFEST_PATH = join(PROJECT_ROOT, 'scripts', 'fonts', 'glyph-manifest.json')
 const PY_HELPER = join(PROJECT_ROOT, 'scripts', PYTHON_HELPER_NAME)
 
 /** 与仓库根 website/modules-src 对齐（Worktree 布局下 apps/client 深度固定） */
@@ -146,7 +148,9 @@ const regenerate = (pythonCommand) => {
       ligatureNameCount: facts.ligatureNames.length,
       ligatureNames: facts.ligatureNames,
       requestedNameCount: facts.requestedNameCount,
-      missingFromSourceFont: facts.missingFromSourceFont
+      missingFromSourceFont: facts.missingFromSourceFont,
+      // #974：变体轴清单（由 Python 产物回读产出），契约测试据此断言 FILL 轴在场
+      variationAxes: facts.variationAxes
     }
     writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 

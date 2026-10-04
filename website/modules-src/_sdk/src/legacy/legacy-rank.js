@@ -21,7 +21,7 @@ import {
 } from '../version.js'
 import { ERROR_CODES, GamePlatformError } from '../errors.js'
 import { getLocalStorage, getNavigator, readSearchParams } from '../env.js'
-import { safeParseJson, safeText } from '../utils.js'
+import { endsWithCi, safeParseJson, safeText, stripTrailingSlashes } from '../utils.js'
 import { buildUrl } from '../transport.js'
 
 export const LEGACY_TRUST_LEVEL = 'legacy'
@@ -40,10 +40,13 @@ export const LEGACY_CHANNEL_CODE = 'legacy_rank_api'
 export const normalizeLegacyRankApiBase = (value) => {
   const text = safeText(value)
   if (!text) return ''
-  const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`
-  const normalized = withProtocol.replace(/\/+$/, '')
-  if (/\/api\/game-rank$/i.test(normalized)) return normalized
-  if (/\/api$/i.test(normalized)) return `${normalized}/game-rank`
+  // #967：协议判定与后缀剥离全部走非正则路径（见 utils.js stripTrailingSlashes 说明）
+  const lower = text.toLowerCase()
+  const withProtocol =
+    lower.startsWith('http://') || lower.startsWith('https://') ? text : `https://${text}`
+  const normalized = stripTrailingSlashes(withProtocol)
+  if (endsWithCi(normalized, '/api/game-rank')) return normalized
+  if (endsWithCi(normalized, '/api')) return `${normalized}/game-rank`
   return `${normalized}/api/game-rank`
 }
 

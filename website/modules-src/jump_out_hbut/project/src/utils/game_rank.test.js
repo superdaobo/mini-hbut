@@ -56,4 +56,42 @@ describe('jump out hbut game rank client', () => {
     expect(context.class_name).toBe('电气2401')
     expect(url.searchParams.get('class_name')).toBe('电气2401')
   })
+
+  it('#968c: 历史裸键读到即迁入私有上下文并清除裸键（值保持可用）', async () => {
+    localStorage.setItem('student_id', '20240006')
+    localStorage.setItem('rank_api', 'https://rank.example/api/game-rank')
+
+    const context = readGameModuleContext()
+
+    expect(context.student_id).toBe('20240006')
+    expect(context.rank_api).toBe('https://rank.example/api/game-rank')
+    // 裸键已清除（生产无写入方的脏数据不永久残留）
+    expect(localStorage.getItem('student_id')).toBeNull()
+    expect(localStorage.getItem('rank_api')).toBeNull()
+    // 值已迁入 <gameId>_rank_context_v1（宿主启动清理器可对它做跨环境 base 校验）
+    const migrated = JSON.parse(localStorage.getItem('jump_out_hbut_rank_context_v1'))
+    expect(migrated.studentId).toBe('20240006')
+    expect(migrated.rankApiBase).toBe('https://rank.example/api/game-rank')
+  })
+
+  it('#968c: 迁移后二次读取从私有上下文取值，行为不变', async () => {
+    localStorage.setItem('class_name', '电气2401')
+    localStorage.setItem('rank_api', 'https://rank.example/api/game-rank')
+    const first = readGameModuleContext()
+    expect(first.rank_api).toBe('https://rank.example/api/game-rank')
+
+    // 第二次读取：裸键已被迁移清除，私有上下文仍提供同值
+    const second = readGameModuleContext()
+    expect(second.class_name).toBe('电气2401')
+    expect(second.rank_api).toBe('https://rank.example/api/game-rank')
+  })
+
+  it('#968c: URL 参数仍优先于存储（迁移不改变注入语义）', async () => {
+    localStorage.setItem('rank_api', 'https://stored.example/api/game-rank')
+    setSearch('?rank_api=https://injected.example/api/game-rank')
+    const context = readGameModuleContext()
+    expect(context.rank_api).toBe('https://injected.example/api/game-rank')
+    // 参数命中时不触发迁移（裸键保持原样）
+    expect(localStorage.getItem('rank_api')).toBe('https://stored.example/api/game-rank')
+  })
 })

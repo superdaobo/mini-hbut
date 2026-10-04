@@ -194,6 +194,8 @@ export function collectImportColorDiagnostics(
     diagnostics.push({
       level: 'warning',
       code,
+      // #819：补充 courseName，供 i18n 文案按 code 取词时携带课程名
+      courseName: course.name,
       message:
         code === IMPORT_COLOR_CODE_INVALID
           ? `课程「${course.name}」的 AI 颜色格式非法，已改用自动配色`

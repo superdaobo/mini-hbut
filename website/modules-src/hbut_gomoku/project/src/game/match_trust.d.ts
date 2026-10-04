@@ -35,6 +35,11 @@ export interface TrustSnapshot {
   relayBindingExpiresAt?: number
   /** W1/F1：凭证所属 match_id（只有与当前房间下发的 match_id 一致才允许携带） */
   relayBindingMatchId?: string
+  /**
+   * #964：最近一次失败的请求 ID（`req_<hex>`；服务端响应值优先，成功后清空）。
+   * 用户侧反馈可凭它与服务端日志 / `error.request_id` 对齐。
+   */
+  lastErrorRequestId?: string
   [key: string]: any
 }
 

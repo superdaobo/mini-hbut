@@ -155,6 +155,9 @@ export function mergeImportCourses(courses: ParsedImportCourse[]): MergeImportCo
       diagnostics.push({
         level: 'info',
         code: 'merged_duplicate_weeks',
+        // #819：补充 courseName / mergedCount，供 i18n 文案按占位符重建完整信息
+        courseName: first.name,
+        mergedCount: removed,
         message: `已自动合并 ${removed} 条仅周次不同的重复记录（${first.name}）`,
         sourceIndex
       })

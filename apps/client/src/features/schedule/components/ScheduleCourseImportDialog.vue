@@ -18,7 +18,10 @@ import { getWeekDayLabels } from '../constants'
 import { getCourseStyle } from '../utils/layout'
 import { formatWeeksText } from '../utils/weeks'
 import { buildAiCourseImportPrompt, buildAiCourseImportExample } from '../utils/importPrompt'
-import { describeImportDiagnostic } from '../utils/importDiagnostics'
+import {
+  describeImportDiagnostic,
+  importDiagnosticLevelKey
+} from '../utils/importDiagnostics'
 
 const props = defineProps({
   showImportDialog: { type: Boolean, default: false },
@@ -66,6 +69,8 @@ const emit = defineEmits([
   'set-preview-week',
   'prev-preview-week',
   'next-preview-week',
+  'retry-failed',
+  'back-to-preview',
 ])
 
 const { t } = useI18n()
@@ -102,6 +107,20 @@ const periodText = (course) => `${course.period}-${course.period + course.djs - 
  * 组件内只做取词，拼接规则统一由 utils/importDiagnostics 提供。
  */
 const diagText = (diagnostic) => describeImportDiagnostic(diagnostic)
+
+/**
+ * 诊断严重度徽标文案（#819：Preview 能明确区分 error / warning / info）。
+ * key 形如 schedule.import.diag.level.warning，由 i18n 字典提供三语文案。
+ */
+const diagLevelText = (level) => t(importDiagnosticLevelKey(String(level || '')))
+
+/** 诊断严重度对应的徽标样式类 */
+const diagLevelClass = (level) => {
+  const normalized = String(level || '')
+  if (normalized === 'error') return 'sci-diag-badge--error'
+  if (normalized === 'info') return 'sci-diag-badge--info'
+  return 'sci-diag-badge--warning'
+}
 
 /** 课程名相同即为同一颜色组 */
 const isSameGroup = (item, other) =>
@@ -173,6 +192,32 @@ watch(
     activeConflictKey.value = ''
   }
 )
+
+// ===== #820 结果页：失败明细与重试路径 =====
+
+/**
+ * 失败明细（#820 验收：任一失败都能定位到原 preview 条目）。
+ * items 只带 key / sourceIndex / error，课程名按 key 回查预览列表补齐。
+ */
+const failedDetails = computed(() => {
+  const items = props.importResult?.items
+  if (!Array.isArray(items)) return []
+  return items
+    .map((item) => {
+      if (item?.status !== 'failed') return null
+      const previewItem = props.previewCourses.find((entry) => entry?.key === item.key)
+      return {
+        key: String(item.key || ''),
+        sourceIndex: Number(item.sourceIndex ?? -1),
+        name: String(previewItem?.course?.name || ''),
+        error: String(item.error || '')
+      }
+    })
+    .filter(Boolean)
+})
+
+/** 是否存在可重试的失败项 */
+const hasFailedItems = computed(() => failedDetails.value.length > 0)
 </script>
 
 <template>
@@ -329,6 +374,17 @@ watch(
                         （{{ t('schedule.import.overlapWeeks').replace('{t}', formatWeeksText(conflict.overlapWeeks)) }}）
                       </template>
                     </span>
+                    <!-- #819：条目级诊断（含定位 / 原因 / 严重度），error 已被筛选规则拦截提交 -->
+                    <span
+                      v-for="(diag, di) in item.diagnostics"
+                      :key="`d-${di}`"
+                      class="sci-item-diag"
+                    >
+                      <span class="sci-diag-badge" :class="diagLevelClass(diag.level)">
+                        {{ diagLevelText(diag.level) }}
+                      </span>
+                      {{ diagText(diag) }}
+                    </span>
                   </span>
                 </label>
 
@@ -342,7 +398,12 @@ watch(
             </ul>
 
             <div v-if="globalDiagnostics.length" class="sci-global-diag">
-              <div v-for="(diag, di) in globalDiagnostics" :key="`g-${di}`" class="sci-item-warn">{{ diagText(diag) }}</div>
+              <div v-for="(diag, di) in globalDiagnostics" :key="`g-${di}`" class="sci-item-diag">
+                <span class="sci-diag-badge" :class="diagLevelClass(diag.level)">
+                  {{ diagLevelText(diag.level) }}
+                </span>
+                {{ diagText(diag) }}
+              </div>
             </div>
             </template>
 
@@ -448,8 +509,39 @@ watch(
                 <span class="sci-result-value danger">{{ importResult?.failed ?? 0 }}</span>
               </div>
             </div>
+
+            <!-- #820：失败明细（可定位到第 N 条与原因），仅存在失败项时展示 -->
+            <div v-if="hasFailedItems" class="sci-failed">
+              <div class="sci-failed-title">{{ t('schedule.import.result.failedDetail') }}</div>
+              <div v-for="detail in failedDetails" :key="detail.key" class="sci-failed-item">
+                <span class="sci-failed-name">
+                  {{ t('schedule.import.diag.location').replace('{n}', String(detail.sourceIndex + 1)) }}
+                  <template v-if="detail.name">「{{ detail.name }}」</template>
+                </span>
+                <span class="sci-failed-reason">{{ detail.error }}</span>
+              </div>
+            </div>
+
             <div class="sci-footer">
-              <button type="button" class="sci-btn primary" @click="emit('close')">{{ t('schedule.import.done') }}</button>
+              <!-- #820：存在失败项时提供重试路径；失败时预览态始终保留，用户也可返回修正 -->
+              <template v-if="hasFailedItems">
+                <button type="button" class="sci-btn ghost" @click="emit('back-to-preview')">
+                  {{ t('schedule.import.result.backToPreview') }}
+                </button>
+                <button
+                  type="button"
+                  class="sci-btn primary"
+                  :disabled="committing"
+                  @click="emit('retry-failed')"
+                >
+                  {{ committing
+                    ? t('schedule.import.committing')
+                    : t('schedule.import.result.retryFailed') }}
+                </button>
+              </template>
+              <button v-else type="button" class="sci-btn primary" @click="emit('close')">
+                {{ t('schedule.import.done') }}
+              </button>
             </div>
           </div>
         </div>
@@ -796,6 +888,39 @@ watch(
   gap: 4px;
 }
 
+/* #819 诊断行：严重度徽标 + 文案 */
+.sci-item-diag {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.sci-diag-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.sci-diag-badge--warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.sci-diag-badge--error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.sci-diag-badge--info {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
 /* ===== #821 课表布局预览 ===== */
 
 /* 预览模式切换：列表 / 课表 */
@@ -929,6 +1054,41 @@ watch(
   color: #b91c1c;
 }
 
+/* #820 结果页失败明细 */
+.sci-failed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.sci-failed-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #b91c1c;
+}
+
+.sci-failed-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sci-failed-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.sci-failed-reason {
+  font-size: 11px;
+  color: #b91c1c;
+  line-height: 1.5;
+}
+
 .sci-fade-enter-active,
 .sci-fade-leave-active {
   transition: opacity 0.2s ease;
@@ -1012,5 +1172,40 @@ watch(
 
 :global(html.dark) .sci-week-note {
   color: #64748b;
+}
+
+/* #819 诊断徽标深色适配 */
+:global(html.dark) .sci-item-diag {
+  color: #94a3b8;
+}
+
+:global(html.dark) .sci-diag-badge--warning {
+  background: #3f2d0b;
+  color: #fbbf24;
+}
+
+:global(html.dark) .sci-diag-badge--error {
+  background: #450a0a;
+  color: #f87171;
+}
+
+:global(html.dark) .sci-diag-badge--info {
+  background: #0c4a6e;
+  color: #7dd3fc;
+}
+
+/* #820 失败明细深色适配 */
+:global(html.dark) .sci-failed {
+  background: #450a0a;
+  border-color: #7f1d1d;
+}
+
+:global(html.dark) .sci-failed-title,
+:global(html.dark) .sci-failed-reason {
+  color: #f87171;
+}
+
+:global(html.dark) .sci-failed-name {
+  color: #f1f5f9;
 }
 </style>

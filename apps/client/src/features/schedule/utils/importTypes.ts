@@ -58,6 +58,11 @@ export interface ImportDiagnostic {
    * 携带原始值后，UI 可以展示「第 3 条 · 节次 · 原始值：7-8」，用户据此自查。
    */
   rawValue?: string
+  /**
+   * 触发该诊断时被合并掉的重复条数（#819，仅 merged_duplicate_weeks 使用），
+   * 供 i18n 文案按 {n} 占位符重建数字信息。
+   */
+  mergedCount?: number
 }
 
 /**
@@ -194,6 +199,12 @@ export interface ImportCommitResult {
   skipped: number
   failed: number
   items: ImportCommitItemResult[]
+  /**
+   * 拦截原因（#820）：
+   * 'validation' = 写入前全量硬校验未通过，整批零写入（atomic 校验语义），
+   * UI 据此留在预览阶段并提示用户修正，而不是进入结果页。
+   */
+  blocked?: 'validation'
 }
 
 /** 写入 payload：只包含持久化所需字段，不含任何 preview-only 状态 */

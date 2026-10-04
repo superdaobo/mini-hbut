@@ -26,7 +26,7 @@ export interface GomokuRelayRoomOptions {
   peerSecret?: string
   /** 冻结字段：join 响应下发的新 peer_secret（只在新值非空时回调；空/缺字段不清空旧值） */
   onPeerSecret?: (secret: string) => void
-  /** F3：轮询中断 / 重绑停机的可读文案上报（poll_recovered 表示恢复） */
+  /** F3：轮询中断 / 重绑停机的可读文案上报（poll_recovered 表示恢复；#964：poll_failed 附带 request_id） */
   onError?: (event: Record<string, any>) => void
   /** additive match_id 走这里（#908） */
   onEvent?: (event: GomokuRelayEvent) => void

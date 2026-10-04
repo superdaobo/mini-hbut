@@ -14,6 +14,26 @@ const GAME_ID = 'jump_out_hbut'
 const LEADERBOARD_TIMEOUT_MESSAGE = '排行榜请求超时，请稍后重试'
 const DEFAULT_RETRY_DELAYS_MS = [1200, 2600, 5200]
 
+/**
+ * 游戏模块私有上下文键（与其余 10 个游戏的模板约定一致：
+ * camelCase 字段，宿主启动清理器 `migrateLegacyGameRankContexts` 按
+ * `<gameId>_rank_context_v1` 后缀识别并做跨环境 base 校验）。
+ */
+const RANK_CONTEXT_KEY = `${GAME_ID}_rank_context_v1`
+
+/**
+ * #968c：历史「裸键」读取兼容（`student_id` / `rank_api` 等直接写在 localStorage 顶层）。
+ *
+ * 「生产无写入方」核对结论（#968）：全仓 `setItem('student_id' / 'rank_api' / ...)`
+ * 只出现在测试夹具（`apps/client/src/utils/game_center_p0_identity.spec.ts` 与本文件的
+ * `game_rank.test.js`）；生产链路（宿主 MoreView / 模块环境注入）统一通过 URL 参数或
+ * `<gameId>_rank_context_v1` 私有上下文传值。保留裸键读取只为极老版本残留数据兜底。
+ *
+ * 兜底值读到即**一次性迁移**：写入私有上下文（camelCase）后清除裸键 ——
+ * 一是裸键不再游离在清理边界之外（迁移后宿主清理器可校验 `rankApiBase` 环境），
+ * 二是脏数据不会永久残留。迁移失败不阻塞读取（照常返回兜底值，下次启动重试）。
+ */
+
 const _safeText = (value) => String(value ?? '').trim()
 
 const isAbortError = (error) => {
@@ -79,16 +99,16 @@ const requestJsonWithRetry = async (url, init, options = {}) => {
 
 /**
  * 读取游戏模块上下文
- * 优先从 URL 参数读取，回退到 localStorage
+ * 优先从 URL 参数读取，再读私有上下文（迁移后的规范落点），最后兜底历史裸键（读到即迁移）
  * @returns {{ student_id: string, player_name: string, class_name: string, rank_api: string }}
  */
 export function readGameModuleContext() {
   const params = new URLSearchParams(window.location.search)
   return {
-    student_id: params.get('student_id') || _getStorage('student_id') || '',
-    player_name: params.get('player_name') || _getStorage('player_name') || '匿名玩家',
-    class_name: params.get('class_name') || _getStorage('class_name') || '',
-    rank_api: params.get('rank_api') || _getStorage('rank_api') || ''
+    student_id: params.get('student_id') || _readContextField('student_id', 'studentId') || '',
+    player_name: params.get('player_name') || _readContextField('player_name', 'playerName') || '匿名玩家',
+    class_name: params.get('class_name') || _readContextField('class_name', 'className') || '',
+    rank_api: params.get('rank_api') || _readContextField('rank_api', 'rankApiBase') || ''
   }
 }
 
@@ -184,4 +204,42 @@ function _getStorage(key) {
   } catch (e) {
     return null
   }
+}
+
+/**
+ * 从私有上下文取字段；缺失时回落历史裸键并触发一次性迁移（#968c，见文件头说明）。
+ * @param {string} bareKey 历史裸键（snake_case）
+ * @param {string} camelKey 私有上下文字段名（camelCase，与 10 游戏模板约定一致）
+ * @returns {string}
+ */
+function _readContextField(bareKey, camelKey) {
+  const raw = _getStorage(RANK_CONTEXT_KEY)
+  if (raw) {
+    try {
+      const stored = JSON.parse(raw)
+      if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+        const value = String(stored[camelKey] ?? '').trim()
+        if (value) return value
+      }
+    } catch (e) {
+      // 坏 JSON 视为未迁移，走裸键兜底
+    }
+  }
+  // 历史裸键兜底：读到即迁入私有上下文并清除裸键
+  const bareValue = String(_getStorage(bareKey) ?? '').trim()
+  if (!bareValue) return ''
+  try {
+    let stored = {}
+    const existing = _getStorage(RANK_CONTEXT_KEY)
+    if (existing) {
+      const parsed = JSON.parse(existing)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) stored = parsed
+    }
+    stored[camelKey] = bareValue
+    localStorage.setItem(RANK_CONTEXT_KEY, JSON.stringify(stored))
+    localStorage.removeItem(bareKey)
+  } catch (e) {
+    // 迁移失败不阻塞读取：裸键值照常返回，下次启动重试
+  }
+  return bareValue
 }

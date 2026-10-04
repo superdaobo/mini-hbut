@@ -211,6 +211,27 @@ export const normalizeGameOrigin = (value: unknown): string => {
   }
 }
 
+/**
+ * 布尔 flag 归一（远程配置的宽松字面量 → 严格布尔；无法识别 → fallback）。
+ */
+const toFlagBoolean = (value: unknown, fallback: boolean): boolean => {
+  // #970：只接受**标量**（string / number / boolean）。数组 / 对象等复合值一律按
+  // 「无法识别」处理并回落 fallback —— 绝不做 String() 字符串化。
+  // （旧实现 `String(['true'])` → `'true'` 会把数组误放行为 true，属于隐性宽松语义，
+  // 已按 issue #970 收紧为「非标量 = 未识别」；null / undefined 同样落 fallback。）
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+    return fallback
+  }
+  if (value === true || value === 1 || value === '1') return true
+  if (value === false || value === 0 || value === '0') return false
+  const text = String(value)
+    .trim()
+    .toLowerCase()
+  if (text === 'true' || text === 'on' || text === 'enabled' || text === 'yes') return true
+  if (text === 'false' || text === 'off' || text === 'disabled' || text === 'no') return false
+  return fallback
+}
+
 export interface GamePlatformConfig {
   /** 块级总开关（false 时等价于所有子开关关闭 + 清空 origin 白名单；紧急 kill switch 优先级最高） */
   enabled: boolean
@@ -225,17 +246,86 @@ export interface GamePlatformConfig {
    * 判定与生效见 `canary.ts` / `flags.ts`，此处只做结构归一化。
    */
   canary: GamePlatformCanary | null
+  /**
+   * #958 手误诊断：`game_platform` 块里疑似 canary 键名手误的未知键（原样罗列键名）。
+   * **只做诊断，不参与任何判定**（判定语义不变：未知键依旧被忽略）。
+   * 背景：canary 配置由运维手写 JSON，`canary` 键写错（`canaries` / `canary_percent` …）
+   * 会静默等价「不做灰度」= 全量；本字段让这类手误至少在诊断面可见（项目禁 console，
+   * 因此经 `flags.ts` 透传到 `GameCenterFlags.canary_typo_keys`，由消费方/测试观测）。
+   */
+  canary_typo_keys: string[]
 }
 
-const toFlagBoolean = (value: unknown, fallback: boolean): boolean => {
-  if (value === true || value === 1 || value === '1') return true
-  if (value === false || value === 0 || value === '0') return false
-  const text = String(value ?? '')
-    .trim()
-    .toLowerCase()
-  if (text === 'true' || text === 'on' || text === 'enabled' || text === 'yes') return true
-  if (text === 'false' || text === 'off' || text === 'disabled' || text === 'no') return false
-  return fallback
+// ---------------------------------------------------------------------------
+// #958 手误防御：canary 近邻键检测（纯函数，无副作用）
+// ---------------------------------------------------------------------------
+
+/** `game_platform` 块的已知配置键（不在表内的键会被忽略，也可能正是手误） */
+const GAME_PLATFORM_KNOWN_KEYS = Object.freeze([
+  'enabled',
+  'flags',
+  'canary',
+  'api_base',
+  'apiBase',
+  'allowed_game_origins',
+  'allowedGameOrigins'
+] as const)
+
+/**
+ * 编辑距离 ≤ `max` 判定（两串都很短，O(m·n) DP 足够）。
+ * 用于「`canary` 的近邻拼写」检测：`canaryy` / `canaray` / `Canary` 这类一两个字符的手误。
+ */
+const editDistanceAtMost = (a: string, b: string, max: number): boolean => {
+  if (Math.abs(a.length - b.length) > max) return false
+  let prev: number[] = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i += 1) {
+    const curr: number[] = [i]
+    for (let j = 1; j <= b.length; j += 1) {
+      curr[j] = Math.min(
+        prev[j] + 1,
+        curr[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      )
+    }
+    prev = curr
+  }
+  return prev[b.length] <= max
+}
+
+/** 语义等价的「灰度」别名词根：中文运维语境常把 canary 写成 gray / grayscale */
+const GRAYSCALE_TYPO_KEYS = Object.freeze(['gray', 'grey', 'grayscale', 'greyscale'] as const)
+
+/**
+ * 检测 `game_platform` 块中疑似 canary 键名手误的未知键（#958）。
+ *
+ * 判定为「疑似手误」的未知键（大小写不敏感）：
+ * 1. 以 `canary` / `canaries` 开头（`canaries` / `canary_percent` / `canaryPercent` …）；
+ * 2. 与 `canary` 编辑距离 ≤ 2（`canaryy` / `canaray` / `Canary` …）；
+ * 3. 命中灰度别名（`gray` / `grayscale` …）。
+ *
+ * 已知键（`canary` 本身等）永不命中；本函数自己的诊断输出字段 `canary_typo_keys`
+ * 也必须排除——否则快照 round-trip（normalize 输出被二次 normalize）会把诊断字段
+ * 自举误报成手误键（remote_config_snapshot.spec 回归场景）；检测不到任何疑似键 → 空数组。
+ */
+export const detectSuspectedCanaryTypoKeys = (raw: unknown): string[] => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  const keys = Object.keys(raw as Record<string, unknown>)
+  const typos: string[] = []
+  for (const key of keys) {
+    if (key === 'canary_typo_keys') continue
+    if ((GAME_PLATFORM_KNOWN_KEYS as readonly string[]).includes(key)) continue
+    const lower = key.toLowerCase()
+    if (lower.startsWith('canary') || lower.startsWith('canaries')) {
+      typos.push(key)
+      continue
+    }
+    if ((GRAYSCALE_TYPO_KEYS as readonly string[]).includes(lower)) {
+      typos.push(key)
+      continue
+    }
+    if (editDistanceAtMost(lower, 'canary', 2)) typos.push(key)
+  }
+  return typos
 }
 
 /**
@@ -260,11 +350,15 @@ export const normalizeGamePlatformConfig = (raw: unknown): GamePlatformConfig =>
       ? block.allowedGameOrigins
       : []
   return {
+    // #958：`enabled` 缺省 = **true**（显式约定，非 bug）：块缺省即「平台开启」，
+    // 但 `flags.game_center_enabled` 默认 false，入口仍不可见；紧急关闭必须显式
+    // 写 `"enabled": false`（只删 enabled 不会关闭 —— 该语义已文档化并有测试锁定）。
     enabled: toFlagBoolean(block.enabled, true),
     api_base: isSecureGamePlatformUrl(apiBase) ? apiBase.replace(/\/+$/, '') : '',
     allowed_game_origins: [...new Set(rawOrigins.map(normalizeGameOrigin).filter(Boolean))],
     flags: { ...nestedFlags, ...flatFlags },
-    canary: normalizeGamePlatformCanary(block.canary)
+    canary: normalizeGamePlatformCanary(block.canary),
+    canary_typo_keys: detectSuspectedCanaryTypoKeys(raw)
   }
 }
 
