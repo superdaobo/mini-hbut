@@ -248,3 +248,76 @@ Issue 假设「CAS 看似有状态但 JWXT 落 `/admin/login`」时会走 `final
   3. CAS 会**重排** service 的查询串（`host=28&org=2` → `org=2&host=28`），
      任何依赖 service 精确匹配的逻辑都需注意。
 
+
+---
+
+## 十、追加轮：登录失败全链路可诊断（2026-10-04 第二轮）
+
+用户追加要求：**登录失败时，无论失败在哪个环节，都要满足**
+1. 检验文字能正确显示在前台；
+2. 后端调试日志里能非常清晰地显现出来。
+
+复核发现两个**真实缺口**（都不是「已经没问题」，而是确实漏了）。
+
+### 10.1 缺口 1：`println!` 在 release GUI 下会丢失
+
+项目有两条独立日志通道：
+
+| 通道 | 载体 | 去向 |
+|------|------|------|
+| `tauri_plugin_log` | `log` crate 宏 | stdout + 落盘 `%LOCALAPPDATA%\com.hbut.mini\logs\mini-hbut.log` |
+| `runtime_log` | `hbut_debug!` / `hbut_session_log!` | 进程内环形缓冲（**应用内调试窗 + bridge `/debug/logs` 读的就是它**）+ stderr |
+
+`println!` **只进 stdout**，而 release 版 GUI 的 stdout 被 `windows_subsystem` 丢弃 →
+上一轮加的 `[Auth]` 收口行在线上看不到。
+
+修法：
+
+1. 新增 `hbut_auth_log!` 宏，一次写 `runtime_log` + `log` crate；
+2. 失败收口用 `log::warn!`（成功用 `info!`）—— release 文件日志默认只收 Warn 及以上；
+3. `lib.rs` 为 `hbut_helper::http_client` 放行 Info（该模块此前无任何 `log::` 调用）；
+4. 关键里程碑日志全部迁到双通道，并补 **HTTP bridge 层**的失败日志
+   （此前 bridge 路径在 dev / web 模式下后端完全无痕迹）。
+
+### 10.2 缺口 2：扫码登录把错误原文直接显示给用户
+
+新增的界面契约测试当场抓到 4 处：门户与学习通扫码的 `qrStateMessage` /
+`cxQrStateMessage` 直接插值 `e.message || e`，会把
+`error sending request for url (...)` 这类英文原文抛给用户。
+
+同一轮契约测试还抓到：
+
+- `CAS 服务未注册（service=https://x）…` 泄漏内部参数 `service=`；
+- `无法解析用户信息，可能会话已过期` **误导**用户以为会话过期（实际是解析失败）；
+- `无法获取加密盐值` / `无法获取登录参数（加密盐值或 execution）` / `获取个人信息失败: 500`
+  等内部术语；`Captcha image is too small` 为英文原文。
+
+均已映射为可读文案。`pushDebug(...)` 里的原文刻意保留（调试通道需要原文诊断）。
+
+### 10.3 新增防回归契约
+
+| 测试 | 作用 |
+|------|------|
+| `login_log_contract_tests`（Rust） | 收口行格式含 label / 失败 / stage= / kind= / msg=；6 个阶段名互不相同；不拼接凭据字段 |
+| `login_runtime_log_tests`（Rust） | **真从日志通道捞行断言**：跑真实失败/成功登录后，`runtime_log::query_logs` 必须能查到 `失败 stage=JwxtBootstrap kind=Some(JwxtBootstrapFailed)` / `成功 stage=Done` / `失败 stage=Gate` |
+| `login_errors.spec.ts`（前端） | 27 条后端已知错误文案逐条断言「非空 + 含中文 + 无英文技术原文 + 无内部术语」 |
+| `login_error_display_contract.spec.ts`（前端，源码契约） | 禁止 `{ err: e.message || e }`；所有 `{ err: … }` 插值必须含 `friendlyLoginError` |
+
+### 10.4 验证（第二轮）
+
+| 检查 | 结果 |
+|------|------|
+| `cargo test -p hbut-helper --lib` | 388 passed / 0 failed（第一轮 385） |
+| `cargo fmt --all -- --check` | 通过 |
+| `cargo clippy -p hbut-helper --lib --tests` | 0 error |
+| 收口日志实测（`--nocapture`） | Gate / PasswordPost / JwxtBootstrap 三阶段归因均正确 |
+| 前端 `npm run typecheck` | 通过 |
+| 前端 `npm run build` + `npm run test:ci` | 292 文件 / 3057 测试全绿（第一轮 289/3030） |
+| PR CI | PR Gate + test-frontend + test-rust(Linux/macOS/Windows) + secret-guard + CodeQL 全 pass，`mergeStateStatus=CLEAN` |
+
+### 10.5 第二轮剩余风险
+
+- 仍**未做** Tauri 开发构建里的端到端点击验证（需构建 + UI 交互）。
+- 失败收口在 release 走 `log::warn!`，会进入线上文件日志：属于有意设计
+  （线上要能拿到登录失败记录），但需注意不要在该级别输出敏感信息 ——
+  当前实现只输出阶段名、错误分类与错误文案。
