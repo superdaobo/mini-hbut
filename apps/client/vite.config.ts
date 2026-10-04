@@ -68,7 +68,9 @@ const manualChunks = (id: string) => {
     return 'markdown'
   }
   if (
-    normalized.includes('/node_modules/html2canvas/') ||
+    // #993：html2canvas 刻意**不**并入 capture chunk。它与 capture_service 同属一个
+    // manualChunk 时，capture_service 内的 `import('html2canvas')` 会解析到同一 chunk，
+    // 无法真正切分，204 KB 仍随启动路径解析。独立成 chunk 后它只在真正截图时拉取。
     normalized.includes('/src/utils/capture_service.ts')
   ) {
     return 'capture'

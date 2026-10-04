@@ -884,6 +884,68 @@
   gap: 12px;
 }
 
+/* ── #991 / #992 启动诊断卡片 ── */
+.boot-diag-card {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, rgba(148, 163, 184, 0.32));
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--ui-primary-soft) 40%, rgba(255, 255, 255, 0.7));
+  display: grid;
+  gap: 8px;
+}
+
+.boot-diag-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.boot-diag-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 160px;
+  flex: 1;
+}
+
+.boot-diag-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ui-text);
+}
+
+.boot-diag-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ui-muted);
+}
+
+.boot-diag-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.boot-diag-output {
+  width: 100%;
+  min-height: 180px;
+  max-height: 46vh;
+  resize: vertical;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.3));
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ui-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+}
+
 .debug-head-actions {
   display: flex;
   gap: 8px;

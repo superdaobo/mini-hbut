@@ -22,7 +22,7 @@ import {
   listRemovedOfficialCourses,
   removeOfficialCourseFromSchedule
 } from '../../../utils/schedule_visibility'
-import { messages } from '../../../utils/app_i18n'
+import { messages, ensureLocaleMessages } from '../../../utils/app_i18n'
 
 const readDialogSource = () =>
   readFileSync(new URL('./ScheduleManageCoursesDialog.vue', import.meta.url), 'utf8')
@@ -152,7 +152,10 @@ describe('#870 空态文案：三语中性表述覆盖三类分组', () => {
     ja: 'カスタム授業はまだありません'
   }
 
-  it('schedule.manageCourses.empty 三语均已替换为中性表述，不再复现旧语义', () => {
+  it('schedule.manageCourses.empty 三语均已替换为中性表述，不再复现旧语义', async () => {
+    // #993：非默认语言字典改为按需加载，断言前显式预热
+    await ensureLocaleMessages('en')
+    await ensureLocaleMessages('ja')
     for (const locale of ['zh-CN', 'en', 'ja'] as const) {
       const value = messages[locale]['schedule.manageCourses.empty'] as string | undefined
       expect(value, `${locale} 缺少 schedule.manageCourses.empty`).toBeTruthy()
@@ -164,7 +167,9 @@ describe('#870 空态文案：三语中性表述覆盖三类分组', () => {
     expect(messages.ja['schedule.manageCourses.empty']).toContain('コース')
   })
 
-  it('loading 文案同步去除「仅自定义课程」的旧语义', () => {
+  it('loading 文案同步去除「仅自定义课程」的旧语义', async () => {
+    await ensureLocaleMessages('en')
+    await ensureLocaleMessages('ja')
     expect(messages['zh-CN']['schedule.manageCourses.loading']).toBe('正在加载课程列表...')
     expect(messages.en['schedule.manageCourses.loading']).toBe('Loading courses...')
     expect(messages.ja['schedule.manageCourses.loading']).toBe('コース一覧を読み込んでいます...')

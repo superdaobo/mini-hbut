@@ -18,7 +18,13 @@
  *   生产构建静默（vite define 静态替换，无运行时开销）。
  */
 import { ref } from 'vue'
-import { messages, DEFAULT_LOCALE as DEFAULT_LOCALE_INNER, type Locale } from './i18n/messages'
+import {
+  messages,
+  ensureLocaleMessages,
+  isLocaleMessagesLoaded,
+  DEFAULT_LOCALE as DEFAULT_LOCALE_INNER,
+  type Locale
+} from './i18n/messages'
 
 export type { Locale } from './i18n/messages'
 
@@ -47,15 +53,32 @@ export const resolveLocale = (raw: unknown): Locale => {
 // 字典统一由 ./i18n/messages 提供（re-export 保持旧 import 路径可用）
 export { messages }
 
+/**
+ * #993：非默认语言字典按需加载（re-export 便于设置页/测试显式预热）。
+ * 详见 ./i18n/messages/index.ts 的模块说明。
+ */
+export { ensureLocaleMessages, isLocaleMessagesLoaded }
+
 /** 模块级当前语言（resolveLocale 保证始终合法） */
 let currentLocale: Locale = DEFAULT_LOCALE
 
 /** 读取当前语言（模块加载时已从存储初始化） */
 export const getLocale = (): Locale => currentLocale
 
+/** 派发 locale 变更事件（字典异步就绪后需再派发一次以触发重渲染） */
+const emitLocaleChanged = (locale: Locale): void => {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(
+    new CustomEvent(APP_LOCALE_CHANGED_EVENT, { detail: { locale } })
+  )
+}
+
 /**
  * 切换语言：写 localStorage + 更新模块状态 + 派发 hbu-locale-changed 事件。
  * 存储不可用时仅同步内存状态（与 night_mode 等模块的兜底策略一致）。
+ *
+ * #993：非默认语言字典为动态加载。加载期间 `t()` 回落默认语言，加载完成后
+ * 再派发一次事件触发重渲染（幂等：locale 已变则丢弃过期结果）。
  */
 export const setLocale = (locale: Locale): void => {
   const next = resolveLocale(locale)
@@ -65,11 +88,11 @@ export const setLocale = (locale: Locale): void => {
   } catch {
     // localStorage 不可用时仅同步内存状态
   }
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent(APP_LOCALE_CHANGED_EVENT, { detail: { locale: next } })
-    )
-  }
+  emitLocaleChanged(next)
+
+  void ensureLocaleMessages(next).then((loaded) => {
+    if (loaded && currentLocale === next) emitLocaleChanged(next)
+  })
 }
 
 /**
@@ -157,4 +180,9 @@ try {
   currentLocale = resolveLocale(localStorage.getItem(APP_LOCALE_STORAGE_KEY))
 } catch {
   // localStorage 不可用时保持默认 zh-CN
+}
+
+// #993：持久化语言为非默认时预热其字典。不阻塞启动（异步），失败则保持默认语言回落。
+if (currentLocale !== DEFAULT_LOCALE) {
+  void ensureLocaleMessages(currentLocale)
 }

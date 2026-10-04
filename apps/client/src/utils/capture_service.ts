@@ -1,4 +1,16 @@
-import html2canvas from 'html2canvas'
+/**
+ * #993：`html2canvas` 改为按需动态 import。
+ *
+ * 该库约 204 KB，仅在「导出截图 / debug bridge 截图」时才会用到；此前是顶层静态
+ * import，使其进入入口 chunk 的静态依赖图（构建产物 `dist/index.html` 还对其
+ * `modulepreload`），冷启动时被主线程白白 parse + compile + eval。
+ *
+ * 动态 import 后该 chunk 脱离启动路径；`vi.mock('html2canvas')` 对动态 import 同样生效。
+ */
+const loadHtml2Canvas = async (): Promise<typeof import('html2canvas').default> => {
+  const mod = await import('html2canvas')
+  return (mod as { default?: typeof import('html2canvas').default }).default ?? (mod as unknown as typeof import('html2canvas').default)
+}
 
 const DEFAULT_LIGHT_CAPTURE_BACKGROUND = '#f4f7ff'
 const DEFAULT_DARK_CAPTURE_BACKGROUND = '#0f172a'
@@ -234,6 +246,7 @@ export const renderElementToCanvas = async (
   }
 
   try {
+    const html2canvas = await loadHtml2Canvas()
     return await html2canvas(element, {
       ...baseOptions,
       foreignObjectRendering: false
@@ -244,6 +257,7 @@ export const renderElementToCanvas = async (
       throw error
     }
 
+    const html2canvas = await loadHtml2Canvas()
     return html2canvas(element, {
       ...baseOptions,
       foreignObjectRendering: true,
