@@ -63,10 +63,12 @@
 ### 阶段 A（#992）：启动诊断能力 —— 本 PR 核心
 
 1. **早期时间线缓冲（必须在 JS 之前）**
-   - 在 `apps/client/index.html` 的内联脚本中建立 `window.__HBU_BOOT_EARLY__`，记录：`performance.now()` 时间戳、事件名、附加信息（含 splash 移除原因、资源加载失败、`document.readyState`、`visibilitychange`、`pageshow`）。
+   - 在 `apps/client/index.html` 的内联脚本中建立 `window.__hbuBootDiag` 桥，记录：`performance.now()` 时间戳、事件名、附加信息（含 splash 移除原因、资源加载失败、`document.readyState`、`visibilitychange`、`pageshow`）。
    - 监听**捕获阶段**的 `error` 事件，捕获所有子资源（`img` / `link` / `script`）加载失败 → 这是「图片没上屏」归因的关键证据。
    - 为 splash 的两张 `<img>` 显式加 `onerror` / `onload` 打点，记录 `naturalWidth`（区分「没拿到」与「拿到了但没上屏」）。
    - 记录 `performance.memory`（若可用）与 `navigator.userAgent`、`document.visibilityState`。
+   - **跨启动持久化（对原计划的偏离，见第 6 节假设 3）**：时间线写入 `localStorage['hbu_boot_diag_v1']`，只保留最近两次启动。原因：崩溃发生在启动 #1，用户能在启动 #2 打开「设置-调试信息」，若只驻留内存则崩溃那一轮证据已丢失。持久化内容严格限定为时间戳 / 事件名 / 阶段耗时 / 失败资源 URL（去 query/hash），统一脱敏 + 截断，不含凭据与用户内容，容量有界（240 条 + 8 条长阻塞）。
+   - **主线程冻结心跳**：250ms 定时器，间隔 ≥700ms 记一次 `main-thread-stall`（含起止时间与间隔）。这是区分「主线程被阻塞」与「进程被杀」的核心证据；启动完成后立即停止，避免长期唤醒。
 
 2. **早期日志回放**
    - `main.ts` 在 `initDebugLogger()` 之后，把 `__HBU_BOOT_EARLY__` 的条目按序回放进 `pushDebugLog('Boot', ...)`，使启动页阶段日志进入环形缓冲，从而在「设置-调试信息」可见、可复制。
@@ -118,7 +120,7 @@
 
 1. **用户当前构建 = `32a246eb`**（已由 `gh run view 37180943991` 证实 `headSha`）。
 2. **不做 i18n 行为回退以外的交互改动**：切换语言首次异步加载期间回落默认语言，可接受。
-3. **不新增持久化存储**：早期日志只放内存 + 回放进既有调试日志缓冲。
+3. **~~不新增持久化存储~~ → 修正为「新增有界、已脱敏的启动时间线持久化」**：早期日志仍不进 `debug_logger` 的持久化路径（该模块禁止落盘），但启动时间线必须跨启动保留最近两次 —— 否则「首启卡死后进程消失」这一唯一要抓的场景无法取证。数据边界见 §3 阶段 A 第 1 条。
 4. **不改 Rust 侧**：本轮不引入 Rust 改动，避免把 iOS 构建风险叠加到取证版本上。
 5. **不动 `SplashScreen.vue` 的视觉**：仅补打点，避免引入视觉回归干扰判断。
 6. 若阶段 B 的动态 import 导致 `i18n_coverage.spec.ts` 或构建失败且短期内无法收敛，则把阶段 B 拆为独立 PR，先保证阶段 A（取证能力）可发版。
