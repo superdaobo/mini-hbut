@@ -686,6 +686,8 @@ export const messages: Record<string, string> = {
   'schedule.import.toast.partial': 'Import finished: {a} added, {f} failed',
   'schedule.import.toast.success': 'Import finished: {n} courses added',
   'schedule.import.toast.commitFailed': 'Import failed, please try again later',
+  'schedule.import.toast.semesterMismatch': 'The target semester differs from the currently loaded schedule. Switch the schedule page to the target semester before importing',
+  'schedule.import.toast.retryRefreshFailed': 'Failed to refresh schedule data before retry. Check your network and try again',
   // —— #821 grid layout preview & conflict visualization ——
   'schedule.import.preview.modeList': 'List preview',
   'schedule.import.preview.modeGrid': 'Grid preview',
