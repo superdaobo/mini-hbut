@@ -47,8 +47,22 @@ describe('启动诊断内联脚本契约（#991/#992）', () => {
     expect(bootScript).toContain('main-thread-stall')
     expect(bootScript).toMatch(/HEARTBEAT_MS\s*=\s*\d+/)
     expect(bootScript).toMatch(/STALL_THRESHOLD_MS\s*=\s*\d+/)
-    // 启动完成后必须停掉心跳，避免应用整个生命周期被 250ms 定时器唤醒
+    // 启动完成后必须停掉高频心跳，避免应用整个生命周期被 250ms 定时器唤醒
     expect(bootScript).toContain('stopHeartbeat')
+  })
+
+  it('启动完成后降频为存活心跳（用于捕捉「启动完成后突然崩溃」）', () => {
+    expect(bootScript).toContain('startLiveness')
+    expect(bootScript).toContain('stopLiveness')
+    expect(bootScript).toMatch(/LIVENESS_MS\s*=\s*\d+/)
+    expect(bootScript).toMatch(/LIVENESS_MAX_TICKS\s*=\s*\d+/)
+    expect(bootScript).toContain('alive_ms')
+  })
+
+  it('正常退出留痕（cleanExit），否则下一轮无法区分「突然崩溃」与「走完启动」', () => {
+    expect(bootScript).toContain('cleanExit')
+    expect(bootScript).toContain("'pagehide'")
+    expect(bootScript).toContain("'beforeunload'")
   })
 
   it('捕获子资源加载失败（捕获阶段，资源 error 不冒泡）', () => {
@@ -70,6 +84,47 @@ describe('启动诊断内联脚本契约（#991/#992）', () => {
     expect(bootScript).toContain('elapsed')
     expect(bootScript).toContain('timeout-2s')
     expect(bootScript).toContain('timeout-5s')
+  })
+
+  it('启动页最小展示时长：入场动画播完前不摘除，但用户主动跳过与兜底超时不受约束', () => {
+    expect(bootScript).toMatch(/MIN_VISIBLE_MS\s*=\s*\d+/)
+    expect(bootScript).toContain('splash-hold')
+    expect(bootScript).toContain('hold-elapsed')
+    // 点击/按键跳过必须是强制路径（不能被最小时长挡住）
+    expect(bootScript).toMatch(/reason === 'click' \|\| reason === 'keydown'/)
+  })
+
+  it('原生启动页必须在 #app 之外（否则 Vue 挂载会把它连同子节点一起清掉）', () => {
+    const splashIndex = indexHtml.indexOf('class="native-splash"')
+    const appIndex = indexHtml.indexOf('<div id="app">')
+    expect(splashIndex).toBeGreaterThan(-1)
+    expect(appIndex).toBeGreaterThan(-1)
+    // 启动页先出现，且 #app 是空挂载点（启动页不再包在它里面）
+    expect(splashIndex).toBeLessThan(appIndex)
+    expect(indexHtml).toContain('<div id="app"></div>')
+  })
+
+  it('原生启动页 z-index 高于 Vue SplashScreen，避免双层启动页闪现', () => {
+    // Vue 侧 SplashScreen.vue 用 99999；原生层必须更高
+    expect(indexHtml).toMatch(/\.native-splash\s*\{[\s\S]*?z-index:\s*100000/)
+  })
+
+  it('尊重「开屏动画」开关：关闭时原生启动页不出现（否则开关形同无效）', () => {
+    // 首绘前的 head 脚本读设置并打标记
+    expect(indexHtml).toContain("localStorage.getItem('hbu_ui_settings_v2')")
+    expect(indexHtml).toContain("setAttribute('data-splash', 'off')")
+    // CSS 按标记隐藏原生启动页
+    expect(indexHtml).toContain("html[data-splash='off'] .native-splash")
+    // 采集侧把「跳过」与「卡住后移除」区分开
+    expect(bootScript).toContain('splash-skipped')
+    expect(bootScript).toContain('splash_enabled')
+
+    // 打标记的脚本必须早于启动页标记出现（否则会先绘制一帧再隐藏 → 仍是一闪而过）
+    const markIndex = indexHtml.indexOf("setAttribute('data-splash', 'off')")
+    const splashMarkupIndex = indexHtml.indexOf('class="native-splash"')
+    expect(markIndex).toBeGreaterThan(-1)
+    expect(splashMarkupIndex).toBeGreaterThan(-1)
+    expect(markIndex).toBeLessThan(splashMarkupIndex)
   })
 
   it('URL 脱敏处理非特殊 scheme（tauri:// 的 origin 为字面量 "null"）', () => {

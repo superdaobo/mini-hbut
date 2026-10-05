@@ -75,6 +75,13 @@ export interface BootDiagSnapshot {
   /** 是否走完启动（Vue 挂载 + 启动页移除） */
   finished: boolean
   finishedAt?: number
+  /**
+   * 是否记录到正常退出（`pagehide` / `beforeunload`）。
+   *
+   * iOS 上崩溃与被用户手动划掉都不会触发这两个事件，因此 `false` 的含义是
+   * 「进程未正常结束（崩溃，或被划掉）」—— 报告里如实标注二者不可区分。
+   */
+  cleanExit?: boolean
   meta: Record<string, unknown>
 }
 
@@ -218,6 +225,27 @@ export const readBootDiagnostics = (): {
 }
 
 /**
+ * 判定一次启动的「结局」，用于报告与回放时给出可读结论。
+ *
+ * - `abnormal-exit`：走完了启动，但没记录到正常退出 → 启动完成后进程突然消失
+ *   （崩溃 / 被系统终止 / 被手动划掉，iOS 上无法进一步区分）。
+ * - `incomplete-boot`：连启动都没走完 → 启动期就没了（此前那种「卡死后崩溃」）。
+ * - `clean`：走完启动且记录到正常退出。
+ */
+export type BootOutcome = 'clean' | 'abnormal-exit' | 'incomplete-boot'
+
+export const resolveBootOutcome = (snapshot: BootDiagSnapshot): BootOutcome => {
+  if (snapshot.finished !== true) return 'incomplete-boot'
+  return snapshot.cleanExit === true ? 'clean' : 'abnormal-exit'
+}
+
+const OUTCOME_LABEL: Record<BootOutcome, string> = {
+  clean: '正常结束',
+  'abnormal-exit': '启动完成后进程未正常结束（崩溃 / 被系统终止 / 被手动划掉）',
+  'incomplete-boot': '启动未走完（疑似启动期被系统终止）'
+}
+
+/**
  * 把启动页阶段（`initDebugLogger()` 之前）的记录回放进调试日志缓冲。
  *
  * 必须在 `initDebugLogger()` **之后**调用：该函数会重置 `records`，
@@ -238,17 +266,24 @@ export const replayBootDiagnostics = (): number => {
     replayed += 1
   }
 
-  if (previous && previous.finished === false) {
-    push(
-      'warn',
-      `上次启动未走完（疑似进程被系统终止）：boot=${previous.bootId}，已记录 ${previous.entries.length} 条`,
-      {
-        boot_id: previous.bootId,
-        started_at: new Date(previous.startedAtWall).toISOString(),
-        entries: previous.entries.length,
-        stalls: previous.stalls.length
-      }
-    )
+  if (previous) {
+    const outcome = resolveBootOutcome(previous)
+    if (outcome !== 'clean') {
+      push(
+        'warn',
+        `上次启动结局：${OUTCOME_LABEL[outcome]}（boot=${previous.bootId}，时间线 ${previous.entries.length} 条）`,
+        {
+          boot_id: previous.bootId,
+          outcome,
+          started_at: new Date(previous.startedAtWall).toISOString(),
+          finished: previous.finished,
+          clean_exit: previous.cleanExit === true,
+          alive_ms: previous.meta?.alive_ms,
+          entries: previous.entries.length,
+          stalls: previous.stalls.length
+        }
+      )
+    }
   }
 
   if (current) {
@@ -283,13 +318,24 @@ const formatDuration = (ms: number) => `${Math.round(ms)}ms`
 
 const formatBootSection = (title: string, snapshot: BootDiagSnapshot | null): string[] => {
   if (!snapshot) return [`--- ${title} ---`, '（无记录）']
+  const outcome = resolveBootOutcome(snapshot)
+  const splashRemoved = snapshot.entries.find((entry) => entry.name === 'splash-removed')
+  const splashElapsed = Number(splashRemoved?.detail?.elapsed ?? NaN)
   const lines: string[] = [
     `--- ${title} ---`,
     `boot_id: ${snapshot.bootId}`,
     `启动墙钟: ${new Date(snapshot.startedAtWall).toLocaleString()}`,
-    `是否走完启动: ${snapshot.finished ? `是（${snapshot.finishedAt ?? 0}ms）` : '否（疑似进程被系统终止）'}`,
+    `结局: ${OUTCOME_LABEL[outcome]}`,
+    `是否走完启动: ${snapshot.finished ? `是（${snapshot.finishedAt ?? 0}ms）` : '否'}`,
+    `是否记录到正常退出: ${snapshot.cleanExit === true ? '是' : '否'}`,
     `时间线条目: ${snapshot.entries.length}，长阻塞记录: ${snapshot.stalls.length}`
   ]
+  if (Number.isFinite(splashElapsed)) {
+    lines.push(`启动页可见时长: ${formatDuration(splashElapsed)}（移除原因 ${sanitizeText(splashRemoved?.detail?.reason ?? '')}）`)
+  }
+  if (snapshot.meta?.alive_ms !== undefined) {
+    lines.push(`进程最后存活: ${formatDuration(Number(snapshot.meta.alive_ms) || 0)}（此后无落盘 → 进程在此前后消失）`)
+  }
   for (const stall of snapshot.stalls) {
     lines.push(`  [主线程冻结] ${formatDuration(stall.from)} → ${formatDuration(stall.to)}（间隔 ${formatDuration(stall.gap)}）`)
   }
@@ -325,6 +371,14 @@ export const formatBootDiagnosticsReport = (): string => {
     `可见性: ${typeof document !== 'undefined' ? document.visibilityState : '(未知)'}`,
     ''
   ]
+
+  // 结论置顶：上一轮是否异常结束，是本次取证最想回答的问题
+  if (previous) {
+    lines.push(`上次启动结局: ${OUTCOME_LABEL[resolveBootOutcome(previous)]}`)
+  } else {
+    lines.push('上次启动结局: （无记录 —— 这是本次诊断上线后的第一次启动）')
+  }
+  lines.push('')
 
   lines.push(...formatBootSection('本次启动时间线', current))
   lines.push('')
