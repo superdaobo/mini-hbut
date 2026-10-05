@@ -154,8 +154,11 @@ try {
 // 全局兜底：无论 Vue 是否挂载成功，最多 4s 必须去掉原生启动页
 if (typeof window !== 'undefined') {
   window.setTimeout(() => {
-    // #991：兜底被触发说明 Vue 未在 4s 内挂载，必须留痕（否则只能看到启动页消失、看不到原因）
-    recordBootStage('fallback-4s-splash-removal')
+    // #991：仅当启动页仍在 DOM 中才留痕 —— 否则正常快速启动（启动页早已移除）
+    // 也会记一条，在诊断报告里变成误导性的「兜底被触发」。
+    if (document.getElementById('native-splash')) {
+      recordBootStage('fallback-4s-splash-removal')
+    }
     removeNativeSplash()
   }, 4000)
 }

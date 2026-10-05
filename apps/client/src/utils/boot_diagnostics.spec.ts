@@ -8,6 +8,7 @@ import {
   readStoredBootDiagnostics,
   recordBootStage,
   replayBootDiagnostics,
+  resolveBootOutcome,
   sanitizeDetail,
   sanitizeText,
   sanitizeUrl
@@ -164,6 +165,21 @@ describe('boot_diagnostics 读取与持久化', () => {
   })
 })
 
+describe('boot_diagnostics 结局判定', () => {
+  it('走完启动 + 记录到正常退出 → clean', () => {
+    expect(resolveBootOutcome(makeSnapshot({ finished: true, cleanExit: true }))).toBe('clean')
+  })
+
+  it('走完启动但未记录正常退出 → abnormal-exit（崩溃/被系统终止/被划掉）', () => {
+    expect(resolveBootOutcome(makeSnapshot({ finished: true, cleanExit: false }))).toBe('abnormal-exit')
+    expect(resolveBootOutcome(makeSnapshot({ finished: true }))).toBe('abnormal-exit')
+  })
+
+  it('连启动都没走完 → incomplete-boot', () => {
+    expect(resolveBootOutcome(makeSnapshot({ finished: false, cleanExit: false }))).toBe('incomplete-boot')
+  })
+})
+
 describe('boot_diagnostics 回放', () => {
   it('把启动页阶段记录回放进调试日志，并标记上次未走完的启动', () => {
     const previous = makeSnapshot({
@@ -187,11 +203,40 @@ describe('boot_diagnostics 回放', () => {
 
     const bootLogs = getDebugLogs(200).filter((item) => item.scope === 'Boot')
     const text = bootLogs.map((item) => item.message).join('\n')
-    expect(text).toContain('上次启动未走完')
+    expect(text).toContain('上次启动结局')
+    expect(text).toContain('启动未走完')
     expect(text).toContain('inline-script')
     expect(text).toContain('主线程冻结 20000ms')
     // 资源加载失败以 error 级别写入，便于在设置页筛选
     expect(bootLogs.some((item) => item.level === 'error' && item.message.includes('resource-error'))).toBe(true)
+  })
+
+  it('上次走完启动但未记录正常退出（突然崩溃）也会告警', () => {
+    const previous = makeSnapshot({ bootId: 'boot-crashed', finished: true, cleanExit: false })
+    installStorage({
+      [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current: makeSnapshot(), previous })
+    })
+
+    replayBootDiagnostics()
+    const text = getDebugLogs(200)
+      .filter((item) => item.scope === 'Boot')
+      .map((item) => item.message)
+      .join('\n')
+    expect(text).toContain('进程未正常结束')
+  })
+
+  it('上次正常结束时不产生告警噪音', () => {
+    const previous = makeSnapshot({ bootId: 'boot-ok', finished: true, cleanExit: true })
+    installStorage({
+      [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current: makeSnapshot(), previous })
+    })
+
+    replayBootDiagnostics()
+    const text = getDebugLogs(200)
+      .filter((item) => item.scope === 'Boot')
+      .map((item) => item.message)
+      .join('\n')
+    expect(text).not.toContain('上次启动结局')
   })
 
   it('无记录时回放不抛错', () => {
@@ -220,6 +265,33 @@ describe('boot_diagnostics 报告', () => {
     expect(report).toContain('/splash/cas_bg.webp')
     expect(report).toContain('启动阶段指标（boot_metrics）')
     expect(report).toContain('=== 报告结束 ===')
+  })
+
+  it('报告置顶给出上次启动结局，并显示启动页可见时长与存活时长', () => {
+    const current = makeSnapshot({
+      bootId: 'boot-cur',
+      finished: true,
+      cleanExit: false,
+      entries: [
+        { t: 5, name: 'inline-script' },
+        { t: 63, name: 'splash-removed', detail: { reason: 'vue-mount', elapsed: 63 } }
+      ],
+      meta: { alive_ms: 12_000 }
+    })
+    const previous = makeSnapshot({ bootId: 'boot-prev', finished: true, cleanExit: true })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current, previous }) })
+
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('上次启动结局: 正常结束')
+    expect(report).toContain('结局: 启动完成后进程未正常结束')
+    expect(report).toContain('启动页可见时长: 63ms（移除原因 vue-mount）')
+    expect(report).toContain('进程最后存活: 12000ms')
+    expect(report).toContain('是否记录到正常退出: 否')
+  })
+
+  it('首次启动（无上次记录）时报告明确说明', () => {
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current: makeSnapshot() }) })
+    expect(formatBootDiagnosticsReport()).toContain('这是本次诊断上线后的第一次启动')
   })
 
   it('无记录时报告仍然可用', () => {

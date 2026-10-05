@@ -8,6 +8,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="HandheldFriendly" content="true" />
   <title>HBUT 成绩查询</title>
+  <script>
+    /**
+     * #991：在**首绘之前**决定是否显示原生启动页。
+     *
+     * 背景：「开屏动画」设置（`splashEnabled`）此前只门禁 Vue 的 SplashScreen，
+     * `index.html` 里的原生启动页不受它控制 —— 用户关掉开关后仍会看到一闪而过的
+     * 启动页，开关形同无效。设置已持久化在 localStorage，这里同步读取并打标记，
+     * 由下方 CSS 直接隐藏，保证「关闭」是真正的关闭。
+     *
+     * 存储不可用 / 无记录时保持默认（显示启动页）。
+     */
+    (function () {
+      try {
+        var raw = localStorage.getItem('hbu_ui_settings_v2')
+        if (!raw) return
+        var parsed = JSON.parse(raw)
+        if (parsed && parsed.splashEnabled === false) {
+          document.documentElement.setAttribute('data-splash', 'off')
+        }
+      } catch (e) { /* 存储不可用 → 保持默认 */ }
+    })()
+  </script>
   <!-- 图标字体已改为本地 npm 包，由 main.ts 延迟加载，无 CDN 依赖 -->
   <style>
     @layer reset, legacy, tailwind;
@@ -70,6 +92,10 @@
       overflow: hidden;
       user-select: none;
       -webkit-user-select: none;
+    }
+    /* 用户关闭「开屏动画」：原生启动页也不出现（标记由 <head> 内联脚本在首绘前写入） */
+    html[data-splash='off'] .native-splash {
+      display: none !important;
     }
     .native-splash-bg {
       position: absolute;
@@ -392,6 +418,9 @@
       } catch (e) { /* 存储不可用时仍继续，只是没有跨启动证据 */ }
       restarts += 1
 
+      // 用户是否关闭了「开屏动画」（标记由 <head> 内联脚本在首绘前写入）
+      var splashDisabled = document.documentElement.getAttribute('data-splash') === 'off'
+
       var state = {
         v: 1,
         bootId: 'boot-' + Date.now() + '-' + Math.random().toString(16).slice(2, 8),
@@ -399,6 +428,8 @@
         entries: [],
         stalls: [],
         finished: false,
+        // 正常退出标记（pagehide / beforeunload 置 true）；未置位 = 进程非正常结束
+        cleanExit: false,
         meta: {
           user_agent: sanitizeText(typeof navigator !== 'undefined' ? navigator.userAgent : ''),
           visibility: typeof document !== 'undefined' ? document.visibilityState : '',
@@ -406,7 +437,8 @@
           dpr: (typeof window !== 'undefined' && window.devicePixelRatio) || 1,
           hardware_concurrency: (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 0,
           device_memory_gb: (typeof navigator !== 'undefined' && navigator.deviceMemory) || 0,
-          restart_index: restarts
+          restart_index: restarts,
+          splash_enabled: !splashDisabled
         }
       }
 
@@ -449,8 +481,10 @@
         state.finished = true
         state.finishedAt = rel(nowFn())
         push(name, { finished_at: state.finishedAt }, true)
-        // 启动已完成：停掉心跳，避免应用整个生命周期都每 250ms 唤醒一次
+        // 启动已完成：停掉高频心跳（避免整个生命周期每 250ms 唤醒一次），
+        // 降频为存活心跳，用于捕捉「启动完成后突然崩溃」。
         stopHeartbeat()
+        startLiveness()
         flush()
       }
 
@@ -493,6 +527,17 @@
         }
       }, HEARTBEAT_MS)
 
+      // 启动完成后降频为「存活心跳」：只更新存活时长并落盘。
+      //
+      // 为什么需要：`finished` 在 Vue 挂载时就置 true，因此「启动完成后突然崩溃」
+      // 在下一轮报告里看不出任何异常。崩溃瞬间 JS 来不及执行，唯一可留的线索就是
+      // 最后一次落盘的存活时长（配合 cleanExit 判定）。
+      // 10 分钟后自动停止，避免长期占用定时器。
+      var LIVENESS_MS = 5000
+      var LIVENESS_MAX_TICKS = 120
+      var livenessTimer = null
+      var livenessTicks = 0
+
       function stopHeartbeat() {
         if (heartbeatTimer) {
           clearInterval(heartbeatTimer)
@@ -500,7 +545,24 @@
         }
       }
 
-      // 安全网：即便启动始终未完成（正是要抓的场景），也不让心跳无限期运行
+      function stopLiveness() {
+        if (livenessTimer) {
+          clearInterval(livenessTimer)
+          livenessTimer = null
+        }
+      }
+
+      function startLiveness() {
+        if (livenessTimer) return
+        livenessTimer = setInterval(function () {
+          livenessTicks += 1
+          state.meta.alive_ms = rel(nowFn())
+          flush()
+          if (livenessTicks >= LIVENESS_MAX_TICKS) stopLiveness()
+        }, LIVENESS_MS)
+      }
+
+      // 安全网：即便启动始终未完成（正是要抓的场景），也不让高频心跳无限期运行
       setTimeout(stopHeartbeat, 90000)
 
       // ── 子资源加载失败（捕获阶段；资源 error 不冒泡） ──
@@ -567,7 +629,15 @@
         push('visibilitychange', { state: document.visibilityState })
         scheduleFlush()
       })
+      // 正常退出留痕：下一轮启动若看不到 cleanExit，说明上一轮进程未正常结束
+      // （崩溃，或被用户手动划掉 —— 二者在 iOS 上都无法完全区分，报告里会如实标注）。
+      window.addEventListener('pagehide', function (e) {
+        state.cleanExit = true
+        push('pagehide', { persisted: !!(e && e.persisted) }, true)
+        flush()
+      })
       window.addEventListener('beforeunload', function () {
+        state.cleanExit = true
         push('beforeunload', {}, true)
         flush()
       })
@@ -582,6 +652,13 @@
           return
         }
         removed = true
+        if (splashDisabled) {
+          // 用户关闭了开屏动画：直接摘除，不记成「启动页卡住」
+          push('splash-skipped', { reason: 'splashEnabled=false', at: rel(nowFn()) }, true)
+          try { el.remove() } catch (_) {}
+          flush()
+          return
+        }
         try {
           el.style.transition = 'opacity 0.25s ease'
           el.style.opacity = '0'
