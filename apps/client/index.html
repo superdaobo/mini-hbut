@@ -84,7 +84,10 @@
     .native-splash {
       position: fixed;
       inset: 0;
-      z-index: 99999;
+      /* 必须高于 Vue SplashScreen（z-index 99999）：两者设计几乎相同，
+         原生版在挂载后仍要继续展示到最小可见时长，故由它统一作为可见的那一层，
+         Vue 版在其下（60ms 即淡出）不参与观感，避免出现「双层启动页」闪一下。 */
+      z-index: 100000;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -312,44 +315,51 @@
 </head>
 
 <body>
-  <div id="app">
-    <!-- 原生 HTML Splash：仅 Vue 挂载前占位；必须有纯 JS 超时，否则模块加载卡住会永远停在这里 -->
-    <div class="native-splash" id="native-splash">
-      <div class="native-splash-bg">
-        <div class="native-splash-bg-image"></div>
-        <div class="native-splash-bg-overlay"></div>
-        <div class="native-splash-particles">
-          <span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span>
-          <span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span>
-          <span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span>
-          <span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span>
-          <span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span>
-          <span style="--i:16"></span><span style="--i:17"></span><span style="--i:18"></span>
-          <span style="--i:19"></span><span style="--i:20"></span>
-        </div>
+  <!--
+    原生 HTML Splash：**必须放在 #app 之外**。
+    Vue 挂载时会清空 #app 的子节点，若把它放在里面就必然在挂载瞬间被销毁，
+    无法实现「最小展示时长」。放在外面即成为覆盖层：应用在下面照常挂载与初始化，
+    启动页只负责视觉，不拖慢任何逻辑（实测启动 61ms，启动页按 MIN_VISIBLE_MS 收尾）。
+    必须有纯 JS 超时兜底，否则模块加载卡住会永远停在这里。
+  -->
+  <div class="native-splash" id="native-splash">
+    <div class="native-splash-bg">
+      <div class="native-splash-bg-image"></div>
+      <div class="native-splash-bg-overlay"></div>
+      <div class="native-splash-particles">
+        <span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span>
+        <span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span>
+        <span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span>
+        <span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span>
+        <span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span>
+        <span style="--i:16"></span><span style="--i:17"></span><span style="--i:18"></span>
+        <span style="--i:19"></span><span style="--i:20"></span>
       </div>
-      <div class="native-splash-content">
-        <div class="native-splash-logo-ring">
-          <img src="/splash/app_icon.png" alt="Mini-HBUT" />
+    </div>
+    <div class="native-splash-content">
+      <div class="native-splash-logo-ring">
+        <img src="/splash/app_icon.png" alt="Mini-HBUT" />
+      </div>
+      <h1 class="native-splash-title">Mini-HBUT</h1>
+      <p class="native-splash-subtitle">湖北工业大学智慧校园助手</p>
+      <div class="native-splash-building-wrap">
+        <img src="/splash/cas_building.png" alt="" class="native-splash-building" />
+      </div>
+      <div class="native-splash-loader">
+        <div class="native-splash-spinner">
+          <div class="native-splash-spinner-ring"></div>
+          <div class="native-splash-spinner-ring"></div>
+          <div class="native-splash-spinner-ring"></div>
+          <div class="native-splash-spinner-dot"></div>
         </div>
-        <h1 class="native-splash-title">Mini-HBUT</h1>
-        <p class="native-splash-subtitle">湖北工业大学智慧校园助手</p>
-        <div class="native-splash-building-wrap">
-          <img src="/splash/cas_building.png" alt="" class="native-splash-building" />
-        </div>
-        <div class="native-splash-loader">
-          <div class="native-splash-spinner">
-            <div class="native-splash-spinner-ring"></div>
-            <div class="native-splash-spinner-ring"></div>
-            <div class="native-splash-spinner-ring"></div>
-            <div class="native-splash-spinner-dot"></div>
-          </div>
-          <p class="native-splash-text" id="native-splash-text">正在启动…</p>
-          <p class="native-splash-text" style="font-size:12px;opacity:0.7;margin-top:4px">点击可跳过</p>
-        </div>
+        <p class="native-splash-text" id="native-splash-text">正在启动…</p>
+        <p class="native-splash-text" style="font-size:12px;opacity:0.7;margin-top:4px">点击可跳过</p>
       </div>
     </div>
   </div>
+
+  <!-- Vue 挂载点（启动页是它之上的覆盖层，见上方说明） -->
+  <div id="app"></div>
   <!--
     启动诊断（#991 / #992）：本段必须在任何模块脚本之前执行，否则启动页阶段的证据会丢失
     （initDebugLogger 之后 console 才被 patch，且它只驻留内存、崩溃即丢）。
@@ -420,6 +430,10 @@
 
       // 用户是否关闭了「开屏动画」（标记由 <head> 内联脚本在首绘前写入）
       var splashDisabled = document.documentElement.getAttribute('data-splash') === 'off'
+      // 启动页最小展示时长（毫秒）。取值依据：原生启动页自身入场动画在 1.3s 才全部就位
+      // （楼宇 0.4s、品牌 0.7s、三环转圈 0.7s+0.6s），故取 1.4s 让整套动画完整播完。
+      // 想更短/更长只改这一个常量。
+      var MIN_VISIBLE_MS = 1400
 
       var state = {
         v: 1,
@@ -644,6 +658,7 @@
 
       // ── 启动页移除：必须记录「原因 + 耗时」，这是判定卡死阶段的关键 ──
       var removed = false
+      var removalScheduled = false
       function removeNativeSplash(reason) {
         if (removed) return
         var el = document.getElementById('native-splash')
@@ -651,14 +666,38 @@
           removed = true
           return
         }
-        removed = true
         if (splashDisabled) {
           // 用户关闭了开屏动画：直接摘除，不记成「启动页卡住」
+          removed = true
           push('splash-skipped', { reason: 'splashEnabled=false', at: rel(nowFn()) }, true)
           try { el.remove() } catch (_) {}
           flush()
           return
         }
+
+        var nowRel = rel(nowFn())
+        // 用户主动跳过不受最小时长约束（点击/按键就是要立刻走）
+        var forced = reason === 'click' || reason === 'keydown'
+        var remaining = MIN_VISIBLE_MS - nowRel
+        if (!forced && !removalScheduled && remaining > 0) {
+          // 启动很快（实测 61ms）时，启动页会在动画播完前被摘掉 → 视觉上只剩一闪。
+          // 这里把移除推迟到最小时长，让入场动画完整播完；应用本身早已挂载并可交互，
+          // 只是被这层覆盖遮住，故不增加任何初始化耗时。
+          removalScheduled = true
+          push('splash-hold', {
+            requested_reason: reason,
+            requested_at: nowRel,
+            hold_until: MIN_VISIBLE_MS
+          }, true)
+          scheduleFlush()
+          setTimeout(function () {
+            removalScheduled = false
+            removeNativeSplash('hold-elapsed')
+          }, remaining)
+          return
+        }
+
+        removed = true
         try {
           el.style.transition = 'opacity 0.25s ease'
           el.style.opacity = '0'
@@ -668,7 +707,7 @@
         } catch (e) {
           try { el.remove() } catch (_) {}
         }
-        push('splash-removed', { reason: reason, elapsed: rel(nowFn()) }, true)
+        push('splash-removed', { reason: reason, elapsed: nowRel, forced: forced }, true)
         flush()
         if (reason && typeof console !== 'undefined') {
           console.info('[native-splash] removed:', reason)

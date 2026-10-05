@@ -86,6 +86,29 @@ describe('启动诊断内联脚本契约（#991/#992）', () => {
     expect(bootScript).toContain('timeout-5s')
   })
 
+  it('启动页最小展示时长：入场动画播完前不摘除，但用户主动跳过与兜底超时不受约束', () => {
+    expect(bootScript).toMatch(/MIN_VISIBLE_MS\s*=\s*\d+/)
+    expect(bootScript).toContain('splash-hold')
+    expect(bootScript).toContain('hold-elapsed')
+    // 点击/按键跳过必须是强制路径（不能被最小时长挡住）
+    expect(bootScript).toMatch(/reason === 'click' \|\| reason === 'keydown'/)
+  })
+
+  it('原生启动页必须在 #app 之外（否则 Vue 挂载会把它连同子节点一起清掉）', () => {
+    const splashIndex = indexHtml.indexOf('class="native-splash"')
+    const appIndex = indexHtml.indexOf('<div id="app">')
+    expect(splashIndex).toBeGreaterThan(-1)
+    expect(appIndex).toBeGreaterThan(-1)
+    // 启动页先出现，且 #app 是空挂载点（启动页不再包在它里面）
+    expect(splashIndex).toBeLessThan(appIndex)
+    expect(indexHtml).toContain('<div id="app"></div>')
+  })
+
+  it('原生启动页 z-index 高于 Vue SplashScreen，避免双层启动页闪现', () => {
+    // Vue 侧 SplashScreen.vue 用 99999；原生层必须更高
+    expect(indexHtml).toMatch(/\.native-splash\s*\{[\s\S]*?z-index:\s*100000/)
+  })
+
   it('尊重「开屏动画」开关：关闭时原生启动页不出现（否则开关形同无效）', () => {
     // 首绘前的 head 脚本读设置并打标记
     expect(indexHtml).toContain("localStorage.getItem('hbu_ui_settings_v2')")
