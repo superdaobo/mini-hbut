@@ -222,7 +222,10 @@ function checkGeneratedProjects(skipGen) {
     warn('src-tauri/gen/android 不存在：Android 工程尚未生成（CI android 构建后本项自然生效）')
   }
 
-  if (fs.existsSync('src-tauri/gen/ios')) {
+  // ⚠️ 真实生成目录是 `src-tauri/gen/apple`（xcodegen 产出 `<app>_iOS/Info.plist`），
+  // 不是 `gen/ios`。此前这里查的是 `gen/ios` → 永远走 warn 分支，
+  // **iOS scheme 契约实际从未生效**（#1000 顺带修复）。
+  if (fs.existsSync('src-tauri/gen/apple')) {
     const plists = []
     const walk = (dir) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -231,19 +234,29 @@ function checkGeneratedProjects(skipGen) {
         else if (e.name === 'Info.plist') plists.push(full)
       }
     }
-    walk('src-tauri/gen/ios')
+    walk('src-tauri/gen/apple')
+    // 只认 `_iOS` 工程目录下的 Info.plist（gen/apple 下还有其它产物）
+    const iosPlists = plists.filter((p) => p.split(path.sep).join('/').includes('_iOS/'))
     let found = false
-    for (const plist of plists) {
+    for (const plist of iosPlists) {
       const text = fs.readFileSync(plist, 'utf8')
       if (text.includes('minihbut') && text.includes('CFBundleURLSchemes')) {
         found = true
-        ok(`gen/ios ${path.relative(repoRoot, plist)} 声明 minihbut URL scheme`)
+        ok(`gen/apple ${path.relative(repoRoot, plist)} 声明 minihbut URL scheme`)
       }
     }
-    if (!found) fail('gen/ios Info.plist 未找到 minihbut CFBundleURLSchemes')
+    if (iosPlists.length === 0) {
+      warn('src-tauri/gen/apple 下未找到 *_iOS/Info.plist（iOS 工程尚未完整生成）')
+    } else if (!found) {
+      fail(
+        'gen/apple 的 Info.plist 未找到 minihbut CFBundleURLSchemes —— iOS 上 minihbut://identity 无法唤起 App。' +
+          '请确认已执行 scripts/patch_ios_deep_link_scheme.mjs（本仓库在 `tauri ios init` 之后、xcodebuild 之前调用），' +
+          '或在 macOS 构建环境执行 `npx tauri ios build`（插件 build.rs 亦会注入，但暖缓存下可能被跳过）。',
+      )
+    }
   } else {
     warn(
-      'src-tauri/gen/ios 不存在：iOS 工程只能在 macOS/Xcode 生成（Windows 无法本地生成）。' +
+      'src-tauri/gen/apple 不存在：iOS 工程只能在 macOS/Xcode 生成（Windows 无法本地生成）。' +
         'macOS CI（ios-testflight.yml）生成后必须再次运行本守卫。',
     )
   }
