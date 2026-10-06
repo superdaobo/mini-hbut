@@ -15,6 +15,7 @@ import { isTestAccountSession, clearTestAccountSession } from '../utils/test_acc
 import { showToast } from '../utils/toast'
 import { invokeNative } from '../platform/native'
 import { useCertProbeBanner } from '../composables/certProbe'
+import { useAuthStore } from '../stores'
 import { useI18n, tf } from '../utils/app_i18n'
 
 const props = defineProps({
@@ -36,7 +37,8 @@ watch(
 
 // #719：冷启动校内证书探测。挂载即触发一轮探测；composable 内部用模块级
 // Promise 缓存保证 MeView 反复 remount 时整个应用会话只真正 invoke 一次。
-const { certIssues, ensureCertProbe } = useCertProbeBanner()
+// #1001：同一轮探测结果还驱动「登录状态」圆点的连接状态，并在网络变化后自动重探。
+const { certIssues, certProbeTone, ensureCertProbe } = useCertProbeBanner()
 onMounted(() => {
   ensureCertProbe()
 })
@@ -45,6 +47,49 @@ const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkU
 
 // i18n（#794 批次 I）：响应式取词用于模板与 JS 逻辑（tf 整句插值）
 const { t } = useI18n()
+
+/**
+ * #1001：「登录状态」卡片右侧的圆点必须反映**真实连通性**。
+ *
+ * 修复前它是写死的静态绿色（无任何绑定），所以断网时照样显示绿点、也不给任何提示。
+ * 判定取「会话状态机」与「校内域名探测」的并集（任一异常即红）：
+ * - 会话权威与会话状态点同源（`authStore.onlineSessionState`，见 Dashboard.sessionStatusVisual）；
+ * - 探测权威覆盖「会话本身没报错、但校内域名已经连不上」的情况（证书失败 / 网络不可达），
+ *   这正是本 issue 报的场景。
+ */
+const authStore = useAuthStore()
+const onlineSessionState = computed(() => authStore.onlineSessionState || '')
+
+/** 圆点状态：red = 无法连接（会话异常 / 探测失败）；green = 正常 */
+const connectionStatus = computed(() => {
+  if (!props.isLoggedIn) {
+    return { tone: 'red', message: t('me.status.needLogin') }
+  }
+  const session = String(onlineSessionState.value || '')
+  if (session === 'needs_login') {
+    return { tone: 'red', message: t('me.status.needLogin') }
+  }
+  if (session === 'cached_offline') {
+    return { tone: 'red', message: t('me.status.offline') }
+  }
+  const probe = certProbeTone.value
+  if (probe === 'network-error') {
+    return { tone: 'red', message: t('me.status.offline') }
+  }
+  if (probe === 'cert-error') {
+    // 按设计证书失败同样判为红点；具体域名与原因由 certIssues 的黄色小字给出，
+    // 这里不再叠加一条泛化文案，避免同一卡片出现两条重复提示。
+    return { tone: 'red', message: '' }
+  }
+  return { tone: 'green', message: '' }
+})
+
+/** 圆点无障碍标签（纯视觉圆点对读屏不可见，必须补语义） */
+const connectionAriaLabel = computed(() =>
+  connectionStatus.value.tone === 'red'
+    ? connectionStatus.value.message || t('me.status.certWarning')
+    : t('me.status.connected')
+)
 
 const activeLegalTab = ref('disclaimer')
 const legalSectionRef = ref(null)
@@ -331,6 +376,12 @@ const removeAccount = async (acc) => {
         <div class="status-text">
           <span class="status-title">{{ t('me.status.title') }}</span>
           <span class="status-subtitle">{{ t('me.status.subtitle') }}</span>
+          <!-- #1001：连接异常提示（未登录 / 会话失效 / 校内域名不可达），与右侧圆点同源；
+               正常时不渲染任何节点（v-if 空串即无节点）。 -->
+          <span
+            v-if="connectionStatus.message"
+            class="connection-warning"
+          >{{ connectionStatus.message }}</span>
           <!-- #719：冷启动校内证书探测结果。仅 cert-error 的域逐个显示；
                ok / 网络故障不渲染任何内容（v-for 空数组即无节点）。 -->
           <span
@@ -340,7 +391,13 @@ const removeAccount = async (acc) => {
           >{{ msg }}</span>
         </div>
       </div>
-      <span class="status-dot"></span>
+      <!-- #1001：圆点由 connectionStatus 驱动（修复前是写死的静态绿色） -->
+      <span
+        class="status-dot"
+        :class="{ 'is-red': connectionStatus.tone === 'red' }"
+        role="img"
+        :aria-label="connectionAriaLabel"
+      ></span>
     </section>
 
     <!-- Functional Grid -->
@@ -857,6 +914,25 @@ const removeAccount = async (acc) => {
   border-radius: 50%;
   background: #22c55e;
   box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+}
+
+/* #1001：连接异常红点。取色刻意与首页 .session-status-dot.is-red 一致
+   （styles/views/Dashboard.scoped.css 的 #ef4444），同一语义不在两处用两种红。 */
+.status-dot.is-red {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+/* #1001：连接异常提示文案（与圆点同源，红字）；
+   亮色 red-700，暗色经 html.dark 提亮为 red-400。 */
+.connection-warning {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b91c1c;
+}
+
+:global(html.dark) .connection-warning {
+  color: #f87171;
 }
 
 /* Functional Grid */

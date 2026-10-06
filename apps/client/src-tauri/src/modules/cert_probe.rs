@@ -129,12 +129,20 @@ fn probe_cache() -> &'static Mutex<Option<Vec<DomainCertStatus>>> {
 }
 
 /// Tauri Command：冷启动校内证书探测（带会话级缓存，重复调用直接返回缓存结果）。
+///
+/// `force = true` 跳过缓存强制重探并刷新缓存（#1001）：「我的」页的连接状态点要在网络
+/// 状态变化后重新判定，而会话级缓存会让「断网时探过一轮」的结果一直沿用下去 —— 恢复联网
+/// 后点仍红、断网后点仍绿。缺省（未传或 false）保持原有「会话内只探一轮」语义，remount 零开销。
 #[tauri::command]
-pub async fn probe_school_cert_status() -> Result<Vec<DomainCertStatus>, String> {
+pub async fn probe_school_cert_status(
+    force: Option<bool>,
+) -> Result<Vec<DomainCertStatus>, String> {
     // 命中缓存：本会话已探测过，直接复用（remount 场景零网络开销）
-    if let Ok(cache) = probe_cache().lock() {
-        if let Some(cached) = cache.as_ref() {
-            return Ok(cached.clone());
+    if !force.unwrap_or(false) {
+        if let Ok(cache) = probe_cache().lock() {
+            if let Some(cached) = cache.as_ref() {
+                return Ok(cached.clone());
+            }
         }
     }
 

@@ -77,7 +77,8 @@ describe('ensureCertProbe 会话内防重复探测', () => {
     await mod.ensureCertProbe()
 
     expect(invokeNativeMock).toHaveBeenCalledTimes(1)
-    expect(invokeNativeMock).toHaveBeenCalledWith('probe_school_cert_status')
+    // #1001：显式传 force=false（保持「会话内只探一轮」语义）；强制重探走 force=true
+    expect(invokeNativeMock).toHaveBeenCalledWith('probe_school_cert_status', { force: false })
 
     const { certIssues } = mod.useCertProbeBanner()
     expect(certIssues.value).toEqual(['jwxt.hbut.edu.cn 证书校验未通过，已以兼容模式连接'])
@@ -102,6 +103,70 @@ describe('ensureCertProbe 会话内防重复探测', () => {
     await expect(mod.ensureCertProbe()).resolves.toEqual([])
     const { certIssues } = mod.useCertProbeBanner()
     expect(certIssues.value).toEqual([])
+  })
+})
+
+describe('#1001 连接状态聚合（certProbeToneFromResults）', () => {
+  it('任一域 network-error → network-error（优先于证书问题）', async () => {
+    const { certProbeToneFromResults } = await loadCertProbeModule()
+    expect(
+      certProbeToneFromResults([
+        { domain: 'jwxt.hbut.edu.cn', status: 'cert-error' },
+        { domain: 'e.hbut.edu.cn', status: 'network-error' }
+      ])
+    ).toBe('network-error')
+  })
+
+  it('仅证书失败 → cert-error；两域全通 → ok', async () => {
+    const { certProbeToneFromResults } = await loadCertProbeModule()
+    expect(certProbeToneFromResults([{ domain: 'jwxt.hbut.edu.cn', status: 'cert-error' }])).toBe(
+      'cert-error'
+    )
+    expect(
+      certProbeToneFromResults([
+        { domain: 'jwxt.hbut.edu.cn', status: 'ok' },
+        { domain: 'e.hbut.edu.cn', status: 'ok' }
+      ])
+    ).toBe('ok')
+  })
+
+  it('空/非法输入 → unknown（不据此报红，避免误报）', async () => {
+    const { certProbeToneFromResults } = await loadCertProbeModule()
+    expect(certProbeToneFromResults(null)).toBe('unknown')
+    expect(certProbeToneFromResults(undefined)).toBe('unknown')
+    expect(certProbeToneFromResults([])).toBe('unknown')
+  })
+})
+
+describe('#1001 强制重探（refreshCertProbe）', () => {
+  it('force=true 绕过会话缓存，并用新结果覆盖响应式状态', async () => {
+    const mod = await loadCertProbeModule()
+    invokeNativeMock.mockResolvedValueOnce([
+      { domain: 'jwxt.hbut.edu.cn', status: 'network-error' },
+      { domain: 'e.hbut.edu.cn', status: 'network-error' }
+    ])
+    await mod.ensureCertProbe()
+    const { certProbeTone } = mod.useCertProbeBanner()
+    expect(certProbeTone.value).toBe('network-error')
+
+    // 恢复联网后重探：结果必须覆盖旧值（会话缓存不得把红点永久钉住）
+    invokeNativeMock.mockResolvedValueOnce([
+      { domain: 'jwxt.hbut.edu.cn', status: 'ok' },
+      { domain: 'e.hbut.edu.cn', status: 'ok' }
+    ])
+    await mod.refreshCertProbe()
+
+    expect(invokeNativeMock).toHaveBeenCalledTimes(2)
+    expect(invokeNativeMock).toHaveBeenLastCalledWith('probe_school_cert_status', { force: true })
+    expect(certProbeTone.value).toBe('ok')
+  })
+
+  it('重探失败时降级为 unknown 且不抛出', async () => {
+    const mod = await loadCertProbeModule()
+    invokeNativeMock.mockRejectedValue(new Error('offline'))
+    await expect(mod.refreshCertProbe()).resolves.toEqual([])
+    const { certProbeTone } = mod.useCertProbeBanner()
+    expect(certProbeTone.value).toBe('unknown')
   })
 })
 
@@ -130,5 +195,19 @@ describe('MeView.vue 证书提示展示契约', () => {
     expect(source).toContain('#b45309')
     expect(source).toContain(':global(html.dark) .cert-probe-warning')
     expect(source).toContain('#fbbf24')
+  })
+
+  it('#1001：圆点由 connectionStatus 驱动，不再是静态绿点', () => {
+    const source = vue()
+    // 回归护栏：历史上圆点是裸的、无任何绑定（这正是 issue 的根因）
+    expect(source).not.toContain('<span class="status-dot"></span>')
+    expect(source).toContain("connectionStatus.tone === 'red'")
+    expect(source).toContain('.status-dot.is-red')
+    // 异常提示文案与圆点同源
+    expect(source).toContain('connectionStatus.message')
+    expect(source).toContain('.connection-warning {')
+    // 会话权威与会话状态点同源（Dashboard 用的是同一个 store 字段）
+    expect(source).toContain('useAuthStore')
+    expect(source).toContain('onlineSessionState')
   })
 })
