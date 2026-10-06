@@ -142,21 +142,21 @@ describe('game center feature flags', () => {
     ).toBe('https://ok.example.com/v1')
   })
 
-  it('#970a：跨环境 api_base 在 flags 层被拒（只过 HTTPS 不够，还须环境兼容）', () => {
-    // 本测试运行在 test 构建档位（VITE_BUILD_PROFILE 非 release）→ 两个生产域都是跨环境配置，
-    // 即使它们是合法 HTTPS 地址也**不得**被采纳为 flags.api_base（下游 resolver 的护栏
-    // 不是该字段的唯一入口，flags 层必须独立拒绝 —— #947 在 resolver 侧收口后的 flags 级补断言）
-    const foreignBases = [
+  it('#1003：环境隔离取消后生产域被采纳为 override；已下线的测试域仍被拒', () => {
+    // 2026-10-06 起所有构建档位统一走生产后端 → 主域与唯一兜底域都是「本环境域」，
+    // 必须被采纳为显式 override（否则远程配置下发的 api_base 会被静默丢弃，
+    // 而线上 remote_config 正是用 api_base 把游戏平台钉在兜底域上）
+    const ownBases = [
       'https://mini.hbut.site/api/game-platform/v1',
       'https://mini-hbut-ocr-service.hf.space/api/game-platform/v1'
     ]
-    for (const foreign of foreignBases) {
-      const flags = resolveGameCenterFlags({ game_platform: { api_base: foreign } })
-      expect(flags.api_base, `${foreign} 不应被采纳`).not.toBe(foreign)
-      expect(flags.api_base).not.toContain('mini.hbut.site')
-      expect(flags.api_base).not.toContain('mini-hbut-ocr-service.hf.space')
+    for (const own of ownBases) {
+      expect(resolveGameCenterFlags({ game_platform: { api_base: own } }).api_base).toBe(own)
     }
-    // 本环境域（与构建档位同环境）保留为显式 override
+    // 已下线的测试域（Space 已 PAUSED）不得被采纳
+    const retired = 'https://mini-hbut-testocr1.hf.space/api/game-platform/v1'
+    expect(resolveGameCenterFlags({ game_platform: { api_base: retired } }).api_base).not.toBe(retired)
+    // 环境默认源同样保留为显式 override
     const ownBase = `${STATISTICS_SERVICE_BASE_URL}/api/game-platform/v1`
     expect(resolveGameCenterFlags({ game_platform: { api_base: ownBase } }).api_base).toBe(ownBase)
   })

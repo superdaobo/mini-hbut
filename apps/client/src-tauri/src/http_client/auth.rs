@@ -306,14 +306,11 @@ fn compute_is_already_logged_in(final_url: &str, service_url: &str) -> bool {
 }
 
 fn is_first_party_ocr_endpoint(url: &str) -> bool {
-    // 两域白名单（契约 §9）+ 测试隔离域：只有一方域名才附带 x-mini-hbut-* 遥测头
-    [
-        "https://mini.hbut.site/",
-        "https://mini-hbut-ocr-service.hf.space/",
-        "https://mini-hbut-testocr1.hf.space/",
-    ]
-    .iter()
-    .any(|prefix| url.starts_with(prefix))
+    // 两域白名单（契约 §9）：只有我方域名才附带 x-mini-hbut-* 遥测头。
+    // 已下线的测试域（testocr1，Space 已 PAUSED）不再列入 —— 它已被所有档位拒绝。
+    ["https://mini.hbut.site/", "https://mini-hbut-ocr-service.hf.space/"]
+        .iter()
+        .any(|prefix| url.starts_with(prefix))
 }
 
 async fn try_ocr_endpoint(
@@ -1173,7 +1170,7 @@ impl HbutClient {
 
         // 3) 本地兜底列表（可被远程配置覆盖）
         let local_fallbacks = if self.ocr_local_fallback_endpoints.is_empty() {
-            super::DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
+            super::DEFAULT_OCR_FALLBACK_ENDPOINTS
                 .iter()
                 .map(|v| v.to_string())
                 .collect::<Vec<_>>()

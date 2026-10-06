@@ -1,45 +1,67 @@
+/**
+ * 后端服务地址与环境判定（**唯一权威**）。
+ *
+ * ## 2026-10-06 决策：所有构建档位统一使用生产后端
+ *
+ * 原设计：只有 `release` 档位用生产域，dev / beta / 本地一律被「环境隔离」指向测试 Space
+ * `mini-hbut-testocr1.hf.space`，并主动拒绝生产域（避免测试数据写进生产库）。
+ *
+ * 触发变更的事实：该测试 Space 被 HuggingFace 置为 `stage=PAUSED`
+ * （`errorMessage: "Flagged as abusive"`），而隔离规则又连带拒掉了生产兜底域 —— 于是
+ * dev / beta 包**没有任何可用后端**（云同步 / OCR / 排行榜 / 游戏平台全线失败），
+ * 且失败是静默的。产品负责人拍板：**统一使用 `mini.hbut.site`（主）
+ * + `mini-hbut-ocr-service.hf.space`（唯一兜底），哪怕是测试版也这样**。
+ *
+ * ⚠️ 取舍（必须知晓）：dev / beta 的写入会落到**生产库** —— 原本由环境隔离阻断。
+ * 需要隔离数据时，请在设置里把「自定义后端」指向自建实例，不要依赖构建档位。
+ *
+ * ⚠️ 已下线的测试域：`mini-hbut-testocr1.hf.space` 不再被任何档位接受，存量落盘配置会被
+ * 清理 —— 否则历史值会把请求带回一个已经不存在的后端（正是本次故障的形态）。
+ *
+ * ⚠️ **本文件是唯一权威**：`cloud_sync_config.ts` 与 `game_center/base.ts` 必须消费
+ * `isProductionStatisticsEnvironment()`，不得各自再读 `VITE_BUILD_PROFILE`。
+ * 历史上三处各自判定（本文件 + 云同步 + 游戏候选），改一处漏两处 —— 这次统一切换
+ * 就是因为「云同步与游戏榜走组模型、而环境域判定各写一遍」而反复踩坑。
+ */
 export type StatisticsEnvironment = 'production' | 'test'
 
 // 生产主域/兜底域的唯一权威（契约 docs/architecture/backend-endpoints-contract.md §9）
-import { FALLBACK_BACKEND_ORIGIN, PRIMARY_BACKEND_ORIGIN } from './backend_endpoints'
+import { PRIMARY_BACKEND_ORIGIN } from './backend_endpoints'
 
-const buildProfile = String(import.meta.env.VITE_BUILD_PROFILE || 'standard').trim().toLowerCase()
+/**
+ * 解析后端环境。
+ *
+ * 自 2026-10-06 起**恒为 `production`**（见文件头决策说明）。参数保留仅为兼容既有调用点；
+ * 不要再据此恢复「按构建档位选后端」的行为 —— 构建来源请读 `VITE_BUILD_PROFILE`。
+ */
+export const resolveStatisticsEnvironment = (_profile?: unknown): StatisticsEnvironment => 'production'
 
-export const resolveStatisticsEnvironment = (profile: unknown): StatisticsEnvironment =>
-  String(profile || '').trim().toLowerCase() === 'release' ? 'production' : 'test'
+/** 后端环境（恒为 production）。构建来源另见 `VITE_BUILD_PROFILE`（启动诊断报告会展示）。 */
+export const STATISTICS_ENVIRONMENT: StatisticsEnvironment = resolveStatisticsEnvironment(
+  String(import.meta.env.VITE_BUILD_PROFILE || 'standard').trim().toLowerCase()
+)
 
-export const STATISTICS_ENVIRONMENT: StatisticsEnvironment = resolveStatisticsEnvironment(buildProfile)
-
-/** 生产 = mini.hbut.site（主域）；测试 = testocr1（环境隔离，不进生产配置） */
-export const STATISTICS_SERVICE_BASE_URL = STATISTICS_ENVIRONMENT === 'production'
-  ? PRIMARY_BACKEND_ORIGIN
-  : 'https://mini-hbut-testocr1.hf.space'
+/** 后端主域：恒为 `mini.hbut.site`（兜底域由 `backend_endpoints.ts` 的组模型承担） */
+export const STATISTICS_SERVICE_BASE_URL = PRIMARY_BACKEND_ORIGIN
 
 export const STATISTICS_HEALTH_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/health`
 export const STATISTICS_CLOUD_SYNC_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/api/cloud-sync`
 export const STATISTICS_OCR_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/api/ocr/recognize`
 
+/**
+ * 是否走生产后端（**恒 true**）。
+ *
+ * 其它模块必须消费本函数来「是否启用组模型与故障转移」，不得各自读构建档位 —— 见文件头。
+ */
 export const isProductionStatisticsEnvironment = () => STATISTICS_ENVIRONMENT === 'production'
 
 /**
- * 各环境的已知服务域（**按 hostname 精确匹配**，不得做子串匹配 —— 见下方说明）。
+ * 已下线的测试域（历史环境隔离目标，Space 已 PAUSED）。
  *
- * 生产域集合收敛为两域（契约 §9）：`mini.hbut.site`（主）+ 兜底域。
- * 历史第三方 OCR 域已下架：不再视为生产域（存量配置在两端环境均放行，不做硬拒绝，
- * 避免历史用户配置失效）。
+ * 任何档位都拒绝它：存量落盘配置若仍指向这里，会把请求带回一个不存在的后端，
+ * 而失败形态是「返回 HTML 而非 JSON」这类**静默**错误（云同步只会报「无效响应」）。
  */
-const hostOf = (origin: string): string => {
-  try {
-    return new URL(origin).hostname.toLowerCase()
-  } catch {
-    return ''
-  }
-}
-
-const PRODUCTION_HOSTS = [hostOf(PRIMARY_BACKEND_ORIGIN), hostOf(FALLBACK_BACKEND_ORIGIN)].filter(
-  Boolean
-)
-const TEST_HOSTS = ['mini-hbut-testocr1.hf.space'] as const
+const RETIRED_TEST_HOSTS = ['mini-hbut-testocr1.hf.space'] as const
 
 const hostMatches = (hostname: string, host: string): boolean =>
   hostname === host || hostname.endsWith(`.${host}`)
@@ -54,7 +76,7 @@ const hostMatches = (hostname: string, host: string): boolean =>
  * 2. **无 scheme 的 `host:port`**（如 `localhost:3000/api/...`）：WHATWG URL 会把
  *    `localhost:` 整体当作 opaque scheme、"成功"解析出空 hostname —— 空 hostname
  *    不采纳，回落按 `https://` 前缀再解析一次得到真实 hostname（`localhost`）。
- *    结论：识别为本地地址（loopback 语义）→ 两端环境都放行，**不误清**（本地联调可用）。
+ *    结论：识别为本地地址（loopback 语义）→ 放行，**不误清**（本地联调可用）。
  * 3. 其余形态先按原字符串、再按 `https://` 前缀尝试（兼容历史「无 scheme 域名」配置）。
  */
 const resolveHostname = (value: unknown): string => {
@@ -74,28 +96,18 @@ const resolveHostname = (value: unknown): string => {
 }
 
 /**
- * 判定服务地址是否与当前构建环境兼容（生产构建拒测试域、测试构建拒生产域）。
+ * 判定服务地址是否可用（只拒**已下线的测试域**；自定义域与 loopback 一律放行）。
  *
  * ⚠️ 必须按 **hostname** 比较，不能对原始字符串做子串匹配：
  * `https://mini-hbut-testocr1%2ehf.space/...`（百分号编码点）与
  * `https://mini-hbut-testocr1。hf.space/...`（U+3002 全角句点）经 WHATWG URL 规范化后
- * **就是测试域**，但它们不含字面子串 `mini-hbut-testocr1.hf.space` —— 子串匹配会把它们
- * 当成"自定义域"放行，跨环境护栏（`pickEnvironmentCompatibleBase`）与落盘值清理都会被绕过。
+ * **就是同一个域**，但它们不含字面子串 —— 子串匹配会把它们当成"自定义域"放行，
+ * 落盘值清理会被绕过。
  *
- * 自定义域与 loopback 在两端环境都放行（只拒"另一端环境"的已知域）；
- * 无法解析为 URL 的值一律判**不兼容**（fail closed）。
+ * 无法解析为 URL 的值一律判**不可用**（fail closed）。
  */
-export const isStatisticsServiceUrlCompatibleForEnvironment = (
-  value: unknown,
-  environment: StatisticsEnvironment
-): boolean => {
+export const isStatisticsServiceUrlCompatible = (value: unknown): boolean => {
   const hostname = resolveHostname(value)
   if (!hostname) return false
-  const isProductionHost = PRODUCTION_HOSTS.some((host) => hostMatches(hostname, host))
-  const isTestHost = TEST_HOSTS.some((host) => hostMatches(hostname, host))
-  if (environment === 'production') return !isTestHost
-  return !isProductionHost
+  return !RETIRED_TEST_HOSTS.some((host) => hostMatches(hostname, host))
 }
-
-export const isStatisticsServiceUrlCompatible = (value: unknown): boolean =>
-  isStatisticsServiceUrlCompatibleForEnvironment(value, STATISTICS_ENVIRONMENT)

@@ -201,7 +201,20 @@ describe('getCloudSyncRuntimeConfig（契约 §4 优先级）', () => {
     expect(runtime.proxyEndpoint).toBe('https://local.example.com/api/cloud-sync')
   })
 
-  it('非 release 构建强制环境端点（单候选，不启用组模型）', async () => {
+  it('所有构建档位统一启用组模型：无远程配置时主域 + 唯一兜底域双候选', async () => {
+    const { config, settings } = await loadModules('standard')
+    setLocalSettings(settings, { cloudSyncEndpoint: '' })
+    writeSnapshot({})
+    const runtime = config.getCloudSyncRuntimeConfig()
+    // 2026-10-06 起不再有「环境隔离单候选」；内置组模型必须同时给出兜底能力
+    expect(runtime.endpoints).toHaveLength(2)
+    expect(runtime.proxyEndpoint).toContain('mini.hbut.site')
+    expect(runtime.endpoints[1].url).toContain('mini-hbut-ocr-service.hf.space')
+    // 已下线的测试域不得再出现
+    expect(JSON.stringify(runtime)).not.toContain('testocr1')
+  })
+
+  it('远程组模型生效（dev 档位同样按组模型，不再回落测试域）', async () => {
     const { config, settings } = await loadModules('standard')
     setLocalSettings(settings, { cloudSyncEndpoint: '' })
     writeSnapshot({
@@ -209,7 +222,7 @@ describe('getCloudSyncRuntimeConfig（契约 §4 优先级）', () => {
     })
     const runtime = config.getCloudSyncRuntimeConfig()
     expect(runtime.endpoints).toHaveLength(1)
-    expect(runtime.proxyEndpoint).toContain('mini-hbut-testocr1.hf.space')
+    expect(runtime.proxyEndpoint).toContain('mini.hbut.site')
   })
 
   it('远程 fallback_endpoints 生效（无 groups 时）', async () => {

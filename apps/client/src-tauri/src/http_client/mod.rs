@@ -98,16 +98,17 @@ pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/caslogin
 
 /// 生产主域（契约 docs/architecture/backend-endpoints-contract.md §9：两域模型）
 pub(super) const PRODUCTION_OCR_ENDPOINT: &str = "https://mini.hbut.site/api/ocr/recognize";
-pub(super) const TEST_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
 /// 唯一兜底域（原自建机明文端点已随两域模型下架；契约 §9）
 pub(super) const FALLBACK_OCR_ENDPOINT: &str =
     "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize";
-pub(super) const SECONDARY_OCR_ENDPOINT: &str = TEST_OCR_ENDPOINT;
-pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] =
-    &[FALLBACK_OCR_ENDPOINT, SECONDARY_OCR_ENDPOINT];
-/// Release 构建仅允许 production HTTPS OCR，避免验证码图片经明文 HTTP 外传，
-/// 同时防止正式用户的 OCR 与统计数据落入 testocr1。主域失败时按序回落唯一兜底域。
-pub(super) const DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] =
+/// 已下线的测试域（Space 已被 HuggingFace 置为 PAUSED）。
+///
+/// 2026-10-06 起**所有构建档位**统一走生产主域 + 唯一兜底域，测试域不再被任何档位使用；
+/// 这里保留它的唯一目的是**拒绝**存量配置里的历史值 —— 否则请求会被带回一个不存在的后端，
+/// 而失败形态是「返回 HTML 而非 JSON」这类静默错误（前端只报「无效响应」）。
+const RETIRED_TEST_OCR_HOST: &str = "mini-hbut-testocr1.hf.space";
+/// OCR 端点候选：主域失败时按序回落唯一兜底域。
+pub(super) const DEFAULT_OCR_FALLBACK_ENDPOINTS: &[&str] =
     &[PRODUCTION_OCR_ENDPOINT, FALLBACK_OCR_ENDPOINT];
 
 /// 登录风控：完整 CAS 尝试（收到认证服务器真实响应）的冷却时长（60s）。
@@ -215,54 +216,38 @@ pub(super) fn is_jwxt_bootstrap_failure(
         .unwrap_or(false)
 }
 
-fn is_production_ocr_endpoint(endpoint: &str) -> bool {
-    let normalized = endpoint.trim().to_ascii_lowercase();
-    // 两域白名单（契约 §9）：主域 + 唯一兜底域；历史第三方 OCR 域已下架（按自定义域放行）
-    normalized.contains("mini.hbut.site") || normalized.contains("mini-hbut-ocr-service.hf.space")
-}
-
-fn is_test_ocr_endpoint(endpoint: &str) -> bool {
+fn is_retired_test_ocr_endpoint(endpoint: &str) -> bool {
     endpoint
         .trim()
         .to_ascii_lowercase()
-        .contains("mini-hbut-testocr1.hf.space")
+        .contains(RETIRED_TEST_OCR_HOST)
 }
 
-pub(super) fn is_statistics_production_build() -> bool {
-    matches!(option_env!("MINI_HBUT_BUILD_PROFILE"), Some("release"))
-}
-
+/// 默认远程 OCR 端点：恒为生产主域。
+///
+/// 2026-10-06 决策前，dev / 本地档位默认走 testocr1；该 Space 被 HF 置为 PAUSED 后
+/// dev 包没有任何可用后端，故所有档位统一走生产主域（见 `statistics_environment.ts` 文件头）。
 pub(super) fn default_remote_ocr_endpoint() -> &'static str {
-    if is_statistics_production_build() {
-        PRODUCTION_OCR_ENDPOINT
-    } else {
-        TEST_OCR_ENDPOINT
-    }
+    PRODUCTION_OCR_ENDPOINT
 }
 
-/// dev-fast / 本地 profile 默认不访问 production OCR；release profile 拒绝 testocr1 与非 HTTPS 地址。
-pub(super) fn filter_release_ocr_endpoints(endpoints: Vec<String>) -> Vec<String> {
-    if !is_statistics_production_build() {
-        return endpoints
-            .into_iter()
-            .filter(|endpoint| !is_production_ocr_endpoint(endpoint))
-            .collect();
-    }
+/// 过滤 OCR 端点：只允许 HTTPS，并拒绝已下线的测试域。
+///
+/// 原实现按构建档位分两套规则（dev 档位反过来拒生产域）；档位分流取消后收敛为单套。
+pub(super) fn filter_ocr_endpoints(endpoints: Vec<String>) -> Vec<String> {
     endpoints
         .into_iter()
         .filter(|endpoint| {
-            endpoint.trim().starts_with("https://") && !is_test_ocr_endpoint(endpoint)
+            endpoint.trim().starts_with("https://") && !is_retired_test_ocr_endpoint(endpoint)
         })
         .collect()
 }
 
 fn default_local_ocr_fallback_endpoints() -> Vec<String> {
-    let source = if is_statistics_production_build() {
-        DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS
-    } else {
-        DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
-    };
-    source.iter().map(|v| v.to_string()).collect()
+    DEFAULT_OCR_FALLBACK_ENDPOINTS
+        .iter()
+        .map(|v| v.to_string())
+        .collect()
 }
 
 /// 判断是否跳转到了教务登录页（包含 CAS 登录与教务自身登录页）。
@@ -668,13 +653,13 @@ impl HbutClient {
         } else {
             let normalized = Self::normalize_ocr_endpoint(trimmed);
             self.ocr_endpoint = Some(normalized.clone());
-            self.ocr_remote_endpoints = filter_release_ocr_endpoints(vec![normalized]);
+            self.ocr_remote_endpoints = filter_ocr_endpoints(vec![normalized]);
         }
         if self.ocr_local_fallback_endpoints.is_empty() {
             self.ocr_local_fallback_endpoints = default_local_ocr_fallback_endpoints();
         }
         self.ocr_local_fallback_endpoints =
-            filter_release_ocr_endpoints(self.ocr_local_fallback_endpoints.clone());
+            filter_ocr_endpoints(self.ocr_local_fallback_endpoints.clone());
         // 每次配置更新后清理运行态，下一次 OCR 请求会重新填充状态。
         self.ocr_active_endpoint = None;
         self.ocr_active_source = None;
@@ -704,14 +689,14 @@ impl HbutClient {
         local_fallback_endpoints: Vec<String>,
     ) {
         self.ocr_remote_endpoints =
-            filter_release_ocr_endpoints(Self::normalize_ocr_endpoint_list(endpoints));
+            filter_ocr_endpoints(Self::normalize_ocr_endpoint_list(endpoints));
         self.ocr_endpoint = self.ocr_remote_endpoints.first().cloned();
 
         let normalized_local = Self::normalize_ocr_endpoint_list(local_fallback_endpoints);
         self.ocr_local_fallback_endpoints = if normalized_local.is_empty() {
             default_local_ocr_fallback_endpoints()
         } else {
-            filter_release_ocr_endpoints(normalized_local)
+            filter_ocr_endpoints(normalized_local)
         };
 
         self.ocr_active_endpoint = None;
@@ -748,7 +733,7 @@ impl HbutClient {
                 result.push(normalized);
             }
         }
-        filter_release_ocr_endpoints(result)
+        filter_ocr_endpoints(result)
     }
 
     pub(super) fn set_ocr_runtime_success(&mut self, source: &str, endpoint: &str) {
@@ -770,7 +755,7 @@ impl HbutClient {
             "local_fallback_endpoints": self.ocr_local_fallback_endpoints.clone(),
             "default_remote_endpoint": default_remote_ocr_endpoint(),
             "fallback_endpoint": FALLBACK_OCR_ENDPOINT,
-            "default_local_fallback_endpoints": DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS,
+            "default_local_fallback_endpoints": DEFAULT_OCR_FALLBACK_ENDPOINTS,
             "active_endpoint": self.ocr_active_endpoint.clone(),
             "active_source": self.ocr_active_source.clone().unwrap_or_else(|| "unknown".to_string()),
             "fallback_used": self.ocr_active_source.as_deref().map(|v| v.contains("fallback")).unwrap_or(false),
@@ -937,24 +922,35 @@ mod tls_policy_tests {
 mod statistics_environment_tests {
     use super::*;
 
+    /// 2026-10-06 决策：所有构建档位统一走生产主域 + 唯一兜底域，
+    /// 已下线的测试域（Space 已 PAUSED）在任何档位都必须被拒绝。
     #[test]
-    fn ocr_endpoints_follow_build_profile_environment() {
-        let filtered = filter_release_ocr_endpoints(vec![
+    fn ocr_endpoints_are_unified_on_production_and_reject_retired_test_host() {
+        assert_eq!(default_remote_ocr_endpoint(), PRODUCTION_OCR_ENDPOINT);
+
+        let retired_test = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize".to_string();
+        let filtered = filter_ocr_endpoints(vec![
             PRODUCTION_OCR_ENDPOINT.to_string(),
-            TEST_OCR_ENDPOINT.to_string(),
+            FALLBACK_OCR_ENDPOINT.to_string(),
+            retired_test.clone(),
+            "http://plain.example.com/api/ocr/recognize".to_string(),
         ]);
-        if is_statistics_production_build() {
-            assert_eq!(default_remote_ocr_endpoint(), PRODUCTION_OCR_ENDPOINT);
-            assert!(filtered
-                .iter()
-                .any(|value| value == PRODUCTION_OCR_ENDPOINT));
-            assert!(!filtered.iter().any(|value| value == TEST_OCR_ENDPOINT));
-        } else {
-            assert_eq!(default_remote_ocr_endpoint(), TEST_OCR_ENDPOINT);
-            assert!(filtered.iter().any(|value| value == TEST_OCR_ENDPOINT));
-            assert!(!filtered
-                .iter()
-                .any(|value| value == PRODUCTION_OCR_ENDPOINT));
-        }
+
+        assert!(filtered.iter().any(|value| value == PRODUCTION_OCR_ENDPOINT));
+        assert!(filtered.iter().any(|value| value == FALLBACK_OCR_ENDPOINT));
+        // 已下线的测试域与非 HTTPS 地址都必须被剔除
+        assert!(!filtered.iter().any(|value| value == &retired_test));
+        assert!(!filtered.iter().any(|value| value.starts_with("http://")));
+    }
+
+    #[test]
+    fn local_fallback_defaults_to_production_then_fallback_domain() {
+        assert_eq!(
+            default_local_ocr_fallback_endpoints(),
+            vec![
+                PRODUCTION_OCR_ENDPOINT.to_string(),
+                FALLBACK_OCR_ENDPOINT.to_string()
+            ]
+        );
     }
 }
