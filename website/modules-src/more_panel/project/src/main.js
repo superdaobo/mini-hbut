@@ -46,19 +46,95 @@ const readContext = () => {
     className: read('class_name'),
     appVersion: read('app_version'),
     hostOrigin: read('host_origin'),
-    gamePlatformApi: read('game_platform_api') || read('game_platform_api_base'),
+    // 游戏平台基址：宿主可能用 `game_platform_api` 或 `api_base` 两个名字之一注入
+    gamePlatformApi:
+      read('game_platform_api') || read('game_platform_api_base') || read('api_base'),
+    // 宿主注入的目录地址与主题：
+    // - `game_list`：宿主直接注入的游戏清单（首选）。面板由 Rust bridge 提供、
+    //   而 catalog 在 CDN 上 → 面板自行 fetch 属**跨域**会被 CORS 拦下，且还要等网络；
+    //   注入后首帧即可渲染游戏。
+    // - `catalog_url`：无注入清单时的回退地址（同源部署时可用）。
+    // - `theme`：iframe 看不到宿主的 html.dark，而 prefers-color-scheme 是系统偏好。
+    gameList: read('game_list'),
+    catalogUrl: read('catalog_url'),
+    theme: read('theme'),
     runtime: read('runtime')
   }
 }
 
+/** 解析宿主注入的游戏清单（JSON）；不可用时返回 null 交给回退路径 */
+const parseInjectedGameList = (ctx) => {
+  const raw = String(ctx.gameList || '').trim()
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    const entries = parsed
+      .filter((item) => item && typeof item === 'object' && String(item.id || '').trim())
+      .map((item) => ({
+        id: String(item.id).trim(),
+        name: String(item.name || item.id).trim(),
+        icon: String(item.icon || '🎮').trim()
+      }))
+      .filter((item) => item.id !== MODULE_ID)
+    return entries
+  } catch {
+    return null
+  }
+}
+
 /**
- * 从自身 URL 推导同 channel 的 catalog 地址。
- * 本模块发布在 `<base>/modules/<channel>/more_panel/<version>/site/index.html`，
- * catalog 在同 channel 根：`<base>/modules/<channel>/catalog.json`。
+ * 从自身 URL 推导**模块构建版本**。
+ *
+ * ⚠️ 必须与宿主的 `moduleVersion` 一致，否则宿主会因版本不匹配**丢弃**高度上报
+ * （`MoreModuleHostView` 的 `module-size` 分支按 module_id + version 双重校验）。
+ * 曾误用 `app_version`（App 版本）→ 上报被静默丢弃 → 宿主一直显示加载提示并压在面板标题上。
+ *
+ * 两种形态都要覆盖：CDN 直链 `/modules/<channel>/<id>/<version>/`，
+ * 以及宿主下载后由 Rust bridge 预览的 `/module_bundle/content/<channel>/<id>/<version>/`。
  */
-const resolveCatalogUrl = () => {
-  const match = window.location.pathname.match(/^(.*\/modules\/[^/]+\/)/)
-  return match ? `${match[1]}catalog.json` : ''
+const resolveModuleVersionFromUrl = () => {
+  const source = `${window.location.href} ${window.location.pathname}`
+  const patterns = [
+    /\/module_bundle\/content\/[^/]+\/[^/]+\/([^/]+)\//i,
+    /\/modules\/[^/]+\/[^/]+\/([^/]+)\//i
+  ]
+  for (const pattern of patterns) {
+    const matched = source.match(pattern)
+    if (matched && matched[1]) return matched[1]
+  }
+  return ''
+}
+
+/**
+ * 解析游戏清单（catalog.json）地址。
+ *
+ * 优先用宿主注入的 `catalog_url`：面板常以 bridge 预览形态加载
+ * （`/module_bundle/content/...`），此时自身 URL 推导出的地址**不是**目录所在位置。
+ * 注入缺失时才回退到按路径推导。
+ */
+const resolveCatalogUrl = (ctx) => {
+  const injected = String(ctx.catalogUrl || '').trim()
+  if (injected) return injected
+  const pathname = String(window.location.pathname || '')
+  const bridgeMatch = pathname.match(/^(.*\/module_bundle\/content\/[^/]+\/)/)
+  if (bridgeMatch) return `${bridgeMatch[1]}catalog.json`
+  const cdnMatch = pathname.match(/^(.*\/modules\/[^/]+\/)/)
+  if (cdnMatch) return `${cdnMatch[1]}catalog.json`
+  return ''
+}
+
+/**
+ * 应用宿主注入的主题。
+ *
+ * iframe 拿不到宿主的 `html.dark`，而 `prefers-color-scheme` 反映的是**系统**偏好 ——
+ * App 内可独立切主题，两者会不一致。宿主注入 `theme` 时以它为准（见 style.css 的
+ * `[data-theme]` 覆盖规则）。
+ */
+const applyTheme = (ctx) => {
+  const theme = String(ctx.theme || '').toLowerCase()
+  if (theme !== 'light' && theme !== 'dark') return
+  document.documentElement.dataset.theme = theme
 }
 
 /**
@@ -97,7 +173,9 @@ const reportModuleSize = () => {
         type: HOST_SIZE_MESSAGE_TYPE,
         moduleId: MODULE_ID,
         module_id: MODULE_ID,
-        version: ctx.appVersion,
+        // 必须是**模块构建版本**（与宿主 session 里的 version 一致），
+        // 发 app_version 会被宿主的版本校验丢弃
+        version: resolveModuleVersionFromUrl(),
         height
       },
       resolveTargetOrigin(ctx)
@@ -118,6 +196,24 @@ const scheduleSizeReport = () => {
   }
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush)
   else setTimeout(flush, 16)
+}
+
+/**
+ * 启动期重复上报。
+ *
+ * 单次上报会输给宿主的「加载提示」定时器：iframe 首帧的 rAF 不一定在宿主计时窗口内落地，
+ * 宿主就会一直显示加载提示并压在面板标题上（本机实测）。这里在启动后的一小段时间内
+ * 重复上报几次（幂等、开销可忽略），把这类时序竞态压掉；之后由 resize / ResizeObserver 接管。
+ */
+const SIZE_REPORT_BURST_MS = [0, 300, 800, 1500, 3000, 5000]
+const startSizeReportBurst = () => {
+  for (const delay of SIZE_REPORT_BURST_MS) {
+    if (delay === 0) {
+      scheduleSizeReport()
+      continue
+    }
+    setTimeout(scheduleSizeReport, delay)
+  }
 }
 
 const setState = (state) => {
@@ -259,8 +355,9 @@ const requestOpen = (moduleId) => {
   setHint('games-hint', '正在打开…')
 }
 
-const loadGames = async () => {
-  const url = resolveCatalogUrl()
+const loadGames = async (ctx) => {
+  // 回退路径：无注入清单时自行拉取 catalog（要求与面板同源，否则会被 CORS 拦）
+  const url = resolveCatalogUrl(ctx)
   if (!url) {
     setHint('games-hint', '游戏清单地址无法推导')
     return
@@ -271,7 +368,7 @@ const loadGames = async () => {
     return
   }
   const entries = result.data.modules
-    .filter((item) => item && item.disabled !== true && item.id !== 'more_panel')
+    .filter((item) => item && item.disabled !== true && item.id !== MODULE_ID)
     .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
     .map((item) => ({ id: item.id, name: item.name, icon: item.icon }))
   renderGames(entries)
@@ -280,14 +377,23 @@ const loadGames = async () => {
 
 const main = () => {
   const ctx = readContext()
+  applyTheme(ctx)
   renderIdentity(ctx)
   setState(ctx.studentId ? STATE.ready : STATE.guest)
   // 首帧即上报高度：宿主据此设置 iframe 尺寸，避免退化成固定高度
-  scheduleSizeReport()
+  startSizeReportBurst()
 
-  // 并发发起，互不阻塞；任一失败只影响自己的区块
+  // 游戏清单优先用宿主注入值 → **同步**渲染，首帧就有游戏（无需等网络，也不受跨域限制）
+  const injectedGames = parseInjectedGameList(ctx)
+  if (injectedGames) {
+    renderGames(injectedGames)
+    setHint('games-hint', injectedGames.length ? '' : '暂无可打开的游戏')
+  } else {
+    void loadGames(ctx)
+  }
+
+  // 积分必须走网络，异步填充；失败只影响该区块
   void loadPoints(ctx)
-  void loadGames()
 
   if (typeof window.addEventListener === 'function') {
     window.addEventListener('resize', scheduleSizeReport)

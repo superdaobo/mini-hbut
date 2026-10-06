@@ -107,6 +107,52 @@ describe('#1002 核心要求：骨架先于数据渲染', () => {
     expect(source).toContain('ResizeObserver')
   })
 
+  it('高度上报必须带**模块构建版本**（宿主按 module_id + version 双重校验）', () => {
+    const source = read('src/main.js')
+    expect(source).toContain('resolveModuleVersionFromUrl()')
+    expect(source).toContain('version: resolveModuleVersionFromUrl()')
+    // 两种加载形态都要覆盖：CDN 直链 + bridge 预览
+    expect(source).toContain('/module_bundle/content/')
+    // 回归护栏：不得再用 app_version 充当模块版本（会被宿主静默丢弃）
+    expect(source).not.toContain('version: ctx.appVersion')
+  })
+
+  it('游戏清单优先用宿主注入的 game_list（跨域 + 首帧可见）', () => {
+    const source = read('src/main.js')
+    expect(source).toContain('gameList')
+    expect(source).toContain("read('game_list')")
+    expect(source).toContain('parseInjectedGameList')
+    // 注入路径必须**同步**渲染（不 await），否则又变成「等加载完才显示」
+    const mainBody = source.slice(source.indexOf('const main = () => {'))
+    expect(mainBody).toMatch(/const injectedGames = parseInjectedGameList\(ctx\)/)
+    expect(mainBody).toMatch(/renderGames\(injectedGames\)/)
+    // 仍保留无注入时的回退拉取
+    expect(source).toContain('resolveCatalogUrl')
+  })
+
+  it('宿主侧必须注入 game_list 与 theme（面板自身跨域拿不到清单、也看不到宿主主题）', () => {
+    const moreView = fs.readFileSync(
+      path.join(repoRoot, 'src', 'components', 'MoreView.vue'),
+      'utf8'
+    )
+    expect(moreView).toContain("url.searchParams.set('game_list'")
+    expect(moreView).toContain("url.searchParams.set('theme'")
+    expect(moreView).toContain("'more_panel'")
+    // 面板必须被纳入上下文注入集合（否则 host_origin / app_version 都不会注入）
+    expect(moreView).toMatch(/CONTEXT_AWARE_GAME_MODULE_IDS[\s\S]{0,600}'more_panel'/)
+  })
+
+  it('主题以宿主注入为准（否则 App 亮色 + 面板暗色割裂）', () => {
+    const source = read('src/main.js')
+    expect(source).toContain('applyTheme')
+    expect(source).toContain("document.documentElement.dataset.theme = theme")
+    const css = read('src/style.css')
+    // 注入优先，且不能被系统暗色覆盖
+    expect(css).toContain(":root[data-theme='dark']")
+    expect(css).toContain(":root[data-theme='light']")
+    expect(css).toContain(":root:not([data-theme='light'])")
+  })
+
   it('移动端适配：安全区 + 触控目标下限 + 窄屏网格', () => {
     const css = read('src/style.css')
     // 安全区（刘海/小白条）

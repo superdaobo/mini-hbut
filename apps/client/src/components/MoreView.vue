@@ -8,6 +8,7 @@ import {
   deleteCachedManifestSnapshot,
   deleteModuleState,
   getLocalModuleState,
+  getModuleCdnBase,
   isLocalModuleBridgePreviewUrl,
   prepareModuleBundle,
   resolveModuleChannel,
@@ -106,7 +107,11 @@ const CONTEXT_AWARE_GAME_MODULE_IDS = new Set([
   'hbut_gomoku',
   'hbut_stack',
   'hbut_parking',
-  'hbut_match3'
+  'hbut_match3',
+  // #1002：总面板虽是「面板」而非游戏，但同样需要宿主上下文 ——
+  // 缺 host_origin 就只能用 '*' 作 targetOrigin；缺 theme 会与 App 主题割裂；
+  // 缺 catalog_url 时面板经 bridge 预览无法推导游戏清单地址。
+  'more_panel'
 ])
 
 const buildStudentProfileStorageKey = (studentId) => {
@@ -278,6 +283,33 @@ const appendModuleContextQuery = (
       // 必须把 location 对象一并交给注入层，才能退化为 `${protocol}//${host}`（而不是空）。
       hostLocation: window.location
     })
+    // #1002：总面板专用上下文 ——
+    // ① `game_list`：**由宿主直接注入游戏清单**。面板在宿主侧是由 Rust bridge 提供的
+    //    （origin 是 127.0.0.1:4399），而 catalog 在 CDN 上 → 面板自己去 fetch 属**跨域**，
+    //    会被 CORS 拦下（本机实测「游戏清单加载失败」就是这个原因）。宿主本来就持有卡片清单，
+    //    直接注入既避开跨域，又让面板首帧就能渲染游戏（符合「不要等加载完才显示」）。
+    // ② `theme`：iframe 看不到宿主的 html.dark，而 prefers-color-scheme 反映的是系统偏好 ——
+    //    不注入就会出现「App 亮色 + 面板暗色」的割裂（本机实测确实如此）。
+    if (moduleId === 'more_panel') {
+      const gameList = moduleCards.value
+        .filter((item) => safeText(item?.id) && safeText(item.id) !== 'more_panel')
+        .map((item) => ({
+          id: safeText(item.id),
+          name: safeText(item.name) || safeText(item.id),
+          icon: safeText(item.icon) || '🎮'
+        }))
+      if (gameList.length) {
+        try {
+          url.searchParams.set('game_list', JSON.stringify(gameList))
+        } catch {
+          // 序列化失败（异常字段）时跳过注入，面板会回退到自行拉取清单
+        }
+      }
+      const isDark =
+        typeof document !== 'undefined' &&
+        Boolean(document.documentElement?.classList?.contains('dark'))
+      url.searchParams.set('theme', isDark ? 'dark' : 'light')
+    }
     return url.toString()
   } catch {
     return previewUrl

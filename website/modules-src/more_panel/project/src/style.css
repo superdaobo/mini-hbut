@@ -7,6 +7,10 @@
  * - **布局稳定优先**：骨架与真实内容同尺寸，数据到达不跳版。
  */
 
+/* 亮色为默认调色板；暗色由「宿主注入的 data-theme」或「系统偏好」二者之一触发。
+   为什么要 data-theme：iframe 看不到宿主的 html.dark，而 prefers-color-scheme 反映的是
+   **系统**偏好 —— App 内可独立切主题，只用媒体查询会出现「App 亮色 + 面板暗色」的割裂观感
+   （本机实测确实如此）。 */
 :root {
   color-scheme: light dark;
   --bg: #f5f6f8;
@@ -17,8 +21,25 @@
   --accent: #2563eb;
 }
 
+/* 宿主显式注入时以它为准 */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #16181d;
+  --card: #21242b;
+  --text: #e8eaed;
+  --muted: #9aa0a6;
+  --line: #333842;
+  --accent: #7aa2f7;
+}
+
+/* 未注入时跟随系统；`:not([data-theme='light'])` 保证宿主说亮色时不被系统暗色覆盖 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
     --bg: #16181d;
     --card: #21242b;
     --text: #e8eaed;
