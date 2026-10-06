@@ -260,6 +260,19 @@ jobs:
           node scripts/patch_tauri_ios_edge_to_edge.mjs
           node scripts/sync_tauri_platform_icons.mjs ios
 
+          # #1000：iOS 的 minihbut scheme 原本**只**由 tauri-plugin-deep-link 的 build.rs 在
+          # cargo 构建期注入 gen/apple 的 Info.plist，而该注入有两个静默失败点：
+          # ① 依赖 TAURI_IOS_PROJECT_PATH/APP_NAME，缺失时直接 no-op；
+          # ② `tauri ios init` 每次都重新生成 Info.plist，但 cargo fingerprint 感知不到
+          #    「包外文件被重写」，命中 rust-cache 的暖构建会跳过 build.rs。
+          # 表现：iOS 上点「打开 Mini-HBUT App」毫无反应（scheme 无人注册）。
+          # 这里做**确定性注入**（scheme 取自 tauri.conf.json，与插件同源同结构），
+          # 使结果不再依赖缓存与时序；随后立即校验，失败即中断构建。
+          node scripts/patch_ios_deep_link_scheme.mjs
+          node scripts/patch_ios_deep_link_scheme.mjs --check
+          # 同时跑一遍仓库既有守卫（它此前查的是不存在的 gen/ios，等于从未生效，本次一并修正）
+          node scripts/check_mobile_scheme_contract.mjs
+
           npm run build
           node scripts/check_dist_boundary.mjs
           node scripts/report_bundle_sizes.mjs
@@ -340,6 +353,20 @@ jobs:
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             MARKETING_VERSION="$VERSION_NAME" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
+
+      - name: Assert deep-link scheme in archived app (#1000)
+        shell: bash
+        working-directory: apps/client
+        run: |
+          set -euo pipefail
+          # 源工程的 Info.plist 已由 patch_ios_deep_link_scheme.mjs 确定性写入；
+          # 这里校验**归档产物**（二进制 plist）—— 用户装到的就是这一份。
+          PLIST="$(find build-ios/Mini-HBUT.xcarchive/Products/Applications -maxdepth 2 -name Info.plist | head -n1)"
+          if [ -z "$PLIST" ]; then
+            echo "::error::归档产物里找不到 Info.plist"
+            exit 1
+          fi
+          python3 scripts/check_ios_archive_deep_link.py "$PLIST" minihbut
 
       - name: Export signed IPA
         id: export

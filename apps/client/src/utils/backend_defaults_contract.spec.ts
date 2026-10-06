@@ -89,10 +89,13 @@ describe('两域模型（契约 §9）', () => {
     expect(sdkVersion).not.toContain('mini-hbut-testocr1')
   })
 
-  it('生产环境基址 = 主域；测试环境基址仍为隔离域', () => {
+  it('后端基址统一为主域；已下线的测试域只作为「拒绝清单」保留', () => {
     const source = read('src/utils/statistics_environment.ts')
     expect(source).toContain('PRIMARY_BACKEND_ORIGIN')
-    expect(source).toContain("'https://mini-hbut-testocr1.hf.space'")
+    // 2026-10-06 起所有档位统一走生产主域；测试域常量仍须存在（用于拒绝存量配置），
+    // 但不得再作为任何档位的基址
+    expect(source).toContain('RETIRED_TEST_HOSTS')
+    expect(source).toContain("'mini-hbut-testocr1.hf.space'")
     expect(source).not.toContain('superdaobo')
   })
 

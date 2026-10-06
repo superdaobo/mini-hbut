@@ -71,23 +71,25 @@ describe('game center 接线契约（#905）', () => {
     expect(hostView).toContain('recoverSchoolWebsiteBridgeOnResume')
   })
 
-  it('更多页：新增游乐场主入口 + 经典游戏折叠，11 个游戏入口零破坏', () => {
+  it('#1002 更多页 = 总面板入口：经典游戏并入面板，不再在 App 内分类展示', () => {
     const more = read('src/components/MoreView.vue')
-    expect(more).toContain('data-module-id="game_center"')
-    expect(more).toContain('openGameCenter')
-    expect(more).toContain("t('more.gameCenter.title')")
-    // 折叠入口 + 展开态
-    expect(more).toContain('data-module-id="classic_games"')
-    expect(more).toContain('classicExpanded')
-    expect(more).toContain('v-show="classicExpanded"')
-    // 开关驱动的可见性（远程即可回滚）
-    expect(more).toContain('gameCenterEntryVisible')
-    expect(more).toContain('classicEntriesVisible')
-    expect(more).toContain('resolveEffectiveGameCenterFlags')
-    // 开局意图复用既有链路
+    // 点「更多」直接进入面板（复用既有模块打开链路，不复制状态机）
+    expect(more).toContain("const PANEL_MODULE_ID = 'more_panel'")
+    expect(more).toContain('launchPanel')
+    expect(more).toContain('handleModuleClick')
+    // 旧的分类展示已全部移除：游乐场主入口 / 快捷入口 / 可折叠经典宫格
+    expect(more).not.toContain('data-module-id="game_center"')
+    expect(more).not.toContain('data-module-id="classic_games"')
+    expect(more).not.toContain('GameCenterQuickEntries')
+    expect(more).not.toContain('classicExpanded')
+    // 开局意图仍复用既有链路（面板宫格点击 → 宿主回退本页 → 打开目标游戏）
+    expect(more).toContain('peekGameOpen')
     expect(more).toContain('consumeGameOpen')
     expect(more).toContain("activeLaunchSurface.value = 'game_center'")
     expect(more).toContain('launch_surface')
+    // 转发骨架必须有明确失败态（不是无限转圈）
+    expect(more).toContain('panelForwardFailed')
+    expect(more).toContain("t('more.panel.failed')")
   })
 
   it('GameCenterView 五个 Tab，且未交付能力是 feature-gated（#910 漂流瓶已交付为真实 UI）', () => {
@@ -281,21 +283,17 @@ describe('game center 接线契约（#905）', () => {
     expect(view).toMatch(/activeTab === 'drift' && driftEnabled/)
     expect(view).toContain(':api-base="flags.api_base"')
 
-    // 「更多」页：快捷入口是新增独立 section，且位于经典游戏折叠区**之前**
+    // 「更多」页已改为总面板入口（#1002）：快捷入口不再在 App 内分类展示，
+    // 改由面板承担；这里守住「不再挂载」与「开局意图仍走既有一次性通道」。
     const more = read('src/components/MoreView.vue')
-    expect(more).toContain("import GameCenterQuickEntries from './game-center/GameCenterQuickEntries.vue'")
-    expect(more).toMatch(/<GameCenterQuickEntries[\s\S]{0,160}:flags="gameCenterFlags"[\s\S]{0,160}@open="openGameCenter"/)
-    // 快捷入口区块的 DOM 锚点由组件自身提供（E2E / 手工回归据此定位）
+    expect(more).not.toContain('GameCenterQuickEntries')
+    expect(more).toContain('peekGameOpen')
+    expect(more).toContain('consumeGameOpen')
+    // 快捷入口组件与纯函数仍保留（面板侧复用），DOM 锚点不变
     expect(read('src/components/game-center/GameCenterQuickEntries.vue')).toContain(
       'data-section="game-center-quick-entries"'
     )
-    const quickIndex = more.indexOf('GameCenterQuickEntries')
-    const classicIndex = more.indexOf('classic-games')
-    expect(quickIndex).toBeGreaterThan(-1)
-    expect(classicIndex).toBeGreaterThan(quickIndex)
-    // 经典入口链路零改动（折叠态 / 开局意图 / 远端 base 解析仍是同一套）
-    expect(more).toContain('classicExpanded')
-    expect(more).toContain('consumeGameOpen')
+    // 经典入口链路零改动（开局意图 / 远端 base 解析仍是同一套）
     expect(more).toContain('resolveGameRankApiBase')
   })
 })

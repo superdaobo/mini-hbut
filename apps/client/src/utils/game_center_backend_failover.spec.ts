@@ -133,21 +133,27 @@ describe('resolveGameBackendCandidates（契约 §4）', () => {
     expect(candidates[0].apiBase).not.toContain('/api/game-platform/v1/api/game-platform/v1')
   })
 
-  it('非 release 构建 + 无远程配置 → 环境隔离域单候选（不打生产）', () => {
+  it('#1003：所有档位统一 → 无远程配置时用内置组模型（主 + 唯一兜底）双候选', () => {
     const candidates = resolveGameBackendCandidates({})
-    expect(candidates).toHaveLength(1)
-    expect(candidates[0].groupId).toBe('environment')
-    expect(candidates[0].apiBase).toContain('mini-hbut-testocr1.hf.space')
+    // 2026-10-06 起不再有「环境隔离单候选」；内置组模型必须同时给出兜底能力
+    expect(candidates).toHaveLength(2)
+    expect(candidates[0].groupId).toBe('mini')
+    expect(candidates[0].apiBase).toContain('mini.hbut.site')
+    expect(candidates[1].groupId).toBe('hf-prod')
+    expect(candidates[1].apiBase).toContain('mini-hbut-ocr-service.hf.space')
+    // 已下线的测试域不得再出现
+    expect(JSON.stringify(candidates)).not.toContain('testocr1')
   })
 
-  it('includeGroups=false → 忽略远程组，用环境隔离域', () => {
+  it('includeGroups=false → 忽略远程组与显式 override，用内置组模型', () => {
     const candidates = resolveGameBackendCandidates({
       includeGroups: false,
       backend: { groups: [{ id: 'mini', base: 'https://primary.example.com' }] },
       gamePlatformApiBase: 'https://override.example.com/api/game-platform/v1'
     })
-    expect(candidates).toHaveLength(1)
-    expect(candidates[0].groupId).toBe('environment')
+    expect(candidates).toHaveLength(2)
+    expect(candidates[0].groupId).toBe('mini')
+    expect(candidates[0].apiBase).toContain('mini.hbut.site')
   })
 
   it('默认通道路径与契约一致（game_platform / game_rank）', () => {

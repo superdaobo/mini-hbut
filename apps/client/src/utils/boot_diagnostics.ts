@@ -28,6 +28,7 @@
 
 import { getBootMetricsSnapshot } from './boot_metrics.js'
 import { getDebugLogs, pushDebugLog } from './debug_logger'
+import { STATISTICS_ENVIRONMENT, STATISTICS_SERVICE_BASE_URL } from './statistics_environment'
 
 /** localStorage 键：跨启动保留最近两次冷启动时间线（崩溃取证必需） */
 export const BOOT_DIAG_STORAGE_KEY = 'hbu_boot_diag_v1'
@@ -366,6 +367,10 @@ export const formatBootDiagnosticsReport = (): string => {
     `生成时间: ${new Date().toLocaleString()}`,
     `构建版本: ${sanitizeText(env.VITE_APP_VERSION || '(未知)')}`,
     `构建档位: ${sanitizeText(env.VITE_BUILD_PROFILE || '(未知)')}`,
+    // #999：后端环境必须出现在报告里。dev / beta 档位会被环境隔离强制指向测试域，
+    // 而「测试域不可用」在界面上只表现为泛化的「无效响应」——没有这一行就无法一眼定位。
+    `后端环境: ${sanitizeText(STATISTICS_ENVIRONMENT)}`,
+    `后端主域: ${sanitizeText(STATISTICS_SERVICE_BASE_URL)}`,
     `App Store 构建: ${sanitizeText(env.VITE_APP_STORE_BUILD || '0')}`,
     `平台: ${typeof navigator !== 'undefined' ? sanitizeText(navigator.userAgent) : '(未知)'}`,
     `可见性: ${typeof document !== 'undefined' ? document.visibilityState : '(未知)'}`,

@@ -11,7 +11,10 @@
  * 写入的旧字段镜像，此时忽略显式值、走组模型，以保留兜底能力（否则旧字段会
  * 压住 groups，退化为单端点）。
  *
- * 环境隔离：非 release 构建强制环境端点（testocr1），不启用组模型与故障转移。
+ * 环境隔离：**已于 2026-10-06 取消** —— 所有构建档位（含 dev / beta）统一走生产主域
+ * `mini.hbut.site` + 唯一兜底域，即始终启用组模型与故障转移。判定唯一权威是
+ * `statistics_environment.ts` 的 `isProductionStatisticsEnvironment()`；本文件**不得**
+ * 再自行读 `VITE_BUILD_PROFILE`（历史上正是这两处各写一遍，导致统一切换时漏改）。
  */
 import { useAppSettings } from './app_settings'
 import {
@@ -26,7 +29,11 @@ import {
   safeParseJson,
   toSafeText
 } from './cloud_sync_storage.js'
-import { STATISTICS_CLOUD_SYNC_ENDPOINT, isStatisticsServiceUrlCompatible } from './statistics_environment'
+import {
+  STATISTICS_CLOUD_SYNC_ENDPOINT,
+  isProductionStatisticsEnvironment,
+  isStatisticsServiceUrlCompatible
+} from './statistics_environment'
 import {
   buildChannelEndpointList,
   normalizeBackendFailover,
@@ -206,7 +213,8 @@ export const getCloudSyncRuntimeConfig = (): CloudSyncRuntimeConfig => {
   const useRemoteConfig = backend?.useRemoteConfig !== false
   const localEndpoint = normalizeCompatibleEndpoint(backend?.cloudSyncEndpoint)
   const environmentEndpoint = normalizeCompatibleEndpoint(STATISTICS_CLOUD_SYNC_ENDPOINT)
-  const isProductionBuild = import.meta.env.VITE_BUILD_PROFILE === 'release'
+  // 单一权威：是否启用组模型与故障转移（恒 true，见 statistics_environment.ts 文件头决策）
+  const isProductionBuild = isProductionStatisticsEnvironment()
 
   const { endpoints, failover } = resolveCloudSyncEndpoints({
     useRemoteConfig,

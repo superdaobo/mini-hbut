@@ -169,10 +169,17 @@ function checkStaticConfig() {
   } else {
     fail(`lib.rs 插件顺序异常（single_instance=${siPos}, deep_link=${dlPos}）`)
   }
-  if (lib.includes('register_all')) {
-    ok('lib.rs 存在 deep-link register_all()（Windows debug / Linux 注册）')
+  // Windows dev / Linux 的 scheme 注册入口。
+  // 注意：入口函数名在 #621 之后由 `register_all()` 演进为带守卫的 `register_with_guard()`
+  // （守卫会检测「HKCU 已指向其他安装」并跳过，避免 dev 启动劫持正式版关联）。
+  // 本断言曾经只认旧名，导致守卫在无人调用的情况下长期误报 —— 这里改为按**模块调用**
+  // 判定，两种命名都接受，避免再次因为一次重命名把门禁变成假红。
+  const registersScheme =
+    lib.includes('register_with_guard(') || lib.includes('register_all(')
+  if (registersScheme) {
+    ok('lib.rs 调用 deep-link scheme 注册入口（register_with_guard / register_all）')
   } else {
-    fail('lib.rs 缺少 deep-link register_all()（Windows dev 模式无法注册 scheme）')
+    fail('lib.rs 未调用 deep-link scheme 注册入口（Windows dev / Linux 无法注册 scheme）')
   }
 
   const deepLinkTs = fs.existsSync('src/platform/deep_link.ts')
@@ -215,7 +222,10 @@ function checkGeneratedProjects(skipGen) {
     warn('src-tauri/gen/android 不存在：Android 工程尚未生成（CI android 构建后本项自然生效）')
   }
 
-  if (fs.existsSync('src-tauri/gen/ios')) {
+  // ⚠️ 真实生成目录是 `src-tauri/gen/apple`（xcodegen 产出 `<app>_iOS/Info.plist`），
+  // 不是 `gen/ios`。此前这里查的是 `gen/ios` → 永远走 warn 分支，
+  // **iOS scheme 契约实际从未生效**（#1000 顺带修复）。
+  if (fs.existsSync('src-tauri/gen/apple')) {
     const plists = []
     const walk = (dir) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -224,19 +234,29 @@ function checkGeneratedProjects(skipGen) {
         else if (e.name === 'Info.plist') plists.push(full)
       }
     }
-    walk('src-tauri/gen/ios')
+    walk('src-tauri/gen/apple')
+    // 只认 `_iOS` 工程目录下的 Info.plist（gen/apple 下还有其它产物）
+    const iosPlists = plists.filter((p) => p.split(path.sep).join('/').includes('_iOS/'))
     let found = false
-    for (const plist of plists) {
+    for (const plist of iosPlists) {
       const text = fs.readFileSync(plist, 'utf8')
       if (text.includes('minihbut') && text.includes('CFBundleURLSchemes')) {
         found = true
-        ok(`gen/ios ${path.relative(repoRoot, plist)} 声明 minihbut URL scheme`)
+        ok(`gen/apple ${path.relative(repoRoot, plist)} 声明 minihbut URL scheme`)
       }
     }
-    if (!found) fail('gen/ios Info.plist 未找到 minihbut CFBundleURLSchemes')
+    if (iosPlists.length === 0) {
+      warn('src-tauri/gen/apple 下未找到 *_iOS/Info.plist（iOS 工程尚未完整生成）')
+    } else if (!found) {
+      fail(
+        'gen/apple 的 Info.plist 未找到 minihbut CFBundleURLSchemes —— iOS 上 minihbut://identity 无法唤起 App。' +
+          '请确认已执行 scripts/patch_ios_deep_link_scheme.mjs（本仓库在 `tauri ios init` 之后、xcodebuild 之前调用），' +
+          '或在 macOS 构建环境执行 `npx tauri ios build`（插件 build.rs 亦会注入，但暖缓存下可能被跳过）。',
+      )
+    }
   } else {
     warn(
-      'src-tauri/gen/ios 不存在：iOS 工程只能在 macOS/Xcode 生成（Windows 无法本地生成）。' +
+      'src-tauri/gen/apple 不存在：iOS 工程只能在 macOS/Xcode 生成（Windows 无法本地生成）。' +
         'macOS CI（ios-testflight.yml）生成后必须再次运行本守卫。',
     )
   }

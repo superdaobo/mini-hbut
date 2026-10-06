@@ -475,12 +475,10 @@ export const resolveGameBackendCandidates = (input: {
   }
 
   if (groups.length === 0) {
-    // ③ 环境隔离：非 release 只用构建档位派生的环境域；release 用组模型内置默认
-    const isReleaseBuild =
-      String(import.meta.env.VITE_BUILD_PROFILE || '').trim().toLowerCase() === 'release'
-    groups = isReleaseBuild
-      ? DEFAULT_BACKEND_GROUPS.filter((group) => group.enabled).map((group) => ({ ...group }))
-      : [{ id: 'environment', base: DEFAULT_GAME_SERVICE_ORIGIN, enabled: true, paths: {} }]
+    // ③ 内置默认组模型（主 + 唯一兜底）。**不再按构建档位分流**：自 2026-10-06 起所有档位
+    // （含 dev / beta）统一使用生产后端，判定唯一权威是 statistics_environment.ts 的
+    // isProductionStatisticsEnvironment()；本文件不得自行读 VITE_BUILD_PROFILE。
+    groups = DEFAULT_BACKEND_GROUPS.filter((group) => group.enabled).map((group) => ({ ...group }))
   }
 
   const candidates = groups

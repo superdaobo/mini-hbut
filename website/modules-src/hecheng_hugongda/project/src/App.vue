@@ -303,6 +303,7 @@
 import Matter from 'matter-js'
 import { MiniHBUTGame, readLegacyModuleContext } from '../../../_sdk/src/index.js'
 import { HECHENG_HUGONGDA_ADAPTER } from './utils/game_sdk_adapter.js'
+import { appendLeaderboardErrorDetail } from './utils/leaderboard_error.js'
 
 const MODULE_ID = 'hecheng_hugongda'
 
@@ -1058,7 +1059,9 @@ export default {
       if (/class_name/i.test(message)) {
         return '排行榜缺少班级信息，请重新进入模块后再试。'
       }
-      return '排行榜加载失败，请稍后重试'
+      // #998：把真实失败原因（含 HTTP 状态码）如实附在兜底抬头之后，
+      // 实现见 utils/leaderboard_error.js（纯函数，已被单测覆盖）。
+      return appendLeaderboardErrorDetail('排行榜加载失败，请稍后重试', error)
     },
 
     toggleLeaderboard() {
@@ -1093,7 +1096,13 @@ export default {
         const data = await sdkGame.leaderboard({ scope: resolvedScope, limit: 20 })
         if (!data.success) {
           this.leaderboardItems = []
-          this.leaderboardError = this.buildLeaderboardErrorMessage({ message: data.message }, resolvedScope)
+          // #998：优先带上 SDK 归一化错误（含 code / HTTP status），只在缺失时退回纯文本 ——
+          // 只传 message 会丢掉状态码，界面上无法区分「服务端拒绝」与「网络不可达」。
+          const failure =
+            data.error && typeof data.error === 'object'
+              ? { ...data.error, message: data.error.message || data.message }
+              : { message: data.message }
+          this.leaderboardError = this.buildLeaderboardErrorMessage(failure, resolvedScope)
           return
         }
         this.leaderboardItems = this.mapLeaderboardEntries(data)
