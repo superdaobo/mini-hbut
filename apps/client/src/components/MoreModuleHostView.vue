@@ -15,6 +15,7 @@ import { createModuleHostBridge } from '../utils/game_center/host_bridge'
 import { fetchGameLaunchTicket } from '../utils/game_center/api'
 import { createGatedTicketRequest, resolveGameTrustPolicy } from '../utils/game_center/origin_policy'
 import { DEFAULT_GAME_CENTER_FLAGS, resolveEffectiveGameCenterFlags } from '../utils/game_center/flags'
+import { requestGameOpen } from '../utils/game_center/pending_open'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
 import { useAuthStore } from '../stores/auth'
 import {
@@ -435,6 +436,35 @@ const handleHostBridgeMessage = (event) => {
 }
 
 /**
+ * #1002：处理「打开另一个模块」请求（总面板里的游戏宫格点击后由模块侧发出）。
+ *
+ * 安全：与 `mini-hbut:module-size` 同规矩 —— 必须校验 `event.source` 与
+ * `event.origin` 白名单，否则同窗口的其它 iframe 可以冒充模块要求打开任意模块。
+ *
+ * 行为：只写入一次性开局意图并回退到「更多」，由 `MoreView` 消费后打开目标游戏 ——
+ * 复用既有 `pending_open` 通道，**不在本组件复制模块打开状态机**（否则会与
+ * MoreView 的清单/bundle 解析逻辑漂移）。
+ */
+const handleOpenModuleMessage = (event) => {
+  const frameWindow = frameRef.value?.contentWindow
+  const payload = event?.data
+  if (!frameWindow || event.source !== frameWindow) return
+  if (!payload || payload.type !== 'mini-hbut:open-module') return
+  if (!isGameFrameOriginAllowed(event.origin, frameAllowedOrigins.value)) {
+    pushDebugLog('ModuleHost', '拒绝来源不在白名单的 open-module 请求', 'warn', {
+      origin: safeText(event.origin),
+      allowList: frameAllowedOrigins.value.join(',')
+    })
+    return
+  }
+  const targetModuleId = safeText(payload.moduleId || payload.module_id)
+  // 空值不处理；也不允许面板要求「打开自己」（会形成自嵌套）
+  if (!targetModuleId || targetModuleId === moduleId.value) return
+  if (!requestGameOpen(targetModuleId)) return
+  emit('back')
+}
+
+/**
  * 契约 C「单一前置判定」：是否允许进入 verified（向游戏声明 verified 能力 / 下发 ticket）。
  *
  * 三前提在此**唯一**收敛（不得在别处各写一遍）：
@@ -656,6 +686,7 @@ const handleAppEmbedResumeEvent = async (event) => {
 onMounted(() => {
   window.addEventListener('message', handleFrameSizeMessage)
   window.addEventListener('message', handleHostBridgeMessage)
+  window.addEventListener('message', handleOpenModuleMessage)
   window.addEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
   void loadHostFlags()
 })
@@ -668,6 +699,7 @@ onBeforeUnmount(() => {
   hostBridge = null
   window.removeEventListener('message', handleFrameSizeMessage)
   window.removeEventListener('message', handleHostBridgeMessage)
+  window.removeEventListener('message', handleOpenModuleMessage)
   window.removeEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
 })
 </script>

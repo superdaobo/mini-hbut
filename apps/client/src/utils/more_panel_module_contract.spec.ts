@@ -88,10 +88,37 @@ describe('#1002 核心要求：骨架先于数据渲染', () => {
     expect(source).toContain('not-json')
   })
 
-  it('点击游戏时向宿主发消息，且 targetOrigin 取宿主注入值（不写死 *）', () => {
+  it('点击游戏时向宿主发消息，且 targetOrigin 安全（不写死 *，并处理 tauri:// 的 null）', () => {
     const source = read('src/main.js')
-    expect(source).toContain('mini-hbut:open-module')
+    expect(source).toContain("HOST_OPEN_MESSAGE_TYPE = 'mini-hbut:open-module'")
     expect(source).toContain('window.parent.postMessage')
-    expect(source).toContain('ctx.hostOrigin')
+    expect(source).toContain('resolveTargetOrigin')
+    // location.origin 在 tauri:// 下是字符串 'null'，不是合法 targetOrigin → 必须显式回退
+    expect(source).toContain("origin === 'null'")
+  })
+
+  it('按既定契约向宿主上报内容高度（否则宿主只能退化成固定高度）', () => {
+    const source = read('src/main.js')
+    expect(source).toContain("HOST_SIZE_MESSAGE_TYPE = 'mini-hbut:module-size'")
+    expect(source).toContain('module_id: MODULE_ID')
+    // 首帧即上报 + 内容变化/resize 后重报
+    expect(source).toMatch(/scheduleSizeReport\(\)/)
+    expect(source).toContain("addEventListener('resize', scheduleSizeReport)")
+    expect(source).toContain('ResizeObserver')
+  })
+
+  it('移动端适配：安全区 + 触控目标下限 + 窄屏网格', () => {
+    const css = read('src/style.css')
+    // 安全区（刘海/小白条）
+    expect(css).toContain('env(safe-area-inset-top)')
+    expect(css).toContain('env(safe-area-inset-bottom)')
+    // 触控目标下限
+    expect(css).toMatch(/\.tile\s*\{[\s\S]*?min-height:\s*88px/)
+    // 窄屏自适应网格（auto-fill + 最小宽度，不写死列数）
+    expect(css).toMatch(/grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(88px,\s*1fr\)\)/)
+    // 亮/暗双色
+    expect(css).toContain('prefers-color-scheme: dark')
+    // 尊重减少动效偏好
+    expect(css).toContain('prefers-reduced-motion: reduce')
   })
 })

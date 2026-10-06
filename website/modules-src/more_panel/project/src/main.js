@@ -28,6 +28,12 @@ const STATE = {
   failed: 'failed'
 }
 
+const MODULE_ID = 'more_panel'
+/** 模块 → 宿主的高度上报协议（与其它模块同一套：宿主据此设置 iframe 高度） */
+const HOST_SIZE_MESSAGE_TYPE = 'mini-hbut:module-size'
+/** 模块 → 宿主的「打开另一个模块」协议（#1002：面板宫格点击） */
+const HOST_OPEN_MESSAGE_TYPE = 'mini-hbut:open-module'
+
 const $ = (id) => document.getElementById(id)
 
 /** 从宿主注入的 query 读取上下文（缺失一律空串，调用方自行决定降级） */
@@ -55,6 +61,65 @@ const resolveCatalogUrl = () => {
   return match ? `${match[1]}catalog.json` : ''
 }
 
+/**
+ * postMessage 的 targetOrigin。
+ *
+ * ⚠️ `location.origin` 在 tauri:// 等特殊 scheme 下是字符串 `'null'`，而 `'null'`
+ * **不是合法的 targetOrigin**（postMessage 会直接不投递）。所以这里显式回退到 `'*'`，
+ * 接收侧（宿主）仍会校验 event.origin 白名单，安全性不受影响。
+ */
+const resolveTargetOrigin = (ctx) => {
+  const origin = String(ctx.hostOrigin || '').trim()
+  return !origin || origin === 'null' ? '*' : origin
+}
+
+/**
+ * 向宿主上报内容高度（其它模块的既定契约；缺了它宿主只能退化成固定高度，
+ * 内容可能被裁切或留大片空白）。
+ */
+const reportModuleSize = () => {
+  const ctx = readContext()
+  const panel = $('panel')
+  const height = Math.max(
+    1,
+    Math.ceil(
+      Math.max(
+        Number(panel?.scrollHeight || 0),
+        Number(panel?.offsetHeight || 0),
+        Number(document.documentElement?.scrollHeight || 0),
+        Number(document.body?.scrollHeight || 0)
+      )
+    )
+  )
+  try {
+    window.parent.postMessage(
+      {
+        type: HOST_SIZE_MESSAGE_TYPE,
+        moduleId: MODULE_ID,
+        module_id: MODULE_ID,
+        version: ctx.appVersion,
+        height
+      },
+      resolveTargetOrigin(ctx)
+    )
+  } catch (error) {
+    console.warn('[more-panel] 上报模块高度失败', error)
+  }
+}
+
+/** 内容变化后重新上报（rAF 合并，避免连续渲染时抖动） */
+let sizeReportScheduled = false
+const scheduleSizeReport = () => {
+  if (sizeReportScheduled) return
+  sizeReportScheduled = true
+  const flush = () => {
+    sizeReportScheduled = false
+    reportModuleSize()
+  }
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush)
+  else setTimeout(flush, 16)
+}
+
 const setState = (state) => {
   document.getElementById('panel').dataset.state = state
 }
@@ -80,6 +145,7 @@ const renderPointsUnavailable = (text) => {
   $('coins').textContent = '—'
   $('tasks').textContent = '—'
   setHint('points-hint', text)
+  scheduleSizeReport()
 }
 
 const renderPoints = (wallet, tasks) => {
@@ -91,6 +157,7 @@ const renderPoints = (wallet, tasks) => {
     $('tasks').textContent = '—'
   }
   setHint('points-hint', '')
+  scheduleSizeReport()
 }
 
 const fetchJson = async (url, timeoutMs = 8000) => {
@@ -154,6 +221,7 @@ const renderGames = (entries) => {
   grid.textContent = ''
   if (!entries.length) {
     grid.innerHTML = '<p class="grid__empty">暂无可打开的游戏</p>'
+    scheduleSizeReport()
     return
   }
   for (const entry of entries) {
@@ -166,6 +234,7 @@ const renderGames = (entries) => {
     tile.addEventListener('click', () => requestOpen(entry.id))
     grid.appendChild(tile)
   }
+  scheduleSizeReport()
 }
 
 /**
@@ -179,9 +248,11 @@ const renderGames = (entries) => {
  */
 const requestOpen = (moduleId) => {
   const ctx = readContext()
-  const target = ctx.hostOrigin || '*'
   try {
-    window.parent.postMessage({ type: 'mini-hbut:open-module', moduleId }, target)
+    window.parent.postMessage(
+      { type: HOST_OPEN_MESSAGE_TYPE, moduleId, module_id: moduleId },
+      resolveTargetOrigin(ctx)
+    )
   } catch (error) {
     console.warn('[more-panel] 请求打开模块失败', moduleId, error)
   }
@@ -211,10 +282,25 @@ const main = () => {
   const ctx = readContext()
   renderIdentity(ctx)
   setState(ctx.studentId ? STATE.ready : STATE.guest)
+  // 首帧即上报高度：宿主据此设置 iframe 尺寸，避免退化成固定高度
+  scheduleSizeReport()
 
   // 并发发起，互不阻塞；任一失败只影响自己的区块
   void loadPoints(ctx)
   void loadGames()
+
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('resize', scheduleSizeReport)
+    window.addEventListener('orientationchange', scheduleSizeReport)
+  }
+  // 内容异步变化（字体/图片/数据）后重新上报；不支持则退回 resize 监听
+  if (typeof ResizeObserver === 'function' && document.body) {
+    try {
+      new ResizeObserver(scheduleSizeReport).observe(document.body)
+    } catch (error) {
+      console.warn('[more-panel] ResizeObserver 不可用', error)
+    }
+  }
 }
 
 main()
