@@ -5,6 +5,26 @@
 > **客户端基线**：`origin/main` `506bc157`（worktree 分支 `fix/oidc-launch-rank-netstatus`）
 > **服务端线上版本**：兜底域 HF Space `hf-prod/main` = `1fcdc0a`
 
+## ✅ 状态更新（2026-10-07）：下列缺口**已全部补齐**
+
+主域完成一次部署后复测（经外部视角，见 §5 命令），**本文档列出的 P0–P3 全部通过**：
+
+| 项 | 复测结果 |
+|---|---|
+| P0 主域缺 `/api/game-platform/v1/*` | ✅ `/meta` **200**（原 403）、`/me/wallet` **401 AUTH_REQUIRED**（原 404，端点已存在） |
+| P1 `capabilities.verified_reward` 缺失 | ✅ 已为 `true` |
+| P2 `capabilities.gomoku_competitive` 缺失 | ✅ 已为 `true` |
+| P3 `board=verified` / `classic` 返回 400 | ✅ 两者均返回 `success: true` |
+| 其它通道 | ✅ `/health`、`/api/game-rank/ping`（PG）、`/api/cloud-sync/ping`（PG）均 200 |
+
+**仍成立的一条约束（P0-2，属客户端行为，不是后端缺陷）**：客户端故障转移**不覆盖 4xx**
+（`apps/client/src/utils/game_center/api.ts:238-242`）。因此若主域再次出现 403/404，
+不会自动切到兜底域 —— 这一点在后端再次变更时需要留意。
+
+以下为**修复前**的原始记录，保留以便回溯与回归对照。
+
+---
+
 ## 0. 一句话结论
 
 **生产主域 `mini.hbut.site` 缺整套 `/api/game-platform/v1/*`**（#909 积分中心 / #910 漂流瓶 / 钱包 / 总排行榜 / 每日任务 / 五子棋对战），
