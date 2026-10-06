@@ -134,6 +134,11 @@ jobs:
           node scripts/test_npm_cli_path.mjs
           node scripts/test_capacitor_tar_compat.mjs
           node scripts/test_post_merge_workflow_contract.mjs
+          # #1000：minihbut://identity 深链依赖 scheme 注册，而移动端注册只在构建期
+          # 由 tauri-plugin-deep-link 注入 gen 工程（gen/ 被 gitignore）。这里先跑内嵌自测，
+          # 再按「静态配置」判定 —— gen 产物检查由移动端构建流水线（dev-build / ios-testflight）承担。
+          node scripts/check_mobile_scheme_contract.mjs --self-test
+          node scripts/check_mobile_scheme_contract.mjs --skip-gen
 
       - name: Check dist boundary script
         working-directory: apps/client

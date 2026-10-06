@@ -169,10 +169,17 @@ function checkStaticConfig() {
   } else {
     fail(`lib.rs 插件顺序异常（single_instance=${siPos}, deep_link=${dlPos}）`)
   }
-  if (lib.includes('register_all')) {
-    ok('lib.rs 存在 deep-link register_all()（Windows debug / Linux 注册）')
+  // Windows dev / Linux 的 scheme 注册入口。
+  // 注意：入口函数名在 #621 之后由 `register_all()` 演进为带守卫的 `register_with_guard()`
+  // （守卫会检测「HKCU 已指向其他安装」并跳过，避免 dev 启动劫持正式版关联）。
+  // 本断言曾经只认旧名，导致守卫在无人调用的情况下长期误报 —— 这里改为按**模块调用**
+  // 判定，两种命名都接受，避免再次因为一次重命名把门禁变成假红。
+  const registersScheme =
+    lib.includes('register_with_guard(') || lib.includes('register_all(')
+  if (registersScheme) {
+    ok('lib.rs 调用 deep-link scheme 注册入口（register_with_guard / register_all）')
   } else {
-    fail('lib.rs 缺少 deep-link register_all()（Windows dev 模式无法注册 scheme）')
+    fail('lib.rs 未调用 deep-link scheme 注册入口（Windows dev / Linux 无法注册 scheme）')
   }
 
   const deepLinkTs = fs.existsSync('src/platform/deep_link.ts')

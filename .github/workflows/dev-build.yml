@@ -376,6 +376,13 @@ jobs:
         working-directory: apps/client
         run: node scripts/check_mobile_boundary.mjs --expect-excluded ForumView,MoreShuake,OnlineLearning --expect-kept ChaoxingHubView --check-rust-registry
 
+      # #1000：minihbut://identity 深链在移动端依赖无 host 的 scheme 注册，而该注册只在
+      # Android cargo 构建期由 tauri-plugin-deep-link 的 build.rs 注入 gen 工程。
+      # 必须在 `tauri android build` **之后**断言，否则查的是注入前的清单。
+      - name: Verify mobile deep-link scheme contract (#1000)
+        working-directory: apps/client
+        run: node scripts/check_mobile_scheme_contract.mjs
+
       - name: Report Android raw build size
         working-directory: apps/client
         env:

@@ -260,6 +260,11 @@ jobs:
           node scripts/patch_tauri_ios_edge_to_edge.mjs
           node scripts/sync_tauri_platform_icons.mjs ios
 
+          # #1000：iOS 的 minihbut scheme 由 tauri-plugin-deep-link 的 build.rs 写入
+          # gen/apple 的 Info.plist（CFBundleURLTypes）。gen 只能在 macOS 生成，
+          # 因此这条守卫只在此流水线生效。
+          node scripts/check_mobile_scheme_contract.mjs
+
           npm run build
           node scripts/check_dist_boundary.mjs
           node scripts/report_bundle_sizes.mjs
