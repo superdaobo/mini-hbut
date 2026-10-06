@@ -936,7 +936,9 @@ mod statistics_environment_tests {
             "http://plain.example.com/api/ocr/recognize".to_string(),
         ]);
 
-        assert!(filtered.iter().any(|value| value == PRODUCTION_OCR_ENDPOINT));
+        assert!(filtered
+            .iter()
+            .any(|value| value == PRODUCTION_OCR_ENDPOINT));
         assert!(filtered.iter().any(|value| value == FALLBACK_OCR_ENDPOINT));
         // 已下线的测试域与非 HTTPS 地址都必须被剔除
         assert!(!filtered.iter().any(|value| value == &retired_test));
