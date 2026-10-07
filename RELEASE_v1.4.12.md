@@ -1,0 +1,248 @@
+# Mini-HBUT v1.4.12 更新说明
+
+发布日期：2026-10-07
+
+---
+
+## ✨ 版本概览
+
+相对 [v1.4.11](https://github.com/superdaobo/mini-hbut/releases/tag/v1.4.11)，本版本是**「湖工游乐场」史诗（Epic #900）的完整落地版**，同时完成登录体验治理、后端多域故障转移、iOS 冷启动取证能力和一批历史 issue 收口。
+
+本版本主要完成：
+
+1. **湖工游乐场全量上线**：统一 Game Center、统一 Game SDK、十款小游戏迁移、可信五子棋、积分中心 / 总排行榜 / 漂流瓶，并保留旧版经典榜兼容
+2. **游戏身份与安全边界**：接入 Identity `game` scope 与资源受限 JWT、设备签名换票、宿主来源 fail closed、standalone 零远程、会话未确认一律游客态
+3. **登录体验治理（Epic #927）**：成绩同步移出登录关键路径、单飞门失联自愈、登录中状态、空学期与冷却降噪
+4. **教务会话判定修复**：CAS 登录后 JWXT 会话落地失败不再被误报为「会话已过期」，CAS service 改为 `/admin/caslogin`
+5. **后端多域故障转移**：引入端点组模型，主域 `mini.hbut.site` + 唯一兜底域，并统一切换到生产后端
+6. **iOS 冷启动取证与入口瘦身**：补齐「JS 之前」原生耗时、首帧 FCP/LCP、启动历史与主线程冻结心跳，入口 chunk 明显瘦身
+7. **历史 issue 批量收口**：一次性处理 24 个遗留 issue（P2 遗留 / AI 导入 / 课表可见性 / 独立 bug）
+8. **数据统计 V2**：Statistics V2 服务端实现
+9. **工程与 CI**：新增 Game Platform 跨平台集成 Gate、dev 测试版安装包发 QQ 群 workflow
+
+完整对比：[v1.4.11...v1.4.12](https://github.com/superdaobo/mini-hbut/compare/v1.4.11...v1.4.12)
+
+---
+
+## 🎮 湖工游乐场（Epic #900）
+
+### 统一 Game Center 与 Game SDK
+
+- 新增「更多 → 湖工游乐场」入口与五 Tab 的 Game Center 页面，宿主握手做了加固
+- 抽离统一 Mini-HBUT Game SDK，替代各游戏各自维护的 `game_rank.js`
+- Game Center 改为 capability-driven UI：由服务端能力声明决定展示哪些入口，避免前端硬编码
+- 新增 3 个发布控制 flag 接线
+
+关联：[#900](https://github.com/superdaobo/mini-hbut/issues/900)、[#904](https://github.com/superdaobo/mini-hbut/issues/904)、[#905](https://github.com/superdaobo/mini-hbut/issues/905)、PR [#922](https://github.com/superdaobo/mini-hbut/pull/922)、PR [#935](https://github.com/superdaobo/mini-hbut/pull/935)、PR [#945](https://github.com/superdaobo/mini-hbut/pull/945)
+
+### 协议冻结与信任边界
+
+- 冻结 Game Platform V2 协议、信任模型、兼容契约与游戏注册表
+- 客户端灰度发布控制层：默认关闭 + fail closed + 稳定分桶
+- 锁死 standalone 边界：显式 origin 白名单、会话前置、standalone 下零 V2 请求
+- 宿主来源 fail closed，并修复非特殊 scheme 下 `location.origin === "null"` 的兜底
+- 服务目标收口到单一环境权威，清理落盘的跨环境 base
+
+关联：[#901](https://github.com/superdaobo/mini-hbut/issues/901)、PR [#912](https://github.com/superdaobo/mini-hbut/pull/912)、PR [#949](https://github.com/superdaobo/mini-hbut/pull/949)、PR [#951](https://github.com/superdaobo/mini-hbut/pull/951)、PR [#952](https://github.com/superdaobo/mini-hbut/pull/952)、PR [#947](https://github.com/superdaobo/mini-hbut/pull/947)、PR [#971](https://github.com/superdaobo/mini-hbut/pull/971)
+
+### 游戏身份与授权
+
+- Identity 侧新增 `game` scope 与 resource-scoped JWT 访问令牌
+- 客户端以设备签名换取短期访问令牌，令牌仅存内存、不落盘
+- 修正 Tauri 命令参数命名为 camelCase（此前「授权记录 / 设备撤销」在运行时必然失败）
+
+关联：[#902](https://github.com/superdaobo/mini-hbut/issues/902)、PR [#923](https://github.com/superdaobo/mini-hbut/pull/923)、PR [#924](https://github.com/superdaobo/mini-hbut/pull/924)、PR [#926](https://github.com/superdaobo/mini-hbut/pull/926)
+
+### 十款小游戏统一迁移
+
+以下游戏全部迁移到统一 Game SDK：
+
+- `hecheng_hugongda` / `jump_out_hbut` / `hbut_2048`
+- `clumsy_bird_hbut` / `hbut_miner` / `hbut_memory_match`
+- `hbut_monopoly`（并复核 `hbut_stack` 迁移质量）
+- `hbut_parking` / `hbut_match3`
+
+同时收口 9 个游戏内硬编码的测试域：没有下发 `rank_api` 时一律 fail closed，不再静默打到测试环境。
+
+关联：[#907](https://github.com/superdaobo/mini-hbut/issues/907)、PR [#938](https://github.com/superdaobo/mini-hbut/pull/938)、PR [#939](https://github.com/superdaobo/mini-hbut/pull/939)、PR [#940](https://github.com/superdaobo/mini-hbut/pull/940)、PR [#941](https://github.com/superdaobo/mini-hbut/pull/941)、PR [#946](https://github.com/superdaobo/mini-hbut/pull/946)
+
+### 可信五子棋
+
+- 五子棋接入可信比赛记录与赛果采纳，服务端独立复算 move 序列，胜负不再纯客户端判定
+- relay 请求携带身份绑定凭证，堵住「用对方 peer_id 代打」的漏洞
+
+关联：[#908](https://github.com/superdaobo/mini-hbut/issues/908)、PR [#936](https://github.com/superdaobo/mini-hbut/pull/936)、PR [#944](https://github.com/superdaobo/mini-hbut/pull/944)
+
+### 积分中心、总排行榜与漂流瓶
+
+- 积分中心（XP / 等级 / 湖工币）与总排行榜客户端 UI
+- 漂流瓶真实 UI 与「更多」页快捷入口
+- 服务端侧建立 XP / Level / 湖工币 / 每日任务与奖励结算，以及漂流瓶 UGC、红包 escrow 与举报治理
+
+关联：[#909](https://github.com/superdaobo/mini-hbut/issues/909)、[#910](https://github.com/superdaobo/mini-hbut/issues/910)、PR [#978](https://github.com/superdaobo/mini-hbut/pull/978)、PR [#979](https://github.com/superdaobo/mini-hbut/pull/979)
+
+### 会话与身份隔离加固
+
+- 会话未确认时一律按游客态处理：离线冷启动不展示上一用户身份、不注入缓存学号
+- 无会话时不得以上一用户身份展示或提交，席位 403 的机器码取值收口
+
+关联：PR [#948](https://github.com/superdaobo/mini-hbut/pull/948)、PR [#950](https://github.com/superdaobo/mini-hbut/pull/950)
+
+### 旧版兼容
+
+- 保留 `/api/game-rank` 经典榜，建立 V2 dual-write 与旧版保护层
+- 修复 Legacy 通道字段保真问题：经典榜存原始 `ended_reason`，并补回 `jump_out` 的 `run_id`
+
+关联：[#906](https://github.com/superdaobo/mini-hbut/issues/906)、PR [#937](https://github.com/superdaobo/mini-hbut/pull/937)
+
+---
+
+## 🔐 登录与认证
+
+### 登录体验治理（Epic #927）
+
+针对登录耗时、卡死、状态丢失与登录后噪音做了一轮集中治理：
+
+- 成绩同步移出登录关键路径（登录耗时约 20s → 9s）
+- 单飞门失联自愈：登录请求 90s 无响应时不再永久占死，后续点击可重新发起
+- 新增明确的「登录中」状态，避免用户重复点击
+- 空学期与冷却降噪，减少无意义报错提示
+
+关联：[#927](https://github.com/superdaobo/mini-hbut/issues/927)、[#928](https://github.com/superdaobo/mini-hbut/issues/928)–[#932](https://github.com/superdaobo/mini-hbut/issues/932)、PR [#934](https://github.com/superdaobo/mini-hbut/pull/934)
+
+### 教务会话落地判定与错误分类（#984）
+
+此前 CAS 登录成功后，若 JWXT 会话未落地，会被误判为「会话已过期」。本版本：
+
+- 修正 `/admin/login` 的「已登录」误判
+- 区分「会话未落地」与「会话已过期」两类错误并分别处理
+- CAS service 统一改为 `/admin/caslogin`
+
+关联：[#984](https://github.com/superdaobo/mini-hbut/issues/984)、PR [#994](https://github.com/superdaobo/mini-hbut/pull/994)
+
+### 学术会话过期时保留登录身份
+
+教务会话过期不再连带清空登录身份，用户重新进入时无需重新走完整登录。
+
+关联：PR [#899](https://github.com/superdaobo/mini-hbut/pull/899)
+
+---
+
+## 🌐 后端多域与故障转移
+
+- 引入**后端端点组（endpoint groups）**模型，支持组级原子切换
+- 收敛为**两域模型**：主域 `mini.hbut.site` + 唯一兜底域 `mini-hbut-ocr-service.hf.space`
+- 故障转移策略：4xx 不切换、冷却 300s、不做后台探活；主组不可用时跳过冷却中的组
+- 非 release 构建不再被强制指向已停用的测试后端，dev / beta 包的后端不再「全线不可用且静默」
+- 客户端与游戏 SDK 默认端点统一切换到生产域
+
+关联：PR [#981](https://github.com/superdaobo/mini-hbut/pull/981)、[#999](https://github.com/superdaobo/mini-hbut/issues/999)、PR [#1003](https://github.com/superdaobo/mini-hbut/pull/1003)
+
+---
+
+## 🚀 启动可观测性与 iOS 冷启动取证（#991）
+
+针对「冷启动卡在启动页后被系统判定崩溃」的问题，本版本不做猜测式修复，而是先补齐取证能力：
+
+- 补齐「JS 之前」那段原生前置耗时，让启动时间线从进程启动开始可测
+- 记录首帧 FCP / LCP，以及启动历史
+- 新增主线程冻结心跳，用于判定是否发生主线程长时间阻塞
+- 启动页阶段时间线 + 设置页一键复制诊断信息
+- 修复「启动完成后突然崩溃」的取证缺口
+- 让开屏动画开关对原生启动页真正生效
+
+同时做了**入口 chunk 瘦身**：把 i18n 语言包与 `html2canvas` 移出启动静态图（`html2canvas` 改为函数内动态 import），减少模块求值期的主线程占用。入口瘦身是相对 v1.4.10 的可证明回归修复，无论最终根因如何都值得修。
+
+关联：[#991](https://github.com/superdaobo/mini-hbut/issues/991)、[#992](https://github.com/superdaobo/mini-hbut/issues/992)、[#993](https://github.com/superdaobo/mini-hbut/issues/993)、PR [#995](https://github.com/superdaobo/mini-hbut/pull/995)、PR [#997](https://github.com/superdaobo/mini-hbut/pull/997)、PR [#1008](https://github.com/superdaobo/mini-hbut/pull/1008)
+
+---
+
+## 🐛 历史 issue 批量收口
+
+一次性处理 **24 个**遗留 issue，覆盖：
+
+- P2 遗留问题
+- AI 导入相关
+- 课表可见性
+- 独立 bug
+
+关联：PR [#982](https://github.com/superdaobo/mini-hbut/pull/982)
+
+### iOS 深链与「更多」页
+
+- 修复 iOS 深链注册
+- 「更多」页改为总面板形态
+- 修复面板合并后真机反馈的四处问题：徽章、积分基址、文案、身份丢失
+
+关联：[#998](https://github.com/superdaobo/mini-hbut/issues/998)、[#1000](https://github.com/superdaobo/mini-hbut/issues/1000)、[#1001](https://github.com/superdaobo/mini-hbut/issues/1001)、[#1002](https://github.com/superdaobo/mini-hbut/issues/1002)、PR [#1003](https://github.com/superdaobo/mini-hbut/pull/1003)、PR [#1010](https://github.com/superdaobo/mini-hbut/pull/1010)
+
+### 首页今日安排布局修复
+
+修复首页「今日安排」中长课程名溢出卡片、以及与「去上课」按钮重叠的问题，并补上布局契约测试。
+
+关联：[#1011](https://github.com/superdaobo/mini-hbut/issues/1011)、PR [#1012](https://github.com/superdaobo/mini-hbut/pull/1012)
+
+### 图标子集与 dev 字体
+
+- 子集字形集合改为源码自动扫描，并加契约护栏
+- 修复 dev 下软链接 `node_modules` 导致的字体 403
+
+关联：PR [#972](https://github.com/superdaobo/mini-hbut/pull/972)
+
+---
+
+## 📊 数据统计
+
+实现 Statistics V2 服务端能力。
+
+关联：PR [#925](https://github.com/superdaobo/mini-hbut/pull/925)
+
+---
+
+## 🏗️ 工程与 CI
+
+- 新增 Game Platform 跨平台集成 Gate 脚本，覆盖 Android / iOS / 桌面三端
+- 新增手动触发的 **dev 测试版安装包发 QQ 群** workflow，方便内测分发
+
+关联：PR [#942](https://github.com/superdaobo/mini-hbut/pull/942)、[#996](https://github.com/superdaobo/mini-hbut/issues/996)、PR [#1009](https://github.com/superdaobo/mini-hbut/pull/1009)
+
+---
+
+## ⚠️ 已知限制
+
+### Android 桌面 Widget 原生桥仍处于熔断状态
+
+1.4.11 为规避 Android 启动闪退（#894），暂时熔断了 Tauri Android 的 Widget JS → Rust/JNI 原生写入桥。本版本**尚未恢复**该桥。
+
+这意味着 Android 桌面 Widget 在 1.4.12 中可能继续显示旧快照，无法随 App 课表 / 主题变化及时更新。Kotlin / Java / Manifest 基础代码与 XML 写入串行化机制仍然保留，待定位并重构 native bridge 后恢复。
+
+### 湖工游乐场处于灰度控制之下
+
+Game Platform 的发布控制默认关闭并 fail closed，实际放量由远程配置的 flag 与分桶决定。未开启时用户看不到游乐场入口。
+
+---
+
+## 📦 版本信息
+
+- 版本号：**1.4.12**
+- 标签：`v1.4.12`
+- 上一版本：[`v1.4.11`](https://github.com/superdaobo/mini-hbut/releases/tag/v1.4.11)
+- 完整变更：[`v1.4.11...v1.4.12`](https://github.com/superdaobo/mini-hbut/compare/v1.4.11...v1.4.12)
+- 统计：提交 **40** 个 · 变更文件 **411** 个 · +69,714 / −7,053 行
+
+---
+
+## 🔗 本版本重点关联
+
+| 类型 | 编号 | 说明 |
+|------|------|------|
+| Epic | [#900](https://github.com/superdaobo/mini-hbut/issues/900) | 湖工游乐场：Game Center / SDK / 排行榜 / 湖工币 / 漂流瓶 |
+| Epic | [#927](https://github.com/superdaobo/mini-hbut/issues/927) | 登录体验治理：耗时、卡死、状态丢失与登录后噪音 |
+| Issue | [#984](https://github.com/superdaobo/mini-hbut/issues/984) | CAS 登录后 JWXT 会话落地失败被误报为「会话已过期」 |
+| Issue | [#991](https://github.com/superdaobo/mini-hbut/issues/991) | iOS 冷启动卡在启动页后被系统判定崩溃 |
+| Issue | [#999](https://github.com/superdaobo/mini-hbut/issues/999) | 非 release 构建后端不可用且静默 |
+| PR | [#981](https://github.com/superdaobo/mini-hbut/pull/981) | 后端端点组 + 多域故障转移（两域模型） |
+| PR | [#982](https://github.com/superdaobo/mini-hbut/pull/982) | Issue Backlog 批量收口（24 个 issue） |
+| PR | [#1003](https://github.com/superdaobo/mini-hbut/pull/1003) | iOS 深链注册 + 后端统一切生产 + 「更多」页总面板 |
+| PR | [#1008](https://github.com/superdaobo/mini-hbut/pull/1008) | 「JS 之前」启动可见：原生前置耗时 + FCP/LCP + 启动历史 |
+| PR | [#1009](https://github.com/superdaobo/mini-hbut/pull/1009) | dev 测试版安装包发 QQ 群 workflow |
