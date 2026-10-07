@@ -66,6 +66,23 @@ export interface BootDiagStall {
   gap: number
 }
 
+/**
+ * 启动历史条目（最近 `MAX_HISTORY` 次，由 `index.html` 采集）。
+ *
+ * 为什么需要它：只保留「当前 + 上一次」会**吃掉崩溃 / 重载循环** —— 若 WebContent 反复
+ * 被杀并重载，每次都会留下一条完整（`finished: true`）的记录，只看两条会以为一切正常。
+ * 有了历史就能看出「两次启动只隔 3 秒」这类异常间隔。
+ */
+export interface BootHistoryEntry {
+  at: number
+  bootId?: string
+  finished?: boolean
+  cleanExit?: boolean
+  aliveMs?: number
+  navMs?: number
+  finishedAt?: number
+}
+
 export interface BootDiagSnapshot {
   v: number
   bootId: string
@@ -83,6 +100,8 @@ export interface BootDiagSnapshot {
    * 「进程未正常结束（崩溃，或被划掉）」—— 报告里如实标注二者不可区分。
    */
   cleanExit?: boolean
+  /** 最近若干次启动的摘要（新→旧由报告侧决定） */
+  history?: BootHistoryEntry[]
   meta: Record<string, unknown>
 }
 
@@ -240,6 +259,35 @@ export const resolveBootOutcome = (snapshot: BootDiagSnapshot): BootOutcome => {
   return snapshot.cleanExit === true ? 'clean' : 'abnormal-exit'
 }
 
+/**
+ * 「进程启动 → 页面开始加载」的耗时（毫秒）。
+ *
+ * 为什么必须单独算：`index.html` 的内联脚本把自身时刻当作时间原点，报告里所有 `+Nms`
+ * 都相对它 —— 因此**页面加载本身以及更早的原生启动阶段完全不可见**。真机上出现过
+ * 「白屏 10 秒但 JS 启动只要 33ms」，正是被这段盲区吃掉的。
+ *
+ * 推算：`main.ts` 在启动早期记一条 `native-uptime`（Rust `runtime_log.uptime_ms`，
+ * 即进程启动至查询时刻）。于是
+ *   进程启动时刻 ≈ (内联脚本墙钟 + 该条目 t) - rust_uptime
+ *   导航开始时刻 ≈ 内联脚本墙钟 - nav_ms
+ *   ⇒ 原生前置 = rust_uptime - nav_ms - t
+ *
+ * 返回 `null` 表示证据不足（非 Tauri 运行时 / 命令失败 / 字段缺失），不猜。
+ */
+export const resolveNativePreMs = (snapshot: BootDiagSnapshot | null): number | null => {
+  if (!snapshot) return null
+  const navMs = Number(snapshot.meta?.nav_ms)
+  if (!Number.isFinite(navMs)) return null
+  const entry = snapshot.entries.find((item) => item.name === 'native-uptime')
+  const uptime = Number(entry?.detail?.rust_uptime_ms)
+  if (!Number.isFinite(uptime)) return null
+  const value = uptime - navMs - (Number(entry?.t) || 0)
+  return Number.isFinite(value) ? Math.max(0, value) : null
+}
+
+/** 是否存在内存中的实时快照（有 ⇒ `current` 就是本次仍在运行的进程） */
+export const hasLiveBootSnapshot = (): boolean => !!getDiagWindow()?.__HBU_BOOT_DIAG__
+
 const OUTCOME_LABEL: Record<BootOutcome, string> = {
   clean: '正常结束',
   'abnormal-exit': '启动完成后进程未正常结束（崩溃 / 被系统终止 / 被手动划掉）',
@@ -317,20 +365,50 @@ export const replayBootDiagnostics = (): number => {
 
 const formatDuration = (ms: number) => `${Math.round(ms)}ms`
 
-const formatBootSection = (title: string, snapshot: BootDiagSnapshot | null): string[] => {
+const formatBootSection = (
+  title: string,
+  snapshot: BootDiagSnapshot | null,
+  live = false
+): string[] => {
   if (!snapshot) return [`--- ${title} ---`, '（无记录）']
   const outcome = resolveBootOutcome(snapshot)
+  // 本次启动的进程仍在运行 ⇒ 当然还没记录到退出，不能据此判成「异常结束」
+  const outcomeText =
+    live && snapshot.cleanExit !== true
+      ? '进行中（本次进程仍在运行，尚未记录退出）'
+      : OUTCOME_LABEL[outcome]
   const splashRemoved = snapshot.entries.find((entry) => entry.name === 'splash-removed')
   const splashElapsed = Number(splashRemoved?.detail?.elapsed ?? NaN)
   const lines: string[] = [
     `--- ${title} ---`,
     `boot_id: ${snapshot.bootId}`,
     `启动墙钟: ${new Date(snapshot.startedAtWall).toLocaleString()}`,
-    `结局: ${OUTCOME_LABEL[outcome]}`,
+    `结局: ${outcomeText}`,
     `是否走完启动: ${snapshot.finished ? `是（${snapshot.finishedAt ?? 0}ms）` : '否'}`,
     `是否记录到正常退出: ${snapshot.cleanExit === true ? '是' : '否'}`,
     `时间线条目: ${snapshot.entries.length}，长阻塞记录: ${snapshot.stalls.length}`
   ]
+  const nativePre = resolveNativePreMs(snapshot)
+  if (nativePre !== null) {
+    lines.push(`原生前置（进程启动 → 页面开始加载）: ${formatDuration(nativePre)}`)
+  }
+  const navMs = Number(snapshot.meta?.nav_ms)
+  if (Number.isFinite(navMs)) {
+    lines.push(`页面加载（导航开始 → 内联脚本）: ${formatDuration(navMs)}`)
+  }
+  const fcp = Number(snapshot.meta?.paint_fcp_ms)
+  const lcp = Number(snapshot.meta?.paint_lcp_ms)
+  if (Number.isFinite(fcp)) {
+    lines.push(
+      `首帧 FCP: ${formatDuration(fcp)}${Number.isFinite(lcp) ? `，最大内容 LCP: ${formatDuration(lcp)}` : ''}`
+    )
+    // 这是「白屏多久」的直接答案，也是「是不是主线程被卡」的判别器
+    if (fcp >= 2000 && snapshot.stalls.length === 0) {
+      lines.push(
+        '  ⚠️ 首帧很晚但主线程未冻结 ⇒ 瓶颈不在 JS 主线程，而在「内容何时被画出」（异步视图 chunk 未就绪 / 绘制被推迟）'
+      )
+    }
+  }
   if (Number.isFinite(splashElapsed)) {
     lines.push(`启动页可见时长: ${formatDuration(splashElapsed)}（移除原因 ${sanitizeText(splashRemoved?.detail?.reason ?? '')}）`)
   }
@@ -350,6 +428,40 @@ const formatBootSection = (title: string, snapshot: BootDiagSnapshot | null): st
     for (const key of metaKeys) {
       lines.push(`    ${key} = ${sanitizeText(snapshot.meta[key])}`)
     }
+  }
+  return lines
+}
+
+/**
+ * 最近启动历史（新 → 旧）。
+ *
+ * 关键判读：相邻两次间隔 < 5s 说明**不是用户在重新打开应用**，而是同一会话内页面被重载
+ * （WebContent 被杀后 WKWebView 重载是最常见的一种）；`启动未走完` 说明那一轮连 JS 都没跑完。
+ */
+const formatBootHistory = (snapshot: BootDiagSnapshot | null): string[] => {
+  const lines: string[] = ['--- 最近启动历史（新 → 旧） ---']
+  const raw = Array.isArray(snapshot?.history) ? snapshot?.history ?? [] : []
+  if (!raw.length) {
+    lines.push('（无）')
+    return lines
+  }
+  const ordered = [...raw].reverse()
+  for (let index = 0; index < ordered.length; index += 1) {
+    const item = ordered[index]
+    const older = ordered[index + 1]
+    const gap = older ? Number(item.at) - Number(older.at) : NaN
+    const flags: string[] = [
+      item.finished === false ? '启动未走完' : '走完启动',
+      item.cleanExit === true ? '正常退出' : '未记录正常退出'
+    ]
+    if (Number.isFinite(gap)) {
+      flags.push(`距上一次 ${Math.round(gap / 1000)}s`)
+      if (gap > 0 && gap < 5000) flags.push('⚠️ 间隔 <5s（疑似页面重载 / 崩溃循环）')
+    } else {
+      flags.push('（最早一条）')
+    }
+    if (item.aliveMs) flags.push(`存活 ${Math.round(Number(item.aliveMs) / 1000)}s`)
+    lines.push(`  ${new Date(Number(item.at)).toLocaleTimeString()} ${flags.join(' | ')}`)
   }
   return lines
 }
@@ -385,9 +497,11 @@ export const formatBootDiagnosticsReport = (): string => {
   }
   lines.push('')
 
-  lines.push(...formatBootSection('本次启动时间线', current))
+  lines.push(...formatBootSection('本次启动时间线', current, hasLiveBootSnapshot()))
   lines.push('')
   lines.push(...formatBootSection('上次启动时间线', previous))
+  lines.push('')
+  lines.push(...formatBootHistory(current))
 
   lines.push('')
   lines.push('--- 资源加载失败汇总（本次启动） ---')

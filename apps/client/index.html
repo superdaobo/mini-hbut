@@ -373,6 +373,8 @@
       var STORAGE_KEY = 'hbu_boot_diag_v1'
       var MAX_ENTRIES = 240
       var MAX_STALLS = 8
+      /** 启动历史保留条数：用于暴露「崩溃 / WebContent 重载循环」（只留两次会被吃掉） */
+      var MAX_HISTORY = 12
       // 主线程心跳间隔与「冻结」判定阈值：正常定时器抖动远小于 700ms
       var HEARTBEAT_MS = 250
       var STALL_THRESHOLD_MS = 700
@@ -418,12 +420,16 @@
       // ── 读取上一次启动（可能是一次未走完的崩溃） ──
       var previous = null
       var restarts = 0
+      var history = []
       try {
         var raw = localStorage.getItem(STORAGE_KEY)
         if (raw) {
           var parsed = JSON.parse(raw)
           if (parsed && parsed.current) previous = parsed.current
           if (parsed && typeof parsed.restarts === 'number') restarts = parsed.restarts
+          if (parsed && Object.prototype.toString.call(parsed.history) === '[object Array]') {
+            history = parsed.history.slice(-(MAX_HISTORY - 1))
+          }
         }
       } catch (e) { /* 存储不可用时仍继续，只是没有跨启动证据 */ }
       restarts += 1
@@ -435,6 +441,16 @@
       // 想更短/更长只改这一个常量。
       var MIN_VISIBLE_MS = 1400
 
+      /**
+       * 本次启动在「启动历史」里的摘要。
+       *
+       * 为什么需要历史而不只是最近两次：崩溃/重载循环会被「只保留两次」吃掉 ——
+       * 如果 WebContent 反复被杀并重载，每次都留下一条完整记录，两两之间间隔很短，
+       * 只看当前+上一次会以为一切正常。这里保留最近 MAX_HISTORY 次，间隔与结局一览。
+       */
+      var historyEntry = { at: Date.now(), bootId: '', finished: false, cleanExit: false, aliveMs: 0 }
+      history.push(historyEntry)
+
       var state = {
         v: 1,
         bootId: 'boot-' + Date.now() + '-' + Math.random().toString(16).slice(2, 8),
@@ -444,6 +460,7 @@
         finished: false,
         // 正常退出标记（pagehide / beforeunload 置 true）；未置位 = 进程非正常结束
         cleanExit: false,
+        history: history,
         meta: {
           user_agent: sanitizeText(typeof navigator !== 'undefined' ? navigator.userAgent : ''),
           visibility: typeof document !== 'undefined' ? document.visibilityState : '',
@@ -452,9 +469,75 @@
           hardware_concurrency: (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 0,
           device_memory_gb: (typeof navigator !== 'undefined' && navigator.deviceMemory) || 0,
           restart_index: restarts,
-          splash_enabled: !splashDisabled
+          splash_enabled: !splashDisabled,
+          // 「导航开始 → 内联脚本」耗时：这是**页面加载**阶段的耗时。
+          // 注意本脚本把 startPerf 当作时间原点，所以这个值必须显式记录，
+          // 否则报告里所有 +Nms 都相对它、看不出加载本身花了多久。
+          nav_ms: Math.round(startPerf)
         }
       }
+      historyEntry.bootId = state.bootId
+
+      // 导航计时（文档/资源协议耗时）与导航起点墙钟
+      try {
+        if (hasPerf && typeof performance.timeOrigin === 'number') {
+          state.meta.time_origin = Math.round(performance.timeOrigin)
+        }
+        if (hasPerf && typeof performance.getEntriesByType === 'function') {
+          var navEntries = performance.getEntriesByType('navigation')
+          var nav = navEntries && navEntries[0]
+          if (nav) {
+            state.meta.nav_fetch_ms = Math.round(nav.fetchStart || 0)
+            state.meta.nav_response_ms = Math.round(nav.responseStart || 0)
+            state.meta.nav_dom_interactive_ms = Math.round(nav.domInteractive || 0)
+            state.meta.nav_dom_complete_ms = Math.round(nav.domComplete || 0)
+          }
+        }
+      } catch (e) { /* ignore */ }
+
+      /**
+       * 首帧指标（FCP / LCP）——**直接度量「用户看到白屏多久」**。
+       *
+       * 为什么必须有它：主线程心跳只能发现「定时器停摆」（JS 被阻塞）。若 JS 一直健康
+       * 但屏幕仍长时间空白（例如异步视图 chunk 迟迟没到、绘制被推迟），心跳会显示
+       * 0 次冻结，报告看起来一切正常 —— 真机上「白屏 10 秒但 JS 启动 33ms」就是这种形态。
+       * FCP 很晚 + 0 次冻结 ⇒ 问题不在主线程，而在「内容什么时候被画出来」。
+       */
+      function recordPaintMetrics() {
+        try {
+          if (hasPerf && typeof performance.getEntriesByType === 'function') {
+            var paints = performance.getEntriesByType('paint') || []
+            for (var i = 0; i < paints.length; i += 1) {
+              var item = paints[i]
+              var key = 'paint_' + String(item.name || '').replace(/-/g, '_')
+              state.meta[key] = Math.round(item.startTime || 0)
+            }
+          }
+          if (typeof PerformanceObserver !== 'function') return
+          var onEntries = function (list) {
+            var entries = list.getEntries() || []
+            for (var j = 0; j < entries.length; j += 1) {
+              var entry = entries[j]
+              if (entry.name === 'first-contentful-paint') {
+                state.meta.paint_fcp_ms = Math.round(entry.startTime || 0)
+              } else if (entry.entryType === 'largest-contentful-paint') {
+                state.meta.paint_lcp_ms = Math.round(entry.startTime || 0)
+              } else {
+                continue
+              }
+              flush()
+            }
+          }
+          // 两个类型分开注册：某些 WebView 不支持 LCP，不能让它的失败连带 paint 一起失效
+          try {
+            new PerformanceObserver(onEntries).observe({ type: 'paint', buffered: true })
+          } catch (e1) { /* ignore */ }
+          try {
+            new PerformanceObserver(onEntries).observe({ type: 'largest-contentful-paint', buffered: true })
+          } catch (e2) { /* ignore */ }
+        } catch (e) { /* 不支持时静默跳过 */ }
+      }
+      recordPaintMetrics()
 
       function push(name, detail, force) {
         if (state.entries.length >= MAX_ENTRIES) {
@@ -478,10 +561,17 @@
       function flush() {
         try {
           sampleMemory()
+          // 同步本次启动的结局到历史条目，使「最近启动历史」始终反映最新状态
+          historyEntry.finished = state.finished
+          historyEntry.cleanExit = state.cleanExit
+          historyEntry.aliveMs = state.meta.alive_ms || 0
+          historyEntry.navMs = state.meta.nav_ms || 0
+          historyEntry.finishedAt = state.finishedAt || 0
           localStorage.setItem(STORAGE_KEY, JSON.stringify({
             current: state,
             previous: previous || undefined,
-            restarts: restarts
+            restarts: restarts,
+            history: history
           }))
         } catch (e) { /* 配额/隐私模式失败不影响启动 */ }
       }

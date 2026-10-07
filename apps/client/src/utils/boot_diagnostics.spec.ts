@@ -9,6 +9,7 @@ import {
   recordBootStage,
   replayBootDiagnostics,
   resolveBootOutcome,
+  resolveNativePreMs,
   sanitizeDetail,
   sanitizeText,
   sanitizeUrl
@@ -165,6 +166,42 @@ describe('boot_diagnostics 读取与持久化', () => {
   })
 })
 
+describe('boot_diagnostics 原生前置耗时推算', () => {
+  it('用 native-uptime 与 nav_ms 反推「进程启动 → 页面开始加载」', () => {
+    // 进程已启动 10240ms，而页面在 240ms 前才开始加载，native-uptime 记于内联脚本后 40ms
+    // ⇒ 原生前置 = 10240 - 240 - 40 = 9960ms（即用户看到的「白屏 10 秒」）
+    const snapshot = makeSnapshot({
+      entries: [{ t: 40, name: 'native-uptime', detail: { rust_uptime_ms: 10_240 } }],
+      meta: { nav_ms: 240 }
+    })
+    expect(resolveNativePreMs(snapshot)).toBe(9960)
+  })
+
+  it('证据不足时返回 null（不猜一个数字）', () => {
+    expect(resolveNativePreMs(null)).toBeNull()
+    // 缺 native-uptime
+    expect(resolveNativePreMs(makeSnapshot({ meta: { nav_ms: 240 } }))).toBeNull()
+    // 缺 nav_ms
+    expect(
+      resolveNativePreMs(makeSnapshot({ entries: [{ t: 40, name: 'native-uptime', detail: { rust_uptime_ms: 10_240 } }] }))
+    ).toBeNull()
+    // 非 Tauri 环境下命令失败 → 字段缺失
+    expect(
+      resolveNativePreMs(
+        makeSnapshot({ entries: [{ t: 40, name: 'native-uptime', detail: {} }], meta: { nav_ms: 240 } })
+      )
+    ).toBeNull()
+  })
+
+  it('推算结果不为负（时钟/采样抖动兜底）', () => {
+    const snapshot = makeSnapshot({
+      entries: [{ t: 500, name: 'native-uptime', detail: { rust_uptime_ms: 100 } }],
+      meta: { nav_ms: 50 }
+    })
+    expect(resolveNativePreMs(snapshot)).toBe(0)
+  })
+})
+
 describe('boot_diagnostics 结局判定', () => {
   it('走完启动 + 记录到正常退出 → clean', () => {
     expect(resolveBootOutcome(makeSnapshot({ finished: true, cleanExit: true }))).toBe('clean')
@@ -292,6 +329,51 @@ describe('boot_diagnostics 报告', () => {
   it('首次启动（无上次记录）时报告明确说明', () => {
     installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current: makeSnapshot() }) })
     expect(formatBootDiagnosticsReport()).toContain('这是本次诊断上线后的第一次启动')
+  })
+
+  it('本次启动仍在运行时标注「进行中」，不误报为「未正常结束」', () => {
+    const live = makeSnapshot({ bootId: 'boot-live', finished: true, cleanExit: false })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current: live }) })
+    installWindow({ __HBU_BOOT_DIAG__: live })
+
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('进行中（本次进程仍在运行，尚未记录退出）')
+  })
+
+  it('报告给出「原生前置」与「页面加载」两段耗时（白屏 10 秒的定位依据）', () => {
+    const current = makeSnapshot({
+      entries: [{ t: 40, name: 'native-uptime', detail: { rust_uptime_ms: 10_240 } }],
+      meta: { nav_ms: 240 }
+    })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current }) })
+
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('原生前置（进程启动 → 页面开始加载）: 9960ms')
+    expect(report).toContain('页面加载（导航开始 → 内联脚本）: 240ms')
+  })
+
+  it('启动历史暴露「页面重载 / 崩溃循环」（相邻间隔 <5s 会被标注）', () => {
+    const base = 1_700_000_000_000
+    const current = makeSnapshot({
+      history: [
+        { at: base, finished: true, cleanExit: false, aliveMs: 3000 },
+        { at: base + 3000, finished: true, cleanExit: false, aliveMs: 2500 },
+        { at: base + 90_000, finished: false, cleanExit: false }
+      ]
+    })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current }) })
+
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('最近启动历史（新 → 旧）')
+    expect(report).toContain('疑似页面重载 / 崩溃循环')
+    expect(report).toContain('启动未走完')
+    expect(report).toContain('走完启动')
+  })
+
+  it('无历史记录时该分区仍可用', () => {
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current: makeSnapshot() }) })
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('最近启动历史（新 → 旧）')
   })
 
   it('无记录时报告仍然可用', () => {
