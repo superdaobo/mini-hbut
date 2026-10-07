@@ -1696,6 +1696,7 @@ export const messages: Record<string, string> = {
   'more.loading': 'Loading module center...',
   'more.panel.title': 'HBUT Arcade',
   'more.panel.loading': 'Opening the arcade panel…',
+  'more.panel.openingGame': 'Opening the game…',
   'more.panel.failed': 'Failed to open the panel',
   'more.panel.missing': 'Panel manifest is not published yet. Please try again later.',
   'more.msg.cacheHit': 'Loaded from local cache',

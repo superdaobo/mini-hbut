@@ -1695,6 +1695,7 @@ export const messages: Record<string, string> = {
   'more.loading': 'モジュールセンターをロード中...',
   'more.panel.title': 'HBUT アーケード',
   'more.panel.loading': 'アーケードパネルを開いています…',
+  'more.panel.openingGame': 'ゲームを開いています…',
   'more.panel.failed': 'パネルを開けませんでした',
   'more.panel.missing': 'パネルのマニフェストが未公開です。しばらくしてからお試しください。',
   'more.msg.cacheHit': 'ローカルキャッシュにヒットする',

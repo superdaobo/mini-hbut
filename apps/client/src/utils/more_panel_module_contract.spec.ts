@@ -168,3 +168,41 @@ describe('#1002 核心要求：骨架先于数据渲染', () => {
     expect(css).toContain('prefers-reduced-motion: reduce')
   })
 })
+
+describe('#1002 回归护栏（合并后真机反馈的问题）', () => {
+  const moreView = () =>
+    fs.readFileSync(path.join(repoRoot, 'src', 'components', 'MoreView.vue'), 'utf8')
+  const host = () =>
+    fs.readFileSync(path.join(repoRoot, 'src', 'components', 'MoreModuleHostView.vue'), 'utf8')
+
+  it('open_url 必须与 preview_url 携带同一套上下文（否则 HTTPS-first 丢身份）', () => {
+    const source = moreView()
+    // 宿主对「游乐场发起」的对局走 HTTPS-first：最终 src 会被换成远端 open_url 原文，
+    // 挂在 preview_url 上的身份 / rank_api 被整体丢弃 → 游戏内排行榜报「当前没有登录信息」
+    expect(source).toContain('openUrlWithContext')
+    expect(source).toMatch(/open_url: openUrlWithContext/)
+    expect(source).toMatch(/const openUrlWithContext =\s*appendModuleContextQuery\(/)
+  })
+
+  it('面板积分区必须拿到游戏平台基址（否则恒显示「积分服务未配置」）', () => {
+    const source = moreView()
+    expect(source).toContain("url.searchParams.set('game_platform_api'")
+    expect(source).toContain('resolveGamePlatformApiBase')
+  })
+
+  it('宿主头部不得再渲染运行时徽章（内嵌运行 / 桌面本地包 / 正式渠道 / 构建 …）', () => {
+    const source = host()
+    expect(source).not.toContain('moduleRuntimeBadges')
+    expect(source).not.toContain('module-runtime-strip')
+    expect(source).not.toContain('module-runtime-pill')
+    expect(source).not.toContain('内嵌运行')
+    expect(source).not.toContain('正式渠道')
+  })
+
+  it('转发骨架文案区分「打开游戏」与「打开面板」', () => {
+    const source = moreView()
+    expect(source).toContain('forwardingHint')
+    expect(source).toContain("t('more.panel.openingGame')")
+    expect(source).toMatch(/forwardingHint \|\| t\('more.panel.loading'\)/)
+  })
+})
