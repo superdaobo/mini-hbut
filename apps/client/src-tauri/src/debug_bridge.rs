@@ -161,6 +161,9 @@ pub struct DebugScreenshotCompletePayload {
     pub request_id: String,
     pub success: bool,
     pub error: Option<String>,
+    /// 失败原因归类（#975）：`capture_failed`（页面侧捕获失败）或
+    /// `capture_timeout`（页面侧捕获超时），与 HTTP 侧「页面未回包」504 区分。
+    pub reason: Option<String>,
     pub saved_path: Option<String>,
     pub mime: Option<String>,
     pub width: Option<u32>,
@@ -406,7 +409,14 @@ pub async fn complete_debug_screenshot(
             base64: payload.base64,
         })
     } else {
-        Err(payload.error.unwrap_or_else(|| "截图失败".to_string()))
+        let mut message = payload.error.unwrap_or_else(|| "截图失败".to_string());
+        // 页面侧回报的失败原因前缀化，便于与「页面未回包 504」区分（#975）
+        if let Some(reason) = payload.reason.as_deref() {
+            if !reason.is_empty() {
+                message = format!("[{}] {}", reason, message);
+            }
+        }
+        Err(message)
     };
     let _ = sender.send(result);
     Ok(true)

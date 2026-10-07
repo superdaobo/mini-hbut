@@ -1316,16 +1316,31 @@ pub(crate) async fn login(
     lt: Option<String>,
     execution: Option<String>,
 ) -> Result<UserInfo, String> {
-    println!("[调试] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}",
-             username, password.len(), captcha, lt, execution);
+    // #984 实现要求 E：只记录长度与是否存在，不打印明文密码 / 完整 execution / 完整 captcha。
+    crate::hbut_auth_log!(
+        "[Auth] command login 收到请求 username={} password_len={} captcha_len={} lt_len={} execution_len={}",
+        username,
+        password.len(),
+        captcha.as_deref().map(|v| v.trim().len()).unwrap_or(0),
+        lt.as_deref().map(|v| v.trim().len()).unwrap_or(0),
+        execution.as_deref().map(|v| v.trim().len()).unwrap_or(0),
+    );
     let service = application::AuthService::new(application::ApplicationContext::new(
         state.client.clone(),
         DB_FILENAME,
     ));
-    let user_info = service
+    let user_info = match service
         .login(&username, &password, captcha, lt, execution)
         .await
-        .map_err(|e| e.to_string())?;
+    {
+        Ok(info) => info,
+        Err(err) => {
+            // 传输层收口：即便 http_client 内部已记录阶段，这里也保证「命令层」一定留下痕迹。
+            let message = err.to_string();
+            crate::hbut_auth_log!("[Auth] command login 返回失败 msg={}", message);
+            return Err(message);
+        }
+    };
     let session_key = if user_info.student_id.trim().is_empty() {
         username.clone()
     } else {

@@ -6,7 +6,7 @@
  * 以及「Parser 诊断 → 用户可见文案」的端到端契约。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { setLocale } from '../../../utils/app_i18n'
+import { setLocale, ensureLocaleMessages } from '../../../utils/app_i18n'
 import { parseAiCourseImport } from './importParser'
 import type { ImportDiagnostic } from './importTypes'
 import { describeImportDiagnostic, describeImportDiagnosticLocation } from './importDiagnostics'
@@ -58,7 +58,9 @@ describe('describeImportDiagnosticLocation（#827）', () => {
     )
   })
 
-  it('英文语言下整行英文化', () => {
+  it('英文语言下整行英文化', async () => {
+    // #993：非默认语言字典按需加载，断言前显式预热
+    await ensureLocaleMessages('en')
     setLocale('en')
     const diag = makeDiag({
       field: 'periods',
@@ -109,5 +111,52 @@ describe('describeImportDiagnostic（#827）', () => {
     )
     expect(parsed.ok).toBe(true)
     expect(parsed.courses[0]).toMatchObject({ period: 7, djs: 2 })
+  })
+})
+
+describe('describeImportDiagnostic（#819：按 code 取 i18n 词）', () => {
+  it('zh-CN 下字典词与 Parser 内置 message 逐字一致（输出不变）', () => {
+    const diag = makeDiag({ code: 'invalid_color', message: '颜色格式无法识别，已忽略该颜色' })
+    expect(describeImportDiagnostic(diag)).toBe('颜色格式无法识别，已忽略该颜色')
+  })
+
+  it('en 语言下按 code 输出英文文案（不再透出硬编码中文）', async () => {
+    // #993：非默认语言字典按需加载，断言前显式预热
+    await ensureLocaleMessages('en')
+    setLocale('en')
+    const diag = makeDiag({ code: 'missing_teacher', message: '缺少教师信息' })
+    expect(describeImportDiagnostic(diag)).toBe('Teacher information is missing')
+  })
+
+  it('带占位符的 code：unknown_field 按字段键名重建文案', () => {
+    const diag = makeDiag({ code: 'unknown_field', field: 'foo', message: '兜底' })
+    expect(describeImportDiagnostic(diag)).toBe('未识别的字段「foo」已忽略')
+  })
+
+  it('带占位符的 code：merged_duplicate_weeks 重建条数与课程名', () => {
+    const diag = makeDiag({
+      code: 'merged_duplicate_weeks',
+      mergedCount: 3,
+      courseName: '高等数学',
+      message: '兜底'
+    })
+    expect(describeImportDiagnostic(diag)).toBe('已自动合并 3 条仅周次不同的重复记录（高等数学）')
+  })
+
+  it('占位参数缺失时回退内置 message（绝不输出残缺模板）', () => {
+    const diag = makeDiag({ code: 'unknown_field', message: '未识别的字段已忽略' })
+    expect(describeImportDiagnostic(diag)).toBe('未识别的字段已忽略')
+
+    const merged = makeDiag({
+      code: 'merged_duplicate_weeks',
+      courseName: '高等数学',
+      message: '合并兜底'
+    })
+    expect(describeImportDiagnostic(merged)).toBe('合并兜底')
+  })
+
+  it('未收录的 code 直接使用内置 message', () => {
+    const diag = makeDiag({ code: 'future_unknown_code', message: '未知诊断' })
+    expect(describeImportDiagnostic(diag)).toBe('未知诊断')
   })
 })

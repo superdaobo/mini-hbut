@@ -3,6 +3,7 @@
 > - 适用对象：**#907A–D 四个并行迁移 Agent**（把 10 个有 `game_rank.js` 的游戏接入 SDK）
 > - SDK 位置：`website/modules-src/_sdk/`（包名 `mini-hbut-game-sdk`，SDK v1.0.0，protocol v1）
 > - 协议依据：`docs/game-platform/protocol-v1.md`（#901 冻结）、`trust-model.md`、`compatibility.md`、`game-registry.md`
+> - 宿主注入契约（`host_origin` / `app_version` 必须注入、缺失后果与排障）：`docs/game-platform/host-injection.md`
 > - 参考实现：**`website/modules-src/hbut_stack/`**（唯一已迁移游戏，先读它再动手）
 > - 测试参考：`apps/client/src/utils/_sdk_*.spec.ts`（SDK 单测）+ `_sdk_hbut_stack_integration.spec.ts`（接入守卫）
 
@@ -89,13 +90,21 @@ Fail closed 规则（不可违反）：
 - **测试环境域名绝不作为默认**：`_sdk/**` 里出现测试域字面量即视为回归（源码扫描护栏在 `_sdk_p1_contract.spec.ts`）。
 - V2 的环境默认只在「Host 已签发 ticket」时才可能被用到（无 ticket 时 bootstrap 在 `/meta` 之前就返回，零请求）。
 - 诊断：`game.diagnostics.api = { v2, legacy, rank_api_injected, sources: { v2, legacy } }`，
-  `sources.* ∈ config | host | host_derived | stored | env_default | none`。
+  `sources.legacy ∈ config | host | stored | none`（**Legacy 通道没有 `env_default`** ——
+  无显式注入即 fail closed，见上；`env_default` 已不存在于 Legacy 通道）；
+  `sources.v2 ∈ config | host | host_derived | env_default`（V2 的 `env_default` 是生产源，
+  仅在「Host 已签发 ticket」时才可能被用到）。
 
 迁移要求（W4 收口 9 个 `game_rank.js` 时按此对齐）：
 
 - 游戏源码**不得**再出现任何 API 默认域（`game_rank.js` 里的 `DEFAULT_GAME_RANK_API` 是回滚路径，不在 SDK 通路上）；
 - 需要远程榜的宿主/网页必须**显式注入** `rank_api`（以及需要 V2 时的 `gp_api` 或 ticket）；
 - 无注入即本地游玩，这是**预期行为**，不是 bug。
+
+宿主注入契约（#960，硬要求）：除上述业务参数外，宿主在构造 iframe URL 时**必须**注入
+`host_origin`（宿主自身 origin；缺失 → SDK fail closed → 不握手、零 V2 请求、verified 静默不可用）
+与 `app_version`（构建期 stamp 版本；缺失 → 服务端记 `unknown` → 版本隔离与 canary 版本名单空转）。
+取值来源、注入点与排障表见 **`host-injection.md`**。
 
 ---
 
@@ -106,14 +115,45 @@ Fail closed 规则（不可违反）：
 
 读取与暴露（代码见 `_sdk/src/capabilities.js`）：
 
-- 来源优先级：`/meta.capabilities` > `/meta.features`（过渡形态）> 宿主 `welcome.capabilities` > `welcome.features`；
+- 来源优先级：`/meta.capabilities`（**唯一权威**）> `/meta.features`（集成期过渡兼容，
+  仅兜底读取，计划在服务端全面下发 `capabilities` 后移除）> 宿主 `welcome.capabilities` > `welcome.features`；
 - 形状（canonical key）：`{ leaderboards, daily_tasks, gomoku_competitive, verified_reward }`；
+- **flag 形态名一律拒绝（#965）**：`*_enabled` / `*Enabled` / `*_available` 等与 flag 同形的键
+  在**任何作用域**（`capabilities` / `features`、meta / welcome）都不能被读成「端点已实现」；
+  别名表只保留命名差异条目（`leaderboard` / `dailyTasks` / `game_daily_tasks` 等纯能力名变体）；
 - 游戏侧读取：`game.capabilities.server.<key>`（**保守**：拿不到 `/meta`、字段缺失、类型非法 → 一律 `false`）；
   诊断：`game.diagnostics.capabilities = { source, declared, disabled }`；
 - **保守默认与运行时闸门是两层**：
   - UI 前置隐藏用 `capabilities.server`（未知即 false → 不渲染入口）；
   - 运行时只在服务端**显式声明 false** 时短路请求（`isCapabilityDisabled`），
     字段缺失时保持既有「请求 + 失败降级」行为，避免服务端尚未上线该字段时误伤已上线的 10 个游戏。
+
+### 2.3.1 canonical 能力 key 的三处对应关系（#969）
+
+能力 key 在 **SDK（游戏内）**、**宿主 UI（游乐场）**、**服务端** 三处的 canonical 命名**不是一份清单**，
+各自按消费面收口（服务端是权威超集，未识别命名一律按 false）：
+
+| 能力语义 | SDK canonical（`_sdk/src/capabilities.js`） | 宿主 UI canonical（`game_center/api.ts`） | 服务端 `/meta.capabilities`（权威超集） | 对应客户端 flag（`game_center/base.ts`） |
+|---|---|---|---|---|
+| V2 榜读取 | `leaderboards` | `leaderboards` | `leaderboards` | —（V2 可信链路，无一一对应 flag） |
+| 钱包流水 | —（游戏内 SDK 不消费） | `wallet` | `wallet` | —（经济面由 `game_economy_enabled` 单独控制） |
+| 每日任务 | `daily_tasks` | `daily_tasks` | `daily_tasks` | `game_daily_tasks_enabled` |
+| 五子棋竞技 | `gomoku_competitive` | `gomoku_match` | `gomoku_match` | `gomoku_competitive_enabled` |
+| 漂流瓶 UGC | —（游戏内 SDK 不消费） | `drift_bottle` | `drift_bottle` | `drift_bottle_enabled` |
+| 可信结算发奖 | `verified_reward` | `verified_reward` | `verified_reward` | `verified_reward_enabled` |
+
+注意：
+
+- **`gomoku_competitive`（SDK / flag 侧）与 `gomoku_match`（宿主 UI / 服务端）是同一能力的两个名字**，
+  宿主侧别名表已互相兼容（只读兼容，不改变保守默认）；集成期服务端/宿主字段名差异一律走
+  各自代码里的别名表（`_sdk/src/capabilities.js` 的 `CAPABILITY_ALIASES`、
+  `game_center/api.ts` 的 `GAME_PLATFORM_CAPABILITY_ALIASES`），**任何未识别命名一律按 false**；
+- SDK 表只有 4 键（游戏内消费面），宿主 UI 表有 6 键（游乐场 UI 消费面），
+  服务端声明可多于两者 —— 消费方只读自己认识的 key，多余 key 忽略；
+- 别名容错的精确清单以**代码现状**为准（本文不复制别名表，避免文档与实现漂移）；
+- 服务端声明是**权威超集**（9 键）：宿主 6 键 + `gomoku_competitive` +
+  `launch_ticket` / `session_recovery`（后两键是**宿主握手能力**，launch ticket / 会话恢复，
+  不属于服务能力表，SDK / 宿主按各自 key 消费）。
 
 ---
 
@@ -337,6 +377,7 @@ const sdkGame = MiniHBUTGame.create({
 
 通用模板（每个游戏都要跑）：
 
+- [ ] **宿主注入参数齐全**（#960）：iframe URL 同时含 `host_origin` 与 `app_version`（形态见 `host-injection.md`）；缺 `host_origin` → 无 `/meta` 请求、徽标退化本地模式；缺 `app_version` → 服务端记 `unknown`、版本名单空转
 - [ ] **standalone 可玩**：本地直接打开模块 URL（不带任何参数）→ 游戏可玩、成绩本地记录、无报错、排行榜入口隐藏
 - [ ] **verified 可提交**：宿主注入 ticket 场景 → `run.finish()` 200 + `settled`，榜可见
 - [ ] **compatibility 可提交经典榜**：老 URL（`student_id` + `rank_api`）→ 经典榜提交成功、`trustLevel==='legacy'`、**不发奖**
@@ -440,6 +481,6 @@ node scripts/build_website_modules.mjs --modules <你的游戏>
 | M2 | `clumsy_bird_hbut` V2 主排序是否改为本局 `score` | 是（U-R4）；Legacy 镜像仍写 bestScore |
 | M3 | 排行榜默认 board | `classic`（Stage D 前与经典榜内容一致；`verified` 榜由 #905/#909 决定入口） |
 | M4 | 迁移期是否保留旧 `game_rank.js` 的 import 作为兜底 | 否（SDK 已内含 Legacy 通道；旧文件仅用于回滚） |
-| M5 | `/meta.capabilities` 的最终字段名（Integration 对齐项） | canonical：`leaderboards` / `daily_tasks` / `gomoku_competitive` / `verified_reward`；SDK 兼容 `leaderboard`、`*_enabled`（仅 capabilities 作用域）与 `features.<同名>` 过渡形态，**任何未识别命名一律按 false** |
-| M6 | 客户端 3 个新 flag（`game_daily_tasks_enabled` / `gomoku_competitive_enabled` / `verified_reward_enabled`）的接线时机 | 由 W3 接线时并入 `GAME_CENTER_FLAG_KEYS` + `DEFAULT_GAME_CENTER_FLAGS` + `flags.ts` 夹紧；当前在 `game_center/base.ts` 以 `RESERVED_GAME_CENTER_FLAG_KEYS`（默认全 false）预留 |
+| M5 | `/meta.capabilities` 的最终字段名（Integration 对齐项） | 三处 canonical 对应关系见 §2.3.1 映射表（SDK 4 键 / 宿主 UI 6 键 / 服务端权威超集 9 键；`gomoku_competitive`（SDK/flag 侧）≡ `gomoku_match`（宿主/服务端））；SDK 兼容命名差异别名（`leaderboard`、`dailyTasks` 等纯能力名变体）与 `features.<纯能力名>` 过渡形态，**任何 flag 形态名（`*_enabled` 等）与未识别命名一律按 false（#965）** |
+| M6 | 客户端 3 个新 flag（`game_daily_tasks_enabled` / `gomoku_competitive_enabled` / `verified_reward_enabled`）的接线时机 | **已完成接线**（`game_center/base.ts` 的 `RESERVED_GAME_CENTER_FLAG_KEYS` 已由 `GAME_CENTER_FLAG_KEYS` 展开并入、默认值并入 `DEFAULT_GAME_CENTER_FLAGS`、`flags.ts` 夹紧完成；`RESERVED_*` 常量名保留作为 key 的单一来源，不再是"预留"状态） |
 | M7 | 「无 `rank_api` 的网页直开」是否允许远程上榜（P1-5 取舍） | **不允许**（fail closed → standalone 本地游玩）；需要远程榜的宿主/网页必须显式注入 `rank_api` |

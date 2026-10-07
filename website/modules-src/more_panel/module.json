@@ -1,0 +1,11 @@
+{
+  "id": "more_panel",
+  "name": "湖工游乐场总面板",
+  "icon": "🎛️",
+  "order": 12,
+  "key_required": false,
+  "entry_path": "index.html",
+  "min_compatible_version": "",
+  "source_dir": "project",
+  "release_notes": "更多页总面板：积分摘要 + 游戏入口（远程内嵌，与其它游戏同形态）"
+}

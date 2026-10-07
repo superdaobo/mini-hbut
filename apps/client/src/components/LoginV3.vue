@@ -722,7 +722,8 @@ const pollPortalQrStatus = async () => {
     }
   } catch (e) {
     qrState.value = 'error'
-    qrStateMessage.value = tr('login.qr.statusFailed', { err: e.message || e })
+    // #984：登录链路任何环节失败都要展示可读中文，不能把 Rust / reqwest 原文直接抛给用户
+    qrStateMessage.value = tr('login.qr.statusFailed', { err: friendlyLoginError(e) })
   } finally {
     qrPollingBusy = false
   }
@@ -783,7 +784,7 @@ const initPortalQrLogin = async () => {
     scheduleQrPoll()
   } catch (e) {
     qrState.value = 'error'
-    qrStateMessage.value = tr('login.qr.generateFailed', { err: e.message || e })
+    qrStateMessage.value = tr('login.qr.generateFailed', { err: friendlyLoginError(e) })
   }
 }
 
@@ -837,7 +838,8 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
       return false
     }
     qrState.value = 'error'
-    qrStateMessage.value = tr('login.qr.signInFailed', { err: e.message || e })
+    // #984：同上，扫码登录失败也必须走可读化映射
+    qrStateMessage.value = tr('login.qr.signInFailed', { err: friendlyLoginError(e) })
     return false
   } finally {
     qrSubmitting.value = false
@@ -942,7 +944,7 @@ const pollChaoxingQrStatus = async () => {
     }
   } catch (e) {
     cxQrState.value = 'error'
-    cxQrStateMessage.value = tr('login.cx.qr.statusFailed', { err: e.message || e })
+    cxQrStateMessage.value = tr('login.cx.qr.statusFailed', { err: friendlyLoginError(e) })
     pushDebug(`学习通二维码状态失败: ${e.message || e}`)
   } finally {
     cxQrPollingBusy = false
@@ -1007,7 +1009,7 @@ const initChaoxingQrLogin = async (preferRefresh = false) => {
     pushDebugList(payload?.debug)
   } catch (e) {
     cxQrState.value = 'error'
-    cxQrStateMessage.value = tr('login.cx.qr.generateFailed', { err: e.message || e })
+    cxQrStateMessage.value = tr('login.cx.qr.generateFailed', { err: friendlyLoginError(e) })
     pushDebug(`学习通二维码生成失败: ${e.message || e}`)
   }
 }
@@ -1044,7 +1046,7 @@ const confirmChaoxingQrLogin = async () => {
     await handleChaoxingLoginSuccess(payload, 'chaoxing_qr_temp')
   } catch (e) {
     cxQrState.value = 'error'
-    cxQrStateMessage.value = tr('login.cx.qr.signInFailed', { err: e.message || e })
+    cxQrStateMessage.value = tr('login.cx.qr.signInFailed', { err: friendlyLoginError(e) })
     pushDebug(`学习通扫码登录失败: ${e.message || e}`)
   } finally {
     cxQrSubmitting.value = false

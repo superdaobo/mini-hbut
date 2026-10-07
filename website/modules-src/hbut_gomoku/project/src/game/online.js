@@ -845,19 +845,54 @@ const createRelayPeerId = () => {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * #964：relay 请求 ID 头 —— 服务端 `request_id_of` 优先复用该头的值，
+ * 响应头 / `error.request_id` / 客户端错误对象可对齐（仅链路关联，不含身份/凭据）。
+ */
+const RELAY_REQUEST_ID_HEADER = 'X-Request-Id'
+
+/** 从调用方 headers 里读取已提供的请求 ID（大小写不敏感；无则空串） */
+const readProvidedRequestId = (headers) => {
+  if (!headers || typeof headers !== 'object') return ''
+  for (const key of Object.keys(headers)) {
+    if (String(key).toLowerCase() === 'x-request-id') return String(headers[key] ?? '').trim()
+  }
+  return ''
+}
+
+/**
+ * 生成 relay 请求 ID：`req_` + 32 位小写 hex（与服务端 `req_<hex>` 形状兼容，
+ * 限长 ≤64、字符集安全）。crypto 不可用时回落随机字节（仍保持 hex 字符集）。
+ */
+const createRelayRequestId = () => {
+  const bytes =
+    typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
+      ? crypto.getRandomValues(new Uint8Array(16))
+      : Uint8Array.from({ length: 16 }, () => Math.floor(Math.random() * 256))
+  let hex = ''
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0')
+  return `req_${hex}`
+}
+
 const fetchRelayJson = async (fetchImpl, url, options = {}) => {
+  // #964：请求 ID —— 调用方已提供则复用同值，否则本次请求生成新值
+  const providedRequestId = readProvidedRequestId(options.headers)
+  const clientRequestId = providedRequestId || createRelayRequestId()
   let response = null
   try {
     response = await fetchImpl(url, {
       ...options,
       headers: {
         'content-type': 'application/json',
+        [RELAY_REQUEST_ID_HEADER]: clientRequestId,
+        // 调用方显式传入的同名头（任意大小写）优先，保留原值
         ...(options.headers || {})
       }
     })
   } catch (error) {
     const relayError = new Error(error?.message || 'HF 中转网络请求失败')
     relayError.status = 0
+    relayError.requestId = clientRequestId
     relayError.cause = error
     throw relayError
   }
@@ -878,6 +913,8 @@ const fetchRelayJson = async (fetchImpl, url, options = {}) => {
     relayError.status = Number(response.status || 0)
     relayError.code = code
     relayError.body = body
+    // #964：错误对象携带请求 ID（服务端响应值优先 —— 复用模式下与发送值相同，回退客户端值）
+    relayError.requestId = String(body?.request_id || '').trim() || clientRequestId
     throw relayError
   }
   return body || {}
@@ -1105,6 +1142,8 @@ export const createHfRelayGomokuRoom = async ({
       type: 'poll_failed',
       code: String(error?.code || 'RELAY_POLL_FAILED'),
       failures: pollFailures,
+      // #964：透出请求 ID（服务端响应值优先），便于把「联机中断」与服务端日志对齐
+      request_id: String(error?.requestId || ''),
       message: `联机中断：${describeRelayError(error)}（已连续失败 ${pollFailures} 次）`
     })
   }

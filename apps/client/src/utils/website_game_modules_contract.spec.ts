@@ -245,22 +245,22 @@ describe('website 游戏模块集成契约', () => {
     }
   })
 
-  it('更多页保留 11 个经典入口，并新增湖工游乐场主入口（#905）', () => {
+  it('#1002 更多页改为总面板入口，11 个经典游戏改由面板承载', () => {
     const moreViewSource = readText(path.join(repoRoot, 'src', 'components', 'MoreView.vue'))
     const moduleCenterSource = readText(path.join(repoRoot, 'src', 'utils', 'module_center.js'))
 
-    // 经典入口零破坏：11 个 id 仍在 MoreView 与内置清单中，顺序不变
+    // 内置清单仍是那 11 个经典游戏（面板从远程 catalog 读取，不改内置冻结清单）
     expect(moduleCenterSource).toContain('DEFAULT_MODULE_CENTER')
     for (const id of gameModuleIds) {
-      expect(moreViewSource, `${id} 仍须经由 MoreView 打开`).toContain(`'${id}'`)
+      expect(moreViewSource, `${id} 仍须经由 MoreView 的打开链路`).toContain(`'${id}'`)
     }
 
-    // 新的主入口（Game Center）+ 可折叠的经典入口（默认收起、功能完整）
-    expect(moreViewSource).toContain('data-module-id="game_center"')
-    expect(moreViewSource).toContain('data-module-id="classic_games"')
-    expect(moreViewSource).toContain('v-show="classicExpanded"')
-    expect(moreViewSource).toContain('gameCenterEntryVisible')
-    expect(moreViewSource).toContain('classicEntriesVisible')
+    // #1002：更多页 = 总面板入口 —— 不再渲染主入口 / 可折叠宫格（游戏已并入面板）
+    expect(moreViewSource).toContain("const PANEL_MODULE_ID = 'more_panel'")
+    expect(moreViewSource).toContain('launchPanel')
+    expect(moreViewSource).not.toContain('data-module-id="game_center"')
+    expect(moreViewSource).not.toContain('data-module-id="classic_games"')
+    expect(moreViewSource).not.toContain('v-show="classicExpanded"')
     // 游乐场对局复用既有启动链路（一次性意图），并标记 launch_surface
     expect(moreViewSource).toContain('consumeGameOpen')
     expect(moreViewSource).toContain('launch_surface')

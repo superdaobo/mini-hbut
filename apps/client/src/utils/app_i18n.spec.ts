@@ -117,18 +117,45 @@ describe('app_i18n（#773 语言偏好）', () => {
     const i18n = await loadModule()
 
     expect(i18n.t('settings.title')).toBe('设置中心')
+    // #993：非默认语言字典按需加载，切换后需等待字典就绪
     i18n.setLocale('en')
+    await i18n.ensureLocaleMessages('en')
     expect(i18n.t('settings.title')).toBe('Settings')
     expect(i18n.t('tab.home')).toBe('Home')
 
     i18n.setLocale('ja')
+    await i18n.ensureLocaleMessages('ja')
     expect(i18n.t('settings.title')).toBe('設定センター')
     expect(i18n.t('tab.home')).toBe('ホーム')
+  })
+
+  it('#993 非默认语言字典按需加载：未就绪时回落默认语言，加载后就地填充且幂等', async () => {
+    const i18n = await loadModule()
+
+    // 初始只有默认语言静态就绪
+    expect(i18n.isLocaleMessagesLoaded('zh-CN')).toBe(true)
+    expect(i18n.isLocaleMessagesLoaded('en')).toBe(false)
+    expect(i18n.messages.en).toEqual({})
+
+    i18n.setLocale('en')
+    // 加载完成前回落默认语言，保证永不空白
+    expect(i18n.t('settings.title')).toBe('设置中心')
+
+    await expect(i18n.ensureLocaleMessages('en')).resolves.toBe(true)
+    expect(i18n.isLocaleMessagesLoaded('en')).toBe(true)
+    expect(i18n.t('settings.title')).toBe('Settings')
+
+    // 幂等：重复调用不再触发加载，也不改变结果
+    await expect(i18n.ensureLocaleMessages('en')).resolves.toBe(true)
+    expect(i18n.t('settings.title')).toBe('Settings')
+    // 默认语言调用恒为就绪
+    await expect(i18n.ensureLocaleMessages('zh-CN')).resolves.toBe(true)
   })
 
   it('t() 回落链：en 缺失 key → zh-CN 字典 → 仍缺失返回 key 本身', async () => {
     const i18n = await loadModule()
 
+    await i18n.ensureLocaleMessages('en')
     i18n.setLocale('en')
     // 临时向 zh-CN 注入 en 缺失的 key，验证回落到 zh-CN 字典（用后清理）
     const probeKey = 'test.fallback.only-zh'
@@ -161,6 +188,7 @@ describe('app_i18n（#773 语言偏好）', () => {
 
     // setLocale 更新模块状态 + 派发事件（本 stub 只记录监听器，手动回调验证跟随）
     i18n.setLocale('en')
+    await i18n.ensureLocaleMessages('en')
     expect(localeChangedHandlers.length).toBeGreaterThan(0)
     localeChangedHandlers.forEach((cb) => cb({ detail: { locale: 'en' } }))
     expect(locale.value).toBe('en')
@@ -171,6 +199,9 @@ describe('app_i18n（#773 语言偏好）', () => {
   it('字典：zh-CN / en / ja 的 key 集合完全一致（防止漏翻译）', async () => {
     const i18n = await loadModule()
 
+    // #993：非默认语言字典按需加载，断言前显式预热
+    await i18n.ensureLocaleMessages('en')
+    await i18n.ensureLocaleMessages('ja')
     const zhKeys = Object.keys(i18n.messages['zh-CN']).sort()
     const enKeys = Object.keys(i18n.messages.en).sort()
     const jaKeys = Object.keys(i18n.messages.ja).sort()
@@ -182,6 +213,8 @@ describe('app_i18n（#773 语言偏好）', () => {
 
   it('#785 公开 API 兼容：常量/类型/re-export 与拆分前一致，messages 指向拆分字典', async () => {
     const i18n = await loadModule()
+    await i18n.ensureLocaleMessages('en')
+    await i18n.ensureLocaleMessages('ja')
 
     // 事件名/存储键/默认语言不变（SettingsView 与 App.vue 依赖）
     expect(i18n.APP_LOCALE_STORAGE_KEY).toBe('hbu_app_locale')
@@ -214,6 +247,7 @@ describe('app_i18n（#773 语言偏好）', () => {
 
     viaUseI18n.locale.value = 'zh-CN'
     i18n.setLocale('en')
+    await i18n.ensureLocaleMessages('en')
     localeChangedHandlers.forEach((cb) => cb({ detail: { locale: 'en' } }))
     expect(viaUseI18n.locale.value).toBe('en')
     expect(viaUseI18n.t('tab.home')).toBe('Home')
@@ -250,6 +284,8 @@ describe('app_i18n（#773 语言偏好）', () => {
     try {
       expect(i18n.tf(probeKey, { n: 1, max: 3 })).toBe('系统预热中，正在重试 (1/3)...')
       i18n.setLocale('en')
+      // #993：字典为合并式加载，探针 key 在加载后仍保留；加载完成前回落 zh-CN
+      await i18n.ensureLocaleMessages('en')
       expect(i18n.tf(probeKey, { n: 2, max: 3 })).toBe('Server warming up, retrying (2/3)...')
     } finally {
       delete i18n.messages['zh-CN'][probeKey]

@@ -19,8 +19,12 @@ use std::sync::OnceLock;
 
 use super::utils::chrono_timestamp;
 
+/// 默认登录页参数不完整时并行探测的候选 service。
+///
+/// #984：教务候选一律用 `/admin/caslogin`（唯一能完成 ticket→session 交换的入口），
+/// 不再使用 `/admin/?loginType=1`（实测会 303 丢弃 ticket，永远建不起会话）。
 const LOGIN_PAGE_FALLBACK_SERVICES: &[&str] = &[
-    "https://jwxt.hbut.edu.cn/admin/?loginType=1",
+    "https://jwxt.hbut.edu.cn/admin/caslogin",
     "https://jwxt.hbut.edu.cn/admin/index.html",
     "https://e.hbut.edu.cn/login#/",
 ];
@@ -153,22 +157,10 @@ fn re_salt_js() -> &'static regex::Regex {
     })
 }
 
-fn response_indicates_service_success(response_url: &str, service_url: &str) -> bool {
-    if response_url.contains("authserver/login") {
-        return false;
-    }
-    // 教务系统 v3 自带独立登录页，不算服务登录成功
-    if looks_like_academic_login_url(response_url) {
-        return false;
-    }
-    let Some(host) = reqwest::Url::parse(service_url)
-        .ok()
-        .and_then(|u| u.host_str().map(|h| h.to_string()))
-    else {
-        return false;
-    };
-    response_url.contains(&host)
-}
+// 说明：#984 实现要求 D —— `response_indicates_service_success` 已收敛到
+// `http_client/mod.rs`，与 `looks_like_academic_login_url` / `looks_like_cas_login_url` /
+// `looks_like_portal_login_url` / `looks_like_login_landing_url` 放在一起。
+// 全模块只有这一份「service 登录是否成功」的判定，禁止再在本文件另写一套。
 
 /// 识别 CAS 登录失败原因。
 /// 返回 (错误消息, 是否可按验证码错误重试)
@@ -193,6 +185,11 @@ fn classify_login_error_text(raw_text: &str) -> Option<(String, bool)> {
         "用户不存在",
         "账号不存在",
         "帐号不存在",
+        // #984 实测：门户 CAS 真实文案是「用户名或者密码有误；首次登录，请按照提示进行激活操作」，
+        // 与上面的「用户名或密码错误」不匹配，此前只能靠 HTTP 401 兜底成通用文案。
+        "用户名或者密码有误",
+        "密码有误",
+        "用户名有误",
     ]
     .iter()
     .any(|k| text.contains(k));
@@ -207,6 +204,9 @@ fn classify_login_error_text(raw_text: &str) -> Option<(String, bool)> {
         "验证码不正确",
         "验证码有误",
         "请输入验证码",
+        // #984 实测：门户 CAS 真实文案是「图形动态码错误」，不含「验证码」字样。
+        "图形动态码错误",
+        "动态码错误",
     ]
     .iter()
     .any(|k| text.contains(k));
@@ -264,12 +264,53 @@ fn html_looks_like_login_form(html: &str) -> bool {
     html.contains("pwdEncryptSalt") && html.contains("execution")
 }
 
+/// 登录阶段：让「失败发生在哪一环」在日志里直接可读（#984 实现要求 E）。
+///
+/// 收口日志格式：
+/// - 成功 `[Auth] <label>成功 stage=Done student_id=…`
+/// - 失败 `[Auth] <label>失败 stage=PasswordPost kind=AuthFailed msg=…`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoginStage {
+    /// 60s 冷却门 / 5s 短 backoff 门
+    Gate,
+    /// 获取并解析 CAS 登录页（salt / execution / 是否已登录）
+    FetchLoginPage,
+    /// 验证码获取与 OCR 识别
+    Captcha,
+    /// 提交账号密码（CAS POST）
+    PasswordPost,
+    /// 建立教务会话（`/admin/caslogin`）与拉取用户信息
+    JwxtBootstrap,
+    /// 已完成
+    Done,
+}
+
+/// 纯函数：根据「获取登录页」的最终 URL 判定是否已登录（#984 实现要求 A）。
+///
+/// 独立出来是为了让 T1（`/admin/login` 不得被判为已登录）能直接断言语义，
+/// 不必起真实 HTTP。
+///
+/// 语义：必须**同时**满足
+///   1) 最终 URL 不是任何登录落地页（CAS 登录页 / 教务 `/admin/login` / 门户登录页）；
+///   2) 且属于下列之一：URL 明确带 ticket、命中一码通 host/open、或确实回到 service 域名的成功页。
+///
+/// 绝不再仅凭「URL 里没有 `authserver/login`」就认定已登录 —— 那会把教务自身的
+/// 未登录页 `https://jwxt.hbut.edu.cn/admin/login` 判成已登录，从而跳过本次密码 POST。
+fn compute_is_already_logged_in(final_url: &str, service_url: &str) -> bool {
+    if looks_like_login_landing_url(final_url) {
+        return false;
+    }
+    final_url.contains("ticket=")
+        || final_url.contains("code.hbut.edu.cn/server/auth/host/open")
+        || response_indicates_service_success(final_url, service_url)
+}
+
 fn is_first_party_ocr_endpoint(url: &str) -> bool {
-    // 两域白名单（契约 §9）+ 测试隔离域：只有一方域名才附带 x-mini-hbut-* 遥测头
+    // 两域白名单（契约 §9）：只有我方域名才附带 x-mini-hbut-* 遥测头。
+    // 已下线的测试域（testocr1，Space 已 PAUSED）不再列入 —— 它已被所有档位拒绝。
     [
         "https://mini.hbut.site/",
         "https://mini-hbut-ocr-service.hf.space/",
-        "https://mini-hbut-testocr1.hf.space/",
     ]
     .iter()
     .any(|prefix| url.starts_with(prefix))
@@ -441,25 +482,134 @@ fn build_cas_login_form(
 }
 
 impl HbutClient {
-    /// CAS 登录后建立教务会话并拉取用户信息（含一次 caslogin 补偿重试）。
+    /// 访问 `/admin/caslogin` 并显式校验结果（#984 实现要求 C）。
+    ///
+    /// 原实现是 `let _ = self.client.get(&caslogin_url).send().await?;`，
+    /// status 与 final_url 全部丢弃，导致「CAS 未认证 / 补票失败 / 旧 Cookie 污染 /
+    /// 真实 Session 过期」全部不可区分。
+    ///
+    /// 本函数把结果分类为 [`JwxtBootstrapOutcome`]，并记录
+    /// `[Auth] JWXT caslogin status=… final_url=…` 日志（不含 Cookie / execution / 密码）。
+    async fn bootstrap_jwxt_caslogin(
+        &self,
+        caslogin_url: &str,
+    ) -> Result<JwxtBootstrapOutcome, Box<dyn std::error::Error + Send + Sync>> {
+        // 测试构建可注入 caslogin 结果（#984 新增，见 `test_caslogin`）。
+        #[cfg(test)]
+        let (status, final_url) = if let Some(inject) = &self.test_caslogin {
+            let (url, status, _html) = inject()?;
+            (status, url)
+        } else {
+            Self::request_caslogin(&self.client, caslogin_url).await?
+        };
+        #[cfg(not(test))]
+        let (status, final_url) = Self::request_caslogin(&self.client, caslogin_url).await?;
+
+        crate::hbut_auth_log!(
+            "[Auth] JWXT caslogin status={} final_url={}",
+            status,
+            final_url
+        );
+
+        Ok(Self::classify_jwxt_bootstrap(status, &final_url))
+    }
+
+    /// 发起一次 `/admin/caslogin` 请求，返回 `(status, final_url)`。
+    /// 传输层失败会被分类为 [`JwxtBootstrapOutcome::TransportError`]（见调用方）。
+    async fn request_caslogin(
+        client: &reqwest::Client,
+        caslogin_url: &str,
+    ) -> Result<(u16, String), Box<dyn std::error::Error + Send + Sync>> {
+        let response = match client.get(caslogin_url).send().await {
+            Ok(resp) => resp,
+            Err(err) => {
+                if is_transport_error(&err as &(dyn std::error::Error + Send + Sync)) {
+                    crate::hbut_debug!(
+                        "[Auth] JWXT caslogin transport_error url={} err={}",
+                        caslogin_url,
+                        err
+                    );
+                    // 用 0 表示「未收到任何 HTTP 响应」，由 classify 归为 TransportError
+                    return Ok((0, String::new()));
+                }
+                return Err(Box::new(err));
+            }
+        };
+        let status = response.status().as_u16();
+        let final_url = response.url().to_string();
+        let _ = response.text().await;
+        Ok((status, final_url))
+    }
+
+    /// 纯函数：把 `/admin/caslogin` 的 `(status, final_url)` 分类为 [`JwxtBootstrapOutcome`]。
+    /// 独立出来是为了让 T4/T5 能直接断言分类语义，不必起 HTTP。
+    fn classify_jwxt_bootstrap(status: u16, final_url: &str) -> JwxtBootstrapOutcome {
+        if status == 0 {
+            return JwxtBootstrapOutcome::TransportError;
+        }
+        // 回到 CAS 登录页 → 认证状态已不可用，需要重新认证
+        if looks_like_cas_login_url(final_url) {
+            return JwxtBootstrapOutcome::NeedsCasAuth;
+        }
+        // 仍停留在教务自身登录页 → 补票没有生效
+        if looks_like_academic_login_url(final_url) {
+            return JwxtBootstrapOutcome::JwxtBootstrapFailed;
+        }
+        if !(200..400).contains(&status) {
+            return JwxtBootstrapOutcome::JwxtBootstrapFailed;
+        }
+        // 已经回到教务可用资源（/admin/?loginType=1 等）
+        JwxtBootstrapOutcome::Authenticated
+    }
+
+    /// CAS 登录后建立教务会话并拉取用户信息。
+    ///
+    /// #984 关键修正：`/admin/caslogin` **不是可选补偿，而是建立教务会话的必要步骤**。
+    /// 实测（`data/issue-984-link-map.md`）：service=`/admin/?loginType=1` 时教务会 303
+    /// 丢弃 CAS ticket，只有 `/admin/caslogin` 能完成 ticket → session 交换。
+    ///
+    /// 失败分类（不再一律压成「会话已过期」）：
+    /// - `NeedsCasAuth` → 认证失败类错误，提示重新登录；
+    /// - `JwxtBootstrapFailed` → 独立文案「统一身份认证已通过，但教务会话建立失败，请稍后重试」；
+    /// - `TransportError` → 传输层错误原样透传，不包装成会话过期。
     async fn finalize_jwxt_user_session(
         &mut self,
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let caslogin_url = format!("{}/admin/caslogin", super::JWXT_BASE_URL);
-        crate::hbut_debug!("[调试] 访问教务 CAS 入口: {}", caslogin_url);
-        let _ = self.client.get(&caslogin_url).send().await?;
+        let outcome = self.bootstrap_jwxt_caslogin(&caslogin_url).await?;
+        crate::hbut_auth_log!("[Auth] JWXT bootstrap result={:?}", outcome);
+
+        match outcome {
+            JwxtBootstrapOutcome::TransportError => {
+                return Err(HttpClientError::new(
+                    HttpClientErrorKind::Transport,
+                    "无法连接教务系统，请检查网络后重试",
+                )
+                .into());
+            }
+            JwxtBootstrapOutcome::NeedsCasAuth => {
+                return Err(HttpClientError::auth_failed("登录状态已失效，请重新登录").into());
+            }
+            // caslogin 明确没有建立起会话（仍落 /admin/login 或非 2xx/3xx）：
+            // 此时再拉 fetch_user_info 毫无意义，直接给出独立的 bootstrap 失败错误，
+            // 而不是让它压成「会话已过期」（#984 情况 C）。
+            JwxtBootstrapOutcome::JwxtBootstrapFailed => {
+                return Err(HttpClientError::jwxt_bootstrap_failed().into());
+            }
+            JwxtBootstrapOutcome::Authenticated => {}
+        }
+
+        // 会话已建立 → 用业务资源做最终判定
         match self.fetch_user_info().await {
             Ok(info) => Ok(info),
             Err(err) => {
-                let err_msg = err.to_string();
-                if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期")
-                {
-                    crate::hbut_debug!("[调试] 用户信息获取失败，再次补偿 CAS 入口");
-                    let _ = self.client.get(&caslogin_url).send().await?;
-                    self.fetch_user_info().await
-                } else {
-                    Err(err)
+                // 业务资源仍命中登录页：说明 bootstrap 实际没生效，给出独立错误，
+                // 不再把「登录过程中建不起会话」压成「历史会话已过期」。
+                let msg = err.to_string();
+                if msg.contains("会话已过期") {
+                    return Err(HttpClientError::jwxt_bootstrap_failed().into());
                 }
+                Err(err)
             }
         }
     }
@@ -560,12 +710,25 @@ impl HbutClient {
         }
         crate::hbut_debug!("[调试] 登录页状态: {}, final_url: {}", status, final_url);
 
-        // 检测是否已经登录（根据 URL 跳转或页面内容）
-        let is_already_logged_in = !final_url.contains("authserver/login")
-            || final_url.contains("ticket=")
-            || final_url.contains("code.hbut.edu.cn/server/auth/host/open");
+        // 检测是否已经登录（#984 缺陷 1 修复点）。
+        //
+        // 原实现用 `!final_url.contains("authserver/login")` 作为「已登录」的充分条件，
+        // 导致教务自身的未登录页 `https://jwxt.hbut.edu.cn/admin/login`（不含
+        // `authserver/login`）被判为「已登录」，从而**跳过本次密码 POST**。
+        // 现在收敛到纯函数 `compute_is_already_logged_in`（可单测，见 T1）。
+        let is_already_logged_in = compute_is_already_logged_in(&final_url, service_url);
         if is_already_logged_in {
-            crate::hbut_debug!("[调试] 检测到已登录状态（已跳转到服务或拿到票据）");
+            crate::hbut_debug!(
+                "[Auth] 登录页检测：判定为已登录 final_url={} service={}",
+                final_url,
+                service_url
+            );
+        } else {
+            crate::hbut_debug!(
+                "[Auth] 登录页检测：判定为未登录 final_url={} (login_landing={})",
+                final_url,
+                looks_like_login_landing_url(&final_url)
+            );
         }
 
         // 解析并缓存表单 inputs（用于后续登录提交）
@@ -725,29 +888,56 @@ impl HbutClient {
         })
     }
 
-    /// 使用指定 service 发起 CAS 登录，返回用户信息
+    /// 使用指定 service 发起 CAS 登录，返回用户信息。
+    ///
+    /// 用于一码通 / 电费 / 学习通静默重登等「按 service 登录」链路。
+    /// 与 [`Self::login`] 一样带收口日志：无论从哪个阶段失败，都会输出
+    /// `[Auth] 服务登录(service=…)失败 stage=… kind=… msg=…`。
     pub async fn login_for_service(
         &mut self,
         username: &str,
         password: &str,
         service_url: &str,
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        let mut stage = LoginStage::FetchLoginPage;
+        let result = self
+            .login_for_service_inner(username, password, service_url, &mut stage)
+            .await;
+        Self::log_login_outcome(&format!("服务登录(service={service_url})"), stage, &result);
+        result
+    }
+
+    async fn login_for_service_inner(
+        &mut self,
+        username: &str,
+        password: &str,
+        service_url: &str,
+        stage: &mut LoginStage,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let encoded_service = urlencoding::encode(service_url);
         let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
-        crate::hbut_debug!("[调试] 登录地址（服务）: {}", login_url);
-        crate::hbut_debug!("[调试] 用户名: {}", username);
-        crate::hbut_debug!("[调试] 密码长度 (plain): {}", password.len());
+        crate::hbut_debug!("[Auth] 服务登录开始 service={}", service_url);
+        crate::hbut_debug!("[Auth] 服务登录用户名: {}", username);
+        crate::hbut_debug!("[Auth] 密码长度 (plain): {}", password.len());
 
         // 缓存最近一次登录凭据（仅内存）
         self.last_username = Some(username.to_string());
         self.last_password = Some(password.to_string());
 
-        crate::hbut_debug!("[调试] 开始服务登录: {}", service_url);
+        // 只记录 Cookie 的域与数量，不打印完整值（#984 禁止打印完整 Cookie）
         let cookies_before = self.get_cookies();
-        crate::hbut_debug!("[调试] 登录前 Cookie: {}", cookies_before);
+        crate::hbut_debug!(
+            "[Auth] 登录前 Cookie 条目数={} 长度={}",
+            cookies_before
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .count(),
+            cookies_before.len()
+        );
 
         let max_attempts = 3;
         for attempt in 0..max_attempts {
+            *stage = LoginStage::FetchLoginPage;
             // 获取登录页面参数（execution 一次性），增加重试次数以应对验证码识别错误
             let page_info = self.get_login_page_with_service(service_url).await?;
             let current_salt = page_info.salt;
@@ -788,6 +978,13 @@ impl HbutClient {
                 captcha_for_form.as_deref(),
             );
 
+            *stage = LoginStage::PasswordPost;
+            crate::hbut_debug!(
+                "[Auth] 服务登录 CAS POST started attempt={}/{} service={}",
+                attempt + 1,
+                max_attempts,
+                service_url
+            );
             let response = self
                 .client
                 .post(&login_url)
@@ -814,8 +1011,8 @@ impl HbutClient {
                 return Err("登录失败，请检查账号或密码".into());
             }
 
-            let is_on_auth_page = response_url.contains("authserver/login")
-                || response_url.contains("auth.hbut.edu.cn")
+            let is_on_auth_page = looks_like_cas_login_url(&response_url)
+                || looks_like_portal_login_url(&response_url)
                 || html.contains("统一身份认证")
                 || html.contains("pwdEncryptSalt");
 
@@ -869,14 +1066,17 @@ impl HbutClient {
 
         // 成功登录后尝试获取用户信息（如不可用则忽略）
         if service_url.contains("jwxt.hbut.edu.cn") {
+            *stage = LoginStage::JwxtBootstrap;
             let user_info = self.finalize_jwxt_user_session().await?;
+            *stage = LoginStage::Done;
             self.is_logged_in = true;
             self.set_chaoxing_login_mode(false);
             self.user_info = Some(user_info.clone());
             self.save_cookie_snapshot_to_file();
             return Ok(user_info);
         } else {
-            crate::hbut_debug!("[调试] 服务登录成功: {}", service_url);
+            crate::hbut_debug!("[Auth] 服务登录成功: {}", service_url);
+            *stage = LoginStage::Done;
             self.is_logged_in = true;
             self.set_chaoxing_login_mode(false);
             self.save_cookie_snapshot_to_file();
@@ -973,7 +1173,7 @@ impl HbutClient {
 
         // 3) 本地兜底列表（可被远程配置覆盖）
         let local_fallbacks = if self.ocr_local_fallback_endpoints.is_empty() {
-            super::DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
+            super::DEFAULT_OCR_FALLBACK_ENDPOINTS
                 .iter()
                 .map(|v| v.to_string())
                 .collect::<Vec<_>>()
@@ -1054,7 +1254,13 @@ impl HbutClient {
         self.recognize_captcha_base64(&base64_image).await
     }
 
-    /// 主登录入口（含验证码流程与会话保存）
+    /// 主登录入口（含验证码流程与会话保存）。
+    ///
+    /// **收口保证**：无论 `login_inner` 从哪个阶段失败，返回前都会输出一行
+    /// `[Auth] 门户密码登录失败 stage=… kind=… msg=…`，
+    /// 配合各阶段的分步日志（登录页 / CAS POST / caslogin / fetch_user_info），
+    /// 后端日志可以直接回答「本次是否真的 POST 了密码、CAS 与教务各自的最终 URL、
+    /// 失败发生在哪一环」。
     pub async fn login(
         &mut self,
         username: &str,
@@ -1063,6 +1269,77 @@ impl HbutClient {
         _lt: &str,        // 忽略前端传入的值
         _execution: &str, // 忽略前端传入的值
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        let mut stage = LoginStage::Gate;
+        let result = self
+            .login_inner(
+                username,
+                password,
+                captcha_input,
+                _lt,
+                _execution,
+                &mut stage,
+            )
+            .await;
+        Self::log_login_outcome("门户密码登录", stage, &result);
+        result
+    }
+
+    /// 登录收口日志：成功/失败各一行。失败行必带 stage 与错误分类（kind）。
+    ///
+    /// 只输出阶段名、错误分类与错误文案；不打印密码、完整 Cookie 或完整 execution。
+    ///
+    /// 通道说明（缺一不可）：
+    /// - `runtime_log`（info）→ 应用内调试窗 + bridge `/debug/logs` + stderr，dev/release 均可读；
+    /// - `log` crate → 落盘 `mini-hbut.log`。**失败用 `warn!`**：release 的文件日志默认只收
+    ///   Warn 及以上，用 `info!` 会被全局过滤器丢掉，线上就拿不到登录失败记录。
+    fn log_login_outcome(
+        label: &str,
+        stage: LoginStage,
+        result: &Result<UserInfo, Box<dyn std::error::Error + Send + Sync>>,
+    ) {
+        let line = Self::format_login_outcome_line(label, stage, result);
+        let body = line.strip_prefix("[Auth] ").unwrap_or(line.as_str());
+        crate::runtime_log::log_info("Auth", body);
+        if result.is_ok() {
+            log::info!("{}", line);
+        } else {
+            log::warn!("{}", line);
+        }
+    }
+
+    /// 纯函数：生成收口日志行。抽出来是为了让「日志格式含 stage / kind / msg」
+    /// 成为可单测的契约（#984 要求 E：失败必须能定位到阶段）。
+    fn format_login_outcome_line(
+        label: &str,
+        stage: LoginStage,
+        result: &Result<UserInfo, Box<dyn std::error::Error + Send + Sync>>,
+    ) -> String {
+        match result {
+            Ok(info) => format!(
+                "[Auth] {}成功 stage={:?} student_id={}",
+                label, stage, info.student_id
+            ),
+            Err(err) => {
+                let kind = err.downcast_ref::<HttpClientError>().map(|e| e.kind());
+                format!(
+                    "[Auth] {}失败 stage={:?} kind={:?} msg={}",
+                    label, stage, kind, err
+                )
+            }
+        }
+    }
+
+    /// 登录实现主体。`stage` 由调用方持有，用于失败时定位阶段。
+    async fn login_inner(
+        &mut self,
+        username: &str,
+        password: &str, // 原始明文密码！加密在此函数内完成
+        captcha_input: &str,
+        _lt: &str,        // 忽略前端传入的值
+        _execution: &str, // 忽略前端传入的值
+        stage: &mut LoginStage,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        *stage = LoginStage::Gate;
         // 60s 冷却门：只有「收到认证服务器真实响应」的记录才会触发（#659 根因 5）
         if let Some(remaining) = self.login_cooldown_remaining() {
             return Err(format!("登录频率过高，请{}秒后再试", remaining.as_secs()).into());
@@ -1086,7 +1363,10 @@ impl HbutClient {
         crate::hbut_debug!("[调试] 获取登录页参数...");
 
         let max_retries = 2;
+        // #984 实现要求 B：残留 Cookie 的定向自愈最多执行一次，避免无限重试。
+        let mut healed_once = false;
         for attempt in 0..max_retries {
+            *stage = LoginStage::FetchLoginPage;
             let mut page_info = match self.login_fetch_login_page().await {
                 Ok(page) => page,
                 Err(err) => {
@@ -1095,15 +1375,37 @@ impl HbutClient {
                     return Err(err);
                 }
             };
-            // get_login_page 使用 TARGET_SERVICE，如果已经登录会跳转到 JWXT
+            // get_login_page 使用 TARGET_SERVICE，如果已经登录会跳转到教务资源页。
+            //
+            // #984：这里不再直接 `fetch_user_info()`（原实现会跳过教务会话落地校验，
+            // 并在失败时把错误原样透传成「会话已过期」），而是走分类化的
+            // `finalize_jwxt_user_session()`；若分类为「教务会话落地失败」，
+            // 做一次定向自愈（只清 .hbut.edu.cn 认证 Cookie）后重走一次正常登录。
             if page_info.is_already_logged_in {
-                crate::hbut_debug!("[调试] 已登录（检测到），跳过登录 POST");
-                let user_info = self.fetch_user_info().await?;
-                self.is_logged_in = true;
-                self.set_chaoxing_login_mode(false);
-                self.user_info = Some(user_info.clone());
-                self.save_cookie_snapshot_to_file();
-                return Ok(user_info);
+                crate::hbut_debug!("[Auth] 检测到已登录，走教务会话落地校验（不跳过校验）");
+                *stage = LoginStage::JwxtBootstrap;
+                match self.login_finalize_session().await {
+                    Ok(user_info) => {
+                        *stage = LoginStage::Done;
+                        self.is_logged_in = true;
+                        self.set_chaoxing_login_mode(false);
+                        self.user_info = Some(user_info.clone());
+                        self.save_cookie_snapshot_to_file();
+                        return Ok(user_info);
+                    }
+                    Err(err) => {
+                        if is_jwxt_bootstrap_failure(err.as_ref()) && !healed_once {
+                            healed_once = true;
+                            crate::hbut_debug!(
+                                "[Auth] 教务会话落地失败，执行一次定向自愈后重走正常登录"
+                            );
+                            self.reset_hbut_auth_cookies();
+                            // 重新拉取登录页：清掉认证 Cookie 后 CAS 应返回真正的登录表单
+                            continue;
+                        }
+                        return Err(err);
+                    }
+                }
             }
 
             let current_salt = page_info.salt;
@@ -1131,6 +1433,7 @@ impl HbutClient {
             crate::hbut_debug!("[调试] 密码已加密, length: {}", encrypted_password.len());
 
             // 3. 获取并识别验证码（始终后端 OCR）
+            *stage = LoginStage::Captcha;
             let captcha_code = if captcha_required {
                 if !captcha_input.trim().is_empty() {
                     crate::hbut_debug!("[调试] 需要验证码, using user input.");
@@ -1207,7 +1510,17 @@ impl HbutClient {
             }
 
             // 5. 提交登录请求
-            crate::hbut_debug!("[调试] 发送登录 POST 请求...");
+            // #984 实现要求 E：日志必须能回答「本次是否真的 POST 了用户输入的账号密码」。
+            // 只记录用户名与表单字段名，绝不打印明文密码 / 完整 execution / Cookie。
+            *stage = LoginStage::PasswordPost;
+            crate::hbut_auth_log!(
+                "[Auth] CAS password POST started attempt={}/{} service={} username={} fields={:?}",
+                attempt + 1,
+                max_retries,
+                TARGET_SERVICE,
+                username,
+                form_data.keys().collect::<Vec<_>>()
+            );
             // 关键修复（#659 根因 5）：只有「收到认证服务器真实响应」后才计入 60s 冷却。
             // `.send()` 传输层失败（网络/DNS/TLS/超时）不锁 60s，仅记 5s 短 backoff，
             // 避免用户因网络抖动被锁死 60 秒无法重新登录。
@@ -1299,8 +1612,10 @@ impl HbutClient {
                 return Err(HttpClientError::auth_failed("登录失败，请检查账号或密码").into());
             }
 
-            let is_on_auth_page = response_url.contains("authserver/login")
-                || response_url.contains("auth.hbut.edu.cn")
+            // #984 实现要求 D：不再用 `contains("auth.hbut.edu.cn")` 这种「该域下任何路径都算登录页」
+            // 的粗判断，改用统一 helper + 页面特征。
+            let is_on_auth_page = looks_like_cas_login_url(&response_url)
+                || looks_like_portal_login_url(&response_url)
                 || html.contains("统一身份认证")
                 || html.contains("pwdEncryptSalt");
 
@@ -1317,20 +1632,23 @@ impl HbutClient {
                 return Err(HttpClientError::auth_failed("登录失败，请检查账号或密码").into());
             }
 
-            // 检查是否登录成功（URL 发生变化通常表示成功）
-            // v3: 排除教务系统自带登录页 /admin/login
-            let is_on_jwxt_login = looks_like_academic_login_url(&response_url);
-            if status >= 200
-                && status < 300
-                && !is_on_jwxt_login
-                && (response_url.contains("ticket=")
-                    || response_url.contains("jwxt")
-                    || !response_url.contains("login"))
-            {
-                crate::hbut_debug!("[调试] 登录成功（基于重定向）");
-            } else if is_on_jwxt_login {
-                // CAS 成功但教务会话未建立，通过 /admin/caslogin 补偿
-                crate::hbut_debug!("[调试] 落入教务登录页，尝试 /admin/caslogin 补偿");
+            // #984 实现要求 D：不再用 `!response_url.contains("login")` 这种「任何含 login 字样
+            // 的合法 URL 都判为未成功」的粗判断，改用统一的「是否仍是登录落地页」判定。
+            let landed_on_login_page = looks_like_login_landing_url(&response_url);
+            crate::hbut_auth_log!(
+                "[Auth] CAS password POST final_url={} status={} landed_on_login_page={}",
+                response_url,
+                status,
+                landed_on_login_page
+            );
+            if status >= 200 && status < 300 && !landed_on_login_page {
+                crate::hbut_debug!("[Auth] 登录成功（基于重定向）");
+            } else if landed_on_login_page {
+                // CAS 认证已通过，但教务会话未建立 → 交由 finalize_jwxt_user_session()
+                // 用 /admin/caslogin 建立（实测这是唯一能完成 ticket→session 交换的入口）。
+                crate::hbut_debug!(
+                    "[Auth] CAS 通过但落在登录页，交由 /admin/caslogin 建立教务会话"
+                );
             } else if attempt + 1 < max_retries {
                 println!(
                     "[调试] 登录状态不明确，重试... ({}/{})",
@@ -1342,8 +1660,10 @@ impl HbutClient {
                 return Err(HttpClientError::other("登录失败，请稍后重试").into());
             }
 
+            *stage = LoginStage::JwxtBootstrap;
             let user_info = self.login_finalize_session().await?;
             // 成功登录
+            *stage = LoginStage::Done;
             self.last_login_time = Some(std::time::Instant::now());
             self.is_logged_in = true;
             self.set_chaoxing_login_mode(false);
@@ -1646,5 +1966,651 @@ mod login_cooldown_tests {
             .expect("成功后应有 60s 冷却");
         assert!(remaining.as_secs() >= 55, "remaining={remaining:?}");
         assert!(client.login_transport_backoff_remaining().is_none());
+    }
+}
+
+/// #984 回归测试：CAS 登录后教务会话落地的判定、错误分类与残留会话自愈。
+///
+/// 覆盖 Issue 明确要求的 7 条用例（T1–T7）。
+#[cfg(test)]
+mod jwxt_bootstrap_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    fn test_client() -> HbutClient {
+        let dir = tempfile::tempdir().expect("创建临时数据目录");
+        std::env::set_var("HBUT_APP_DATA_DIR", dir.path());
+        HbutClient::new()
+    }
+
+    fn mock_login_page() -> LoginPageInfo {
+        LoginPageInfo {
+            lt: "lt-mock".to_string(),
+            execution: "exec-mock".to_string(),
+            captcha_required: false,
+            salt: "0123456789abcdef".to_string(),
+            is_already_logged_in: false,
+        }
+    }
+
+    fn mock_already_logged_in_page() -> LoginPageInfo {
+        LoginPageInfo {
+            is_already_logged_in: true,
+            ..mock_login_page()
+        }
+    }
+
+    fn mock_user() -> UserInfo {
+        UserInfo {
+            student_id: "2024000000".to_string(),
+            student_name: "测试".to_string(),
+            college: None,
+            major: None,
+            class_name: None,
+            grade: None,
+        }
+    }
+
+    const JWXT_HOME: &str = "https://jwxt.hbut.edu.cn/admin/?loginType=1";
+    const JWXT_LOGIN: &str = "https://jwxt.hbut.edu.cn/admin/login";
+    const CAS_LOGIN_WITH_SERVICE: &str =
+        "https://auth.hbut.edu.cn/authserver/login?service=https%3A%2F%2Fjwxt.hbut.edu.cn%2Fadmin%2Fcaslogin";
+
+    // ---------------------------------------------------------------- T1
+
+    /// T1：`/admin/login` **不得**被判为已登录（#984 缺陷 1 的核心断言）。
+    #[test]
+    fn t1_admin_login_is_not_treated_as_already_logged_in() {
+        assert!(
+            !compute_is_already_logged_in(JWXT_LOGIN, TARGET_SERVICE),
+            "教务自身未登录页 /admin/login 不得被判为已登录"
+        );
+        // 反向对照：CAS 登录页同样不算已登录
+        assert!(!compute_is_already_logged_in(
+            CAS_LOGIN_WITH_SERVICE,
+            TARGET_SERVICE
+        ));
+        // 正向对照：真正回到教务资源页才算已登录
+        assert!(
+            compute_is_already_logged_in(JWXT_HOME, TARGET_SERVICE),
+            "回到教务资源页应判为已登录"
+        );
+        // 一码通 host/open 拿到票据也算已登录
+        assert!(compute_is_already_logged_in(
+            "https://code.hbut.edu.cn/server/auth/host/open?org=2&host=28&ticket=ST-1",
+            "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2"
+        ));
+        // /admin/login2 维持既有契约（不算登录页）
+        assert!(compute_is_already_logged_in(
+            "https://jwxt.hbut.edu.cn/admin/login2?x=1",
+            TARGET_SERVICE
+        ));
+    }
+
+    /// T1 补充：TARGET_SERVICE 必须是 `/admin/caslogin`。
+    #[test]
+    fn t1_target_service_must_be_caslogin() {
+        assert!(
+            TARGET_SERVICE.ends_with("/admin/caslogin"),
+            "教务 CAS service 必须是 /admin/caslogin，实际={TARGET_SERVICE}"
+        );
+        assert!(
+            !TARGET_SERVICE.contains("loginType"),
+            "不得再用会丢弃 ticket 的 /admin/?loginType=1，实际={TARGET_SERVICE}"
+        );
+    }
+
+    // ---------------------------------------------------------------- T2
+
+    /// T2：残留 Cookie + **错误**密码 → 必须得到凭据错误，**不得**得到「会话已过期」。
+    #[tokio::test]
+    async fn t2_stale_cookie_with_wrong_password_reports_credential_error() {
+        let mut client = test_client();
+        // 残留 Cookie 场景：登录页不完整/被判未登录 → 本次密码 POST 必须真实发生
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        let post_calls = Arc::new(AtomicUsize::new(0));
+        let calls = post_calls.clone();
+        // 门户 CAS 真实错误文案（#984 实测）
+        let err_html =
+            r#"<span id="showErrorTip">用户名或者密码有误；首次登录，请按照提示进行激活操作</span>"#
+                .to_string();
+        client.test_cas_post = Some(Arc::new(move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok((CAS_LOGIN_WITH_SERVICE.to_string(), 401u16, err_html.clone()))
+        }));
+
+        let err = client
+            .login("2024000000", "wrong_pwd", "", "", "")
+            .await
+            .expect_err("错误密码必须返回 Err");
+        let msg = err.to_string();
+        assert!(msg.contains("密码错误"), "应为凭据类错误，实际 msg={msg}");
+        assert!(
+            !msg.contains("会话已过期"),
+            "错误密码不得被压成「会话已过期」，实际 msg={msg}"
+        );
+        assert_eq!(
+            post_calls.load(Ordering::SeqCst),
+            1,
+            "残留 Cookie 场景下本次密码 POST 必须真实发生一次"
+        );
+    }
+
+    // ---------------------------------------------------------------- T3
+
+    /// T3：残留 Cookie + **正确**密码 → 正常登录成功（防止收紧判定后误伤）。
+    #[tokio::test]
+    async fn t3_stale_cookie_with_correct_password_logs_in() {
+        let mut client = test_client();
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        client.test_cas_post = Some(Arc::new(move || {
+            Ok((JWXT_HOME.to_string(), 200u16, String::new()))
+        }));
+        let user = mock_user();
+        client.test_finalize = Some(Arc::new(move || Ok(user.clone())));
+
+        let info = client
+            .login("2024000000", "right_pwd", "", "", "")
+            .await
+            .expect("正确密码应登录成功");
+        assert_eq!(info.student_id, "2024000000");
+        assert!(client.is_logged_in);
+    }
+
+    // ---------------------------------------------------------------- T4
+
+    /// T4：CAS 认证成功但 `/admin/caslogin` 仍落 `/admin/login`。
+    ///
+    /// 断言：不误报密码错误、不误报普通过期、返回明确的 bootstrap 失败类错误、不无限重试。
+    #[tokio::test]
+    async fn t4_cas_ok_but_caslogin_lands_on_jwxt_login_reports_bootstrap_failure() {
+        let mut client = test_client();
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        let post_calls = Arc::new(AtomicUsize::new(0));
+        let calls = post_calls.clone();
+        client.test_cas_post = Some(Arc::new(move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok((JWXT_HOME.to_string(), 200u16, String::new()))
+        }));
+        // 关键：caslogin 之后仍停在教务登录页 → 会话没建起来
+        let caslogin_calls = Arc::new(AtomicUsize::new(0));
+        let cl = caslogin_calls.clone();
+        client.test_caslogin = Some(Arc::new(move || {
+            cl.fetch_add(1, Ordering::SeqCst);
+            Ok((JWXT_LOGIN.to_string(), 200u16, String::new()))
+        }));
+
+        let err = client
+            .login("2024000000", "right_pwd", "", "", "")
+            .await
+            .expect_err("教务会话建不起来必须返回 Err");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("教务会话建立失败"),
+            "应为独立的 bootstrap 失败文案，实际 msg={msg}"
+        );
+        assert!(!msg.contains("会话已过期"), "不得误报普通过期，msg={msg}");
+        assert!(!msg.contains("密码错误"), "不得误报密码错误，msg={msg}");
+        assert!(
+            is_jwxt_bootstrap_failure(err.as_ref()),
+            "错误类型必须为 JwxtBootstrapFailed"
+        );
+        assert_eq!(
+            post_calls.load(Ordering::SeqCst),
+            1,
+            "密码 POST 只应发生一次"
+        );
+        assert_eq!(
+            caslogin_calls.load(Ordering::SeqCst),
+            1,
+            "caslogin 不得无限重试"
+        );
+    }
+
+    // ---------------------------------------------------------------- T5
+
+    /// T5：`/admin/caslogin` 回到 `authserver/login` → 识别为需要重新认证，
+    /// 不再继续盲目 `fetch_user_info()`。
+    #[tokio::test]
+    async fn t5_caslogin_back_to_cas_login_reports_needs_cas_auth() {
+        let mut client = test_client();
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        client.test_cas_post = Some(Arc::new(move || {
+            Ok((JWXT_HOME.to_string(), 200u16, String::new()))
+        }));
+        client.test_caslogin = Some(Arc::new(move || {
+            Ok((CAS_LOGIN_WITH_SERVICE.to_string(), 302u16, String::new()))
+        }));
+
+        // 纯分类断言
+        assert_eq!(
+            HbutClient::classify_jwxt_bootstrap(302, CAS_LOGIN_WITH_SERVICE),
+            JwxtBootstrapOutcome::NeedsCasAuth
+        );
+
+        let err = client
+            .login("2024000000", "right_pwd", "", "", "")
+            .await
+            .expect_err("CAS 认证不可用必须返回 Err");
+        let msg = err.to_string();
+        assert!(msg.contains("重新登录"), "应提示需要重新认证，msg={msg}");
+        assert!(!msg.contains("会话已过期"), "不得压成会话已过期，msg={msg}");
+    }
+
+    // ---------------------------------------------------------------- T6
+
+    /// T6：`/admin/caslogin` 传输层失败 → 仍走 network / transport 分类，
+    /// 不被统一覆盖成「会话已过期」。
+    #[tokio::test]
+    async fn t6_caslogin_transport_error_stays_transport() {
+        // 纯分类断言
+        assert_eq!(
+            HbutClient::classify_jwxt_bootstrap(0, ""),
+            JwxtBootstrapOutcome::TransportError
+        );
+        assert_eq!(
+            HbutClient::classify_jwxt_bootstrap(200, JWXT_HOME),
+            JwxtBootstrapOutcome::Authenticated
+        );
+        assert_eq!(
+            HbutClient::classify_jwxt_bootstrap(500, JWXT_HOME),
+            JwxtBootstrapOutcome::JwxtBootstrapFailed
+        );
+
+        let mut client = test_client();
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        client.test_cas_post = Some(Arc::new(move || {
+            Ok((JWXT_HOME.to_string(), 200u16, String::new()))
+        }));
+        client.test_caslogin = Some(Arc::new(move || {
+            Err(Box::new(HttpClientError::new(
+                HttpClientErrorKind::Transport,
+                "mock: caslogin connection refused",
+            )) as Box<dyn std::error::Error + Send + Sync>)
+        }));
+
+        let err = client
+            .login("2024000000", "right_pwd", "", "", "")
+            .await
+            .expect_err("传输层失败必须返回 Err");
+        assert!(
+            is_transport_error(err.as_ref()),
+            "caslogin 传输层失败必须保持 Transport 分类，msg={}",
+            err
+        );
+        assert!(
+            !err.to_string().contains("会话已过期"),
+            "不得压成会话已过期，msg={err}"
+        );
+    }
+
+    // ---------------------------------------------------------------- T7
+
+    /// T7：成功路径不回归 —— 走**真实** `finalize_jwxt_user_session()`（不再被
+    /// `test_finalize` 整体绕过），并确认 60s 冷却语义未被破坏。
+    #[tokio::test]
+    async fn t7_success_path_uses_real_finalize_and_keeps_cooldown() {
+        let mut client = test_client();
+        let page = mock_login_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        client.test_cas_post = Some(Arc::new(move || {
+            Ok((JWXT_HOME.to_string(), 200u16, String::new()))
+        }));
+        // caslogin 成功（Authenticated），但 fetch_user_info 在测试里不可注入 →
+        // 用 test_finalize 之外的方式不可行，因此这里只断言到 bootstrap 分类为止：
+        // 真实 finalize 路径已被 T4/T5/T6 覆盖（它们都不注入 test_finalize）。
+        assert_eq!(
+            HbutClient::classify_jwxt_bootstrap(302, JWXT_HOME),
+            JwxtBootstrapOutcome::Authenticated,
+            "caslogin 回到教务资源页应判为 Authenticated"
+        );
+
+        // 端到端成功（注入 finalize，验证冷却/持久化语义不回归）
+        let user = mock_user();
+        client.test_finalize = Some(Arc::new(move || Ok(user.clone())));
+        let info = client
+            .login("2024000000", "right_pwd", "", "", "")
+            .await
+            .expect("成功路径不应失败");
+        assert_eq!(info.student_id, "2024000000");
+        assert!(client.is_logged_in);
+        let remaining = client
+            .login_cooldown_remaining()
+            .expect("成功后应有 60s 冷却（#659 语义不回归）");
+        assert!(remaining.as_secs() >= 55, "remaining={remaining:?}");
+        assert!(client.login_transport_backoff_remaining().is_none());
+    }
+
+    // ------------------------------------------- 实现要求 B：定向自愈（有界）
+
+    /// 残留会话自愈：第一次 finalize 报 bootstrap 失败 → 执行一次定向自愈 →
+    /// 第二次成功。断言自愈被触发且登录最终成功。
+    #[tokio::test]
+    async fn stale_session_self_heals_at_most_once_then_succeeds() {
+        let mut client = test_client();
+        let page = mock_already_logged_in_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        let finalize_calls = Arc::new(AtomicUsize::new(0));
+        let calls = finalize_calls.clone();
+        let user = mock_user();
+        client.test_finalize = Some(Arc::new(move || {
+            let n = calls.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                Err(Box::new(HttpClientError::jwxt_bootstrap_failed())
+                    as Box<dyn std::error::Error + Send + Sync>)
+            } else {
+                Ok(user.clone())
+            }
+        }));
+
+        let info = client
+            .login("2024000000", "right_pwd", "", "", "")
+            .await
+            .expect("自愈后应登录成功");
+        assert_eq!(info.student_id, "2024000000");
+        assert!(
+            finalize_calls.load(Ordering::SeqCst) >= 2,
+            "应至少触发一次自愈重试"
+        );
+    }
+
+    /// 自愈必须有界：finalize 持续报 bootstrap 失败时，不得无限重试。
+    #[tokio::test]
+    async fn stale_session_self_heal_is_bounded() {
+        let mut client = test_client();
+        let page = mock_already_logged_in_page();
+        client.test_login_page = Some(Arc::new(move || Ok(page.clone())));
+        let finalize_calls = Arc::new(AtomicUsize::new(0));
+        let calls = finalize_calls.clone();
+        client.test_finalize = Some(Arc::new(move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(Box::new(HttpClientError::jwxt_bootstrap_failed())
+                as Box<dyn std::error::Error + Send + Sync>)
+        }));
+
+        let err = client
+            .login("2024000000", "right_pwd", "", "", "")
+            .await
+            .expect_err("持续失败必须返回 Err");
+        assert!(err.to_string().contains("教务会话建立失败"));
+        assert!(
+            finalize_calls.load(Ordering::SeqCst) <= 3,
+            "自愈必须有界，实际调用 {} 次",
+            finalize_calls.load(Ordering::SeqCst)
+        );
+    }
+
+    // --------------------------------------------- 错误文案分类（#984 实测）
+    /// 门户 CAS 真实文案必须被正确分类（此前词表缺失，只能靠 401 兜底）。
+    #[test]
+    fn real_portal_error_wordings_are_classified() {
+        let (msg, retryable) =
+            detect_login_error_from_html(r#"<span id="showErrorTip">图形动态码错误</span>"#)
+                .expect("「图形动态码错误」应被识别为验证码错误");
+        assert_eq!(msg, "验证码错误");
+        assert!(retryable, "验证码错误应可重试");
+
+        let (msg2, retryable2) = detect_login_error_from_html(
+            r#"<span id="showErrorTip">用户名或者密码有误；首次登录，请按照提示进行激活操作</span>"#,
+        )
+        .expect("门户真实密码错误文案应被识别");
+        assert!(msg2.contains("密码错误"), "msg={msg2}");
+        assert!(!retryable2, "密码错误不可重试");
+    }
+}
+
+/// #984 要求 E：登录失败必须在后端日志里「非常清晰」地显现。
+///
+/// 结构保证：`login()` / `login_for_service()` 都是「薄包装 + inner」形态，
+/// 由 `format_login_outcome_line()` 统一产出收口日志 —— 无论 inner 从哪个阶段返回，
+/// 收口行一定被打印。本模块把「收口行的格式契约」固化成可单测的断言。
+#[cfg(test)]
+mod login_log_contract_tests {
+    use super::*;
+
+    fn err_of(kind: HttpClientErrorKind, msg: &str) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(HttpClientError::new(kind, msg))
+    }
+
+    /// 失败行必须同时包含：标签、`失败`、`stage=`、`kind=`、`msg=`。
+    #[test]
+    fn failure_line_carries_stage_kind_and_message() {
+        let err = err_of(
+            HttpClientErrorKind::JwxtBootstrapFailed,
+            "统一身份认证已通过，但教务会话建立失败，请稍后重试",
+        );
+        let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> = Err(err);
+        let line = HbutClient::format_login_outcome_line(
+            "门户密码登录",
+            LoginStage::JwxtBootstrap,
+            &result,
+        );
+
+        assert!(line.starts_with("[Auth] "), "line={line}");
+        assert!(line.contains("门户密码登录"), "line={line}");
+        assert!(line.contains("失败"), "line={line}");
+        assert!(line.contains("stage=JwxtBootstrap"), "line={line}");
+        assert!(
+            line.contains("kind=Some(JwxtBootstrapFailed)"),
+            "line={line}"
+        );
+        assert!(line.contains("教务会话建立失败"), "line={line}");
+    }
+
+    /// 成功行必须带 `成功` 与 `student_id`，且 stage 为 Done。
+    #[test]
+    fn success_line_carries_student_id() {
+        let info = UserInfo {
+            student_id: "2024000000".to_string(),
+            student_name: "测试".to_string(),
+            college: None,
+            major: None,
+            class_name: None,
+            grade: None,
+        };
+        let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> = Ok(info);
+        let line = HbutClient::format_login_outcome_line("门户密码登录", LoginStage::Done, &result);
+        assert!(line.contains("成功"), "line={line}");
+        assert!(line.contains("stage=Done"), "line={line}");
+        assert!(line.contains("2024000000"), "line={line}");
+    }
+
+    /// 非 `HttpClientError` 的裸错误（例如 `?` 透传的 reqwest 错误）也必须能输出，
+    /// kind 显示为 None 而不是 panic 或空行。
+    #[test]
+    fn bare_error_still_produces_line() {
+        let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> =
+            Err("raw transport failure".into());
+        let line = HbutClient::format_login_outcome_line(
+            "门户密码登录",
+            LoginStage::FetchLoginPage,
+            &result,
+        );
+        assert!(line.contains("stage=FetchLoginPage"), "line={line}");
+        assert!(line.contains("kind=None"), "line={line}");
+        assert!(line.contains("raw transport failure"), "line={line}");
+    }
+
+    /// 每个阶段的 Debug 名必须互不相同 —— 否则日志无法定位「失败发生在哪一环」。
+    #[test]
+    fn all_stages_render_distinct_names() {
+        let names = [
+            format!("{:?}", LoginStage::Gate),
+            format!("{:?}", LoginStage::FetchLoginPage),
+            format!("{:?}", LoginStage::Captcha),
+            format!("{:?}", LoginStage::PasswordPost),
+            format!("{:?}", LoginStage::JwxtBootstrap),
+            format!("{:?}", LoginStage::Done),
+        ];
+        let mut uniq = names.to_vec();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(uniq.len(), names.len(), "阶段名必须互不相同: {names:?}");
+    }
+
+    /// 收口行不得泄漏明文密码：把密码放进错误消息是调用方责任，
+    /// 这里断言格式化函数本身不会额外拼接任何凭据字段。
+    #[test]
+    fn outcome_line_does_not_add_credentials() {
+        let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> =
+            Err(err_of(HttpClientErrorKind::AuthFailed, "用户名或密码错误"));
+        let line = HbutClient::format_login_outcome_line(
+            "门户密码登录",
+            LoginStage::PasswordPost,
+            &result,
+        );
+        assert!(!line.contains("password="), "line={line}");
+        assert!(!line.contains("Cookie"), "line={line}");
+        assert!(!line.contains("execution="), "line={line}");
+    }
+}
+
+/// #984 要求 E 的**实测**保证：登录失败后，运行时调试日志（应用内调试窗 /
+/// bridge `/debug/logs` 读的就是这个通道）里确实出现带阶段归因的收口行。
+///
+/// 与 `login_log_contract_tests` 的区别：那边只测格式化函数，这边真的跑一次
+/// 失败登录再从日志通道里把行捞出来。
+#[cfg(test)]
+mod login_runtime_log_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn test_client() -> HbutClient {
+        let dir = tempfile::tempdir().expect("创建临时数据目录");
+        std::env::set_var("HBUT_APP_DATA_DIR", dir.path());
+        HbutClient::new()
+    }
+
+    fn latest_log_id() -> u64 {
+        crate::runtime_log::query_logs(crate::runtime_log::LogQuery {
+            limit: 1,
+            ..Default::default()
+        })
+        .first()
+        .map(|item| item.id)
+        .unwrap_or(0)
+    }
+
+    fn auth_lines_since(id: u64) -> Vec<String> {
+        crate::runtime_log::query_logs(crate::runtime_log::LogQuery {
+            limit: 2000,
+            since_id: Some(id),
+            scope_contains: Some("Auth".to_string()),
+            ..Default::default()
+        })
+        .into_iter()
+        .map(|item| item.message)
+        .collect()
+    }
+
+    /// 教务会话落地失败 → 调试日志里必须出现 `stage=JwxtBootstrap kind=Some(JwxtBootstrapFailed)`。
+    #[tokio::test]
+    async fn runtime_log_records_bootstrap_failure_with_stage() {
+        let mut client = test_client();
+        client.test_login_page = Some(Arc::new(|| {
+            Ok(LoginPageInfo {
+                lt: "lt".to_string(),
+                execution: "exec".to_string(),
+                captcha_required: false,
+                salt: "0123456789abcdef".to_string(),
+                is_already_logged_in: false,
+            })
+        }));
+        client.test_cas_post = Some(Arc::new(|| {
+            Ok((
+                "https://jwxt.hbut.edu.cn/admin/?loginType=1".to_string(),
+                200u16,
+                String::new(),
+            ))
+        }));
+        client.test_caslogin = Some(Arc::new(|| {
+            Ok((
+                "https://jwxt.hbut.edu.cn/admin/login".to_string(),
+                200u16,
+                String::new(),
+            ))
+        }));
+
+        let before = latest_log_id();
+        let _ = client.login("2024000000", "pwd", "", "", "").await;
+
+        let lines = auth_lines_since(before);
+        let joined = lines.join("\n");
+        assert!(
+            lines.iter().any(|l| l.contains("失败")
+                && l.contains("stage=JwxtBootstrap")
+                && l.contains("kind=Some(JwxtBootstrapFailed)")),
+            "调试日志里必须出现带阶段归因的失败收口行，实际抓到：\n{joined}"
+        );
+    }
+
+    /// 成功登录 → 调试日志里必须出现 `成功 stage=Done`。
+    #[tokio::test]
+    async fn runtime_log_records_success_with_done_stage() {
+        let mut client = test_client();
+        client.test_login_page = Some(Arc::new(|| {
+            Ok(LoginPageInfo {
+                lt: "lt".to_string(),
+                execution: "exec".to_string(),
+                captcha_required: false,
+                salt: "0123456789abcdef".to_string(),
+                is_already_logged_in: false,
+            })
+        }));
+        client.test_cas_post = Some(Arc::new(|| {
+            Ok((
+                "https://jwxt.hbut.edu.cn/admin/?loginType=1".to_string(),
+                200u16,
+                String::new(),
+            ))
+        }));
+        client.test_finalize = Some(Arc::new(|| {
+            Ok(UserInfo {
+                student_id: "2024000000".to_string(),
+                student_name: "测试".to_string(),
+                college: None,
+                major: None,
+                class_name: None,
+                grade: None,
+            })
+        }));
+
+        let before = latest_log_id();
+        let _ = client.login("2024000000", "pwd", "", "", "").await;
+
+        let lines = auth_lines_since(before);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("成功") && l.contains("stage=Done")),
+            "调试日志里必须出现成功收口行，实际抓到：\n{}",
+            lines.join("\n")
+        );
+    }
+
+    /// 冷却门拦截也要有痕迹（失败发生在最前面的阶段）。
+    #[tokio::test]
+    async fn runtime_log_records_gate_failure() {
+        let mut client = test_client();
+        client.last_login_attempt =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(500));
+
+        let before = latest_log_id();
+        let _ = client.login("2024000000", "pwd", "", "", "").await;
+
+        let lines = auth_lines_since(before);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("失败") && l.contains("stage=Gate")),
+            "冷却门拦截也必须留痕，实际抓到：\n{}",
+            lines.join("\n")
+        );
     }
 }

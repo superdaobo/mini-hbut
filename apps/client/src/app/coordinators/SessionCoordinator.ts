@@ -519,7 +519,11 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         })
         startJwxtRecoveryPolling()
       } else {
-        clearJwxtMaintenance()
+        // #962：attemptAutoRelogin 成功 = 真实 CAS 登录成功（显式会话确认信号）。
+        // 本分支没有后续 notifySessionOnline（不派发 hbu-session-online，维持既有刷新
+        // 行为零变化），因此这里用 confirmOnline 显式升级 online，而非依赖清理函数的
+        // 无验证推导。
+        clearJwxtMaintenance({ confirmOnline: true })
         // 后台重登录成功后自动上传成绩和设置到云端（不含自定义课程）
         if (state.studentId.value) {
           resetCloudSyncCooldownForSession(state.studentId.value)
@@ -719,13 +723,29 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     }
   }
 
-  const clearJwxtMaintenance = () => {
-    // #659：维护解除时校正在线会话状态 ——
-    // 本地身份存在且已脱离 unknown（曾恢复过缓存/曾在线）→ 视为在线会话建立；
-    // 身份已清空（登出）→ 回到 unknown
-    if (state.studentId.value && state.onlineSessionState.value !== 'unknown') {
-      state.onlineSessionState.value = 'online'
-    } else if (!state.studentId.value) {
+  /**
+   * #962：维护态清理与会话确认**解耦**。
+   *
+   * 默认（无 `confirmOnline`）：只清理维护态展示与 localStorage，**绝不改动
+   * `onlineSessionState`** —— `cached_offline`（离线缓存身份）在没有真实网络验证
+   * （登录成功 / cookie 恢复成功 / 会话刷新成功）时必须保持原状，等待恢复链的
+   * `notifySessionOnline` 确认；`online` 的所有写入点都必须可追溯到「会话确认」信号
+   * （issue #962 验收标准）。此前「本地有学号且非 unknown 即升级 online」的推导已收紧：
+   * 它会把 `cached_offline` 无验证升级为「会话已确认」，与教务维护解除这一无关事件耦合。
+   *
+   * `confirmOnline: true` 仅用于**已伴随真实登录成功**的内部调用点
+   * （refreshSessionSilently 的后台重登成功分支 —— 该分支没有后续 notifySessionOnline）；
+   * 其余登录/恢复成功路径一律由 `notifySessionOnline` 显式写入 `online`。
+   *
+   * 例外（保留 #659 登出收口语义）：身份已清空（登出）→ 回到 `unknown`。
+   */
+  const clearJwxtMaintenance = (options: { confirmOnline?: boolean } = {}) => {
+    if (options.confirmOnline === true) {
+      if (state.studentId.value && state.onlineSessionState.value !== 'unknown') {
+        state.onlineSessionState.value = 'online'
+      }
+    }
+    if (!state.studentId.value) {
       state.onlineSessionState.value = 'unknown'
     }
     state.jwxtMaintenanceMode.value = false
@@ -794,6 +814,10 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       }
       return
     }
+    // #962：维护解除事件（active:false）只是「教务系统维护结束」的外部通知，
+    // **不含任何会话验证** —— 不再把 cached_offline 无验证升级为 online；
+    // 会话是否真正在线由恢复链（refreshSessionSilently / attemptOnlineRecovery /
+    // notifySessionOnline）的真实网络结果决定。
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
   }

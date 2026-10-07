@@ -475,9 +475,11 @@ async fn try_silent_portal_relogin(
         rt.last_silent_relogin_at = Some(Instant::now());
     }
 
-    // 与主登录一致：优先教务 service，再试 code 服务
+    // 与主登录一致：优先教务 service，再试 code 服务。
+    // #984：教务 service 必须是 `/admin/caslogin` —— 实测 `/admin/?loginType=1` 会被教务
+    // 303 丢弃 CAS ticket，永远建不起教务会话（见 data/issue-984-link-map.md）。
     let services = [
-        "https://jwxt.hbut.edu.cn/admin/?loginType=1",
+        "https://jwxt.hbut.edu.cn/admin/caslogin",
         "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2",
     ];
 

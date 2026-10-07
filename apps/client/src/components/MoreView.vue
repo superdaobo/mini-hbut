@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { TStatusBadge } from './templates'
+
 import {
   canUseLocalModuleBridgePreview,
   fetchModuleCatalog,
@@ -8,6 +8,7 @@ import {
   deleteCachedManifestSnapshot,
   deleteModuleState,
   getLocalModuleState,
+  getModuleCdnBase,
   isLocalModuleBridgePreviewUrl,
   prepareModuleBundle,
   resolveModuleChannel,
@@ -15,10 +16,6 @@ import {
 } from '../utils/more_modules.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
-import { isViewAllowed } from '../config/app_store_policy'
-import {
-  resolveEffectiveGameCenterFlags
-} from '../utils/game_center/flags'
 import { resolveGameRankApiBase } from '../utils/game_center/api'
 import { appendIdentityQueryParams } from '../utils/game_center/profile'
 import {
@@ -26,8 +23,7 @@ import {
   resolveBuildAppVersion
 } from '../utils/game_center/module_context'
 import { DEFAULT_GOMOKU_RELAY_API } from '../utils/game_center/base'
-import { consumeGameOpen } from '../utils/game_center/pending_open'
-import GameCenterQuickEntries from './game-center/GameCenterQuickEntries.vue'
+import { consumeGameOpen, peekGameOpen } from '../utils/game_center/pending_open'
 import {
   buildModuleCenterCards,
   normalizeModuleCenterChannel as normalizeChannel
@@ -59,7 +55,7 @@ const emit = defineEmits(['back', 'navigate'])
 const STUDENT_PROFILE_STORAGE_PREFIX = 'hbu_more_module_student_profile:'
 
 const moduleLoading = ref(true)
-const refreshing = ref(false)
+
 const moduleError = ref('')
 const moduleChannel = ref('main')
 const moduleCardsSource = ref([])
@@ -67,21 +63,13 @@ const moduleStates = ref({})
 const moduleBusyKey = ref('')
 
 /**
- * #905 湖工游乐场：入口开关 + 经典游戏折叠态。
- * - flags 来自既有 remote_config 的 game_platform 块（远程改值即生效，无需发版）；
- * - 初始值即经过合规夹紧：App Store guest/demo 会话在远端配置到达前就已隐藏入口；
- * - 远端拉取失败时保持默认值，不阻塞入口、也不隐藏旧入口（零破坏）。
+ * 本次启动来源标记（'classic' | 'game_center'），随 host session 传给宿主。
+ *
+ * #1002：原先的「游乐场主入口 / 快捷入口 / 可折叠经典宫格」及其 flags 门控状态
+ * 已随「更多页 = 总面板」一并移除 —— 游戏清单改由面板（远程模块）承载，
+ * 本页只负责转发与消费一次性开局意图。
  */
-const gameCenterFlags = ref(resolveEffectiveGameCenterFlags(null))
-/** 经典游戏默认收起但功能完整可展开（issue #905 第一阶段形态要求） */
-const classicExpanded = ref(false)
-/** 本次启动来源标记（'classic' | 'game_center'），随 host session 传给宿主 */
 const activeLaunchSurface = ref('classic')
-
-const gameCenterEntryVisible = computed(
-  () => gameCenterFlags.value.game_center_enabled && isViewAllowed('game_center')
-)
-const classicEntriesVisible = computed(() => gameCenterFlags.value.classic_game_entries_visible)
 
 const safeText = (value) => String(value ?? '').trim()
 
@@ -119,7 +107,11 @@ const CONTEXT_AWARE_GAME_MODULE_IDS = new Set([
   'hbut_gomoku',
   'hbut_stack',
   'hbut_parking',
-  'hbut_match3'
+  'hbut_match3',
+  // #1002：总面板虽是「面板」而非游戏，但同样需要宿主上下文 ——
+  // 缺 host_origin 就只能用 '*' 作 targetOrigin；缺 theme 会与 App 主题割裂；
+  // 缺 catalog_url 时面板经 bridge 预览无法推导游戏清单地址。
+  'more_panel'
 ])
 
 const buildStudentProfileStorageKey = (studentId) => {
@@ -291,6 +283,33 @@ const appendModuleContextQuery = (
       // 必须把 location 对象一并交给注入层，才能退化为 `${protocol}//${host}`（而不是空）。
       hostLocation: window.location
     })
+    // #1002：总面板专用上下文 ——
+    // ① `game_list`：**由宿主直接注入游戏清单**。面板在宿主侧是由 Rust bridge 提供的
+    //    （origin 是 127.0.0.1:4399），而 catalog 在 CDN 上 → 面板自己去 fetch 属**跨域**，
+    //    会被 CORS 拦下（本机实测「游戏清单加载失败」就是这个原因）。宿主本来就持有卡片清单，
+    //    直接注入既避开跨域，又让面板首帧就能渲染游戏（符合「不要等加载完才显示」）。
+    // ② `theme`：iframe 看不到宿主的 html.dark，而 prefers-color-scheme 反映的是系统偏好 ——
+    //    不注入就会出现「App 亮色 + 面板暗色」的割裂（本机实测确实如此）。
+    if (moduleId === 'more_panel') {
+      const gameList = moduleCards.value
+        .filter((item) => safeText(item?.id) && safeText(item.id) !== 'more_panel')
+        .map((item) => ({
+          id: safeText(item.id),
+          name: safeText(item.name) || safeText(item.id),
+          icon: safeText(item.icon) || '🎮'
+        }))
+      if (gameList.length) {
+        try {
+          url.searchParams.set('game_list', JSON.stringify(gameList))
+        } catch {
+          // 序列化失败（异常字段）时跳过注入，面板会回退到自行拉取清单
+        }
+      }
+      const isDark =
+        typeof document !== 'undefined' &&
+        Boolean(document.documentElement?.classList?.contains('dark'))
+      url.searchParams.set('theme', isDark ? 'dark' : 'light')
+    }
     return url.toString()
   } catch {
     return previewUrl
@@ -495,40 +514,6 @@ const resolveModuleStatusText = (_moduleItem, state) => {
   return t('more.status.notDownloaded')
 }
 
-const resolveModuleSourceText = (value) => {
-  const source = safeText(value).toLowerCase()
-  if (source === 'cache') return t('more.source.cache')
-  if (source === 'download') return t('more.source.download')
-  if (source === 'in_app') return t('more.source.inApp')
-  if (source === 'remote') return t('more.source.remote')
-  return ''
-}
-
-const formatModuleChannelLabel = (value) => {
-  const channel = safeText(value).toLowerCase()
-  if (channel === 'latest') return t('more.channel.latest')
-  if (channel === 'dev') return t('more.channel.dev')
-  if (channel === 'main') return t('more.channel.main')
-  return channel ? tr('more.channel.named', { name: channel }) : ''
-}
-
-const resolveModuleMetaLine = (state) => {
-  const parts = []
-  const channelLabel = formatModuleChannelLabel(state?.channel || moduleChannel.value)
-  if (channelLabel) parts.push(channelLabel)
-  if (safeText(state?.version)) parts.push(`v${safeText(state.version)}`)
-  return parts.join(' · ') || t('more.channel.main')
-}
-
-const resolveModuleDetailLine = (state) => {
-  const parts = []
-  const sourceLabel = resolveModuleSourceText(state?.source)
-  if (sourceLabel) parts.push(`${t('more.detail.sourcePrefix')}${sourceLabel}`)
-  const message = safeText(state?.message)
-  if (message) parts.push(message)
-  return parts.join(' · ') || t('more.detail.enter')
-}
-
 const handleOpenInternalModule = (moduleItem) => {
   const targetView = safeText(moduleItem?.view)
   if (!targetView) return
@@ -698,20 +683,7 @@ const handleModuleClick = async (moduleItem) => {
   await handleOpenRemoteModule(moduleItem)
 }
 
-/**
- * 进入湖工游乐场（Game Center，#905）。
- * 走 App 统一导航（受 app_store_policy 的 isViewAllowed('game_center') 门禁），
- * 入口本身已按 policy + feature flag 前置隐藏。
- */
-const openGameCenter = () => {
-  if (!gameCenterEntryVisible.value) return
-  emit('navigate', 'game_center')
-}
-
-const toggleClassicEntries = () => {
-  classicExpanded.value = !classicExpanded.value
-}
-
+/** 加载模块目录（内置清单 + 远程 catalog 合并）。`silent=true` 时不显示加载态。 */
 const loadModuleCatalog = async ({ silent = false } = {}) => {
   if (!silent) moduleLoading.value = true
   moduleError.value = ''
@@ -726,8 +698,6 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
 
   try {
     const remoteConfig = await fetchRemoteConfig({ force: false })
-    // #905：同一份远程配置同时驱动游乐场 flags（不额外发请求）
-    gameCenterFlags.value = resolveEffectiveGameCenterFlags(remoteConfig)
     const configChannel = normalizeChannel(remoteConfig?.module_center?.channel, preferredChannel)
     targetChannel = configChannel
     const rawModules = Array.isArray(remoteConfig?.module_center?.modules)
@@ -759,19 +729,26 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
   if (!silent) moduleLoading.value = false
 }
 
-const refreshModules = async () => {
-  refreshing.value = true
-  await loadModuleCatalog({ silent: true })
-  refreshing.value = false
-}
+/** 远程目录加载中的 Promise（面板入口需要等它：面板只在远程 catalog 里） */
+let catalogLoadPromise = null
 
 onMounted(async () => {
   const preferredChannel = normalizeChannel(await resolveModuleChannel(), 'main')
   applyModuleCards(buildModuleCenterCards({ channel: preferredChannel }), preferredChannel)
   moduleLoading.value = false
   void ensureStudentProfile()
-  void loadModuleCatalog({ silent: true })
-  void consumeGameCenterIntent()
+  catalogLoadPromise = loadModuleCatalog({ silent: true })
+
+  // ① 先消费「打开某个游戏」的一次性意图（总面板宫格点击 → 宿主回退到本页）：
+  //    必须优先于自动进面板，否则会立刻把用户弹回面板、永远进不去游戏。
+  if (peekGameOpen()) {
+    await ensureModuleCardsReady()
+    await consumeGameCenterIntent()
+    return
+  }
+
+  // ② 否则直接进入总面板（#1002：点「更多」= 直接看到面板）
+  await launchPanel()
 })
 
 /**
@@ -784,7 +761,6 @@ const consumeGameCenterIntent = async () => {
   await ensureModuleCardsReady()
   const target = moduleCards.value.find((item) => item.id === pendingModuleId)
   if (!target) return
-  classicExpanded.value = true
   activeLaunchSurface.value = 'game_center'
   try {
     await handleModuleClick(target)
@@ -801,13 +777,67 @@ const ensureModuleCardsReady = async () => {
     if (moduleCards.value.length) return
   }
 }
+
+/**
+ * #1002：进入湖工游乐场总面板。
+ *
+ * 「更多」页现在就是面板的入口页 —— 经典游戏**全部并入面板**，本页不再分类展示。
+ * 面板与其它游戏同形态（远程模块），因此这里复用**同一条**打开链路
+ * （`handleOpenRemoteModule`：解析清单 → 准备 bundle → 交给 App 的模块宿主），
+ * 不复制任何状态机。
+ *
+ * 为什么要等目录：面板**只存在于远程 catalog**（内置清单是被契约冻结的 11 个经典游戏，
+ * 不能混入非游戏项）。所以目录没回来就找不到面板；超时按「清单缺失」处理并给出重试，
+ * 而不是无限转圈。
+ */
+const PANEL_MODULE_ID = 'more_panel'
+const PANEL_CATALOG_WAIT_MS = 5000
+const panelForwardFailed = ref(false)
+
+const launchPanel = async () => {
+  panelForwardFailed.value = false
+  moduleError.value = ''
+  try {
+    if (catalogLoadPromise) {
+      await Promise.race([
+        catalogLoadPromise.catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, PANEL_CATALOG_WAIT_MS))
+      ])
+    }
+    const target = moduleCards.value.find((item) => item.id === PANEL_MODULE_ID)
+    if (!target) {
+      panelForwardFailed.value = true
+      moduleError.value = t('more.panel.missing')
+      return
+    }
+    activeLaunchSurface.value = 'classic'
+    await handleModuleClick(target)
+    // 打开失败时 handleOpenRemoteModule 只写模块状态、不抛错：这里读回来给出明确提示
+    const state = readModuleState(PANEL_MODULE_ID)
+    if (safeText(state?.status) === 'failed') {
+      panelForwardFailed.value = true
+      moduleError.value = safeText(state?.message)
+    }
+  } catch (error) {
+    panelForwardFailed.value = true
+    moduleError.value = String((error && error.message) || error || '')
+  }
+}
 </script>
 
 <template>
   <div class="more-view antialiased max-w-[520px] mx-auto relative min-h-screen bg-[#f0f4f8]">
-    <!-- Header -->
+    <!--
+      #1002：本页 = 湖工游乐场总面板的入口页。
+      经典游戏已**全部并入面板**（不再在 App 内分类展示：原先的「游乐场主入口 + 快捷入口 +
+      可折叠经典游戏宫格」已移除），点「更多」即直接进入面板。
+
+      为什么这里只放转发骨架：面板是远程模块（与其它游戏同形态：静态 bundle + iframe +
+      一次性 ticket + 上下文注入），需要先解析清单再下载 bundle。先渲染**稳定的骨架**
+      （而不是空白），失败时给明确文案与重试，避免「先没有、后出现」的跳版观感。
+    -->
     <header class="grid grid-cols-[44px_1fr_44px] items-center px-4 pt-4 pb-4 sticky top-0 bg-[#f0f4f8]/90 backdrop-blur z-50">
-      <!-- 左侧：返回按钮 -->
+      <!-- 返回：转发中/失败时用户仍可退出本页 -->
       <button
         class="w-9 h-9 rounded-full bg-white flex items-center justify-center card-shadow text-gray-500 hover:text-gray-700 transition-colors"
         @click="emit('back')"
@@ -818,113 +848,30 @@ const ensureModuleCardsReady = async () => {
         </svg>
       </button>
 
-      <!-- 中间：标题居中 -->
-      <div class="flex items-center justify-center gap-2">
-        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-          <span class="text-lg">🧩</span>
-        </div>
-        <span class="font-bold text-lg tracking-wide text-gray-800">{{ t('more.title') }}</span>
-      </div>
+      <span class="text-center font-bold text-base tracking-wide text-gray-800">
+        {{ t('more.panel.title') }}
+      </span>
 
-      <!-- 右侧：刷新按钮 -->
-      <button
-        class="w-9 h-9 rounded-full bg-white flex items-center justify-center card-shadow text-gray-500 hover:text-blue-500 transition-colors"
-        :disabled="refreshing"
-        :class="{ 'animate-spin': refreshing }"
-        @click="refreshModules"
-      >
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M23 4v6h-6" />
-          <path d="M1 20v-6h6" />
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
-          <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
-        </svg>
-      </button>
+      <span aria-hidden="true"></span>
     </header>
 
-    <main class="px-4 space-y-5 pb-6">
-      <!-- #905 湖工游乐场主入口（Game Center）：统一游戏业务层入口，远程 HTTPS-first -->
-      <button
-        v-if="gameCenterEntryVisible"
-        class="game-center-entry"
-        data-module-id="game_center"
-        @click="openGameCenter"
-      >
-        <span class="game-center-entry__icon" aria-hidden="true">🎮</span>
-        <span class="game-center-entry__body">
-          <strong class="game-center-entry__title">{{ t('more.gameCenter.title') }}</strong>
-          <span class="game-center-entry__desc">{{ t('more.gameCenter.subtitle') }}</span>
-        </span>
-        <span class="game-center-entry__cta">
-          <span class="game-center-entry__badge">{{ t('more.gameCenter.badge') }}</span>
-          <span aria-hidden="true">›</span>
-        </span>
-      </button>
-
-      <!--
-        #910 游乐场快捷入口：积分中心 / 总排行榜 / 漂流瓶 / 全部游戏。
-        独立 section（组件自带标题与 2×2 卡片网格）：
-        - 只读 flags 并派发既有 `openGameCenter`（内部受 isViewAllowed 门禁），不复制模块打开状态机；
-        - flags 全关 / 未就绪时组件渲染为空（内部 v-if="entries.length"），不产生空白占位；
-        - 经典 11 个游戏入口与旧版路径完全不受影响（本块在折叠区之前，不触碰 moduleCards）。
-      -->
-      <GameCenterQuickEntries
-        v-if="gameCenterEntryVisible"
-        :flags="gameCenterFlags"
-        @open="openGameCenter"
-      />
-
-      <!-- 经典游戏入口：可折叠，默认收起但功能与旧版完全一致（零破坏） -->
-      <section v-if="classicEntriesVisible" class="classic-games">
+    <main class="px-4 pb-6">
+      <section class="panel-forward" aria-live="polite">
+        <span v-if="!panelForwardFailed" class="panel-forward__spinner" aria-hidden="true"></span>
+        <span v-else class="panel-forward__icon" aria-hidden="true">⚠️</span>
+        <p class="panel-forward__text">
+          {{ panelForwardFailed ? t('more.panel.failed') : t('more.panel.loading') }}
+        </p>
         <button
-          class="classic-games__toggle"
-          data-module-id="classic_games"
-          :aria-expanded="classicExpanded ? 'true' : 'false'"
-          @click="toggleClassicEntries"
+          v-if="panelForwardFailed"
+          type="button"
+          class="panel-forward__retry"
+          @click="launchPanel"
         >
-          <span class="classic-games__label">
-            <span aria-hidden="true">🕹️</span>
-            <span>{{ t('more.classic.title') }}</span>
-          </span>
-          <span class="classic-games__meta">
-            <span>{{ tr('more.classic.count', { n: moduleCards.length }) }}</span>
-            <span class="classic-games__chevron" :class="{ 'classic-games__chevron--open': classicExpanded }" aria-hidden="true">▾</span>
-          </span>
+          {{ t('common.retry') }}
         </button>
-
-        <!-- Module Grid（结构与旧版逐字保持一致，仅被折叠容器包裹） -->
-        <div v-show="classicExpanded" class="classic-games__grid grid grid-cols-2 gap-3">
-          <button
-            v-for="item in moduleCards"
-            :key="item.id"
-            class="bg-white rounded-2xl p-3 card-shadow text-left transition-all hover:-translate-y-0.5 hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
-            :data-module-id="item.id"
-            :disabled="moduleBusyKey === item.id"
-            @click="handleModuleClick(item)"
-          >
-            <div class="flex justify-between items-center mb-2">
-              <span class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center text-lg">{{ item.icon || '📦' }}</span>
-              <TStatusBadge
-                :type="resolveModuleBadgeType(item, readModuleState(item.id))"
-                :text="resolveModuleStatusText(item, readModuleState(item.id))"
-              />
-            </div>
-            <div class="min-h-[52px]">
-              <strong class="block text-sm font-bold text-gray-800">{{ item.name }}</strong>
-              <p class="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">{{ item.description || t('more.descMissing') }}</p>
-            </div>
-            <div class="mt-2 pt-2 border-t border-gray-100">
-              <span class="text-[11px] text-gray-400">{{ resolveModuleMetaLine(readModuleState(item.id)) }}</span>
-              <small class="block text-[11px] text-gray-400 mt-0.5">{{ resolveModuleDetailLine(readModuleState(item.id)) }}</small>
-            </div>
-          </button>
-        </div>
+        <p v-if="moduleError" class="panel-forward__detail">{{ moduleError }}</p>
       </section>
-
-      <p v-if="moduleError" class="text-red-500 font-semibold text-sm px-1">{{ moduleError }}</p>
-
-      <!-- Loading -->
-      <div v-if="moduleLoading" class="text-center py-10 text-gray-400 text-sm">{{ t('more.loading') }}</div>
     </main>
   </div>
 </template>
@@ -933,6 +880,70 @@ const ensureModuleCardsReady = async () => {
 .more-view {
   padding-bottom: 80px;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* #1002：面板转发骨架。居中且高度稳定（不因有无内容跳版）；失败态给明确文案与重试。 */
+.panel-forward {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 55vh;
+  text-align: center;
+}
+
+.panel-forward__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(37, 99, 235, 0.18);
+  border-top-color: #2563eb;
+  animation: panel-forward-spin 0.9s linear infinite;
+}
+
+@keyframes panel-forward-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-forward__spinner {
+    animation: none;
+  }
+}
+
+.panel-forward__icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.panel-forward__text {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.panel-forward__retry {
+  /* 触控目标下限 40px（与面板内 tile 同规格） */
+  min-height: 40px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.panel-forward__detail {
+  max-width: 260px;
+  margin: 0;
+  font-size: 12px;
+  color: #9ca3af;
+  word-break: break-word;
 }
 
 .card-shadow {

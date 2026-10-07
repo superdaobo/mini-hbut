@@ -15,6 +15,7 @@ import { createModuleHostBridge } from '../utils/game_center/host_bridge'
 import { fetchGameLaunchTicket } from '../utils/game_center/api'
 import { createGatedTicketRequest, resolveGameTrustPolicy } from '../utils/game_center/origin_policy'
 import { DEFAULT_GAME_CENTER_FLAGS, resolveEffectiveGameCenterFlags } from '../utils/game_center/flags'
+import { requestGameOpen } from '../utils/game_center/pending_open'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
 import { useAuthStore } from '../stores/auth'
 import {
@@ -56,15 +57,16 @@ const launchTicketOverride = ref('')
 /** 认证状态层（契约 C 前提③「会话已确认」的事实源；只读，不修改） */
 const authStore = useAuthStore()
 /**
- * ③ 会话已确认：语义等价于 `useAppRuntime.ts` 的 `sessionRestoreVerified`
- *（「恢复流程确认过可用会话」）——仅缓存身份（`cached_offline`）不算确认，游客态一律 false。
+ * ③ 会话已确认：契约 D 的**单一事实源**（`stores/auth.ts` 的 `sessionVerified`，
+ * 仅判 `onlineSessionState === 'online'`）。identity-guest 任务（#950）已交付统一，
+ * 这里不再保留第二实现（此前多合取的 `isLoggedIn` 与单一事实源存在漂移风险）。
  *
- * 依赖说明：identity-guest 任务会把该事实源统一到认证状态层；届时这里改为读取同一导出即可，
- * 判定结构（`resolveGameTrustPolicy`）不变。
+ * 等价性说明：登录/恢复成功的 `online` 写入点都伴随 studentId 非空；登出收口
+ *（AuthCoordinator.handleLogout）同步清空 studentId 并把 onlineSessionState 置回
+ * `unknown`，不存在「online 且 studentId 为空」的稳定态 —— 因此旧公式的额外
+ * `isLoggedIn` 合取项是冗余条件，读取 store 导出即语义一致（契约 D，#963）。
  */
-const sessionVerified = computed(
-  () => authStore.isLoggedIn === true && authStore.onlineSessionState === 'online'
-)
+const sessionVerified = computed(() => authStore.sessionVerified)
 
 /** 加载游乐场能力开关（远程配置；失败时用安全默认值，不影响既有模块行为） */
 const loadHostFlags = async () => {
@@ -434,6 +436,35 @@ const handleHostBridgeMessage = (event) => {
 }
 
 /**
+ * #1002：处理「打开另一个模块」请求（总面板里的游戏宫格点击后由模块侧发出）。
+ *
+ * 安全：与 `mini-hbut:module-size` 同规矩 —— 必须校验 `event.source` 与
+ * `event.origin` 白名单，否则同窗口的其它 iframe 可以冒充模块要求打开任意模块。
+ *
+ * 行为：只写入一次性开局意图并回退到「更多」，由 `MoreView` 消费后打开目标游戏 ——
+ * 复用既有 `pending_open` 通道，**不在本组件复制模块打开状态机**（否则会与
+ * MoreView 的清单/bundle 解析逻辑漂移）。
+ */
+const handleOpenModuleMessage = (event) => {
+  const frameWindow = frameRef.value?.contentWindow
+  const payload = event?.data
+  if (!frameWindow || event.source !== frameWindow) return
+  if (!payload || payload.type !== 'mini-hbut:open-module') return
+  if (!isGameFrameOriginAllowed(event.origin, frameAllowedOrigins.value)) {
+    pushDebugLog('ModuleHost', '拒绝来源不在白名单的 open-module 请求', 'warn', {
+      origin: safeText(event.origin),
+      allowList: frameAllowedOrigins.value.join(',')
+    })
+    return
+  }
+  const targetModuleId = safeText(payload.moduleId || payload.module_id)
+  // 空值不处理；也不允许面板要求「打开自己」（会形成自嵌套）
+  if (!targetModuleId || targetModuleId === moduleId.value) return
+  if (!requestGameOpen(targetModuleId)) return
+  emit('back')
+}
+
+/**
  * 契约 C「单一前置判定」：是否允许进入 verified（向游戏声明 verified 能力 / 下发 ticket）。
  *
  * 三前提在此**唯一**收敛（不得在别处各写一遍）：
@@ -655,6 +686,7 @@ const handleAppEmbedResumeEvent = async (event) => {
 onMounted(() => {
   window.addEventListener('message', handleFrameSizeMessage)
   window.addEventListener('message', handleHostBridgeMessage)
+  window.addEventListener('message', handleOpenModuleMessage)
   window.addEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
   void loadHostFlags()
 })
@@ -667,6 +699,7 @@ onBeforeUnmount(() => {
   hostBridge = null
   window.removeEventListener('message', handleFrameSizeMessage)
   window.removeEventListener('message', handleHostBridgeMessage)
+  window.removeEventListener('message', handleOpenModuleMessage)
   window.removeEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
 })
 </script>

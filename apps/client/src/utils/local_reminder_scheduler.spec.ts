@@ -20,6 +20,10 @@ import {
   reconcileLocalReminders,
   setLocalReminderPlatform
 } from './local_reminder_scheduler'
+import {
+  removeOfficialCourseFromSchedule,
+  restoreOfficialCourseToSchedule
+} from './schedule_visibility'
 
 // —— mock 基础设施 ——
 vi.mock('../platform/native', () => ({
@@ -551,5 +555,54 @@ describe('reconcile 集成（fake 平台）', () => {
     const capped = applyReminderCap(specs, 50)
     expect(capped).toHaveLength(50)
     expect(capped[0].atEpochMs).toBe(1000) // 最近的先保留
+  })
+
+  // ─── #871/#873：提醒出口统一消费「有效课表」 ─────────────────────────────
+  // reconcileLocalReminders 在构建课程计划前经 filterVisibleOfficialCourses 过滤
+  // （local_reminder_scheduler.ts「Issue #867」注释处），已移除（整学期/按周）的
+  // 教务课程不再生成提醒；移除后重新 reconcile 会取消已创建的 pending 提醒。
+
+  it('#871 整学期移除：不再为该课程生成提醒，且已登记的提醒被取消', async () => {
+    await reconcileLocalReminders({ ...input })
+    expect(fake.scheduled).toHaveLength(2)
+
+    const record = removeOfficialCourseFromSchedule('2021001', '2025-2026-2', baseCourse, [baseCourse])
+    expect(record).not.toBeNull()
+
+    const result = await reconcileLocalReminders({ ...input })
+    expect(result.scheduled).toBe(0)
+    expect(result.canceled).toBe(2)
+    expect(fake.canceled[0]).toEqual(fake.scheduled.map((s) => s.id))
+    expect(readLedger('2021001').entries).toHaveLength(0)
+
+    // 恢复后重新登记（移除/恢复联动断言，#873）
+    expect(restoreOfficialCourseToSchedule('2021001', '2025-2026-2', record!)).toBe(true)
+    const result2 = await reconcileLocalReminders({ ...input })
+    expect(result2.scheduled).toBe(2)
+  })
+
+  it('#871 按周移除：仅该周不提醒，其余周保持；自定义课程不受可见性影响', async () => {
+    // baseCourse weeks=[1,2,3]，窗口内为 week2(08-24)/week3(08-31) 两个 occurrence
+    const record = removeOfficialCourseFromSchedule('2021001', '2025-2026-2', baseCourse, [baseCourse], {
+      mode: 'current_week',
+      currentWeek: 2
+    })
+    expect(record).not.toBeNull()
+
+    const result = await reconcileLocalReminders({ ...input })
+    expect(result.scheduled).toBe(1)
+    expect(fake.scheduled[0]!.atEpochSecs).toBe(Math.floor(newDay(2026, 8, 31, 7, 50).getTime() / 1000))
+
+    // 自定义课程即使与被移除教务课程同名，也不被可见性过滤误伤
+    const custom = { ...baseCourse, id: 'custom:x', is_custom: true, name: '自定义课程', weeks: [2] }
+    const result2 = await reconcileLocalReminders({
+      ...input,
+      courses: [{ ...baseCourse }, custom]
+    })
+    // baseCourse 裁剪后仅剩 week3(08-31，已 keep)，新增的只有自定义课程的 08-24 一条
+    expect(result2.scheduled).toBe(1)
+    const customSpec = fake.scheduled[fake.scheduled.length - 1]!
+    expect(customSpec.body).toContain('自定义课程')
+    expect(customSpec.atEpochSecs).toBe(Math.floor(newDay(2026, 8, 24, 7, 50).getTime() / 1000))
   })
 })

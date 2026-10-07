@@ -8,6 +8,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="HandheldFriendly" content="true" />
   <title>HBUT 成绩查询</title>
+  <script>
+    /**
+     * #991：在**首绘之前**决定是否显示原生启动页。
+     *
+     * 背景：「开屏动画」设置（`splashEnabled`）此前只门禁 Vue 的 SplashScreen，
+     * `index.html` 里的原生启动页不受它控制 —— 用户关掉开关后仍会看到一闪而过的
+     * 启动页，开关形同无效。设置已持久化在 localStorage，这里同步读取并打标记，
+     * 由下方 CSS 直接隐藏，保证「关闭」是真正的关闭。
+     *
+     * 存储不可用 / 无记录时保持默认（显示启动页）。
+     */
+    (function () {
+      try {
+        var raw = localStorage.getItem('hbu_ui_settings_v2')
+        if (!raw) return
+        var parsed = JSON.parse(raw)
+        if (parsed && parsed.splashEnabled === false) {
+          document.documentElement.setAttribute('data-splash', 'off')
+        }
+      } catch (e) { /* 存储不可用 → 保持默认 */ }
+    })()
+  </script>
   <!-- 图标字体已改为本地 npm 包，由 main.ts 延迟加载，无 CDN 依赖 -->
   <style>
     @layer reset, legacy, tailwind;
@@ -62,7 +84,10 @@
     .native-splash {
       position: fixed;
       inset: 0;
-      z-index: 99999;
+      /* 必须高于 Vue SplashScreen（z-index 99999）：两者设计几乎相同，
+         原生版在挂载后仍要继续展示到最小可见时长，故由它统一作为可见的那一层，
+         Vue 版在其下（60ms 即淡出）不参与观感，避免出现「双层启动页」闪一下。 */
+      z-index: 100000;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -70,6 +95,10 @@
       overflow: hidden;
       user-select: none;
       -webkit-user-select: none;
+    }
+    /* 用户关闭「开屏动画」：原生启动页也不出现（标记由 <head> 内联脚本在首绘前写入） */
+    html[data-splash='off'] .native-splash {
+      display: none !important;
     }
     .native-splash-bg {
       position: absolute;
@@ -286,48 +315,440 @@
 </head>
 
 <body>
-  <div id="app">
-    <!-- 原生 HTML Splash：仅 Vue 挂载前占位；必须有纯 JS 超时，否则模块加载卡住会永远停在这里 -->
-    <div class="native-splash" id="native-splash">
-      <div class="native-splash-bg">
-        <div class="native-splash-bg-image"></div>
-        <div class="native-splash-bg-overlay"></div>
-        <div class="native-splash-particles">
-          <span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span>
-          <span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span>
-          <span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span>
-          <span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span>
-          <span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span>
-          <span style="--i:16"></span><span style="--i:17"></span><span style="--i:18"></span>
-          <span style="--i:19"></span><span style="--i:20"></span>
-        </div>
+  <!--
+    原生 HTML Splash：**必须放在 #app 之外**。
+    Vue 挂载时会清空 #app 的子节点，若把它放在里面就必然在挂载瞬间被销毁，
+    无法实现「最小展示时长」。放在外面即成为覆盖层：应用在下面照常挂载与初始化，
+    启动页只负责视觉，不拖慢任何逻辑（实测启动 61ms，启动页按 MIN_VISIBLE_MS 收尾）。
+    必须有纯 JS 超时兜底，否则模块加载卡住会永远停在这里。
+  -->
+  <div class="native-splash" id="native-splash">
+    <div class="native-splash-bg">
+      <div class="native-splash-bg-image"></div>
+      <div class="native-splash-bg-overlay"></div>
+      <div class="native-splash-particles">
+        <span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span>
+        <span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span>
+        <span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span>
+        <span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span>
+        <span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span>
+        <span style="--i:16"></span><span style="--i:17"></span><span style="--i:18"></span>
+        <span style="--i:19"></span><span style="--i:20"></span>
       </div>
-      <div class="native-splash-content">
-        <div class="native-splash-logo-ring">
-          <img src="/splash/app_icon.png" alt="Mini-HBUT" />
+    </div>
+    <div class="native-splash-content">
+      <div class="native-splash-logo-ring">
+        <img src="/splash/app_icon.png" alt="Mini-HBUT" />
+      </div>
+      <h1 class="native-splash-title">Mini-HBUT</h1>
+      <p class="native-splash-subtitle">湖北工业大学智慧校园助手</p>
+      <div class="native-splash-building-wrap">
+        <img src="/splash/cas_building.png" alt="" class="native-splash-building" />
+      </div>
+      <div class="native-splash-loader">
+        <div class="native-splash-spinner">
+          <div class="native-splash-spinner-ring"></div>
+          <div class="native-splash-spinner-ring"></div>
+          <div class="native-splash-spinner-ring"></div>
+          <div class="native-splash-spinner-dot"></div>
         </div>
-        <h1 class="native-splash-title">Mini-HBUT</h1>
-        <p class="native-splash-subtitle">湖北工业大学智慧校园助手</p>
-        <div class="native-splash-building-wrap">
-          <img src="/splash/cas_building.png" alt="" class="native-splash-building" />
-        </div>
-        <div class="native-splash-loader">
-          <div class="native-splash-spinner">
-            <div class="native-splash-spinner-ring"></div>
-            <div class="native-splash-spinner-ring"></div>
-            <div class="native-splash-spinner-ring"></div>
-            <div class="native-splash-spinner-dot"></div>
-          </div>
-          <p class="native-splash-text" id="native-splash-text">正在启动…</p>
-          <p class="native-splash-text" style="font-size:12px;opacity:0.7;margin-top:4px">点击可跳过</p>
-        </div>
+        <p class="native-splash-text" id="native-splash-text">正在启动…</p>
+        <p class="native-splash-text" style="font-size:12px;opacity:0.7;margin-top:4px">点击可跳过</p>
       </div>
     </div>
   </div>
-  <!-- 不依赖 Vue：超时 / 点击强制移除原生启动页，避免模块加载卡住时永远黑屏加载 -->
+
+  <!-- Vue 挂载点（启动页是它之上的覆盖层，见上方说明） -->
+  <div id="app"></div>
+  <!--
+    启动诊断（#991 / #992）：本段必须在任何模块脚本之前执行，否则启动页阶段的证据会丢失
+    （initDebugLogger 之后 console 才被 patch，且它只驻留内存、崩溃即丢）。
+
+    采集内容全部为「时间戳 / 事件名 / 阶段耗时 / 失败资源 URL（去 query）」，
+    不含任何凭据或用户内容；容量有界，只保留最近两次启动。
+    消费方：src/utils/boot_diagnostics.ts（回放 + 报告格式化）。
+  -->
   <script>
     (function () {
+      var STORAGE_KEY = 'hbu_boot_diag_v1'
+      var MAX_ENTRIES = 240
+      var MAX_STALLS = 8
+      /** 启动历史保留条数：用于暴露「崩溃 / WebContent 重载循环」（只留两次会被吃掉） */
+      var MAX_HISTORY = 12
+      // 主线程心跳间隔与「冻结」判定阈值：正常定时器抖动远小于 700ms
+      var HEARTBEAT_MS = 250
+      var STALL_THRESHOLD_MS = 700
+      var FLUSH_INTERVAL_MS = 2000
+
+      var hasPerf = typeof performance !== 'undefined' && typeof performance.now === 'function'
+      var nowFn = hasPerf ? function () { return performance.now() } : function () { return Date.now() }
+      var startPerf = nowFn()
+      var rel = function (t) { return Math.round(t - startPerf) }
+
+      function sanitizeText(input, max) {
+        var text
+        try {
+          if (typeof input === 'string') text = input
+          else if (input === null || input === undefined) text = String(input)
+          else text = JSON.stringify(input)
+        } catch (e) {
+          text = String(input)
+        }
+        text = String(text == null ? '' : text)
+        text = text.replace(
+          /((?:access|refresh|id)?[_-]?token|cookie|authorization|password|passwd|secret|session[_-]?id)\s*[=:]\s*[^\s;&"',}]+/gi,
+          '$1=[已脱敏]'
+        )
+        var limit = max || 240
+        return text.length > limit ? text.slice(0, limit) + '…' : text
+      }
+
+      // 只保留 origin + pathname，丢掉 query / hash，避免令牌随 URL 落盘
+      function sanitizeUrl(raw) {
+        var text = String(raw == null ? '' : raw).trim()
+        if (!text) return ''
+        try {
+          var url = new URL(text, location.href)
+          // 非特殊 scheme（tauri:// 等）下 origin 是字面量 "null"，必须回退到 protocol + host
+          var origin = url.origin && url.origin !== 'null' ? url.origin : url.protocol + '//' + url.host
+          return origin + url.pathname
+        } catch (e) {
+          return text.split('?')[0].split('#')[0]
+        }
+      }
+
+      // ── 读取上一次启动（可能是一次未走完的崩溃） ──
+      var previous = null
+      var restarts = 0
+      var history = []
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY)
+        if (raw) {
+          var parsed = JSON.parse(raw)
+          if (parsed && parsed.current) previous = parsed.current
+          if (parsed && typeof parsed.restarts === 'number') restarts = parsed.restarts
+          if (parsed && Object.prototype.toString.call(parsed.history) === '[object Array]') {
+            history = parsed.history.slice(-(MAX_HISTORY - 1))
+          }
+        }
+      } catch (e) { /* 存储不可用时仍继续，只是没有跨启动证据 */ }
+      restarts += 1
+
+      // 用户是否关闭了「开屏动画」（标记由 <head> 内联脚本在首绘前写入）
+      var splashDisabled = document.documentElement.getAttribute('data-splash') === 'off'
+      // 启动页最小展示时长（毫秒）。取值依据：原生启动页自身入场动画在 1.3s 才全部就位
+      // （楼宇 0.4s、品牌 0.7s、三环转圈 0.7s+0.6s），故取 1.4s 让整套动画完整播完。
+      // 想更短/更长只改这一个常量。
+      var MIN_VISIBLE_MS = 1400
+
+      /**
+       * 本次启动在「启动历史」里的摘要。
+       *
+       * 为什么需要历史而不只是最近两次：崩溃/重载循环会被「只保留两次」吃掉 ——
+       * 如果 WebContent 反复被杀并重载，每次都留下一条完整记录，两两之间间隔很短，
+       * 只看当前+上一次会以为一切正常。这里保留最近 MAX_HISTORY 次，间隔与结局一览。
+       */
+      var historyEntry = { at: Date.now(), bootId: '', finished: false, cleanExit: false, aliveMs: 0 }
+      history.push(historyEntry)
+
+      var state = {
+        v: 1,
+        bootId: 'boot-' + Date.now() + '-' + Math.random().toString(16).slice(2, 8),
+        startedAtWall: Date.now(),
+        entries: [],
+        stalls: [],
+        finished: false,
+        // 正常退出标记（pagehide / beforeunload 置 true）；未置位 = 进程非正常结束
+        cleanExit: false,
+        history: history,
+        meta: {
+          user_agent: sanitizeText(typeof navigator !== 'undefined' ? navigator.userAgent : ''),
+          visibility: typeof document !== 'undefined' ? document.visibilityState : '',
+          screen: typeof screen !== 'undefined' && screen.width ? screen.width + 'x' + screen.height : '',
+          dpr: (typeof window !== 'undefined' && window.devicePixelRatio) || 1,
+          hardware_concurrency: (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 0,
+          device_memory_gb: (typeof navigator !== 'undefined' && navigator.deviceMemory) || 0,
+          restart_index: restarts,
+          splash_enabled: !splashDisabled,
+          // 「导航开始 → 内联脚本」耗时：这是**页面加载**阶段的耗时。
+          // 注意本脚本把 startPerf 当作时间原点，所以这个值必须显式记录，
+          // 否则报告里所有 +Nms 都相对它、看不出加载本身花了多久。
+          nav_ms: Math.round(startPerf)
+        }
+      }
+      historyEntry.bootId = state.bootId
+
+      // 导航计时（文档/资源协议耗时）与导航起点墙钟
+      try {
+        if (hasPerf && typeof performance.timeOrigin === 'number') {
+          state.meta.time_origin = Math.round(performance.timeOrigin)
+        }
+        if (hasPerf && typeof performance.getEntriesByType === 'function') {
+          var navEntries = performance.getEntriesByType('navigation')
+          var nav = navEntries && navEntries[0]
+          if (nav) {
+            state.meta.nav_fetch_ms = Math.round(nav.fetchStart || 0)
+            state.meta.nav_response_ms = Math.round(nav.responseStart || 0)
+            state.meta.nav_dom_interactive_ms = Math.round(nav.domInteractive || 0)
+            state.meta.nav_dom_complete_ms = Math.round(nav.domComplete || 0)
+          }
+        }
+      } catch (e) { /* ignore */ }
+
+      /**
+       * 首帧指标（FCP / LCP）——**直接度量「用户看到白屏多久」**。
+       *
+       * 为什么必须有它：主线程心跳只能发现「定时器停摆」（JS 被阻塞）。若 JS 一直健康
+       * 但屏幕仍长时间空白（例如异步视图 chunk 迟迟没到、绘制被推迟），心跳会显示
+       * 0 次冻结，报告看起来一切正常 —— 真机上「白屏 10 秒但 JS 启动 33ms」就是这种形态。
+       * FCP 很晚 + 0 次冻结 ⇒ 问题不在主线程，而在「内容什么时候被画出来」。
+       */
+      function recordPaintMetrics() {
+        try {
+          if (hasPerf && typeof performance.getEntriesByType === 'function') {
+            var paints = performance.getEntriesByType('paint') || []
+            for (var i = 0; i < paints.length; i += 1) {
+              var item = paints[i]
+              var key = 'paint_' + String(item.name || '').replace(/-/g, '_')
+              state.meta[key] = Math.round(item.startTime || 0)
+            }
+          }
+          if (typeof PerformanceObserver !== 'function') return
+          var onEntries = function (list) {
+            var entries = list.getEntries() || []
+            for (var j = 0; j < entries.length; j += 1) {
+              var entry = entries[j]
+              if (entry.name === 'first-contentful-paint') {
+                state.meta.paint_fcp_ms = Math.round(entry.startTime || 0)
+              } else if (entry.entryType === 'largest-contentful-paint') {
+                state.meta.paint_lcp_ms = Math.round(entry.startTime || 0)
+              } else {
+                continue
+              }
+              flush()
+            }
+          }
+          // 两个类型分开注册：某些 WebView 不支持 LCP，不能让它的失败连带 paint 一起失效
+          try {
+            new PerformanceObserver(onEntries).observe({ type: 'paint', buffered: true })
+          } catch (e1) { /* ignore */ }
+          try {
+            new PerformanceObserver(onEntries).observe({ type: 'largest-contentful-paint', buffered: true })
+          } catch (e2) { /* ignore */ }
+        } catch (e) { /* 不支持时静默跳过 */ }
+      }
+      recordPaintMetrics()
+
+      function push(name, detail, force) {
+        if (state.entries.length >= MAX_ENTRIES) {
+          if (!force) return
+          state.entries.pop()
+        }
+        state.entries.push({ t: rel(nowFn()), name: name, detail: detail || undefined })
+      }
+
+      var flushTimer = null
+      function sampleMemory() {
+        try {
+          var m = performance.memory
+          if (m && m.usedJSHeapSize) {
+            state.meta.js_heap_used_mb = Math.round(m.usedJSHeapSize / 1048576)
+            state.meta.js_heap_limit_mb = Math.round(m.jsHeapSizeLimit / 1048576)
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      function flush() {
+        try {
+          sampleMemory()
+          // 同步本次启动的结局到历史条目，使「最近启动历史」始终反映最新状态
+          historyEntry.finished = state.finished
+          historyEntry.cleanExit = state.cleanExit
+          historyEntry.aliveMs = state.meta.alive_ms || 0
+          historyEntry.navMs = state.meta.nav_ms || 0
+          historyEntry.finishedAt = state.finishedAt || 0
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            current: state,
+            previous: previous || undefined,
+            restarts: restarts,
+            history: history
+          }))
+        } catch (e) { /* 配额/隐私模式失败不影响启动 */ }
+      }
+
+      function scheduleFlush() {
+        if (flushTimer) return
+        flushTimer = setTimeout(function () { flushTimer = null; flush() }, 800)
+      }
+
+      function markFinished(name) {
+        state.finished = true
+        state.finishedAt = rel(nowFn())
+        push(name, { finished_at: state.finishedAt }, true)
+        // 启动已完成：停掉高频心跳（避免整个生命周期每 250ms 唤醒一次），
+        // 降频为存活心跳，用于捕捉「启动完成后突然崩溃」。
+        stopHeartbeat()
+        startLiveness()
+        flush()
+      }
+
+      window.__hbuBootDiag = {
+        push: function (name, detail) { push(name, detail); scheduleFlush() },
+        flush: flush,
+        markFinished: markFinished,
+        snapshot: function () { return state }
+      }
+      window.__HBU_BOOT_DIAG__ = state
+
+      if (previous && previous.finished === false) {
+        push('previous-boot-incomplete', {
+          boot_id: previous.bootId,
+          entries: (previous.entries || []).length,
+          stalls: (previous.stalls || []).length
+        }, true)
+      }
+
+      push('inline-script', { ready_state: document.readyState })
+
+      // ── 主线程冻结心跳：定时器停摆的间隔就是被阻塞的窗口 ──
+      var lastTick = nowFn()
+      var lastFlushTick = lastTick
+      var heartbeatTimer = setInterval(function () {
+        var t = nowFn()
+        var gap = t - lastTick
+        lastTick = t
+        if (gap >= STALL_THRESHOLD_MS) {
+          var record = { from: rel(t - gap), to: rel(t), gap: Math.round(gap) }
+          if (state.stalls.length >= MAX_STALLS) state.stalls.shift()
+          state.stalls.push(record)
+          push('main-thread-stall', record, true)
+          flush()
+          return
+        }
+        if (t - lastFlushTick >= FLUSH_INTERVAL_MS) {
+          lastFlushTick = t
+          flush()
+        }
+      }, HEARTBEAT_MS)
+
+      // 启动完成后降频为「存活心跳」：只更新存活时长并落盘。
+      //
+      // 为什么需要：`finished` 在 Vue 挂载时就置 true，因此「启动完成后突然崩溃」
+      // 在下一轮报告里看不出任何异常。崩溃瞬间 JS 来不及执行，唯一可留的线索就是
+      // 最后一次落盘的存活时长（配合 cleanExit 判定）。
+      // 10 分钟后自动停止，避免长期占用定时器。
+      var LIVENESS_MS = 5000
+      var LIVENESS_MAX_TICKS = 120
+      var livenessTimer = null
+      var livenessTicks = 0
+
+      function stopHeartbeat() {
+        if (heartbeatTimer) {
+          clearInterval(heartbeatTimer)
+          heartbeatTimer = null
+        }
+      }
+
+      function stopLiveness() {
+        if (livenessTimer) {
+          clearInterval(livenessTimer)
+          livenessTimer = null
+        }
+      }
+
+      function startLiveness() {
+        if (livenessTimer) return
+        livenessTimer = setInterval(function () {
+          livenessTicks += 1
+          state.meta.alive_ms = rel(nowFn())
+          flush()
+          if (livenessTicks >= LIVENESS_MAX_TICKS) stopLiveness()
+        }, LIVENESS_MS)
+      }
+
+      // 安全网：即便启动始终未完成（正是要抓的场景），也不让高频心跳无限期运行
+      setTimeout(stopHeartbeat, 90000)
+
+      // ── 子资源加载失败（捕获阶段；资源 error 不冒泡） ──
+      var RESOURCE_TAGS = { img: 1, link: 1, script: 1, source: 1, video: 1, audio: 1, iframe: 1 }
+      document.addEventListener('error', function (event) {
+        var target = event.target
+        if (!target || target === window || target === document) return
+        var tag = String(target.tagName || '').toLowerCase()
+        if (!RESOURCE_TAGS[tag]) return
+        push('resource-error', {
+          tag: tag,
+          url: sanitizeUrl(target.currentSrc || target.src || target.href),
+          ready_state: document.readyState
+        }, true)
+        scheduleFlush()
+      }, true)
+
+      // ── 启动页图片是否真的「拿到并解码」 ──
+      function probeImage(el, label) {
+        if (!el) return
+        var settle = function (state_) {
+          push('splash-image', { label: label, state: state_, natural_width: el.naturalWidth || 0 }, true)
+          scheduleFlush()
+        }
+        if (el.complete) {
+          settle(el.naturalWidth > 0 ? 'loaded' : 'failed')
+          return
+        }
+        el.addEventListener('load', function () { settle('loaded') })
+        el.addEventListener('error', function () { settle('failed') })
+      }
+
+      probeImage(document.querySelector('.native-splash-logo-ring img'), 'logo')
+      probeImage(document.querySelector('.native-splash-building'), 'building')
+
+      // 背景图是 CSS background，无法直接观测；用同 URL 的 Image() 探针代替
+      try {
+        var bgProbe = new Image()
+        bgProbe.onload = function () {
+          push('splash-bg', { state: 'loaded', natural_width: bgProbe.naturalWidth || 0 }, true)
+          scheduleFlush()
+        }
+        bgProbe.onerror = function () {
+          push('splash-bg', { state: 'failed' }, true)
+          scheduleFlush()
+        }
+        bgProbe.src = '/splash/cas_bg.webp'
+      } catch (e) { /* ignore */ }
+
+      // ── 生命周期与可见性 ──
+      document.addEventListener('DOMContentLoaded', function () {
+        push('dom-content-loaded', { ready_state: document.readyState })
+        scheduleFlush()
+      })
+      window.addEventListener('load', function () {
+        push('window-load')
+        scheduleFlush()
+      })
+      window.addEventListener('pageshow', function (e) {
+        push('pageshow', { persisted: !!(e && e.persisted) })
+        scheduleFlush()
+      })
+      document.addEventListener('visibilitychange', function () {
+        push('visibilitychange', { state: document.visibilityState })
+        scheduleFlush()
+      })
+      // 正常退出留痕：下一轮启动若看不到 cleanExit，说明上一轮进程未正常结束
+      // （崩溃，或被用户手动划掉 —— 二者在 iOS 上都无法完全区分，报告里会如实标注）。
+      window.addEventListener('pagehide', function (e) {
+        state.cleanExit = true
+        push('pagehide', { persisted: !!(e && e.persisted) }, true)
+        flush()
+      })
+      window.addEventListener('beforeunload', function () {
+        state.cleanExit = true
+        push('beforeunload', {}, true)
+        flush()
+      })
+
+      // ── 启动页移除：必须记录「原因 + 耗时」，这是判定卡死阶段的关键 ──
       var removed = false
+      var removalScheduled = false
       function removeNativeSplash(reason) {
         if (removed) return
         var el = document.getElementById('native-splash')
@@ -335,6 +756,37 @@
           removed = true
           return
         }
+        if (splashDisabled) {
+          // 用户关闭了开屏动画：直接摘除，不记成「启动页卡住」
+          removed = true
+          push('splash-skipped', { reason: 'splashEnabled=false', at: rel(nowFn()) }, true)
+          try { el.remove() } catch (_) {}
+          flush()
+          return
+        }
+
+        var nowRel = rel(nowFn())
+        // 用户主动跳过不受最小时长约束（点击/按键就是要立刻走）
+        var forced = reason === 'click' || reason === 'keydown'
+        var remaining = MIN_VISIBLE_MS - nowRel
+        if (!forced && !removalScheduled && remaining > 0) {
+          // 启动很快（实测 61ms）时，启动页会在动画播完前被摘掉 → 视觉上只剩一闪。
+          // 这里把移除推迟到最小时长，让入场动画完整播完；应用本身早已挂载并可交互，
+          // 只是被这层覆盖遮住，故不增加任何初始化耗时。
+          removalScheduled = true
+          push('splash-hold', {
+            requested_reason: reason,
+            requested_at: nowRel,
+            hold_until: MIN_VISIBLE_MS
+          }, true)
+          scheduleFlush()
+          setTimeout(function () {
+            removalScheduled = false
+            removeNativeSplash('hold-elapsed')
+          }, remaining)
+          return
+        }
+
         removed = true
         try {
           el.style.transition = 'opacity 0.25s ease'
@@ -345,6 +797,8 @@
         } catch (e) {
           try { el.remove() } catch (_) {}
         }
+        push('splash-removed', { reason: reason, elapsed: nowRel, forced: forced }, true)
+        flush()
         if (reason && typeof console !== 'undefined') {
           console.info('[native-splash] removed:', reason)
         }

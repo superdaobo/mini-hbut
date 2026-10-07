@@ -215,6 +215,34 @@ describe('P1-5 三模式网络行为（standalone 零远程请求）', () => {
     expect(router.callsFor('/submit')).toHaveLength(0)
     game.dispose()
   })
+
+  it('#970c：慢网首开（宿主桥迟到、welcome 无响应）→ 有界重试后本轮降级且零 V2 请求', async () => {
+    const router = createFetchRouter([metaRoute(), sessionRoute(), createRunRoute(), finishRoute(), leaderboardRoute()])
+    // 有 host_origin（桥 embedded）但**始终不投递 welcome** —— 模拟慢网下宿主晚于 iframe 就绪
+    const host = createFakeHostWindow({ search: `?gpt=${TICKET}&${LEGACY_QUERY}`, origin: 'https://app.example' })
+    vi.stubGlobal('window', host.win)
+    vi.stubGlobal('fetch', router.fetch)
+    const game = await MiniHBUTGame.init({
+      gameId: 'hbut_stack',
+      adapter: HBUT_STACK_ADAPTER,
+      retryDelaysMs: [1, 1, 1],
+      timeouts: { welcome: 10, ticket: 10 },
+      requestTimeoutMs: 60
+    })
+    // 有界重试：恰好 HOST_HANDSHAKE_ATTEMPTS 次 hello，不会无限挂起
+    expect(host.posted.filter((item) => item.message?.type === 'mini-hbut:game-sdk:hello')).toHaveLength(2)
+    // 本轮降级（显式注入过 rank_api → legacy 可提交 → compatibility），非 verified
+    expect(game.mode).toBe('compatibility')
+    expect(game.trustLevel).toBe('legacy')
+    // 已知取舍：本轮无自愈 —— mode 通知宿主（非静默）+ 原因写入 diagnostics
+    expect(game.diagnostics.reasons).toContain('host_welcome_unavailable')
+    expect(game.diagnostics.reasons).toContain('host_welcome_retry')
+    expect(host.lastPosted('mini-hbut:game-sdk:mode')).toMatchObject({ mode: 'compatibility' })
+    // 零 V2 请求：不兑换 ticket、不读 /meta（即使远程服务可用）
+    expect(router.callsFor('/meta')).toHaveLength(0)
+    expect(router.callsFor('/sessions')).toHaveLength(0)
+    game.dispose()
+  })
 })
 
 describe('P1-5 API base 决策链（fail closed）', () => {
@@ -327,7 +355,9 @@ describe('P1-1 服务端能力（capabilities）：保守默认 + 显式声明�
     }
   })
 
-  it('过渡形态 features.leaderboards 也接受；字符串字面量可识别', () => {
+  it('#965：features 过渡形态（纯能力名）仍兼容读取，但 capabilities 是唯一权威', () => {
+    // 集成期过渡：服务端尚未统一下发 capabilities 时，features.<纯能力名> 兜底读取；
+    // 该形态只覆盖「命名差异」，不接受 flag 形态名（见下一用例），且优先级低于 capabilities。
     const fromFeatures = readServiceCapabilities({ meta: { features: { leaderboards: false } } })
     expect(fromFeatures.values.leaderboards).toBe(false)
     expect(fromFeatures.declared).toEqual(['leaderboards'])
@@ -338,29 +368,45 @@ describe('P1-1 服务端能力（capabilities）：保守默认 + 显式声明�
     expect(fromLiteral.values.daily_tasks).toBe(true)
   })
 
-  it('兼容服务端可能使用的与 flag 同名的 key（仅在 capabilities 作用域）', () => {
-    const declared = readServiceCapabilities({
+  it('#965：flag 形态名（*_enabled）在任何作用域都不能被读成「端点已实现」', () => {
+    // capabilities 作用域同样拒绝（此前只在 features 作用域拒绝）——
+    // `capabilities.leaderboards_enabled=true` 是 flag 语义，不是能力声明（P1-1 复发路径）
+    const flagShapedCapabilities = readServiceCapabilities({
       meta: {
         capabilities: {
           leaderboards_enabled: true,
-          daily_tasks_enabled: false,
+          daily_tasks_enabled: true,
           gomoku_competitive_enabled: true,
-          verified_reward_enabled: false
+          verified_reward_enabled: true
         }
       }
     })
-    expect(declared.values).toEqual({
-      leaderboards: true,
-      daily_tasks: false,
-      gomoku_competitive: true,
-      verified_reward: false
-    })
-    expect(declared.declared).toEqual([...SERVICE_CAPABILITY_KEYS])
+    expect(flagShapedCapabilities.values).toEqual(emptyServiceCapabilities())
+    expect(flagShapedCapabilities.declared).toEqual([])
+    expect(flagShapedCapabilities.source).toBe('none')
 
-    // features 作用域里的同名字段是 **flag**（「想不想要」），不得被读成「端点已实现」
+    // features 作用域维持拒绝
     const flagShapedFeatures = readServiceCapabilities({ meta: { features: { daily_tasks_enabled: true } } })
     expect(flagShapedFeatures.values.daily_tasks).toBe(false)
     expect(flagShapedFeatures.declared).toEqual([])
+
+    // welcome 两个作用域同样拒绝
+    const flagShapedWelcome = readServiceCapabilities({
+      welcome: { capabilities: { leaderboards_enabled: true }, features: { verified_reward_enabled: true } }
+    })
+    expect(flagShapedWelcome.values).toEqual(emptyServiceCapabilities())
+    expect(flagShapedWelcome.declared).toEqual([])
+
+    // 纯能力名不受影响（主形状仍生效）
+    const pure = readServiceCapabilities({ meta: { capabilities: { leaderboards: true } } })
+    expect(pure.values.leaderboards).toBe(true)
+    expect(pure.declared).toEqual(['leaderboards'])
+
+    // capabilities 与 features 同时声明时，capabilities（唯一权威）胜出
+    const authoritative = readServiceCapabilities({
+      meta: { capabilities: { leaderboards: false }, features: { leaderboards: true } }
+    })
+    expect(authoritative.values.leaderboards).toBe(false)
   })
 
   it('优先级 meta > welcome，且宿主自身握手能力不污染能力表', () => {

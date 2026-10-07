@@ -20,6 +20,7 @@ import {
   resolveGameCenterFlags
 } from './game_center/flags'
 import { getFeaturePolicy, setAppStoreBuildOverrideForTests } from '../config/app_store_policy'
+import { STATISTICS_SERVICE_BASE_URL } from './statistics_environment'
 
 /** 复现「合规包 + guest/demo 会话」的收紧策略（与 app_store_policy 单测同构） */
 const restrictedPolicy = () => {
@@ -139,6 +140,25 @@ describe('game center feature flags', () => {
     expect(
       resolveGameCenterFlags({ game_platform: { api_base: 'https://ok.example.com/v1/' } }).api_base
     ).toBe('https://ok.example.com/v1')
+  })
+
+  it('#1003：环境隔离取消后生产域被采纳为 override；已下线的测试域仍被拒', () => {
+    // 2026-10-06 起所有构建档位统一走生产后端 → 主域与唯一兜底域都是「本环境域」，
+    // 必须被采纳为显式 override（否则远程配置下发的 api_base 会被静默丢弃，
+    // 而线上 remote_config 正是用 api_base 把游戏平台钉在兜底域上）
+    const ownBases = [
+      'https://mini.hbut.site/api/game-platform/v1',
+      'https://mini-hbut-ocr-service.hf.space/api/game-platform/v1'
+    ]
+    for (const own of ownBases) {
+      expect(resolveGameCenterFlags({ game_platform: { api_base: own } }).api_base).toBe(own)
+    }
+    // 已下线的测试域（Space 已 PAUSED）不得被采纳
+    const retired = 'https://mini-hbut-testocr1.hf.space/api/game-platform/v1'
+    expect(resolveGameCenterFlags({ game_platform: { api_base: retired } }).api_base).not.toBe(retired)
+    // 环境默认源同样保留为显式 override
+    const ownBase = `${STATISTICS_SERVICE_BASE_URL}/api/game-platform/v1`
+    expect(resolveGameCenterFlags({ game_platform: { api_base: ownBase } }).api_base).toBe(ownBase)
   })
 
   it('origin 白名单只接受可解析的 http(s) origin，拒绝 * 与 null', () => {

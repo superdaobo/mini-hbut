@@ -4,6 +4,8 @@
 
 - [tauri-app 工程域概览](./architecture/tauri-app-overview.md)
 - [后端端点与故障转移契约](./architecture/backend-endpoints-contract.md)
+- [环境后端运行手册（dev/beta/release 统一）](./architecture/environment-backend-runbook.md)
+- [生产后端接口缺口清单（mini.hbut.site）](./architecture/production-backend-gaps.md)
 - [开发文档](./开发文档.md)
 - [迁移指南](./migration-guide.md)
 - [页面结构（Stitch）](./page-structure-for-stitch.md)
