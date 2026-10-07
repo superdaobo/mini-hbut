@@ -6,7 +6,7 @@
 | 分支 | `fix/1011-home-today-course-name-overflow` |
 | Worktree | `D:\Documents\C_learn\成绩查询\wt\tauri-1011` |
 | 基线 | `origin/main` @ `4a8c0dc0` |
-| 状态 | 计划待批准（尚未改动任何代码） |
+| 状态 | 已实施并通过验证（见第 10 节实施记录） |
 
 ---
 
@@ -220,3 +220,59 @@ npm run build         # vite build
 | T6 | 提交 + 开 PR（body 关联 #1011） | T1–T5 | CI `PR Gate` 绿 |
 
 > T1 与 T2 无依赖，可并行改同一文件的不同区块；T3 起串行。
+
+---
+
+## 10. 实施记录（2026-10-07）
+
+### 10.1 计划外的两处修正
+
+实施阶段用像素级前后比对又揪出两个计划里没写到的坑，都已修掉：
+
+1. **装饰插画的叠放层级**：计划里给插画加了 `relative z-10`。但原代码的插画是 `z-index: auto`（绘制在文字**下层**），加 `z-10` 会把它抬到文字**上层**，改变混合结果（实测最大通道差 196/255）。
+   另外 `relative` 与 `.today-course-illustration` 的 `position: absolute` 是**同一属性的冲突**，谁生效取决于 scoped CSS 与主包的注入顺序（构建产物里 scoped CSS 是独立文件 `Dashboard-*.css`，顺序不由源码决定）。
+   → 最终**不加任何 position/z-index 类**：插画作为卡片自身子节点、保持 `z-index: auto`，DOM 顺序仍在文字之后，叠放与修复前一致。
+
+2. **导轨的垂直居中基准**：导轨从 `absolute`（整卡高）改为 flex 项后，高度变成卡片**内容盒**高（少了 `pt-3 + pb-4` 共 28px），`justify-center` 的基准随之从卡片盒变成内容盒，倒计时与按钮整体**上移 2px**。
+   → 用 `-mt-3 -mb-4` 抵消卡片纵向内边距，让导轨恢复整卡高；实测倒计时 `top 24.167`、按钮 `top 48.167` 与修复前逐位一致。
+
+### 10.2 视觉保真（像素级）
+
+用真实构建产物 CSS 把「修复前 / 修复后」两张卡片放在**整数对齐**的同一页（亚像素偏移会让文字抗锯齿完全不同，比对会失真），逐像素 diff：
+
+| 指标 | 结果 |
+|---|---|
+| 最大通道差 | **2 / 255** |
+| 差 > 20 的像素数 | **0** |
+| 卡片 / 插画 / 按钮 / 倒计时 矩形 | 零偏移（插画 `x283 w243 h104` 分毫不差） |
+
+### 10.3 中英 × 五档宽度矩阵（同一把尺子对比）
+
+320 / 375 / 572 / 768 / 1080px × 中文 / English，共 10 组：
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| 已完成行横向溢出 | 115–359px（10/10 失败） | **0（10/10 通过）** |
+| 未开始行横向溢出 | 28–284px（10/10 失败） | **0** |
+| 已完成 / 未开始徽标在卡片内 | 10/10 false | **10/10 true** |
+| 课名盒侵入右侧导轨 | 10/10 true | **10/10 false** |
+| 课名已截断 | 10/10 false | **10/10 true** |
+
+### 10.4 回归护栏
+
+新增 `apps/client/src/utils/home_today_timeline_layout_contract.spec.ts`（5 条不变量断言）。
+**已做负向验证**：临时移除行包装器的 `min-w-0` → spec 立刻变红；还原 → 变绿。护栏不是摆设。
+
+### 10.5 命令验证
+
+| 命令 | 结果 |
+|---|---|
+| `npm run typecheck`（vue-tsc） | 通过 |
+| `npm run build`（vite） | 通过；确认 `-mt-3` / `-mb-4` 已被按需生成 |
+| `npm run test`（vitest） | **297 文件 / 3139 测试全通过** |
+
+### 10.6 已知环境坑（与本次改动无关）
+
+本机 `core.autocrlf=true`，检出时 `apps/client/scripts/patch_ios_deep_link_scheme.mjs` 变成 CRLF，导致
+`src/utils/ios_deep_link_scheme_patch.spec.ts` 在本地报 `SyntaxError: Invalid or unexpected token`。
+把该 `.mjs` 转成 LF 后 12 个测试全过；仓库内 blob 是 LF，**CI（LF 检出）不受影响**。
