@@ -188,7 +188,7 @@
                 <span class="text-sm font-medium text-gray-800 leading-tight">{{ course.start }}</span>
                 <span class="text-xs text-gray-400 mt-0.5">~ {{ course.end }}</span>
               </div>
-              <div class="flex-1 flex justify-between items-start pl-1 pr-1">
+              <div class="flex-1 min-w-0 flex justify-between items-start pl-1 pr-1">
                 <div class="min-w-0 flex-1 mr-2">
                   <h4 class="font-medium text-gray-800 text-base truncate">{{ course.name }}</h4>
                   <p v-if="course.room" class="text-xs text-gray-500 mt-1 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
@@ -199,7 +199,7 @@
 
             <!-- Active / Next course (highlighted - Stitch v2 design) -->
             <template v-else-if="idx === 0 || (todayCourses[idx - 1] && todayCourses[idx - 1].endMinutes <= currentMinutePrecise && course.endMinutes > currentMinutePrecise)">
-              <div class="w-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-2xl pt-3 pb-4 pr-4 flex shadow-lg relative overflow-hidden">
+              <div class="w-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-2xl pt-3 pb-4 flex shadow-lg relative overflow-hidden">
                 <!-- Decorative circle -->
                 <div class="absolute -right-8 -top-8 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
                 <div class="w-6 flex flex-col items-center shrink-0 pt-1 text-white relative z-10">
@@ -209,16 +209,19 @@
                   <span class="text-sm font-bold leading-tight">{{ course.start }}</span>
                   <span class="text-xs opacity-80 mt-0.5">~ {{ course.end }}</span>
                 </div>
-                <div class="flex-1 text-white relative z-10 pl-1 pr-20">
+                <div class="flex-1 min-w-0 text-white relative z-10 pl-1">
                   <span class="text-[10px] bg-blue-400 bg-opacity-50 px-2 py-0.5 rounded text-white inline-block mb-1">
                     {{ course.startMinutes <= currentMinutePrecise ? t('home.status.ongoing') : t('home.status.next') }}
                   </span>
-                  <h4 class="font-bold text-xl mb-1">{{ course.name }}</h4>
+                  <h4 class="font-bold text-xl mb-1 truncate">{{ course.name }}</h4>
                   <p v-if="course.room" class="text-xs opacity-90 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
                 </div>
-                <!-- Right side: illustration + countdown + button -->
-                <div class="absolute right-0 top-0 bottom-0 flex flex-col justify-center items-end w-36">
-                  <img src="/splash/campus_illustration.webp" class="today-course-illustration" alt="" />
+                <!-- 装饰插画必须是卡片自身子节点：挂进右侧导轨会跟随其内容盒高度而缩水 -->
+                <img src="/splash/campus_illustration.webp" class="today-course-illustration" alt="" />
+                <!-- Right side: countdown + button。真实 flex 列，宽度由内容自适应，不再与文本区预留宽度手动对齐。
+                     -mt-3 / -mb-4 抵消卡片的 pt-3 / pb-4 使导轨与卡片同高：否则垂直居中基准会从卡片盒变成内容盒，
+                     倒计时与按钮会上移 2px（改卡片纵向内边距时必须同步这里） -->
+                <div class="relative z-10 -mt-3 -mb-4 flex flex-col justify-center items-end shrink-0">
                   <div class="relative z-10 text-right mb-2 text-white text-xs pr-3">
                     {{ getCourseCountdown(course) }}
                   </div>
@@ -238,7 +241,7 @@
                 <span class="text-sm font-medium text-gray-800 leading-tight">{{ course.start }}</span>
                 <span class="text-xs text-gray-400 mt-0.5">~ {{ course.end }}</span>
               </div>
-              <div class="flex-1 flex justify-between items-start pl-1 pr-1">
+              <div class="flex-1 min-w-0 flex justify-between items-start pl-1 pr-1">
                 <div class="min-w-0 flex-1 mr-2">
                   <h4 class="font-medium text-gray-800 text-base truncate">{{ course.name }}</h4>
                   <p v-if="course.room" class="text-xs text-gray-500 mt-1 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
