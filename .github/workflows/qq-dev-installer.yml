@@ -1,0 +1,273 @@
+name: QQ Dev Installer
+
+# 手动把 dev 频道（dev-latest 滚动预发布）的安装包发到 QQ 群。
+# 与 qq-release-smoke-test.yml 的区别：
+#   1) 取的是 dev-latest 预发布而不是 releases/latest 正式版；
+#   2) 按平台单选只发一个安装包，不渲染 Release Notes 截图（无 playwright 依赖）；
+#   3) 发送顺序为「先文件、后版本说明文本」。
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "要发送的安装包平台"
+        type: choice
+        required: true
+        default: android
+        options:
+          - android
+          - windows
+          - ios
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qq-dev-installer
+  cancel-in-progress: false
+
+jobs:
+  send-dev-installer:
+    name: Send dev installer to QQ
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      QQBOT_APP_ID: ${{ secrets.QQBOT_APP_ID }}
+      QQBOT_APP_SECRET: ${{ secrets.QQBOT_APP_SECRET }}
+      QQ_GROUP_OPENID: ${{ secrets.QQ_GROUP_OPENID }}
+
+    steps:
+      - name: Validate QQ secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in QQBOT_APP_ID QQBOT_APP_SECRET QQ_GROUP_OPENID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing repository secret: ${name}"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Resolve dev-latest release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_JSON="${RUNNER_TEMP}/dev-latest.json"
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/tags/dev-latest" > "${RELEASE_JSON}"; then
+            echo "::error::无法获取 dev-latest 预发布；可能还没有任何一次成功的 Dev Build。"
+            exit 1
+          fi
+
+          CREATED_AT="$(jq -r '.created_at // ""' "${RELEASE_JSON}")"
+          jq -r '.body // ""' "${RELEASE_JSON}" > "${RUNNER_TEMP}/dev-latest-body.md"
+
+          # 构建时间/Commit 从 Release 正文里取（dev-build.yml 生成）；构建时间缺失时回退到 release 创建时间。
+          BUILD_TIME="$(sed -n 's/^\*\*构建时间\*\*:[[:space:]]*//p' "${RUNNER_TEMP}/dev-latest-body.md" | head -n 1)"
+          if [ -z "${BUILD_TIME}" ]; then
+            BUILD_TIME="${CREATED_AT}"
+            echo "::warning::Release 正文缺少「构建时间」，已回退到 dev-latest 创建时间：${CREATED_AT}"
+          fi
+          COMMIT="$(sed -n 's/^\*\*Commit\*\*:[[:space:]]*//p' "${RUNNER_TEMP}/dev-latest-body.md" | head -n 1)"
+          if [ -z "${COMMIT}" ]; then
+            COMMIT="未知"
+            echo "::warning::Release 正文缺少「Commit」，版本说明将显示「未知」。"
+          fi
+
+          echo "json=${RELEASE_JSON}" >> "${GITHUB_OUTPUT}"
+          echo "build_time=${BUILD_TIME}" >> "${GITHUB_OUTPUT}"
+          echo "commit=${COMMIT}" >> "${GITHUB_OUTPUT}"
+
+          echo "dev-latest: $(jq -r '.name // .tag_name' "${RELEASE_JSON}") / 构建时间 ${BUILD_TIME} / Commit ${COMMIT}"
+
+      - name: Download dev installer
+        id: assets
+        shell: bash
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          RELEASE_JSON: ${{ steps.release.outputs.json }}
+        run: |
+          set -euo pipefail
+          ASSET_DIR="${RUNNER_TEMP}/dev-assets"
+          mkdir -p "${ASSET_DIR}"
+
+          case "${PLATFORM}" in
+            android)
+              PATTERN='^Mini-HBUT_.*_arm64\.apk$'
+              LABEL='Android 安装包'
+              ;;
+            windows)
+              PATTERN='^Mini-HBUT_.*_x64-setup\.exe$'
+              LABEL='Windows 安装包'
+              ;;
+            ios)
+              PATTERN='^Mini-HBUT_.*_iOS\.ipa$'
+              LABEL='iOS 安装包'
+              ;;
+            *)
+              echo "::error::未知平台选项：${PLATFORM}"
+              exit 1
+              ;;
+          esac
+
+          mapfile -t ASSET_NAMES < <(
+            jq -r '.assets[].name' "${RELEASE_JSON}" |
+              grep -E "${PATTERN}" || true
+          )
+
+          if [ "${#ASSET_NAMES[@]}" -eq 0 ]; then
+            echo "::error::dev-latest 没有匹配 ${PLATFORM} 的安装包（期望形如 Mini-HBUT_<版本>_...）。"
+            echo "可用资产："
+            jq -r '.assets[].name' "${RELEASE_JSON}"
+            exit 1
+          fi
+          if [ "${#ASSET_NAMES[@]}" -gt 1 ]; then
+            echo "::warning::匹配到多个资产，取第一个：${ASSET_NAMES[0]}"
+          fi
+
+          ASSET_NAME="${ASSET_NAMES[0]}"
+          # 版本号形如 1.4.12-beta.542：去掉 Mini-HBUT_ 前缀后取第一个下划线之前的部分。
+          VERSION="${ASSET_NAME#Mini-HBUT_}"
+          VERSION="${VERSION%%_*}"
+
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "${ASSET_NAME}" ]; then
+            echo "::error::无法从资产名解析版本号：${ASSET_NAME}"
+            exit 1
+          fi
+
+          echo "Downloading ${ASSET_NAME}"
+          gh release download dev-latest \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir "${ASSET_DIR}" \
+            --pattern "${ASSET_NAME}" \
+            --clobber
+
+          ASSET_PATH="${ASSET_DIR}/${ASSET_NAME}"
+          if [ ! -f "${ASSET_PATH}" ]; then
+            echo "::error::下载后未找到资产文件：${ASSET_PATH}"
+            exit 1
+          fi
+
+          echo "asset_path=${ASSET_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "asset_name=${ASSET_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "label=${LABEL}" >> "${GITHUB_OUTPUT}"
+          ls -lh "${ASSET_PATH}"
+
+      - name: Install QQ bot SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_DIR="${RUNNER_TEMP}/qq-dev-runtime"
+          mkdir -p "${RUNTIME_DIR}"
+          cd "${RUNTIME_DIR}"
+          npm init -y >/dev/null
+          npm install --no-save --no-audit --no-fund @tencent-connect/qqbot-nodejs@1
+          echo "QQ_RUNTIME_DIR=${RUNTIME_DIR}" >> "${GITHUB_ENV}"
+
+      - name: Send dev installer and version note to QQ group
+        shell: bash
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          ASSET_PATH: ${{ steps.assets.outputs.asset_path }}
+          ASSET_NAME: ${{ steps.assets.outputs.asset_name }}
+          DEV_VERSION: ${{ steps.assets.outputs.version }}
+          DEV_LABEL: ${{ steps.assets.outputs.label }}
+          DEV_BUILD_TIME: ${{ steps.release.outputs.build_time }}
+          DEV_COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          set -euo pipefail
+          cd "${QQ_RUNTIME_DIR}"
+
+          cat > send-to-qq.mjs <<'NODE'
+          import fs from "node:fs";
+          import { QQBot } from "@tencent-connect/qqbot-nodejs";
+
+          const required = [
+            "QQBOT_APP_ID",
+            "QQBOT_APP_SECRET",
+            "QQ_GROUP_OPENID",
+            "PLATFORM",
+            "ASSET_PATH",
+            "ASSET_NAME",
+            "DEV_VERSION",
+            "DEV_LABEL",
+            "DEV_BUILD_TIME",
+            "DEV_COMMIT",
+          ];
+          for (const name of required) {
+            if (!process.env[name]) throw new Error(`Missing environment variable: ${name}`);
+          }
+
+          const sdkFileLimit = 100 * 1024 * 1024;
+          const size = fs.statSync(process.env.ASSET_PATH).size;
+          if (size > sdkFileLimit) {
+            throw new Error(
+              `${process.env.ASSET_NAME} is ${(size / 1024 / 1024).toFixed(1)} MB, ` +
+                `above the QQ SDK 100 MB FILE limit.`,
+            );
+          }
+
+          const bot = new QQBot({
+            appId: process.env.QQBOT_APP_ID,
+            appSecret: process.env.QQBOT_APP_SECRET,
+          });
+
+          const target = {
+            scope: "group",
+            targetId: process.env.QQ_GROUP_OPENID,
+          };
+
+          // 先发文件
+          console.log(
+            `Sending ${process.env.ASSET_NAME} (${(size / 1024 / 1024).toFixed(1)} MB)`,
+          );
+          await bot.sendFile(
+            target,
+            { localPath: process.env.ASSET_PATH },
+            {
+              fileName: process.env.ASSET_NAME,
+              content: process.env.DEV_LABEL,
+              onProgress: (uploaded, total) =>
+                console.log(`${process.env.ASSET_NAME}: ${uploaded}/${total}`),
+            },
+          );
+
+          // 文件下方跟一条版本说明
+          const lines = [
+            `📦 测试版 ${process.env.DEV_VERSION} · ${process.env.DEV_LABEL}`,
+            `构建时间：${process.env.DEV_BUILD_TIME}`,
+            `Commit：${process.env.DEV_COMMIT}`,
+          ];
+          if (process.env.PLATFORM === "ios") {
+            lines.push("ℹ️ iOS 为未签名测试包，需自行重签（AltStore / Sideloadly）后安装。");
+          }
+
+          await bot.sendText(target, lines.join("\n"));
+          console.log(`QQ dev installer sent: ${process.env.DEV_VERSION} (${process.env.PLATFORM})`);
+          NODE
+
+          node send-to-qq.mjs
+
+      - name: Write workflow summary
+        if: always()
+        shell: bash
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          DEV_VERSION: ${{ steps.assets.outputs.version }}
+          DEV_LABEL: ${{ steps.assets.outputs.label }}
+        run: |
+          {
+            echo "## QQ Dev Installer"
+            echo
+            echo "- Platform: ${PLATFORM:-unknown}"
+            echo "- Version: ${DEV_VERSION:-unknown}"
+            echo "- Asset: ${DEV_LABEL:-unknown}"
+            echo "- Target: QQ group via QQ official bot"
+            echo "- Trigger: manual only (workflow_dispatch)"
+          } >> "${GITHUB_STEP_SUMMARY}"
