@@ -127,6 +127,31 @@ describe('启动诊断内联脚本契约（#991/#992）', () => {
     expect(markIndex).toBeLessThan(splashMarkupIndex)
   })
 
+  it('记录「页面加载」阶段耗时与导航起点（否则报告里的 +Nms 都相对内联脚本，看不见加载本身）', () => {
+    expect(bootScript).toContain('nav_ms')
+    expect(bootScript).toContain('timeOrigin')
+    expect(bootScript).toContain("getEntriesByType('navigation')")
+    expect(bootScript).toContain('nav_response_ms')
+  })
+
+  it('记录首帧 FCP / LCP（「白屏多久」的直接答案，且能区分是不是主线程被卡）', () => {
+    expect(bootScript).toContain('recordPaintMetrics')
+    expect(bootScript).toContain('first-contentful-paint')
+    expect(bootScript).toContain('largest-contentful-paint')
+    expect(bootScript).toContain('paint_fcp_ms')
+    // 两个类型必须分开注册：LCP 不被支持时不能让 paint 一起失效
+    expect(bootScript).toMatch(/PerformanceObserver\(onEntries\)\.observe\(\{ type: 'paint'/)
+  })
+
+  it('保留最近多次启动历史（只留两次会吃掉崩溃 / 重载循环）', () => {
+    expect(bootScript).toMatch(/MAX_HISTORY\s*=\s*\d+/)
+    expect(bootScript).toContain('history: history')
+    expect(bootScript).toContain('historyEntry')
+    // 历史条目必须同步结局，否则历史永远是「未走完」
+    expect(bootScript).toContain('historyEntry.finished = state.finished')
+    expect(bootScript).toContain('historyEntry.cleanExit = state.cleanExit')
+  })
+
   it('URL 脱敏处理非特殊 scheme（tauri:// 的 origin 为字面量 "null"）', () => {
     expect(bootScript).toContain("url.origin !== 'null'")
   })

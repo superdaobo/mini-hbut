@@ -113,6 +113,28 @@ const runDeferredInitializers = () => {
   setTimeout(run, 0)
 }
 
+/**
+ * #991：记录 Rust 侧「进程启动至今」的毫秒数（`runtime_log.uptime_ms`）。
+ *
+ * 这是唯一能测出 **JS 之前那段原生启动** 的办法：`index.html` 的内联脚本把自身时刻当作
+ * 时间原点，报告里所有 `+Nms` 都相对它 —— 于是「进程启动 → 页面开始加载」在报告里原本
+ * 完全不可见。真机上出现过「白屏 10 秒但 JS 启动只要 33ms」，正是被这段盲区吃掉的。
+ *
+ * 拿不到（非 Tauri / 命令失败 / 字段缺失）时静默跳过，报告侧显示「证据不足」而不是猜。
+ */
+const recordNativeUptime = () => {
+  if (!isTauriRuntime()) return
+  void invokeNative<{ runtime_log?: { uptime_ms?: number } } | null>('get_runtime_diag')
+    .then((diag) => {
+      const uptime = Number(diag?.runtime_log?.uptime_ms)
+      if (!Number.isFinite(uptime)) return
+      recordBootStage('native-uptime', { rust_uptime_ms: Math.round(uptime) })
+    })
+    .catch(() => {
+      // 忽略：报告里会显示「证据不足」
+    })
+}
+
 const bootstrap = () => {
   // 在 Vue 挂载前注入 CSS 变量，避免 FOUC（无样式内容闪烁）
   initThemeBridge()
@@ -123,6 +145,8 @@ const bootstrap = () => {
   // 否则「设置-调试信息」里看不到卡死前的任何证据。
   const replayed = replayBootDiagnostics()
   markBootMetric('debug_logger_ready', { replayed_entries: replayed })
+  // #991：尽早取进程启动时间（越早越准 —— 推算原生前置要用到这条记录的时刻）
+  recordNativeUptime()
   // 尽早安装全局错误捕获（error / unhandledrejection），用于闪退前 JS 错误事后归因
   installGlobalErrorCapture()
   pushDebugLog('Bootstrap', '开始初始化应用')
