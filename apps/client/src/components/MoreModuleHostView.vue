@@ -244,48 +244,6 @@ const frameSrc = computed(() =>
   )
 )
 
-const formatModuleChannel = (value) => {
-  const channel = safeText(value).toLowerCase()
-  if (channel === 'latest') return '最新包'
-  if (channel === 'main') return '正式渠道'
-  if (channel === 'dev') return '测试渠道'
-  return channel ? `渠道 ${channel}` : ''
-}
-
-const formatModuleVersion = (value) => {
-  const raw = safeText(value)
-  if (!raw) return ''
-  const match = raw.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:-([a-z0-9]+))?$/i)
-  if (!match) return raw.replace(/^v/i, '')
-  const [, year, month, day, hour, minute, _second, hash] = match
-  return hash
-    ? `${year}-${month}-${day} ${hour}:${minute} · ${hash}`
-    : `${year}-${month}-${day} ${hour}:${minute}`
-}
-
-const moduleRuntimeBadges = computed(() => {
-  const badges = ['内嵌运行']
-  if (previewMode.value === 'capacitor-local') badges.push('安卓本地包')
-  if (previewMode.value === 'tauri-local') badges.push('桌面本地包')
-  if (previewMode.value === 'remote-site') badges.push('远端页面')
-  // #905：游乐场发起的对局标注 HTTPS-first / 兼容模式
-  if (remoteFirstUrl.value && remoteFirstActive.value) badges.push('远端 HTTPS 优先')
-  if (usedCapacitorLocalFallback.value || (remoteFirstUrl.value && !remoteFirstActive.value)) {
-    badges.push('兼容模式')
-  }
-  if (gameRuntimeMode.value === 'verified') badges.push('已验证会话')
-  if (gameRuntimeMode.value === 'compatibility') badges.push('经典榜模式')
-  if (gameRuntimeMode.value === 'standalone') badges.push('本地模式')
-  const channel = formatModuleChannel(moduleChannel.value)
-  const version = formatModuleVersion(moduleVersion.value)
-  if (channel) badges.push(channel)
-  if (version) badges.push(`构建 ${version}`)
-  if (minCompatibleVersion.value) {
-    badges.push(`兼容 >= ${minCompatibleVersion.value}`)
-  }
-  return badges
-})
-
 const hasEmbeddedFrameHeight = computed(() => frameContentHeight.value > 0)
 
 const clearLoadingGuardTimer = () => {
@@ -713,17 +671,6 @@ onBeforeUnmount(() => {
     </TPageHeader>
 
     <div class="more-module-host-view__body">
-      <div v-if="moduleRuntimeBadges.length" class="module-runtime-strip">
-        <span
-          v-for="badge in moduleRuntimeBadges"
-          :key="badge"
-          class="module-runtime-pill"
-          :title="moduleVersion || badge"
-        >
-          {{ badge }}
-        </span>
-      </div>
-
       <div v-if="!ready" class="module-empty-card">
         <TEmptyState type="empty" :message="emptyStateMessage" />
       </div>
@@ -798,27 +745,6 @@ onBeforeUnmount(() => {
   background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
   backdrop-filter: blur(14px);
   box-shadow: var(--ui-shadow-soft);
-}
-
-.module-runtime-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 12px;
-  flex: 0 0 auto;
-}
-
-.module-runtime-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  background: color-mix(in oklab, var(--ui-surface) 84%, #fff 16%);
-  box-shadow: var(--ui-shadow-soft);
-  font-size: calc(12px * var(--ui-font-scale));
-  color: var(--ui-muted);
 }
 
 .module-empty-card {

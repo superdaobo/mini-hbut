@@ -1697,6 +1697,7 @@ export const messages: Record<string, string> = {
   'more.loading': '正在加载模块中心...',
   'more.panel.title': '湖工游乐场',
   'more.panel.loading': '正在打开游乐场面板…',
+  'more.panel.openingGame': '正在打开游戏…',
   'more.panel.failed': '面板打开失败',
   'more.panel.missing': '面板清单未发布，请稍后重试',
   'more.msg.cacheHit': '已命中本地缓存',

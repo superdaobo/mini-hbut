@@ -16,7 +16,7 @@ import {
 } from '../utils/more_modules.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
-import { resolveGameRankApiBase } from '../utils/game_center/api'
+import { resolveGamePlatformApiBase, resolveGameRankApiBase } from '../utils/game_center/api'
 import { appendIdentityQueryParams } from '../utils/game_center/profile'
 import {
   appendModuleEnvQueryParams,
@@ -291,6 +291,10 @@ const appendModuleContextQuery = (
     // ② `theme`：iframe 看不到宿主的 html.dark，而 prefers-color-scheme 反映的是系统偏好 ——
     //    不注入就会出现「App 亮色 + 面板暗色」的割裂（本机实测确实如此）。
     if (moduleId === 'more_panel') {
+      // ③ `game_platform_api`：面板的「我的积分」需要游戏平台基址。面板自己解析不出
+      //    （它只拿到 bridge 预览地址），必须由宿主注入 —— 否则永远显示「积分服务未配置」。
+      const platformApi = safeText(resolveGamePlatformApiBase()).replace(/\/+$/, '')
+      if (platformApi) url.searchParams.set('game_platform_api', platformApi)
       const gameList = moduleCards.value
         .filter((item) => safeText(item?.id) && safeText(item.id) !== 'more_panel')
         .map((item) => ({
@@ -392,8 +396,17 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
     sessionMeta?.preview_profile || readCachedStudentProfile(),
     runtimeTag
   )
+  // 与 preview_url 同源的 open_url（带同一套注入参数）——见下方 sessionPayload.open_url 的注释
+  const openUrlWithContext =
+    appendModuleContextQuery(
+      moduleId,
+      safeText(sessionPayload.open_url),
+      sessionMeta?.preview_profile || readCachedStudentProfile(),
+      runtimeTag
+    ) || safeText(sessionPayload.open_url)
+
   const invalidReason = safeText(
-      sessionPayload.invalid_reason ||
+    sessionPayload.invalid_reason ||
       sessionMeta?.invalid_reason ||
       (!previewUrl && !canUseLocalModuleBridgePreview() && safeText(sessionPayload.preview_mode) === 'tauri-local'
         ? 'tauri-bridge-blocked'
@@ -419,7 +432,12 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
       source: sessionPayload.source,
       preview_mode: previewMode,
       invalid_reason: invalidReason,
-      open_url: sessionPayload.open_url,
+      // #1002 回归修复：宿主对「游乐场发起」的对局会走 HTTPS-first ——
+      // `launch_surface==='game_center'` 时 `resolveGameCenterLaunchUrl` 会返回远端
+      // `open_url` 原文并**整体丢弃**挂在 `preview_url` 上的注入参数（身份 / rank_api）。
+      // 结果是游戏内排行榜报「当前没有登录信息，无法读取排行榜」。
+      // 因此 open_url 必须携带**同一套**上下文，否则「最终加载哪个 URL」决定了身份在不在。
+      open_url: openUrlWithContext,
       package_url: sessionPayload.package_url,
       package_urls: sessionPayload.package_urls,
       entry_path: sessionPayload.entry_path,
@@ -790,6 +808,20 @@ const ensureModuleCardsReady = async () => {
  * 不能混入非游戏项）。所以目录没回来就找不到面板；超时按「清单缺失」处理并给出重试，
  * 而不是无限转圈。
  */
+/**
+ * 转发骨架的文案。
+ *
+ * 本页有两种转发目的地：**打开某个游戏**（面板宫格点击 → 宿主回退到本页）与
+ * **打开总面板**（用户直接点「更多」）。两者文案必须区分 —— 否则点游戏时显示
+ * 「正在打开游乐场面板…」，用户会以为点错了（真机反馈）。
+ *
+ * ⚠️ 必须在 setup 期**同步**初始化：首帧渲染早于 `onMounted`，若等到 onMounted 再赋值，
+ * 首帧会先闪一下「正在打开游乐场面板…」，等于把同一个问题换个形式又暴露一次。
+ */
+const forwardingHint = ref(
+  peekGameOpen() ? t('more.panel.openingGame') : t('more.panel.loading')
+)
+
 const PANEL_MODULE_ID = 'more_panel'
 const PANEL_CATALOG_WAIT_MS = 5000
 const panelForwardFailed = ref(false)
@@ -860,7 +892,7 @@ const launchPanel = async () => {
         <span v-if="!panelForwardFailed" class="panel-forward__spinner" aria-hidden="true"></span>
         <span v-else class="panel-forward__icon" aria-hidden="true">⚠️</span>
         <p class="panel-forward__text">
-          {{ panelForwardFailed ? t('more.panel.failed') : t('more.panel.loading') }}
+          {{ panelForwardFailed ? t('more.panel.failed') : (forwardingHint || t('more.panel.loading')) }}
         </p>
         <button
           v-if="panelForwardFailed"
