@@ -43,6 +43,8 @@ const divClassesBefore = (source: string, marker: string, nthFromLast = 1) => {
 const COUNTDOWN_MARKER = '{{ getCourseCountdown(course) }}'
 /** 倒计时自身也是 div，故导轨是它之前的第 2 个 div */
 const railClasses = () => classesOf(divClassesBefore(activeCard, COUNTDOWN_MARKER, 2))
+/** 进行中卡片自身的 class（区块内第一个 div 即卡片） */
+const cardClasses = () => classesOf(activeCard.match(/<div class="([^"]*)"/)![1])
 
 describe('首页今日安排时间轴布局契约 (#1011)', () => {
   it('已完成 / 未开始行的课名包装器都带 min-w-0，长课名才会截断而不是撑破卡片', () => {
@@ -70,22 +72,39 @@ describe('首页今日安排时间轴布局契约 (#1011)', () => {
     const rail = railClasses()
     expect(rail, '导轨应是 flex 项而非覆盖层').toContain('shrink-0')
     expect(rail).not.toContain('absolute')
-    expect(rail.some((c) => /^w-\d/.test(c)), '导轨不得使用固定宽度，否则又会与文本区宽度脱钩').toBe(false)
+    // 任何显式宽度（w-36 / w-[9rem] / w-1/2 …）都会让导轨宽度与内容脱钩，
+    // 重新引入「文本区预留宽度必须手动跟随导轨宽度」这类耦合
+    expect(
+      rail.filter((c) => /^w-/.test(c)),
+      '导轨宽度必须由内容决定，不得出现任何 w-* 固定宽度',
+    ).toEqual([])
   })
 
-  it('导轨用负外边距抵消卡片纵向内边距，垂直居中基准与修复前一致（防 2px 静默偏移）', () => {
+  it('导轨的负外边距与卡片纵向内边距成对匹配（防 2px 静默偏移）', () => {
+    // 导轨作为 flex 项默认只撑到卡片内容盒高；必须用负外边距抵消卡片的 pt/pb 才能与卡片同高，
+    // 否则 justify-center 的基准从卡片盒变成内容盒，倒计时与按钮整体上移 2px。
+    // 这里成对校验：改了卡片内边距而不改导轨，测试必须失败。
+    const card = cardClasses()
+    const pt = card.find((c) => /^pt-\d+$/.test(c))
+    const pb = card.find((c) => /^pb-\d+$/.test(c))
+    expect(pt, '卡片应有 pt-* 纵向内边距（导轨的负外边距靠它抵消）').toBeTruthy()
+    expect(pb, '卡片应有 pb-* 纵向内边距（导轨的负外边距靠它抵消）').toBeTruthy()
+
     const rail = railClasses()
-    // 卡片为 pt-3 pb-4；导轨作为 flex 项默认只撑到内容盒高，不抵消就会比卡片矮 28px，
-    // 使 justify-center 的基准从卡片盒变成内容盒，倒计时与按钮整体上移 2px
-    expect(rail).toContain('-mt-3')
-    expect(rail).toContain('-mb-4')
+    expect(rail).toContain('-' + pt!.replace('pt-', 'mt-')) // pt-3 → -mt-3
+    expect(rail).toContain('-' + pb!.replace('pb-', 'mb-')) // pb-4 → -mb-4
   })
 
-  it('装饰插画是卡片自身子节点（挂进导轨会跟随其内容盒高度缩水）', () => {
+  it('装饰插画是卡片 flex 容器的直接子节点（包含块不能变）', () => {
     const illustration = activeCard.match(/<img[^>]*class="([^"]*today-course-illustration[^"]*)"[^>]*\/>/)
     expect(illustration, '进行中卡片应存在装饰插画').toBeTruthy()
-    // 必须直接位于卡片 flex 容器下，而不是导轨内部
-    const railStart = activeCard.indexOf(COUNTDOWN_MARKER)
-    expect(activeCard.indexOf(illustration![0])).toBeLessThan(railStart)
+    // `.today-course-illustration` 是 position:absolute + top/right/bottom:0，包含块一变几何就变：
+    // 挂进导轨会跟随其内容盒高度缩水，挂进文本区会横向错位。
+    // 判据：卡片开标签与 <img> 之间的 <div> 必须全部闭合 ⇒ img 就是卡片的直接子节点。
+    const cardOpenTagEnd = activeCard.indexOf('>', activeCard.indexOf('<div class="')) + 1
+    const between = activeCard.slice(cardOpenTagEnd, activeCard.indexOf(illustration![0]))
+    const opened = (between.match(/<div\b/g) || []).length
+    const closed = (between.match(/<\/div>/g) || []).length
+    expect(opened, '插画必须是卡片直接子节点（其间不得有未闭合的 div）').toBe(closed)
   })
 })
