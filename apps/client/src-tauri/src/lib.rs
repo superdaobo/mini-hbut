@@ -93,6 +93,11 @@ const GRADE_TEACHER_CACHE_TABLE: &str = "grade_teacher_cache";
 // 应用状态见 app_state.rs；Tauri Command 见 transport/tauri/ 各领域模块
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // #991：进程启动时刻必须在这里**最先**记录。`runtime_log` 的 `uptime_ms` 原本是惰性的
+    // （首次推送日志才起算），release 构建启动期无日志时该值为 0，会让前端把「原生前置耗时」
+    // 算成假的 0ms。显式标记后，`stats()` 给出的才是真正的进程启动时间与墙钟。
+    runtime_log::mark_process_start();
+
     let builder = tauri::Builder::default();
 
     // #671 线上可观测性：文件日志（LogDir）+ stdout（dev 可见）。release 版 stderr 被

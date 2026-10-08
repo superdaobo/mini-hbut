@@ -114,21 +114,33 @@ const runDeferredInitializers = () => {
 }
 
 /**
- * #991：记录 Rust 侧「进程启动至今」的毫秒数（`runtime_log.uptime_ms`）。
+ * #991：记录 Rust 侧的**进程启动时刻与已运行时长**。
  *
  * 这是唯一能测出 **JS 之前那段原生启动** 的办法：`index.html` 的内联脚本把自身时刻当作
  * 时间原点，报告里所有 `+Nms` 都相对它 —— 于是「进程启动 → 页面开始加载」在报告里原本
- * 完全不可见。真机上出现过「白屏 10 秒但 JS 启动只要 33ms」，正是被这段盲区吃掉的。
+ * 完全不可见（真机上出现过「白屏 10 秒但 JS 启动只要 33ms」）。
+ *
+ * 同时它也回答「本次是冷启动还是旧进程内的页面重载」：若进程已运行很久，说明这次启动
+ * 是**重载**（例如 #451 白屏兜底的 `location.reload()`），而不是用户重新打开应用。
+ *
+ * ⚠️ 依赖 `runtime_log::mark_process_start()`（在 Rust `run()` 最开始调用）。若缺了它，
+ * `uptime_ms` 会退化成「日志状态初始化至今」（常为 0），推算出的原生前置会是假的 0ms。
  *
  * 拿不到（非 Tauri / 命令失败 / 字段缺失）时静默跳过，报告侧显示「证据不足」而不是猜。
  */
 const recordNativeUptime = () => {
   if (!isTauriRuntime()) return
-  void invokeNative<{ runtime_log?: { uptime_ms?: number } } | null>('get_runtime_diag')
+  void invokeNative<{ runtime_log?: { uptime_ms?: number; started_at_epoch_ms?: number } } | null>(
+    'get_runtime_diag'
+  )
     .then((diag) => {
       const uptime = Number(diag?.runtime_log?.uptime_ms)
-      if (!Number.isFinite(uptime)) return
-      recordBootStage('native-uptime', { rust_uptime_ms: Math.round(uptime) })
+      const startedAt = Number(diag?.runtime_log?.started_at_epoch_ms)
+      const detail: Record<string, unknown> = {}
+      if (Number.isFinite(uptime)) detail.rust_uptime_ms = Math.round(uptime)
+      if (Number.isFinite(startedAt) && startedAt > 0) detail.process_started_at = Math.round(startedAt)
+      if (!Object.keys(detail).length) return
+      recordBootStage('native-uptime', detail)
     })
     .catch(() => {
       // 忽略：报告里会显示「证据不足」

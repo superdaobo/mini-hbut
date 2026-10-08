@@ -15,6 +15,7 @@ import {
 import { runCampusNetworkAutoLogin } from '../../utils/campus_network_service'
 import { getCurrentNativeWindow, isCapacitorRuntime, isTauriRuntime } from '../../platform/native'
 import { pushDebugLog } from '../../utils/debug_logger'
+import { getHardReloadCountInWindow, recordHardReload } from '../../utils/hard_reload_guard'
 import { resetLoginGateIfStale } from './sessionGate'
 import {
   isAndroidLike as detectAndroidLike,
@@ -156,25 +157,40 @@ export const createLifecycleCoordinator = (runtime: AppRuntime): LifecycleCoordi
 
   /**
    * #451：硬 reload 末级兜底，强节流 + 每会话上限，避免白屏循环。
+   *
+   * #991 加固：原护栏（上限 / 最小间隔）都只在 `state.mutable` 内存里，而
+   * `location.reload()` 恰好会把它清零 —— **护栏被它自己要防的那次重载清掉了**，
+   * 于是重载可以反复发生（应用反复白屏重来）。现在计数落 localStorage（跨重载存活），
+   * 并在重载前写下标记供下次启动识别「这是重载而不是冷启动」。
    */
   const maybeHardReloadAfterResume = (targetView: string, { idleMs = 0 } = {}) => {
     if (!isIOSLike) return false
-    if (state.mutable.iosHardReloadCount >= IOS_HARD_RELOAD_MAX_PER_SESSION) return false
+    const now = Date.now()
+    // 跨页面持久化的计数与内存计数取较大者：内存值在重载后归零，持久值不会
+    const persistedCount = getHardReloadCountInWindow(now)
+    const effectiveCount = Math.max(state.mutable.iosHardReloadCount, persistedCount)
+    if (effectiveCount >= IOS_HARD_RELOAD_MAX_PER_SESSION) {
+      pushDebugLog(
+        'LifecycleResume',
+        '硬重载被护栏拦截（窗口内已达上限）',
+        'warn',
+        { view: targetView, idleMs, inMemory: state.mutable.iosHardReloadCount, persisted: persistedCount }
+      )
+      return false
+    }
     if (idleMs < IOS_RESUME_HARD_RELOAD_MS) return false
     if (isCurrentViewDomHealthy(targetView, { strict: true })) return false
-    const now = Date.now()
     if (now - state.mutable.iosReloadFallbackAt < IOS_RELOAD_MIN_INTERVAL_MS) return false
     state.mutable.iosReloadFallbackAt = now
     state.mutable.iosHardReloadCount += 1
-    try {
-      console.warn('[Lifecycle#451] hard reload fallback', {
-        view: targetView,
-        idleMs,
-        count: state.mutable.iosHardReloadCount
-      })
-    } catch {
-      // ignore
-    }
+    // 必须在 reload 之前落盘：标记 + 跨重载计数
+    const count = recordHardReload({ reason: 'dom-unhealthy-after-resume', view: targetView, idleMs }, now)
+    pushDebugLog('LifecycleResume', 'hard reload fallback (#451)', 'warn', {
+      view: targetView,
+      idleMs,
+      inMemoryCount: state.mutable.iosHardReloadCount,
+      persistedCount: count
+    })
     try {
       window.location.reload()
     } catch {
