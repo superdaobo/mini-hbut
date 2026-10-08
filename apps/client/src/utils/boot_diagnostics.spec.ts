@@ -10,6 +10,7 @@ import {
   replayBootDiagnostics,
   resolveBootOutcome,
   resolveNativePreMs,
+  resolveProcessAgeAtBootMs,
   sanitizeDetail,
   sanitizeText,
   sanitizeUrl
@@ -167,38 +168,50 @@ describe('boot_diagnostics 读取与持久化', () => {
 })
 
 describe('boot_diagnostics 原生前置耗时推算', () => {
-  it('用 native-uptime 与 nav_ms 反推「进程启动 → 页面开始加载」', () => {
-    // 进程已启动 10240ms，而页面在 240ms 前才开始加载，native-uptime 记于内联脚本后 40ms
-    // ⇒ 原生前置 = 10240 - 240 - 40 = 9960ms（即用户看到的「白屏 10 秒」）
+  it('用 time_origin 与进程启动墙钟算出「进程启动 → 页面开始加载」', () => {
+    // 进程启动于 1_700_000_000_000，导航开始于 +10240ms ⇒ 原生前置 10240ms（白屏 10 秒）
     const snapshot = makeSnapshot({
-      entries: [{ t: 40, name: 'native-uptime', detail: { rust_uptime_ms: 10_240 } }],
-      meta: { nav_ms: 240 }
+      entries: [{ t: 81, name: 'native-uptime', detail: { process_started_at: 1_700_000_000_000 } }],
+      meta: { time_origin: 1_700_000_010_240 }
     })
-    expect(resolveNativePreMs(snapshot)).toBe(9960)
+    expect(resolveNativePreMs(snapshot)).toBe(10_240)
   })
 
   it('证据不足时返回 null（不猜一个数字）', () => {
     expect(resolveNativePreMs(null)).toBeNull()
-    // 缺 native-uptime
-    expect(resolveNativePreMs(makeSnapshot({ meta: { nav_ms: 240 } }))).toBeNull()
-    // 缺 nav_ms
-    expect(
-      resolveNativePreMs(makeSnapshot({ entries: [{ t: 40, name: 'native-uptime', detail: { rust_uptime_ms: 10_240 } }] }))
-    ).toBeNull()
-    // 非 Tauri 环境下命令失败 → 字段缺失
+    // 缺 native-uptime 条目
+    expect(resolveNativePreMs(makeSnapshot({ meta: { time_origin: 1_700_000_010_240 } }))).toBeNull()
+    // 缺 time_origin
     expect(
       resolveNativePreMs(
-        makeSnapshot({ entries: [{ t: 40, name: 'native-uptime', detail: {} }], meta: { nav_ms: 240 } })
+        makeSnapshot({ entries: [{ t: 81, name: 'native-uptime', detail: { process_started_at: 1_700_000_000_000 } }] })
+      )
+    ).toBeNull()
+    // ⚠️ 只有 rust_uptime_ms（旧的惰性值）时不得拿来反推 —— 会得到假的 0ms
+    expect(
+      resolveNativePreMs(
+        makeSnapshot({
+          entries: [{ t: 81, name: 'native-uptime', detail: { rust_uptime_ms: 0 } }],
+          meta: { time_origin: 1_700_000_010_240 }
+        })
       )
     ).toBeNull()
   })
 
-  it('推算结果不为负（时钟/采样抖动兜底）', () => {
+  it('推算结果不为负（时钟抖动兜底）', () => {
     const snapshot = makeSnapshot({
-      entries: [{ t: 500, name: 'native-uptime', detail: { rust_uptime_ms: 100 } }],
-      meta: { nav_ms: 50 }
+      entries: [{ t: 81, name: 'native-uptime', detail: { process_started_at: 1_700_000_020_000 } }],
+      meta: { time_origin: 1_700_000_010_240 }
     })
     expect(resolveNativePreMs(snapshot)).toBe(0)
+  })
+
+  it('进程已运行时长用于区分「旧进程内重载」与「冷启动」', () => {
+    const reload = makeSnapshot({
+      entries: [{ t: 81, name: 'native-uptime', detail: { rust_uptime_ms: 7_200_000 } }]
+    })
+    expect(resolveProcessAgeAtBootMs(reload)).toBe(7_200_000)
+    expect(resolveProcessAgeAtBootMs(makeSnapshot())).toBeNull()
   })
 })
 
@@ -342,14 +355,42 @@ describe('boot_diagnostics 报告', () => {
 
   it('报告给出「原生前置」与「页面加载」两段耗时（白屏 10 秒的定位依据）', () => {
     const current = makeSnapshot({
-      entries: [{ t: 40, name: 'native-uptime', detail: { rust_uptime_ms: 10_240 } }],
-      meta: { nav_ms: 240 }
+      entries: [{ t: 81, name: 'native-uptime', detail: { process_started_at: 1_700_000_000_000, rust_uptime_ms: 120 } }],
+      meta: { nav_ms: 240, time_origin: 1_700_000_010_240 }
     })
     installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current }) })
 
     const report = formatBootDiagnosticsReport()
-    expect(report).toContain('原生前置（进程启动 → 页面开始加载）: 9960ms')
+    expect(report).toContain('原生前置（进程启动 → 页面开始加载）: 10240ms')
     expect(report).toContain('页面加载（导航开始 → 内联脚本）: 240ms')
+    // 进程年龄小 ⇒ 不标注「旧进程内重载」
+    expect(report).not.toContain('旧进程内重载，不是冷启动')
+  })
+
+  it('本次启动来自 #451 硬重载时明确标出（否则与冷启动无法区分）', () => {
+    const current = makeSnapshot({
+      entries: [{ t: 81, name: 'native-uptime', detail: { rust_uptime_ms: 7_200_000 } }],
+      meta: { hard_reload_boot: true, hard_reload_age_ms: 800, hard_reload_count: 2 }
+    })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current }) })
+
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('本次启动由 #451 硬重载触发')
+    expect(report).toContain('旧进程内重载，不是冷启动')
+  })
+
+  it('出现原生无响应时给出「卡在原生主线程」的结论（JS 未冻结但原生无响应）', () => {
+    const current = makeSnapshot({
+      entries: [
+        { t: 5_000, name: 'native-stall', detail: { cost_ms: 3_000, ok: false, timed_out: true } },
+        { t: 10_000, name: 'native-stall', detail: { cost_ms: 2_500, ok: false } }
+      ]
+    })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current }) })
+
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('原生无响应: 2 次')
+    expect(report).toContain('卡在**原生主线程**')
   })
 
   it('启动历史暴露「页面重载 / 崩溃循环」（相邻间隔 <5s 会被标注）', () => {

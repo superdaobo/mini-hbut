@@ -143,6 +143,21 @@ describe('启动诊断内联脚本契约（#991/#992）', () => {
     expect(bootScript).toMatch(/PerformanceObserver\(onEntries\)\.observe\(\{ type: 'paint'/)
   })
 
+  it('识别「本次启动是 #451 硬重载」而不是冷启动（新页面里两者无法区分）', () => {
+    expect(bootScript).toContain("'hbu_hard_reload_state_v1'")
+    expect(bootScript).toContain('hard-reload-boot')
+    expect(bootScript).toContain('hard_reload_boot')
+    expect(bootScript).toContain('hard_reload_age_ms')
+  })
+
+  it('原生响应探测：测「JS 还活着但原生主线程被卡」（心跳看不见这一类）', () => {
+    expect(bootScript).toContain('probeNativeResponsiveness')
+    expect(bootScript).toContain('native-stall')
+    expect(bootScript).toMatch(/NATIVE_PROBE_MS\s*=\s*\d+/)
+    expect(bootScript).toMatch(/NATIVE_STALL_MS\s*=\s*\d+/)
+    expect(bootScript).toContain('native_probe_ms')
+  })
+
   it('保留最近多次启动历史（只留两次会吃掉崩溃 / 重载循环）', () => {
     expect(bootScript).toMatch(/MAX_HISTORY\s*=\s*\d+/)
     expect(bootScript).toContain('history: history')

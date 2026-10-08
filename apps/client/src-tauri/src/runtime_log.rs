@@ -33,6 +33,24 @@ struct LogState {
     started: Instant,
 }
 
+/// 进程启动时刻：`(单调时钟, 墙钟 epoch ms)`。
+///
+/// ⚠️ 必须由 `mark_process_start()` 在 `run()` 最开始显式写入。`LogState.started` 是
+/// **惰性**的（首次 `state()` 才 `Instant::now()`）；release 构建启动期若没有任何日志推送，
+/// 拿它当进程启动时间会得到接近 0 的值 —— 前端据此推算「原生前置耗时」会得到一个假的 0ms。
+/// 真机上已踩到这个坑，故这里显式记录。
+static PROCESS_START: OnceLock<(Instant, i64)> = OnceLock::new();
+
+/// 记录进程启动时刻（幂等；在 `run()` 最开始调用）。
+pub fn mark_process_start() {
+    let _ = PROCESS_START.set((Instant::now(), Local::now().timestamp_millis()));
+}
+
+/// 取进程启动时刻；未显式标记时回落「首次访问时刻」，保证始终可用。
+fn process_start() -> (Instant, i64) {
+    *PROCESS_START.get_or_init(|| (Instant::now(), Local::now().timestamp_millis()))
+}
+
 fn state() -> &'static Mutex<LogState> {
     static STATE: OnceLock<Mutex<LogState>> = OnceLock::new();
     STATE.get_or_init(|| {
@@ -228,11 +246,15 @@ pub fn stats() -> Value {
         Ok(g) => g,
         Err(e) => e.into_inner(),
     };
+    let (process_started, process_started_epoch_ms) = process_start();
     json!({
         "count": guard.items.len(),
         "max": MAX_LOGS,
         "last_id": guard.seq,
-        "uptime_ms": guard.started.elapsed().as_millis() as u64,
+        // 进程启动至今（**不是**日志状态初始化至今，见 `PROCESS_START` 说明）
+        "uptime_ms": process_started.elapsed().as_millis() as u64,
+        // 进程启动墙钟（epoch ms）——前端据此算「原生前置耗时」与「本进程已运行多久」
+        "started_at_epoch_ms": process_started_epoch_ms,
     })
 }
 
