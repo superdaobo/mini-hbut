@@ -30,5 +30,5 @@ mod ranking;
 mod schedule;
 mod semester;
 mod student_info;
-mod teacher;
+pub(crate) mod teacher;
 mod training_plan;

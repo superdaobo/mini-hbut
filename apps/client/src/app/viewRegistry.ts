@@ -72,6 +72,12 @@ const loadSportsVenueView: Loader = () => import('../components/SportsVenueView.
 const loadTowerGoView: Loader = () => import('../components/TowerGoView.vue')
 const loadSmartOrientationView: Loader = () => import('../components/SmartOrientationView.vue')
 const loadIdentityAuthHistoryView: Loader = () => import('../features/identity/views/IdentityAuthHistoryView.vue')
+// Teacher Portal V2（#1019）：教师专属视图（E0 预注册为占位，E2/E5/E6/E3/E7 替换实现）
+const loadTeacherProfileView: Loader = () => import('../features/teacher/views/TeacherProfileView.vue')
+const loadTeacherTeachingView: Loader = () => import('../features/teacher/views/TeacherTeachingView.vue')
+const loadTeacherExamsView: Loader = () => import('../features/teacher/views/TeacherExamsView.vue')
+const loadTeacherNotificationView: Loader = () => import('../features/teacher/views/TeacherNotificationView.vue')
+const loadTeacherWorkflowView: Loader = () => import('../features/teacher/views/TeacherWorkflowView.vue')
 
 /** view key → 异步组件（AppViewHost 模板 v-if 分支使用） */
 export const VIEW_COMPONENTS: Record<string, Component> = {
@@ -120,7 +126,13 @@ export const VIEW_COMPONENTS: Record<string, Component> = {
   sports_venue: createAsyncPage(loadSportsVenueView),
   towergo: createAsyncPage(loadTowerGoView),
   smart_orientation: createAsyncPage(loadSmartOrientationView),
-  identity_auth_history: createAsyncPage(loadIdentityAuthHistoryView)
+  identity_auth_history: createAsyncPage(loadIdentityAuthHistoryView),
+  // Teacher Portal V2（#1019）：教师专属视图
+  teacherprofile: createAsyncPage(loadTeacherProfileView),
+  teacherteaching: createAsyncPage(loadTeacherTeachingView),
+  teacherexams: createAsyncPage(loadTeacherExamsView),
+  teachernotifications: createAsyncPage(loadTeacherNotificationView),
+  teacherworkflow: createAsyncPage(loadTeacherWorkflowView)
 }
 
 /** view key → loader（prefetch 使用） */
@@ -170,5 +182,11 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   sports_venue: loadSportsVenueView,
   towergo: loadTowerGoView,
   smart_orientation: loadSmartOrientationView,
-  identity_auth_history: loadIdentityAuthHistoryView
+  identity_auth_history: loadIdentityAuthHistoryView,
+  // Teacher Portal V2（#1019）：教师专属视图（prefetch）
+  teacherprofile: loadTeacherProfileView,
+  teacherteaching: loadTeacherTeachingView,
+  teacherexams: loadTeacherExamsView,
+  teachernotifications: loadTeacherNotificationView,
+  teacherworkflow: loadTeacherWorkflowView
 }

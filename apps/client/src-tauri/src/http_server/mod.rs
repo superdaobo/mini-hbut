@@ -288,6 +288,7 @@ fn build_router() -> Router<HttpState> {
         .merge(routes::course_selection::router())
         .merge(routes::online_learning::router())
         .merge(routes::system::router())
+        .merge(routes::teacher::router())
         .merge(routes::proxy::router())
         .merge(routes::ai::router())
         .merge(routes::local_data::router());

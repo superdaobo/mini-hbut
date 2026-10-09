@@ -6,10 +6,12 @@ switch_active_account
 delete_saved_account
 set_ocr_endpoint
 set_ocr_runtime_config
+transport::tauri::config::set_ocr_telemetry_context
 get_ocr_runtime_status
 set_temp_upload_endpoint
 fetch_remote_config
 fetch_remote_json
+transport::tauri::config::probe_remote_url
 exit_app
 download_deyihei_font
 download_deyihei_font_payload
@@ -179,6 +181,8 @@ teaching_eval_submit
 write_widget_snapshot
 clear_widget_snapshot
 write_widget_theme_color
+transport::tauri::widget::write_widget_theme_mode
+transport::tauri::widget::request_widget_refresh
 write_electricity_snapshot
 write_exam_snapshot
 debug_widget_paths
@@ -198,6 +202,7 @@ chaoxing_checkin_cmd::clear_chaoxing_data
 usage_stats_cmd::usage_stats_record_event
 usage_stats_cmd::usage_stats_end_session
 usage_stats_cmd::usage_stats_upsert_device_profile
+usage_stats_cmd::usage_stats_rebind_pending_identity
 usage_stats_cmd::usage_stats_get_personal_summary
 usage_stats_cmd::usage_stats_list_pending_upload
 usage_stats_cmd::usage_stats_mark_uploaded
@@ -209,3 +214,8 @@ identity::commands::identity_enroll_device
 identity::commands::identity_sign_auth_request
 identity::commands::identity_revoke_current_device_local
 identity::commands::identity_fetch_auth_history
+identity::commands::identity_device_token
+transport::tauri::teacher::teacher_profile_fetch
+transport::tauri::teacher::teacher_teaching_fetch
+transport::tauri::teacher::teacher_exams_fetch
+transport::tauri::teacher::teacher_notices_fetch

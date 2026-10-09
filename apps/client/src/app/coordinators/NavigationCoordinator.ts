@@ -16,6 +16,8 @@ import {
 } from '../../navigation/app_navigation'
 import { resolvePolicySafeSnapshotView, resolvePolicySafeView } from '../../config/accessible_view'
 import { isViewAllowed } from '../../config/app_store_policy'
+// Teacher Portal V2（#1019）：路由级角色门禁（教师身份默认拒绝未授权视图）
+import { isViewAllowedForRole } from '../../config/role_capabilities.js'
 import { canOpenModule } from '../../utils/moduleAccess'
 import { showToast } from '../../utils/toast'
 import { saveRememberedUsername } from '../../utils/remembered_username'
@@ -342,6 +344,29 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     return normalized
   }
 
+  /**
+   * 读取当前身份（#1019）。
+   *
+   * 容忍测试桩 / 引导早期 `state` 尚未挂载 `role` 的情况：缺失时按「非教师」处理，
+   * 角色门禁放行 —— 保证学生端与既有行为零回归。
+   */
+  const readCurrentRole = (): unknown =>
+    (state as { role?: { value?: unknown } }).role?.value
+
+  /**
+   * 角色能力门禁（#1019）：把 view 收敛为当前身份允许的视图。
+   *
+   * 非教师身份原样返回（学生端零回归）；教师身份若目标未登记在
+   * TEACHER_ALLOWED_VIEW_IDS，则回落到 fallback（默认 home）。
+   * 用于深链（syncFromHash）、启动快照（readStartupSnapshot）、恢复（restoreViewFromSnapshot）。
+   */
+  const resolveRoleSafeView = (view: string, fallback = 'home') => {
+    const normalized = normalizeViewName(view)
+    if (isViewAllowedForRole(normalized, readCurrentRole())) return normalized
+    const safeFallback = normalizeViewName(fallback)
+    return isViewAllowedForRole(safeFallback, readCurrentRole()) ? safeFallback : 'home'
+  }
+
   const queueProtectedViewPrompt = (view: string, { push = true } = {}) => {
     state.pendingProtectedView.value = { view: normalizeViewName(view), push: push !== false }
     state.dailyAccessInput.value = ''
@@ -406,6 +431,14 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     const normalized = normalizeViewName(view)
     if (!isViewAllowed(normalized)) {
       showToast('当前版本不可用该功能')
+      if (normalized !== 'home' && isViewAllowed('home')) {
+        goToViewInternal('home', { push: false, restoreScroll: true })
+      }
+      return false
+    }
+    // #1019：角色能力门禁（教师身份访问未授权视图必须被拦，含直达/深链）
+    if (!isViewAllowedForRole(normalized, readCurrentRole())) {
+      showToast('当前身份不可访问该功能')
       if (normalized !== 'home' && isViewAllowed('home')) {
         goToViewInternal('home', { push: false, restoreScroll: true })
       }
@@ -476,7 +509,8 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     }
     state.studentId.value = route.sid
     saveRememberedUsername(route.sid)
-    const safeView = resolvePolicySafeView(route.view, 'home')
+    // #1019：深链目标先经策略收敛，再经角色门禁（教师不可直达学生专属视图）
+    const safeView = resolveRoleSafeView(resolvePolicySafeView(route.view, 'home'), 'home')
     if (!ensureProtectedViewAccess(safeView, {
       push: false,
       redirectToFallback: true,
@@ -688,6 +722,8 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
         ? resolvePolicySafeView('more', 'home')
         : targetViewRaw
     targetView = resolvePolicySafeView(targetView, 'home')
+    // #1019：恢复快照同样过角色门禁（避免教师身份恢复到学生专属视图）
+    targetView = resolveRoleSafeView(targetView, 'home')
     if (resolved?.sid) {
       state.studentId.value = String(resolved.sid || '').trim()
       try {
@@ -785,7 +821,10 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       const startupPageSetting = useUiSettings().startupPage || 'home'
       // #761：冷启动时启动页设置优先（残留 history 快照的 view/tab/module 不再覆盖）；
       // 带显式视图的 hash 深链（#/学号/视图）时深链优先，保证外部跳转行为不受破坏。
-      const startupView = resolvePolicySafeView(deepLink?.view || startupPageSetting, 'home')
+      const startupView = resolveRoleSafeView(
+        resolvePolicySafeView(deepLink?.view || startupPageSetting, 'home'),
+        'home'
+      )
       const initialView = isProtectedView(startupView) && !hasDailyAccessGrant() ? 'home' : startupView
       const tabFallback = (MAIN_TABS as readonly string[]).includes(initialView)
         ? initialView

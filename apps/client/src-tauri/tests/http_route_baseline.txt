@@ -32,10 +32,10 @@ POST /ai_chat_session/new
 POST /ai_chat_stream
 POST /ai_init
 POST /ai_upload
+POST /campus-guide-debug/probe
 POST /campus_code/config
 POST /campus_code/order_status
 POST /campus_code/qrcode
-POST /campus-guide-debug/probe
 POST /course_selection/child_classes
 POST /course_selection/detail_intro
 POST /course_selection/detail_teacher
@@ -130,3 +130,7 @@ POST /schedule/event/replace-all
 POST /schedule/event/update
 POST /sync_grades
 POST /sync_schedule
+POST /v2/teacher/exams
+POST /v2/teacher/notices
+POST /v2/teacher/profile
+POST /v2/teacher/teaching
