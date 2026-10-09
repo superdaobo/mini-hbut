@@ -53,17 +53,22 @@ export function getUpdateCheckMode(): UpdateCheckMode {
   return isAppStoreBuild() ? 'apple_storefront' : 'github_cdn'
 }
 
-const readStoredUsername = (): string => {
+/** 由运行时注入权威会话验证器；未安装时保持访客限制，避免误信缓存工号。 */
+let verifiedSessionProvider: (() => boolean) | null = null
+
+export const setAppStoreSessionVerifier = (verifier: (() => boolean) | null): void => {
+  verifiedSessionProvider = verifier
+}
+
+const isVerifiedPortalSession = (): boolean => {
   try {
-    return String(globalThis.localStorage?.getItem('hbu_username') || '').trim()
+    return Boolean(verifiedSessionProvider?.())
   } catch {
-    return ''
+    return false
   }
 }
 
-/**
- * 解析当前会话（可注入，便于单测；默认读 localStorage + 演示标记）。
- */
+/** 以运行时确认的在线会话为准，不再从 localStorage 猜测登录成功。 */
 export function resolveAppStoreSession(session?: {
   isLoggedIn?: boolean
   isDemoSession?: boolean
@@ -74,21 +79,13 @@ export function resolveAppStoreSession(session?: {
       isDemoSession: Boolean(appStoreSessionOverride.isDemoSession)
     }
   }
-  if (session && (session.isLoggedIn !== undefined || session.isDemoSession !== undefined)) {
-    return {
-      isLoggedIn:
-        session.isLoggedIn !== undefined
-          ? Boolean(session.isLoggedIn)
-          : Boolean(readStoredUsername()),
-      isDemoSession:
-        session.isDemoSession !== undefined
-          ? Boolean(session.isDemoSession)
-          : isTestAccountSession()
-    }
-  }
   return {
-    isLoggedIn: Boolean(readStoredUsername()),
-    isDemoSession: isTestAccountSession()
+    isLoggedIn: session?.isLoggedIn !== undefined
+      ? Boolean(session.isLoggedIn)
+      : isVerifiedPortalSession(),
+    isDemoSession: session?.isDemoSession !== undefined
+      ? Boolean(session.isDemoSession)
+      : isTestAccountSession()
   }
 }
 

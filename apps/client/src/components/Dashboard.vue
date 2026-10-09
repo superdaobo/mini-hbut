@@ -650,7 +650,7 @@ const modules = computed(() => {
     : BASE_MODULES.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
   // 合规包：仅 guest / 演示会话过滤高风险模块；真实登录不过滤
   const allowed = filterAllowedModules(scoped, {
-    isLoggedIn: props.isLoggedIn,
+    isLoggedIn: props.isLoggedIn && authStore.sessionVerified,
     isDemoSession: isTestAccountSession()
   })
   // 教师模式：追加一层角色白名单，隐藏学生专属教务入口（保持上述既有过滤语义不变）
@@ -708,7 +708,7 @@ let homeCollisionFxLastTs = 0
 const navigateTo = (moduleId) => {
   if (
     !isModuleAllowed(moduleId, {
-      isLoggedIn: props.isLoggedIn,
+      isLoggedIn: authStore.sessionVerified && props.isLoggedIn,
       isDemoSession: isTestAccountSession()
     })
   ) {
@@ -1038,7 +1038,7 @@ const roleDefaultQuickEntries = () =>
 
 /** 合规策略会话参数：与 modules / navigateTo 保持一致 */
 const appStoreSessionOpts = () => ({
-  isLoggedIn: props.isLoggedIn,
+  isLoggedIn: props.isLoggedIn && authStore.sessionVerified,
   isDemoSession: isTestAccountSession()
 })
 

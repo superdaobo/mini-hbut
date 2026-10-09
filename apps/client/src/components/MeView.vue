@@ -175,7 +175,7 @@ const handleOpenAuthHistory = () => emit('navigate', 'identity_auth_history')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
 const policySession = () => ({
-  isLoggedIn: props.isLoggedIn,
+  isLoggedIn: props.isLoggedIn && authStore.sessionVerified,
   isDemoSession: isDemoSession.value
 })
 

@@ -6,7 +6,7 @@ export function isLikelyStudentId(value: unknown): boolean
 
 export function getRememberedUsername(): string
 
-/** 保存学号；空值等价于清除。返回实际保存（规范化后）的值。 */
-export function saveRememberedUsername(value: unknown): string
+/** 保存后端认证角色对应的学号/工号；空值等价于清除。 */
+export function saveRememberedUsername(value: unknown, role?: unknown): string
 
 export function clearRememberedUsername(): void

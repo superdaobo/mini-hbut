@@ -24,7 +24,7 @@ import {
   ELECTRICITY_REFRESH_INTERVAL,
   JWXT_RECOVERY_INTERVAL
 } from '../state/constants'
-import { saveRememberedUsername, clearRememberedUsername } from '../../utils/remembered_username'
+import { saveRememberedUsername, getRememberedUsername } from '../../utils/remembered_username'
 import { isValidStudentId } from '../../utils/student_id.js'
 import {
   TEST_ACCOUNT,
@@ -103,14 +103,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
    * 保持当前值不变（默认学生），避免把已识别的教师身份重置掉。
    */
   const applyRestoredIdentity = (userInfo: Record<string, unknown> | null | undefined) => {
-    const sid = String((userInfo?.student_id ?? userInfo?.studentId ?? '') || '').trim()
+    const role = String(userInfo?.role || 'student').trim()
+    const sid = saveRememberedUsername(userInfo?.student_id ?? userInfo?.studentId, role)
     if (!sid) return false
+    // 前端入口选择不参与认证；只使用已恢复的后端角色更新 Pinia。
     state.studentId.value = sid
-    saveRememberedUsername(sid)
-    const role = String(userInfo?.role || '').trim()
-    if (role) {
-      state.setIdentityRole(role)
-    }
+    // 旧版 Coordinator 测试桩可能未提供角色 setter；生产 AppState 始终会提供。
+    if (typeof state.setIdentityRole === 'function') state.setIdentityRole(role)
     return true
   }
 
@@ -153,12 +152,9 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   // ── 本地身份恢复 ─────────────────────────────────────────────────────
   const restoreCachedIdentityFromLocal = async () => {
     if (isManualLogout()) return false
-    const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
+    // 先按成功登录时保存的角色校验，允许 8 位教师工号，但不改变学生学号规则。
+    const cachedSid = getRememberedUsername()
     if (!cachedSid) return false
-    if (!isValidStudentId(cachedSid)) {
-      clearRememberedUsername()
-      return false
-    }
     if (isTestAccountSession() && cachedSid === TEST_ACCOUNT.studentId) {
       return restoreTestAccountSession()
     }
@@ -189,9 +185,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         const snapshot = JSON.parse(snapshotRaw)
         const info = await importCookiesViaBridge(snapshot)
         if (info?.student_id) {
-          state.studentId.value = info.student_id
-          saveRememberedUsername(info.student_id)
-          return true
+          return applyRestoredIdentity(info)
         }
       } catch (e) {
         console.warn('[Session] 导入 cookies 失败:', e)

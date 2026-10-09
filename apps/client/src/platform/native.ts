@@ -47,7 +47,7 @@ export const invokeNative = async <T = unknown>(
     const testAccountResponse = resolveTestAccountNativeResponse(command, args)
     if (testAccountResponse !== null && testAccountResponse !== undefined) {
       if (!silent) {
-        pushDebugLog('Native', `测试账号 invoke 命中演示数据：${command}`, 'debug', args)
+        pushDebugLog('Native', `测试账号 invoke 命中演示数据：${command}`, 'debug')
       }
       return testAccountResponse as T
     }
@@ -65,7 +65,7 @@ export const invokeNative = async <T = unknown>(
   }
   const startedAt = Date.now()
   if (!silent) {
-    pushDebugLog('Native', `invoke 开始：${command}`, 'debug', args)
+    pushDebugLog('Native', `invoke 开始：${command}`, 'debug')
   }
   const core = await import('@tauri-apps/api/core')
   try {
@@ -76,7 +76,8 @@ export const invokeNative = async <T = unknown>(
     return result
   } catch (error) {
     if (!silent) {
-      pushDebugLog('Native', `invoke 失败：${command} (${Date.now() - startedAt}ms)`, 'error', error)
+      // 错误对象可能回显密码、票据或 URL 查询串；日志仅保留命令与耗时。
+      pushDebugLog('Native', `invoke 失败：${command} (${Date.now() - startedAt}ms)`, 'error')
     }
     throw error
   }
