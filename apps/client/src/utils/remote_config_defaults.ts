@@ -17,8 +17,13 @@ import {
 
 export { normalizeGamePlatformConfig }
 
-/** 真·远端源（GitCode + 代理）；成功且内容变化才写本地快照 */
+/**
+ * #1016：GitCode raw 预览域会对新提交的 JSON 返回 403「暂不支持预览」。
+ * 优先使用 API v5 的匿名 raw 接口（线上已验证 200 + CORS），旧地址保留备选。
+ * 成功且内容变化才写本地快照；不得因预览域 403 丢失 NAS 主域新配置。
+ */
 export const REMOTE_CONFIG_URLS = [
+  'https://api.gitcode.com/api/v5/repos/superdaobo/mini-hbut-config/raw/remote_config.json?ref=main',
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
   'https://gh-proxy.com/https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json'
 ]
