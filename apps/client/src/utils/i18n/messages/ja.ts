@@ -3667,6 +3667,7 @@ export const messages: Record<string, string> = {
   'teacher.exams.comingSoon': '試験・監督は準備中です',
   'teacher.notification.comingSoon': '教員お知らせは準備中です',
   'teacher.workflow.comingSoon': 'ワークフローは準備中です',
+  'teacher.classroom.conservativeNotice': '教師向けの空き教室は週・時限による絞り込みに未対応です。すべての空き教室を表示しています。現地の状況をご確認ください。',
   'teacher.error.empty': 'データがありません',
   'teacher.error.unauthorized': 'この機能にアクセスする権限がありません',
   'teacher.error.expired': 'セッションの有効期限が切れました。再度ログインしてください',
