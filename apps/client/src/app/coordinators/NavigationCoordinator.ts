@@ -327,7 +327,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       }
     }
     const hash = window.location.hash || '#/'
-    const match = hash.match(/^#\/(\d{9,10})(?:\/(\w+))?$/)
+    const match = hash.match(/^#\/(\d{8,10})(?:\/(\w+))?$/)
     if (!match) return null
     return {
       sid: match[1],
@@ -494,7 +494,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
   // （startupPage）优先，避免 WebView 会话残留的 history 快照覆盖用户启动页选择。
   const readStartupHashDeepLink = (): { sid: string; view: string } | null => {
     if (typeof window === 'undefined') return null
-    const match = String(window.location.hash || '').match(/^#\/(\d{9,10})\/(\w+)$/)
+    const match = String(window.location.hash || '').match(/^#\/(\d{8,10})\/(\w+)$/)
     if (!match) return null
     return { sid: match[1], view: normalizeViewName(match[2]) }
   }
@@ -508,7 +508,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       return
     }
     state.studentId.value = route.sid
-    saveRememberedUsername(route.sid)
+    saveRememberedUsername(route.sid, readCurrentRole())
     // #1019：深链目标先经策略收敛，再经角色门禁（教师不可直达学生专属视图）
     const safeView = resolveRoleSafeView(resolvePolicySafeView(route.view, 'home'), 'home')
     if (!ensureProtectedViewAccess(safeView, {
@@ -727,7 +727,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     if (resolved?.sid) {
       state.studentId.value = String(resolved.sid || '').trim()
       try {
-        saveRememberedUsername(state.studentId.value)
+        saveRememberedUsername(state.studentId.value, readCurrentRole())
       } catch {
         // ignore storage failure on resume
       }

@@ -36,8 +36,8 @@ import {
 import { scheduleUsageUpload } from '../../utils/usage_uploader.js'
 import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/local_reminder_scheduler'
 import { subscribePortalLoginSucceeded } from './loginOutcome'
-import { saveRememberedUsername } from '../../utils/remembered_username'
-import { isTeacherRoleValue, readLoginRole } from '../../utils/login_role'
+import { saveRememberedUsername, getRememberedUsername } from '../../utils/remembered_username'
+import { isTeacherRoleValue } from '../../utils/login_role'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
 /** 登录后成绩补拉的等待上限：超时以空快照兜底继续云同步，不无限等待 */
@@ -118,7 +118,7 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     // 教师身份不参与学生成绩链路：`/v2/quick_fetch` 是**学生**成绩接口
     // （Epic #1018 明确要求「教师端不请求学生成绩查询」），教师会话调用会被服务端
     // 拒绝，且会以工号写学生域本地台账。这里直接跳过补拉，仍保留后续云同步时序。
-    if (isTeacherRoleValue(readLoginRole())) {
+    if (isTeacherRoleValue(state.role.value)) {
       if (state.studentId.value !== sid) return
       syncAfterLogin(sid, [])
       return
@@ -143,8 +143,17 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
 
   // 处理登录成功
   const handleLoginSuccess = (data: unknown) => {
-    state.gradeData.value = data as unknown[]
-    state.studentId.value = localStorage.getItem('hbu_username') || ''
+    // 登录成功事件中携带后端账号；禁止反读可能尚未落盘的 localStorage 作为唯一依据。
+    const incomingId = data && typeof data === 'object' && !Array.isArray(data)
+      ? String((data as { studentId?: unknown }).studentId || '')
+      : ''
+    const sid = String(incomingId || getRememberedUsername() || state.studentId.value || '').trim()
+    if (!sid) {
+      console.warn('[Auth] 登录结果无有效账号，已拒绝跳转首页')
+      return
+    }
+    state.gradeData.value = Array.isArray(data) ? data : []
+    state.studentId.value = sid
     state.gradeTeacherCache.value = null
     state.gradeTeacherCacheSid.value = state.studentId.value
     // #623：Identity 授权登录恢复 hook —— 登录成功后通知 IdentityCoordinator
@@ -162,9 +171,9 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     runtime.navigation.applyViewState('home')
     runtime.navigation.replaceHistorySnapshot('home')
 
-    // 预取培养方案默认数据并落地缓存
-    if (state.studentId.value) {
-      runtime.session.markLoginSessionToken()
+    if (state.studentId.value) runtime.session.markLoginSessionToken()
+    // 只允许学生预取学生培养方案；教师工号不应请求学生专属接口。
+    if (state.studentId.value && !isTeacherRoleValue(state.role.value)) {
       if (isTestAccountSession()) {
         seedTestAccountCaches(setCachedData, state.studentId.value)
         state.gradeData.value = getTestAccountGrades()
@@ -252,7 +261,7 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       }
       lastHandledKey = key
       lastHandledAt = now
-      handleLoginSuccess([])
+      handleLoginSuccess({ studentId: detail?.studentId })
     })
   }
 
@@ -301,6 +310,8 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     state.gradeTeacherCacheSid.value = ''
     state.studentId.value = ''
     state.userUuid.value = ''
+    // 退出后解除教师身份（本地教师入口偏好不能继续驱动教师首页）。
+    if (typeof state.setIdentityRole === 'function') state.setIdentityRole('student')
     // 契约 D：登出必须把在线会话态一并重置为未确认（`unknown`）。只清学号会留下
     // 「sessionVerified=true 但身份为空」的不一致态 —— 当前虽无身份可注入，但任何
     // studentId 回填（缓存/恢复链）都会立刻被当作「已确认会话」放行游戏身份。

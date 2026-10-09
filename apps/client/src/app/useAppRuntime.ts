@@ -31,6 +31,7 @@ import {
   type InstallIdentityDeviceTokenResult
 } from '../utils/identity_device_token'
 import { showToast } from '../utils/toast'
+import { setAppStoreSessionVerifier } from '../config/app_store_policy'
 import { markBootMetric } from '../utils/boot_metrics.js'
 import { recordBootStage } from '../utils/boot_diagnostics'
 import { ensureRememberedPasswordCached } from '../utils/credential_storage.js'
@@ -50,6 +51,8 @@ export const useAppRuntime = () => {
     grade: useGradeStore(),
     update: useUpdateStore()
   }
+  // 真实在线会话是 iOS 功能策略的单一可信来源，绝不以本地记住的工号判断。
+  setAppStoreSessionVerifier(() => Boolean(stores.auth.studentId && stores.auth.sessionVerified))
   const runtime = {} as AppRuntime
   runtime.stores = stores
   runtime.state = createAppState(stores)
@@ -336,6 +339,7 @@ export const useAppRuntime = () => {
   })
 
   onBeforeUnmount(() => {
+    setAppStoreSessionVerifier(null)
     stopUsageUploadScheduler()
     document.removeEventListener('click', handleGlobalLinkClick, true)
     window.removeEventListener('popstate', handlePopState)

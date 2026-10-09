@@ -4,7 +4,6 @@ import { defineStore } from 'pinia'
 import {
   clearLoginRole,
   normalizeLoginRole,
-  readLoginRole,
   writeLoginRole
 } from '../utils/login_role.js'
 
@@ -54,11 +53,8 @@ export const useAuthStore = defineStore('auth', () => {
   const onlineSessionState = ref<OnlineSessionState>('unknown')
   const isLoggedIn = computed(() => studentId.value.length > 0)
 
-  /**
-   * 当前登录身份（学生 / 教师）。冷启动先取本地缓存值，登录/会话恢复后由后端
-   * `UserInfo.role` 覆盖为权威值 —— 用户选择的入口只是 UI 提示，不做身份依据。
-   */
-  const role = ref<IdentityRole>(readLoginRole())
+  /** 仅后端成功的登录/会话恢复可建立教师身份；入口选择只是表单偏好。 */
+  const role = ref<IdentityRole>('student')
   const isTeacher = computed(() => role.value === 'teacher')
 
   /**

@@ -29,7 +29,8 @@ import {
   NON_OFFICIAL_DISCLAIMER_ZH
 } from '../config/app_store_policy'
 import { saveRememberedUsername } from '../utils/remembered_username.js'
-import { readLoginFormAccount, readLoginRole, writeLoginFormAccount, writeLoginRole } from '../utils/login_role.js'
+import { normalizePortalAccountId } from '../utils/portal_account.js'
+import { normalizeLoginRole, readLoginFormAccount, readLoginRole, writeLoginFormAccount, writeLoginRole } from '../utils/login_role.js'
 import { isValidStudentId as isLikelyStudentId } from '../utils/student_id.js'
 import {
   isLoginInFlight,
@@ -38,7 +39,7 @@ import {
   runExclusiveLogin,
   waitForInFlightLogin
 } from '../app/coordinators/sessionGate'
-import { noteLoginSuccess } from '../app/coordinators/loginCooldown'
+import { noteLoginSuccess, noteLoginCooldownFromError, loginCooldownRemainingMs } from '../app/coordinators/loginCooldown'
 import {
   LOGIN_METHOD_CHAOXING_PASSWORD,
   LOGIN_METHOD_CHAOXING_QR,
@@ -177,6 +178,21 @@ const rememberMe = ref(true)
 const agreePolicy = ref(true)
 // #932：登录期间切走再切回时，沿用模块级单飞门的在飞状态，避免丢失「登录中」
 const loading = ref(isLoginInFlight())
+const cooldownSeconds = ref(0)
+let cooldownTimer = null
+
+/** 前台也遵守 Rust 返回的登录冷却时间；已发送的请求不因计时器消失而重发。 */
+const refreshLoginCooldown = () => {
+  if (cooldownTimer !== null) {
+    window.clearTimeout(cooldownTimer)
+    cooldownTimer = null
+  }
+  cooldownSeconds.value = Math.ceil(loginCooldownRemainingMs() / 1000)
+  if (cooldownSeconds.value > 0) {
+    cooldownTimer = window.setTimeout(refreshLoginCooldown, 1000)
+  }
+}
+
 const statusMsg = ref('')
 const ocrConfigMode = ref(t('login.ocr.local'))
 const debugLogs = ref([])
@@ -224,7 +240,7 @@ const isChaoxingMode = computed(() => activeMode.value === 'chaoxing')
 const canSubmitPasswordLogin = computed(() => {
   // 仅提交中禁用；账号/密码/协议未满足时保持可点击，由 handlePasswordLogin
   // 给出明确提示（否则按钮灰置时用户看不到任何原因说明）。
-  return !loading.value
+  return !loading.value && cooldownSeconds.value === 0
 })
 const canSubmitChaoxingPasswordLogin = computed(() => {
   return !loading.value
@@ -561,47 +577,52 @@ const scheduleCxQrPoll = () => {
  */
 const applyPortalLoginResult = async (result, { method = LOGIN_METHOD_PORTAL_PASSWORD } = {}) => {
   if (!result?.success) {
-    statusMsg.value = `❌ ${friendlyLoginError(result?.error || '')}`
+    const error = result?.error || ''
+    if (noteLoginCooldownFromError(error) > 0) refreshLoginCooldown()
+    statusMsg.value = `❌ ${friendlyLoginError(error)}`
     return false
   }
 
-  const sid = String(
-    result?.data?.student_id || result?.data?.studentId || username.value || ''
-  ).trim()
-  if (sid) {
-    saveRememberedUsername(sid)
+  // 后端返回的工号与角色是唯一可信来源；不能把教师入口偏好当成认证角色。
+  const role = normalizeLoginRole(result?.data?.role)
+  const sid = normalizePortalAccountId(
+    result?.data?.student_id ?? result?.data?.studentId, role
+  )
+  if (!sid) {
+    statusMsg.value = '❌ 登录结果缺少有效账号，请重新登录'
+    return false
   }
-  // 身份以教务系统返回为准：入口选择只是 UI 提示。用户用「教师端」入口登录学生账号
-  // （或反之）时在此纠正，否则功能可见性会按错误身份渲染。
-  const resolvedRole = String(result?.data?.role || '').trim()
-  if (resolvedRole) {
-    loginRole.value = writeLoginRole(resolvedRole)
-    authStore.setRole(resolvedRole)
-  }
-  // 按**实际登录成功**的身份记忆表单账号，下次切到该身份时预填的才是它自己的账号
-  writeLoginFormAccount(resolvedRole || loginRole.value, sid || username.value)
-  await syncPortalRememberCredential({
-    username: username.value,
-    studentId: sid,
-    password: password.value,
-    remember: rememberMe.value
-  })
-  if (rememberMe.value) {
-    localStorage.setItem('hbu_remember', 'true')
-  }
+
+  // 密钥环可能响应较慢：捕获本次凭据快照，不让本地写入阻塞已确认的 CAS 登录。
+  const credentials = { account: username.value, secret: password.value, remember: rememberMe.value }
+
+  // 先一次性确认前端的身份/在线会话，再投递成功通知；本地存储异常也不阻断。
+  authStore.establishSession({ studentId: sid, role })
+  saveRememberedUsername(sid, role)
+  loginRole.value = writeLoginRole(role)
+  writeLoginFormAccount(role, sid)
   applyLoginMethodStorage(method)
   localStorage.removeItem(LOGOUT_REASON_KEY)
   markLoginOnline()
-  // 只有门户密码登录会进入 Rust 的 60s 冷却门（其余登录命令不经过 client.login），
-  // 登记冷却供自动恢复链在窗口内让路（#931）
   if (triggersLoginCooldown(method)) {
     noteLoginSuccess()
   }
   statusMsg.value = t('login.status.signInSuccessSyncing')
-  // #928：成绩同步不再阻塞登录完成（原先要多转约 10s）。
-  // #932：结果走应用级通道 —— 登录期间被切走时本实例可能已卸载，Vue 会丢弃
-  // 已卸载实例的 emit，全局事件才能保证结果仍被应用层接收。
   publishPortalLoginSucceeded({ studentId: sid, method })
+  // 本地凭据保存不影响会话成功反馈；即使用户切页，快照仍独立完成。
+  void (async () => {
+    try {
+      await savePortalCredentials(credentials)
+      await syncPortalRememberCredential({
+        username: credentials.account,
+        studentId: sid,
+        password: credentials.secret,
+        remember: credentials.remember
+      })
+    } catch {
+      pushDebugLog('Login', '登录成功，但保存本地凭据失败', 'warn')
+    }
+  })()
   return true
 }
 
@@ -639,19 +660,15 @@ const resumeInFlightLogin = async () => {
   }
 }
 
-const savePortalCredentials = async () => {
-  if (rememberMe.value) {
-    saveRememberedUsername(username.value)
+const savePortalCredentials = async ({ account, secret, remember }) => {
+  if (remember) {
     localStorage.setItem('hbu_remember', 'true')
-    await saveRememberedCredential(
-      buildHbutAccountKey(username.value),
-      password.value
-    )
+    await saveRememberedCredential(buildHbutAccountKey(account), secret)
     localStorage.removeItem('hbu_credentials')
   } else {
     localStorage.removeItem('hbu_credentials')
     localStorage.setItem('hbu_remember', 'false')
-    await saveRememberedCredential(buildHbutAccountKey(username.value), '')
+    await saveRememberedCredential(buildHbutAccountKey(account), '')
   }
 }
 
@@ -677,6 +694,7 @@ const handleTestAccountLogin = async () => {
   try {
     markTestAccountSession()
     username.value = TEST_ACCOUNT.studentId
+    authStore.establishSession({ studentId: TEST_ACCOUNT.studentId, role: 'student' })
     saveRememberedUsername(TEST_ACCOUNT.studentId)
     localStorage.setItem('hbu_remember', 'false')
     localStorage.setItem('hbu_login_entry_mode', 'portal')
@@ -693,6 +711,16 @@ const handleTestAccountLogin = async () => {
 }
 
 const handlePasswordLogin = async () => {
+  if (loading.value) return
+  if (loginCooldownRemainingMs() > 0) {
+    refreshLoginCooldown()
+    statusMsg.value = friendlyLoginError(`⚠️ 登录冷却中，请 ${cooldownSeconds.value} 秒后再试`)
+    return
+  }
+  if (isLoginInFlight()) {
+    void resumeInFlightLogin()
+    return
+  }
   if (!username.value || !password.value) {
     statusMsg.value = t('login.error.enterCredentials')
     return
@@ -712,8 +740,6 @@ const handlePasswordLogin = async () => {
   void ensureOcrEndpointReady().catch((e) => {
     pushDebugLog('Login', '登录前 OCR 配置刷新失败（已忽略）', 'warn', e)
   })
-  await savePortalCredentials()
-
   try {
     // #929：提交带超时兜底 —— 单飞门复用（后台重登在飞）或原生侧失联时，
     // 界面也能在有限时间内恢复可交互，而不是永久转圈且无任何提示。
@@ -731,6 +757,7 @@ const handlePasswordLogin = async () => {
     await applyPortalLoginResult(res.data)
   } catch (e) {
     const errMsg = e.response?.data?.error || e.message || t('login.error.unknown')
+    if (noteLoginCooldownFromError(errMsg) > 0) refreshLoginCooldown()
     statusMsg.value = `⚠️ ${friendlyLoginError(errMsg)}`
     // #929：超时/失败后，若门内请求已超过失联阈值则立即清理，
     // 让用户的下一次点击能发起真实登录，而不是继续复用同一个死 promise。
@@ -867,13 +894,17 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
         }),
       { method: LOGIN_METHOD_PORTAL_QR }
     )
-    const sid = String(userInfo?.student_id || '').trim()
+    const role = normalizeLoginRole(userInfo?.role)
+    const sid = normalizePortalAccountId(userInfo?.student_id, role)
     if (!sid) {
       throw new Error(t('login.qr.noStudentId'))
     }
 
     username.value = sid
-    saveRememberedUsername(sid)
+    authStore.establishSession({ studentId: sid, role })
+    saveRememberedUsername(sid, role)
+    loginRole.value = writeLoginRole(role)
+    writeLoginFormAccount(role, sid)
     applyLoginMethodStorage('portal_qr_temp')
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
@@ -905,6 +936,7 @@ const handleChaoxingLoginSuccess = async (payload, modeKey) => {
     throw new Error(t('login.error.cx.noStudentId'))
   }
   username.value = sid
+  authStore.establishSession({ studentId: sid, role: 'student' })
   saveRememberedUsername(sid)
   await saveChaoxingCredentials()
   applyLoginMethodStorage(modeKey)
@@ -1185,6 +1217,7 @@ onMounted(async () => {
   }
 
   await hydrateRememberedCredentials()
+  refreshLoginCooldown()
 
   void ensureOcrEndpointReady().catch((e) => {
     console.warn('[Login] OCR 初始化失败（后台重试）:', e)
@@ -1195,6 +1228,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (cooldownTimer !== null) window.clearTimeout(cooldownTimer)
   clearQrTimer()
   clearCxQrTimer()
   window.removeEventListener('hbu-ocr-config-updated', handleOcrConfigUpdated)

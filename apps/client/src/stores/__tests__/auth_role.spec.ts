@@ -79,12 +79,16 @@ describe('auth store：登录身份（学生 / 教师）', () => {
     expect(storage.snapshot()['hbu_login_role']).toBeUndefined()
   })
 
-  it('冷启动从本地缓存恢复教师身份', () => {
+  it('冷启动不能仅凭本地教师入口偏好冒充已认证教师', () => {
     storage.setItem('hbu_login_role', 'teacher')
     setActivePinia(createPinia())
 
     const store = useAuthStore()
-    expect(store.role).toBe('teacher')
+    expect(store.role).toBe('student')
+    expect(store.isTeacher).toBe(false)
+    store.establishSession({ studentId: '20000000', role: 'teacher' })
+    store.onlineSessionState = 'online'
     expect(store.isTeacher).toBe(true)
+    expect(store.sessionVerified).toBe(true)
   })
 })
