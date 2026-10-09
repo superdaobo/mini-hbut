@@ -14,15 +14,11 @@
 //! - **绝不**触发教师卡片修改类写接口；
 //! - 只允许 GET 与已确认无副作用的纯查询 POST，且路径必须先登记在 [`readonly`]。
 //!
-//! ## 关于共享会话客户端（已知约束，需整合负责人收口）
+//! ## 会话客户端
 //!
-//! E0 冻结的 `application/teacher.rs` 以**无参**形式调用 [`fetch_profile`]，
-//! 未把应用共享的 `HbutClient` 传进来（`TeacherService` 内部虽有 `client_snapshot()`）。
-//! 为不改动冻结文件，本模块通过 [`HbutClient::new()`] 恢复**持久化会话快照**
-//! （`hbut_cookie_snapshot.json`，与主客户端同源 CAS Cookie，按当前活动账号写入）。
-//! 这属于临时兜底：正式实现应由 `application/teacher.rs` 传入共享 `&HbutClient`
-//! （调用 [`fetch_profile_with`]），以避免重复 HTTP 客户端与会话快照滞后。
-//! 该偏差已写入 E2 交付报告，供整合负责人（E8）处理。
+//! 唯一入口是 [`fetch_profile_with`]：由 `application::TeacherService` 传入登录后的
+//! 共享 `&HbutClient`，复用同一会话，避免重复构建 HTTP 客户端、以及持久化快照
+//! 落后于内存会话导致的「会话已过期」误报。
 
 use serde_json::Value;
 
@@ -172,16 +168,6 @@ pub(crate) async fn fetch_profile_with(client: &HbutClient) -> Result<Value, Str
 
     build_profile_payload(identity.as_ref(), &menu)
         .ok_or_else(|| "教师资料解析失败：未取得工号与姓名".to_string())
-}
-
-/// 拉取教师个人资料（工号 / 姓名 / 身份 / 部门 ID）。
-///
-/// E0 冻结的 `application/teacher.rs` 以无参形式调用本函数，故这里按模块头注释的
-/// 「共享会话客户端」约束，用 [`HbutClient::new()`] 恢复持久化会话快照后委托
-/// [`fetch_profile_with`]。**不返回任何猜测字段**。
-pub(crate) async fn fetch_profile() -> Result<Value, String> {
-    let client = HbutClient::new();
-    fetch_profile_with(&client).await
 }
 
 #[cfg(test)]

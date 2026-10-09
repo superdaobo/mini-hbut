@@ -219,8 +219,12 @@ async fn fetch_grid(
 
 /// 拉取监考安排与任课班级考试，返回 E0 冻结载荷 `{ invigilations, exams }`。
 ///
-/// 会话恢复失败（本地快照缺失 / 过期）时返回 `expired` 错误，**绝不返回假数据**。
-pub(crate) async fn fetch_exams(semester: Option<String>) -> Result<serde_json::Value, String> {
+/// 会话由调用方通过 [`fetch_exams_with`] 传入的共享 `&HbutClient` 提供；
+/// 会话失效（快照缺失 / 过期）时返回 `expired` 错误，**绝不返回假数据**。
+pub(crate) async fn fetch_exams_with(
+    client: &HbutClient,
+    semester: Option<String>,
+) -> Result<serde_json::Value, String> {
     // fail-closed：只允许已登记的只读路径（常量取自 readonly.rs，不写字面量）。
     assert!(readonly::is_teacher_readonly_path(
         readonly::PATH_INVIGILATION_LIST
@@ -233,21 +237,20 @@ pub(crate) async fn fetch_exams(semester: Option<String>) -> Result<serde_json::
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let client = HbutClient::new();
     // 本地会话快照缺失 / 过期：归一为 expired，不发请求、不返回假数据。
-    interpret_session_snapshot(has_jwxt_session_cookies(&client))?;
+    interpret_session_snapshot(has_jwxt_session_cookies(client))?;
 
     let referer = format!("{}/admin/", client.jwxt_base_url());
 
     let invigilation_payload = fetch_grid(
-        &client,
+        client,
         readonly::PATH_INVIGILATION_LIST,
         semester.as_deref(),
         &referer,
     )
     .await?;
     let exam_payload = fetch_grid(
-        &client,
+        client,
         readonly::PATH_COURSE_EXAM_LIST,
         semester.as_deref(),
         &referer,

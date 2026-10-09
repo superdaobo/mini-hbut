@@ -246,10 +246,12 @@ async fn fetch_grid(
 
 /// 拉取教学任务与我的教学班，返回 E0 冻结载荷 `{ tasks, classes }`。
 ///
-/// E0 架构下本子模块没有共享 `HbutClient` 句柄（`application/teacher.rs` 只透传
-/// `semester`），因此用 [`HbutClient::new`] 从本地 Cookie 快照恢复教务会话后再发只读请求；
-/// 会话未恢复时接口会重定向登录页，被归一为「会话已过期」错误而非假数据。
-pub(crate) async fn fetch_teaching(semester: Option<String>) -> Result<Value, String> {
+/// 会话由调用方通过 [`fetch_teaching_with`] 传入的共享 `&HbutClient` 提供；
+/// 会话失效时接口会重定向登录页，被归一为「会话已过期」错误而非假数据。
+pub(crate) async fn fetch_teaching_with(
+    client: &HbutClient,
+    semester: Option<String>,
+) -> Result<Value, String> {
     // fail-closed：只允许已登记的只读路径（常量取自 readonly.rs，不写字面量）。
     assert!(readonly::is_teacher_readonly_path(
         readonly::PATH_TEACHING_TASKS
@@ -262,18 +264,17 @@ pub(crate) async fn fetch_teaching(semester: Option<String>) -> Result<Value, St
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let client = HbutClient::new();
     let referer = format!("{}/admin/", client.jwxt_base_url());
 
     let tasks_payload = fetch_grid(
-        &client,
+        client,
         readonly::PATH_TEACHING_TASKS,
         semester.as_deref(),
         &referer,
     )
     .await?;
     let classes_payload = fetch_grid(
-        &client,
+        client,
         readonly::PATH_TEACHING_CLASSES,
         semester.as_deref(),
         &referer,
