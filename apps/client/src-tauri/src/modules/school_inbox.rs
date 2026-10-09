@@ -614,6 +614,41 @@ async fn fetch_chaoxing_notice_detail(
     Ok(body)
 }
 
+/// 教师端本地已读提示（绝不写服务端）。
+///
+/// #1023：教师通知标记已读只保存在本机，不写回教务系统。
+pub const TEACHER_LOCAL_ONLY_READ_MESSAGE: &str = "教师端标记已读仅保存在本机，未写回教务系统";
+
+/// 标记已读的执行计划（#1023 教师只读红线的可测试决策点）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkReadPlan {
+    /// 教师身份：仅本地记录，**绝不**下发状态更新写请求。
+    LocalOnly,
+    /// 学生身份：沿用既有链路（portal 来源会向教务发起状态更新 POST）。
+    Remote,
+}
+
+/// 依身份决定「标记已读」策略：教师一律本地，学生保持原语义。
+///
+/// 这是教师只读红线的**唯一决策点**，被单元测试直接断言，
+/// 避免将来有人把教师分支误改回写型链路。
+pub fn plan_school_inbox_mark_read(is_teacher: bool) -> MarkReadPlan {
+    if is_teacher {
+        MarkReadPlan::LocalOnly
+    } else {
+        MarkReadPlan::Remote
+    }
+}
+
+/// 当前会话是否为教师身份（历史数据缺省学生）。
+fn is_teacher_session(client: &HbutClient) -> bool {
+    client
+        .user_info
+        .as_ref()
+        .map(|user| user.role.is_teacher())
+        .unwrap_or(false)
+}
+
 async fn mark_portal_read(client: &HbutClient, raw_id: &str) -> Result<(), String> {
     let base = client.jwxt_base_url();
     let referer = format!("{base}/admin/");
@@ -706,11 +741,24 @@ pub async fn fetch_school_inbox_detail(
 }
 
 /// 将单条学校消息标记为已读。
+///
+/// #1023 教师只读红线：教师身份下**绝不**向教务发起状态更新写请求
+/// （对照 `data/teacher-api-recon/07-write-endpoints-denylist.md` A4），
+/// 直接返回本地已读结果，由前端按教师作用域本地记录。
 pub async fn mark_school_inbox_read(
     client: &mut HbutClient,
     _login_mode: &str,
     item_id: &str,
 ) -> Result<SchoolInboxMarkReadResponse, String> {
+    // 教师分支必须在任何解析 / 网络调用之前短路：教师路径不得触达写型链路。
+    if plan_school_inbox_mark_read(is_teacher_session(client)) == MarkReadPlan::LocalOnly {
+        return Ok(SchoolInboxMarkReadResponse {
+            id: item_id.to_string(),
+            success: true,
+            message: Some(TEACHER_LOCAL_ONLY_READ_MESSAGE.to_string()),
+        });
+    }
+
     let (source, raw_id) =
         parse_normalized_item_id(item_id).ok_or_else(|| "无效的消息 ID".to_string())?;
 
@@ -829,5 +877,20 @@ mod tests {
         assert!(items[0].body.contains("https://example.com"));
         assert!(items[0].body.contains("文件.pdf"));
         assert_eq!(items[0].uuid.as_deref(), Some("abc"));
+    }
+
+    /// #1023 教师只读红线：教师身份的标记已读计划必须是纯本地，
+    /// 学生身份保持既有远端链路语义。
+    #[test]
+    fn teacher_mark_read_plan_is_local_only() {
+        assert_eq!(plan_school_inbox_mark_read(true), MarkReadPlan::LocalOnly);
+        assert_eq!(plan_school_inbox_mark_read(false), MarkReadPlan::Remote);
+    }
+
+    /// 教师本地已读提示必须明确「仅保存在本机」，供前端展示。
+    #[test]
+    fn teacher_local_only_message_mentions_local_device() {
+        assert!(TEACHER_LOCAL_ONLY_READ_MESSAGE.contains("本机"));
+        assert!(!TEACHER_LOCAL_ONLY_READ_MESSAGE.is_empty());
     }
 }

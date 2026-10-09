@@ -3688,4 +3688,12 @@ export const messages: Record<string, string> = {
   'teacher.home.today.classLabel': 'クラス',
   'teacher.home.today.sizeLabel': '人数',
   'teacher.home.today.viewSchedule': '時間割を見る',
+  // E3（#1023）教員向け閲覧専用お知らせビュー用に追加したキー（3言語同期）。
+  'teacher.notification.title': '教務お知らせ',
+  'teacher.notification.tabAcademic': '教務お知らせ',
+  'teacher.notification.tabTeachingReminder': '授業リマインダー',
+  'teacher.notification.empty': 'お知らせはありません',
+  'teacher.notification.teachingReminderEmpty': '授業リマインダーはありません',
+  'teacher.notification.academicSource': '教務システム',
+  'notify.inbox.teacherLocalOnly': '教員側の既読は本端末にのみ保存されます',
 }

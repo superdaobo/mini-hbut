@@ -3689,4 +3689,12 @@ export const messages: Record<string, string> = {
   'teacher.home.today.classLabel': '教学班',
   'teacher.home.today.sizeLabel': '人数',
   'teacher.home.today.viewSchedule': '查看课表',
+  // E3（#1023）教师通知只读视图新增 key（三语同步）。
+  'teacher.notification.title': '教务通知',
+  'teacher.notification.tabAcademic': '教务通知',
+  'teacher.notification.tabTeachingReminder': '教学提醒',
+  'teacher.notification.empty': '暂无通知',
+  'teacher.notification.teachingReminderEmpty': '暂无教学提醒',
+  'teacher.notification.academicSource': '教务系统',
+  'notify.inbox.teacherLocalOnly': '教师端标记已读仅保存在本机',
 }
