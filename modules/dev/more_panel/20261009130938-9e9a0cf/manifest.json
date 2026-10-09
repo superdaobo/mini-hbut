@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "module_id": "more_panel",
+  "module_name": "湖工游乐场总面板",
+  "version": "20261009130938-9e9a0cf",
+  "package_url": "https://hbut.6661111.xyz/modules/dev/more_panel/20261009130938-9e9a0cf/bundle.zip",
+  "package_sha256": "8fea4b1a95638d57144d16cf69854bf9dab2ba20e1f27a4c94f787da5f7f9f12",
+  "package_size": 5733,
+  "entry_path": "index.html",
+  "published_at": "2026-10-09T13:09:58.980Z",
+  "release_notes": "更多页总面板：积分摘要 + 游戏入口（远程内嵌，与其它游戏同形态）",
+  "open_url": "https://hbut.6661111.xyz/modules/dev/more_panel/20261009130938-9e9a0cf/site/index.html",
+  "published_channel": "dev",
+  "source_channel": "main"
+}

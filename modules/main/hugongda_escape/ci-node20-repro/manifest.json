@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "module_id": "hugongda_escape",
+  "module_name": "湖工大逃生",
+  "version": "ci-node20-repro",
+  "package_url": "https://hbut.6661111.xyz/modules/main/hugongda_escape/ci-node20-repro/bundle.zip",
+  "package_sha256": "265756c95ce474d7f0589758f5e8e7e3a31737ad034125ac0cda178333e94678",
+  "package_size": 41544,
+  "entry_path": "index.html",
+  "published_at": "2026-04-21T02:37:38.088Z",
+  "release_notes": "湖工大逃生模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/main/hugongda_escape/ci-node20-repro/site/index.html"
+}
