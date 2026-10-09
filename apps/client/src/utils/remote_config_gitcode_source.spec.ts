@@ -7,6 +7,6 @@ describe('#1016：生产远程配置源必须优先走 GitCode API v5 raw', () =
     expect(primary.origin).toBe('https://api.gitcode.com')
     expect(primary.pathname).toBe('/api/v5/repos/superdaobo/mini-hbut-config/raw/remote_config.json')
     expect(primary.searchParams.get('ref')).toBe('main')
-    expect(REMOTE_CONFIG_URLS.some((url) => url.includes('raw.gitcode.com'))).toBe(true)
+    expect(REMOTE_CONFIG_URLS.some((url) => new URL(url).hostname === 'raw.gitcode.com')).toBe(true)
   })
 })
