@@ -17,6 +17,7 @@ pub mod notification;
 pub mod qxzkb;
 pub mod schedule;
 pub mod system;
+pub mod teacher;
 pub mod teaching_eval;
 pub mod update;
 pub mod widget;

@@ -62,3 +62,80 @@ export const filterModulesForRole = (modules, role) => {
   if (!isTeacherRole(role)) return modules
   return modules.filter((module) => TEACHER_VISIBLE_MODULE_IDS.has(String(module?.id ?? '')))
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 路由级角色门禁（Teacher Portal V2 / #1019）
+//
+// 与「模块可见性」（isModuleVisibleForRole，控制首页宫格）不同：
+// 这里控制的是**路由能力** —— 深链、直达、启动快照都必须经此判断，
+// 避免「首页隐藏了图标，但教师仍能直接跳到学生专属路由」。
+//
+// 原则：**默认拒绝**。教师身份只允许访问显式登记在 TEACHER_ALLOWED_VIEW_IDS 的视图；
+// 新增教师模块必须先登记，否则一律拦截。学生/未知身份原样放行（学生端零回归）。
+// ────────────────────────────────────────────────────────────────────────────
+
+/** 底部主 Tab：任何身份都可访问（同一 App 四 Tab 体验）。 */
+export const MAIN_TAB_VIEW_IDS = new Set(['home', 'schedule', 'notifications', 'me'])
+
+/** 教师专属视图 id（E0 预注册，与 app/viewRegistry.ts 的 key 一一对应）。 */
+export const TEACHER_VIEW_IDS = new Set([
+  'teacherprofile',
+  'teacherteaching',
+  'teacherexams',
+  'teachernotifications',
+  'teacherworkflow'
+])
+
+/**
+ * 教师身份可访问的**共享视图**（同一份学生组件，不复制教师版）。
+ *
+ * 两类：
+ * 1. E4（#1024）按真实身份分流后对教师开放的教务查询视图（`classroom` 空教室）；
+ * 2. 身份无关的通用应用界面（设置 / 反馈 / 隐私数据 / 授权记录 / 官网 / 快捷链接 /
+ *    校园网 / 更多中心）—— plan-teacher-portal-v2.md §1 要求「原样共用」。
+ *
+ * 因 E4 与各业务 Agent 无权修改本文件，故 E0 在此预置路由放行。
+ */
+export const TEACHER_SHARED_VIEW_IDS = new Set([
+  // E4 共享适配视图
+  'classroom',
+  // 通用应用界面（身份无关）
+  'settings',
+  'official',
+  'feedback',
+  'privacy_data',
+  'identity_auth_history',
+  'school_website',
+  'quick_links',
+  'campus_network',
+  'more',
+  'more_module_host',
+  'config'
+])
+
+/** 教师身份允许访问的 view id 全集（主 Tab + 模块白名单 + 教师专属 + 共享适配视图）。 */
+export const TEACHER_ALLOWED_VIEW_IDS = new Set([
+  ...MAIN_TAB_VIEW_IDS,
+  ...TEACHER_VISIBLE_MODULE_IDS,
+  ...TEACHER_VIEW_IDS,
+  ...TEACHER_SHARED_VIEW_IDS
+])
+
+/**
+ * 路由级角色能力门禁。
+ *
+ * - 非教师身份（学生 / 未知 / 空）：返回 `true`，完全交给既有策略层
+ *   （`isViewAllowed` / 每日秘钥 / 登录门禁），**学生行为零回归**。
+ * - 教师身份：仅当 viewId 登记在 [`TEACHER_ALLOWED_VIEW_IDS`] 时放行；
+ *   未登记的新视图默认拒绝。
+ *
+ * @param {string} viewId 视图 id（如 `grades` / `teacherteaching`）
+ * @param {string} role 当前身份（`student` / `teacher`）
+ * @returns {boolean}
+ */
+export const isViewAllowedForRole = (viewId, role) => {
+  if (!isTeacherRole(role)) return true
+  const id = String(viewId ?? '').trim()
+  if (!id) return false
+  return TEACHER_ALLOWED_VIEW_IDS.has(id)
+}

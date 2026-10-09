@@ -11,3 +11,4 @@ pub(super) mod online_learning;
 pub(super) mod proxy;
 pub(super) mod schedule;
 pub(super) mod system;
+pub(super) mod teacher;

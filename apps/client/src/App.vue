@@ -31,6 +31,7 @@ const {
   studentId,
   userUuid,
   isLoggedIn,
+  isTeacher,
   gradeData,
   gradesOffline,
   gradesSyncTime,
@@ -415,7 +416,8 @@ const {
         @logout="handleLogout"
       />
 
-      <!-- 通知设置 -->
+      <!-- 通知（Tab）：教师身份渲染教师通知视图，学生身份保持原 NotificationView（零行为变化） -->
+      <component v-else-if="currentView === 'notifications' && isTeacher" :is="VIEW_COMPONENTS.teachernotifications" @back="handleBackToDashboard" />
       <NotificationView 
         v-else-if="currentView === 'notifications'"
         :student-id="studentId"
@@ -574,6 +576,12 @@ const {
         @logout="handleLogout"
       />
       
+      <!-- Teacher Portal V2（#1019）：教师专属视图（E2/E5/E6/E7 替换实现，注册点不变） -->
+      <component v-else-if="currentView === 'teacherprofile'" :is="VIEW_COMPONENTS.teacherprofile" @back="handleBackToMe" />
+      <component v-else-if="currentView === 'teacherteaching'" :is="VIEW_COMPONENTS.teacherteaching" @back="handleBackToDashboard" />
+      <component v-else-if="currentView === 'teacherexams'" :is="VIEW_COMPONENTS.teacherexams" @back="handleBackToDashboard" />
+      <component v-else-if="currentView === 'teachernotifications'" :is="VIEW_COMPONENTS.teachernotifications" @back="handleBackToDashboard" />
+      <component v-else-if="currentView === 'teacherworkflow'" :is="VIEW_COMPONENTS.teacherworkflow" @back="handleBackToMe" />
       <!-- 其他模块占位 -->
       <div v-else class="coming-soon-page">
         <div class="coming-soon-content">

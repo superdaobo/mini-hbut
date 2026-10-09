@@ -23,6 +23,22 @@
 
 use super::super::*;
 
+// Teacher Portal V2（#1019）：教师业务子模块。
+//
+// 说明：Rust 不允许 `teacher.rs` 与 `teacher/mod.rs` 同时存在（同一模块两个候选文件），
+// 因此本文件继续作为 `teacher` 模块入口，子模块直接以 `teacher/<name>.rs` 组织。
+pub(crate) mod exams;
+pub(crate) mod profile;
+pub(crate) mod readonly;
+pub(crate) mod teaching;
+
+/// 教师业务统一「未实现」错误（E0 stub）。
+///
+/// ⚠️ stub 阶段**绝不返回假数据**；E2/E5/E6 用真实只读实现替换。
+pub(crate) fn not_implemented(feature: &str) -> String {
+    format!("教师端功能未实现（E0 骨架）: {feature}")
+}
+
 /// 教务首页服务端渲染的身份信息。
 ///
 /// 页面特征（`/admin/?loginType=1`）：

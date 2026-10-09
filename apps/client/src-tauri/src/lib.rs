@@ -679,6 +679,11 @@ pub fn run() {
             identity::commands::identity_fetch_auth_history,
             // #902：设备换票（Device 签名 + 一次性 challenge → resource-scoped JWT AT）
             identity::commands::identity_device_token,
+            // #1019：教师门户 V2 只读命令（E0 预注册 stub；E2/E5/E6 只改实现文件，不再改本文件）
+            transport::tauri::teacher::teacher_profile_fetch,
+            transport::tauri::teacher::teacher_teaching_fetch,
+            transport::tauri::teacher::teacher_exams_fetch,
+            transport::tauri::teacher::teacher_notices_fetch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
