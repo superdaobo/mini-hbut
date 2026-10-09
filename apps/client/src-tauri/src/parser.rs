@@ -154,6 +154,8 @@ pub fn parse_user_info(html: &str) -> Result<UserInfo, Box<dyn std::error::Error
         major,
         class_name,
         grade,
+        // 该解析器只处理学生学籍页；教师身份走教务首页识别。
+        ..Default::default()
     })
 }
 
@@ -342,8 +344,6 @@ pub fn parse_schedule(
     json: &Value,
 ) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
     let mut courses = Vec::new();
-    let mut current_week = 1;
-    let mut week_from_payload = false;
 
     // 新版 API 格式: {"ret": 0, "msg": "ok", "data": [...]}
     let items = if let Some(data) = json.get("data").and_then(|v| v.as_array()) {
@@ -364,10 +364,6 @@ pub fn parse_schedule(
         data.clone()
     } else if let Some(kb_list) = json.get("kbList").and_then(|v| v.as_array()) {
         // 旧版 API 格式
-        if let Some(week) = json.get("zc").and_then(|v| v.as_i64()) {
-            current_week = week as i32;
-            week_from_payload = true;
-        }
         kb_list.clone()
     } else {
         println!(
@@ -377,51 +373,7 @@ pub fn parse_schedule(
         return Err("课表数据格式不正确".into());
     };
 
-    if !week_from_payload {
-        let today = chrono::Local::now().date_naive();
-        let parse_semester_start = |semester: &str| -> Option<chrono::NaiveDate> {
-            let parts: Vec<&str> = semester.split('-').collect();
-            if parts.len() != 3 {
-                return None;
-            }
-            let start_year = parts[0].parse::<i32>().ok()?;
-            let term = parts[2].parse::<u32>().ok()?;
-            match term {
-                1 => chrono::NaiveDate::from_ymd_opt(start_year, 9, 1),
-                2 => chrono::NaiveDate::from_ymd_opt(start_year + 1, 3, 1),
-                _ => None,
-            }
-        };
-
-        let inferred_semester = json
-            .get("xnxq")
-            .and_then(|v| v.as_str())
-            .or_else(|| {
-                items
-                    .first()
-                    .and_then(|item| item.get("xnxq").and_then(|v| v.as_str()))
-            })
-            .unwrap_or("");
-
-        let fallback_start = {
-            let now = chrono::Local::now();
-            let year = now.year();
-            let month = now.month();
-            if month >= 9 {
-                chrono::NaiveDate::from_ymd_opt(year, 9, 1)
-            } else if month >= 3 {
-                chrono::NaiveDate::from_ymd_opt(year, 3, 1)
-            } else {
-                chrono::NaiveDate::from_ymd_opt(year - 1, 9, 1)
-            }
-        };
-
-        let semester_start = parse_semester_start(inferred_semester)
-            .or(fallback_start)
-            .unwrap_or(today);
-        let days = (today - semester_start).num_days();
-        current_week = (days / 7 + 1).max(1).min(25) as i32;
-    }
+    let current_week = infer_current_week(json, &items);
 
     for item in &items {
         // 课程名称 - 新版可能包含 HTML 标签
@@ -515,6 +467,9 @@ pub fn parse_schedule(
             weeks_text,
             credit,
             class_name,
+            // 学生链路不提供这两项，保持为空（教师端专属字段）。
+            class_size: None,
+            teach_type: None,
         };
         courses.push(course);
     }
@@ -525,6 +480,240 @@ pub fn parse_schedule(
         current_week
     );
     Ok((courses, current_week))
+}
+
+/// 推断当前周次。
+///
+/// 旧版接口（`kbList`）自带 `zc` 时直接采用；否则按学期起始日推算
+/// （新版接口不返回当前周次）。学生与教师两条链路共用。
+fn infer_current_week(json: &Value, items: &[Value]) -> i32 {
+    if json.get("kbList").and_then(|v| v.as_array()).is_some() {
+        if let Some(week) = json.get("zc").and_then(|v| v.as_i64()) {
+            return week as i32;
+        }
+    }
+
+    let today = chrono::Local::now().date_naive();
+    let parse_semester_start = |semester: &str| -> Option<chrono::NaiveDate> {
+        let parts: Vec<&str> = semester.split('-').collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        let start_year = parts[0].parse::<i32>().ok()?;
+        let term = parts[2].parse::<u32>().ok()?;
+        match term {
+            1 => chrono::NaiveDate::from_ymd_opt(start_year, 9, 1),
+            2 => chrono::NaiveDate::from_ymd_opt(start_year + 1, 3, 1),
+            _ => None,
+        }
+    };
+
+    let inferred_semester = json
+        .get("xnxq")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            items
+                .first()
+                .and_then(|item| item.get("xnxq").and_then(|v| v.as_str()))
+        })
+        .unwrap_or("");
+
+    let fallback_start = {
+        let now = chrono::Local::now();
+        let year = now.year();
+        let month = now.month();
+        if month >= 9 {
+            chrono::NaiveDate::from_ymd_opt(year, 9, 1)
+        } else if month >= 3 {
+            chrono::NaiveDate::from_ymd_opt(year, 3, 1)
+        } else {
+            chrono::NaiveDate::from_ymd_opt(year - 1, 9, 1)
+        }
+    };
+
+    let semester_start = parse_semester_start(inferred_semester)
+        .or(fallback_start)
+        .unwrap_or(today);
+    let days = (today - semester_start).num_days();
+    (days / 7 + 1).max(1).min(25) as i32
+}
+
+/// 解析教师课表（`/admin/pkgl/pkgljskb/getJskbByXqid`）。
+///
+/// 与 [`parse_schedule`] 的关键差异（不可混用，详见 `http_client::academic::teacher`）：
+/// - 接口**按小节逐行返回**：同一门跨大节的课会出现多行（如大节 4 同时给出
+///   `djc=7` 与 `djc=8`）。这里按
+///   `课程 + 教学班 + 课程名 + 星期 + 周次 + 教室 + 周类型 + 大节`
+///   聚合，取小节区间作为 `period` / `djs`，否则课表上会出现重复卡片。
+/// - `djs` 是**大节号**（= `ceil(djc/2)`）而非连堂节数，因此只用它参与聚合键，
+///   不直接当作连堂数使用。
+pub fn parse_teacher_schedule(
+    json: &Value,
+) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
+    let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
+    let items = json
+        .get("data")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if ret != 0 {
+        return Err(format!(
+            "教师课表 API 返回错误: ret={}, msg={}",
+            ret,
+            json.get("msg").and_then(|v| v.as_str()).unwrap_or("")
+        )
+        .into());
+    }
+    println!(
+        "[调试] 教师课表 API ret={}, data count={}",
+        ret,
+        items.len()
+    );
+
+    let current_week = infer_current_week(json, &items);
+
+    // 聚合键 → 已产出的课程下标
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut courses: Vec<ScheduleCourse> = Vec::new();
+
+    for item in &items {
+        let text = |key: &str| -> String {
+            item.get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+
+        let name = extract_text_from_html(&text("kcmc"));
+        if name.is_empty() {
+            continue;
+        }
+        // 教师：新版 `tmc`，部分接口用 `zjsname`
+        let teacher = {
+            let raw = text("tmc");
+            let raw = if raw.is_empty() { text("zjsname") } else { raw };
+            extract_text_from_html(&raw)
+        };
+        let room = extract_text_from_html(&text("croommc"));
+        let room_code = text("croombh");
+        let building = text("jxlmc");
+        let weekday = item.get("xingqi").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+        let small_section = item.get("djc").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+        let big_section = item.get("djs").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+        // 周次：`zcstr` 是展开后的周次（"8,9,10,…"），优先使用；`zc` 是紧凑写法（"8-14"）。
+        let zcstr = text("zcstr");
+        let zc = text("zc");
+        let weeks = parse_weeks(if zcstr.is_empty() { &zc } else { &zcstr });
+        let weeks_text = if zc.is_empty() {
+            zcstr.clone()
+        } else {
+            zc.clone()
+        };
+
+        let credit = text("xf");
+        let class_name = extract_link_texts_joined(&text("jxbzc"));
+        let class_size = {
+            let primary = text("bjrs");
+            if primary.is_empty() {
+                text("jxbrs")
+            } else {
+                primary
+            }
+        };
+        let teach_type = text("jslxmc");
+        let zctype = text("zctype");
+        let course_code = {
+            let primary = text("kcbh");
+            if primary.is_empty() {
+                text("kcid")
+            } else {
+                primary
+            }
+        };
+        let class_no = text("jxbbh");
+
+        let key = format!(
+            "{course_code}|{class_no}|{name}|{weekday}|{weeks_text}|{room_code}|{zctype}|{big_section}"
+        );
+
+        if let Some(&existing) = index.get(&key) {
+            // 同一大节内的其他小节行：扩展现有小节区间，不新增卡片
+            let course = &mut courses[existing];
+            let old_min = course.period;
+            let old_max = course.period + course.djs - 1;
+            let new_min = old_min.min(small_section);
+            let new_max = old_max.max(small_section);
+            course.period = new_min;
+            course.djs = new_max - new_min + 1;
+            continue;
+        }
+
+        index.insert(key, courses.len());
+        courses.push(ScheduleCourse {
+            // `pkid` 是排课唯一 ID；`id` 在同一次查询内所有记录相同，不可作唯一键
+            id: {
+                let pkid = text("pkid");
+                if pkid.is_empty() {
+                    text("id")
+                } else {
+                    pkid
+                }
+            },
+            name,
+            teacher,
+            room,
+            room_code,
+            building,
+            weekday,
+            period: small_section,
+            djs: 1,
+            weeks,
+            weeks_text,
+            credit,
+            class_name,
+            class_size: if class_size.is_empty() {
+                None
+            } else {
+                Some(class_size)
+            },
+            teach_type: if teach_type.is_empty() {
+                None
+            } else {
+                Some(teach_type)
+            },
+        });
+    }
+
+    println!(
+        "[调试] 教师课表解析完成：{} 门（按大节去重合并后）",
+        courses.len()
+    );
+    Ok((courses, current_week))
+}
+
+/// 提取 HTML 中**全部** `<a>` 链接文本，按出现顺序用 `,` 连接；无链接时退回 [`extract_text_from_html`]。
+///
+/// 教师课表的 `jxbzc`（教学班）是多班级列表：
+/// `<a …>26建筑学1</a>,<a …>26建筑学2</a>` —— [`extract_text_from_html`] 只取第一个
+/// 链接，会把第二个班级静默丢掉。
+fn extract_link_texts_joined(html_str: &str) -> String {
+    if html_str.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> = regex::Regex::new(r">([^<]+)</a>")
+        .ok()
+        .map(|re| {
+            re.captures_iter(html_str)
+                .filter_map(|cap| cap.get(1).map(|m| m.as_str().trim().to_string()))
+                .filter(|text| !text.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    if parts.is_empty() {
+        return extract_text_from_html(html_str);
+    }
+    parts.join(",")
 }
 
 /// 从 HTML 标签中提取纯文本（与 Python 模块一致）
@@ -1144,4 +1333,178 @@ pub fn parse_student_info_html(
         "data": info,
         "error": if !has_data { "无法获取学生信息" } else { "" }
     }))
+}
+
+#[cfg(test)]
+mod teacher_schedule_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 真实抓包的教师课表响应（`/admin/pkgl/pkgljskb/getJskbByXqid`，
+    /// 学期 2026-2027-1，教师工号 2024000000）。已裁掉无关字段，保留全部参与解析的列。
+    ///
+    /// 关键特征：同一门课在**大节 4** 内按小节逐行返回 —— 4 条记录 =
+    /// 2 个「周次+教室」组合 × 2 个小节（djc=7 与 djc=8），且 `djs` 恒为 4
+    /// （大节号），不是连堂节数。
+    fn teacher_payload() -> Value {
+        let row = |djc: i64,
+                   zc: &str,
+                   zcstr: &str,
+                   zctype: &str,
+                   room: &str,
+                   bld: &str,
+                   pkid: &str| {
+            json!({
+                "xnxq": "2026-2027-1",
+                "kcid": "20605005A",
+                "kcbh": "20605005A",
+                "kcmc": "<a href=\"javascript:void(0);\" style=\"color: red\" onclick=\"openKckb('X')\">计算机制图与表达-1</a>",
+                "jxbid": "d7fad7022b66492a93e754e2b30da0dc",
+                "jxbbh": "202613844",
+                "tmc": "张三",
+                "zjsname": "张三",
+                "croommc": format!("<a href=\"javascript:void(0);\" onclick=\"openCrkb('2026-2027-1','Y')\">{}</a>", room),
+                "croombh": room,
+                "jxlmc": bld,
+                "jslxmc": "多媒体",
+                "xingqi": 1,
+                "djc": djc,
+                "djs": 4,
+                "zc": zc,
+                "zcstr": zcstr,
+                "zctype": zctype,
+                "xf": "1",
+                "zongxs": "16",
+                "jxbzc": "<a href=\"javascript:void(0);\" onclick=\"openBjkb('2026-2027-1','A')\">26建筑学1</a>,<a href=\"javascript:void(0);\" onclick=\"openBjkb('2026-2027-1','B')\">26建筑学2</a>",
+                "bjrs": "62",
+                "jxbrs": "62",
+                "xkrs": 62,
+                "id": "9e90407965e048af9662bf5a6dd28cc9",
+                "pkid": pkid,
+            })
+        };
+        json!({
+            "ret": 0,
+            "msg": "操作成功",
+            "data": [
+                row(7, "7", "7", "1", "2-209", "2号", "pk-a1"),
+                row(8, "7", "7", "1", "2-209", "2号", "pk-a2"),
+                row(7, "8-14", "8,9,10,11,12,13,14", "0", "5B-704", "5号", "pk-b1"),
+                row(8, "8-14", "8,9,10,11,12,13,14", "0", "5B-704", "5号", "pk-b2"),
+            ]
+        })
+    }
+
+    #[test]
+    fn 按大节去重_同一大节的两个小节合并为一张卡片() {
+        let (courses, _week) = parse_teacher_schedule(&teacher_payload()).expect("应解析成功");
+        // 4 条原始记录 → 2 张卡片（周次/教室不同），不是 4 张
+        assert_eq!(courses.len(), 2, "同一大节的小节行必须合并：{courses:?}");
+
+        let first = &courses[0];
+        assert_eq!(first.weekday, 1);
+        // djc=7/8 合并成 小节 7..8 → period=7、连堂=2
+        assert_eq!(first.period, 7);
+        assert_eq!(first.djs, 2);
+        assert_eq!(first.weeks, vec![7]);
+        assert_eq!(first.weeks_text, "7");
+        assert_eq!(first.room_code, "2-209");
+        assert_eq!(first.building, "2号");
+        assert_eq!(first.name, "计算机制图与表达-1");
+        assert_eq!(first.teacher, "张三");
+        assert_eq!(first.class_name, "26建筑学1,26建筑学2");
+        assert_eq!(first.credit, "1");
+        assert_eq!(first.class_size.as_deref(), Some("62"));
+        assert_eq!(first.teach_type.as_deref(), Some("多媒体"));
+        assert_eq!(first.id, "pk-a1");
+    }
+
+    /// 回归护栏：`djs` 是**大节号**，绝不能被当作连堂节数。
+    /// 若误用连堂语义，`period=7 + djs=4` 会得到 7..10 节，卡片会跨两个大节。
+    #[test]
+    fn djs_不得被当作连堂节数() {
+        let (courses, _week) = parse_teacher_schedule(&teacher_payload()).expect("应解析成功");
+        for course in &courses {
+            assert_eq!(course.djs, 2, "大节内两个小节 => 连堂 2，而非 djs=4");
+            assert_eq!(course.period, 7);
+            assert!(course.period + course.djs - 1 <= 8, "不得越出大节 4");
+        }
+    }
+
+    #[test]
+    fn 第二张卡片保留不同周次与教室() {
+        let (courses, _week) = parse_teacher_schedule(&teacher_payload()).expect("应解析成功");
+        let second = &courses[1];
+        assert_eq!(second.weeks, (8..=14).collect::<Vec<i32>>());
+        assert_eq!(second.weeks_text, "8-14");
+        assert_eq!(second.room_code, "5B-704");
+        assert_eq!(second.building, "5号");
+    }
+
+    /// 单小节课程（大节 6 只有 1 小节）：区间不能被撑成 2。
+    #[test]
+    fn 单小节课程保持一节() {
+        let payload = json!({
+            "ret": 0,
+            "msg": "操作成功",
+            "data": [{
+                "xnxq": "2025-2026-2", "kcbh": "X1", "kcmc": "单节课程",
+                "tmc": "张三", "croombh": "1-101", "jxlmc": "1号",
+                "xingqi": 3, "djc": 11, "djs": 6, "zc": "1-4", "zcstr": "1,2,3,4",
+                "zctype": "0", "xf": "2", "jxbzc": "某班", "bjrs": "30", "pkid": "pk-c1"
+            }]
+        });
+        let (courses, _week) = parse_teacher_schedule(&payload).expect("应解析成功");
+        assert_eq!(courses.len(), 1);
+        assert_eq!(courses[0].period, 11);
+        assert_eq!(courses[0].djs, 1);
+        assert_eq!(courses[0].weeks, vec![1, 2, 3, 4]);
+    }
+
+    /// 跨大节的同一门课必须分成两张卡片，不能合并成一张跨大节的大卡。
+    #[test]
+    fn 不同大节不合并() {
+        let payload = json!({
+            "ret": 0, "msg": "ok",
+            "data": [
+                {"xnxq":"2025-2026-1","kcbh":"Y1","kcmc":"跨大节课","tmc":"某师",
+                 "croombh":"3-301","jxlmc":"3号","xingqi":2,"djc":1,"djs":1,
+                 "zc":"1-8","zcstr":"1,2,3,4,5,6,7,8","zctype":"0","pkid":"p1"},
+                {"xnxq":"2025-2026-1","kcbh":"Y1","kcmc":"跨大节课","tmc":"某师",
+                 "croombh":"3-301","jxlmc":"3号","xingqi":2,"djc":2,"djs":1,
+                 "zc":"1-8","zcstr":"1,2,3,4,5,6,7,8","zctype":"0","pkid":"p2"},
+                {"xnxq":"2025-2026-1","kcbh":"Y1","kcmc":"跨大节课","tmc":"某师",
+                 "croombh":"3-301","jxlmc":"3号","xingqi":2,"djc":3,"djs":2,
+                 "zc":"1-8","zcstr":"1,2,3,4,5,6,7,8","zctype":"0","pkid":"p3"},
+                {"xnxq":"2025-2026-1","kcbh":"Y1","kcmc":"跨大节课","tmc":"某师",
+                 "croombh":"3-301","jxlmc":"3号","xingqi":2,"djc":4,"djs":2,
+                 "zc":"1-8","zcstr":"1,2,3,4,5,6,7,8","zctype":"0","pkid":"p4"},
+            ]
+        });
+        let (courses, _week) = parse_teacher_schedule(&payload).expect("应解析成功");
+        assert_eq!(courses.len(), 2, "大节 1 与大节 2 必须各自成卡片");
+        assert_eq!((courses[0].period, courses[0].djs), (1, 2));
+        assert_eq!((courses[1].period, courses[1].djs), (3, 2));
+    }
+
+    #[test]
+    fn ret_非零返回错误() {
+        let payload = json!({"ret": -1, "msg": "参数传输异常", "data": []});
+        let err = parse_teacher_schedule(&payload).expect_err("ret!=0 必须报错");
+        assert!(err.to_string().contains("参数传输异常"), "err={err}");
+    }
+
+    #[test]
+    fn 空数据不报错() {
+        let payload = json!({"ret": 0, "msg": "操作成功", "data": []});
+        let (courses, _week) = parse_teacher_schedule(&payload).expect("空课表不是错误");
+        assert!(courses.is_empty());
+    }
+
+    /// 周次解析复用 `parse_weeks`：`zcstr` 的展开写法与 `zc` 的区间写法等价。
+    #[test]
+    fn 周次区间与展开写法等价() {
+        assert_eq!(parse_weeks("8,9,10,11,12,13,14"), parse_weeks("8-14"));
+        assert_eq!(parse_weeks("13,15,16"), vec![13, 15, 16]);
+    }
 }

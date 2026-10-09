@@ -654,6 +654,13 @@ impl HbutClient {
         };
         println!("[调试] 用户信息 HTML 长度: {}", html.len());
 
+        // 教师账号访问学生学籍接口时，教务返回 200 + 错误页
+        // （「获取学生基本信息出错或登录用户所属身份类型不是学生」）。
+        // 这里给出可读错误，避免退化成「无法解析用户信息，可能会话已过期」。
+        if html.contains("身份类型不是学生") {
+            return Err("当前账号不是学生账号，请使用教师端入口登录".into());
+        }
+
         match parser::parse_user_info(&html) {
             Ok(info) => {
                 println!("[调试] 解析出的用户信息: {:?}", info);
@@ -725,8 +732,8 @@ impl HbutClient {
 
         // 学习通补票改为按需：仅在 fetch_user_info 命中登录页时由 session 模块触发。
 
-        // 验证会话
-        let user_info = self.fetch_user_info().await?;
+        // 验证会话并按身份取用户信息（教师/学生链路不同）
+        let user_info = self.resolve_session_user_info().await?;
         self.is_logged_in = true;
         self.user_info = Some(user_info.clone());
         self.save_cookie_snapshot_to_file();
@@ -734,11 +741,39 @@ impl HbutClient {
         Ok(user_info)
     }
 
+    /// 会话恢复/刷新时解析用户信息。
+    ///
+    /// 学生链路保持不变（零额外请求）：先走 `/admin/xsd/xsjbxx/xskp`。
+    /// 仅当该接口明确回报「身份类型不是学生」时，才转而识别教师身份——
+    /// 这样学生端没有回归，教师端只在必要时多一次请求。
+    pub async fn resolve_session_user_info(
+        &self,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        match self.fetch_user_info().await {
+            Ok(info) => Ok(info),
+            Err(err) => {
+                if !err.to_string().contains("不是学生账号") {
+                    return Err(err);
+                }
+                let identity = self.fetch_jwxt_identity().await?;
+                match identity {
+                    Some(identity) => Ok(UserInfo {
+                        student_id: identity.account_id,
+                        student_name: identity.name,
+                        role: crate::IdentityRole::Teacher,
+                        ..Default::default()
+                    }),
+                    None => Err(err),
+                }
+            }
+        }
+    }
+
     /// 刷新会话（保持登录态）
     pub async fn refresh_session(
         &mut self,
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
-        let user_info = self.fetch_user_info().await?;
+        let user_info = self.resolve_session_user_info().await?;
         // 成功登录
         self.last_login_time = Some(std::time::Instant::now());
         self.is_logged_in = true;
@@ -1191,6 +1226,7 @@ impl HbutClient {
                 major: None,
                 class_name: None,
                 grade: None,
+                ..Default::default()
             });
         }
 
@@ -1215,6 +1251,7 @@ impl HbutClient {
         one_code_token: &str,
         refresh_token: &str,
         token_expires_at: &str,
+        role: crate::IdentityRole,
     ) -> UserInfo {
         let sid = student_id.trim().to_string();
         // 1. 重置内存会话（避免旧账号脏 cookie 污染；与 restore_session 同款）
@@ -1249,6 +1286,8 @@ impl HbutClient {
             major: None,
             class_name: None,
             grade: None,
+            // 角色随会话持久化（见 `user_sessions.role`）：切换账号时无需再联网识别身份。
+            role,
         });
         self.last_username = Some(sid.clone());
         if !password.trim().is_empty() {

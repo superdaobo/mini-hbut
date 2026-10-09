@@ -1,9 +1,21 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
+import {
+  clearLoginRole,
+  normalizeLoginRole,
+  readLoginRole,
+  writeLoginRole
+} from '../utils/login_role.js'
+
+/** 登录身份：学生端 / 教师端。 */
+export type IdentityRole = 'student' | 'teacher'
+
 export interface AuthSessionSnapshot {
   studentId?: string | null
   userUuid?: string | null
+  /** 身份类型；缺省为学生（历史调用方不需要改动）。 */
+  role?: IdentityRole | string | null
 }
 
 /**
@@ -43,6 +55,13 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => studentId.value.length > 0)
 
   /**
+   * 当前登录身份（学生 / 教师）。冷启动先取本地缓存值，登录/会话恢复后由后端
+   * `UserInfo.role` 覆盖为权威值 —— 用户选择的入口只是 UI 提示，不做身份依据。
+   */
+  const role = ref<IdentityRole>(readLoginRole())
+  const isTeacher = computed(() => role.value === 'teacher')
+
+  /**
    * 契约 D 身份收紧：**当前会话是否已确认（verified）** —— 游戏身份的单一事实源。
    *
    * 只有在线会话真正建立（cookie 桥接 / 自动重登 / 手动登录 / 测试账号）才为 true；
@@ -65,6 +84,10 @@ export const useAuthStore = defineStore('auth', () => {
   const hydrate = (snapshot: AuthSessionSnapshot = {}) => {
     studentId.value = normalizeIdentifier(snapshot.studentId)
     userUuid.value = normalizeIdentifier(snapshot.userUuid)
+    if (snapshot.role !== undefined && snapshot.role !== null && snapshot.role !== '') {
+      role.value = normalizeLoginRole(snapshot.role)
+      writeLoginRole(role.value)
+    }
     hydrated.value = true
   }
 
@@ -73,13 +96,30 @@ export const useAuthStore = defineStore('auth', () => {
     if (!nextStudentId) throw new Error('studentId is required to establish a session')
     studentId.value = nextStudentId
     userUuid.value = normalizeIdentifier(snapshot.userUuid)
+    if (snapshot.role !== undefined && snapshot.role !== null && snapshot.role !== '') {
+      role.value = normalizeLoginRole(snapshot.role)
+      writeLoginRole(role.value)
+    }
     hydrated.value = true
+  }
+
+  /**
+   * 单独更新身份类型（登录成功 / 会话恢复时由后端 `UserInfo.role` 驱动）。
+   * 与 hydrate/establishSession 分开，便于在不改变 studentId 的前提下修正身份
+   * —— 例如用户从「教师端入口」登录了学生账号时，以服务端返回为准纠正。
+   */
+  const setRole = (value: unknown) => {
+    role.value = normalizeLoginRole(value)
+    writeLoginRole(role.value)
   }
 
   const clearSession = () => {
     studentId.value = ''
     userUuid.value = ''
     onlineSessionState.value = 'unknown'
+    // 登出回到学生端默认形态，避免下次打开以教师身份渲染学生账号
+    role.value = 'student'
+    clearLoginRole()
     hydrated.value = true
   }
 
@@ -91,8 +131,11 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     sessionVerified,
     verifiedStudentId,
+    role,
+    isTeacher,
     hydrate,
     establishSession,
+    setRole,
     clearSession
   }
 })

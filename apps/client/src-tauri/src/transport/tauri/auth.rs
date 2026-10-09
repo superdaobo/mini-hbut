@@ -32,14 +32,65 @@ const CHAOXING_AES_KEY: &str = "u2oh6Vu^HWe4_AES";
 
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// 登录身份类型：学生 / 教师。
+///
+/// 教师端与学生端**共用同一套 CAS 门户登录**（门户登录框即「请输入学号/工号」），
+/// 差异只在登录之后：教师走独立的身份识别与课表接口。
+/// 默认学生，保证历史序列化数据（无 `role` 字段）继续按学生处理。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum IdentityRole {
+    #[default]
+    Student,
+    Teacher,
+}
+
+impl IdentityRole {
+    /// 是否教师身份。
+    pub fn is_teacher(self) -> bool {
+        matches!(self, Self::Teacher)
+    }
+
+    /// 稳定字符串标识（持久化与前端透传共用）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Student => "student",
+            Self::Teacher => "teacher",
+        }
+    }
+
+    /// 由教务系统返回的角色标识解析（`js` = 教师，其余按学生处理）。
+    pub fn from_jwxt_role_id(raw: &str) -> Self {
+        if raw.trim().eq_ignore_ascii_case("js") {
+            Self::Teacher
+        } else {
+            Self::Student
+        }
+    }
+
+    /// 由本地持久化的角色字符串解析（见 `user_sessions.role`）。
+    /// 历史数据为空串，按学生处理。
+    pub fn from_stored(raw: &str) -> Self {
+        if raw.trim().eq_ignore_ascii_case("teacher") {
+            Self::Teacher
+        } else {
+            Self::Student
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserInfo {
+    /// 账号标识。学生 = 学号；教师 = 工号（教务系统的账号主键，两者编号段互不相同）。
     pub student_id: String,
     pub student_name: String,
     pub college: Option<String>,
     pub major: Option<String>,
     pub class_name: Option<String>,
     pub grade: Option<String>,
+    /// 身份类型；历史数据缺省为学生。
+    #[serde(default)]
+    pub role: IdentityRole,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -591,6 +642,8 @@ async fn finalize_chaoxing_login(
         major: None,
         class_name: None,
         grade: None,
+        // 学习通链路是学生专属入口，教师不使用。
+        ..Default::default()
     }));
     client.last_username = Some(student_id.clone());
     client.last_password = password_hint.map(|v| v.to_string());

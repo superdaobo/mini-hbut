@@ -29,6 +29,7 @@ import {
   NON_OFFICIAL_DISCLAIMER_ZH
 } from '../config/app_store_policy'
 import { saveRememberedUsername } from '../utils/remembered_username.js'
+import { readLoginFormAccount, readLoginRole, writeLoginFormAccount, writeLoginRole } from '../utils/login_role.js'
 import { isValidStudentId as isLikelyStudentId } from '../utils/student_id.js'
 import {
   isLoginInFlight,
@@ -98,6 +99,47 @@ const LOGIN_MODES = [
   }
 ]
 
+/**
+ * 登录身份：学生端 / 教师端。
+ *
+ * 教师与学生**共用同一套门户 CAS 登录**（门户登录框本身即「请输入学号/工号」），
+ * 所以这里的入口选择**不决定身份**，只决定 UI 形态：
+ * - 教师端不提供「学习通」入口（教师不使用学习通）；
+ * - 登录成功后一律以教务系统返回的身份为准（见 `applyPortalLoginResult`），
+ *   用户选错入口也不会导致功能可见性错误。
+ */
+const IDENTITY_ROLES = [
+  { key: 'student', labelKey: 'login.role.student' },
+  { key: 'teacher', labelKey: 'login.role.teacher' }
+]
+
+const loginRole = ref(readLoginRole())
+const isTeacherRole = computed(() => loginRole.value === 'teacher')
+
+/**
+ * 登录表单「上次使用的账号」按身份分开记忆（实现见 `utils/login_role.js`）。
+ *
+ * 学生与教师共用同一个门户登录接口，但**账号体系不同**（学号 / 工号）：
+ * 若共用一个键，学生保存的账号密码会出现在教师端输入框里（反之亦然）。
+ * 注意：凭据本身（`hbut:<账号>`）本来就按账号存储、天然隔离，
+ * 这里修的只是**表单预填**这一个入口。
+ */
+const switchRole = (role) => {
+  const next = IDENTITY_ROLES.some((item) => item.key === role) ? role : 'student'
+  if (next === loginRole.value) return
+  loginRole.value = next
+  writeLoginRole(next)
+  statusMsg.value = ''
+  clearDebugLogs()
+  // 教师端只支持门户账号密码；从教师端切回学生端时保留用户原先选择的模式
+  if (next === 'teacher') {
+    switchMode('portal')
+  }
+  // 切换身份后必须按新身份重新预填：两个身份的账号体系不同，
+  // 不能把上一个身份的账号密码留在输入框里
+  void hydrateRememberedCredentials(next)
+}
+
 const normalizeModeKey = (mode) => {
   const raw = String(mode || '').trim()
   if (!raw) return ''
@@ -108,6 +150,8 @@ const normalizeModeKey = (mode) => {
 
 const isKnownMode = (mode) => LOGIN_MODES.some((item) => item.key === mode)
 const resolveInitialMode = () => {
+  // 教师端只提供门户账号密码（教师不使用学习通）
+  if (isTeacherRole.value) return 'portal'
   const fromProp = normalizeModeKey(props.loginMode)
   if (isKnownMode(fromProp)) return fromProp
   const fromStorage = normalizeModeKey(localStorage.getItem(LOGIN_MODE_PREF_KEY))
@@ -527,6 +571,15 @@ const applyPortalLoginResult = async (result, { method = LOGIN_METHOD_PORTAL_PAS
   if (sid) {
     saveRememberedUsername(sid)
   }
+  // 身份以教务系统返回为准：入口选择只是 UI 提示。用户用「教师端」入口登录学生账号
+  // （或反之）时在此纠正，否则功能可见性会按错误身份渲染。
+  const resolvedRole = String(result?.data?.role || '').trim()
+  if (resolvedRole) {
+    loginRole.value = writeLoginRole(resolvedRole)
+    authStore.setRole(resolvedRole)
+  }
+  // 按**实际登录成功**的身份记忆表单账号，下次切到该身份时预填的才是它自己的账号
+  writeLoginFormAccount(resolvedRole || loginRole.value, sid || username.value)
   await syncPortalRememberCredential({
     username: username.value,
     studentId: sid,
@@ -1055,6 +1108,8 @@ const confirmChaoxingQrLogin = async () => {
 
 const switchMode = (mode) => {
   if (!isKnownMode(mode) || activeMode.value === mode) return
+  // 教师端不提供学习通入口，防止绕过 UI 直接切过去
+  if (isTeacherRole.value && mode !== 'portal') return
   activeMode.value = mode
   statusMsg.value = ''
   clearDebugLogs()
@@ -1082,6 +1137,7 @@ const handleKeyPress = (event) => {
 watch(
   () => props.loginMode,
   (mode) => {
+    if (isTeacherRole.value) return
     const nextMode = normalizeModeKey(mode)
     if (isKnownMode(nextMode) && nextMode !== activeMode.value) {
       activeMode.value = nextMode
@@ -1094,13 +1150,17 @@ watch(activeMode, (mode) => {
   emit('switchMode', mode)
 })
 
-const hydrateRememberedCredentials = async () => {
-  const savedUsername = localStorage.getItem('hbu_username')
+const hydrateRememberedCredentials = async (role = loginRole.value) => {
+  const savedUsername = readLoginFormAccount(role)
   const savedRemember = localStorage.getItem('hbu_remember')
   if (savedRemember !== 'false' && savedUsername) {
     username.value = savedUsername
     password.value = await loadPortalRememberedPassword(savedUsername)
     rememberMe.value = true
+  } else {
+    // 该身份没有保存过账号：必须清空，否则会残留上一个身份的账号密码
+    username.value = ''
+    password.value = ''
   }
 
   const savedCxRemember = localStorage.getItem(CHAOXING_REMEMBER_KEY)
@@ -1149,7 +1209,19 @@ onBeforeUnmount(() => {
     <h2>{{ t('login.title') }}</h2>
     <p class="subtitle">{{ t('login.subtitle') }}</p>
 
-    <div class="entry-switch" role="tablist" :aria-label="t('login.entry.switchAria')">
+    <div class="entry-switch role-switch" role="tablist" :aria-label="t('login.role.switchAria')">
+      <span class="entry-slider" :class="{ 'is-teacher': isTeacherRole }"></span>
+      <button
+        v-for="roleOption in IDENTITY_ROLES"
+        :key="roleOption.key"
+        class="entry-btn"
+        :class="{ active: loginRole === roleOption.key }"
+        @click="switchRole(roleOption.key)"
+      >
+        {{ t(roleOption.labelKey) }}
+      </button>
+    </div>
+    <div v-if="!isTeacherRole" class="entry-switch" role="tablist" :aria-label="t('login.entry.switchAria')">
       <span class="entry-slider" :class="{ 'is-chaoxing': isChaoxingMode }"></span>
       <button
         class="entry-btn"
@@ -1166,7 +1238,7 @@ onBeforeUnmount(() => {
         {{ t('login.mode.chaoxing') }}
       </button>
     </div>
-    <p class="mode-capsule">{{ currentModeMeta.title }}</p>
+    <p class="mode-capsule">{{ isTeacherRole ? t('login.role.teacherCapsule') : currentModeMeta.title }}</p>
 
     <div v-if="loading" class="progress-container">
       <div class="loading-spinner">

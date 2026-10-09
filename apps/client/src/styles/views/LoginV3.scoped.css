@@ -79,6 +79,23 @@ h2 {
   color: #ffffff;
 }
 
+/* 身份切换（学生端 / 教师端）：与登录方式切换同款滑块，作为次级控件略作弱化 */
+.role-switch {
+  margin-bottom: 0.35rem;
+  background: linear-gradient(135deg, #f1f5f9 0%, #eef2ff 100%);
+}
+
+.role-switch .entry-btn {
+  padding: 0.4rem 0.16rem;
+  font-size: 0.82rem;
+}
+
+.entry-slider.is-teacher {
+  transform: translateX(100%);
+  background: linear-gradient(135deg, #0f766e 0%, #0ea5e9 100%);
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.28);
+}
+
 .mode-capsule {
   display: inline-flex;
   align-items: center;
