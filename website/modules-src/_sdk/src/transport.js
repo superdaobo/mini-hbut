@@ -113,6 +113,7 @@ export const createTransport = (deps = {}) => {
     if (!fetchImpl) {
       throw new GamePlatformError(ERROR_CODES.INTERNAL_ERROR, {
         message: '当前环境不支持网络请求',
+        status: 0,
         retryable: false,
         details: { reason: 'fetch_unavailable' }
       })
@@ -128,6 +129,7 @@ export const createTransport = (deps = {}) => {
     let timer = null
     const timeoutError = new GamePlatformError(ERROR_CODES.INTERNAL_ERROR, {
       message: '网络请求超时，请稍后重试',
+      status: 0,
       retryable: true,
       requestId: clientRequestId,
       details: { reason: 'timeout', timeout_ms: timeoutMs }
@@ -193,6 +195,7 @@ export const createTransport = (deps = {}) => {
       if (isAbortError(error)) {
         throw new GamePlatformError(ERROR_CODES.INTERNAL_ERROR, {
           message: '网络请求超时，请稍后重试',
+          status: 0,
           retryable: true,
           requestId: clientRequestId,
           details: { reason: 'timeout' },
@@ -202,6 +205,7 @@ export const createTransport = (deps = {}) => {
       const networkLike = /network|fetch|failed|offline|load/i.test(safeText(error?.message || error))
       throw new GamePlatformError(ERROR_CODES.INTERNAL_ERROR, {
         message: networkLike ? '网络不可用，请检查网络后重试' : undefined,
+        status: 0,
         retryable: true,
         requestId: clientRequestId,
         details: { reason: networkLike ? 'offline' : 'network_error' },

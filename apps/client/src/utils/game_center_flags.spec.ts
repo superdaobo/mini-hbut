@@ -142,17 +142,13 @@ describe('game center feature flags', () => {
     ).toBe('https://ok.example.com/v1')
   })
 
-  it('#1003：环境隔离取消后生产域被采纳为 override；已下线的测试域仍被拒', () => {
-    // 2026-10-06 起所有构建档位统一走生产后端 → 主域与唯一兜底域都是「本环境域」，
-    // 必须被采纳为显式 override（否则远程配置下发的 api_base 会被静默丢弃，
-    // 而线上 remote_config 正是用 api_base 把游戏平台钉在兜底域上）
-    const ownBases = [
-      'https://mini.hbut.site/api/game-platform/v1',
-      'https://mini-hbut-ocr-service.hf.space/api/game-platform/v1'
-    ]
-    for (const own of ownBases) {
-      expect(resolveGameCenterFlags({ game_platform: { api_base: own } }).api_base).toBe(own)
-    }
+  it('#1016：游戏平台唯 NAS 权威，远程 HF 显式地址必须安全回落主域', () => {
+    // 2026-10-09：NAS 与 HF 的游戏数据源不同；旧远程配置仍将 api_base 锁到 HF。
+    // 允许 NAS 显式覆盖；拒绝把 HF 作为游戏平台单候选，防止继续分叉写入。
+    const nasBase = 'https://mini.hbut.site/api/game-platform/v1'
+    const hfBase = 'https://mini-hbut-ocr-service.hf.space/api/game-platform/v1'
+    expect(resolveGameCenterFlags({ game_platform: { api_base: nasBase } }).api_base).toBe(nasBase)
+    expect(resolveGameCenterFlags({ game_platform: { api_base: hfBase } }).api_base).toBe(nasBase)
     // 已下线的测试域（Space 已 PAUSED）不得被采纳
     const retired = 'https://mini-hbut-testocr1.hf.space/api/game-platform/v1'
     expect(resolveGameCenterFlags({ game_platform: { api_base: retired } }).api_base).not.toBe(retired)

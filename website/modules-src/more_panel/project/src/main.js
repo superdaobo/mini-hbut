@@ -14,9 +14,8 @@
  * ## 数据来源
  * - 身份与环境：宿主注入的 URL query（`student_id` / `class_name` / `app_version` 等），
  *   与其它模块同一套注入层（`MoreView.appendModuleContextQuery`）。
- * - 积分：Game Platform V2 `/me/wallet`、`/me/daily-tasks`。**注意**：主域
- *   `mini.hbut.site` 目前未部署 `/api/game-platform/v1/*`，未实现时按「暂未开放」呈现
- *   （见 docs/architecture/production-backend-gaps.md），绝不假装有数据。
+ * - 积分：已部署 NAS 的 Game Platform V2 `/me/wallet`、`/me/daily-tasks`，
+ *   由 App 宿主经过受控消息桥请求（含身份认证），面板只接收脱敏展示字段。
  * - 游戏清单：与本模块同源发布的 `catalog.json`（同 CDN、同 channel 目录）。
  */
 
@@ -33,6 +32,9 @@ const MODULE_ID = 'more_panel'
 const HOST_SIZE_MESSAGE_TYPE = 'mini-hbut:module-size'
 /** 模块 → 宿主的「打开另一个模块」协议（#1002：面板宫格点击） */
 const HOST_OPEN_MESSAGE_TYPE = 'mini-hbut:open-module'
+/** 面板向可信 App 宿主索取脱敏积分快照；消息中绝不包含 Bearer Token。 */
+const HOST_POINTS_REQUEST_TYPE = 'mini-hbut:more-panel:points-request'
+const HOST_POINTS_RESPONSE_TYPE = 'mini-hbut:more-panel:points-response'
 
 const $ = (id) => document.getElementById(id)
 
@@ -246,9 +248,13 @@ const renderPointsUnavailable = (text) => {
 
 const renderPoints = (wallet, tasks) => {
   $('level').textContent = wallet?.level != null ? String(wallet.level) : '—'
-  $('coins').textContent = wallet?.coins != null ? String(wallet.coins) : '—'
+  // 后端冻结字段是 coin_balance，不能继续从不存在的 coins 取值。
+  $('coins').textContent = wallet?.coin_balance != null ? String(wallet.coin_balance) : '—'
   if (tasks && typeof tasks.completed === 'number' && typeof tasks.total === 'number') {
     $('tasks').textContent = `${tasks.completed}/${tasks.total}`
+  } else if (Array.isArray(tasks?.tasks)) {
+    const completed = tasks.tasks.filter((task) => task?.completed === true).length
+    $('tasks').textContent = `${completed}/${tasks.tasks.length}`
   } else {
     $('tasks').textContent = '—'
   }
@@ -276,38 +282,69 @@ const fetchJson = async (url, timeoutMs = 8000) => {
   }
 }
 
+/** 校验宿主回信来源：只有父窗口及 URL 里明确声明的宿主 origin 能回复。 */
+const matchesHostOrigin = (eventOrigin, hostOrigin) => {
+  if (!hostOrigin) return false
+  if (eventOrigin === hostOrigin) return true
+  // iOS capacitor://localhost 等特殊 scheme 在 WebView 中可能被报告为 opaque 'null'。
+  return eventOrigin === 'null' && /^(?:capacitor|tauri|asset):\/\/[^/]+$/i.test(hostOrigin)
+}
+
 const loadPoints = async (ctx) => {
-  const base = String(ctx.gamePlatformApi || '').replace(/\/+$/, '')
-  if (!base) {
-    renderPointsUnavailable('积分服务未配置，暂不可用')
-    return
-  }
   if (!ctx.studentId) {
     renderPointsUnavailable('登录后可查看积分')
     return
   }
+  if (!ctx.gamePlatformApi) {
+    renderPointsUnavailable('积分服务未配置，暂不可用')
+    return
+  }
+  if (!ctx.hostOrigin || window.parent === window) {
+    renderPointsUnavailable('请在 Mini-HBUT App 中查看积分')
+    return
+  }
 
-  const [wallet, tasks] = await Promise.all([
-    fetchJson(`${base}/me/wallet`),
-    fetchJson(`${base}/me/daily-tasks`)
-  ])
+  // #1016：子 iframe 绝不持有 Identity AT，不再直接 GET 受保护的 /me/wallet。
+  // 只请求宿主返回脱敏数值。request_id 防止旧帧/旧响应覆盖当前登录者。
+  const requestId = `panel_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`
+  let settled = false
+  let timer = null
+  const finish = () => {
+    if (settled) return false
+    settled = true
+    window.removeEventListener('message', onPointsResponse)
+    if (timer != null) clearTimeout(timer)
+    return true
+  }
+  const onPointsResponse = (event) => {
+    if (event.source !== window.parent || !matchesHostOrigin(event.origin, ctx.hostOrigin)) return
+    const payload = event.data
+    if (payload?.type !== HOST_POINTS_RESPONSE_TYPE || payload.request_id !== requestId) return
+    if (!finish()) return
+    if (payload.status === 'ok' && payload.wallet) {
+      renderPoints(payload.wallet, payload.tasks)
+    } else if (payload.status === 'feature_disabled') {
+      renderPointsUnavailable('积分功能暂未开放')
+    } else if (payload.status === 'login_required') {
+      renderPointsUnavailable('登录后可查看积分')
+    } else if (payload.status === 'auth_unavailable') {
+      renderPointsUnavailable('积分服务需要身份授权，请稍后重试')
+    } else {
+      renderPointsUnavailable('积分加载失败，请稍后重试')
+    }
+  }
+  window.addEventListener('message', onPointsResponse)
+  timer = setTimeout(() => {
+    if (finish()) renderPointsUnavailable('积分加载失败，请稍后重试（请确认 App 已更新）')
+  }, 15000)
 
-  if (wallet.ok) {
-    renderPoints(wallet.data, tasks.ok ? tasks.data : null)
-    return
+  try {
+    // 特殊 scheme 只能用 '*' 发送无敏感字段的请求；回信由宿主 source/origin 严格校验。
+    const target = /^https?:\/\//i.test(ctx.hostOrigin) ? ctx.hostOrigin : '*'
+    window.parent.postMessage({ type: HOST_POINTS_REQUEST_TYPE, request_id: requestId }, target)
+  } catch {
+    if (finish()) renderPointsUnavailable('积分加载失败，请稍后重试')
   }
-  if (wallet.status === 401 || wallet.status === 403) {
-    renderPointsUnavailable('登录状态已失效，请重新登录')
-    return
-  }
-  if (wallet.status === 404) {
-    // 后端未部署该端点（主域现状）：明确说「暂未开放」，不要伪装成网络错误
-    renderPointsUnavailable('积分功能暂未开放')
-    return
-  }
-  renderPointsUnavailable(
-    wallet.reason === 'not-json' ? '积分服务返回异常（后端可能未部署）' : '积分加载失败，请稍后重试'
-  )
 }
 
 /** 游戏宫格：先骨架、后填充；点击把意图交给宿主（宿主负责真正打开与门禁） */
