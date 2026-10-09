@@ -375,6 +375,11 @@
       var MAX_STALLS = 8
       /** 启动历史保留条数：用于暴露「崩溃 / WebContent 重载循环」（只留两次会被吃掉） */
       var MAX_HISTORY = 12
+      /** #451 硬重载标记（由 LifecycleCoordinator 在 location.reload() 前写入） */
+      var HARD_RELOAD_KEY = 'hbu_hard_reload_state_v1'
+      /** 原生响应探测间隔与阈值（见下方 native-stall 说明） */
+      var NATIVE_PROBE_MS = 5000
+      var NATIVE_STALL_MS = 1000
       // 主线程心跳间隔与「冻结」判定阈值：正常定时器抖动远小于 700ms
       var HEARTBEAT_MS = 250
       var STALL_THRESHOLD_MS = 700
@@ -421,6 +426,7 @@
       var previous = null
       var restarts = 0
       var history = []
+      var hardReload = null
       try {
         var raw = localStorage.getItem(STORAGE_KEY)
         if (raw) {
@@ -430,6 +436,15 @@
           if (parsed && Object.prototype.toString.call(parsed.history) === '[object Array]') {
             history = parsed.history.slice(-(MAX_HISTORY - 1))
           }
+        }
+        // #451 硬重载标记：`LifecycleCoordinator` 在 `location.reload()` 之前写入。
+        // 这是**唯一**能判定「本次启动是硬重载而不是用户冷启动」的证据 ——
+        // 重载与冷启动在新页面里长得一模一样（都有新的 boot_id），
+        // 而重载循环会让应用反复白屏重来。
+        var reloadRaw = localStorage.getItem(HARD_RELOAD_KEY)
+        if (reloadRaw) {
+          var reloadParsed = JSON.parse(reloadRaw)
+          if (reloadParsed && typeof reloadParsed.at === 'number') hardReload = reloadParsed
         }
       } catch (e) { /* 存储不可用时仍继续，只是没有跨启动证据 */ }
       restarts += 1
@@ -608,6 +623,23 @@
         }, true)
       }
 
+      // 本次启动是否由 #451 硬重载触发（关键：重载与冷启动在新页面里无法区分）
+      if (hardReload) {
+        var reloadAge = Date.now() - hardReload.at
+        push('hard-reload-boot', {
+          age_ms: Math.round(reloadAge),
+          count: hardReload.count,
+          reason: hardReload.reason,
+          view: hardReload.view,
+          idle_ms: hardReload.idleMs
+        }, true)
+        state.meta.hard_reload_boot = true
+        state.meta.hard_reload_age_ms = Math.round(reloadAge)
+        state.meta.hard_reload_count = hardReload.count
+        // 只认「刚刚发生」的重载；陈旧标记仅保留在 meta 供参考
+        if (reloadAge > 120000) state.meta.hard_reload_stale = true
+      }
+
       push('inline-script', { ready_state: document.readyState })
 
       // ── 主线程冻结心跳：定时器停摆的间隔就是被阻塞的窗口 ──
@@ -662,8 +694,51 @@
           livenessTicks += 1
           state.meta.alive_ms = rel(nowFn())
           flush()
+          probeNativeResponsiveness()
           if (livenessTicks >= LIVENESS_MAX_TICKS) stopLiveness()
         }, LIVENESS_MS)
+      }
+
+      /**
+       * 原生响应探测 —— **唯一能测出「JS 还活着但原生主线程被卡」的手段**。
+       *
+       * 为什么必需：JS 跑在 WebContent 进程里，主线程心跳（`main-thread-stall`）只能发现
+       * **JS** 被阻塞。若被卡住的是**原生 UI 进程**（Rust/Swift 主线程），JS 定时器照常跑、
+       * 心跳显示 0 次冻结，但 WebView 无法合成/呈现 → 用户看到白屏；随后 iOS 看门狗
+       * （约 10 秒无响应）会杀掉整个应用。真机上「白屏 10 秒后崩溃、报告里 0 次冻结」
+       * 正是这个形态。
+       *
+       * 做法：定时取一个同源静态资源并计时。iOS 上自定义协议（`tauri://`）由原生主线程
+       * 派发，因此原生主线程被卡住时这个请求会**迟迟拿不到响应**，而 JS 侧计时照常走。
+       */
+      function probeNativeResponsiveness() {
+        if (typeof fetch !== 'function') return
+        var startedAt = nowFn()
+        var done = false
+        try {
+          fetch('/favicon.svg?_probe=' + Math.round(startedAt), { cache: 'no-store' })
+            .then(function (res) {
+              done = true
+              var cost = Math.round(nowFn() - startedAt)
+              if (res && res.ok) state.meta.native_probe_ms = cost
+              if (cost >= NATIVE_STALL_MS) {
+                push('native-stall', { cost_ms: cost, ok: !!(res && res.ok), at: rel(nowFn()) }, true)
+                flush()
+              }
+            })
+            .catch(function () {
+              done = true
+            })
+        } catch (e) { /* ignore */ }
+        // 兜底：请求本身一直没回（原生侧完全无响应）也要留痕
+        setTimeout(function () {
+          if (done) return
+          var cost = Math.round(nowFn() - startedAt)
+          if (cost >= NATIVE_STALL_MS) {
+            push('native-stall', { cost_ms: cost, ok: false, timed_out: true, at: rel(nowFn()) }, true)
+            flush()
+          }
+        }, NATIVE_STALL_MS * 3)
       }
 
       // 安全网：即便启动始终未完成（正是要抓的场景），也不让高频心跳无限期运行

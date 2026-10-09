@@ -266,23 +266,35 @@ export const resolveBootOutcome = (snapshot: BootDiagSnapshot): BootOutcome => {
  * 都相对它 —— 因此**页面加载本身以及更早的原生启动阶段完全不可见**。真机上出现过
  * 「白屏 10 秒但 JS 启动只要 33ms」，正是被这段盲区吃掉的。
  *
- * 推算：`main.ts` 在启动早期记一条 `native-uptime`（Rust `runtime_log.uptime_ms`，
- * 即进程启动至查询时刻）。于是
- *   进程启动时刻 ≈ (内联脚本墙钟 + 该条目 t) - rust_uptime
- *   导航开始时刻 ≈ 内联脚本墙钟 - nav_ms
- *   ⇒ 原生前置 = rust_uptime - nav_ms - t
+ * 算法：`time_origin`（导航开始墙钟）− `process_started_at`（Rust `run()` 开头记录的
+ * 进程启动墙钟）。
  *
- * 返回 `null` 表示证据不足（非 Tauri 运行时 / 命令失败 / 字段缺失），不猜。
+ * ⚠️ 依赖 Rust 侧 `mark_process_start()`。**不能用 `rust_uptime_ms` 反推**：`runtime_log`
+ * 的日志状态是惰性初始化的，release 构建启动期没有日志推送时它接近 0，反推会得到假的 0ms
+ * （真机上已踩到）。字段缺失时返回 `null`（报告显示「证据不足」）—— **不猜数字**。
  */
 export const resolveNativePreMs = (snapshot: BootDiagSnapshot | null): number | null => {
   if (!snapshot) return null
-  const navMs = Number(snapshot.meta?.nav_ms)
-  if (!Number.isFinite(navMs)) return null
+  const timeOrigin = Number(snapshot.meta?.time_origin)
+  const entry = snapshot.entries.find((item) => item.name === 'native-uptime')
+  const startedAt = Number(entry?.detail?.process_started_at)
+  if (!Number.isFinite(timeOrigin) || !Number.isFinite(startedAt) || startedAt <= 0) return null
+  const value = timeOrigin - startedAt
+  return Number.isFinite(value) ? Math.max(0, value) : null
+}
+
+/**
+ * 本次页面加载时，原生进程**已经运行了多久**（毫秒）。
+ *
+ * 大值 ⇒ 这不是冷启动，而是**旧进程内的页面重载**（例如 #451 白屏兜底的
+ * `location.reload()`）。新页面里两者长得一模一样（都有新的 boot_id），只有这个值
+ * 能把它们区分开 —— 而重载循环会让应用反复白屏重来。
+ */
+export const resolveProcessAgeAtBootMs = (snapshot: BootDiagSnapshot | null): number | null => {
+  if (!snapshot) return null
   const entry = snapshot.entries.find((item) => item.name === 'native-uptime')
   const uptime = Number(entry?.detail?.rust_uptime_ms)
-  if (!Number.isFinite(uptime)) return null
-  const value = uptime - navMs - (Number(entry?.t) || 0)
-  return Number.isFinite(value) ? Math.max(0, value) : null
+  return Number.isFinite(uptime) ? Math.max(0, uptime) : null
 }
 
 /** 是否存在内存中的实时快照（有 ⇒ `current` 就是本次仍在运行的进程） */
@@ -391,6 +403,28 @@ const formatBootSection = (
   const nativePre = resolveNativePreMs(snapshot)
   if (nativePre !== null) {
     lines.push(`原生前置（进程启动 → 页面开始加载）: ${formatDuration(nativePre)}`)
+  }
+  const processAge = resolveProcessAgeAtBootMs(snapshot)
+  if (processAge !== null) {
+    lines.push(
+      `本次加载时原生进程已运行: ${formatDuration(processAge)}${
+        processAge >= 60_000 ? '（⚠️ 旧进程内重载，不是冷启动）' : ''
+      }`
+    )
+  }
+  // #451 硬重载是「白屏循环」最可能的来源，且新页面里与冷启动无法区分 —— 必须显式标出
+  if (snapshot.meta?.hard_reload_boot) {
+    lines.push(
+      `本次启动由 #451 硬重载触发（${formatDuration(Number(snapshot.meta.hard_reload_age_ms) || 0)} 前，累计第 ${sanitizeText(snapshot.meta.hard_reload_count ?? '?')} 次）`
+    )
+  }
+  const nativeStalls = snapshot.entries.filter((entry) => entry.name === 'native-stall')
+  if (nativeStalls.length) {
+    const costs = nativeStalls.map((entry) => formatDuration(Number(entry.detail?.cost_ms) || 0)).join(' / ')
+    lines.push(`原生无响应: ${nativeStalls.length} 次（${costs}）`)
+    lines.push(
+      '  ⚠️ JS 未冻结但原生请求无响应 ⇒ 卡在**原生主线程**：WebView 无法呈现（白屏），随后 iOS 看门狗约 10s 杀掉进程'
+    )
   }
   const navMs = Number(snapshot.meta?.nav_ms)
   if (Number.isFinite(navMs)) {
