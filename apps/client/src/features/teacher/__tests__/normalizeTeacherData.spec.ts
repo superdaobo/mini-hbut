@@ -18,12 +18,12 @@ import {
   normalizeSemester,
   normalizeTeacherNotice,
   normalizeTeachingData,
-  sanitizeTeacherHtml,
   stripInjectedIdentityFields,
   stripTeacherHtml,
   teacherExamKey,
   teacherNoticeKey
 } from '../utils/normalizeTeacherData'
+import { sanitizeSchoolInboxHtml } from '../../../utils/school_inbox_content.js'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -44,7 +44,7 @@ describe('normalizeTeacherData（HTML 清洗）', () => {
 
   it('sanitizeTeacherHtml 仅保留白名单标签，移除事件属性与 javascript: 链接', () => {
     const raw = `<p onclick="steal()">正文</p><a href="javascript:alert(1)">点我</a><img src=x onerror=alert(1)>`
-    const safe = sanitizeTeacherHtml(raw)
+    const safe = sanitizeSchoolInboxHtml(raw)
     expect(safe).toContain('<p>')
     expect(safe).not.toContain('onclick')
     expect(safe).not.toContain('javascript:')
@@ -52,8 +52,19 @@ describe('normalizeTeacherData（HTML 清洗）', () => {
     expect(safe).not.toContain('onerror')
   })
 
-  it('纯文本输入经 sanitizeTeacherHtml 返回空串（调用方走纯文本渲染）', () => {
-    expect(sanitizeTeacherHtml('普通文本')).toBe('')
+  // 以下两条对应 CodeQL 在集成阶段报出的 2 个 high 告警（#209 / #210），是回归护栏。
+  it('stripTeacherHtml 对嵌套构造不被单次剥标签绕过（incomplete-multi-character-sanitization）', () => {
+    const out = stripTeacherHtml('<<script>script>alert(1)')
+    expect(out).not.toContain('<')
+    expect(out).not.toContain('>')
+  })
+
+  it('stripTeacherHtml 不做双重反转义（double-escaping 不得凭空造出标签）', () => {
+    const out = stripTeacherHtml('<b>&amp;lt;script&amp;gt;</b>')
+    expect(out).not.toContain('<')
+    expect(out).not.toContain('>')
+    // `&amp;lt;` 只能解一层，不能解成 `<`
+    expect(out).toBe('&lt;script&gt;')
   })
 })
 
