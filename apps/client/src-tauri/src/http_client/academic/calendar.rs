@@ -21,6 +21,21 @@ use chrono::{Datelike, Local};
 /// 学生校历路径（教师访问无权限，仅学生链路使用）。
 pub(crate) const STUDENT_CALENDAR_DATA_PATH: &str = "/admin/xsd/jcsj/xlgl/getData/{xnxq}";
 
+/// 学期标签是否合法：`YYYY-YYYY-N`（N 为 1 或 2）。
+///
+/// 学期会被直接拼进请求路径，因此必须**先校验再拼接**：否则 `..`、`/` 等片段可让
+/// 拼接结果逃出 allowlist 的前缀匹配范围。
+pub(crate) fn is_valid_semester_label(semester: &str) -> bool {
+    let mut parts = semester.trim().split('-');
+    let (Some(start), Some(end), Some(term), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    let is_year = |value: &str| value.len() == 4 && value.chars().all(|c| c.is_ascii_digit());
+    is_year(start) && is_year(end) && matches!(term, "1" | "2")
+}
+
 /// 按会话角色选择校历数据路径（教师 / 学生）。
 ///
 /// 纯函数，供运行期分派与单元测试共用，避免「教师走学生路径」回归。
@@ -202,6 +217,11 @@ impl HbutClient {
         &self,
         semester: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        // 学期直接拼进路径，必须先按教务真实格式校验：否则可构造 `..` 等片段
+        // 让 `replace` 后的路径逃出 allowlist 前缀（allowlist 对模板路径用前缀匹配）。
+        if !is_valid_semester_label(semester) {
+            return Err(format!("学期参数格式非法，已拒绝调用: {semester}").into());
+        }
         let path = calendar_data_path_for_role(true).replace("{xnxq}", semester);
         // fail-closed：未登记在教师只读 allowlist 的路径一律拒绝。
         if !teacher_readonly::is_teacher_readonly_path(&path) {
@@ -222,7 +242,6 @@ impl HbutClient {
         let mut last_err = String::from("会话已过期，请重新登录");
         for base in bases {
             let url = format!("{}{}", base, path);
-            println!("[调试] 获取教师校历：{}", url);
             let response = self
                 .client
                 .get(&url)
@@ -289,5 +308,22 @@ mod tests {
         let instantiated = calendar_data_path_for_role(true).replace("{xnxq}", "2026-2027-1");
         assert!(teacher_readonly::is_teacher_readonly_path(&instantiated));
         assert!(!teacher_readonly::path_has_write_verb(&instantiated));
+    }
+
+    /// 学期参数校验：只接受 `YYYY-YYYY-N`，阻断 `..` / 斜杠等路径穿越片段。
+    #[test]
+    fn semester_label_validation_rejects_path_traversal() {
+        assert!(is_valid_semester_label("2026-2027-1"));
+        assert!(is_valid_semester_label("2026-2027-2"));
+        assert!(is_valid_semester_label(" 2026-2027-1 "));
+
+        assert!(!is_valid_semester_label("2026-2027-3"));
+        assert!(!is_valid_semester_label("2026-2027-01"));
+        assert!(!is_valid_semester_label("2026-2027-1/../updateState"));
+        assert!(!is_valid_semester_label(
+            "../../admin/system/tzsjx/updateState"
+        ));
+        assert!(!is_valid_semester_label("2026-2027"));
+        assert!(!is_valid_semester_label(""));
     }
 }

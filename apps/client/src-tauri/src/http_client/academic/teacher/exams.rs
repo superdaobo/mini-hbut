@@ -156,9 +156,9 @@ pub(crate) fn interpret_grid_response(
 
 /// 会话快照可用性归一：无有效会话 cookie → 「会话已过期」错误。
 ///
-/// E0 架构下本子模块拿不到共享 `HbutClient`（`application/teacher.rs` 只透传 `semester`），
-/// 只能靠 [`HbutClient::new`] 从本地 Cookie 快照恢复教务会话。快照缺失 / 过期时
-/// **绝不发请求、绝不返回假数据**，直接归一为 `expired`。
+/// 会话由 `application::TeacherService` 透传的共享 `&HbutClient` 提供；本函数只做
+/// 「会话 cookie 是否可用」的判定。快照缺失 / 过期时**绝不发请求、绝不返回假数据**，
+/// 直接归一为 `expired`。
 pub(crate) fn interpret_session_snapshot(has_session_cookies: bool) -> Result<(), String> {
     if has_session_cookies {
         Ok(())

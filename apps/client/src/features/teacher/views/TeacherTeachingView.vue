@@ -13,6 +13,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../../../utils/app_i18n'
 import { useAuthStore } from '../../../stores/auth'
 import { useTeacherTeaching } from '../composables/useTeacherTeaching'
+import { resolveTeacherAccountId } from '../utils/teacher_scope'
 import type { TeachingClass, TeachingTask } from '../types'
 
 const emit = defineEmits<{ (e: 'back'): void }>()
@@ -36,7 +37,7 @@ const {
   load,
   setSemester,
   retry
-} = useTeacherTeaching({ accountId: () => auth.studentId })
+} = useTeacherTeaching({ accountId: () => resolveTeacherAccountId(auth.studentId) })
 
 const semesterDraft = ref(semester.value)
 

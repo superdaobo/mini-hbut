@@ -21,13 +21,16 @@ import {
   useTeacherNotifications,
   type TeacherNoticeItem
 } from '../composables/useTeacherNotifications'
+import { resolveTeacherAccountId } from '../utils/teacher_scope'
 
 const emit = defineEmits<{ (event: 'back'): void }>()
 
 const { t: tLocale } = useI18n()
 const authStore = useAuthStore()
 
-const accountId = computed(() => String(authStore.studentId || ''))
+// 教师工号不走学号正则：优先取按角色分库的登录账号（`hbu_login_form_account_teacher`），
+// 取不到时 `teacherNoticeReadKey` 会返回空串并跳过本地持久化（fail-closed，避免跨教师串号）。
+const accountId = computed(() => resolveTeacherAccountId(authStore.studentId))
 // 通知本身与学期无关；教学提醒快照按学期隔离，未就绪时退化为占位（绝不回落学生域）。
 const semester = computed(() => '')
 

@@ -84,13 +84,23 @@ E0 已把全部命令**预注册为 stub**（返回「未实现」，**绝不返
 | `teacher_profile_fetch()` | — | `POST /v2/teacher/profile` | `http_client/academic/teacher/profile.rs` |
 | `teacher_teaching_fetch(semester?)` | `semester: Option<String>` | `POST /v2/teacher/teaching` | `http_client/academic/teacher/teaching.rs` |
 | `teacher_exams_fetch(semester?)` | `semester: Option<String>` | `POST /v2/teacher/exams` | `http_client/academic/teacher/exams.rs` |
-| `teacher_notices_fetch(page?, pageSize?, keyword?)` | `page: Option<i64>`、`page_size: Option<i64>`、`keyword: Option<String>` | `POST /v2/teacher/notices` | `application/teacher.rs` + `teacher/` 子模块 |
+| `teacher_notices_fetch(page?, pageSize?, keyword?)` | `page: Option<i64>`、`page_size: Option<i64>`、`keyword: Option<String>` | `POST /v2/teacher/notices` | `application/teacher.rs` |
 
 返回统一为 `Result<serde_json::Value, String>`；错误消息会被 `classifyTeacherErrorKind` 归一化。
 
+> **`teacher_notices_fetch` 当前为保留接口（stub，返回 `notImplemented`）。**
+> E3（#1023）实际改走既有 `school_inbox_fetch` 的 portal 只读链路
+> （`useTeacherNotifications.ts`），因此本命令与其 bridge 路由目前无生产调用。
+> 保留原因：通知域后续需要分页/关键字检索时可直接接线；**无论是否接线，教师通知都绝不写服务端**。
+
 **Rust 只读 allowlist（唯一事实源）**：`src-tauri/src/http_client/academic/teacher/readonly.rs`。
-任何教师教务路径必须登记在此，且**不得含写动词**
-（`save|add|create|update|edit|modify|delete|remove|submit|apply|confirm|audit|approve|reject|import|insert|upload|export|print|report|reset|change|send|batch|collect|chehui|reApply|cxsq|record|unlock|topping|doTrans`）。
+任何教师教务路径必须登记在此，且**不得含写动词**。词根清单以 `readonly.rs` 的
+`TEACHER_WRITE_VERB_ROOTS` 为准（当前为
+`save|add|create|update|delete|remove|submit|confirm|import|insert|upload|export|print|report|reset|change|send|batch|collect|chehui|topping`）。
+⚠️ 该清单**刻意不含** `apply|audit|approve|reject|edit|modify|record|unlock|doTrans|cxsq|reApply`：
+`/admin/activiti/myApply/qryMyApply` 等**只读**路径自身就含 `apply`，若把这些词根一并纳入，
+allowlist 自检会误报失败。新增路径时请对照 `data/teacher-api-recon/07-write-endpoints-denylist.md`
+逐条人工确认，不要只依赖词根匹配。
 
 ---
 

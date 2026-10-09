@@ -27,7 +27,7 @@ import {
   normalizeTeacherText,
   stripTeacherHtml
 } from '../utils/normalizeTeacherData'
-import { buildTeacherScopedKey } from '../utils/teacher_scope'
+import { buildTeacherScopedKey, canPersistTeacherState } from '../utils/teacher_scope'
 
 // ────────────────────────────────────────────────────────────────
 // 只读红线：UI 决策点（可单测）
@@ -99,11 +99,19 @@ export interface UseTeacherNotificationsOptions {
 // 本地已读（教师作用域隔离）
 // ────────────────────────────────────────────────────────────────
 
-/** 教师本地已读键：`teacher:{accountId}:{semester}:notices-read`。 */
+/**
+ * 教师本地已读键：`teacher:{accountId}:{semester}:notices-read`。
+ *
+ * 账号标识不可用时返回**空串**，调用方据此跳过 localStorage 读写（fail-closed）：
+ * 宁可本次会话不持久化已读，也不能让不同教师共用 `teacher:_` 这一份状态。
+ */
 export const teacherNoticeReadKey = (accountId: unknown, semester: unknown): string =>
-  buildTeacherScopedKey('notices-read', accountId, semester)
+  canPersistTeacherState(accountId)
+    ? buildTeacherScopedKey('notices-read', accountId, semester)
+    : ''
 
 const readReadIds = (key: string): string[] => {
+  if (!key) return []
   try {
     const raw = globalThis.localStorage?.getItem(key)
     if (!raw) return []
@@ -115,6 +123,7 @@ const readReadIds = (key: string): string[] => {
 }
 
 const writeReadIds = (key: string, ids: string[]): void => {
+  if (!key) return
   try {
     globalThis.localStorage?.setItem(key, JSON.stringify(ids))
   } catch {

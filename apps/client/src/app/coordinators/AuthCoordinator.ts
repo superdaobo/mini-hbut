@@ -37,6 +37,7 @@ import { scheduleUsageUpload } from '../../utils/usage_uploader.js'
 import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/local_reminder_scheduler'
 import { subscribePortalLoginSucceeded } from './loginOutcome'
 import { saveRememberedUsername } from '../../utils/remembered_username'
+import { isTeacherRoleValue, readLoginRole } from '../../utils/login_role'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
 /** 登录后成绩补拉的等待上限：超时以空快照兜底继续云同步，不无限等待 */
@@ -114,6 +115,14 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
    * 当前账号的成绩态，也不触发以当前账号为目标的云同步（防跨账号数据污染）。
    */
   const loadGradesThenSyncAfterLogin = async (sid: string) => {
+    // 教师身份不参与学生成绩链路：`/v2/quick_fetch` 是**学生**成绩接口
+    // （Epic #1018 明确要求「教师端不请求学生成绩查询」），教师会话调用会被服务端
+    // 拒绝，且会以工号写学生域本地台账。这里直接跳过补拉，仍保留后续云同步时序。
+    if (isTeacherRoleValue(readLoginRole())) {
+      if (state.studentId.value !== sid) return
+      syncAfterLogin(sid, [])
+      return
+    }
     let grades: unknown[] = []
     try {
       const res = await waitPromiseWithTimeout(

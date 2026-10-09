@@ -133,15 +133,18 @@ const toHomeModule = (entry: TeacherFeatureEntry): TeacherHomeModule => ({
 
 /**
  * 教师首页「所有功能」分类：只取目录声明的两个一级分类，
- * 且仅保留**路由级放行**（`isViewAllowedForRole`）的条目；空分类丢弃。
- * 非教师身份返回空数组（学生分类由 Dashboard 自行构建，互不干扰）。
+ * 仅保留**路由级放行**（`isViewAllowedForRole`）**且已开放**（`entry.enabled`）的条目；
+ * 空分类丢弃。非教师身份返回空数组（学生分类由 Dashboard 自行构建，互不干扰）。
+ *
+ * ⚠️ `enabled` 必须参与过滤：它是 Epic #1018 要求的**单点回滚开关**
+ * （置 false 即隐藏入口，不影响学生端与 V1 教师课表）。只按路由放行过滤会让该开关失效。
  */
 export const buildTeacherHomeCategories = (role: unknown): TeacherHomeCategory[] => {
   if (!isTeacherRole(role)) return []
   return TEACHER_FEATURE_CATEGORIES.map((category) => ({
     title: category.labelKey,
     modules: getTeacherFeaturesByCategory(category.id)
-      .filter((entry) => isViewAllowedForRole(entry.viewId, role))
+      .filter((entry) => entry.enabled === true && isViewAllowedForRole(entry.viewId, role))
       .map(toHomeModule)
   })).filter((category) => category.modules.length > 0)
 }

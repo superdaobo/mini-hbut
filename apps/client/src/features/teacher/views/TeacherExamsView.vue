@@ -18,6 +18,7 @@ import {
   useTeacherExams,
   type TeacherExamFilter
 } from '../composables/useTeacherExams'
+import { resolveTeacherAccountId } from '../utils/teacher_scope'
 import type { Invigilation, TeacherExam } from '../types'
 
 const emit = defineEmits<{ (e: 'back'): void }>()
@@ -40,7 +41,7 @@ const {
   load,
   setSemester,
   retry
-} = useTeacherExams({ accountId: () => auth.studentId })
+} = useTeacherExams({ accountId: () => resolveTeacherAccountId(auth.studentId) })
 
 const semesterDraft = ref(semester.value)
 
