@@ -3663,4 +3663,12 @@ export const messages: Record<string, string> = {
   'teacher.error.timeout': '请求超时，请检查网络后重试',
   'teacher.error.notImplemented': '功能建设中',
   'teacher.error.unknown': '获取数据失败，请稍后重试',
+  // E3（#1023）教师通知只读视图新增 key（三语同步）。
+  'teacher.notification.title': '教务通知',
+  'teacher.notification.tabAcademic': '教务通知',
+  'teacher.notification.tabTeachingReminder': '教学提醒',
+  'teacher.notification.empty': '暂无通知',
+  'teacher.notification.teachingReminderEmpty': '暂无教学提醒',
+  'teacher.notification.academicSource': '教务系统',
+  'notify.inbox.teacherLocalOnly': '教师端标记已读仅保存在本机',
 }

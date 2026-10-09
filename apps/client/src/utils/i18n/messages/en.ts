@@ -3664,4 +3664,12 @@ export const messages: Record<string, string> = {
   'teacher.error.timeout': 'Request timed out. Check your network and retry',
   'teacher.error.notImplemented': 'Coming soon',
   'teacher.error.unknown': 'Failed to load data. Please retry later',
+  // E3 (#1023) keys added for the teacher read-only notification view (synced across locales).
+  'teacher.notification.title': 'Academic Notices',
+  'teacher.notification.tabAcademic': 'Academic Notices',
+  'teacher.notification.tabTeachingReminder': 'Teaching Reminders',
+  'teacher.notification.empty': 'No notices',
+  'teacher.notification.teachingReminderEmpty': 'No teaching reminders',
+  'teacher.notification.academicSource': 'Academic Affairs System',
+  'notify.inbox.teacherLocalOnly': 'Read marks are saved on this device only for teachers',
 }
