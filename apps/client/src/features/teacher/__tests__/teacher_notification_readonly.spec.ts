@@ -33,11 +33,21 @@ const root = process.cwd()
 const read = (relativePath: string): string =>
   readFileSync(path.join(root, relativePath), 'utf8')
 
+/** 反复剥离 HTML 注释直到稳定（单次替换可被嵌套构造绕过）。 */
+const stripHtmlComments = (source: string): string => {
+  let current = source
+  for (let pass = 0; pass < 16; pass += 1) {
+    const next = current.replace(/<!--[\s\S]*?-->/g, '')
+    if (next === current) return next
+    current = next
+  }
+  return current
+}
+
 /** 剥离注释（红线条目常在注释里被引用，不应视为真实调用）。 */
 const stripComments = (source: string): string =>
-  source
+  stripHtmlComments(source)
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
     .split('\n')
     .map((line) => {
       const index = line.indexOf('//')

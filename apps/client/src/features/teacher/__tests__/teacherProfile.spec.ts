@@ -30,14 +30,29 @@ const root = process.cwd()
 const readSource = (relative: string) => readFileSync(path.join(root, relative), 'utf8')
 
 /**
+ * 反复剥离 HTML 注释直到稳定。
+ *
+ * 单次 `replace` 可被嵌套构造绕过（`<!--<!--x-->-->` 剥一次仍留 `<!--x-->`），
+ * CodeQL `js/incomplete-multi-character-sanitization` 会据此报警；循环到不再变化为止。
+ */
+const stripHtmlComments = (source: string): string => {
+  let current = source
+  for (let pass = 0; pass < 16; pass += 1) {
+    const next = current.replace(/<!--[\s\S]*?-->/g, '')
+    if (next === current) return next
+    current = next
+  }
+  return current
+}
+
+/**
  * 剥离注释后的源码（HTML 注释 + JS 块注释 + 行注释）。
  *
  * 与 `i18n_coverage.spec.ts` 同口径：注释里可以解释「为什么不展示职称/邮箱」，
  * 但**真实代码**不得出现这些字段，因此断言必须基于剥离注释后的代码。
  */
 const stripComments = (source: string): string =>
-  source
-    .replace(/<!--[\s\S]*?-->/g, '')
+  stripHtmlComments(source)
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
     .map((line) => {
