@@ -225,18 +225,23 @@ const fetchExams = async (options = {}) => {
       } else {
         scheduleExamRealtimeRetry()
       }
-      // 写入小组件（只写未来的考试）
-      const futureExams = (data.data || []).filter(e => !isPassed(e.exam_date))
-      if (futureExams.length > 0) {
-        const daysLeft = daysUntilExam(futureExams[0].exam_date)
+      // 成功查询本学期考试后，空列表也必须同步，避免永久留下上学期考场。
+      // 用户手动查看旧学期、离线旧缓存时不应污染首页 Widget。
+      if (!data.offline && (!currentSemester.value || selectedSemester.value === currentSemester.value)) {
+        const futureExams = (data.data || [])
+          .filter(e => !isPassed(e.exam_date))
+          .sort((a, b) => new Date(a.exam_date) - new Date(b.exam_date))
+        const daysLeft = futureExams.length ? daysUntilExam(futureExams[0].exam_date) : -1
         writeExamToWidget({
           exams: futureExams.slice(0, 3).map(e => ({
             course_name: e.course_name || '',
             exam_date: e.exam_date || '',
             exam_time: e.exam_time || '',
-            location: e.location || ''
+            location: e.location || '',
+            seat_no: e.seat_no || ''
           })),
-          days_left: daysLeft ?? -1
+          days_left: daysLeft ?? -1,
+          updated_at: new Date().toISOString()
         }).catch(() => {})
       }
     } else {

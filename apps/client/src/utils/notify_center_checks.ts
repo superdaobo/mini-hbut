@@ -178,41 +178,42 @@ const resolveRoomLabel = (): string => {
 const syncWidgetData = async (snapshot: Record<string, unknown> | null | undefined): Promise<void> => {
   // 电费数据
   const elec = snapshot?.electricity as Record<string, unknown> | undefined
-  if (elec?.success && elec?.configured) {
-    // 从 localStorage 读取宿舍标签名（ElectricityView 存储的）
+  const widgetQuantity = Number(elec?.quantity)
+  if (elec?.success && elec?.configured && elec?.offline !== true &&
+      Number.isFinite(widgetQuantity) && widgetQuantity >= 0) {
     const roomLabel = resolveRoomLabel()
     await writeElectricityToWidget({
-      quantity: Number(elec.quantity) || 0,
+      quantity: widgetQuantity,
       room: roomLabel,
       acQuantity: Number(elec.acQuantity) || 0,
-      isLow: !!elec.isLow
+      isLow: !!elec.isLow,
+      updated_at: new Date().toISOString()
     })
   }
 
   // 考试数据
   const exams = snapshot?.exams as Record<string, unknown> | undefined
-  if (exams?.upcoming && Array.isArray(exams.upcoming) && exams.upcoming.length > 0) {
+  // 只有当前学期检查成功才写入；若无未来考试，写空列表清除旧值。
+  if (exams?.success && Array.isArray(exams.upcoming)) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const futureExams = (exams.upcoming as Array<Record<string, unknown>>).filter((e) => {
-      if (!e.exam_date) return true
-      return new Date(String(e.exam_date)) >= today
+    const futureExams = (exams.upcoming as Array<Record<string, unknown>>)
+      .filter((e) => !e.exam_date || new Date(String(e.exam_date)) >= today)
+      .sort((a, b) => new Date(String(a.exam_date || 0)).getTime() - new Date(String(b.exam_date || 0)).getTime())
+    const first = futureExams[0]
+    const examDate = first?.exam_date ? new Date(String(first.exam_date)) : null
+    const daysLeft = examDate ? Math.ceil((examDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)) : -1
+    await writeExamToWidget({
+      exams: futureExams.slice(0, 3).map((exam) => ({
+        course_name: String(exam.course_name || ''),
+        exam_date: String(exam.exam_date || ''),
+        exam_time: String(exam.exam_time || ''),
+        location: String(exam.location || ''),
+        seat_no: String(exam.seat_no || '')
+      })),
+      days_left: daysLeft,
+      updated_at: new Date().toISOString()
     })
-    if (futureExams.length > 0) {
-      const first = futureExams[0]
-      const examDate = first.exam_date ? new Date(String(first.exam_date)) : null
-      const daysLeft = examDate ? Math.ceil((examDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)) : -1
-      await writeExamToWidget({
-        exams: futureExams.slice(0, 3).map((e) => ({
-          course_name: String(e.course_name || ''),
-          exam_date: String(e.exam_date || ''),
-          exam_time: String(e.exam_time || ''),
-          location: String(e.location || ''),
-          seat_no: String(e.seat_no || '')
-        })),
-        days_left: daysLeft
-      })
-    }
   }
 }
 
