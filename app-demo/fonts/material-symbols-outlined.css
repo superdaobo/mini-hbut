@@ -1,0 +1,36 @@
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  /* 单一 weight：避免 100–700 范围在部分浏览器 + 子集字体下 @font-face 失败（详情页图标变英文） */
+  font-weight: 400;
+  font-display: block;
+  /* 相对路径：兼容根路径与官网 /app-demo/ 子路径 */
+  src: url(./material-symbols-outlined.subset.woff2) format('woff2');
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined', sans-serif !important;
+  font-weight: 400 !important;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none !important;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
+  -webkit-font-feature-settings: 'liga' 1, 'clig' 1;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* 防止父级 button 的 font-weight/size 把图标名当普通文字排版 */
+  font-synthesis: none;
+  user-select: none;
+}
+
+.material-symbols-outlined.fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
