@@ -3656,6 +3656,7 @@ export const messages: Record<string, string> = {
   'teacher.exams.comingSoon': '考试与监考建设中',
   'teacher.notification.comingSoon': '教师通知建设中',
   'teacher.workflow.comingSoon': '工作流建设中',
+  'teacher.classroom.conservativeNotice': '教师端空教室暂不支持按周次/节次筛选，以下为全部空教室，请以现场实际情况为准。',
   'teacher.error.empty': '暂无数据',
   'teacher.error.unauthorized': '没有访问该功能的权限',
   'teacher.error.expired': '登录状态已过期，请重新登录',

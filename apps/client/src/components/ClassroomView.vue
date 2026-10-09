@@ -61,6 +61,8 @@ const currentMeta = ref({
   semester: ''
 })
 const hasSuccessfulQuery = ref(false)
+/** 教师端保守查询标记：后端 meta.filters_applied=false 时置位（不伪造筛选结果）。 */
+const teacherConservative = ref(false)
 
 // 显示的教室列表（带分页限制，避免大量 DOM 卡顿）
 const displayedClassrooms = computed(() => classrooms.value.slice(0, displayLimit.value))
@@ -607,7 +609,9 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
       // 更新元数据
       if (data.meta) {
         currentMeta.value = resolveClassroomMeta(data.meta)
-        
+        // 教师端保守查询：后端未按周次/节次筛选，明确提示而非伪造结果（E4 #1024）
+        teacherConservative.value = data.meta.filters_applied === false
+
         // 同步筛选器
         if (!filters.value.week && !getPreferredCurrentWeek()) filters.value.week = data.meta.week
         if (!filters.value.weekday) filters.value.weekday = data.meta.weekday
@@ -939,6 +943,11 @@ onBeforeUnmount(() => {
       <!-- Error Message -->
       <div v-if="errorMsg" class="mx-4 px-4 py-3 rounded-xl bg-error-container/60 text-on-error-container text-sm text-center">
         {{ errorMsg }}
+      </div>
+
+      <!-- 教师端保守查询提示：未按周次/节次筛选（不伪造筛选结果） -->
+      <div v-if="teacherConservative && !errorMsg" class="mx-4 px-4 py-3 rounded-xl bg-surface-container text-on-surface-variant text-xs leading-relaxed">
+        {{ t('teacher.classroom.conservativeNotice') }}
       </div>
 
       <!-- Results List -->

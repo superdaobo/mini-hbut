@@ -6,8 +6,53 @@
 //! select 选项提取辅助。
 
 use super::super::*;
+use super::teacher::readonly as teacher_readonly;
 use crate::parser;
 use chrono::{Datelike, Duration, Local, NaiveDate, Timelike};
+
+/// 学生空教室查询路径（POST 表单，移动端链路）。
+pub(crate) const STUDENT_CLASSROOM_QUERY_PATH: &str = "/admin/pkgl/jyjs/mobile/jsxx";
+
+/// 按会话角色选择空教室查询路径（教师 / 学生）。
+///
+/// - 学生：`POST /admin/pkgl/jyjs/mobile/jsxx`（按周次/星期/节次/教学楼筛选）
+/// - 教师：`GET /admin/system/jxzy/jsxx/getZyKjs`（recon 03 §6，实测 200/191 条；
+///   周次/节次等筛选参数**未实测**，故教师端只做保守查询，见
+///   [`HbutClient::fetch_teacher_classrooms_query`]）
+pub(crate) fn classroom_query_path_for_role(is_teacher: bool) -> &'static str {
+    if is_teacher {
+        teacher_readonly::PATH_FREE_CLASSROOMS
+    } else {
+        STUDENT_CLASSROOM_QUERY_PATH
+    }
+}
+
+/// 教学楼名称匹配（教师端本地过滤用）。
+///
+/// 前端教学楼下拉（学生页解析/内置兜底）可能是「4教 / 5号楼」，而教师空教室
+/// 接口返回的 `jxlmc` 是「4号 / 5号」，直接 `contains` 会全部落空。这里先按原文
+/// 包含匹配，再退化为「前导数字相等」比较（纯展示过滤，不改动服务端查询）。
+fn classroom_building_matches(jxlmc: &str, filter: &str) -> bool {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        return true;
+    }
+    if jxlmc.to_lowercase().contains(&filter.to_lowercase()) {
+        return true;
+    }
+    let leading_digits = |s: &str| -> Option<String> {
+        let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() {
+            None
+        } else {
+            Some(digits)
+        }
+    };
+    match (leading_digits(jxlmc), leading_digits(filter)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
 
 impl HbutClient {
     /// 获取课表（学期可选，默认按校历自动解析）
@@ -400,7 +445,11 @@ impl HbutClient {
         }))
     }
 
-    /// 按条件查㈢┖教室
+    /// 按条件查空教室
+    ///
+    /// 师生共用同一 UI（`ClassroomView`），但按**真实会话角色**分派：
+    /// 学生走 `POST /admin/pkgl/jyjs/mobile/jsxx`（支持周次/节次筛选），
+    /// 教师走 `GET /admin/system/jxzy/jsxx/getZyKjs`（筛选参数未实测，保守查询）。
     pub async fn fetch_classrooms_query(
         &self,
         week: Option<i32>,
@@ -408,7 +457,20 @@ impl HbutClient {
         periods: Option<Vec<i32>>,
         building: Option<String>,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let classrooms_url = format!("{}/admin/pkgl/jyjs/mobile/jsxx", self.academic_base_url());
+        let is_teacher = self
+            .user_info
+            .as_ref()
+            .map(|user| user.role.is_teacher())
+            .unwrap_or(false);
+        if is_teacher {
+            return self.fetch_teacher_classrooms_query(building).await;
+        }
+
+        let classrooms_url = format!(
+            "{}{}",
+            self.academic_base_url(),
+            STUDENT_CLASSROOM_QUERY_PATH
+        );
 
         // 统一使用“自动学期上下文”（支持假期沿用上学期/临开学切下学期）。
         let now = chrono::Local::now();
@@ -613,6 +675,155 @@ impl HbutClient {
             "sync_time": chrono::Local::now().to_rfc3339()
         }))
     }
+
+    /// 教师空教室查询（`GET /admin/system/jxzy/jsxx/getZyKjs`，recon 03 §6）。
+    ///
+    /// ⚠️ **保守查询**：教师端「周次 / 节次 / 校区」等筛选参数在 recon 中**未实测**
+    /// （`08` 文件只以 `gridtype=jqgrid` 探测到 191 条）。因此本实现：
+    /// 1. 只发送**已实测**的参数（`gridtype=jqgrid` + jqGrid 分页），不臆造筛选参数；
+    /// 2. 返回 `meta.filters_applied=false` / `meta.filter_mode="teacher_all"`，
+    ///    由前端明确告知「未按周次/节次筛选」，**绝不伪造筛选结果**；
+    /// 3. 仅「教学楼」按响应中的 `jxlmc` 做客户端本地过滤（不依赖未实测的服务端参数）。
+    async fn fetch_teacher_classrooms_query(
+        &self,
+        building: Option<String>,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let path = classroom_query_path_for_role(true);
+        if !teacher_readonly::is_teacher_readonly_path(path) {
+            return Err(format!("教师只读路径未登记，已拒绝调用: {path}").into());
+        }
+
+        let now = chrono::Local::now();
+        let semester = Self::semester_by_date(now.date_naive());
+        let building_str = building.clone().unwrap_or_default();
+
+        let base = self.academic_base_url();
+        let url = format!("{}{}", base, path);
+        let params = [
+            ("gridtype", "jqgrid"),
+            ("_search", "false"),
+            ("page", "1"),
+            ("rows", "1000"),
+            ("sort", "jsbh"),
+            ("order", "asc"),
+        ];
+
+        let response = self
+            .client
+            .get(&url)
+            .query(&params)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+            .header(
+                "Referer",
+                format!("{}/admin/system/jxzy/jsxx/toZyKjsPage", base),
+            )
+            .send()
+            .await?;
+
+        let status = response.status();
+        let final_url = response.url().to_string();
+        if looks_like_academic_login_url(&final_url) {
+            return Ok(serde_json::json!({
+                "success": false,
+                "error": "会话已过期，请重新登录",
+                "need_login": true
+            }));
+        }
+        if status.as_u16() == 401 {
+            // 401 语义为「无该接口权限」（recon 03 §0 错误形态 2），不是会话过期；
+            // 明确报错而非伪装成可重登恢复。
+            return Ok(serde_json::json!({
+                "success": false,
+                "error": "没有访问空教室接口的权限"
+            }));
+        }
+        if !status.is_success() {
+            return Ok(serde_json::json!({
+                "success": false,
+                "error": format!("请求失败: {}", status)
+            }));
+        }
+
+        let text = response.text().await.unwrap_or_default();
+        if let Some(err) = Self::teacher_query_body_error(&text) {
+            return Ok(serde_json::json!({
+                "success": false,
+                "error": err
+            }));
+        }
+
+        let data: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("空教室响应解析失败: {}", e))?;
+        if let Some(ret) = data.get("ret").and_then(|v| v.as_i64()) {
+            if ret != 0 {
+                let msg = data
+                    .get("msg")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("未知错误");
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "error": format!("空教室接口返回 ret={} msg={}", ret, msg)
+                }));
+            }
+        }
+
+        // jqGrid 包裹：results[]（兼容 data/list 形态）
+        let rows = data
+            .get("results")
+            .or_else(|| data.get("data"))
+            .or_else(|| data.get("list"))
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut classrooms = Vec::new();
+        for room in rows.iter() {
+            // 仅按已返回数据做本地教学楼过滤（不伪造服务端筛选）。
+            if !building_str.is_empty() {
+                let jxlmc = room.get("jxlmc").and_then(|v| v.as_str()).unwrap_or("");
+                if !classroom_building_matches(jxlmc, &building_str) {
+                    continue;
+                }
+            }
+            classrooms.push(serde_json::json!({
+                "id": room.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+                "name": room.get("jsmc").and_then(|v| v.as_str()).unwrap_or(""),
+                "code": room.get("jsbh").and_then(|v| v.as_str()).unwrap_or(""),
+                "building": room.get("jxlmc").and_then(|v| v.as_str()).unwrap_or(""),
+                "campus": room.get("xqmc").and_then(|v| v.as_str()).unwrap_or(""),
+                "seats": room.get("zdskrnrs").and_then(|v| v.as_i64()).unwrap_or(0),
+                "floor": room.get("szlc").and_then(|v| v.as_str()).unwrap_or(""),
+                "type": room.get("jslx").and_then(|v| v.as_str()).unwrap_or(""),
+                "department": room.get("jsglbmmc").and_then(|v| v.as_str()).unwrap_or(""),
+                "status": "可用"
+            }));
+        }
+
+        Ok(serde_json::json!({
+            "success": true,
+            "data": classrooms,
+            "meta": {
+                "semester": semester,
+                "date_str": "",
+                "date_iso": "",
+                // 教师端未按周次/节次筛选，留空以免前端显示伪造的「第 0 周」。
+                "week": "",
+                "weekday": "",
+                "weekday_name": "",
+                "periods": [],
+                "periods_str": "",
+                "total": classrooms.len(),
+                "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                // 教师端保守查询标记：前端据此提示「未按周次/节次筛选」，不伪造结果。
+                "filter_mode": "teacher_all",
+                "filters_applied": false,
+                "building_filter": building_str,
+            },
+            "sync_time": chrono::Local::now().to_rfc3339()
+        }))
+    }
+
     pub async fn fetch_classrooms(
         &self,
     ) -> Result<Vec<crate::Classroom>, Box<dyn std::error::Error + Send + Sync>> {
@@ -630,5 +841,46 @@ impl HbutClient {
 
         let json: serde_json::Value = response.json().await?;
         parser::parse_classrooms(&json)
+    }
+}
+
+#[cfg(test)]
+mod classroom_role_tests {
+    use super::*;
+
+    #[test]
+    fn classroom_path_switches_by_role() {
+        assert_eq!(
+            classroom_query_path_for_role(true),
+            teacher_readonly::PATH_FREE_CLASSROOMS
+        );
+        assert_eq!(
+            classroom_query_path_for_role(false),
+            STUDENT_CLASSROOM_QUERY_PATH
+        );
+        assert_ne!(
+            classroom_query_path_for_role(true),
+            classroom_query_path_for_role(false)
+        );
+        assert!(teacher_readonly::is_teacher_readonly_path(
+            classroom_query_path_for_role(true)
+        ));
+        assert!(!teacher_readonly::path_has_write_verb(
+            classroom_query_path_for_role(true)
+        ));
+    }
+
+    #[test]
+    fn building_filter_matches_numbered_names() {
+        // 教师接口 jxlmc = 「4号」，前端下拉 = 「4教」/「4号楼」→ 前导数字匹配
+        assert!(classroom_building_matches("4号", "4教"));
+        assert!(classroom_building_matches("4号", "4号楼"));
+        assert!(classroom_building_matches("4号", "4号"));
+        assert!(classroom_building_matches("艺术楼", "艺术楼"));
+        // 不匹配的楼栋必须排除
+        assert!(!classroom_building_matches("4号", "5教"));
+        assert!(!classroom_building_matches("4号", "艺术楼"));
+        // 空筛选放行全部
+        assert!(classroom_building_matches("4号", ""));
     }
 }

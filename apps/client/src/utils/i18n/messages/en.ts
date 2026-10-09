@@ -3657,6 +3657,7 @@ export const messages: Record<string, string> = {
   'teacher.exams.comingSoon': 'Exams & Invigilation is coming soon',
   'teacher.notification.comingSoon': 'Teacher notifications are coming soon',
   'teacher.workflow.comingSoon': 'Workflow is coming soon',
+  'teacher.classroom.conservativeNotice': 'Filtering free classrooms by week or period is not available for teachers yet. Showing all free classrooms; verify on site.',
   'teacher.error.empty': 'No data',
   'teacher.error.unauthorized': 'You do not have permission to access this feature',
   'teacher.error.expired': 'Your session has expired. Please sign in again',
