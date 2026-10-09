@@ -13,6 +13,8 @@ import {
 } from '../utils/game_center/launch'
 import { createModuleHostBridge } from '../utils/game_center/host_bridge'
 import { fetchGameLaunchTicket } from '../utils/game_center/api'
+import { DEFAULT_GAME_PLATFORM_API_BASE } from '../utils/game_center/base'
+import { fetchPointsWallet, fetchPointsDailyTasks } from '../utils/game_center/points'
 import { createGatedTicketRequest, resolveGameTrustPolicy } from '../utils/game_center/origin_policy'
 import { DEFAULT_GAME_CENTER_FLAGS, resolveEffectiveGameCenterFlags } from '../utils/game_center/flags'
 import { requestGameOpen } from '../utils/game_center/pending_open'
@@ -51,6 +53,9 @@ let capacitorFallbackTimer = null
 let hostBridge = null
 /** 游乐场能力开关（远程配置驱动；必须是响应式，origin 白名单与桥都要随其更新）/ */
 const hostFlags = ref({ ...DEFAULT_GAME_CENTER_FLAGS })
+/** #1016：仅面板可请求脱敏积分快照，身份凭据由宿主保管。 */
+const PANEL_POINTS_REQUEST_TYPE = 'mini-hbut:more-panel:points-request'
+const PANEL_POINTS_RESPONSE_TYPE = 'mini-hbut:more-panel:points-response'
 /** 会话恢复时由宿主重新签发的 Launch Ticket（只驻留内存，绝不落盘/入日志） */
 const launchTicketOverride = ref('')
 
@@ -394,14 +399,87 @@ const handleHostBridgeMessage = (event) => {
 }
 
 /**
- * #1002：处理「打开另一个模块」请求（总面板里的游戏宫格点击后由模块侧发出）。
- *
- * 安全：与 `mini-hbut:module-size` 同规矩 —— 必须校验 `event.source` 与
- * `event.origin` 白名单，否则同窗口的其它 iframe 可以冒充模块要求打开任意模块。
- *
- * 行为：只写入一次性开局意图并回退到「更多」，由 `MoreView` 消费后打开目标游戏 ——
- * 复用既有 `pending_open` 通道，**不在本组件复制模块打开状态机**（否则会与
- * MoreView 的清单/bundle 解析逻辑漂移）。
+ * #1016：面板访问钱包所需的 Identity AT 只能留在可信 App 宿主。
+ * 校验真实 iframe window + 当前地址 origin + 官方模块路径（不能只信可配置白名单）。
+ * 回复只包含数值；登出、切号或 iframe 换帧后丢弃异步结果，防止跨账号串数据。
+ */
+const handlePanelPointsRequestMessage = async (event) => {
+  const frameWindow = frameRef.value?.contentWindow
+  const payload = event?.data
+  if (moduleId.value !== 'more_panel' || !frameWindow || event.source !== frameWindow) return
+  if (!payload || payload.type !== PANEL_POINTS_REQUEST_TYPE) return
+  const requestId = safeText(payload.request_id)
+  if (!/^panel_[a-z0-9_]{8,70}$/i.test(requestId)) return
+
+  const currentSrc = frameSrc.value
+  let expectedOrigin = ''
+  let isOfficialPanel = false
+  try {
+    const url = new URL(currentSrc)
+    expectedOrigin = url.origin
+    const validPath = /\/(?:modules|module_bundle\/content)\/[^/]+\/more_panel\/[^/]+\//.test(url.pathname)
+    isOfficialPanel = validPath && (
+      expectedOrigin === 'https://hbut.6661111.xyz' ||
+      (expectedOrigin === 'http://127.0.0.1:4399' && isLocalModuleBridgePreviewUrl(currentSrc))
+    )
+  } catch {
+    return
+  }
+  if (!isOfficialPanel || event.origin !== expectedOrigin) return
+  if (!isGameFrameOriginAllowed(event.origin, frameAllowedOrigins.value)) return
+
+  const initialStudentId = safeText(authStore.verifiedStudentId)
+  const reply = (status, data = {}) => {
+    // 保留原来的窗口与来源，避免 await 后页面被导航到新文档。
+    if (frameRef.value?.contentWindow !== frameWindow || frameSrc.value !== currentSrc) return
+    if (safeText(authStore.verifiedStudentId) !== initialStudentId) return
+    try {
+      frameWindow.postMessage({
+        type: PANEL_POINTS_RESPONSE_TYPE,
+        request_id: requestId,
+        status,
+        ...data
+      }, expectedOrigin)
+    } catch {
+      // 宿主拒绝投递时不输出任何包含玩家信息的日志。
+    }
+  }
+  if (!sessionVerified.value || !initialStudentId) {
+    reply('login_required')
+    return
+  }
+
+  // 两个请求都由宿主带 Bearer 访问 NAS；绝不将 Token/原始响应发入 iframe。
+  const [walletResult, tasksResult] = await Promise.allSettled([
+    fetchPointsWallet({ apiBase: DEFAULT_GAME_PLATFORM_API_BASE }),
+    fetchPointsDailyTasks({ apiBase: DEFAULT_GAME_PLATFORM_API_BASE })
+  ])
+  if (!sessionVerified.value || safeText(authStore.verifiedStudentId) !== initialStudentId) return
+  if (walletResult.status === 'rejected') {
+    const error = walletResult.reason
+    const status = Number(error?.httpStatus || 0)
+    const code = safeText(error?.code)
+    reply(
+      status === 401 || code === 'LOCAL_AUTH_MISSING' ? 'auth_unavailable' :
+      code === 'FEATURE_DISABLED' || status === 404 ? 'feature_disabled' :
+      status === 403 ? 'auth_unavailable' : 'network_error'
+    )
+    return
+  }
+
+  const wallet = walletResult.value
+  const tasks = tasksResult.status === 'fulfilled' ? tasksResult.value.tasks : null
+  reply('ok', {
+    wallet: { level: wallet.level, coin_balance: wallet.coinBalance },
+    tasks: Array.isArray(tasks)
+      ? { completed: tasks.filter((task) => task.completed === true).length, total: tasks.length }
+      : null
+  })
+}
+
+/**
+ * #1002：处理「打开另一个模块」请求。
+ * 只接受当前 iframe 的来源白名单消息，调用 pending_open 后返回「更多」。
  */
 const handleOpenModuleMessage = (event) => {
   const frameWindow = frameRef.value?.contentWindow
@@ -645,6 +723,7 @@ onMounted(() => {
   window.addEventListener('message', handleFrameSizeMessage)
   window.addEventListener('message', handleHostBridgeMessage)
   window.addEventListener('message', handleOpenModuleMessage)
+  window.addEventListener('message', handlePanelPointsRequestMessage)
   window.addEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
   void loadHostFlags()
 })
@@ -658,6 +737,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('message', handleFrameSizeMessage)
   window.removeEventListener('message', handleHostBridgeMessage)
   window.removeEventListener('message', handleOpenModuleMessage)
+  window.removeEventListener('message', handlePanelPointsRequestMessage)
   window.removeEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
 })
 </script>

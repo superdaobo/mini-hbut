@@ -17,6 +17,7 @@ import { normalizeGamePlatformCanary, type GamePlatformCanary } from './canary'
 import {
   DEFAULT_BACKEND_CHANNEL_PATHS,
   DEFAULT_BACKEND_GROUPS,
+  FALLBACK_BACKEND_ORIGIN,
   deriveChannelUrl,
   normalizeBackendBase,
   normalizeBackendConfig,
@@ -441,6 +442,19 @@ const toGameCandidate = (
  *      非 release 强制环境隔离域（dev/beta 不得打到生产）
  * `includeGroups=false`（`useRemoteConfig=false`）时跳过 ①②，直接用 ③。
  */
+/**
+ * HF 备用 Space 的游戏数据仍在独立 MySQL/Turso；NAS PostgreSQL 才是唯一权威库。
+ * #1016：共享权威库之前禁止游戏平台路由到 HF，避免回退导致数据分裂。
+ * OCR/云同步等其他业务的兜底策略保持原样。
+ */
+const isLegacyHfGameOrigin = (url: string): boolean => {
+  try {
+    return new URL(url).origin === FALLBACK_BACKEND_ORIGIN
+  } catch {
+    return false
+  }
+}
+
 export const resolveGameBackendCandidates = (input: {
   backend?: unknown
   gamePlatformApiBase?: unknown
@@ -454,7 +468,12 @@ export const resolveGameBackendCandidates = (input: {
 
   if (includeRemote) {
     const explicit = safeText(input.gamePlatformApiBase)
-    if (explicit && isSecureGamePlatformUrl(explicit) && isStatisticsServiceUrlCompatible(explicit)) {
+    if (
+      explicit &&
+      !isLegacyHfGameOrigin(explicit) &&
+      isSecureGamePlatformUrl(explicit) &&
+      isStatisticsServiceUrlCompatible(explicit)
+    ) {
       const normalized = explicit.replace(/\/+$/, '')
       const firstFromGroups =
         groups.length > 0 ? deriveChannelUrl(groups[0], 'game_platform', config.paths) : ''
@@ -483,7 +502,7 @@ export const resolveGameBackendCandidates = (input: {
 
   const candidates = groups
     .map((group) => toGameCandidate(group, config.paths))
-    .filter((item): item is GameBackendCandidate => item !== null)
+    .filter((item): item is GameBackendCandidate => item !== null && !isLegacyHfGameOrigin(item.origin))
   if (candidates.length > 0) return candidates
 
   // 兜底：环境默认源单候选（standalone；仍受环境兼容过滤）

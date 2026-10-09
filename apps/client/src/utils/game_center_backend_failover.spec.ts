@@ -133,14 +133,12 @@ describe('resolveGameBackendCandidates（契约 §4）', () => {
     expect(candidates[0].apiBase).not.toContain('/api/game-platform/v1/api/game-platform/v1')
   })
 
-  it('#1003：所有档位统一 → 无远程配置时用内置组模型（主 + 唯一兜底）双候选', () => {
+  it('#1016：无远程配置时游戏平台只使用 NAS 权威库，禁止跨库回退到 HF', () => {
     const candidates = resolveGameBackendCandidates({})
-    // 2026-10-06 起不再有「环境隔离单候选」；内置组模型必须同时给出兜底能力
-    expect(candidates).toHaveLength(2)
+    expect(candidates).toHaveLength(1)
     expect(candidates[0].groupId).toBe('mini')
     expect(candidates[0].apiBase).toContain('mini.hbut.site')
-    expect(candidates[1].groupId).toBe('hf-prod')
-    expect(candidates[1].apiBase).toContain('mini-hbut-ocr-service.hf.space')
+    expect(JSON.stringify(candidates)).not.toContain('mini-hbut-ocr-service.hf.space')
     // 已下线的测试域不得再出现
     expect(JSON.stringify(candidates)).not.toContain('testocr1')
   })
@@ -151,9 +149,32 @@ describe('resolveGameBackendCandidates（契约 §4）', () => {
       backend: { groups: [{ id: 'mini', base: 'https://primary.example.com' }] },
       gamePlatformApiBase: 'https://override.example.com/api/game-platform/v1'
     })
-    expect(candidates).toHaveLength(2)
+    expect(candidates).toHaveLength(1)
     expect(candidates[0].groupId).toBe('mini')
     expect(candidates[0].apiBase).toContain('mini.hbut.site')
+  })
+
+  it('#1016：线上残留 HF api_base 时 NAS 仍为首选，且游戏不回退到另一套数据库', () => {
+    const candidates = resolveGameBackendCandidates({
+      gamePlatformApiBase: 'https://mini-hbut-ocr-service.hf.space/api/game-platform/v1',
+      backend: {
+        groups: [
+          { id: 'mini', base: 'https://mini.hbut.site' },
+          { id: 'hf-prod', base: 'https://mini-hbut-ocr-service.hf.space' }
+        ]
+      }
+    })
+    expect(candidates.map((candidate) => candidate.groupId)).toEqual(['mini'])
+    expect(candidates[0].rankApi).toBe('https://mini.hbut.site/api/game-rank')
+  })
+
+  it('#1016：仅存在 HF 旧候选时回到 NAS 默认源，不向旧 MySQL 写入', () => {
+    const candidates = resolveGameBackendCandidates({
+      backend: { groups: [{ id: 'hf-prod', base: 'https://mini-hbut-ocr-service.hf.space' }] },
+      cloudSyncEndpoint: 'https://mini-hbut-ocr-service.hf.space/api/cloud-sync'
+    })
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0].origin).toBe('https://mini.hbut.site')
   })
 
   it('默认通道路径与契约一致（game_platform / game_rank）', () => {

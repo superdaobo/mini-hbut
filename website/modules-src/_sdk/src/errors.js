@@ -176,7 +176,8 @@ export class GamePlatformError extends Error {
     super(message)
     this.name = 'GamePlatformError'
     this.code = normalized
-    this.status = Number(options.status || table.http || 0) || 0
+    // 网络异常没有 HTTP 响应：显式 status=0 必须保留，不得按 INTERNAL_ERROR 伪装成 500。
+    this.status = Number(options.status ?? table.http ?? 0) || 0
     this.retryable = typeof options.retryable === 'boolean' ? options.retryable : !!table.retryable
     this.requestId = safeText(options.requestId)
     this.details = options.details && typeof options.details === 'object' ? { ...options.details } : {}
