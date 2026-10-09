@@ -3663,4 +3663,18 @@ export const messages: Record<string, string> = {
   'teacher.error.timeout': '请求超时，请检查网络后重试',
   'teacher.error.notImplemented': '功能建设中',
   'teacher.error.unknown': '获取数据失败，请稍后重试',
+  // E1（#1021）教师首页「今日授课」语义（不出现「去上课」式学生行动文案）
+  'teacher.home.today.panelTitle': '今日授课',
+  'teacher.home.today.blockTitle': '今日授课',
+  'teacher.home.today.blockOngoing': '正在授课',
+  'teacher.home.today.blockNext': '即将授课',
+  'teacher.home.today.empty': '今日暂无授课安排',
+  'teacher.home.today.loading': '正在加载今日授课...',
+  'teacher.home.today.loadFailed': '今日授课加载失败',
+  'teacher.home.today.loginRequired': '登录后可查看今日授课',
+  'teacher.home.today.lessonsSuffix': '节',
+  'teacher.home.today.remaining': '剩余授课',
+  'teacher.home.today.classLabel': '教学班',
+  'teacher.home.today.sizeLabel': '人数',
+  'teacher.home.today.viewSchedule': '查看课表',
 }

@@ -8,7 +8,9 @@ const read = (relativePath: string) => readFileSync(new URL(`../../${relativePat
 
 describe('towergo home integration contract', () => {
   it('registers towergo as a resource module in home layout, dashboard and search', () => {
-    const dashboard = readVueContractSource('src/components/Dashboard.vue')
+    // #1021：首页模块表 / 分类表已抽到 config/dashboard_modules.ts，首页契约随之覆盖该文件
+    const dashboard =
+      readVueContractSource('src/components/Dashboard.vue') + '\n' + read('src/config/dashboard_modules.ts')
     const app = readAppContractSources()
     const icon = read('src/components/icons/ThemeModuleIcon.vue')
 

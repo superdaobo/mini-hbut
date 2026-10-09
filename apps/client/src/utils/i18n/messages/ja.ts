@@ -3662,4 +3662,18 @@ export const messages: Record<string, string> = {
   'teacher.error.timeout': 'リクエストがタイムアウトしました。ネットワークを確認して再試行してください',
   'teacher.error.notImplemented': '機能準備中',
   'teacher.error.unknown': 'データの取得に失敗しました。しばらくして再試行してください',
+  // E1（#1021）教員ホーム「本日の授業」の意味づけ（学生向けの「授業へ行く」文言は出さない）
+  'teacher.home.today.panelTitle': '本日の授業',
+  'teacher.home.today.blockTitle': '本日の授業',
+  'teacher.home.today.blockOngoing': '授業中',
+  'teacher.home.today.blockNext': 'まもなく授業',
+  'teacher.home.today.empty': '本日の授業はありません',
+  'teacher.home.today.loading': '本日の授業を読み込み中...',
+  'teacher.home.today.loadFailed': '本日の授業の読み込みに失敗しました',
+  'teacher.home.today.loginRequired': 'ログインすると本日の授業を確認できます',
+  'teacher.home.today.lessonsSuffix': 'コマ',
+  'teacher.home.today.remaining': '残りの授業',
+  'teacher.home.today.classLabel': 'クラス',
+  'teacher.home.today.sizeLabel': '人数',
+  'teacher.home.today.viewSchedule': '時間割を見る',
 }

@@ -1,8 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { readVueContractSource } from '../utils/contract_source_test'
+import { readContractSource, readVueContractSource } from '../utils/contract_source_test'
 
-const source = () => readVueContractSource('src/components/Dashboard.vue')
+/**
+ * 首页模块表 / 分类表 / 快捷入口元数据已在 #1021 抽到 `config/dashboard_modules.ts`
+ * （god-file 减行），契约断言因此覆盖「Dashboard.vue + 该配置模块」两处源码；
+ * 断言内容本身不变。
+ */
+const source = () =>
+  [readVueContractSource('src/components/Dashboard.vue'), readContractSource('src/config/dashboard_modules.ts')].join('\n')
 
 describe('Dashboard quick entry defaults', () => {
   it('uses exams instead of schedule in the default quick entries', () => {

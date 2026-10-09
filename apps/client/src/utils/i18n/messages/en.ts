@@ -3664,4 +3664,18 @@ export const messages: Record<string, string> = {
   'teacher.error.timeout': 'Request timed out. Check your network and retry',
   'teacher.error.notImplemented': 'Coming soon',
   'teacher.error.unknown': 'Failed to load data. Please retry later',
+  // E1 (#1021) teacher home "Today's Teaching" semantics (no student "go to class" action copy)
+  'teacher.home.today.panelTitle': "Today's Teaching",
+  'teacher.home.today.blockTitle': "Today's Teaching",
+  'teacher.home.today.blockOngoing': 'Teaching now',
+  'teacher.home.today.blockNext': 'Teaching soon',
+  'teacher.home.today.empty': 'No teaching scheduled today',
+  'teacher.home.today.loading': "Loading today's teaching...",
+  'teacher.home.today.loadFailed': "Failed to load today's teaching",
+  'teacher.home.today.loginRequired': "Sign in to view today's teaching",
+  'teacher.home.today.lessonsSuffix': 'lessons',
+  'teacher.home.today.remaining': 'Remaining',
+  'teacher.home.today.classLabel': 'Class',
+  'teacher.home.today.sizeLabel': 'Students',
+  'teacher.home.today.viewSchedule': 'View timetable',
 }
