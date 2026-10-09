@@ -6,12 +6,17 @@ import { TPageHeader, TEmptyState } from './templates'
 // #788 i18n：文案经 useI18n 响应式取词（locale 变化自动重渲染）
 import { useI18n } from '../utils/app_i18n'
 import { tf } from '../features/schedule/utils/i18n_text'
+import { useAuthStore } from '../stores/auth'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
 })
 
 const emit = defineEmits(['back', 'logout'])
+
+// 身份由后端 UserInfo.role 驱动（登录/会话恢复时覆盖）；仅用于 UI 分流，
+// 真正的接口路径分派在 Rust 侧按会话角色判定，前端传参不决定身份。
+const authStore = useAuthStore()
 
 // 响应式 t：语言切换后本页全部文案即时生效
 const { t } = useI18n()
@@ -695,6 +700,9 @@ const applyProfileToFilters = (profile) => {
 }
 
 const fetchUserProfile = async () => {
+  // Teacher Portal V2 / E4 #1024：教师身份不得调用学生个人学籍接口做筛选前置
+  // （学生个人学籍接口仅学生可用）。教师端筛选默认值由通用字典提供。
+  if (authStore.isTeacher) return
   if (!props.studentId) return
   try {
     const res = await axios.post(`${API_BASE}/v2/student_info`, {

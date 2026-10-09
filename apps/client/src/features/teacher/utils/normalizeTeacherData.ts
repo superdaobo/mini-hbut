@@ -91,30 +91,58 @@ export const stripInjectedIdentityFields = (
 // HTML / 文本
 // ────────────────────────────────────────────────────────────────
 
+/**
+ * 单次扫描的实体解码表。
+ *
+ * 刻意用「一次扫描 + 映射」而不是链式 `.replace`：链式替换会把 `&amp;lt;` 解成
+ * `&lt;` 再解成 `<`，即**双重反转义**，等于凭空造出标签（CodeQL `js/double-escaping`）。
+ */
+const HTML_ENTITY_MAP: Readonly<Record<string, string>> = Object.freeze({
+  '&nbsp;': ' ',
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#39;': "'"
+})
+
+/** 一次性解码实体：`&amp;lt;` 只解成 `&lt;`，不会继续解成 `<`。 */
+const decodeEntitiesOnce = (input: string): string =>
+  input.replace(/&(?:nbsp|amp|lt|gt|quot|#39);/gi, (entity) => {
+    const mapped = HTML_ENTITY_MAP[entity.toLowerCase()]
+    return mapped === undefined ? entity : mapped
+  })
+
+/**
+ * 反复剥标签直到结果稳定。
+ *
+ * 单次 `replace` 可被嵌套构造绕过（如 `<<script>script>` 只删掉前半段，反而
+ * 留下可解析的片段，CodeQL `js/incomplete-multi-character-sanitization`）；
+ * 因此循环到不再变化为止，并设置上限防止构造出的病态输入导致死循环。
+ */
+const stripTagsUntilStable = (input: string): string => {
+  let current = input
+  for (let pass = 0; pass < 32; pass += 1) {
+    const next = current.replace(/<[^>]*>?/g, '')
+    if (next === current) return next
+    current = next
+  }
+  // 达到上限仍不稳定：说明输入异常，按「宁可多删」原则丢弃剩余尖括号内容。
+  return current.replace(/[<>]/g, '')
+}
+
 /** 将含 HTML 的字段清洗为**纯文本**（用于标题、列表行）。 */
 export const stripTeacherHtml = (raw: unknown): string => {
   const text = asString(raw)
   if (!text) return ''
   if (!looksLikeHtml(text)) return text
-  // 先白名单清洗，再剥掉剩余标签；`&nbsp;` 等实体做最小还原。
+  // 先白名单清洗 → 实体只解一次 → 剥标签直到稳定。
+  // 顺序很关键：先解实体再剥标签，解码可能还原出的标签会在下一步被剥掉，
+  // 因此输出中不可能残留可解析标记。
   const sanitized = sanitizeSchoolInboxHtml(text)
-  return sanitized
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
+  return stripTagsUntilStable(decodeEntitiesOnce(sanitized))
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-/** 将含 HTML 的字段清洗为**安全 HTML**（仅白名单标签，禁止脚本/事件属性）。 */
-export const sanitizeTeacherHtml = (raw: unknown): string => {
-  const text = asString(raw)
-  if (!text) return ''
-  return looksLikeHtml(text) ? sanitizeSchoolInboxHtml(text) : ''
 }
 
 /** 通用文本标准化：去首尾空白 + 折叠内部连续空白。 */

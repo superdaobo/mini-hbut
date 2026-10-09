@@ -158,7 +158,8 @@ watch(showSponsorEntry, (allowed) => {
 })
 
 const handleLogout = () => emit('logout')
-const goStudentInfo = () => emit('navigate', 'studentinfo')
+// E2（#1022）：个人信息入口按真实身份分流 —— 教师进教师资料页，学生保持原学生资料页。
+const goStudentInfo = () => emit('navigate', authStore.isTeacher ? 'teacherprofile' : 'studentinfo')
 const handleCheckUpdate = () => emit('checkUpdate')
 const handleOpenOfficial = () => emit('openOfficial')
 const handleOpenConfig = () => emit('openConfig')

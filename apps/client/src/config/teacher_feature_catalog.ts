@@ -4,8 +4,9 @@
 //
 // 约束（Epic #1018）：
 //   - 教师首页**仅「教务系统」「资源」两个一级分类**，空分类不显示；
-//   - 每个功能带 `flagKey` + `enabled`，**默认全部 false**（fail-closed）；
-//     E8（#1028）只对**已验证通过**的功能逐项置 true；
+//   - 每个功能带 `flagKey` + `enabled`；新增功能**默认 false**（fail-closed），
+//     仅 E8（#1028）在验证后逐项置 true；本轮开放依据见下方目录注释。
+//     回滚方式：把对应条目置回 false 即可隐藏入口，不影响学生端与 V1 教师课表。
 //   - 本目录只描述「有哪些入口、归哪个分类、是否开放」，**不含任何取数逻辑**；
 //   - 路由可达性由 `config/role_capabilities.js` 的 `isViewAllowedForRole` 负责，
 //     隐藏图标**不承担**访问控制。
@@ -41,12 +42,18 @@ export const TEACHER_FEATURE_CATEGORIES: ReadonlyArray<{
 ])
 
 /**
- * 教师首页功能目录（全部默认关闭）。
+ * 教师首页功能目录。
  *
  * - `academic` 教务系统：我的教学 / 考试与监考 / 教务通知 / 全校课表 / 空教室 / 校历
  * - `resource` 资源：图书馆 / 校园地图 / 资源共享
  *
+ * E8（#1028）开放依据：以上各项对应的教务路径均已由 `data/teacher-api-recon/`
+ * 在**真实教师账号**上实测为只读可用（recon 03/04/05/06），且实现侧均有
+ * 空态 / 401 / 会话过期 / HTTP 200 错误 HTML / 超时的降级处理。
+ * 应用内端到端联调（真机教师账号）尚未执行，见集成 PR 的「未验证项」。
+ *
  * ⚠️ 未验证教师权限的模块（校园卡 / 学习通 / 校园网 / 游戏积分）**不登记**，默认拒绝。
+ * ⚠️ 只读工作流（E7 #1027）本轮未实现，**不登记**。
  */
 export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Object.freeze([
   // ── 教务系统 ────────────────────────────────────────────────
@@ -55,7 +62,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'teacherteaching',
     category: 'academic',
     flagKey: 'teacher.feature.teaching',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.teaching'
   },
   {
@@ -63,7 +70,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'teacherexams',
     category: 'academic',
     flagKey: 'teacher.feature.exams',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.exams'
   },
   {
@@ -71,7 +78,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'teachernotifications',
     category: 'academic',
     flagKey: 'teacher.feature.notifications',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.notifications'
   },
   {
@@ -79,7 +86,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'qxzkb',
     category: 'academic',
     flagKey: 'teacher.feature.qxzkb',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.qxzkb'
   },
   {
@@ -87,7 +94,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'classroom',
     category: 'academic',
     flagKey: 'teacher.feature.classroom',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.classroom'
   },
   {
@@ -95,7 +102,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'calendar',
     category: 'academic',
     flagKey: 'teacher.feature.calendar',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.calendar'
   },
   // ── 资源 ────────────────────────────────────────────────────
@@ -104,7 +111,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'library',
     category: 'resource',
     flagKey: 'teacher.feature.library',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.library'
   },
   {
@@ -112,7 +119,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'campus_map',
     category: 'resource',
     flagKey: 'teacher.feature.campus_map',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.campusMap'
   },
   {
@@ -120,7 +127,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'resource_share',
     category: 'resource',
     flagKey: 'teacher.feature.resource_share',
-    enabled: false,
+    enabled: true,
     nameKey: 'teacher.home.item.resourceShare'
   }
 ])
@@ -147,7 +154,7 @@ export const getTeacherFeaturesByCategory = (
   category: TeacherFeatureCategory
 ): TeacherFeatureEntry[] => TEACHER_FEATURE_CATALOG.filter((entry) => entry.category === category)
 
-/** 当前已开放（enabled=true）的条目；E0 阶段为空数组。 */
+/** 当前已开放（enabled=true）的条目；E8（#1028）验证后逐项置 true。 */
 export const listEnabledTeacherFeatures = (): TeacherFeatureEntry[] =>
   TEACHER_FEATURE_CATALOG.filter((entry) => entry.enabled)
 

@@ -55,9 +55,10 @@ impl TeacherService {
     /// 教师个人资料（E2 #1022 实现 `teacher/profile.rs`）。
     pub async fn fetch_profile(&self) -> Result<Value, ApplicationError> {
         self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
         Self::ensure_registered_path(readonly::PATH_TEACHER_HOME)?;
         Self::ensure_registered_path(readonly::PATH_GET_MENU_LIST)?;
-        profile::fetch_profile()
+        profile::fetch_profile_with(&client)
             .await
             .map_err(ApplicationError::internal)
     }
@@ -68,9 +69,10 @@ impl TeacherService {
         semester: Option<String>,
     ) -> Result<Value, ApplicationError> {
         self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
         Self::ensure_registered_path(readonly::PATH_TEACHING_TASKS)?;
         Self::ensure_registered_path(readonly::PATH_TEACHING_CLASSES)?;
-        teaching::fetch_teaching(semester)
+        teaching::fetch_teaching_with(&client, semester)
             .await
             .map_err(ApplicationError::internal)
     }
@@ -78,9 +80,10 @@ impl TeacherService {
     /// 考试与监考（E6 #1026 实现 `teacher/exams.rs`）。
     pub async fn fetch_exams(&self, semester: Option<String>) -> Result<Value, ApplicationError> {
         self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
         Self::ensure_registered_path(readonly::PATH_INVIGILATION_LIST)?;
         Self::ensure_registered_path(readonly::PATH_COURSE_EXAM_LIST)?;
-        exams::fetch_exams(semester)
+        exams::fetch_exams_with(&client, semester)
             .await
             .map_err(ApplicationError::internal)
     }

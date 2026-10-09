@@ -913,3 +913,50 @@ export const clearRemindersForLogout = async (studentId: string): Promise<Cancel
   if (readActiveScope() === sid) clearActiveScope()
   return result
 }
+
+// ============ 教师分支（E3 #1023）：作用域完全隔离 ============
+//
+// 教师授课提醒使用 `teacher:{accountId}:{semester}` 作用域：
+//   - 提醒 ID 由教师作用域字符串派生 → 永不等于学生 ID（严禁复用学生 studentId 去重键）；
+//   - 台账 / 快照均为教师专属键，与学生域互不串扰；
+//   - reconcile 编排在 `features/teacher/utils/teacher_reminders.ts`，
+//     只消费显式传入的教师课程，不读学生课表 / 考试 / 电费。
+//
+// 学期缺失时退化为占位 `_`，绝不回落到学生域。
+
+/** 教师提醒作用域前缀（与学生域前缀 `student:` 永不相等）。 */
+export const TEACHER_REMINDER_SCOPE_PREFIX = 'teacher'
+
+/** 构造教师提醒作用域：`teacher:{accountId}:{semester}`。 */
+export const buildTeacherReminderScope = (accountId: unknown, semester: unknown): string => {
+  const account = toSafeText(accountId) || '_'
+  const term = toSafeText(semester) || '_'
+  return `${TEACHER_REMINDER_SCOPE_PREFIX}:${account}:${term}`
+}
+
+/** 教师提醒台账键（与学生 `ledgerKeyFor` 完全不同命名空间）。 */
+export const teacherReminderLedgerKeyFor = (accountId: unknown, semester: unknown): string =>
+  `hbu_local_reminder_ledger:${buildTeacherReminderScope(accountId, semester)}`
+
+/** 教师提醒快照键（供只读视图展示「教学提醒」）。 */
+export const teacherReminderSnapshotKeyFor = (accountId: unknown, semester: unknown): string =>
+  `hbu_teacher_reminder_snapshot:${buildTeacherReminderScope(accountId, semester)}`
+
+/** 教师提醒事件（只读视图消费）。 */
+export interface TeacherReminderEvent {
+  id: number
+  type: ReminderType
+  title: string
+  body: string
+  atEpochSecs: number
+  targetView: string
+}
+
+/** 供教师提醒分支复用：解析平台实现（默认 Tauri 适配器）。 */
+export const resolveLocalReminderPlatform = (
+  platform?: LocalReminderPlatform
+): LocalReminderPlatform => platform || getPlatform()
+
+/** 供教师提醒分支复用：当前运行时是否支持系统预调度。 */
+export const isLocalReminderRuntimeSupported = (): Promise<boolean> => isSupportedRuntime()
+

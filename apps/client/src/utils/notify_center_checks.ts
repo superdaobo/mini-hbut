@@ -22,8 +22,13 @@ import {
 import { hasUnconsumedPresentedEvent } from './background_notification'
 import { t, tf } from './app_i18n'
 import { filterVisibleOfficialCourses } from './schedule_visibility'
-import { checkElectricity } from './notify_center_electricity.js'
 export type { ElectricityCheckResult } from './notify_center_electricity.js'
+// E3 #1023：教师身份隔离（学生通知检测的教师安全分支）。
+import {
+  checkElectricityTeacherSafe,
+  isTeacherNotificationContext,
+  TEACHER_SCOPE_SKIPPED
+} from './notify_teacher_scope.js'
 import {
   DEFAULT_CHANNEL_ID,
   NotifySettingsFull,
@@ -305,6 +310,10 @@ export interface ScheduleRefreshResult extends CheckResult {
 }
 
 const refreshScheduleSilently = async (studentId: string): Promise<ScheduleRefreshResult> => {
+  // E3 #1023：教师身份不刷新学生课表（教师课表走教师只读链路）。
+  if (isTeacherNotificationContext()) {
+    return { success: false, error: TEACHER_SCOPE_SKIPPED }
+  }
   const timeoutMs = getRequestTimeoutMs()
   try {
     const res = await axios.post(
@@ -385,6 +394,10 @@ const checkGrades = async (
   queue: NoticeItem[]
 ): Promise<GradesCheckResult> => {
   const sid = toSafeText(studentId)
+  // E3 #1023：教师身份绝不请求学生成绩（不走 /v2/quick_fetch 学生分支）。
+  if (isTeacherNotificationContext()) {
+    return { success: false, total: 0, changed: false, latestItems: [], error: TEACHER_SCOPE_SKIPPED }
+  }
   const timeoutMs = getRequestTimeoutMs()
   try {
     const res = await axios.post(
@@ -462,6 +475,10 @@ const checkExams = async (
 ): Promise<ExamsCheckResult> => {
   const timeoutMs = getRequestTimeoutMs()
   const sid = toSafeText(studentId)
+  // E3 #1023：教师身份不请求学生考试（监考提醒由 E6 数据源接入后另行处理）。
+  if (isTeacherNotificationContext()) {
+    return { success: false, total: 0, upcoming: [], tomorrowCount: 0, error: TEACHER_SCOPE_SKIPPED }
+  }
   try {
     const res = await axios.post(
       toApiUrl('/v2/exams'),
@@ -591,6 +608,10 @@ const checkClassReminder = async (
   scheduleResult: ScheduleRefreshResult | null
 ): Promise<ClassReminderResult> => {
   const sid = toSafeText(studentId)
+  // E3 #1023：教师课前提醒走 local_reminder_scheduler 的教师分支，不消费学生课表。
+  if (isTeacherNotificationContext()) {
+    return { success: true, enabled: false, totalToday: 0, triggered: 0, reason: 'teacher-scope' }
+  }
   if (!sid) {
     return {
       success: false,
@@ -739,6 +760,10 @@ const checkSchoolInbox = async (
   queue: NoticeItem[]
 ): Promise<SchoolInboxResult> => {
   const sid = toSafeText(studentId)
+  // E3 #1023：教师通知由只读视图直接消费，不写入学生域去重快照 / ledger。
+  if (isTeacherNotificationContext()) {
+    return { success: true, enabled: false, total: 0, triggered: 0, reason: 'teacher-scope' }
+  }
   if (!sid) {
     return { success: false, enabled: false, total: 0, triggered: 0, reason: 'missing-student-id' }
   }
@@ -847,6 +872,10 @@ export const checkChaoxingInbox = async (
   queue: NoticeItem[]
 ): Promise<SchoolInboxResult> => {
   const sid = toSafeText(studentId)
+  // E3 #1023：教师身份不使用学习通渠道（教师端不提供学习通入口）。
+  if (isTeacherNotificationContext()) {
+    return { success: true, enabled: false, total: 0, triggered: 0, reason: 'teacher-scope' }
+  }
   if (!sid) {
     return { success: false, enabled: false, total: 0, triggered: 0, reason: 'missing-student-id' }
   }
@@ -955,7 +984,7 @@ export {
   refreshScheduleSilently,
   checkGrades,
   checkExams,
-  checkElectricity,
+  checkElectricityTeacherSafe as checkElectricity,
   checkClassReminder,
   checkSchoolInbox,
   sendQueuedNotifications
