@@ -471,11 +471,12 @@ pub struct HbutClient {
     /// #984 新增。此前只有 `test_finalize`，它整体替换 `finalize_jwxt_user_session()`，
     /// 导致 `/admin/caslogin` 这一跳在测试中**从未被真实执行过** —— 这正是 T4/T5
     /// （CAS 成功但教务落地失败 / 回到 CAS 登录页）此前写不出来的原因。
-    /// 返回 `(final_url, status, html)`，与 `test_cas_post` 形状一致。
+    /// 返回 `(status, final_url, html)`，与 `request_caslogin` 的返回顺序一致；
+    /// `html` 供身份识别（`#roleId`）复用，注入时传空串即回落到显式取教务首页。
     #[cfg(test)]
     pub(super) test_caslogin: Option<
         std::sync::Arc<
-            dyn Fn() -> Result<(String, u16, String), Box<dyn std::error::Error + Send + Sync>>
+            dyn Fn() -> Result<(u16, String, String), Box<dyn std::error::Error + Send + Sync>>
                 + Send
                 + Sync,
         >,

@@ -12,6 +12,7 @@
 //! - `ranking`：排名
 //! - `student_info`：学籍与个人登录/访问记录
 //! - `schedule`：课表与空教室、学期列表
+//! - `teacher`：教师端身份识别与教师课表（与学生链路语义不同，独立成模块）
 //! - `training_plan`：培养方案
 //! - `calendar`：校历数据
 //! - `academic_progress`：学业进度
@@ -29,4 +30,5 @@ mod ranking;
 mod schedule;
 mod semester;
 mod student_info;
+mod teacher;
 mod training_plan;

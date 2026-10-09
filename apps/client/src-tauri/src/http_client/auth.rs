@@ -493,17 +493,17 @@ impl HbutClient {
     async fn bootstrap_jwxt_caslogin(
         &self,
         caslogin_url: &str,
-    ) -> Result<JwxtBootstrapOutcome, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(JwxtBootstrapOutcome, String, String), Box<dyn std::error::Error + Send + Sync>>
+    {
         // 测试构建可注入 caslogin 结果（#984 新增，见 `test_caslogin`）。
         #[cfg(test)]
-        let (status, final_url) = if let Some(inject) = &self.test_caslogin {
-            let (url, status, _html) = inject()?;
-            (status, url)
+        let (status, final_url, html) = if let Some(inject) = &self.test_caslogin {
+            inject()?
         } else {
             Self::request_caslogin(&self.client, caslogin_url).await?
         };
         #[cfg(not(test))]
-        let (status, final_url) = Self::request_caslogin(&self.client, caslogin_url).await?;
+        let (status, final_url, html) = Self::request_caslogin(&self.client, caslogin_url).await?;
 
         crate::hbut_auth_log!(
             "[Auth] JWXT caslogin status={} final_url={}",
@@ -511,15 +511,22 @@ impl HbutClient {
             final_url
         );
 
-        Ok(Self::classify_jwxt_bootstrap(status, &final_url))
+        Ok((
+            Self::classify_jwxt_bootstrap(status, &final_url),
+            final_url,
+            html,
+        ))
     }
 
-    /// 发起一次 `/admin/caslogin` 请求，返回 `(status, final_url)`。
+    /// 发起一次 `/admin/caslogin` 请求，返回 `(status, final_url, html)`。
     /// 传输层失败会被分类为 [`JwxtBootstrapOutcome::TransportError`]（见调用方）。
+    ///
+    /// 返回 HTML 是为了复用落地页做身份识别（`#roleId` / `.admin_name` / `.arrowbt`），
+    /// 避免为了判定教师/学生而多发一次请求。
     async fn request_caslogin(
         client: &reqwest::Client,
         caslogin_url: &str,
-    ) -> Result<(u16, String), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(u16, String, String), Box<dyn std::error::Error + Send + Sync>> {
         let response = match client.get(caslogin_url).send().await {
             Ok(resp) => resp,
             Err(err) => {
@@ -530,15 +537,15 @@ impl HbutClient {
                         err
                     );
                     // 用 0 表示「未收到任何 HTTP 响应」，由 classify 归为 TransportError
-                    return Ok((0, String::new()));
+                    return Ok((0, String::new(), String::new()));
                 }
                 return Err(Box::new(err));
             }
         };
         let status = response.status().as_u16();
         let final_url = response.url().to_string();
-        let _ = response.text().await;
-        Ok((status, final_url))
+        let html = response.text().await.unwrap_or_default();
+        Ok((status, final_url, html))
     }
 
     /// 纯函数：把 `/admin/caslogin` 的 `(status, final_url)` 分类为 [`JwxtBootstrapOutcome`]。
@@ -576,7 +583,8 @@ impl HbutClient {
         &mut self,
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let caslogin_url = format!("{}/admin/caslogin", super::JWXT_BASE_URL);
-        let outcome = self.bootstrap_jwxt_caslogin(&caslogin_url).await?;
+        let (outcome, _final_url, landing_html) =
+            self.bootstrap_jwxt_caslogin(&caslogin_url).await?;
         crate::hbut_auth_log!("[Auth] JWXT bootstrap result={:?}", outcome);
 
         match outcome {
@@ -597,6 +605,32 @@ impl HbutClient {
                 return Err(HttpClientError::jwxt_bootstrap_failed().into());
             }
             JwxtBootstrapOutcome::Authenticated => {}
+        }
+
+        // 会话已建立 → 先识别身份，再按身份取用户信息。
+        //
+        // 教师端与学生端共用同一套 CAS 登录，但登录后开放的是两套接口：
+        // 教师账号访问学生学籍接口 `/admin/xsd/xsjbxx/xskp` 会直接报
+        // 「登录用户所属身份类型不是学生」。因此这里必须分流，不能只走学生链路。
+        // 身份优先复用 caslogin 落地页（零额外请求），解析不到才显式取一次教务首页。
+        let identity = self.resolve_jwxt_identity(&landing_html).await?;
+        let role = identity
+            .as_ref()
+            .map(|i| crate::IdentityRole::from_jwxt_role_id(&i.role_id))
+            .unwrap_or_default();
+        if role.is_teacher() {
+            let identity = identity.expect("教师身份必然带有身份信息");
+            crate::hbut_auth_log!(
+                "[Auth] 识别为教师身份 account={} name={}",
+                identity.account_id,
+                identity.name
+            );
+            return Ok(UserInfo {
+                student_id: identity.account_id,
+                student_name: identity.name,
+                role: crate::IdentityRole::Teacher,
+                ..Default::default()
+            });
         }
 
         // 会话已建立 → 用业务资源做最终判定
@@ -1088,6 +1122,7 @@ impl HbutClient {
                 major: None,
                 class_name: None,
                 grade: None,
+                ..Default::default()
             }));
         }
     }
@@ -1791,6 +1826,7 @@ mod login_cooldown_tests {
             major: None,
             class_name: None,
             grade: None,
+            ..Default::default()
         }
     }
 
@@ -2009,6 +2045,7 @@ mod jwxt_bootstrap_tests {
             major: None,
             class_name: None,
             grade: None,
+            ..Default::default()
         }
     }
 
@@ -2141,7 +2178,7 @@ mod jwxt_bootstrap_tests {
         let cl = caslogin_calls.clone();
         client.test_caslogin = Some(Arc::new(move || {
             cl.fetch_add(1, Ordering::SeqCst);
-            Ok((JWXT_LOGIN.to_string(), 200u16, String::new()))
+            Ok((200u16, JWXT_LOGIN.to_string(), String::new()))
         }));
 
         let err = client
@@ -2184,7 +2221,7 @@ mod jwxt_bootstrap_tests {
             Ok((JWXT_HOME.to_string(), 200u16, String::new()))
         }));
         client.test_caslogin = Some(Arc::new(move || {
-            Ok((CAS_LOGIN_WITH_SERVICE.to_string(), 302u16, String::new()))
+            Ok((302u16, CAS_LOGIN_WITH_SERVICE.to_string(), String::new()))
         }));
 
         // 纯分类断言
@@ -2413,6 +2450,7 @@ mod login_log_contract_tests {
             major: None,
             class_name: None,
             grade: None,
+            ..Default::default()
         };
         let result: Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> = Ok(info);
         let line = HbutClient::format_login_outcome_line("门户密码登录", LoginStage::Done, &result);
@@ -2531,8 +2569,8 @@ mod login_runtime_log_tests {
         }));
         client.test_caslogin = Some(Arc::new(|| {
             Ok((
-                "https://jwxt.hbut.edu.cn/admin/login".to_string(),
                 200u16,
+                "https://jwxt.hbut.edu.cn/admin/login".to_string(),
                 String::new(),
             ))
         }));
@@ -2578,6 +2616,7 @@ mod login_runtime_log_tests {
                 major: None,
                 class_name: None,
                 grade: None,
+                ..Default::default()
             })
         }));
 

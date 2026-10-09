@@ -26,6 +26,8 @@ pub struct SavedAccountInfo {
     pub has_cookies: bool,
     /// 是否为当前活跃账号
     pub is_current: bool,
+    /// 身份类型（`student` / `teacher`）；历史行为空串，前端按学生展示。
+    pub role: String,
 }
 
 /// 学号脱敏：`2510232001` → `2510****2001`；过短/非纯数字整体掩码，空串原样返回。
@@ -102,6 +104,12 @@ impl AuthService {
             Some(""),
             Some(""),
         );
+        // 身份类型随会话落库：切换账号/离线恢复时无需再联网识别教师还是学生。
+        let _ = db::save_user_session_role(
+            self.context.db_path(),
+            &session_key,
+            user_info.role.as_str(),
+        );
         // 兼容旧客户端按登录用户名查会话：username != 学号 时双写（#578 收敛须保持原语义）
         if session_key != username {
             let _ = db::save_user_session(
@@ -156,6 +164,7 @@ impl AuthService {
                         one_code_token: latest.one_code_token,
                         refresh_token: latest.refresh_token,
                         token_expires_at: latest.token_expires_at,
+                        role: latest.role,
                     });
                 }
             }
@@ -188,6 +197,13 @@ impl AuthService {
             }
             client.persist_session_cookies(&user_info.student_id);
         }
+
+        // 身份类型回写：登录路径已写入，这里覆盖「登录时未识别、恢复时才识别」的历史行。
+        let _ = db::save_user_session_role(
+            self.context.db_path(),
+            &user_info.student_id,
+            user_info.role.as_str(),
+        );
 
         Ok(user_info)
     }
@@ -226,6 +242,7 @@ impl AuthService {
                 display_name: row.display_name,
                 has_cookies: row.has_cookies,
                 is_current: current.as_deref() == Some(row.student_id.as_str()),
+                role: row.role,
             })
             .collect())
     }
@@ -286,6 +303,7 @@ impl AuthService {
             &session.one_code_token,
             &session.refresh_token,
             &session.token_expires_at,
+            crate::IdentityRole::from_stored(&session.role),
         );
 
         // 4. 持久化对齐（与登录成功一致）：v2 全域 + 旧列 cookies 双写、last_login 刷新；

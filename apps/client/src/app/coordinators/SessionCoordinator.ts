@@ -96,6 +96,24 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   }
 
   // ── 会话状态判定 ─────────────────────────────────────────────────────
+  /**
+   * 会话恢复/自动重登链的**统一收口**：写入学号与登录身份。
+   *
+   * 身份以教务系统返回为准（后端 `UserInfo.role`）；旧缓存/旧后端没有该字段时
+   * 保持当前值不变（默认学生），避免把已识别的教师身份重置掉。
+   */
+  const applyRestoredIdentity = (userInfo: Record<string, unknown> | null | undefined) => {
+    const sid = String((userInfo?.student_id ?? userInfo?.studentId ?? '') || '').trim()
+    if (!sid) return false
+    state.studentId.value = sid
+    saveRememberedUsername(sid)
+    const role = String(userInfo?.role || '').trim()
+    if (role) {
+      state.setIdentityRole(role)
+    }
+    return true
+  }
+
   const markLoginSessionToken = () => {
     try {
       localStorage.setItem(LOGIN_SESSION_TOKEN_KEY, `${Date.now()}`)
@@ -196,8 +214,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         ? await invoke('restore_session', { cookies })
         : await restoreSessionViaBridge(cookies)
       if (userInfo?.student_id) {
-        state.studentId.value = userInfo.student_id
-        saveRememberedUsername(userInfo.student_id)
+        applyRestoredIdentity(userInfo)
         return true
       }
     } catch (e) {
@@ -230,8 +247,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     try {
       const userInfo = await invoke('restore_latest_session')
       if (userInfo?.student_id) {
-        state.studentId.value = userInfo.student_id
-        saveRememberedUsername(userInfo.student_id)
+        applyRestoredIdentity(userInfo)
         await persistSessionCookies()
         return true
       }
@@ -352,8 +368,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
           userInfo?.student_id || userInfo?.studentId || creds.username || ''
         ).trim()
         if (sid) {
-          state.studentId.value = sid
-          saveRememberedUsername(sid)
+          applyRestoredIdentity({ ...userInfo, student_id: sid })
         }
         // #931：后端凭据走完整 CAS 登录，同样进入 Rust 冷却窗口
         noteLoginSuccess()
@@ -380,8 +395,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
           await persistSessionCookies()
           const sid = String(userInfo?.student_id || creds.username || '').trim()
           if (sid) {
-            state.studentId.value = sid
-            saveRememberedUsername(sid)
+            applyRestoredIdentity({ ...userInfo, student_id: sid })
           }
           return userInfo
         },

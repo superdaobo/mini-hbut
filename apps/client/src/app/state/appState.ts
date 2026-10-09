@@ -8,7 +8,7 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { AppStores } from '../contracts/runtime'
-import type { OnlineSessionState } from '../../stores/auth'
+import type { OnlineSessionState, IdentityRole } from '../../stores/auth'
 import {
   HOME_LAYOUT_DEBUG_FORCE_KEY,
   HOME_LAYOUT_DEBUG_HIDDEN_KEY,
@@ -67,6 +67,11 @@ export interface AppState {
   studentId: Ref<string>
   userUuid: Ref<string>
   isLoggedIn: Ref<boolean>
+  /** 登录身份：学生端 / 教师端（教师模式下隐藏学生专属功能） */
+  role: Ref<IdentityRole>
+  isTeacher: ComputedRef<boolean>
+  /** 由后端 `UserInfo.role` 驱动写入身份（登录 / 会话恢复链共用） */
+  setIdentityRole: (role: unknown) => void
   // GitHub #659：缓存身份 ≠ 在线会话。unknown/cached_offline/recovering/online/needs_login
   onlineSessionState: Ref<OnlineSessionState>
   gradeData: Ref<unknown[]>
@@ -298,6 +303,9 @@ export const createAppState = (stores: AppStores, options: CreateAppStateOptions
     studentId: authRefs.studentId,
     userUuid: authRefs.userUuid,
     isLoggedIn: authRefs.isLoggedIn,
+    role: authRefs.role,
+    isTeacher: authRefs.isTeacher,
+    setIdentityRole: (role: unknown) => stores.auth.setRole(role),
     onlineSessionState: authRefs.onlineSessionState,
     gradeData: gradeRefs.grades,
     gradesOffline: gradeRefs.offline,

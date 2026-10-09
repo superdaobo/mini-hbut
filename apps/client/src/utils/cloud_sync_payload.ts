@@ -25,6 +25,7 @@ import {
   toSafeText
 } from './cloud_sync_storage.js'
 import { asRecord } from './cloud_sync_transport.js'
+import { isTeacherRoleValue, readLoginRole } from './login_role.js'
 import { pushDebugLog } from './debug_logger'
 import { buildScheduleVisibilityCloudSnapshot } from './schedule_visibility'
 
@@ -133,31 +134,38 @@ export const primeAcademicCaches = async (
   const sid = toSafeText(studentId)
   let grades = Array.isArray(seedGrades) ? seedGrades : []
   if (!sid) return grades
+  // 教师端不做学业数据预热（成绩 / 学籍 / 考试 / 排名）：学生专属接口对教师账号
+  // 一律报错，徒增无效请求与日志噪音；课表预热保留（教师课表同样需要）。
+  const teacherMode = isTeacherRoleValue(readLoginRole())
   const skipSemesterRankingWarmup = options?.skipSemesterRankingWarmup !== false
   const semesters = skipSemesterRankingWarmup ? [] : await fetchSemestersForSync(sid)
   let authoritativeGrades: unknown[] | null = null
-  try {
-    if (!grades.length) {
-      const gradeRes = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: sid })
-      const gradeData = asRecord(gradeRes?.data)
-      if (gradeData.success && Array.isArray(gradeData.data)) {
-        grades = gradeData.data as unknown[]
+  if (!teacherMode) {
+    try {
+      if (!grades.length) {
+        const gradeRes = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: sid })
+        const gradeData = asRecord(gradeRes?.data)
+        if (gradeData.success && Array.isArray(gradeData.data)) {
+          grades = gradeData.data as unknown[]
+          authoritativeGrades = grades
+        }
+      } else {
         authoritativeGrades = grades
       }
-    } else {
-      authoritativeGrades = grades
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
-  try {
-    const studentInfoRes = await axios.post(`${API_BASE}/v2/student_info`, { student_id: sid })
-    if (asRecord(studentInfoRes?.data).success) {
-      setCachedData(`studentinfo:${sid}`, studentInfoRes.data)
-      setCachedData(`student_info:${sid}`, studentInfoRes.data)
+  if (!teacherMode) {
+    try {
+      const studentInfoRes = await axios.post(`${API_BASE}/v2/student_info`, { student_id: sid })
+      if (asRecord(studentInfoRes?.data).success) {
+        setCachedData(`studentinfo:${sid}`, studentInfoRes.data)
+        setCachedData(`student_info:${sid}`, studentInfoRes.data)
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
   try {
     const scheduleRes = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: sid })
@@ -172,25 +180,29 @@ export const primeAcademicCaches = async (
   } catch {
     // ignore
   }
-  try {
-    const examRes = await axios.post(`${API_BASE}/v2/exams`, { student_id: sid, semester: '' })
-    if (asRecord(examRes?.data).success) {
-      setCachedData(`exams:${sid}:current`, examRes.data)
+  if (!teacherMode) {
+    try {
+      const examRes = await axios.post(`${API_BASE}/v2/exams`, { student_id: sid, semester: '' })
+      if (asRecord(examRes?.data).success) {
+        setCachedData(`exams:${sid}:current`, examRes.data)
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
-  try {
-    const allRankingRes = await axios.post(`${API_BASE}/v2/ranking`, { student_id: sid, semester: '' })
-    if (asRecord(allRankingRes?.data).success) {
-      setCachedData(`ranking:${sid}`, allRankingRes.data)
-      setCachedData(`ranking:${sid}:all`, allRankingRes.data)
+  if (!teacherMode) {
+    try {
+      const allRankingRes = await axios.post(`${API_BASE}/v2/ranking`, { student_id: sid, semester: '' })
+      if (asRecord(allRankingRes?.data).success) {
+        setCachedData(`ranking:${sid}`, allRankingRes.data)
+        setCachedData(`ranking:${sid}:all`, allRankingRes.data)
+      }
+      if (skipSemesterRankingWarmup) {
+        pushDebugLog('CloudSync', `跳过分学期排名预热 student=${sid} semesters=${semesters.length}`, 'debug')
+      }
+    } catch {
+      // ignore
     }
-    if (skipSemesterRankingWarmup) {
-      pushDebugLog('CloudSync', `跳过分学期排名预热 student=${sid} semesters=${semesters.length}`, 'debug')
-    }
-  } catch {
-    // ignore
   }
   // 有教务权威列表（含空数组）时整表替换；否则仅用本地缓存拼快照（离线）。
   // 必须用 != null 判断：[] 为 truthy 但 empty authority 也应 clear，不能走并集回退。

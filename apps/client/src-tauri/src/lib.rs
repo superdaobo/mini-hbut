@@ -51,7 +51,7 @@ use modules::usage_stats::commands as usage_stats_cmd;
 pub use transport::tauri::academic::{CalendarEvent, Classroom, Exam, Ranking};
 pub use transport::tauri::auth::{
     ChaoxingLoginContext, ChaoxingLoginResult, ChaoxingQrInitResponse, ChaoxingQrStatusResponse,
-    LoginPageInfo, PortalQrInitResponse, PortalQrStatusResponse, UserInfo,
+    IdentityRole, LoginPageInfo, PortalQrInitResponse, PortalQrStatusResponse, UserInfo,
 };
 pub use transport::tauri::chaoxing::{
     ChaoxingClassDownloadRequest, ChaoxingClassInviteRequest, ChaoxingClassResourceAccessRequest,

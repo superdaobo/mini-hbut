@@ -148,6 +148,13 @@ jobs:
         working-directory: apps/client
         run: npx vue-tsc --noEmit -p tsconfig.json
 
+      # 纯 JS 的 <script setup> 不被上面的 typecheck 覆盖（tsconfig 未开 checkJs），
+      # 「用了没导入的标识符」只会在运行时抛 ReferenceError，把组件整页打挂（白屏）。
+      # 本步用开 checkJs 的配置只筛 TS2304（Cannot find name），零噪音。
+      - name: JS SFC undefined-name gate
+        working-directory: apps/client
+        run: npm run typecheck:js-sfc
+
       - name: Tauri npm/rust version alignment
         working-directory: apps/client
         run: npm exec -- tauri info

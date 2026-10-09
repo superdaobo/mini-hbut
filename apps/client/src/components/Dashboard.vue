@@ -22,6 +22,7 @@ import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../util
 import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
 import { isTestAccountSession } from '../utils/test_account.js'
 import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
+import { filterModulesForRole, isModuleVisibleForRole, isTeacherRole } from '../config/role_capabilities'
 import { decideHomeNavigate } from '../utils/moduleAccess'
 import { useAuthStore } from '../stores'
 import { useViewportBreakpoint } from '../composables/useViewportBreakpoint'
@@ -114,6 +115,12 @@ const sessionDetailOpen = ref(false)
  */
 const authStore = useAuthStore()
 const onlineSessionState = computed(() => authStore.onlineSessionState || '')
+/**
+ * 当前登录身份（`student` / `teacher`），供角色能力过滤使用。
+ * 教师模式下首页需隐藏依赖学生专属教务接口的入口（否则点进去只会报错）。
+ * 由 auth store 的 `isTeacher` 推导，保持单一事实源。
+ */
+const currentRole = computed(() => (authStore.isTeacher ? 'teacher' : 'student'))
 
 const sessionStatusVisual = computed(() => {
   if (!props.isLoggedIn) return 'red'
@@ -650,10 +657,12 @@ const modules = computed(() => {
     ? baseModules
     : baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
   // 合规包：仅 guest / 演示会话过滤高风险模块；真实登录不过滤
-  return filterAllowedModules(scoped, {
+  const allowed = filterAllowedModules(scoped, {
     isLoggedIn: props.isLoggedIn,
     isDemoSession: isTestAccountSession()
   })
+  // 教师模式：追加一层角色白名单，隐藏学生专属教务入口（保持上述既有过滤语义不变）
+  return filterModulesForRole(allowed, currentRole.value)
 })
 
 const homeWorkspaceRef = ref(null)
@@ -1047,7 +1056,24 @@ const fetchWeather = async (force = false) => {
 // === 快捷入口（可配置） ===
 const QUICK_ENTRY_KEY = 'hbu_quick_entry_modules'
 const HOME_FEATURE_TAB_KEY = 'hbu_home_feature_tab'
+/** 学生端默认快捷入口 */
 const defaultQuickEntries = ['grades', 'exams', 'classroom', 'electricity', 'ranking']
+/**
+ * 教师端默认快捷入口：学生端的 5 项默认值**全部是学生专属功能**，
+ * 教师模式下会被角色能力表全部隐藏，因此教师需要一份自己的默认值，
+ * 否则首页快捷入口区会是空的。
+ */
+const teacherDefaultQuickEntries = ['calendar', 'qxzkb', 'school_inbox', 'library', 'ai']
+
+/**
+ * 快捷入口偏好按身份分开存储：学生沿用旧 key（零迁移），教师用带后缀的 key，
+ * 避免同一台设备上教师与学生互相覆盖对方的快捷入口配置。
+ */
+const quickEntryStorageKey = () =>
+  isTeacherRole(currentRole.value) ? `${QUICK_ENTRY_KEY}_teacher` : QUICK_ENTRY_KEY
+
+const roleDefaultQuickEntries = () =>
+  isTeacherRole(currentRole.value) ? teacherDefaultQuickEntries : defaultQuickEntries
 
 /** 合规策略会话参数：与 modules / navigateTo 保持一致 */
 const appStoreSessionOpts = () => ({
@@ -1059,15 +1085,27 @@ const quickEntryIds = ref([...defaultQuickEntries])
 const showQuickEntryEditor = ref(false)
 const draftQuickEntries = ref([...defaultQuickEntries])
 
+/**
+ * 按身份解析快捷入口：先滤掉当前身份不可见的项；若全被滤掉（教师沿用学生默认值
+ * 的场景），回落到该身份的默认项，保证教师端快捷入口不为空。
+ */
+const resolveRoleQuickEntries = (ids) => {
+  const list = Array.isArray(ids) ? ids : []
+  const visible = list.filter((id) => isModuleVisibleForRole(id, currentRole.value))
+  if (visible.length > 0 || !isTeacherRole(currentRole.value)) return visible
+  return [...teacherDefaultQuickEntries]
+}
+
 const loadQuickEntries = () => {
+  const key = quickEntryStorageKey()
   try {
-    const stored = localStorage.getItem(QUICK_ENTRY_KEY)
+    const stored = localStorage.getItem(key)
     if (stored) {
       const parsed = JSON.parse(stored)
       if (Array.isArray(parsed) && parsed.length === 5) { quickEntryIds.value = parsed; return }
     }
   } catch (_e) { /* ignore */ }
-  quickEntryIds.value = [...defaultQuickEntries]
+  quickEntryIds.value = [...roleDefaultQuickEntries()]
 }
 
 const saveQuickEntries = () => {
@@ -1079,14 +1117,15 @@ const saveQuickEntries = () => {
     return
   }
   quickEntryIds.value = next
-  localStorage.setItem(QUICK_ENTRY_KEY, JSON.stringify(quickEntryIds.value))
+  localStorage.setItem(quickEntryStorageKey(), JSON.stringify(quickEntryIds.value))
   showQuickEntryEditor.value = false
   showToast(t('home.quick.updated'), 'success')
 }
 
 const openQuickEntryEditor = () => {
   const session = appStoreSessionOpts()
-  draftQuickEntries.value = quickEntryIds.value.filter((id) => isModuleAllowed(id, session))
+  draftQuickEntries.value = resolveRoleQuickEntries(quickEntryIds.value)
+    .filter((id) => isModuleAllowed(id, session))
   showQuickEntryEditor.value = true
 }
 
@@ -1128,18 +1167,20 @@ const quickEntryMeta = {
 
 // 快捷入口也走策略过滤：默认含 electricity/ranking，guest/demo 不得展示被禁模块
 const quickEntryItems = computed(() => {
-  return quickEntryIds.value
+  return resolveRoleQuickEntries(quickEntryIds.value)
     .map((id) => ({ id, ...quickEntryMeta[id], name: t(quickEntryMeta[id]?.name || '') }))
     .filter((item) => item.name && isModuleAllowed(item.id, appStoreSessionOpts()))
 })
 
-/** 编辑器可选模块：同样隐藏合规收紧会话下的被禁入口 */
+/** 编辑器可选模块：同样隐藏合规收紧会话下的被禁入口 + 当前身份不可用的入口 */
 // 编辑器渲染时同样按当前语言取词（meta.name 存 key）
 const editableQuickEntryMeta = computed(() => {
   const session = appStoreSessionOpts()
   return Object.fromEntries(
     Object.entries(quickEntryMeta)
       .filter(([id]) => isModuleAllowed(id, session))
+      // 教师模式下不得再列出学生专属入口，否则用户能选到保存后被过滤为空的项
+      .filter(([id]) => isModuleVisibleForRole(id, currentRole.value))
       .map(([id, meta]) => [id, { ...meta, name: t(meta.name) }])
   )
 })
