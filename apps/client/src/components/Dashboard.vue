@@ -22,7 +22,11 @@ import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../util
 import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
 import { isTestAccountSession } from '../utils/test_account.js'
 import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
-import { filterModulesForRole, isModuleVisibleForRole, isTeacherRole } from '../config/role_capabilities'
+import { filterModulesForRole, isTeacherRole, isViewAllowedForRole } from '../config/role_capabilities'
+// 首页模块/分类/快捷入口元数据（#1021 从本文件抽出，抽取为零行为变化）
+import { BASE_MODULES, QUICK_ENTRY_META, buildModuleCategories } from '../config/dashboard_modules'
+import { useTeacherHome } from '../features/teacher/composables/useTeacherHome'
+import TeacherTodayCard from '../features/teacher/components/TeacherTodayCard.vue'
 import { decideHomeNavigate } from '../utils/moduleAccess'
 import { useAuthStore } from '../stores'
 import { useViewportBreakpoint } from '../composables/useViewportBreakpoint'
@@ -121,6 +125,16 @@ const onlineSessionState = computed(() => authStore.onlineSessionState || '')
  * 由 auth store 的 `isTeacher` 推导，保持单一事实源。
  */
 const currentRole = computed(() => (authStore.isTeacher ? 'teacher' : 'student'))
+
+/**
+ * 教师首页语义（#1021）：两分类功能目录、教师快捷入口、今日授课文案。
+ * 学生身份下全部回落到原有学生数据/文案，保证零回归。
+ */
+const teacherHome = useTeacherHome({ role: currentRole })
+/** 教师首页「今日授课」/ 学生「今日安排」的角色化文案 key */
+const todayI18n = computed(() => teacherHome.todayI18n.value)
+/** 是否教师首页（模板分流：今日授课语义、教师专属条目信息） */
+const isTeacherHome = computed(() => teacherHome.isTeacher.value)
 
 const sessionStatusVisual = computed(() => {
   if (!props.isLoggedIn) return 'red'
@@ -515,6 +529,9 @@ const buildTodayCourses = (courses, currentWeek) => {
       kind: 'course',
       isEvent: false,
       name: current.name, teacher, room,
+      // 教师「今日授课」展示教学班 / 人数（学生端为空串，模板不渲染）
+      className: String(current.class_name || '').trim(),
+      classSize: String(current.class_size || '').trim(),
       start: startText, end: endText,
       startMinutes: toMinutes(startText), endMinutes: toMinutes(endText)
     })
@@ -582,7 +599,7 @@ const fetchTodayCourses = async () => {
       } else {
         todayCourses.value = []
         homeSearchCourses.value = []
-        todayError.value = payload?.error || t('home.today.loadFailed')
+        todayError.value = payload?.error || t(todayI18n.value.loadFailed)
       }
       return
     }
@@ -604,58 +621,33 @@ const fetchTodayCourses = async () => {
     if (!isCurrentRequest()) return
     todayCourses.value = personalItems
     homeSearchCourses.value = []
-    todayError.value = personalItems.length > 0 ? '' : t('home.today.loadFailed')
+    todayError.value = personalItems.length > 0 ? '' : t(todayI18n.value.loadFailed)
   }
   finally { if (isCurrentRequest()) todayLoading.value = false }
 }
 
-// 模块列表（name/desc 仅存 i18n key，渲染时经 moduleLabel/moduleDesc 按当前语言取词）
-const baseModules = [
-  { id: 'grades', name: 'home.module.grades', iconKey: 'grades', color: '#667eea', desc: 'home.module.grades.desc', available: true, requiresLogin: true },
-  { id: 'classroom', name: 'home.module.classroom', iconKey: 'classroom', color: '#ed8936', desc: 'home.module.classroom.desc', available: true, requiresLogin: true },
-  { id: 'electricity', name: 'home.module.electricity', iconKey: 'electricity', color: '#e53e3e', desc: 'home.module.electricity.desc', available: true, requiresLogin: true },
-  { id: 'transactions', name: 'home.module.transactions', iconKey: 'transactions', color: '#F56C6C', desc: 'home.module.transactions.desc', available: true, requiresLogin: true },
-  { id: 'exams', name: 'home.module.exams', iconKey: 'exams', color: '#38b2ac', desc: 'home.module.exams.desc', available: true, requiresLogin: true },
-  { id: 'ranking', name: 'home.module.ranking', iconKey: 'ranking', color: '#f6ad55', desc: 'home.module.ranking.desc', available: true, requiresLogin: true },
-  { id: 'campus_code', name: 'home.module.campus_code', iconKey: 'campus_code', color: '#0f766e', desc: 'home.module.campus_code.desc', available: true, requiresLogin: true },
-  { id: 'calendar', name: 'home.module.calendar', iconKey: 'calendar', color: '#3b82f6', desc: 'home.module.calendar.desc', available: true, requiresLogin: true },
-  { id: 'school_inbox', name: 'home.module.school_inbox', iconKey: 'school_inbox', color: '#6366f1', desc: 'home.module.school_inbox.desc', available: true, requiresLogin: true },
-  { id: 'academic', name: 'home.module.academic', iconKey: 'academic', color: '#10b981', desc: 'home.module.academic.desc', available: true, requiresLogin: true },
-  { id: 'qxzkb', name: 'home.module.qxzkb', iconKey: 'qxzkb', color: '#6366f1', desc: 'home.module.qxzkb.desc', available: true, requiresLogin: true },
-  { id: 'course_selection', name: 'home.module.course_selection', iconKey: 'course_selection', color: '#f59e0b', desc: 'home.module.course_selection.desc', available: true, requiresLogin: true },
-  { id: 'training', name: 'home.module.training', iconKey: 'training', color: '#0ea5e9', desc: 'home.module.training.desc', available: true, requiresLogin: true },
-  { id: 'teaching_eval', name: 'home.module.teaching_eval', iconKey: 'teaching_eval', color: '#a855f7', desc: 'home.module.teaching_eval.desc', available: true, requiresLogin: true },
-  { id: 'chaoxing_hub', name: 'home.module.chaoxing_hub', iconKey: 'chaoxing_hub', color: '#2563eb', desc: 'home.module.chaoxing_hub.desc', available: true, requiresLogin: true },
-  { id: 'chaoxing_inbox', name: 'home.module.chaoxing_inbox', iconKey: 'chaoxing_inbox', color: '#4f46e5', desc: 'home.module.chaoxing_inbox.desc', available: true, requiresLogin: true },
-  { id: 'chaoxing_class', name: 'home.module.chaoxing_class', iconKey: 'chaoxing_class', color: '#3b82f6', desc: 'home.module.chaoxing_class.desc', available: true, requiresLogin: true },
-  { id: 'broadband', name: 'home.module.broadband', iconKey: 'broadband', color: '#0891b2', desc: 'home.module.broadband.desc', available: true, requiresLogin: true },
-  // 场馆依赖 172.16.54.20 校园网 + accessToken；外网/无校园网时 third/open 无法落地，暂禁用避免死入口
-  { id: 'sports_venue', name: 'home.module.sports_venue', iconKey: 'sports_venue', color: '#16a34a', desc: 'home.module.sports_venue.desc', available: false, requiresLogin: true },
-  { id: 'library', name: 'home.module.library', iconKey: 'library', color: '#0f766e', desc: 'home.module.library.desc', available: true, requiresLogin: false },
-  { id: 'campus_map', name: 'home.module.campus_map', iconKey: 'campus_map', color: '#14b8a6', desc: 'home.module.campus_map.desc', available: true, requiresLogin: false },
-  { id: 'resource_share', name: 'home.module.resource_share', iconKey: 'resource_share', color: '#0ea5e9', desc: 'home.module.resource_share.desc', available: true, requiresLogin: false },
-  { id: 'towergo', name: 'home.module.towergo', iconKey: 'towergo', color: '#22c55e', desc: 'home.module.towergo.desc', available: true, requiresLogin: false },
-  { id: 'ai', name: 'home.module.ai', iconKey: 'ai', color: '#94a3b8', desc: 'home.module.ai.desc', available: true, requiresLogin: true }
-]
+// 模块列表（BASE_MODULES：name/desc 仅存 i18n key，渲染时经 moduleLabel/moduleDesc 按当前语言取词）
 
-/** 模块名取词（key 形如 home.module.*；点击「更多」等合成项直接渲染译名） */
+/** 模块名取词（key 形如 home.module.* / teacher.home.item.*；点击「更多」等合成项直接渲染译名） */
 const moduleLabel = (module) => {
   const name = String(module?.name || '')
-  return name.startsWith('home.') ? t(name) : name
+  return name.startsWith('home.') || name.startsWith('teacher.') ? t(name) : name
 }
 /** 模块描述取词 */
 const moduleDesc = (module) => {
   const desc = String(module?.desc || '')
-  return desc.startsWith('home.') ? t(desc) : desc
+  return desc.startsWith('home.') || desc.startsWith('teacher.') ? t(desc) : desc
 }
 
 const modules = computed(() => {
   // 依赖登录态：合规包真实登录后应展开全功能模块列表
   void props.isLoggedIn
   void props.studentId
+  // 教师首页（#1021）：功能清单来自教师目录（仅「教务系统 / 资源」两类），不混入学生模块表
+  if (isTeacherRole(currentRole.value)) return teacherHome.homeModules.value
   const scoped = !isChaoxingMethod(loginMethod.value)
-    ? baseModules
-    : baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
+    ? BASE_MODULES
+    : BASE_MODULES.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
   // 合规包：仅 guest / 演示会话过滤高风险模块；真实登录不过滤
   const allowed = filterAllowedModules(scoped, {
     isLoggedIn: props.isLoggedIn,
@@ -690,47 +682,16 @@ const homeCollisionFx = ref([])
 
 // 合规 guest/demo 下学习通、一码通等整组会被滤空：不渲染空分组标题，避免误导审核员
 // （title 仅存 key，渲染时经 categoryLabel 取词；activeFeatureTab 持久化同样存 key）
-const categoryLabel = (cat) => (String(cat?.title || '').startsWith('home.') ? t(cat.title) : String(cat?.title || ''))
+const categoryLabel = (cat) => {
+  const title = String(cat?.title || '')
+  return title.startsWith('home.') || title.startsWith('teacher.') ? t(title) : title
+}
 
 const moduleCategories = computed(() => {
-  const cats = [
-    {
-      title: 'home.cat.academic',
-      modules: modules.value.filter((m) =>
-        [
-          'grades',
-          'exams',
-          'ranking',
-          'academic',
-          'qxzkb',
-          'course_selection',
-          'training',
-          'teaching_eval',
-          'classroom',
-          'calendar',
-          'school_inbox'
-        ].includes(m.id)
-      )
-    },
-    {
-      title: 'home.cat.chaoxing',
-      modules: modules.value.filter((m) =>
-        ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class'].includes(m.id)
-      )
-    },
-    {
-      title: 'home.cat.yimatong',
-      modules: modules.value.filter((m) =>
-        ['campus_code', 'electricity', 'transactions', 'broadband', 'sports_venue'].includes(m.id)
-      )
-    },
-    {
-      title: 'home.cat.resource',
-      modules: modules.value.filter((m) =>
-        ['library', 'campus_map', 'resource_share', 'towergo', 'ai'].includes(m.id)
-      )
-    }
-  ]
+  // 教师首页（#1021）：分类只来自教师目录（教务系统 / 资源），不出现第三类
+  const cats = isTeacherRole(currentRole.value)
+    ? teacherHome.featureCategories.value
+    : buildModuleCategories(modules.value)
   return cats.filter((c) => Array.isArray(c.modules) && c.modules.length > 0)
 })
 
@@ -755,7 +716,7 @@ const navigateTo = (moduleId) => {
     return
   }
   // 唯一准入：decideHomeNavigate（available:false / 硬禁用 sports_venue / 需登录）
-  // 禁止只改 baseModules.available 却旁路打开模块
+  // 禁止只改 BASE_MODULES.available 却旁路打开模块
   const access = decideHomeNavigate(moduleId, modules.value, {
     isLoggedIn: props.isLoggedIn
   })
@@ -1058,12 +1019,6 @@ const QUICK_ENTRY_KEY = 'hbu_quick_entry_modules'
 const HOME_FEATURE_TAB_KEY = 'hbu_home_feature_tab'
 /** 学生端默认快捷入口 */
 const defaultQuickEntries = ['grades', 'exams', 'classroom', 'electricity', 'ranking']
-/**
- * 教师端默认快捷入口：学生端的 5 项默认值**全部是学生专属功能**，
- * 教师模式下会被角色能力表全部隐藏，因此教师需要一份自己的默认值，
- * 否则首页快捷入口区会是空的。
- */
-const teacherDefaultQuickEntries = ['calendar', 'qxzkb', 'school_inbox', 'library', 'ai']
 
 /**
  * 快捷入口偏好按身份分开存储：学生沿用旧 key（零迁移），教师用带后缀的 key，
@@ -1072,8 +1027,14 @@ const teacherDefaultQuickEntries = ['calendar', 'qxzkb', 'school_inbox', 'librar
 const quickEntryStorageKey = () =>
   isTeacherRole(currentRole.value) ? `${QUICK_ENTRY_KEY}_teacher` : QUICK_ENTRY_KEY
 
+/**
+ * 该身份的默认快捷入口：
+ * - 学生：原有 5 项学生专属默认值（零变化）；
+ * - 教师：`teacher_feature_catalog` 的默认入口（#1021），学生默认值全部是学生专属功能，
+ *   教师模式下会被角色能力表全部隐藏，必须使用教师自己的默认值。
+ */
 const roleDefaultQuickEntries = () =>
-  isTeacherRole(currentRole.value) ? teacherDefaultQuickEntries : defaultQuickEntries
+  isTeacherRole(currentRole.value) ? teacherHome.defaultShortcutIds.value : defaultQuickEntries
 
 /** 合规策略会话参数：与 modules / navigateTo 保持一致 */
 const appStoreSessionOpts = () => ({
@@ -1086,14 +1047,18 @@ const showQuickEntryEditor = ref(false)
 const draftQuickEntries = ref([...defaultQuickEntries])
 
 /**
- * 按身份解析快捷入口：先滤掉当前身份不可见的项；若全被滤掉（教师沿用学生默认值
- * 的场景），回落到该身份的默认项，保证教师端快捷入口不为空。
+ * 按身份解析快捷入口：先滤掉当前身份**路由级不可达**的项；若全被滤掉，回落到该身份的
+ * 默认项，保证教师端快捷入口不为空。
+ *
+ * 这里用 `isViewAllowedForRole`（路由能力）而非 `isModuleVisibleForRole`（首页宫格白名单）：
+ * 教师专属视图（我的教学等）不在宫格模块白名单内，但确实允许访问。
+ * 学生身份两者都恒为 true，行为零变化。
  */
 const resolveRoleQuickEntries = (ids) => {
   const list = Array.isArray(ids) ? ids : []
-  const visible = list.filter((id) => isModuleVisibleForRole(id, currentRole.value))
+  const visible = list.filter((id) => isViewAllowedForRole(id, currentRole.value))
   if (visible.length > 0 || !isTeacherRole(currentRole.value)) return visible
-  return [...teacherDefaultQuickEntries]
+  return [...teacherHome.defaultShortcutIds.value]
 }
 
 const loadQuickEntries = () => {
@@ -1136,51 +1101,32 @@ const toggleDraftEntry = (id) => {
   else if (draftQuickEntries.value.length < 5) { draftQuickEntries.value.push(id) }
 }
 
-// 快捷入口的图标/颜色映射（含 schedule）；name 仅存 i18n key，渲染时取词
-const quickEntryMeta = {
-  grades: { name: 'home.module.grades', icon: 'fa-award', color: 'bg-blue-50', iconColor: 'text-blue-500' },
-  schedule: { name: 'home.module.schedule', icon: 'fa-calendar-check', color: 'bg-orange-50', iconColor: 'text-orange-500' },
-  classroom: { name: 'home.module.classroom', icon: 'fa-door-open', color: 'bg-green-50', iconColor: 'text-green-500' },
-  electricity: { name: 'home.module.electricity', icon: 'fa-bolt', color: 'bg-red-50', iconColor: 'text-red-500' },
-  ranking: { name: 'home.module.ranking', icon: 'fa-chart-bar', color: 'bg-yellow-50', iconColor: 'text-yellow-500' },
-  exams: { name: 'home.module.exams', icon: 'fa-file-alt', color: 'bg-teal-50', iconColor: 'text-teal-500' },
-  calendar: { name: 'home.module.calendar', icon: 'fa-calendar-alt', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
-  school_inbox: { name: 'home.module.school_inbox', icon: 'fa-envelope', color: 'bg-indigo-50', iconColor: 'text-indigo-600' },
-  academic: { name: 'home.module.academic', icon: 'fa-chart-line', color: 'bg-emerald-50', iconColor: 'text-emerald-500' },
-  campus_code: { name: 'home.module.campus_code', icon: 'fa-qrcode', color: 'bg-cyan-50', iconColor: 'text-cyan-500' },
-  transactions: { name: 'home.module.transactions', icon: 'fa-wallet', color: 'bg-pink-50', iconColor: 'text-pink-500' },
-  qxzkb: { name: 'home.module.qxzkb', icon: 'fa-table', color: 'bg-violet-50', iconColor: 'text-violet-500' },
-  course_selection: { name: 'home.module.course_selection', icon: 'fa-tasks', color: 'bg-amber-50', iconColor: 'text-amber-500' },
-  training: { name: 'home.module.training', icon: 'fa-sitemap', color: 'bg-sky-50', iconColor: 'text-sky-500' },
-  teaching_eval: { name: 'home.module.teaching_eval', icon: 'fa-star', color: 'bg-purple-50', iconColor: 'text-purple-500' },
-  chaoxing_hub: { name: 'home.module.chaoxing_hub', icon: 'fa-graduation-cap', color: 'bg-blue-50', iconColor: 'text-blue-600' },
-  chaoxing_inbox: { name: 'home.module.chaoxing_inbox', icon: 'fa-inbox', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
-  chaoxing_class: { name: 'home.module.chaoxing_class', icon: 'fa-folder-open', color: 'bg-sky-50', iconColor: 'text-sky-600' },
-  broadband: { name: 'home.module.broadband', icon: 'fa-wifi', color: 'bg-cyan-50', iconColor: 'text-cyan-600' },
-  sports_venue: { name: 'home.module.sports_venue', icon: 'fa-futbol', color: 'bg-green-50', iconColor: 'text-green-600' },
-  library: { name: 'home.module.library', icon: 'fa-book', color: 'bg-lime-50', iconColor: 'text-lime-600' },
-  resource_share: { name: 'home.module.resource_share', icon: 'fa-cloud', color: 'bg-blue-50', iconColor: 'text-blue-500' },
-  campus_map: { name: 'home.module.campus_map', icon: 'fa-map-marked-alt', color: 'bg-teal-50', iconColor: 'text-teal-600' },
-  towergo: { name: 'home.module.towergo', icon: 'fa-bicycle', color: 'bg-emerald-50', iconColor: 'text-emerald-600' },
-  ai: { name: 'home.module.ai', icon: 'fa-robot', color: 'bg-gray-50', iconColor: 'text-gray-500' }
-}
+/**
+ * 快捷入口的图标/颜色映射（含 schedule）；name 仅存 i18n key，渲染时取词。
+ * 教师身份下叠加教师专属入口（我的教学 / 考试与监考 / 教务通知），学生侧元数据表零改动。
+ */
+const quickEntryMeta = computed(() =>
+  isTeacherRole(currentRole.value)
+    ? { ...QUICK_ENTRY_META, ...teacherHome.quickEntryMeta.value }
+    : QUICK_ENTRY_META
+)
 
 // 快捷入口也走策略过滤：默认含 electricity/ranking，guest/demo 不得展示被禁模块
 const quickEntryItems = computed(() => {
   return resolveRoleQuickEntries(quickEntryIds.value)
-    .map((id) => ({ id, ...quickEntryMeta[id], name: t(quickEntryMeta[id]?.name || '') }))
+    .map((id) => ({ id, ...quickEntryMeta.value[id], name: t(quickEntryMeta.value[id]?.name || '') }))
     .filter((item) => item.name && isModuleAllowed(item.id, appStoreSessionOpts()))
 })
 
-/** 编辑器可选模块：同样隐藏合规收紧会话下的被禁入口 + 当前身份不可用的入口 */
+/** 编辑器可选模块：同样隐藏合规收紧会话下的被禁入口 + 当前身份不可达的入口 */
 // 编辑器渲染时同样按当前语言取词（meta.name 存 key）
 const editableQuickEntryMeta = computed(() => {
   const session = appStoreSessionOpts()
   return Object.fromEntries(
-    Object.entries(quickEntryMeta)
+    Object.entries(quickEntryMeta.value)
       .filter(([id]) => isModuleAllowed(id, session))
       // 教师模式下不得再列出学生专属入口，否则用户能选到保存后被过滤为空的项
-      .filter(([id]) => isModuleVisibleForRole(id, currentRole.value))
+      .filter(([id]) => isViewAllowedForRole(id, currentRole.value))
       .map(([id, meta]) => [id, { ...meta, name: t(meta.name) }])
   )
 })
@@ -1303,30 +1249,9 @@ const featureTabModules = computed(() => {
   return cat ? cat.modules : []
 })
 
-// 全部功能图标颜色映射
-const featureIconColors = {
-  grades: 'bg-blue-500', classroom: 'bg-orange-400', exams: 'bg-teal-500',
-  ranking: 'bg-yellow-500', calendar: 'bg-blue-500', school_inbox: 'bg-indigo-500', academic: 'bg-green-500',
-  qxzkb: 'bg-indigo-500', course_selection: 'bg-orange-500', training: 'bg-sky-400', teaching_eval: 'bg-purple-500',
-  campus_code: 'bg-teal-600', electricity: 'bg-red-500', transactions: 'bg-pink-500',
-  chaoxing_hub: 'bg-blue-600', chaoxing_inbox: 'bg-indigo-600', chaoxing_class: 'bg-sky-500',
-  broadband: 'bg-cyan-600', sports_venue: 'bg-green-600',
-  library: 'bg-emerald-600', campus_map: 'bg-teal-500', resource_share: 'bg-blue-500',
-  towergo: 'bg-emerald-500',
-  ai: 'bg-gray-400'
-}
-
-const featureIcons = {
-  grades: 'fa-graduation-cap', classroom: 'fa-door-open', exams: 'fa-calendar-check',
-  ranking: 'fa-chart-bar', calendar: 'fa-calendar-alt', school_inbox: 'fa-envelope', academic: 'fa-chart-line',
-  qxzkb: 'fa-table', course_selection: 'fa-tasks', training: 'fa-sitemap', teaching_eval: 'fa-star',
-  campus_code: 'fa-qrcode', electricity: 'fa-bolt', transactions: 'fa-wallet',
-  chaoxing_hub: 'fa-graduation-cap', chaoxing_inbox: 'fa-inbox', chaoxing_class: 'fa-folder-open',
-  broadband: 'fa-wifi', sports_venue: 'fa-futbol',
-  library: 'fa-book', campus_map: 'fa-map-marked-alt', resource_share: 'fa-cloud',
-  towergo: 'fa-bicycle',
-  ai: 'fa-robot'
-}
+// 全部功能图标底色/图标（含教师首页专属入口，见 useTeacherHome）
+const featureIconColors = teacherHome.featureIconColors
+const featureIcons = teacherHome.featureIcons
 
 // === 通知相关（保留原有逻辑） ===
 const noticeItems = computed(() => [...props.noticeList])
@@ -1452,14 +1377,14 @@ const getHomeSearchItemIcon = (item) => {
   if (item?.type === 'course') return 'fa-calendar-day'
   if (item?.type === 'notice') return 'fa-bullhorn'
   const id = item?.target || item?.id
-  return item?.iconClass || featureIcons[id] || quickEntryMeta[id]?.icon || 'fa-cube'
+  return item?.iconClass || featureIcons.value[id] || quickEntryMeta.value[id]?.icon || 'fa-cube'
 }
 
 const getHomeSearchIconClass = (item) => {
   if (item?.type === 'course') return 'bg-blue-50 text-blue-500'
   if (item?.type === 'notice') return 'bg-amber-50 text-amber-500'
   const id = item?.target || item?.id
-  const meta = quickEntryMeta[id]
+  const meta = quickEntryMeta.value[id]
   return [item?.colorClass || meta?.color || 'bg-gray-50', item?.iconColor || meta?.iconColor || 'text-gray-500']
 }
 
@@ -1544,6 +1469,20 @@ onBeforeUnmount(() => {
 watch(() => marqueeItems.value.length, () => { tickerTransitionMs.value = 0; tickerTranslateX.value = 0; void refreshTickerMetrics() }, { immediate: true })
 watch(() => marqueeItems.value.length, (len) => { if (len > 0) startAnnouncementRotation(); else stopAnnouncementRotation() }, { immediate: true })
 watch(() => [props.studentId, props.isLoggedIn], () => { refreshLoginMethod(); nowTick.value = Date.now(); fetchTodayCourses() }, { immediate: true })
+/**
+ * 教师首页：身份 / 账号切换时先清空今日授课与课程搜索，避免残留上一教师的数据
+ * （`fetchTodayCourses` 有请求令牌保护，但清空能消除切换瞬间的旧数据闪现）。
+ * 学生身份该 watch 恒返回 ''，不触发，学生端行为不变。
+ */
+watch(
+  () => (isTeacherRole(currentRole.value) ? `${currentRole.value}:${String(props.studentId || '').trim()}` : ''),
+  (next, prev) => {
+    if (!next || next === prev) return
+    todayCourses.value = []
+    homeSearchCourses.value = []
+    todayError.value = ''
+  }
+)
 watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.workspaceLayout.home.moduleOrder.join('|')], () => { if (!isHomeLayoutEditing.value) syncHomeLayoutDraft() }, { immediate: true })
 </script>
 
