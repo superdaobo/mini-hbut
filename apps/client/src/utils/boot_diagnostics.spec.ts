@@ -253,10 +253,10 @@ describe('boot_diagnostics 回放', () => {
 
     const bootLogs = getDebugLogs(200).filter((item) => item.scope === 'Boot')
     const text = bootLogs.map((item) => item.message).join('\n')
-    expect(text).toContain('上次启动结局')
-    expect(text).toContain('启动未走完')
+    expect(text).toContain('上次启动状态')
+    expect(text).toContain('未记录启动完成')
     expect(text).toContain('inline-script')
-    expect(text).toContain('主线程冻结 20000ms')
+    expect(text).toContain('JS 定时器长间隔 20000ms')
     // 资源加载失败以 error 级别写入，便于在设置页筛选
     expect(bootLogs.some((item) => item.level === 'error' && item.message.includes('resource-error'))).toBe(true)
   })
@@ -272,7 +272,7 @@ describe('boot_diagnostics 回放', () => {
       .filter((item) => item.scope === 'Boot')
       .map((item) => item.message)
       .join('\n')
-    expect(text).toContain('进程未正常结束')
+    expect(text).toContain('未记录页面离开')
   })
 
   it('上次正常结束时不产生告警噪音', () => {
@@ -286,7 +286,7 @@ describe('boot_diagnostics 回放', () => {
       .filter((item) => item.scope === 'Boot')
       .map((item) => item.message)
       .join('\n')
-    expect(text).not.toContain('上次启动结局')
+    expect(text).not.toContain('上次启动状态')
   })
 
   it('无记录时回放不抛错', () => {
@@ -310,7 +310,7 @@ describe('boot_diagnostics 报告', () => {
     expect(report).toContain('=== Mini-HBUT 启动诊断报告 ===')
     expect(report).toContain('本次启动时间线')
     expect(report).toContain('上次启动时间线')
-    expect(report).toContain('[主线程冻结]')
+    expect(report).toContain('[JS 定时器长间隔]')
     expect(report).toContain('资源加载失败汇总')
     expect(report).toContain('/splash/cas_bg.webp')
     expect(report).toContain('启动阶段指标（boot_metrics）')
@@ -332,11 +332,11 @@ describe('boot_diagnostics 报告', () => {
     installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current, previous }) })
 
     const report = formatBootDiagnosticsReport()
-    expect(report).toContain('上次启动结局: 正常结束')
-    expect(report).toContain('结局: 启动完成后进程未正常结束')
+    expect(report).toContain('上次启动状态: 已记录页面离开事件')
+    expect(report).toContain('结局: 启动完成，但未记录页面离开')
     expect(report).toContain('启动页可见时长: 63ms（移除原因 vue-mount）')
-    expect(report).toContain('进程最后存活: 12000ms')
-    expect(report).toContain('是否记录到正常退出: 否')
+    expect(report).toContain('最后一次记录的 JS 心跳: +12000ms')
+    expect(report).toContain('是否记录到页面离开: 否（不代表崩溃）')
   })
 
   it('首次启动（无上次记录）时报告明确说明', () => {
@@ -379,7 +379,7 @@ describe('boot_diagnostics 报告', () => {
     expect(report).toContain('旧进程内重载，不是冷启动')
   })
 
-  it('出现原生无响应时给出「卡在原生主线程」的结论（JS 未冻结但原生无响应）', () => {
+  it('同源资源请求超时不能误诊为原生线程冻结或看门狗终止', () => {
     const current = makeSnapshot({
       entries: [
         { t: 5_000, name: 'native-stall', detail: { cost_ms: 3_000, ok: false, timed_out: true } },
@@ -389,8 +389,9 @@ describe('boot_diagnostics 报告', () => {
     installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current }) })
 
     const report = formatBootDiagnosticsReport()
-    expect(report).toContain('原生无响应: 2 次')
-    expect(report).toContain('卡在**原生主线程**')
+    expect(report).toContain('WebView 同源资源探针延迟/超时: 2 条记录')
+    expect(report).toContain('不能仅凭此记录确认原生主线程死锁')
+    expect(report).not.toContain('卡在**原生主线程**')
   })
 
   it('启动历史暴露「页面重载 / 崩溃循环」（相邻间隔 <5s 会被标注）', () => {
@@ -406,9 +407,25 @@ describe('boot_diagnostics 报告', () => {
 
     const report = formatBootDiagnosticsReport()
     expect(report).toContain('最近启动历史（新 → 旧）')
-    expect(report).toContain('疑似页面重载 / 崩溃循环')
+    expect(report).toContain('可能页面重载 / 快速重开')
     expect(report).toContain('启动未走完')
     expect(report).toContain('走完启动')
+  })
+
+  it('报告解释真实超时次数、源码版本与 CI 原生版本注入的边界', () => {
+    const current = makeSnapshot({
+      entries: [{ t: 8000, name: 'native-stall', detail: { cost_ms: 3000, timed_out: true } }],
+      meta: { native_probe_requests: 12, native_probe_timeouts: 9, alive_ms: 53_000 }
+    })
+    installStorage({ [BOOT_DIAG_STORAGE_KEY]: JSON.stringify({ current }) })
+    const report = formatBootDiagnosticsReport()
+    expect(report).toContain('探针累计超时: 9 次')
+    expect(report).toContain('明细经限流')
+    expect(report).toContain('iOS 包版本（CI 注入）:')
+    expect(report).toContain('iOS 构建号（CI 注入）:')
+    expect(report).toContain('前端源码版本（Vite）:')
+    expect(report).toContain('后续无记录不代表进程在此刻退出')
+    expect(report).not.toContain('随后 iOS 看门狗约 10s 杀掉进程')
   })
 
   it('无历史记录时该分区仍可用', () => {
