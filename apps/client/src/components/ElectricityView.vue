@@ -378,12 +378,20 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
       balanceData.value = lightResult.data
       offline.value = lightResult.data?.offline === true
       syncTime.value = lightResult.data?.sync_time || ''
-      // 写入小组件
-      writeElectricityToWidget({
-        quantity: Number(lightResult.data?.quantity) || 0,
-        room: selectedPath.value.join(' / ') || '',
-        isLow: Number(lightResult.data?.quantity) < 10
-      }).catch(() => {})
+      // 只同步有效余量，禁止用 NaN/缺失值伪造 0 度。
+      // 缓存命中保留原来的数据时间，不把一次桌面重绘误称为联网同步。
+      const widgetQuantity = Number(lightResult.data?.quantity)
+      if (Number.isFinite(widgetQuantity) && widgetQuantity >= 0 && lightResult.data?.offline !== true) {
+        const sourceTimestamp = Number(lightResult.timestamp)
+        writeElectricityToWidget({
+          quantity: widgetQuantity,
+          room: selectedPath.value.join(' / ') || '',
+          isLow: widgetQuantity < 10,
+          updated_at: Number.isFinite(sourceTimestamp) && sourceTimestamp > 0
+            ? new Date(sourceTimestamp).toISOString()
+            : new Date().toISOString()
+        }).catch(() => {})
+      }
     } else {
       const cached = getStaleCache(lightCacheKey)
       if (cached?.data) {
