@@ -3,7 +3,7 @@
 // 覆盖：
 //   1. `useTeacherProfile` 的状态映射（ready / empty / error）；
 //   2. 错误 kind → i18n key 映射（README §5，禁止直接展示 message）；
-//   3. 视图只用有真实只读来源的四个字段，**不出现**部门名称 / 职称 / 邮箱，
+//   3. 视图显示已确认的身份字段，**隐藏内部部门 ID**；部门名称仅在接口提供时显示，
 //      也不引用学生资料数据模型；
 //   4. 视图 / 组合函数引用的 `teacher.*` key 必须存在于字典（防 key 拼写漂移）。
 //
@@ -181,19 +181,22 @@ describe('TeacherProfileView（展示字段与红线）', () => {
   const viewCode = stripComments(viewSource)
   const composableCode = stripComments(composableSource)
 
-  it('只展示有真实只读来源的四个字段', () => {
+  it('展示可信的姓名、工号、教师身份，不突出内部部门 ID', () => {
     for (const key of [
       'teacher.profile.field.accountId',
       'teacher.profile.field.name',
-      'teacher.profile.field.role',
-      'teacher.profile.field.departmentId'
+      'teacher.profile.field.role'
     ]) {
       expect(viewCode).toContain(key)
     }
+    expect(viewCode).not.toContain('teacher.profile.field.departmentId')
+    expect(viewCode).toContain('TPageHeader')
+    expect(viewCode).toContain('TCard')
   })
 
-  it('不出现部门名称 / 职称 / 邮箱（无真实来源，不得猜测展示）', () => {
-    expect(viewCode).not.toContain('departmentName')
+  it('部门名称仅在有可信值时显示，不凭空展示职称或邮箱', () => {
+    expect(viewCode).toContain('data.departmentName ?')
+    expect(viewCode).toContain('teacher.profile.field.departmentName')
     expect(viewCode).not.toContain('email')
     expect(viewCode).not.toContain('teacher.profile.field.title')
     expect(viewCode).not.toContain('职称')

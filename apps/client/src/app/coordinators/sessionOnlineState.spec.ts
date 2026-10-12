@@ -14,6 +14,8 @@ import { ref } from 'vue'
 import { resetLoginGate } from './sessionGate'
 import { createSessionCoordinator } from './SessionCoordinator'
 import { invokeNative } from '../../platform/native'
+import { startNotificationMonitor } from '../../utils/notify_center.js'
+import { runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { loadChaoxingStoredPassword, loadPortalStoredPassword } from '../../composables/useSessionCredentials.js'
 import type { OnlineSessionState } from '../../stores/auth'
 
@@ -67,6 +69,7 @@ const stubStorage = {
 let gradeCacheCleared = false
 
 const makeState = () => ({
+  role: ref<'student' | 'teacher'>('student'),
   studentId: ref(''),
   userUuid: ref(''),
   gradeData: ref<unknown[]>([]),
@@ -90,7 +93,9 @@ const makeState = () => ({
 const makeCoordinator = () => {
   const state = makeState()
   const runtime = {
-    state,
+    state: { ...state, setIdentityRole: (value: unknown) => {
+      state.role.value = value === 'teacher' ? 'teacher' : 'student'
+    } },
     auth: { handleLogout: vi.fn() },
     navigation: {}
   } as unknown as Parameters<typeof createSessionCoordinator>[0]
@@ -249,6 +254,29 @@ describe('#1043 扫码临时会话的网络异常不应被误判为登出', () =
 // ─── 2. 状态流转：cached_offline → recovering → online / cached_offline ─────
 
 describe('#659 状态流转', () => {
+  it('教师工号恢复成功不启动学生电费定时器、通知或云同步', async () => {
+    const { coordinator, state } = makeCoordinator()
+    storageMap.set('hbu_username', '20000000')
+    storageMap.set('hbu_login_role', 'teacher')
+    storageMap.set('hbu_login_method', 'portal_password')
+    storageMap.set('hbu_session_cookies', 'teacher-cookie=1')
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'restore_session') return { student_id: '20000000', role: 'teacher' }
+      if (command === 'get_cookies') return 'teacher-cookie=1'
+      if (command === 'set_offline_user_context') return null
+      throw new Error(`unexpected teacher command: ${command}`)
+    })
+    await coordinator.restoreCachedIdentityFromLocal()
+    expect(await coordinator.attemptOnlineRecovery({ silent: true })).toBe(true)
+    expect(state.studentId.value).toBe('20000000')
+    expect(state.role.value).toBe('teacher')
+    expect(state.onlineSessionState.value).toBe('online')
+    expect(state.mutable.electricityKeepAliveTimer).toBeNull()
+    expect(startNotificationMonitor).not.toHaveBeenCalled()
+    expect(runAutoCloudSyncAfterLogin).not.toHaveBeenCalled()
+    expect(invokeNative).not.toHaveBeenCalledWith('refresh_electricity_token')
+  })
+
   it('恢复进行中 → recovering；恢复成功 → online；恢复失败 → cached_offline', async () => {
     const { coordinator, state } = makeCoordinator()
     storageMap.set('hbu_username', '2023000001')

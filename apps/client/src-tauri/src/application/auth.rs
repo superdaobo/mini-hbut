@@ -240,7 +240,10 @@ impl AuthService {
                 student_id: row.student_id.clone(),
                 masked_id: mask_student_id(&row.student_id),
                 display_name: row.display_name,
-                has_cookies: row.has_cookies,
+                has_cookies: row.has_cookies
+                    || db::load_auth_cookies_for_student(self.context.db_path(), &row.student_id)
+                        .map(|cookies| !cookies.is_empty())
+                        .unwrap_or(false),
                 is_current: current.as_deref() == Some(row.student_id.as_str()),
                 role: row.role,
             })
@@ -273,9 +276,11 @@ impl AuthService {
         let raw_status = db::session_has_encrypted_secrets(self.context.db_path(), &sid)
             .map_err(|e| ApplicationError::storage(format!("检查账号凭据失败: {e}")))?;
         let (raw_has_cookies, raw_has_token) = raw_status.unwrap_or((false, false));
-        let has_v2 = db::load_auth_cookies_for_student(self.context.db_path(), &sid)
-            .map(|rows| !rows.is_empty())
-            .unwrap_or(false);
+        // 始终按 AuthService 当前数据库读取目标账号 v2 Cookie；不能由
+        // HbutClient 再去读全局 DB_FILENAME，否则多实例/测试库会错库。
+        let v2_rows = db::load_auth_cookies_for_student(self.context.db_path(), &sid)
+            .map_err(|e| ApplicationError::storage(format!("读取账号分域 Cookie 失败: {e}")))?;
+        let has_v2 = !v2_rows.is_empty();
 
         if session.cookies.trim().is_empty() && !has_v2 {
             if raw_has_cookies {
@@ -304,6 +309,7 @@ impl AuthService {
             &session.refresh_token,
             &session.token_expires_at,
             crate::IdentityRole::from_stored(&session.role),
+            &v2_rows,
         );
 
         // 4. 持久化对齐（与登录成功一致）：v2 全域 + 旧列 cookies 双写、last_login 刷新；
@@ -569,6 +575,54 @@ mod tests {
         assert_eq!(rows[1].masked_id, "2510****0201");
         // 概览不携带明文 cookie
         assert!(rows.iter().all(|r| !r.student_id.contains("cookie-")));
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn teacher_account_with_only_v2_domain_cookies_is_listed_as_switchable() {
+        let (service, db_path) = test_service("teacher_v2_only");
+        let teacher_id = "20000000";
+        let empty = String::new();
+        db::save_user_session(&db_path, teacher_id, &empty, &empty, &empty, None, None)
+            .expect("保存教师基础记录");
+        db::save_user_session_role(&db_path, teacher_id, "teacher").expect("保存教师角色");
+        db::upsert_auth_cookies_batch(
+            &db_path,
+            teacher_id,
+            &[(
+                "auth.hbut.edu.cn".to_string(),
+                r#"[{"name":"CASTGC","value":"fake-test-ticket","path":"/"}]"#.to_string(),
+            )],
+            "test",
+        )
+        .expect("保存仅新版分域 Cookie");
+
+        let rows = service.list_saved_accounts().await.expect("账号列表");
+        let teacher = rows
+            .iter()
+            .find(|row| row.student_id == teacher_id)
+            .expect("教师账号可见");
+        assert_eq!(teacher.role, "teacher");
+        assert!(teacher.has_cookies, "仅新版分域 Cookie 也应可切号");
+        assert_eq!(teacher.masked_id, "2000****0000");
+
+        // 本地秒切成功仅说明 Cookie 已加载，不能推断学校已完成在线验证。
+        let switched = service
+            .switch_active_account(teacher_id)
+            .await
+            .expect("本地恢复");
+        assert_eq!(switched.student_id, teacher_id);
+        assert!(switched.role.is_teacher());
+        let handle = service.context.client_handle();
+        let guard = handle.read().await;
+        assert!(
+            guard
+                .export_domain_cookie_rows()
+                .iter()
+                .any(|(_, value)| value.contains("fake-test-ticket")),
+            "仅 v2 Cookie 的教师切号必须真正注入所属账号 Cookie，不能只切 UI 身份"
+        );
+        drop(guard);
         let _ = std::fs::remove_file(&db_path);
     }
 

@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { createAuthCoordinator } from './AuthCoordinator'
 import { clearGameIdentityCaches } from '../../utils/api.js'
+import { invokeNative } from '../../platform/native'
 
 vi.mock('../../platform/native', () => ({
   invokeNative: vi.fn(async () => null),
@@ -89,9 +90,12 @@ const createRestrictedStorage = () => ({
 })
 
 const makeRuntime = () => {
+  const role = ref<'student' | 'teacher'>('student')
   const state = {
     studentId: ref(CURRENT_SID),
     userUuid: ref('uuid-a'),
+    role,
+    setIdentityRole: (value: unknown) => { role.value = value === 'teacher' ? 'teacher' : 'student' },
     // 契约 D / P2-2：登出必须把在线会话态一并重置为未确认（复用认证状态层同一 ref）
     onlineSessionState: ref<'unknown' | 'cached_offline' | 'recovering' | 'online' | 'needs_login'>('online'),
     gradeData: ref<unknown[]>([{ id: 1 }]),
@@ -106,6 +110,7 @@ const makeRuntime = () => {
       stopSessionKeepAlive: vi.fn(),
       stopElectricityKeepAlive: vi.fn(),
       stopJwxtRecoveryPolling: vi.fn(),
+      startJwxtRecoveryPolling: vi.fn(),
       clearJwxtMaintenance: vi.fn(),
       persistSessionCookies: vi.fn(async () => {}),
       startSessionKeepAlive: vi.fn(),
@@ -164,8 +169,75 @@ describe('F2：限制存储下游戏身份清理失败不得阻断登出 / 换�
     const auth = createAuthCoordinator(runtime)
 
     expect(() => clearGameIdentityCaches(CURRENT_SID)).toThrow(/denied/)
-    expect(() => auth.handleAccountSwitch(NEXT_SID)).not.toThrow()
+    expect(() => auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student' })).not.toThrow()
     expect(state.studentId.value).toBe(NEXT_SID)
+  })
+
+  it('学生切教师时工号与角色同时落地，在线验证前保持 recovering', async () => {
+    const { runtime, state } = makeRuntime()
+    vi.mocked(invokeNative).mockResolvedValueOnce({ student_id: '20000000', role: 'teacher' })
+    const auth = createAuthCoordinator(runtime)
+    expect(() => auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher' })).not.toThrow()
+    expect(state.studentId.value).toBe('20000000')
+    expect(state.role.value).toBe('teacher')
+    expect(state.onlineSessionState.value).toBe('recovering')
+    expect(storageMap.get('hbu_username')).toBe('20000000')
+    expect(storageMap.get('hbu_username_role')).toBe('teacher')
+    await vi.waitFor(() => {
+      expect(runtime.session.notifySessionOnline).toHaveBeenCalledWith('account-switch')
+    })
+    expect(runtime.grade.handleRefreshGrades).not.toHaveBeenCalled()
+    expect(runtime.session.startElectricityKeepAlive).not.toHaveBeenCalled()
+  })
+
+  it('教师切学生时恢复学生角色与学号，在线确认后才刷新学生成绩', async () => {
+    const { runtime, state } = makeRuntime()
+    vi.mocked(invokeNative).mockResolvedValueOnce({ student_id: NEXT_SID, role: 'student' })
+    state.studentId.value = '20000000'
+    state.setIdentityRole('teacher')
+    const auth = createAuthCoordinator(runtime)
+    auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student' })
+    expect(state.studentId.value).toBe(NEXT_SID)
+    expect(state.role.value).toBe('student')
+    expect(state.onlineSessionState.value).toBe('recovering')
+    await vi.waitFor(() => {
+      expect(runtime.session.notifySessionOnline).toHaveBeenCalledWith('account-switch')
+      expect(runtime.grade.handleRefreshGrades).toHaveBeenCalled()
+    })
+  })
+
+  it('本地 Cookie 恢复了其他账号时，拒绝将目标账号标记为在线', async () => {
+    const { runtime, state } = makeRuntime()
+    vi.mocked(invokeNative).mockResolvedValueOnce({ student_id: NEXT_SID, role: 'student' })
+    const auth = createAuthCoordinator(runtime)
+    auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher' })
+    await vi.waitFor(() => {
+      expect(state.onlineSessionState.value).toBe('cached_offline')
+      expect(runtime.session.startJwxtRecoveryPolling).toHaveBeenCalled()
+    })
+    expect(runtime.session.notifySessionOnline).not.toHaveBeenCalled()
+    expect(runtime.grade.handleRefreshGrades).not.toHaveBeenCalled()
+  })
+
+  it('账号连续切换后，迟到的旧账号校验结果不得再次确认在线', async () => {
+    let releaseOld: (value: unknown) => void = () => {}
+    vi.mocked(invokeNative)
+      .mockImplementationOnce(() => new Promise((resolve) => { releaseOld = resolve }))
+      .mockResolvedValueOnce({ student_id: NEXT_SID, role: 'student' })
+    const { runtime, state } = makeRuntime()
+    const auth = createAuthCoordinator(runtime)
+    auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher' })
+    auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student' })
+    await vi.waitFor(() => {
+      expect(runtime.session.notifySessionOnline).toHaveBeenCalledTimes(1)
+    })
+    releaseOld({ student_id: '20000000', role: 'teacher' })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(state.studentId.value).toBe(NEXT_SID)
+    expect(state.role.value).toBe('student')
+    expect(runtime.session.notifySessionOnline).toHaveBeenCalledTimes(1)
+    expect(runtime.session.persistSessionCookies).toHaveBeenCalledTimes(1)
   })
 
   it('手动登出（manual:true）同样收口：清缓存失败不阻断学号置空与回首页', async () => {
