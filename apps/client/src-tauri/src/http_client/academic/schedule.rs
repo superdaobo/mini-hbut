@@ -70,7 +70,7 @@ impl HbutClient {
                     .and_then(|v| v.as_str())
                     .map(|v| v.trim().to_string())
                     .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| Self::semester_by_date(Local::now().date_naive()))
+                    .unwrap_or_else(crate::semester_catalog::current_semester_by_date)
             }
         };
         println!("[调试] 课表学期: {}", semester);
@@ -293,26 +293,10 @@ impl HbutClient {
             .and_then(|v| v.as_str())
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| Self::semester_by_date(Local::now().date_naive()));
+            .unwrap_or_else(crate::semester_catalog::current_semester_by_date);
 
-        let current_year: i32 = chrono::Local::now()
-            .format("%Y")
-            .to_string()
-            .parse()
-            .unwrap_or(2025);
-        let mut semesters = vec![];
-        for year in (current_year - 5)..=(current_year + 1) {
-            semesters.push(format!("{}-{}-2", year, year + 1));
-            semesters.push(format!("{}-{}-1", year, year + 1));
-        }
-        semesters.reverse();
-
-        if !semesters.contains(&current_semester) {
-            semesters.insert(0, current_semester.clone());
-        } else {
-            semesters.retain(|s| s != &current_semester);
-            semesters.insert(0, current_semester.clone());
-        }
+        // #1044：与全校课表共用同一学期生成器，窗口不再各自维护
+        let semesters = crate::semester_catalog::build_recent_semesters(&current_semester);
 
         Ok(serde_json::json!({
             "success": true,
@@ -480,7 +464,7 @@ impl HbutClient {
             .and_then(|v| v.as_str())
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| Self::semester_by_date(now.date_naive()));
+            .unwrap_or_else(|| crate::semester_catalog::semester_by_date(now.date_naive()));
         let default_week = context
             .get("current_week")
             .and_then(|v| v.as_i64())
@@ -694,7 +678,7 @@ impl HbutClient {
         }
 
         let now = chrono::Local::now();
-        let semester = Self::semester_by_date(now.date_naive());
+        let semester = crate::semester_catalog::semester_by_date(now.date_naive());
         let building_str = building.clone().unwrap_or_default();
 
         let base = self.academic_base_url();

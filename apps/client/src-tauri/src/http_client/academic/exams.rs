@@ -2,7 +2,6 @@
 
 use super::super::*;
 use crate::parser;
-use chrono::Local;
 
 impl HbutClient {
     /// 获取考试列表（未指定学期时按校历上下文自动解析）
@@ -20,7 +19,7 @@ impl HbutClient {
                     .and_then(|v| v.as_str())
                     .map(|v| v.trim().to_string())
                     .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| Self::semester_by_date(Local::now().date_naive()))
+                    .unwrap_or_else(crate::semester_catalog::current_semester_by_date)
             }
         };
         println!("[调试] 考试学期: {}", semester);
