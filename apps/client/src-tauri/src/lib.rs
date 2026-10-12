@@ -27,6 +27,8 @@ pub mod parser;
 pub mod qxzkb_options;
 pub mod runtime_log;
 pub mod secret_envelope;
+// #1044：学期目录（学期键↔序号、按日期推算、最近学期列表），全校课表与日历页共用口径
+pub(crate) mod semester_catalog;
 pub mod transport;
 pub mod utils;
 

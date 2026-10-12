@@ -254,50 +254,9 @@ async fn fetch_qxzkb_options(
 {
     let client = state.client.write().await;
     let context = client.resolve_schedule_context(None).await;
-    let current_semester = context
-        .get("semester")
-        .and_then(|v| v.as_str())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_default();
-
-    let mut payload = crate::qxzkb_options::qxzkb_options();
-    if !current_semester.is_empty() {
-        if let Some(defaults) = payload.get_mut("defaults").and_then(|v| v.as_object_mut()) {
-            defaults.insert(
-                "xnxq".to_string(),
-                serde_json::json!(current_semester.clone()),
-            );
-        }
-        if let Some(list) = payload
-            .get_mut("options")
-            .and_then(|v| v.get_mut("xnxq"))
-            .and_then(|v| v.as_array_mut())
-        {
-            let mut normalized = Vec::with_capacity(list.len() + 1);
-            normalized.push(serde_json::json!({
-                "value": current_semester.clone(),
-                "label": "当前学期"
-            }));
-            for item in list.iter() {
-                let value = item
-                    .get("value")
-                    .and_then(|v| v.as_str())
-                    .map(|v| v.trim())
-                    .unwrap_or("");
-                if value.is_empty() || value == current_semester {
-                    continue;
-                }
-                normalized.push(item.clone());
-            }
-            *list = normalized;
-        }
-    }
-    if let Some(map) = payload.as_object_mut() {
-        map.insert("context".to_string(), context);
-    }
-
-    Ok(ok(payload))
+    Ok(ok(crate::qxzkb_options::qxzkb_options_for_context(
+        &context,
+    )))
 }
 
 // ────────────────────────────────────────────────────────────

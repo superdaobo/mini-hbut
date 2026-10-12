@@ -88,7 +88,7 @@ impl HbutClient {
                     .and_then(|v| v.as_str())
                     .map(|v| v.trim().to_string())
                     .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| Self::semester_by_date(Local::now().date_naive()))
+                    .unwrap_or_else(crate::semester_catalog::current_semester_by_date)
             }
         };
         let today = Local::now().date_naive();
