@@ -26,7 +26,10 @@ describe('MeView account switch contract (#755)', () => {
     const vue = source()
 
     expect(vue).toContain("invokeNative('switch_active_account', {")
-    expect(vue).toContain("emit('account-switched', sid)")
+    expect(vue).toContain("emit('account-switched', { studentId: sid, role })")
+    expect(vue).toContain("normalizePortalAccountId(info?.student_id, role)")
+    expect(vue).toContain("t('me.account.roleTeacher')")
+    expect(vue).toContain("t('me.account.teacherId')")
     // 会话失效的账号禁止秒切，给出可读提示（#794 文案 t() 化后锚点同步更新）
     expect(vue).toContain("t('me.toast.sessionInvalid')")
   })

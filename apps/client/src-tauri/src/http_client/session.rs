@@ -780,8 +780,10 @@ impl HbutClient {
         self.user_info = Some(user_info.clone());
         self.save_cookie_snapshot_to_file();
 
-        // 自动预热 SSO Token (如电费)
-        let _ = self.ensure_electricity_token().await;
+        // 教师会话只维护教务身份；不得因保活触发学生电费接口。
+        if !user_info.role.is_teacher() {
+            let _ = self.ensure_electricity_token().await;
+        }
 
         // 学习通 7 天票仍在时，顺带续超星教务 2h 短票（不阻塞失败）
         if self.prefer_chaoxing_jwxt || self.has_chaoxing_learning_cookies() {
@@ -1252,12 +1254,16 @@ impl HbutClient {
         refresh_token: &str,
         token_expires_at: &str,
         role: crate::IdentityRole,
+        v2_rows: &[crate::db::AuthCookieDomainRow],
     ) -> UserInfo {
         let sid = student_id.trim().to_string();
         // 1. 重置内存会话（避免旧账号脏 cookie 污染；与 restore_session 同款）
         self.reset_http_state();
         // 2. v2 全域 cookie（该学号专属；不做全局文件快照 fallback）
-        let v2_restored = self.hydrate_auth_cookie_v2_for_student(&sid);
+        let v2_restored = !v2_rows.is_empty();
+        if v2_restored {
+            self.restore_auth_cookie_v2_rows(v2_rows);
+        }
         // 3. 旧列 scoped cookie 注入（Code/Auth/Jwxt/ChaoxingJwxt）
         self.restore_session_cookie_blob(cookies);
         // 4. 凭据回填（与 lib.rs 启动恢复路径一致）
@@ -1298,25 +1304,6 @@ impl HbutClient {
             sid, display_name, v2_restored, self.prefer_chaoxing_jwxt
         );
         self.user_info.clone().expect("user_info 已设置")
-    }
-
-    /// 仅按学号恢复 auth_cookie_v2 全域 cookie（切换账号专用）。
-    ///
-    /// 与 `hydrate_session_cookies_from_store` 的区别：v2 未命中时**不**回退
-    /// 全局文件快照（那是最近一次活跃账号的 cookie，可能属于其他账号），
-    /// 避免切换时跨账号污染 jar。
-    fn hydrate_auth_cookie_v2_for_student(&mut self, student_id: &str) -> bool {
-        let sid = student_id.trim();
-        if sid.is_empty() {
-            return false;
-        }
-        if let Ok(rows) = crate::db::load_auth_cookies_for_student(crate::DB_FILENAME, sid) {
-            if !rows.is_empty() {
-                self.restore_auth_cookie_v2_rows(&rows);
-                return true;
-            }
-        }
-        false
     }
 
     /// 将保存的 cookies 串注入 cookie jar（旧列 scoped 格式兼容）。

@@ -7,14 +7,16 @@ describe('AuthCoordinator account switch contract (#755)', () => {
   it('exposes handleAccountSwitch on the coordinator', () => {
     const src = coordinator()
 
-    expect(src).toContain('const handleAccountSwitch = (studentId: string) => {')
+    expect(src).toContain('const handleAccountSwitch = (account: { studentId: string; role: string }) => {')
     expect(src).toContain('handleAccountSwitch')
   })
 
   it('updates the local account marker via saveRememberedUsername', () => {
     const src = coordinator()
 
-    expect(src).toContain('const sid = saveRememberedUsername(studentId)')
+    expect(src).toContain('const sid = normalizePortalAccountId(account?.studentId, role)')
+    expect(src).toContain('saveRememberedUsername(sid, role)')
+    expect(src).toContain('state.setIdentityRole(role)')
     expect(src).toContain('state.studentId.value = sid')
   })
 
@@ -22,6 +24,8 @@ describe('AuthCoordinator account switch contract (#755)', () => {
     const src = coordinator()
 
     expect(src).toContain("runtime.session.notifySessionOnline('account-switch')")
+    expect(src).toContain("await invokeNative<{ student_id?: string; role?: string }>('refresh_session')")
+    expect(src).toContain("if (verifiedId !== sid || verifiedRole !== role)")
   })
 
   it('refreshes grades and persists cookies for the new account', () => {
@@ -30,6 +34,8 @@ describe('AuthCoordinator account switch contract (#755)', () => {
     expect(src).toContain('runtime.grade.handleRefreshGrades()')
     expect(src).toContain('runtime.session.persistSessionCookies()')
     expect(src).toContain('runtime.session.startSessionKeepAlive()')
+    expect(src).toContain('runtime.session.stopElectricityKeepAlive()')
+    expect(src).toContain('if (isTeacherRoleValue(role))')
   })
 })
 

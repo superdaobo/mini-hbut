@@ -26,6 +26,7 @@ import {
 } from '../state/constants'
 import { saveRememberedUsername, getRememberedUsername } from '../../utils/remembered_username'
 import { isValidStudentId } from '../../utils/student_id.js'
+import { isTeacherRoleValue } from '../../utils/login_role.js'
 import {
   TEST_ACCOUNT,
   isTestAccountSession
@@ -542,7 +543,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         // 无验证推导。
         clearJwxtMaintenance({ confirmOnline: true })
         // 后台重登录成功后自动上传成绩和设置到云端（不含自定义课程）
-        if (state.studentId.value) {
+        if (state.studentId.value && !isTeacherRoleValue(state.role.value)) {
           resetCloudSyncCooldownForSession(state.studentId.value)
           runAutoCloudSyncAfterLogin({
             studentId: state.studentId.value,
@@ -570,6 +571,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
 
   const startElectricityKeepAlive = () => {
     stopElectricityKeepAlive()
+    // 教师工号没有学生电费授权，不得启动学生专属定时任务。
+    if (isTeacherRoleValue(state.role.value)) return
     state.mutable.electricityKeepAliveTimer = window.setInterval(async () => {
       try {
         await invoke('refresh_electricity_token')
@@ -622,7 +625,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         clearJwxtMaintenance()
         startSessionKeepAlive()
         startElectricityKeepAlive()
-        if (state.studentId.value) {
+        if (state.studentId.value && !isTeacherRoleValue(state.role.value)) {
           startNotificationMonitor({ studentId: state.studentId.value }).catch((e) => {
             console.warn('[Notify] 恢复后启动通知监控失败:', e)
           })
@@ -631,7 +634,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         stopJwxtRecoveryPolling()
         notifySessionOnline(relogged ? 'auto-relogin' : 'session-restore')
         // 后台恢复/重登录成功后自动上传成绩和设置到云端（不含自定义课程）
-        if (relogged && state.studentId.value) {
+        if (relogged && state.studentId.value && !isTeacherRoleValue(state.role.value)) {
           resetCloudSyncCooldownForSession(state.studentId.value)
           runAutoCloudSyncAfterLogin({
             studentId: state.studentId.value,

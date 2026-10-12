@@ -1284,11 +1284,11 @@ onBeforeUnmount(() => {
     <div v-else class="form-container">
       <template v-if="isPortalMode">
         <div class="input-group">
-          <label>{{ t('login.label.studentId') }}</label>
+          <label>{{ isTeacherRole ? t('login.label.teacherId') : t('login.label.studentId') }}</label>
           <input
             v-model="username"
             type="text"
-            :placeholder="t('login.placeholder.studentId')"
+            :placeholder="isTeacherRole ? t('login.placeholder.teacherId') : t('login.placeholder.studentId')"
             maxlength="10"
             @keypress="handleKeyPress"
           />

@@ -16,6 +16,8 @@ import { showToast } from '../utils/toast'
 import { invokeNative } from '../platform/native'
 import { useCertProbeBanner } from '../composables/certProbe'
 import { useAuthStore } from '../stores'
+import { normalizeLoginRole } from '../utils/login_role.js'
+import { normalizePortalAccountId } from '../utils/portal_account.js'
 import { useI18n, tf } from '../utils/app_i18n'
 
 const props = defineProps({
@@ -269,31 +271,38 @@ const openAccountSwitch = async () => {
   }
 }
 
+const canSwitchSavedAccount = (acc) =>
+  Boolean(acc?.has_cookies && normalizePortalAccountId(acc.student_id, normalizeLoginRole(acc.role)))
+
 const switchToAccount = async (acc) => {
   if (switchingAccount.value) return
   if (acc.is_current) {
     showAccountSwitchModal.value = false
     return
   }
-  if (!acc.has_cookies) {
+  // 旧记录缺少教师 role 时，8 位工号不能作为学生标识交给 Rust 执行切号。
+  if (!canSwitchSavedAccount(acc)) {
     showToast(t('me.toast.sessionInvalid'), 'warning')
     return
   }
+  const requestedRole = normalizeLoginRole(acc.role)
+  const requestedSid = normalizePortalAccountId(acc.student_id, requestedRole)
   switchingAccount.value = acc.student_id
   try {
     const info = await invokeNative('switch_active_account', {
       studentId: acc.student_id,
       student_id: acc.student_id
     })
-    const sid = String(info?.student_id || acc.student_id || '').trim()
-    showAccountSwitchModal.value = false
-    if (sid) {
-      // 交给 App.vue 统一收尾：更新 hbu_username 标记 + 派发全量刷新
-      emit('account-switched', sid)
-      showToast(tf('me.toast.switched', { name: acc.masked_id || sid }), 'success')
-    } else {
+    // 工号与学号都由 Rust 返回的已保存会话身份决定，不能用列表里的本地角色代替。
+    const role = normalizeLoginRole(info?.role)
+    const sid = normalizePortalAccountId(info?.student_id, role)
+    if (!sid || sid !== requestedSid || role !== requestedRole) {
       showToast(t('me.toast.switchFailedNoId'), 'error')
+      return
     }
+    showAccountSwitchModal.value = false
+    emit('account-switched', { studentId: sid, role })
+    showToast(tf('me.toast.switched', { name: acc.masked_id || sid }), 'success')
   } catch (e) {
     showToast(String(e?.message || e || t('me.toast.switchFailed')), 'error')
   } finally {
@@ -344,7 +353,7 @@ const removeAccount = async (acc) => {
         <span class="material-symbols-outlined avatar-icon">person</span>
       </div>
       <h2 class="profile-student-id">{{ studentId }}</h2>
-      <p class="profile-school">{{ isDemoSession ? t('me.profile.demoSession') : t('me.profile.studentTool') }}</p>
+      <p class="profile-school">{{ isDemoSession ? t('me.profile.demoSession') : authStore.isTeacher ? t('me.profile.teacherTool') : t('me.profile.studentTool') }}</p>
       <div class="profile-actions">
         <button class="btn-info" @click="goStudentInfo">{{ t('me.profile.studentInfo') }}</button>
         <!-- #755：一键切换账号（多账号并存；演示会话无真实本地会话，不展示） -->
@@ -658,16 +667,21 @@ const removeAccount = async (acc) => {
               class="account-item"
               :class="{ 'account-item--busy': switchingAccount === acc.student_id }"
             >
-              <div class="account-main" @click="switchToAccount(acc)">
-                <div class="account-info">
+              <button class="account-main" type="button" :disabled="!!switchingAccount || acc.is_current || !canSwitchSavedAccount(acc)" @click="switchToAccount(acc)">
+                <span class="account-info">
                   <span class="account-label">{{ acc.display_name || acc.masked_id }}</span>
-                  <span class="account-id">{{ acc.masked_id }}</span>
-                </div>
+                  <span class="account-id">
+                    {{ acc.role === 'teacher' ? t('me.account.teacherId') : acc.role === 'student' ? t('me.account.studentId') : t('me.account.accountId') }}：{{ acc.masked_id }}
+                  </span>
+                  <span class="account-role" :class="{ 'account-role--teacher': acc.role === 'teacher' }">
+                    {{ acc.role === 'teacher' ? t('me.account.roleTeacher') : acc.role === 'student' ? t('me.account.roleStudent') : t('me.account.roleUnknown') }}
+                  </span>
+                </span>
                 <span v-if="acc.is_current" class="account-badge account-badge--current">{{ t('me.account.current') }}</span>
                 <span v-else-if="switchingAccount === acc.student_id" class="account-badge account-badge--busy">{{ t('me.account.switching') }}</span>
-                <span v-else-if="!acc.has_cookies" class="account-badge account-badge--warn">{{ t('me.account.needRelogin') }}</span>
+                <span v-else-if="!canSwitchSavedAccount(acc)" class="account-badge account-badge--warn">{{ t('me.account.needRelogin') }}</span>
                 <span v-else class="account-badge account-badge--ready">{{ t('me.account.ready') }}</span>
-              </div>
+              </button>
               <!-- 当前账号不可从弹层删除：需先退出登录（避免误删正在使用的会话） -->
               <button
                 v-if="!acc.is_current"
@@ -1357,7 +1371,7 @@ const removeAccount = async (acc) => {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 16px;
   padding: 10px 12px;
-  background: #fbfcfe;
+  background: var(--md-sys-color-surface-container-lowest, var(--ui-surface, #fbfcfe));
   transition: border-color 0.16s ease, background 0.16s ease;
 }
 
@@ -1389,7 +1403,7 @@ const removeAccount = async (acc) => {
 .account-label {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--ui-text, #1f2937);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1397,8 +1411,27 @@ const removeAccount = async (acc) => {
 
 .account-id {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ui-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.account-role {
+  width: fit-content;
+  padding: 2px 8px;
+  border: 1px solid var(--ui-border, rgba(148, 163, 184, 0.24));
+  border-radius: 9999px;
+  background: var(--ui-surface, #f8fafc);
+  color: var(--ui-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.account-role--teacher {
+  color: var(--ui-primary, #2563eb);
+}
+
+.account-main:disabled {
+  cursor: default;
 }
 
 .account-badge {
