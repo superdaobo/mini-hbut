@@ -174,6 +174,9 @@ describe('F2：限制存储下游戏身份清理失败不得阻断登出 / 换�
   })
 
   it('学生切教师时工号与角色同时落地，在线验证前保持 recovering', async () => {
+    storageMap.set('hbu_session_cookies', 'previous-student-cookie')
+    storageMap.set('hbu_session_cookie_time', '1234')
+    storageMap.set('hbu_training_options', '{"student":"old"}')
     const { runtime, state } = makeRuntime()
     vi.mocked(invokeNative).mockResolvedValueOnce({ student_id: '20000000', role: 'teacher' })
     const auth = createAuthCoordinator(runtime)
@@ -183,6 +186,9 @@ describe('F2：限制存储下游戏身份清理失败不得阻断登出 / 换�
     expect(state.onlineSessionState.value).toBe('recovering')
     expect(storageMap.get('hbu_username')).toBe('20000000')
     expect(storageMap.get('hbu_username_role')).toBe('teacher')
+    expect(storageMap.get('hbu_session_cookies')).toBeUndefined()
+    expect(storageMap.get('hbu_session_cookie_time')).toBeUndefined()
+    expect(storageMap.get('hbu_training_options')).toBeUndefined()
     await vi.waitFor(() => {
       expect(runtime.session.notifySessionOnline).toHaveBeenCalledWith('account-switch')
     })

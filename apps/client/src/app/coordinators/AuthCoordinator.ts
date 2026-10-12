@@ -405,6 +405,13 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     state.gradeTeacherCacheSid.value = sid
     saveRememberedUsername(sid, role)
     writeLoginFormAccount(role, sid)
+    // 前端旧账号的设备级快照不是目标账号的 cookie。验证失败时后台恢复会
+    // 优先读取此键，必须先清掉，否则可能用旧账号 Cookie 悄悄恢复错号。
+    // Rust DB 中各账号的加密会话不受影响；目标账号确认在线后会重新写入。
+    localStorage.removeItem(SESSION_COOKIE_KEY)
+    localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
+    localStorage.removeItem('hbu_training_options')
+    setUsageTrackingStudentId('')
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
     runtime.navigation.applyViewState('home')
