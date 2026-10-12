@@ -40,7 +40,9 @@ describe('Dashboard quick entry defaults', () => {
     // 空分组（学习通/一码通被滤空后）不得残留 tab 标题
     expect(vue).toContain('return cats.filter((c) => Array.isArray(c.modules) && c.modules.length > 0)')
     // 快捷入口与编辑器均走 isModuleAllowed
-    expect(vue).toContain('isModuleAllowed(item.id, appStoreSessionOpts())')
+    expect(vue).toContain('isModuleAllowed(item.id, homeModuleDisplaySessionOpts())')
+    expect(vue).toContain('filterAllowedModules(scoped, homeModuleDisplaySessionOpts())')
+    expect(vue).toContain('isModuleAllowed(moduleId, appStoreSessionOpts())')
     expect(vue).toContain('editableQuickEntryMeta')
     expect(vue).toContain('v-for="(meta, id) in editableQuickEntryMeta"')
   })

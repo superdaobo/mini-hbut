@@ -257,7 +257,7 @@ describe('Dashboard 接线契约（#1021）', () => {
   it('教师身份走教师目录，学生身份仍走学生模块表', () => {
     const source = dashboard()
 
-    expect(source).toContain('if (isTeacherRole(currentRole.value)) return teacherHome.homeModules.value')
+    expect(source).toContain('return filterAllowedModules(teacherHome.homeModules.value, homeModuleDisplaySessionOpts())')
     expect(source).toContain('? teacherHome.featureCategories.value')
     expect(source).toContain(': buildModuleCategories(modules.value)')
     // 学生分类过滤语义（空分类不渲染）保持不变

@@ -1347,6 +1347,7 @@ export const messages: Record<string, string> = {
   'home.cat.yimatong': '1 つのコードパス',
   'home.common.cancel': 'キャンセル',
   'home.common.featureUnavailable': 'この機能は現在のバージョンでは利用できません',
+  'home.common.onlineVerificationRequired': 'オフラインでも機能一覧を確認できます。利用するにはネットワークに接続してログイン状態を確認してください。',
   'home.common.save': '保存',
   'home.common.unavailable': 'まだ利用できません',
   'home.course.remaining': '残り {n} 分',

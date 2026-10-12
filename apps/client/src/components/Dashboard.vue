@@ -22,6 +22,7 @@ import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../util
 import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
 import { isTestAccountSession } from '../utils/test_account.js'
 import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
+import { homeModuleAccessSession, homeModuleDisplaySession } from '../utils/home_module_sessions'
 import { filterModulesForRole, isTeacherRole, isViewAllowedForRole } from '../config/role_capabilities'
 // 首页模块/分类/快捷入口元数据（#1021 从本文件抽出，抽取为零行为变化）
 import { BASE_MODULES, QUICK_ENTRY_META, buildModuleCategories } from '../config/dashboard_modules'
@@ -639,21 +640,24 @@ const moduleDesc = (module) => {
   return desc.startsWith('home.') || desc.startsWith('teacher.') ? t(desc) : desc
 }
 
+// 首页可见目录使用“本地缓存身份”，执行/深链权限仍使用在线验证（#1043）。
+// 两套 Session 必须保持隔离：显示入口不等于允许打开模块。
+const homeModuleDisplaySessionOpts = () =>
+  homeModuleDisplaySession(props.isLoggedIn, isTestAccountSession())
+const appStoreSessionOpts = () =>
+  homeModuleAccessSession(props.isLoggedIn, authStore.sessionVerified, isTestAccountSession())
+
 const modules = computed(() => {
-  // 依赖登录态：合规包真实登录后应展开全功能模块列表
-  void props.isLoggedIn
+  // 依赖登录态：离线恢复缓存身份后仍应展示原有模块与分类
   void props.studentId
-  // 教师首页（#1021）：功能清单来自教师目录（仅「教务系统 / 资源」两类），不混入学生模块表
-  if (isTeacherRole(currentRole.value)) return teacherHome.homeModules.value
+  // 教师首页（#1021）：不能用学生白名单过滤教师专属模块；但游客/演示仍遵守合规展示范围
+  if (isTeacherRole(currentRole.value)) {
+    return filterAllowedModules(teacherHome.homeModules.value, homeModuleDisplaySessionOpts())
+  }
   const scoped = !isChaoxingMethod(loginMethod.value)
     ? BASE_MODULES
     : BASE_MODULES.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
-  // 合规包：仅 guest / 演示会话过滤高风险模块；真实登录不过滤
-  const allowed = filterAllowedModules(scoped, {
-    isLoggedIn: props.isLoggedIn && authStore.sessionVerified,
-    isDemoSession: isTestAccountSession()
-  })
-  // 教师模式：追加一层角色白名单，隐藏学生专属教务入口（保持上述既有过滤语义不变）
+  const allowed = filterAllowedModules(scoped, homeModuleDisplaySessionOpts())
   return filterModulesForRole(allowed, currentRole.value)
 })
 
@@ -690,7 +694,10 @@ const categoryLabel = (cat) => {
 const moduleCategories = computed(() => {
   // 教师首页（#1021）：分类只来自教师目录（教务系统 / 资源），不出现第三类
   const cats = isTeacherRole(currentRole.value)
-    ? teacherHome.featureCategories.value
+    ? teacherHome.featureCategories.value.map((cat) => ({
+        ...cat,
+        modules: cat.modules.filter((mod) => modules.value.some((item) => item.id === mod.id))
+      }))
     : buildModuleCategories(modules.value)
   return cats.filter((c) => Array.isArray(c.modules) && c.modules.length > 0)
 })
@@ -706,13 +713,13 @@ let homeCollisionFxRaf = 0
 let homeCollisionFxLastTs = 0
 
 const navigateTo = (moduleId) => {
-  if (
-    !isModuleAllowed(moduleId, {
-      isLoggedIn: authStore.sessionVerified && props.isLoggedIn,
-      isDemoSession: isTestAccountSession()
-    })
-  ) {
-    showToast(t('home.common.featureUnavailable'))
+  // 点击/真实路由仍受在线会话及 App Store 合规策略限制，绝不信任仅缓存的身份。
+  if (!isModuleAllowed(moduleId, appStoreSessionOpts())) {
+    showToast(
+      props.isLoggedIn && !authStore.sessionVerified && !isTestAccountSession()
+        ? t('home.common.onlineVerificationRequired')
+        : t('home.common.featureUnavailable')
+    )
     return
   }
   // 唯一准入：decideHomeNavigate（available:false / 硬禁用 sports_venue / 需登录）
@@ -1036,12 +1043,6 @@ const quickEntryStorageKey = () =>
 const roleDefaultQuickEntries = () =>
   isTeacherRole(currentRole.value) ? teacherHome.defaultShortcutIds.value : defaultQuickEntries
 
-/** 合规策略会话参数：与 modules / navigateTo 保持一致 */
-const appStoreSessionOpts = () => ({
-  isLoggedIn: props.isLoggedIn && authStore.sessionVerified,
-  isDemoSession: isTestAccountSession()
-})
-
 const quickEntryIds = ref([...defaultQuickEntries])
 const showQuickEntryEditor = ref(false)
 const draftQuickEntries = ref([...defaultQuickEntries])
@@ -1074,7 +1075,7 @@ const loadQuickEntries = () => {
 }
 
 const saveQuickEntries = () => {
-  const session = appStoreSessionOpts()
+  const session = homeModuleDisplaySessionOpts()
   // 再次过滤：防止草稿残留被禁 id
   const next = draftQuickEntries.value.filter((id) => isModuleAllowed(id, session))
   if (next.length !== 5) {
@@ -1088,14 +1089,14 @@ const saveQuickEntries = () => {
 }
 
 const openQuickEntryEditor = () => {
-  const session = appStoreSessionOpts()
+  const session = homeModuleDisplaySessionOpts()
   draftQuickEntries.value = resolveRoleQuickEntries(quickEntryIds.value)
     .filter((id) => isModuleAllowed(id, session))
   showQuickEntryEditor.value = true
 }
 
 const toggleDraftEntry = (id) => {
-  if (!isModuleAllowed(id, appStoreSessionOpts())) return
+  if (!isModuleAllowed(id, homeModuleDisplaySessionOpts())) return
   const idx = draftQuickEntries.value.indexOf(id)
   if (idx >= 0) { draftQuickEntries.value.splice(idx, 1) }
   else if (draftQuickEntries.value.length < 5) { draftQuickEntries.value.push(id) }
@@ -1115,13 +1116,13 @@ const quickEntryMeta = computed(() =>
 const quickEntryItems = computed(() => {
   return resolveRoleQuickEntries(quickEntryIds.value)
     .map((id) => ({ id, ...quickEntryMeta.value[id], name: t(quickEntryMeta.value[id]?.name || '') }))
-    .filter((item) => item.name && isModuleAllowed(item.id, appStoreSessionOpts()))
+    .filter((item) => item.name && isModuleAllowed(item.id, homeModuleDisplaySessionOpts()))
 })
 
 /** 编辑器可选模块：同样隐藏合规收紧会话下的被禁入口 + 当前身份不可达的入口 */
 // 编辑器渲染时同样按当前语言取词（meta.name 存 key）
 const editableQuickEntryMeta = computed(() => {
-  const session = appStoreSessionOpts()
+  const session = homeModuleDisplaySessionOpts()
   return Object.fromEntries(
     Object.entries(quickEntryMeta.value)
       .filter(([id]) => isModuleAllowed(id, session))

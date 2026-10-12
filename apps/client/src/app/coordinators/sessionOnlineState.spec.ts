@@ -175,6 +175,77 @@ describe('#659 缓存身份恢复（cached_offline）', () => {
   })
 })
 
+describe('#1043 扫码临时会话的网络异常不应被误判为登出', () => {
+  const primeTempIdentity = async (cookies = true) => {
+    storageMap.set('hbu_username', '2023000001')
+    storageMap.set('hbu_login_method', 'portal_qr_temp')
+    storageMap.set('hbu_login_temporary', '1')
+    if (cookies) storageMap.set('hbu_session_cookies', 'cookie=1')
+    const ctx = makeCoordinator()
+    await ctx.coordinator.restoreCachedIdentityFromLocal()
+    return ctx
+  }
+
+  it('离线冷启动且无 cookie：保留本地身份、不自动退出', async () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    const { coordinator, runtime, state } = await primeTempIdentity(false)
+    expect(await coordinator.tryRestoreSession()).toBe(false)
+    expect(state.studentId.value).toBe('2023000001')
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+    expect(runtime.auth.handleLogout).not.toHaveBeenCalled()
+  })
+
+  it('扫码会话恢复遇到网络超时：不触发自动登出', async () => {
+    const { coordinator, runtime, state } = await primeTempIdentity()
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'restore_session') throw new Error('network timeout')
+      if (command === 'set_offline_user_context') return null
+      throw new Error('unexpected command')
+    })
+    expect(await coordinator.tryRestoreSession()).toBe(false)
+    expect(runtime.auth.handleLogout).not.toHaveBeenCalled()
+    expect(state.studentId.value).toBe('2023000001')
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+  })
+
+  it('扫码会话恢复明确 401：仍按临时会话失效登出', async () => {
+    const { coordinator, runtime } = await primeTempIdentity()
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'restore_session') throw new Error('401 session expired')
+      return null
+    })
+    expect(await coordinator.tryRestoreSession()).toBe(false)
+    expect(runtime.auth.handleLogout).toHaveBeenCalledWith(expect.objectContaining({
+      manual: false
+    }))
+  })
+
+  it('扫码会话保活断网：降为缓存离线并等待恢复，不踢用户', async () => {
+    const { coordinator, runtime, state } = await primeTempIdentity()
+    state.onlineSessionState.value = 'online'
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'refresh_session') throw new Error('failed to fetch: network unavailable')
+      return null
+    })
+    await coordinator.refreshSessionSilently()
+    expect(runtime.auth.handleLogout).not.toHaveBeenCalled()
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+    expect(state.studentId.value).toBe('2023000001')
+  })
+
+  it('扫码会话保活明确认证过期：维持原有安全收口', async () => {
+    const { coordinator, runtime } = await primeTempIdentity()
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'refresh_session') throw new Error('401 Unauthorized: session expired')
+      return null
+    })
+    await coordinator.refreshSessionSilently()
+    expect(runtime.auth.handleLogout).toHaveBeenCalledWith(expect.objectContaining({
+      manual: false
+    }))
+  })
+})
+
 // ─── 2. 状态流转：cached_offline → recovering → online / cached_offline ─────
 
 describe('#659 状态流转', () => {

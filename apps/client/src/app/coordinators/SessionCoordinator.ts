@@ -128,6 +128,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   }
 
   const isManualLogout = () => localStorage.getItem('hbu_manual_logout') === 'true'
+  const isDeviceOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false
 
   // ── 测试账号 ─────────────────────────────────────────────────────────
   const restoreTestAccountSession = () => {
@@ -193,7 +194,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       return false
     }
     if (!cookies) {
-      if (isTemporaryLoginSession()) {
+      // 设备明确断网且本地无 cookie 时，不能把“无法联网验证”判成临时凭据过期。
+      if (isTemporaryLoginSession() && !isDeviceOffline()) {
         void runtime.auth.handleLogout({
           manual: false,
           reason: TEMP_SESSION_EXPIRED_REASON,
@@ -212,8 +214,10 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         return true
       }
     } catch (e) {
-      if (isTemporaryLoginSession()) {
-        console.warn('[Session] 临时登录恢复失败，自动退出:', e)
+      // 临时扫码会话只有在服务端明确否定认证时才能自动登出。
+      // 断网、超时和未知 IO 错误均不具有“凭据过期”的证明力。
+      if (isTemporaryLoginSession() && classifySessionError(e) === 'auth') {
+        console.warn('[Session] 临时登录会话被明确拒绝，自动退出:', e)
         void runtime.auth.handleLogout({
           manual: false,
           reason: TEMP_SESSION_EXPIRED_REASON,
@@ -437,11 +441,11 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   const classifySessionError = (err: unknown): 'network' | 'auth' | 'unknown' => {
     const raw = String((err as Error)?.message || err || '').toLowerCase()
     if (
-      /error sending request|timed? ?out|timeout|connection|connect |network|econnrefused|econnreset|dns |resolve|socket|eof|broken pipe/i.test(raw)
+      /error sending request|timed? ?out|timeout|connection|connect |network|econnrefused|econnreset|dns |resolve|socket|eof|broken pipe|failed to fetch|fetch failed|offline|网络|无法连接|断开连接|无网络/i.test(raw)
     ) {
       return 'network'
     }
-    if (/login|401|403|unauthorized|session|expired|cookie|not logged/i.test(raw)) {
+    if (/login|401|403|unauthorized|session|expired|cookie|not logged|会话.{0,4}(失效|过期)|登录.{0,4}(失效|过期)|请重新登录|未登录|身份验证失败/i.test(raw)) {
       return 'auth'
     }
     return 'unknown'
@@ -484,8 +488,11 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       await invoke('refresh_session')
       await persistSessionCookies()
     } catch (e) {
-      if (isTemporaryLoginSession()) {
-        console.warn('[Session] 临时登录会话已失效，自动退出:', e)
+      state.jwxtSessionLastError.value = formatSessionError(e)
+      const kind = classifySessionError(e)
+      const temporary = isTemporaryLoginSession()
+      if (temporary && kind === 'auth') {
+        console.warn('[Session] 临时登录会话被明确拒绝，自动退出:', e)
         void runtime.auth.handleLogout({
           manual: false,
           reason: TEMP_SESSION_EXPIRED_REASON,
@@ -493,11 +500,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         })
         return
       }
-      state.jwxtSessionLastError.value = formatSessionError(e)
-      const kind = classifySessionError(e)
-      if (kind === 'network') {
-        // 网络异常 ≠ 会话过期：静默记录，由 keep-alive 下轮重试，不弹「会话失效」横幅
-        console.warn('[Session] 会话刷新网络异常，稍后自动重试:', e)
+      if (kind === 'network' || (temporary && kind === 'unknown')) {
+        // 临时会话遇到网络/未知故障时先撤销在线权限，保留本地身份并等待恢复。
+        if (temporary) {
+          state.onlineSessionState.value = state.studentId.value ? 'cached_offline' : 'unknown'
+          startJwxtRecoveryPolling()
+        }
+        console.warn('[Session] 会话刷新暂不可用，稍后重试:', e)
         return
       }
       if (options.quiet) {

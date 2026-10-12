@@ -1349,6 +1349,7 @@ export const messages: Record<string, string> = {
   'home.cat.yimatong': '一码通',
   'home.common.cancel': '取消',
   'home.common.featureUnavailable': '当前版本不可用该功能',
+  'home.common.onlineVerificationRequired': '离线时可以查看功能入口，连接网络并验证登录后才能使用此功能。',
   'home.common.save': '保存',
   'home.common.unavailable': '暂不可用',
   'home.course.remaining': '剩余 {n} 分钟',

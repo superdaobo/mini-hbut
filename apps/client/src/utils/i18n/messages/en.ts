@@ -1348,6 +1348,7 @@ export const messages: Record<string, string> = {
   'home.cat.yimatong': 'Campus Pass',
   'home.common.cancel': 'Cancel',
   'home.common.featureUnavailable': 'This feature is unavailable in the current version',
+  'home.common.onlineVerificationRequired': 'You can browse features offline. Connect to the internet and verify your session to use this feature.',
   'home.common.save': 'Save',
   'home.common.unavailable': 'Unavailable',
   'home.course.remaining': '{n} min left',
