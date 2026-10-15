@@ -450,6 +450,8 @@ pub fn run() {
             // #755：一键切换账号（多账号并存 + keyring 凭据）
             transport::tauri::account::list_saved_accounts,
             transport::tauri::account::switch_active_account,
+            // #1061：在线切号（本地注入 + 目标账号在线验证 + 必要时专属重登复验）
+            transport::tauri::account::switch_active_account_online,
             transport::tauri::account::delete_saved_account,
             transport::tauri::config::set_ocr_endpoint,
             transport::tauri::config::set_ocr_runtime_config,

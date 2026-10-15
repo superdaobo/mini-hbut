@@ -3274,6 +3274,8 @@ export const messages: Record<string, string> = {
   'me.toast.noSavedAccounts': '他に保存されているアカウントはまだありません',
   'me.toast.sessionInvalid': 'アカウントセッションの有効期限が切れました。アカウントにログインしてから切り替えてください。',
   'me.toast.switched': 'アカウントが切り替えられました {name}',
+  'me.toast.switchNeedsLogin': 'アカウント {name} に切り替えましたが、オンライン機能を利用するには再度ログインが必要です',
+  'me.toast.switchOffline': 'アカウント {name} に切り替えました。オンライン確認が利用できないため、キャッシュ データを表示し、自動的に再試行します',
   'me.toast.switchFailedNoId': 'アカウントの切り替えに失敗しました: 対象の学生 ID が認識されませんでした',
   'me.toast.switchFailed': 'アカウントの切り替えに失敗しました。後でもう一度お試しください。',
   'me.toast.deleteConfirm': 'アカウント {name} のローカル ログイン レコードを削除してもよろしいですか?削除後、アカウントを使用するには、再度ログインする必要があります。',

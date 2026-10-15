@@ -12,6 +12,8 @@ use serde_json::json;
 use super::{ApplicationContext, ApplicationError};
 use crate::credential_store;
 use crate::db;
+use crate::http_client::HbutClient;
+use crate::IdentityRole;
 use crate::UserInfo;
 
 /// 已保存账号概览（#755 一键切换列表项；**不含密码与完整 cookie**）。
@@ -337,6 +339,51 @@ impl AuthService {
         Ok(user_info)
     }
 
+    /// 一键切换账号并**在线**确认目标身份（issue #1061 修复核心）。
+    ///
+    /// 与 [`Self::switch_active_account`] 的差异：本地 Cookie 注入后立即面向**目标账号**
+    /// 做真实在线验证；仅在服务端否定当前会话或身份不一致时，才用该账号自身的
+    /// 安全存储凭据真实重登并复验身份。返回四态结果，前端在 `online_ready` 之前
+    /// 不得开放在线业务。
+    ///
+    /// 失败策略（绝不静默换回旧账号）：目标账号保留为当前身份（离线缓存态），
+    /// 旧账号的会话行未被破坏，用户可显式切回或重新登录目标账号。
+    pub async fn switch_active_account_online(
+        &self,
+        student_id: &str,
+    ) -> Result<SwitchAccountOnlineResult, ApplicationError> {
+        // 1) 本地账号激活（沿用既有语义；失败即返回错误，且不影响其他账号）
+        let activated = self.switch_active_account(student_id).await?;
+        let target_id = activated.student_id.trim().to_string();
+        let target_role = activated.role;
+
+        // 2) 目标账号专属凭据：严格按目标账号解析，绝不回退到其他账号
+        let password = resolve_account_portal_password(self.context.db_path(), &target_id);
+
+        // 3) 在线验证 + 必要重登（写型业务：短时持写锁，与 login/restore 语义一致）
+        let handle = self.context.client_handle();
+        let mut client = handle.write().await;
+        let result = resolve_online_switch(&mut *client, &target_id, target_role, password).await;
+
+        // 4) 在线就绪后对齐持久化（v2 域 Cookie + 旧列 + 权威角色），与登录成功一致
+        if result.online_ready {
+            let role = IdentityRole::from_stored(&result.role);
+            let rows = client.export_domain_cookie_rows();
+            if !rows.is_empty() {
+                let _ =
+                    db::upsert_auth_cookies_batch(self.context.db_path(), &target_id, &rows, "jar");
+            }
+            let legacy = client.get_cookies();
+            let _ =
+                db::update_user_session_cookies_only(self.context.db_path(), &target_id, &legacy);
+            let _ = db::save_user_session_role(self.context.db_path(), &target_id, role.as_str());
+            if let Some(info) = client.user_info.as_mut() {
+                info.role = role;
+            }
+        }
+        Ok(result)
+    }
+
     /// 删除本机已保存账号（#755）：删除 user_sessions 行 + auth_cookie_v2 域 cookie，
     /// 并清理密钥环（学号键密码 / `hbut:` 记住密码 / `secret-envelope:` 解密主密钥，
     /// 保证多用户隔离与不可恢复删除）。若删除的是当前活跃账号，同时清空登录态
@@ -413,6 +460,263 @@ impl AuthService {
             .await
             .map_err(|e| ApplicationError::network(e.to_string()))
     }
+}
+
+/// 在线切号四态结果（issue #1061）。
+///
+/// 语义（前端据此渐进开放入口，禁止在在线确认前虚报可用）：
+/// 1. `local_activated` —— 本地账号激活（加密 Cookie 注入成功）；
+/// 2. `online_verified` —— 目标角色 + 账号已由服务端在线验证；
+/// 3. `relogin_attempted` —— 是否已用**目标账号自身**的存储凭据发起真实重登；
+/// 4. `online_ready` —— 在线就绪，可开放在线业务（等价于 `online_verified`）。
+///
+/// 未就绪时：`needs_login = true` 表示目标账号需要用户重新登录（凭据缺失/失效）；
+/// `needs_login = false` 表示可重试的网络/维护态，不应诱导用户重新登录。
+#[derive(Debug, Clone, Serialize)]
+pub struct SwitchAccountOnlineResult {
+    pub student_id: String,
+    /// 服务端确认（或本地记录）的身份角色：`student` / `teacher`
+    pub role: String,
+    pub local_activated: bool,
+    pub online_verified: bool,
+    pub relogin_attempted: bool,
+    pub online_ready: bool,
+    pub needs_login: bool,
+    /// 脱敏失败原因（不含账号凭据 / Cookie），供 UI 提示
+    pub failure_reason: String,
+}
+
+/// 在线探测失败的归因（issue #1061）：区分「服务端否定凭据」与「网络故障」。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProbeFailure {
+    /// 服务端明确否定当前会话（401/403/登录页/会话过期）。
+    Rejected(String),
+    /// 传输层 / 网络故障，不具备「凭据过期」的证明力。
+    Network(String),
+}
+
+/// 把探测错误文案归类为「服务端否定」或「网络故障」。
+///
+/// 判据来自 [`HbutClient::fetch_user_info`] 的实际返回：
+/// - 命中教务登录页 → `会话已过期，请重新登录`
+/// - 非 200 → `获取个人信息失败: {status}`（401/403 均落此类）
+/// - 传输层失败 → reqwest 的 `error sending request …` / `… timed out`
+///
+/// 未知错误按可重试处理：绝不据此要求用户重新登录（避免误报「会话失效」）。
+fn classify_probe_failure(message: &str) -> ProbeFailure {
+    let raw = message.trim();
+    let lower = raw.to_lowercase();
+    const NETWORK_MARKERS: [&str; 14] = [
+        "error sending request",
+        "timed out",
+        "timeout",
+        "connection",
+        "connect",
+        "dns",
+        "resolve",
+        "socket",
+        "eof",
+        "broken pipe",
+        "network",
+        "offline",
+        "无法连接",
+        "网络",
+    ];
+    if NETWORK_MARKERS.iter().any(|marker| lower.contains(marker)) {
+        return ProbeFailure::Network(raw.to_string());
+    }
+    const REJECT_MARKERS: [&str; 12] = [
+        "401",
+        "403",
+        "unauthorized",
+        "forbidden",
+        "会话已过期",
+        "请重新登录",
+        "登录页",
+        "session expired",
+        "not logged",
+        "未登录",
+        "身份验证失败",
+        "登录失效",
+    ];
+    if REJECT_MARKERS.iter().any(|marker| lower.contains(marker)) {
+        return ProbeFailure::Rejected(raw.to_string());
+    }
+    ProbeFailure::Network(raw.to_string())
+}
+
+/// 在线切号所需的客户端能力（生产实现包裹 [`HbutClient`]；测试注入伪造响应）。
+trait SwitchOnlineProbe {
+    /// 复用当前已注入的 Cookie 校验会话，返回服务端确认的身份。
+    async fn probe_current_identity(&mut self) -> Result<UserInfo, String>;
+    /// 用**指定账号**的凭据发起真实门户登录，返回服务端确认的身份。
+    async fn relogin_with_credentials(
+        &mut self,
+        student_id: &str,
+        password: &str,
+    ) -> Result<UserInfo, String>;
+}
+
+impl SwitchOnlineProbe for HbutClient {
+    async fn probe_current_identity(&mut self) -> Result<UserInfo, String> {
+        self.refresh_session().await.map_err(|e| e.to_string())
+    }
+
+    async fn relogin_with_credentials(
+        &mut self,
+        student_id: &str,
+        password: &str,
+    ) -> Result<UserInfo, String> {
+        self.set_credentials(student_id.to_string(), password.to_string());
+        self.login(student_id, password, "", "", "")
+            .await
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// 解析**指定账号**在本机存储的门户密码（DB 会话密码 + 密钥环双键）。
+///
+/// 严格按目标账号解析；找不到即返回 `None`，**绝不回退**到其他账号或
+/// `latest_user_session` —— 这是 issue #1061「禁止用旧账号凭据重登」的关键。
+fn resolve_account_portal_password(db_path: &std::path::Path, student_id: &str) -> Option<String> {
+    let sid = student_id.trim();
+    if sid.is_empty() {
+        return None;
+    }
+    if let Ok(Some(session)) = db::get_user_session(db_path, sid) {
+        if !session.password.trim().is_empty() {
+            return Some(session.password);
+        }
+    }
+    if let Some(password) = credential_store::load_session_password(sid) {
+        if !password.trim().is_empty() {
+            return Some(password);
+        }
+    }
+    if let Some(password) = credential_store::load_remembered_credential(&format!("hbut:{sid}")) {
+        if !password.trim().is_empty() {
+            return Some(password);
+        }
+    }
+    None
+}
+
+/// 在线切号判定：先复用目标账号已注入的 Cookie 做在线验证；仅在服务端否定
+/// 或身份不一致时，才用**该账号自身**的存储凭据真实重登并复验身份。
+///
+/// 安全约束（issue #1061）：
+/// - 账号主键（学号/工号）必须与服务端返回一致，否则 fail-closed，绝不采纳；
+/// - 只有 `target_password` 存在（该账号在本机有匹配凭据）时才发起重登，
+///   绝不使用其他账号的凭据；
+/// - 网络故障不具备「凭据过期」证明力，不要求用户重新登录，按可重试处理；
+/// - 任何失败路径都不返回 `online_ready = true`。
+async fn resolve_online_switch<P: SwitchOnlineProbe>(
+    probe: &mut P,
+    target_id: &str,
+    target_role: IdentityRole,
+    target_password: Option<String>,
+) -> SwitchAccountOnlineResult {
+    let target_id = target_id.trim().to_string();
+    let mut result = SwitchAccountOnlineResult {
+        student_id: target_id.clone(),
+        role: target_role.as_str().to_string(),
+        local_activated: true,
+        online_verified: false,
+        relogin_attempted: false,
+        online_ready: false,
+        needs_login: false,
+        failure_reason: String::new(),
+    };
+
+    // 1) 在线验证：目标账号 Cookie 是否仍被服务端认可
+    let mut role_mismatch: Option<IdentityRole> = None;
+    let mut id_mismatch: Option<String> = None;
+    match probe.probe_current_identity().await {
+        Ok(info) if info.student_id.trim() == target_id => {
+            if info.role == target_role {
+                return mark_online(result, info.role, false);
+            }
+            // 账号一致但角色与本地记录不同：Cookie 探测不足以改写角色，
+            // 需要真实重登复验（若该账号有凭据）。
+            role_mismatch = Some(info.role);
+        }
+        Ok(info) => {
+            // 服务端返回的账号与目标不一致：注入的 Cookie 属于别的账号（串号风险）。
+            id_mismatch = Some(info.student_id.trim().to_string());
+        }
+        Err(message) => {
+            if let ProbeFailure::Network(_) = classify_probe_failure(&message) {
+                // 网络故障：可重试，不诱导用户重新登录。
+                result.failure_reason = message;
+                return result;
+            }
+        }
+    }
+
+    // 2) 目标账号专属自动恢复：仅当存在与该账号匹配的安全存储凭据
+    let Some(password) = target_password else {
+        let reason = if let Some(actual) = id_mismatch {
+            format!("学校会话返回的账号（{actual}）与目标账号不一致，需要重新登录")
+        } else if role_mismatch.is_some() {
+            "目标账号身份与本地记录不一致，需要重新登录".to_string()
+        } else {
+            "目标账号会话已失效，且本地未保存该账号的登录凭据，需要重新登录".to_string()
+        };
+        return fail_closed(result, true, reason);
+    };
+    result.relogin_attempted = true;
+    match probe.relogin_with_credentials(&target_id, &password).await {
+        Ok(info) if info.student_id.trim() == target_id => {
+            // 真实登录成功且账号主键一致：采纳服务端权威角色。
+            mark_online(result, info.role, true)
+        }
+        Ok(_) => fail_closed(
+            result,
+            true,
+            "重新登录返回的账号与目标账号不一致，已拒绝采纳".to_string(),
+        ),
+        Err(message) => match classify_probe_failure(&message) {
+            ProbeFailure::Network(_) => {
+                result.failure_reason = message;
+                result
+            }
+            ProbeFailure::Rejected(_) => fail_closed(
+                result,
+                true,
+                "目标账号重新登录失败，请检查该账号的登录凭据".to_string(),
+            ),
+        },
+    }
+}
+
+/// 标记在线就绪；`relogged` 表示本次通过真实门户登录恢复。
+fn mark_online(
+    mut result: SwitchAccountOnlineResult,
+    role: IdentityRole,
+    relogged: bool,
+) -> SwitchAccountOnlineResult {
+    result.role = role.as_str().to_string();
+    result.online_verified = true;
+    result.online_ready = true;
+    result.needs_login = false;
+    result.failure_reason = String::new();
+    if relogged {
+        result.relogin_attempted = true;
+    }
+    result
+}
+
+/// 失败收口：绝不虚报在线；`needs_login` 明确是否需要用户重新登录。
+fn fail_closed(
+    mut result: SwitchAccountOnlineResult,
+    needs_login: bool,
+    reason: String,
+) -> SwitchAccountOnlineResult {
+    result.online_verified = false;
+    result.online_ready = false;
+    result.needs_login = needs_login;
+    result.failure_reason = reason;
+    result
 }
 
 /// 供 HTTP handler 复用的登录成功响应体（与历史 `/import_cookies` 响应一致）。
@@ -689,5 +993,316 @@ mod tests {
         assert_eq!(mask_student_id("abc"), "****");
         assert_eq!(mask_student_id(""), "");
         assert_eq!(mask_student_id("  "), "");
+    }
+
+    // ── #1061 在线切号四态合同测试 ────────────────────────────────────────
+
+    /// 伪造在线探测客户端：记录每次真实重登使用的账号与凭据。
+    struct FakeProbe {
+        probe: Result<UserInfo, String>,
+        relogin: Result<UserInfo, String>,
+        relogin_calls: Vec<(String, String)>,
+    }
+
+    impl FakeProbe {
+        fn new(probe: Result<UserInfo, String>) -> Self {
+            Self {
+                probe,
+                relogin: Err("未配置重登响应".to_string()),
+                relogin_calls: Vec::new(),
+            }
+        }
+
+        fn with_relogin(mut self, relogin: Result<UserInfo, String>) -> Self {
+            self.relogin = relogin;
+            self
+        }
+    }
+
+    impl SwitchOnlineProbe for FakeProbe {
+        async fn probe_current_identity(&mut self) -> Result<UserInfo, String> {
+            self.probe.clone()
+        }
+
+        async fn relogin_with_credentials(
+            &mut self,
+            student_id: &str,
+            password: &str,
+        ) -> Result<UserInfo, String> {
+            self.relogin_calls
+                .push((student_id.to_string(), password.to_string()));
+            self.relogin.clone()
+        }
+    }
+
+    fn user(id: &str, role: IdentityRole) -> UserInfo {
+        UserInfo {
+            student_id: id.to_string(),
+            role,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn online_switch_accepts_cookie_verified_target_identity() {
+        // 目标账号 Cookie 仍有效：一次在线验证即就绪，不发真实重登。
+        let mut probe = FakeProbe::new(Ok(user("2510232001", IdentityRole::Student)));
+        let result =
+            resolve_online_switch(&mut probe, "2510232001", IdentityRole::Student, None).await;
+        assert!(result.local_activated);
+        assert!(result.online_ready);
+        assert!(result.online_verified);
+        assert!(!result.relogin_attempted);
+        assert!(!result.needs_login);
+        assert_eq!(result.role, "student");
+        assert!(probe.relogin_calls.is_empty(), "Cookie 有效时不得发起重登");
+    }
+
+    #[tokio::test]
+    async fn online_switch_accepts_eight_digit_teacher_id_with_cookie() {
+        // 8 位教师工号：Cookie 有效时按教师身份就绪。
+        let mut probe = FakeProbe::new(Ok(user("20000000", IdentityRole::Teacher)));
+        let result =
+            resolve_online_switch(&mut probe, "20000000", IdentityRole::Teacher, None).await;
+        assert!(result.online_ready);
+        assert_eq!(result.role, "teacher");
+        assert_eq!(result.student_id, "20000000");
+    }
+
+    #[tokio::test]
+    async fn online_switch_rejected_session_without_matching_credentials_needs_login() {
+        // 伪造 HTTP 200 登录页（fetch_user_info 判定会话过期）：无该账号凭据 → 需重新登录，
+        // 且绝不用其他账号凭据重登。
+        let mut probe = FakeProbe::new(Err("会话已过期，请重新登录".to_string()));
+        let result =
+            resolve_online_switch(&mut probe, "2510232001", IdentityRole::Student, None).await;
+        assert!(!result.online_ready);
+        assert!(!result.online_verified);
+        assert!(result.needs_login);
+        assert!(!result.relogin_attempted);
+        assert!(probe.relogin_calls.is_empty(), "无匹配凭据时不得发起重登");
+        assert!(result.failure_reason.contains("重新登录"));
+    }
+
+    #[tokio::test]
+    async fn online_switch_401_uses_target_account_credentials_only() {
+        // 伪造 401：仅当存在**目标账号**凭据时，用目标账号凭据重登并复验身份。
+        let mut probe = FakeProbe::new(Err("获取个人信息失败: 401 Unauthorized".to_string()))
+            .with_relogin(Ok(user("20000000", IdentityRole::Teacher)));
+        let result = resolve_online_switch(
+            &mut probe,
+            "20000000",
+            IdentityRole::Teacher,
+            Some("target-only-secret".to_string()),
+        )
+        .await;
+        assert!(result.online_ready);
+        assert!(result.relogin_attempted);
+        assert!(!result.needs_login);
+        assert_eq!(result.role, "teacher");
+        assert_eq!(
+            probe.relogin_calls,
+            vec![("20000000".to_string(), "target-only-secret".to_string())],
+            "重登必须且只能使用目标账号自身凭据"
+        );
+    }
+
+    #[tokio::test]
+    async fn online_switch_403_uses_target_account_credentials_only() {
+        let mut probe = FakeProbe::new(Err("获取个人信息失败: 403 Forbidden".to_string()))
+            .with_relogin(Ok(user("2510232001", IdentityRole::Student)));
+        let result = resolve_online_switch(
+            &mut probe,
+            "2510232001",
+            IdentityRole::Student,
+            Some("student-secret".to_string()),
+        )
+        .await;
+        assert!(result.online_ready);
+        assert_eq!(
+            probe.relogin_calls,
+            vec![("2510232001".to_string(), "student-secret".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn online_switch_timeout_is_retryable_and_never_needs_login() {
+        // 传输层超时：不具「凭据过期」证明力，按可重试处理，且不发起重登。
+        let mut probe = FakeProbe::new(Err(
+            "error sending request for url (https://jwxt.hbut.edu.cn/...): connection timed out"
+                .to_string(),
+        ));
+        let result = resolve_online_switch(
+            &mut probe,
+            "2510232001",
+            IdentityRole::Student,
+            Some("should-not-be-used".to_string()),
+        )
+        .await;
+        assert!(!result.online_ready, "网络故障不得虚报在线");
+        assert!(!result.needs_login, "网络故障不得诱导用户重新登录");
+        assert!(!result.relogin_attempted);
+        assert!(probe.relogin_calls.is_empty(), "网络故障时不得额外发起登录");
+    }
+
+    #[tokio::test]
+    async fn online_switch_fails_closed_when_server_identity_differs() {
+        // 服务端返回了别的账号：即使重登后仍不一致，也必须 fail-closed。
+        let mut probe = FakeProbe::new(Ok(user("2510239999", IdentityRole::Student)))
+            .with_relogin(Ok(user("2510239999", IdentityRole::Student)));
+        let result = resolve_online_switch(
+            &mut probe,
+            "2510232001",
+            IdentityRole::Student,
+            Some("target-secret".to_string()),
+        )
+        .await;
+        assert!(!result.online_ready);
+        assert!(!result.online_verified);
+        assert!(result.needs_login);
+        assert_eq!(result.student_id, "2510232001");
+        assert_eq!(result.role, "student");
+    }
+
+    #[tokio::test]
+    async fn online_switch_relogin_identity_mismatch_fails_closed() {
+        // 重登返回的账号与目标不一致（例如凭据被换绑）：不得采纳。
+        let mut probe = FakeProbe::new(Err("获取个人信息失败: 401".to_string()))
+            .with_relogin(Ok(user("2510230000", IdentityRole::Student)));
+        let result = resolve_online_switch(
+            &mut probe,
+            "2510232001",
+            IdentityRole::Student,
+            Some("target-secret".to_string()),
+        )
+        .await;
+        assert!(!result.online_ready);
+        assert!(result.needs_login);
+        assert!(result.failure_reason.contains("不一致"));
+    }
+
+    #[tokio::test]
+    async fn online_switch_adopts_server_role_only_after_real_relogin() {
+        // 本地记录角色过期（记为学生、实为教师）：Cookie 探测不足以改写，
+        // 真实重登复验账号一致后才采纳服务端权威角色。
+        let mut probe = FakeProbe::new(Ok(user("20000000", IdentityRole::Teacher)))
+            .with_relogin(Ok(user("20000000", IdentityRole::Teacher)));
+        let result = resolve_online_switch(
+            &mut probe,
+            "20000000",
+            IdentityRole::Student,
+            Some("teacher-secret".to_string()),
+        )
+        .await;
+        assert!(result.online_ready);
+        assert!(result.relogin_attempted);
+        assert_eq!(result.role, "teacher", "角色必须以服务端返回为准");
+    }
+
+    #[tokio::test]
+    async fn online_switch_relogin_rejected_error_needs_login() {
+        let mut probe = FakeProbe::new(Err("会话已过期，请重新登录".to_string()))
+            .with_relogin(Err("获取个人信息失败: 401".to_string()));
+        let result = resolve_online_switch(
+            &mut probe,
+            "2510232001",
+            IdentityRole::Student,
+            Some("stale-secret".to_string()),
+        )
+        .await;
+        assert!(!result.online_ready);
+        assert!(result.needs_login);
+        assert!(result.relogin_attempted);
+    }
+
+    #[test]
+    fn classify_probe_failure_distinguishes_rejected_and_network() {
+        // 伪造 HTTP 200 登录页 / 401 / 403 → 服务端否定
+        assert!(matches!(
+            classify_probe_failure("会话已过期，请重新登录"),
+            ProbeFailure::Rejected(_)
+        ));
+        assert!(matches!(
+            classify_probe_failure("获取个人信息失败: 401"),
+            ProbeFailure::Rejected(_)
+        ));
+        assert!(matches!(
+            classify_probe_failure("获取个人信息失败: 403 Forbidden"),
+            ProbeFailure::Rejected(_)
+        ));
+        // 超时 / 断网 → 网络故障（可重试）
+        assert!(matches!(
+            classify_probe_failure("error sending request for url: connection timed out"),
+            ProbeFailure::Network(_)
+        ));
+        assert!(matches!(
+            classify_probe_failure("网络异常，无法连接教务系统"),
+            ProbeFailure::Network(_)
+        ));
+        // 未知错误不具「凭据过期」证明力
+        assert!(matches!(
+            classify_probe_failure("获取个人信息失败: 500"),
+            ProbeFailure::Network(_)
+        ));
+    }
+
+    #[test]
+    fn account_password_lookup_never_crosses_accounts() {
+        let (service, db_path) = test_service("pw_scope");
+        // 使用其他测试未占用的账号，避免共享密钥环（按账号键）造成误命中。
+        let sid_a = "29990011";
+        let sid_b = "29990012";
+        let empty = String::new();
+        let password_a = test_value("secret-a");
+        db::save_user_session(
+            &db_path,
+            sid_a,
+            "Code: CASTGC=x",
+            &password_a,
+            &empty,
+            None,
+            None,
+        )
+        .expect("save a");
+        // B 账号只保存会话、没有密码
+        db::save_user_session(
+            &db_path,
+            sid_b,
+            "Code: CASTGC=y",
+            &empty,
+            &empty,
+            None,
+            None,
+        )
+        .expect("save b");
+
+        assert_eq!(
+            resolve_account_portal_password(service.context.db_path(), sid_a),
+            Some(password_a),
+            "目标账号有凭据时应返回该账号凭据"
+        );
+        assert_eq!(
+            resolve_account_portal_password(service.context.db_path(), sid_b),
+            None,
+            "目标账号无凭据时绝不能回退到其他账号凭据"
+        );
+        assert_eq!(
+            resolve_account_portal_password(service.context.db_path(), "  "),
+            None
+        );
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn switch_active_account_online_rejects_unknown_account_before_network() {
+        // 账号不存在 → 本地即报错，不进入在线探测（不产生未授权网络登录）。
+        let (service, db_path) = test_service("switch_online_unknown");
+        let err = service
+            .switch_active_account_online("2510239999")
+            .await
+            .expect_err("不存在的账号应被拒绝");
+        assert_eq!(err.kind, ApplicationErrorKind::Validation);
+        assert!(err.message.contains("不存在"));
+        let _ = std::fs::remove_file(&db_path);
     }
 }

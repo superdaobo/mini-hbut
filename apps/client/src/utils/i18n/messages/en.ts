@@ -3276,6 +3276,8 @@ export const messages: Record<string, string> = {
   'me.toast.noSavedAccounts': 'No other saved accounts',
   'me.toast.sessionInvalid': 'This account\u2019s session has expired. Log in to that account first before switching',
   'me.toast.switched': 'Switched to account {name}',
+  'me.toast.switchNeedsLogin': 'Switched to account {name}, but that account must log in again before online features work',
+  'me.toast.switchOffline': 'Switched to account {name}; online verification is unavailable, showing cached data and will retry',
   'me.toast.switchFailedNoId': 'Account switch failed: target student ID not recognized',
   'me.toast.switchFailed': 'Account switch failed. Please try again later',
   'me.toast.deleteConfirm': 'Delete the local login record for account {name}? The account must log in again afterwards.',
