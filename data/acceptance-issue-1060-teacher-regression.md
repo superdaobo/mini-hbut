@@ -82,7 +82,7 @@ LOGIN ok  role=teacher  sid_len=8  elapsed=3528ms
 | 门禁 | 结果 |
 | --- | --- |
 | `npm run build` | ✅ rc=0 |
-| `npm run test:ci` | ✅ 328 文件通过 / 3474 测试通过；1 文件失败为**既有环境性问题**（见 §4） |
+| `npm run test:ci` | ✅ 328 文件通过 / **3479 测试通过 / 0 失败**；1 文件失败为**既有环境性问题**（见 §4） |
 | `npx vue-tsc --noEmit -p tsconfig.json` | ✅ rc=0 |
 | `npm run typecheck:js-sfc` | ✅ 通过 |
 | `check-frontend-safety.mjs` | ✅ 3 项通过 |
@@ -92,10 +92,33 @@ LOGIN ok  role=teacher  sid_len=8  elapsed=3528ms
 | `cargo fmt --all -- --check` | ✅ rc=0 |
 | `cargo clippy --lib` | ✅ 0 error（247 条既有 warning，均不在本次改动文件） |
 
-**基线对照**：改动前同环境 `test:ci` 为 3363 passed + 1 环境性失败；本次 3474 passed（+111）+ 同一环境性失败。
+**基线对照**：改动前同环境 `test:ci` 为 3363 passed + 1 环境性失败；本次 3479 passed（+116）+ 同一环境性失败。
 **未引入任何新增测试失败。**
 
 ---
+
+## 3.1 集成审查（独立对抗式）发现与修复
+
+四个分支合并后，由**独立 agent** 对 `origin/main...HEAD` 的 56 文件 diff 做对抗式审查（只读）。
+共 1 个 P0、0 个 P1、6 个 P2。已修复项：
+
+| 级别 | 问题 | 修复 |
+| --- | --- | --- |
+| **P0** | **学生端空教室语义回归**：学生分支 meta 不输出 `availability`/`filter_mode`，前端把「字段缺失」保守判为 `unknown` → 学生**每次查询成功**都会显示「状态未知 / 请勿据此判定空闲」、徽标由「空闲」变「状态未知」、`classroomRoleFromMeta` 取不到角色（缓存键丢角色维度）。与 PR 声称的「学生行为不变」冲突 | 学生 meta 显式补 `filter_mode: "student_period_query"` + `availability: "period_free"`（学生接口本身即按 `zcStr/xqStr/jcStr/xnxq` 时间维度查询，沿用既有语义）；新增 5 条学生 meta 契约回归测试（含「缺失 availability 仍须保守判 unknown」反例） |
+| P2 | 学生分支 `status` 被从 `jyzt` 推断改为硬编码「空闲」，依据是**教师**接口实测（`jyzt` 恒为 `"1"`）——属未探测学生接口的外推 | 还原为改动前的 `jyzt == "0" → 可用 / 否则 已占用`；并把 `teacher_academic_query_contract.spec.ts` 的「禁止读取 jyzt」断言**收敛到教师分支切片**，保留 #1063 在教师路径上的门禁 |
+| P2 | `TModal` 新增容器 `padding`，会同时改变另外 7 个共用 TModal 的布局（原先容器 padding 为 0、由调用方自管） | 去掉该非必要改动；`#1064` 只保留不透明实底相关样式 |
+| P2 | 登出 / 切号未清理教师只读快照与在途请求（`clearTeacherFetchInFlight` 为死代码），与 #1065「登出清理」要求不符 | `AuthCoordinator` 登出时按账号 `clearTeacherSnapshotScope(sid)` + `clearTeacherFetchInFlight()`；切号时丢弃上一账号在途请求 |
+| P2 | `useTeacherProfile.revalidate` 缺请求作用域守卫（与 teaching/exams 不一致） | 补 `snapshotKey/accountId` 守卫，迟到结果不写入当前状态 |
+
+**另修复 CI 阻断（Linux 专属）**：`test-rust`（ubuntu）失败，根因是新增测试 `account_password_lookup_never_crosses_accounts`
+依赖系统密钥环落库，而 Linux runner 无 Secret Service，`save_user_session` 按设计拒绝把密码落库。
+已按仓库既有平台豁免模式（同 `credential_store.rs`）改为：仅 Linux 允许跳过「有凭据」正例，
+macOS / Windows（CI 同样执行该测试）仍严格断言；与平台无关的「不得跨账号回退」安全断言在所有平台保留。
+
+审查**已核查为无问题**的维度（含手段）：教师只读 POST 白名单 fail-closed（`assert_allowlist_readonly` 双向校验 + 运行期精确匹配，未见可绕过写型路径）；
+切号凭据作用域无 `latest_user_session` 回退、身份不一致 fail-closed；测试注入 trait 非 pub、生产不可达；
+教师快照 key 对未知工号返回空串拒绝缓存；singleflight key 含 scope 且 `.finally()` 清理（无永久卡死）；
+epoch 守卫覆盖迟到写入；i18n 三语 key 集合完全一致（各 3645 个，diff 无差异）；未发现空断言或 `expect(true)`。
 
 ## 4. 未验证项（如实列出，不虚报通过）
 

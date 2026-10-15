@@ -21,6 +21,21 @@ const CALENDAR_RS = 'src-tauri/src/http_client/academic/calendar.rs'
 const QXZKB_RS = 'src-tauri/src/http_client/qxzkb.rs'
 const SCHEDULE_RS = 'src-tauri/src/http_client/academic/schedule.rs'
 
+/**
+ * 截取 `schedule.rs` 中**教师空教室分支**（含其专用辅助函数）的源码片段。
+ *
+ * 为什么需要切片：`schedule.rs` 同时承载学生与教师两条空教室链路，而 #1063 的
+ * 「不得用 `jyzt`/`sfqy` 推断占用、不得硬编码可用/已占用」只对**教师**分支成立
+ * （实测依据来自教师接口 `getZyKjs`）。学生链路 `mobile/jsxx` 的 `jyzt` 语义是
+ * 改动前既有行为、且学生接口本轮未探测，整文件断言会误伤它。
+ */
+const teacherClassroomSource = (source: string) => {
+  const start = source.indexOf('async fn fetch_teacher_classrooms_query')
+  expect(start, '未在 schedule.rs 找到 fetch_teacher_classrooms_query').toBeGreaterThan(-1)
+  const end = source.indexOf('pub async fn fetch_classrooms(', start)
+  return source.slice(start, end === -1 ? undefined : end)
+}
+
 describe('teacher academic query contract（Rust 角色分派）', () => {
   it('校历按会话角色分派到教师路径，且引用 readonly 常量', () => {
     const source = read(CALENDAR_RS)
@@ -64,16 +79,20 @@ describe('teacher academic query contract（Rust 角色分派）', () => {
     // 学校页面自身以 POST 调用 getZyKjs（recon 09 §1）→ 必须登记为纯查询 POST
     expect(readonly).toContain('is_teacher_query_post_allowed')
     expect(source).toContain('is_teacher_query_post_allowed(path)')
-    // #1063：不得用 `jyzt`/`sfqy` 推断逐时段占用（实测 `jyzt` 在资源目录里恒为 "1"，
-    // 属「能否借用」类资源属性，不是占用证据），也不得硬编码「可用/已占用」。
-    // 注：字段名可以出现在 `queryFields` 请求清单与注释里，但不得被读取。
-    expect(source).not.toContain('get("jyzt")')
-    expect(source).not.toContain('get("sfqy")')
-    expect(source).not.toContain('"已占用"')
-    expect(source).not.toContain('"status": "可用"')
+    // #1063：**教师分支**不得用 `jyzt`/`sfqy` 推断逐时段占用（实测 `jyzt` 在教师资源目录里
+    // 恒为 "1"，属「能否借用」类资源属性，不是占用证据），也不得硬编码「可用/已占用」。
+    //
+    // ⚠️ 断言必须**只作用于教师分支**：学生链路 `mobile/jsxx` 的 `jyzt` 语义是改动前
+    // 既有行为（`jyzt=="0" → 可用 / 否则 已占用`），学生接口本轮未探测，不得据教师实测外推，
+    // 故学生分支按原样保留。整文件断言会误伤该既有行为（#1060 集成审查）。
+    const teacherSource = teacherClassroomSource(source)
+    expect(teacherSource).not.toContain('get("jyzt")')
+    expect(teacherSource).not.toContain('get("sfqy")')
+    expect(teacherSource).not.toContain('"已占用"')
+    expect(teacherSource).not.toContain('"status": "可用"')
     // 可用性只由 meta.availability 表达
-    expect(source).toContain('"availability": availability.as_str()')
-    expect(source).toContain('classify_availability(')
+    expect(teacherSource).toContain('"availability": availability.as_str()')
+    expect(teacherSource).toContain('classify_availability(')
   })
 
   it('教师空教室不得回退到学生楼栋路径或静态兜底列表（#1063）', () => {
