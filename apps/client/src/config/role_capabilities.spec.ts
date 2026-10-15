@@ -33,6 +33,7 @@ const ALL_MODULE_IDS = [
   'broadband',
   'sports_venue',
   'library',
+  'library_reserve',
   'campus_map',
   'resource_share',
   'towergo',
@@ -67,7 +68,8 @@ describe('role_capabilities（身份能力表）', () => {
       'transactions',
       'campus_code',
       'broadband',
-      'sports_venue'
+      'sports_venue',
+      'library_reserve'
     ]
     for (const id of studentOnly) {
       expect(isModuleVisibleForRole(id, 'teacher')).toBe(false)
