@@ -13,6 +13,9 @@ import { computed, onMounted } from 'vue'
 
 import { TCard, TEmptyState, TPageHeader } from '../../../components/templates'
 import { useI18n } from '../../../utils/app_i18n'
+import { useAuthStore } from '../../../stores/auth'
+import TeacherSyncBar from '../components/TeacherSyncBar.vue'
+import { resolveTeacherAccountId } from '../utils/teacher_scope'
 import {
   TEACHER_ROLE_ID,
   TEACHER_ROLE_LABEL_KEY,
@@ -22,8 +25,19 @@ import {
 const emit = defineEmits<{ back: [] }>()
 
 const { t } = useI18n()
+const auth = useAuthStore()
 
-const { profile, loading, isEmpty, hasError, errorMessageKey, reload } = useTeacherProfile()
+const {
+  profile,
+  loading,
+  isEmpty,
+  hasError,
+  errorMessageKey,
+  lastSuccessfulSyncAt,
+  syncStatus,
+  load,
+  reload
+} = useTeacherProfile({ accountId: () => resolveTeacherAccountId(auth.studentId) })
 
 /** 头像文字：姓名首字优先，其次工号；两者皆空时用占位符。 */
 const avatarText = computed(() => {
@@ -59,7 +73,8 @@ const fields = computed(() => {
 const showContent = computed(() => Boolean(profile.value))
 
 onMounted(() => {
-  void reload()
+  // #1065：缓存优先加载（离线/慢网先显示上次成功资料），失败保留旧资料。
+  void load()
 })
 </script>
 
@@ -109,6 +124,12 @@ onMounted(() => {
           </dl>
         </TCard>
       </template>
+
+      <TeacherSyncBar
+        :status="syncStatus"
+        :last-successful-sync-at="lastSuccessfulSyncAt"
+        :error-key="hasError ? errorMessageKey : ''"
+      />
     </main>
   </div>
 </template>

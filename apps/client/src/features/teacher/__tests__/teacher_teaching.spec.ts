@@ -32,6 +32,7 @@ import {
   teacherTeachingErrorKey,
   useTeacherTeaching
 } from '../composables/useTeacherTeaching'
+import { resetTeacherSnapshotStore } from '../cache/teacherSnapshotStore'
 
 const makeTask = (
   id: string,
@@ -114,6 +115,8 @@ const newHook = (accountId = 'A', semester = '2026-2027-1') =>
 
 beforeEach(() => {
   apiMock.fetchTeacherTeaching.mockReset()
+  // #1065：清空模块级快照存储，保证用例间互不串扰。
+  resetTeacherSnapshotStore()
 })
 
 describe('E5 我的教学：6 对 4 按 jxbid 关联（禁止数组索引拼接）', () => {

@@ -221,6 +221,10 @@ async fn fetch_grid(
 ///
 /// 会话由调用方通过 [`fetch_exams_with`] 传入的共享 `&HbutClient` 提供；
 /// 会话失效（快照缺失 / 过期）时返回 `expired` 错误，**绝不返回假数据**。
+///
+/// #1067：两个独立只读 GET 默认**并发**执行（`tokio::join!`），并用与原串行实现
+/// 相同的顺序做 `?` 短路（先监考后任课考试），从而保持错误优先级与归一化不变。
+/// 设置 `HBU_TEACHER_SERIAL_FETCH=1` 可回退为串行（应对学校反爬/限频）。
 pub(crate) async fn fetch_exams_with(
     client: &HbutClient,
     semester: Option<String>,
@@ -242,20 +246,49 @@ pub(crate) async fn fetch_exams_with(
 
     let referer = format!("{}/admin/", client.jwxt_base_url());
 
-    let invigilation_payload = fetch_grid(
-        client,
-        readonly::PATH_INVIGILATION_LIST,
-        semester.as_deref(),
-        &referer,
-    )
-    .await?;
-    let exam_payload = fetch_grid(
-        client,
-        readonly::PATH_COURSE_EXAM_LIST,
-        semester.as_deref(),
-        &referer,
-    )
-    .await?;
+    let serial = super::teaching::parse_serial_fetch_flag(
+        std::env::var(super::teaching::SERIAL_FETCH_ENV)
+            .ok()
+            .as_deref(),
+    );
+
+    let (invigilation_result, exam_result) = if serial {
+        (
+            fetch_grid(
+                client,
+                readonly::PATH_INVIGILATION_LIST,
+                semester.as_deref(),
+                &referer,
+            )
+            .await,
+            fetch_grid(
+                client,
+                readonly::PATH_COURSE_EXAM_LIST,
+                semester.as_deref(),
+                &referer,
+            )
+            .await,
+        )
+    } else {
+        tokio::join!(
+            fetch_grid(
+                client,
+                readonly::PATH_INVIGILATION_LIST,
+                semester.as_deref(),
+                &referer,
+            ),
+            fetch_grid(
+                client,
+                readonly::PATH_COURSE_EXAM_LIST,
+                semester.as_deref(),
+                &referer,
+            ),
+        )
+    };
+
+    // 与原串行实现一致的错误优先级：先监考，再任课班级考试。
+    let invigilation_payload = invigilation_result?;
+    let exam_payload = exam_result?;
 
     let invigilations = parse_invigilations(&invigilation_payload);
     let exams = parse_course_exams(&exam_payload);
@@ -444,5 +477,34 @@ mod tests {
         assert!(!cookie_header_has_session(Some("")));
         assert!(!cookie_header_has_session(Some("   ")));
         assert!(cookie_header_has_session(Some("JSESSIONID=abc")));
+    }
+
+    /// #1067：并发改造后错误优先级必须与原串行实现一致（先监考后任课考试）。
+    #[tokio::test]
+    async fn concurrent_join_preserves_sequential_error_precedence() {
+        let invigilation: Result<Value, String> = Err("invigilation-failed".to_string());
+        let exam: Result<Value, String> = Err("exam-failed".to_string());
+        let (invigilation_result, exam_result) =
+            tokio::join!(async move { invigilation }, async move { exam });
+        // 复刻 `let _ = invigilation_result?; let _ = exam_result?;` 的短路语义。
+        let err = match invigilation_result {
+            Ok(_) => exam_result.err().expect("exam 应为错误"),
+            Err(error) => error,
+        };
+        assert_eq!(err, "invigilation-failed");
+    }
+
+    /// 监考成功时，任课考试的错误必须原样上抛。
+    #[tokio::test]
+    async fn concurrent_join_returns_exam_error_when_invigilation_ok() {
+        let invigilation: Result<Value, String> = Ok(json!({ "ret": 0 }));
+        let exam: Result<Value, String> = Err("exam-failed".to_string());
+        let (invigilation_result, exam_result) =
+            tokio::join!(async move { invigilation }, async move { exam });
+        let err = match invigilation_result {
+            Ok(_) => exam_result.err().expect("exam 应为错误"),
+            Err(error) => error,
+        };
+        assert_eq!(err, "exam-failed");
     }
 }

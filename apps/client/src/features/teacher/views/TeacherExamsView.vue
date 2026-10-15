@@ -10,6 +10,7 @@ import { filterByTimeline, isExamPast, useTeacherExams, type TeacherExamFilter }
 import { resolveTeacherAccountId } from '../utils/teacher_scope'
 import { teacherSemesterOptions } from '../utils/teacher_semesters'
 import TeacherRecordDetail, { type TeacherDetailRow } from '../components/TeacherRecordDetail.vue'
+import TeacherSyncBar from '../components/TeacherSyncBar.vue'
 import type { Invigilation, TeacherExam } from '../types'
 
 const emit = defineEmits<{ back: [] }>()
@@ -20,8 +21,22 @@ const activeTab = ref<ExamsTab>('invigilations')
 const timelineFilter = ref<TeacherExamFilter>('all')
 const selectedInvigilation = ref<Invigilation | null>(null)
 const selectedExam = ref<TeacherExam | null>(null)
-const { semester, invigilations, exams, reminderEvents, isLoading, isError, errorKey, load, setSemester, retry } =
-  useTeacherExams({ accountId: () => resolveTeacherAccountId(auth.studentId) })
+const {
+  semester,
+  invigilations,
+  exams,
+  reminderEvents,
+  isLoading,
+  isError,
+  errorKey,
+  lastSuccessfulSyncAt,
+  syncStatus,
+  load,
+  setSemester,
+  retry
+} = useTeacherExams({ accountId: () => resolveTeacherAccountId(auth.studentId) })
+/** 是否已有可展示数据（缓存或上次成功）；有数据时即使刷新失败也继续显示列表。 */
+const hasData = computed(() => invigilations.value.length > 0 || exams.value.length > 0)
 const semesterDraft = ref(semester.value)
 watch(semester, (value) => { semesterDraft.value = value })
 const semesters = computed(() => teacherSemesterOptions(semesterDraft.value))
@@ -137,8 +152,8 @@ onMounted(() => { void load() })
         </button>
       </div>
 
-      <TEmptyState v-if="isLoading" type="loading" :message="t('teacher.exams.loading')" />
-      <TEmptyState v-else-if="isError" type="error" :message="t(errorKey)">
+      <TEmptyState v-if="isLoading && !hasData" type="loading" :message="t('teacher.exams.loading')" />
+      <TEmptyState v-else-if="isError && !hasData" type="error" :message="t(errorKey)">
         <button type="button" class="mt-3 text-primary font-semibold" @click="reload">
           {{ t('teacher.exams.action.retry') }}
         </button>
@@ -193,6 +208,12 @@ onMounted(() => { void load() })
           </li>
         </ul>
       </template>
+
+      <TeacherSyncBar
+        :status="syncStatus"
+        :last-successful-sync-at="lastSuccessfulSyncAt"
+        :error-key="isError ? errorKey : ''"
+      />
     </main>
 
     <TeacherRecordDetail :visible="showDetail" :title="selectedTitle" :primary="detailRows"
