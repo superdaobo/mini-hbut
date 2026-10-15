@@ -38,7 +38,12 @@ import path from 'node:path'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /** 受门禁保护的纯 JS SFC（新增/修改这类文件时请一并加进来）。 */
-export const CHECKED_FILES = ['src/components/Dashboard.vue', 'src/components/LoginV3.vue']
+export const CHECKED_FILES = [
+  'src/components/Dashboard.vue',
+  'src/components/LoginV3.vue',
+  // #1057：座位预约查询面板（纯 JS SFC，纳入门禁防「未定义标识符」整页白屏）
+  'src/components/library-reserve/ReserveSeatPanel.vue'
+]
 
 const CONFIG_NAME = 'tsconfig.js-sfc-check.json'
 
