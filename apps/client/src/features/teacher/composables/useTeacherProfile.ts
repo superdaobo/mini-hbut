@@ -122,6 +122,9 @@ export const useTeacherProfile = (options: UseTeacherProfileOptions = {}) => {
     const previous = state.value.data
     state.value = { status: 'loading', data: previous, error: null }
     const result = await fetchTeacherProfile({ scope: account })
+    // #1061/#1065：等待期间账号/学期可能已切换，迟到的旧作用域结果一律丢弃，
+    // 与 useTeacherTeaching / useTeacherExams 的守卫保持一致（避免旧账号资料覆盖新账号）。
+    if (snapshotKey.value !== key || accountId.value !== account) return
     if (result.status === 'ready' && result.data) {
       const syncedAt = new Date().toISOString()
       lastSuccessfulSyncAt.value = syncedAt

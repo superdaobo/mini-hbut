@@ -90,7 +90,9 @@ const onOverlayClick = () => {
   /* 实底无需毛玻璃：去掉模糊既省 GPU，也避免 iOS WebView 的合成异常 */
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  padding: calc(1.25rem * var(--ui-space-scale));
+  /* 刻意**不**新增容器 padding：容器历来无 padding、由各调用方自管（已核实
+     被加载的 index.css / dark-mode.css 均未给 .glass-card 提供 padding）。
+     #1064 只要求不透明实底，新增内边距会同时改变另外 7 个共用 TModal 的布局。 */
 }
 .t-modal__header {
   display: flex;

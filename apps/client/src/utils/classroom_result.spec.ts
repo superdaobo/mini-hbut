@@ -74,6 +74,33 @@ const META_UNKNOWN = {
   availability: 'unknown'
 }
 
+/**
+ * 学生链路 meta（`POST /admin/pkgl/jyjs/mobile/jsxx`）。
+ *
+ * 回归护栏（#1060 集成审查 P0）：学生分支曾**不输出** `availability` / `filter_mode`，
+ * 导致前端把「字段缺失」保守判为 `unknown`，学生每次查询成功都会看到
+ * 「状态未知 / 请勿据此判定空闲」告警与未知徽标，并让 `classroomRoleFromMeta`
+ * 取不到角色。学生接口本身即按 `zcStr/xqStr/jcStr/xnxq` 时间维度查询，
+ * 必须显式声明 `period_free` 与 `student_*` 角色。
+ */
+const META_STUDENT_PERIOD_FREE = {
+  semester: '2026-2027-1',
+  date_str: '2026年10月12日',
+  date_iso: '2026-10-12',
+  week: 7,
+  weekday: 1,
+  weekday_name: '周一',
+  periods: [9, 10, 11],
+  periods_str: '第9,10,11节',
+  total: 12,
+  filter_mode: 'student_period_query',
+  availability: 'period_free',
+  query_time: '2026-10-16 09:00:00',
+  auto_strategy: 'fallback',
+  is_vacation: false,
+  vacation_notice: ''
+}
+
 describe('normalizeClassroomMeta（日期/周次唯一来源）', () => {
   it('保留后端日期与周次，不做任何本机推算', () => {
     const meta = normalizeClassroomMeta(META_PERIOD_FREE)
@@ -325,5 +352,55 @@ describe('缓存 key（账号 + 角色 + 筛选隔离）', () => {
     expect(classroomRoleFromMeta({ filter_mode: 'teacher_all' })).toBe('teacher')
     expect(classroomRoleFromMeta({ filter_mode: 'student_mobile' })).toBe('student')
     expect(classroomRoleFromMeta({})).toBe('')
+  })
+})
+
+/**
+ * 学生链路回归护栏（#1060 集成审查 P0）。
+ *
+ * 学生分支曾不输出 `availability` / `filter_mode`，前端保守判 unknown，
+ * 于是**学生每次查询成功都会看到「状态未知 / 请勿据此判定空闲」**，
+ * 徽标也从「空闲」变「状态未知」——这是学生端用户可见回归。
+ * 这里以学生真实 meta 形状锁定契约：学生结果必须被认定为「已验证空闲」。
+ */
+describe('学生链路 meta 契约（不得被误判为状态未知）', () => {
+  it('学生 meta 必须被判为 period_free，而不是保守 unknown', () => {
+    const meta = normalizeClassroomMeta(META_STUDENT_PERIOD_FREE)
+    expect(classroomAvailabilityOf(meta)).toBe(CLASSROOM_AVAILABILITY.PERIOD_FREE)
+    expect(isVerifiedFree(meta)).toBe(true)
+    expect(isAvailabilityUnknown(meta)).toBe(false)
+    expect(isResourceCatalog(meta)).toBe(false)
+  })
+
+  it('学生结果沿用既有「空闲」语义：徽标与条数文案不得降级为未知/目录', () => {
+    const meta = normalizeClassroomMeta(META_STUDENT_PERIOD_FREE)
+    expect(classroomBadgeKey(meta)).toBe('classroom.badge.free')
+    expect(classroomCountKey(meta)).toBe('classroom.result.freeCount')
+    // 顶部提示绝不能是「请勿据此判定空闲」
+    expect(classroomNoticeKey(meta)).not.toBe('classroom.availability.unknown')
+    expect(shouldShowAvailabilityNotice(meta, true)).toBe(false)
+  })
+
+  it('学生 0 条 → verified-empty（可说「没有找到空教室」），而非 unverified-empty', () => {
+    const meta = normalizeClassroomMeta({ ...META_STUDENT_PERIOD_FREE, total: 0 })
+    expect(
+      classroomEmptyMode({ meta, roomCount: 0, loading: false, hasError: false })
+    ).toBe('verified-empty')
+  })
+
+  it('学生 meta 必须能推导出 student 角色（缓存键隔离维度）', () => {
+    expect(classroomRoleFromMeta(META_STUDENT_PERIOD_FREE)).toBe('student')
+    const payload = buildClassroomQueryPayload({ studentId: 'A1', filters: { week: 7, weekday: 1 } })
+    expect(buildClassroomCacheKey('A1', payload, 'student')).toContain('classroom:student:A1')
+  })
+
+  it('（反例）缺失 availability 的旧后端响应仍必须保守判 unknown，不得假设空闲', () => {
+    const legacy = normalizeClassroomMeta({
+      semester: '2026-2027-1',
+      total: 12,
+      date_str: '2026年10月12日'
+    })
+    expect(classroomAvailabilityOf(legacy)).toBe(CLASSROOM_AVAILABILITY.UNKNOWN)
+    expect(isVerifiedFree(legacy)).toBe(false)
   })
 })

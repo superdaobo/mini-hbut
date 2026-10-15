@@ -924,13 +924,11 @@ impl HbutClient {
                     "floor": room.get("szlc").and_then(|v| v.as_str()).unwrap_or(""),
                     "type": room.get("jslx").and_then(|v| v.as_str()).unwrap_or(""),
                     "department": room.get("jsglbmmc").and_then(|v| v.as_str()).unwrap_or(""),
-                    // #1063：**不再**用 `jyzt` 推断占用状态。
-                    // 实测 `jyzt` 在教室资源目录里恒为 "1"（属「能否借用」类资源属性，
-                    // 不是逐时段占用证据）；旧实现会把它解读成「可用/已占用」，
-                    // 既无证据又会让所有结果落到同一个分支。
-                    // 学生链路走的是**按周次/星期/节次筛选**的空教室查询，
-                    // 返回集合本身就是服务端筛出的结果，因此统一标注为「空闲」。
-                    "status": "空闲"
+                    // 学生链路**沿用既有语义**：`jyzt == "0"` → 「可用」，否则「已占用」。
+                    // 注意：`jyzt` 在**教师**资源目录 `getZyKjs` 里恒为 "1"（属资源属性），
+                    // 但那是教师接口的实测结论，**不可外推**到学生接口 `mobile/jsxx`。
+                    // 学生接口本轮未探测，故此处不做新推断，与改动前逐字保持一致。
+                    "status": if room.get("jyzt").and_then(|v| v.as_str()) == Some("0") { "可用" } else { "已占用" }
                 }));
             }
         }
@@ -960,6 +958,14 @@ impl HbutClient {
                 "periods": periods_vec,
                 "periods_str": format!("第{}节", jc_str),
                 "total": classrooms.len(),
+                // #1062/#1063 修复：学生链路**必须**显式声明结果语义与角色，否则前端
+                // `classroomAvailabilityOf` 会把「字段缺失」保守判为 `unknown`，
+                // 导致学生每次查询成功都显示「状态未知 / 请勿据此判定空闲」，
+                // 并且 `classroomRoleFromMeta` 取不到角色、缓存键丢失角色维度。
+                // 学生接口 `mobile/jsxx` 本身即按 `zcStr/xqStr/jcStr/xnxq` 时间维度查询，
+                // 沿用既有「返回集合即所选时段空闲」语义，故为 `period_free`。
+                "filter_mode": "student_period_query",
+                "availability": "period_free",
                 "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                 "auto_strategy": context.get("auto_strategy").cloned().unwrap_or(serde_json::json!("fallback")),
                 "is_vacation": context.get("is_vacation").cloned().unwrap_or(serde_json::json!(false)),

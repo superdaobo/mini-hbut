@@ -38,6 +38,9 @@ import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/lo
 import { subscribePortalLoginSucceeded } from './loginOutcome'
 import { saveRememberedUsername, getRememberedUsername } from '../../utils/remembered_username'
 import { isTeacherRoleValue, normalizeLoginRole, writeLoginFormAccount } from '../../utils/login_role'
+// #1061/#1065：登出 / 切号时必须丢弃教师只读快照与在途请求，避免跨账号残留
+import { clearTeacherSnapshotScope } from '../../features/teacher/cache/teacherSnapshotStore'
+import { clearTeacherFetchInFlight } from '../../features/teacher/api/teacherApi'
 import { normalizePortalAccountId } from '../../utils/portal_account.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
@@ -313,6 +316,15 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     // 尽力而为（F2）：限制存储环境下清理抛错不得打断登出流程，必须在 state 重置之前就被吞掉。
     runLogoutCleanupSafely('游戏落盘身份清理', () => clearGameIdentityCaches(logoutSid))
 
+    // #1065/#1061：教师只读业务快照（课程名 / 教学班 / 监考考试安排 / 通知正文）按
+    // `teacher:{工号}:{学期}:*` 持久化在 localStorage，登出后仍可读。与游戏身份同理，
+    // 必须在**每次**登出（手动 + 会话失效自动）按账号清理，并丢弃在途的教师请求，
+    // 否则设备共享时下一位用户会看到上一位教师的只读数据。尽力而为，不得打断登出。
+    runLogoutCleanupSafely('教师快照清理', () => {
+      clearTeacherFetchInFlight()
+      clearTeacherSnapshotScope(logoutSid)
+    })
+
     runtime.navigation.applyViewState('home')
     state.gradeData.value = []
     state.gradeTeacherCache.value = null
@@ -397,6 +409,10 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     if (previousSid !== sid) {
       runLogoutCleanupSafely('游戏落盘身份清理', () => clearGameIdentityCaches(previousSid))
       clearScheduleRenderSnapshot()
+      // #1061/#1065：切到别的账号时丢弃上一账号在途的教师只读请求，避免其迟到结果
+      // 被目标账号的 singleflight 复用/覆盖（快照本身按 `teacher:{工号}:...` 键隔离，
+      // 故这里只清在途表，不清目标账号自己的快照）。
+      clearTeacherFetchInFlight()
     }
     state.studentId.value = sid
     state.setIdentityRole(role)
