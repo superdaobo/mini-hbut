@@ -99,7 +99,12 @@ pub struct LibraryReserveError {
 }
 
 impl LibraryReserveError {
-    fn new(kind: &str, message: impl Into<String>, can_relogin: bool, detail: Option<String>) -> Self {
+    fn new(
+        kind: &str,
+        message: impl Into<String>,
+        can_relogin: bool,
+        detail: Option<String>,
+    ) -> Self {
         Self {
             kind: kind.to_string(),
             message: message.into(),
@@ -130,12 +135,7 @@ impl LibraryReserveError {
 
     /// 其它非预期响应（带跳转链诊断）
     pub fn unexpected(message: impl Into<String>, chain: &[String]) -> Self {
-        Self::new(
-            ERR_UNEXPECTED_RESPONSE,
-            message,
-            false,
-            chain_detail(chain),
-        )
+        Self::new(ERR_UNEXPECTED_RESPONSE, message, false, chain_detail(chain))
     }
 }
 
@@ -225,7 +225,9 @@ impl LibraryApp {
     /// 备注（业务侧需要知道的坑）
     pub fn note(&self) -> &'static str {
         match self {
-            Self::Seat => "移动端 SPA：二级页依赖超星 App 原生桥接，浏览器走不通，选座/签到必须直接调接口",
+            Self::Seat => {
+                "移动端 SPA：二级页依赖超星 App 原生桥接，浏览器走不通，选座/签到必须直接调接口"
+            }
             Self::QuietRoom => "PC 页面，浏览器可直接访问；要求 2-6 人使用",
             Self::SeminarRoom => "PC 页面，浏览器可直接访问",
         }
@@ -635,7 +637,10 @@ async fn follow_chain(
         }
 
         // 非重定向：读正文做登录态 / 权限判定
-        let body = resp.text().await.map_err(|e| classify_transport_error(&e))?;
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| classify_transport_error(&e))?;
 
         if looks_like_login_body(&body) {
             return Err(LibraryReserveError::not_logged_in(
@@ -729,12 +734,9 @@ fn resolve_redirect_target(base: &str, location: &str) -> Result<String, Library
     let base_url = Url::parse(base).map_err(|e| {
         LibraryReserveError::unexpected(format!("当前地址无法解析（{base}）：{e}"), &[])
     })?;
-    base_url
-        .join(location)
-        .map(|u| u.to_string())
-        .map_err(|e| {
-            LibraryReserveError::unexpected(format!("跳转地址无法解析（{location}）：{e}"), &[])
-        })
+    base_url.join(location).map(|u| u.to_string()).map_err(|e| {
+        LibraryReserveError::unexpected(format!("跳转地址无法解析（{location}）：{e}"), &[])
+    })
 }
 
 /// 是否「登录页」URL（命中即判定未登录超星）。
@@ -838,9 +840,9 @@ fn extract_next_hop_from_body(body: &str) -> Option<String> {
     }
 
     // 2) location.href = '...' / location.replace('...') / window.location = '...'
-    if let Ok(re) = regex::Regex::new(
-        r#"(?is)location\s*(?:\.\s*(?:href|replace)\s*)?[=(]\s*["']([^"']+)["']"#,
-    ) {
+    if let Ok(re) =
+        regex::Regex::new(r#"(?is)location\s*(?:\.\s*(?:href|replace)\s*)?[=(]\s*["']([^"']+)["']"#)
+    {
         if let Some(m) = re.captures(body).and_then(|c| c.get(1)) {
             let candidate = decode_html_entities(m.as_str().trim());
             if candidate.starts_with("http") {
@@ -853,9 +855,7 @@ fn extract_next_hop_from_body(body: &str) -> Option<String> {
     if let Ok(re) = regex::Regex::new(r#"https://[A-Za-z0-9.\-]*chaoxing\.com/[^\s"'<>\\]*"#) {
         for cap in re.captures_iter(body) {
             let candidate = decode_html_entities(cap.get(0).map(|m| m.as_str()).unwrap_or(""));
-            if candidate.contains("/connect/oauth2/authorize")
-                || candidate.contains(RESERVE_HOST)
-            {
+            if candidate.contains("/connect/oauth2/authorize") || candidate.contains(RESERVE_HOST) {
                 return Some(candidate);
             }
         }
@@ -941,16 +941,34 @@ mod tests {
         assert_eq!(LibraryApp::from_key("seat"), Some(LibraryApp::Seat));
         assert_eq!(LibraryApp::from_key("19248837"), Some(LibraryApp::Seat));
         assert_eq!(LibraryApp::from_key("座位预约"), Some(LibraryApp::Seat));
-        assert_eq!(LibraryApp::from_key("quiet_room"), Some(LibraryApp::QuietRoom));
-        assert_eq!(LibraryApp::from_key("quietRoom"), Some(LibraryApp::QuietRoom));
-        assert_eq!(LibraryApp::from_key("19261750"), Some(LibraryApp::QuietRoom));
-        assert_eq!(LibraryApp::from_key("静音仓预约"), Some(LibraryApp::QuietRoom));
+        assert_eq!(
+            LibraryApp::from_key("quiet_room"),
+            Some(LibraryApp::QuietRoom)
+        );
+        assert_eq!(
+            LibraryApp::from_key("quietRoom"),
+            Some(LibraryApp::QuietRoom)
+        );
+        assert_eq!(
+            LibraryApp::from_key("19261750"),
+            Some(LibraryApp::QuietRoom)
+        );
+        assert_eq!(
+            LibraryApp::from_key("静音仓预约"),
+            Some(LibraryApp::QuietRoom)
+        );
         assert_eq!(
             LibraryApp::from_key("seminar_room"),
             Some(LibraryApp::SeminarRoom)
         );
-        assert_eq!(LibraryApp::from_key("19248835"), Some(LibraryApp::SeminarRoom));
-        assert_eq!(LibraryApp::from_key("研讨室"), Some(LibraryApp::SeminarRoom));
+        assert_eq!(
+            LibraryApp::from_key("19248835"),
+            Some(LibraryApp::SeminarRoom)
+        );
+        assert_eq!(
+            LibraryApp::from_key("研讨室"),
+            Some(LibraryApp::SeminarRoom)
+        );
         assert_eq!(LibraryApp::from_key("  "), None);
         assert_eq!(LibraryApp::from_key("unknown"), None);
     }
@@ -964,7 +982,10 @@ mod tests {
         assert_eq!(seat.system_path, "/front/apps/seatengine/index");
         assert_eq!(seat.business_key, "seatId");
         assert_eq!(seat.business_value, "3597");
-        let quiet = catalog.iter().find(|c| c.app == "quiet_room").expect("quiet 存在");
+        let quiet = catalog
+            .iter()
+            .find(|c| c.app == "quiet_room")
+            .expect("quiet 存在");
         assert_eq!(quiet.m_app_id, "19261750");
         assert_eq!(quiet.system_path, "/front/web/apps/reservepc/index");
         assert_eq!(quiet.business_value, "24727");
@@ -983,7 +1004,10 @@ mod tests {
         let auth_url = "https://auth.chaoxing.com/connect/oauth2/authorize?appid=0be8aa201f084dc2b6956535f906f0ce&redirect_uri=https%3A%2F%2Freserve.chaoxing.com%2Ffront%2Fapps%2Fseatengine%2Findex%3FseatId%3D3597%26enc%3DABC%26fidEnc%3DFID%26uid%3D406591160%26mappIdEnc%3DMAPP";
         let mut params = BTreeMap::new();
         collect_params(auth_url, &mut params);
-        assert_eq!(params.get("appid").map(String::as_str), Some("0be8aa201f084dc2b6956535f906f0ce"));
+        assert_eq!(
+            params.get("appid").map(String::as_str),
+            Some("0be8aa201f084dc2b6956535f906f0ce")
+        );
         assert_eq!(params.get("seatId").map(String::as_str), Some("3597"));
         assert_eq!(params.get("enc").map(String::as_str), Some("ABC"));
         assert_eq!(params.get("fidEnc").map(String::as_str), Some("FID"));
@@ -1064,22 +1088,31 @@ mod tests {
         assert!(!is_login_page_url(
             "https://reserve.chaoxing.com/front/web/apps/reservepc/index"
         ));
-        assert!(!is_login_page_url("https://v1.chaoxing.com/mobileSet/redirectUrlMobile?mAppId=1"));
+        assert!(!is_login_page_url(
+            "https://v1.chaoxing.com/mobileSet/redirectUrlMobile?mAppId=1"
+        ));
 
         // 正文特征：超星登录页 / 学校 CAS 页
-        assert!(looks_like_login_body("<html><title>账号登录</title></html>"));
+        assert!(looks_like_login_body(
+            "<html><title>账号登录</title></html>"
+        ));
         assert!(looks_like_login_body("<div>统一身份认证</div>"));
         assert!(looks_like_login_body(
             "<form action=\"/authserver/login;jsessionid=1\"></form>"
         ));
-        assert!(!looks_like_login_body("<html><title>座位预约</title></html>"));
+        assert!(!looks_like_login_body(
+            "<html><title>座位预约</title></html>"
+        ));
 
         assert!(looks_like_no_permission(
             500,
             "未查询到您所访问的应用，请咨询管理员配置是否正确"
         ));
         assert!(looks_like_no_permission(403, ""));
-        assert!(!looks_like_no_permission(200, "{\"data\":{\"seatConfig\":{}}}"));
+        assert!(!looks_like_no_permission(
+            200,
+            "{\"data\":{\"seatConfig\":{}}}"
+        ));
         // 短错误页上的弱特征可识别
         assert!(looks_like_no_permission(200, "<div>无权限</div>"));
         // 体量大的正常业务页内联出现「未授权」不误判
@@ -1149,6 +1182,9 @@ mod tests {
         assert_eq!(un.detail.as_deref(), Some("a -> b"));
         // 序列化后前端可按 kind 分支
         let v = serde_json::to_value(&n).expect("可序列化");
-        assert_eq!(v.get("kind").and_then(|k| k.as_str()), Some(ERR_CHAOXING_NOT_LOGGED_IN));
+        assert_eq!(
+            v.get("kind").and_then(|k| k.as_str()),
+            Some(ERR_CHAOXING_NOT_LOGGED_IN)
+        );
     }
 }

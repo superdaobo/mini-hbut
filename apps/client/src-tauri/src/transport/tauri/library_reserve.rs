@@ -57,7 +57,8 @@ pub(crate) async fn library_reserve_resolve_entry(
     })?;
 
     let mut client = state.client.write().await;
-    let entry = library_reserve::resolve_entry(&mut client, app, req.force.unwrap_or(false)).await?;
+    let entry =
+        library_reserve::resolve_entry(&mut client, app, req.force.unwrap_or(false)).await?;
     Ok(json!({
         "success": true,
         "entry": entry,
