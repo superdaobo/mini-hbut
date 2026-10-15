@@ -1,16 +1,19 @@
 <script setup>
 /**
- * 图书馆预约 — 单页 Tab 框架（#1055）
+ * 图书馆预约 — 单页 Tab 框架（#1055 / #1056）
  *
- * 本阶段只做「框架与接线」：四个 Tab（座位预约 / 静音仓 / 研讨室 / 我的预约）
- * 均为结构完整的占位，包含加载中 / 空态 / 错误态三种基础状态处理。
- * 真实取数由 S5/S6 接入，接口形态见 data/library-reserve-recon/01-api-contract.md。
+ * 四个 Tab：座位预约 / 静音仓 / 研讨室 / 我的预约。
+ * - #1056 已接入静音仓与研讨室的完整预约流程（资源列表 → 选时段 → 填表 → 提交）
+ *   以及「我的预约」列表与取消，见 ./library-reserve/ 下的子组件；
+ * - 座位预约 Tab 仍为占位，由 #1057 负责（seatengine 接口体系，与静音仓/研讨室不同）。
  *
  * 未登录（在线会话未确认）时展示明确引导并可直接跳转登录，避免出现空白或死入口。
  * 与 LibraryView.vue（馆藏检索 OPAC）无关，二者是相互独立的视图。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { TPageHeader, TEmptyState } from './templates'
+import ReserveRoomPanel from './library-reserve/ReserveRoomPanel.vue'
+import ReserveMinePanel from './library-reserve/ReserveMinePanel.vue'
 import { useLocale } from '../utils/app_i18n'
 import { useAuthStore } from '../stores/auth'
 
@@ -123,16 +126,14 @@ onMounted(() => {
           </button>
         </section>
 
-        <!-- 我的预约：本阶段为空态占位 -->
-        <TEmptyState
-          v-else-if="activeTab === 'mine'"
-          type="empty"
-          :message="t('library.reserve.mine.empty')"
-        >
-          <p class="sub-hint">{{ t('library.reserve.mine.hint') }}</p>
-        </TEmptyState>
+        <!-- 我的预约（静音仓 / 研讨室，合并展示 + 取消；#1056） -->
+        <ReserveMinePanel v-else-if="activeTab === 'mine'" />
 
-        <!-- 三类资源：结构完整的空态占位（S5/S6 替换为真实预约界面） -->
+        <!-- 静音仓 / 研讨室：完整预约流程（#1056），同一面板按 app 复用 -->
+        <ReserveRoomPanel v-else-if="activeTab === 'quiet'" key="quiet" app="quiet_room" />
+        <ReserveRoomPanel v-else-if="activeTab === 'room'" key="room" app="seminar_room" />
+
+        <!-- 座位预约：由 #1057 负责，暂保留占位 -->
         <section v-else class="card placeholder">
           <span class="placeholder__icon material-symbols-outlined" aria-hidden="true">
             {{ TAB_ICONS[activeTab] }}

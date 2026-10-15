@@ -692,6 +692,24 @@ pub fn run() {
             transport::tauri::library_reserve::library_reserve_list_apps,
             transport::tauri::library_reserve::library_reserve_resolve_entry,
             transport::tauri::library_reserve::library_reserve_resolve_all,
+            // #1053：图书馆预约·静音仓/研讨室（PC 版 reservepc）——查询 + 提交 + 取消
+            transport::tauri::library_reserve::library_reserve_item_info,
+            transport::tauri::library_reserve::library_reserve_time_list,
+            transport::tauri::library_reserve::library_reserve_my_reservations,
+            transport::tauri::library_reserve::library_reserve_user_view_flag,
+            transport::tauri::library_reserve::library_reserve_open_team,
+            transport::tauri::library_reserve::library_reserve_team_list,
+            transport::tauri::library_reserve::library_reserve_person_roles,
+            transport::tauri::library_reserve::library_reserve_dialog,
+            transport::tauri::library_reserve::library_reserve_submit,
+            transport::tauri::library_reserve::library_reserve_cancel,
+            // #1054：图书馆预约·座位预约（seatengine）只读查询
+            // （选座 / 提交 / 签到 / 暂离契约未抓到，暂不提供）
+            transport::tauri::library_reserve::library_reserve_seat_config,
+            transport::tauri::library_reserve::library_reserve_seat_my_reservations,
+            transport::tauri::library_reserve::library_reserve_seat_entrance_config,
+            transport::tauri::library_reserve::library_reserve_seat_identity_verify,
+            transport::tauri::library_reserve::library_reserve_seat_i18n,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

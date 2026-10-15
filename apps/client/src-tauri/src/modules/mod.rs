@@ -18,6 +18,10 @@ pub mod electricity;
 pub mod exam;
 // #1052：图书馆预约（超星 reserve）基础链路：mAppId → 真实系统入口 + 凭证
 pub mod library_reserve;
+// #1053：图书馆预约 · 静音仓 / 研讨室业务接口（PC 版 reservepc 接口体系）
+pub mod library_reserve_pc;
+// #1054：图书馆预约 · 座位预约只读查询（seatengine 接口体系；写接口契约未抓到，暂不实现）
+pub mod library_reserve_seat;
 pub mod module_bundle;
 pub mod notification;
 pub mod one_code;

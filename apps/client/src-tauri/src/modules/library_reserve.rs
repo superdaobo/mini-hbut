@@ -4,6 +4,9 @@
 //! 供后续 sub-issue（座位预约 / 静音仓 / 研讨室 业务接口，#1053 / #1054）复用。
 //! 不含任何具体业务接口调用。
 //!
+//! 此外还收拢两个业务模块**共用**的通用工具（JSON 宽松取值、表单 / query 编码、
+//! 业务失败分类、业务响应统一处理），避免 #1053 / #1054 各写一份而漂移。
+//!
 //! ## 入口链路（勘察文档 `data/library-reserve-recon/00-README.md`）
 //!
 //! 登录态有效时（勘察实测）：
@@ -59,7 +62,7 @@ const RESERVE_HOST: &str = "reserve.chaoxing.com";
 /// 真实系统根地址
 const RESERVE_BASE: &str = "https://reserve.chaoxing.com";
 /// 业务接口统一前缀（勘察实测：静音仓 / 研讨室 / 座位均落在此前缀下，供 #1053 / #1054 直接复用）
-const RESERVE_API_BASE: &str = "https://reserve.chaoxing.com/data/apps/";
+pub(crate) const RESERVE_API_BASE: &str = "https://reserve.chaoxing.com/data/apps/";
 /// 最多跟随跳转次数（防跳转环）
 const MAX_REDIRECT_HOPS: usize = 12;
 /// 与主 HTTP 客户端保持一致的 UA（超星对 UA 有校验）
@@ -137,6 +140,15 @@ impl LibraryReserveError {
     pub fn unexpected(message: impl Into<String>, chain: &[String]) -> Self {
         Self::new(ERR_UNEXPECTED_RESPONSE, message, false, chain_detail(chain))
     }
+
+    /// **业务规则失败**（时段被占 / 超限 / 违约停用等）。
+    ///
+    /// `kind` 由调用方按服务端提示语分类（见 [`classify_business_failure`]），
+    /// 与「网络不可达」「未登录超星」严格区分：`can_relogin` 恒为 `false`，
+    /// 因为重新登录不能解决业务规则拒绝。
+    pub fn business(kind: &str, message: impl Into<String>) -> Self {
+        Self::new(kind, message, false, None)
+    }
 }
 
 impl std::fmt::Display for LibraryReserveError {
@@ -154,6 +166,291 @@ fn chain_detail(chain: &[String]) -> Option<String> {
     } else {
         Some(chain.join(" -> "))
     }
+}
+
+// ── 通用 JSON 取值工具（#1053 / #1054 共用） ──
+//
+// 超星接口的字段类型不稳定（同一字段在不同版本里可能是 number / string / bool），
+// 因此统一用「宽松取值」工具：按候选键名依次尝试，取到第一个可用值。
+// 两个业务模块（reservepc / seatengine）都需要这一套，故收拢在基础模块，
+// 避免两份实现各自漂移。
+
+/// 宽松取整型（兼容数字字符串与布尔）
+pub(crate) fn as_i64_loose(v: &Value) -> Option<i64> {
+    match v {
+        Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
+        Value::String(s) => {
+            let t = s.trim();
+            if t.is_empty() {
+                return None;
+            }
+            t.parse::<i64>()
+                .ok()
+                .or_else(|| t.parse::<f64>().ok().map(|f| f as i64))
+        }
+        Value::Bool(b) => Some(if *b { 1 } else { 0 }),
+        _ => None,
+    }
+}
+
+/// 宽松取浮点（如实测的 `cancelLimit: -1.0`）
+pub(crate) fn as_f64_loose(v: &Value) -> Option<f64> {
+    match v {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+/// 宽松取布尔（兼容 `"true"` / `1` / `"1"` / `"yes"`）
+pub(crate) fn as_bool_loose(v: &Value) -> Option<bool> {
+    match v {
+        Value::Bool(b) => Some(*b),
+        Value::Number(n) => n.as_i64().map(|i| i != 0),
+        Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" => Some(true),
+            "false" | "0" | "no" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// 顶层布尔字段（`success` 等）
+pub(crate) fn bool_field(v: &Value, key: &str) -> Option<bool> {
+    v.get(key).and_then(as_bool_loose)
+}
+
+/// 按候选键顺序取整型（兼容数字字符串）
+pub(crate) fn value_i64(v: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter().find_map(|k| v.get(*k).and_then(as_i64_loose))
+}
+
+/// 按候选键顺序取浮点
+pub(crate) fn value_f64(v: &Value, keys: &[&str]) -> Option<f64> {
+    keys.iter().find_map(|k| v.get(*k).and_then(as_f64_loose))
+}
+
+/// 按候选键顺序取非空字符串（数字 / 布尔转文本，空串视为缺失）
+pub(crate) fn value_string(v: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|k| {
+        v.get(*k).and_then(|x| match x {
+            Value::String(s) => {
+                let t = s.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t.to_string())
+                }
+            }
+            Value::Number(n) => Some(n.to_string()),
+            Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        })
+    })
+}
+
+/// 按候选键顺序取布尔（兼容 `"true"` / `1` / `"1"`）
+pub(crate) fn value_bool(v: &Value, keys: &[&str]) -> Option<bool> {
+    keys.iter().find_map(|k| v.get(*k).and_then(as_bool_loose))
+}
+
+/// 非空 trim 后的 `Option<String>`
+pub(crate) fn non_empty(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// `application/x-www-form-urlencoded` 编码。
+///
+/// `urlencoding::encode` 把空格编成 `%20`，而表单规范要求 `+`；这里统一换成 `+`
+/// （`%` 已被编成 `%25`，因此替换不会破坏原值中的字面 `%20`）。
+pub(crate) fn form_encode(raw: &str) -> String {
+    urlencoding::encode(raw).replace("%20", "+")
+}
+
+/// 表单体 / query 串编码（键值都做百分号编码；用 `BTreeMap` 保证顺序稳定，便于复现与测试）
+pub(crate) fn encode_form(params: &BTreeMap<String, String>) -> String {
+    params
+        .iter()
+        .map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+// ── 业务失败分类（reservepc / seatengine 共用） ──
+
+/// 时段不可用（已被预约 / 冲突 / 已满）
+pub(crate) const ERR_SLOT_UNAVAILABLE: &str = "slot_unavailable";
+/// 超出预约限额（时长 / 次数 / 数量上限）
+pub(crate) const ERR_RESERVE_LIMIT: &str = "reserve_limit_exceeded";
+/// 违约停用（违约次数达上限被暂停预约权限）
+pub(crate) const ERR_RESERVE_SUSPENDED: &str = "reserve_suspended";
+/// 其它业务规则拒绝（服务端明确返回失败，但无法归入上述三类）
+pub(crate) const ERR_BUSINESS_REJECTED: &str = "business_rejected";
+/// 调用方参数非法（本地校验拦截，未发请求）
+pub(crate) const ERR_INVALID_PARAMS: &str = "invalid_params";
+
+/// 违约 / 停用类提示语特征（判定顺序最优先：既含「违约」又含「次数」的提示应归为停用）
+const SUSPENDED_NEEDLES: [&str; 8] = [
+    "停用",
+    "暂停",
+    "禁用",
+    "违约",
+    "黑名单",
+    "封禁",
+    "禁止",
+    "限制预约",
+];
+/// 时段被占 / 冲突类提示语特征
+const SLOT_NEEDLES: [&str; 10] = [
+    "已被预约",
+    "已被占",
+    "已被预定",
+    "已被预订",
+    "已满",
+    "不可预约",
+    "冲突",
+    "重复预约",
+    "已被他人",
+    "已被使用",
+];
+/// 超限类提示语特征
+const LIMIT_NEEDLES: [&str; 8] = [
+    "超出",
+    "超过",
+    "上限",
+    "最多",
+    "已达",
+    "时长限制",
+    "次数限制",
+    "限额",
+];
+
+/// 按服务端提示语把业务失败分类为可机器判别的错误。
+///
+/// 判定顺序：登录态失效 → 违约停用 → 时段被占 → 超限 → 兜底业务失败。
+/// 与「网络不可达」严格区分：传输层错误在 HTTP 辅助函数里已由
+/// [`classify_transport_error`] 捕获，不会走到这里。
+pub(crate) fn classify_business_failure(message: &str, context: &str) -> LibraryReserveError {
+    let msg = message.trim();
+    let msg = if msg.is_empty() {
+        "服务端未返回失败原因"
+    } else {
+        msg
+    };
+
+    // 部分接口在登录态失效时以 `success:false` 返回，而不是 HTML 登录页
+    if contains_any(
+        msg,
+        &[
+            "未登录",
+            "请登录",
+            "登录失效",
+            "登录已失效",
+            "重新登录",
+            "会话已失效",
+        ],
+    ) {
+        return LibraryReserveError::not_logged_in(format!(
+            "{context}失败：{msg}。请重新登录融合门户后重试"
+        ));
+    }
+    if contains_any(msg, &SUSPENDED_NEEDLES) {
+        return LibraryReserveError::business(
+            ERR_RESERVE_SUSPENDED,
+            format!("{context}失败：{msg}"),
+        );
+    }
+    if contains_any(msg, &SLOT_NEEDLES) {
+        return LibraryReserveError::business(
+            ERR_SLOT_UNAVAILABLE,
+            format!("{context}失败：{msg}"),
+        );
+    }
+    if contains_any(msg, &LIMIT_NEEDLES) {
+        return LibraryReserveError::business(ERR_RESERVE_LIMIT, format!("{context}失败：{msg}"));
+    }
+    LibraryReserveError::business(ERR_BUSINESS_REJECTED, format!("{context}失败：{msg}"))
+}
+
+/// 提示语是否包含任一特征词
+pub(crate) fn contains_any(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|n| haystack.contains(n))
+}
+
+/// 取 `data` 字段，并把 `success:false` / 非 0 业务码统一转成可区分的错误。
+///
+/// 少数接口不套 `data` 包装（直接把业务对象放顶层），此时原样返回整个响应，
+/// 避免解析结果变成 `null` 而丢失信息。
+pub(crate) fn api_data(value: &Value, context: &str) -> Result<Value, LibraryReserveError> {
+    if bool_field(value, "success") == Some(false) {
+        return Err(classify_business_failure(&error_message(value), context));
+    }
+    if let Some(code) = value.get("code").and_then(as_i64_loose) {
+        if code != 0 && code != 200 {
+            return Err(classify_business_failure(&error_message(value), context));
+        }
+    }
+    match value.get("data") {
+        Some(data) => Ok(data.clone()),
+        None => Ok(value.clone()),
+    }
+}
+
+/// 从失败响应里取可读提示语
+pub(crate) fn error_message(value: &Value) -> String {
+    for key in ["msg", "message", "errorMsg", "errorMessage", "resultMsg"] {
+        if let Some(s) = value.get(key).and_then(|v| v.as_str()) {
+            let t = s.trim();
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
+    }
+    "服务端未返回失败原因".to_string()
+}
+
+/// 统一业务接口响应处理：登录页 / 无权限 / 空响应 / 非 JSON 都要给出**可区分**的错误。
+///
+/// 两个业务模块（reservepc / seatengine）的响应形态一致，故共用本函数：
+/// 会话失效时超星返回 HTML 登录页而非 JSON，必须与「无权限」「网络不可达」分开报，
+/// 否则前端会误导用户去重新登录（或反之）。
+pub(crate) async fn read_api_response(
+    resp: reqwest::Response,
+    path: &str,
+) -> Result<Value, LibraryReserveError> {
+    let status = resp.status().as_u16();
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| classify_transport_error(&e))?;
+    let trimmed = text.trim();
+
+    if looks_like_login_body(trimmed) {
+        return Err(LibraryReserveError::not_logged_in(format!(
+            "调用「{path}」时超星返回登录页，登录态已失效。请重新登录融合门户后重试"
+        )));
+    }
+    if looks_like_no_permission(status, trimmed) {
+        return Err(LibraryReserveError::no_permission(format!(
+            "调用「{path}」被超星拒绝（HTTP {status}）：当前账号可能没有该应用权限"
+        )));
+    }
+    if trimmed.is_empty() {
+        return Err(LibraryReserveError::unexpected(
+            format!("「{path}」返回空响应（HTTP {status}）"),
+            &[],
+        ));
+    }
+    serde_json::from_str(trimmed).map_err(|e| {
+        let preview: String = trimmed.chars().take(120).collect();
+        LibraryReserveError::unexpected(
+            format!("「{path}」返回非 JSON（HTTP {status}）：{e}；响应前缀：{preview}"),
+            &[],
+        )
+    })
 }
 
 // ── 应用目录（稳定标识） ──
@@ -692,7 +989,7 @@ async fn follow_chain(
 }
 
 /// 网络层错误 → 统一的「网络不可达」
-fn classify_transport_error(err: &reqwest::Error) -> LibraryReserveError {
+pub(crate) fn classify_transport_error(err: &reqwest::Error) -> LibraryReserveError {
     if err.is_timeout() {
         LibraryReserveError::network_unreachable(format!(
             "访问超星预约入口超时：{err}。请检查网络后重试"
@@ -771,7 +1068,7 @@ fn is_login_page_url(raw: &str) -> bool {
 }
 
 /// 正文是否登录页（保守标记，避免误判正常业务页）
-fn looks_like_login_body(body: &str) -> bool {
+pub(crate) fn looks_like_login_body(body: &str) -> bool {
     const MARKERS: [&str; 6] = [
         "passport2.chaoxing.com",
         // 超星登录页
@@ -790,7 +1087,7 @@ fn looks_like_login_body(body: &str) -> bool {
 /// 分强弱特征判定：强特征（超星「应用未配置」错误页专有文案）无条件命中；
 /// 弱特征仅在 HTTP 错误响应或**短正文**（错误页）上判定，
 /// 避免把正常业务页内联文案里的「未授权」误判成无权限。
-fn looks_like_no_permission(status: u16, body: &str) -> bool {
+pub(crate) fn looks_like_no_permission(status: u16, body: &str) -> bool {
     // 强特征：只出现在「应用不存在 / 未配置」错误页
     const STRONG: [&str; 2] = ["未查询到您所访问的应用", "应用不存在"];
     if STRONG.iter().any(|m| body.contains(m)) {
@@ -1180,11 +1477,129 @@ mod tests {
         let un = LibraryReserveError::unexpected("x", &["a".into(), "b".into()]);
         assert_eq!(un.kind, ERR_UNEXPECTED_RESPONSE);
         assert_eq!(un.detail.as_deref(), Some("a -> b"));
+        // 业务失败：kind 由调用方指定，且「重新登录」无意义
+        let biz = LibraryReserveError::business("slot_unavailable", "该时段已被预约");
+        assert_eq!(biz.kind, "slot_unavailable");
+        assert!(!biz.can_relogin);
+        assert!(biz.detail.is_none());
         // 序列化后前端可按 kind 分支
         let v = serde_json::to_value(&n).expect("可序列化");
         assert_eq!(
             v.get("kind").and_then(|k| k.as_str()),
             Some(ERR_CHAOXING_NOT_LOGGED_IN)
         );
+    }
+
+    // ── 通用 JSON 取值工具（#1053 / #1054 共用） ──
+
+    #[test]
+    fn value_helpers_handle_string_numbers_and_bools() {
+        let v: Value = serde_json::json!({"a": "12", "b": 3.9, "c": "true", "d": "  ", "e": true});
+        assert_eq!(value_i64(&v, &["a"]), Some(12));
+        assert_eq!(value_i64(&v, &["b"]), Some(3));
+        assert_eq!(value_bool(&v, &["c"]), Some(true));
+        assert_eq!(value_string(&v, &["d"]), None, "空白串视为缺失");
+        assert_eq!(value_bool(&v, &["e"]), Some(true));
+        assert_eq!(value_i64(&v, &["missing", "a"]), Some(12), "按候选顺序回退");
+    }
+
+    #[test]
+    fn encode_form_percent_encodes_values() {
+        let mut p = BTreeMap::new();
+        p.insert("fidEnc".to_string(), "c7450f13f8a0e9ab".to_string());
+        p.insert("startTime".to_string(), "2026-10-16 08:00".to_string());
+        let body = encode_form(&p);
+        // BTreeMap 顺序稳定：fidEnc 在前；空格按表单规范编成 `+`
+        assert_eq!(body, "fidEnc=c7450f13f8a0e9ab&startTime=2026-10-16+08%3A00");
+
+        // 值里本身含字面 "%20" 时不能被误替换
+        assert_eq!(form_encode("a%20b"), "a%2520b");
+        assert_eq!(form_encode("张三"), "%E5%BC%A0%E4%B8%89");
+    }
+
+    // ── 业务失败分类（#1053 / #1054 共用） ──
+
+    #[test]
+    fn business_failure_classification_covers_three_kinds() {
+        // 时段被占
+        let e = classify_business_failure("该时段已被预约，请选择其它时段", "提交预约");
+        assert_eq!(e.kind, ERR_SLOT_UNAVAILABLE);
+        assert!(!e.can_relogin);
+
+        let e = classify_business_failure("所选房间已被占用", "提交预约");
+        assert_eq!(e.kind, ERR_SLOT_UNAVAILABLE);
+
+        // 超限
+        let e = classify_business_failure("预约时长超出单次限制", "提交预约");
+        assert_eq!(e.kind, ERR_RESERVE_LIMIT);
+
+        let e = classify_business_failure("您今日预约次数已达上限", "提交预约");
+        assert_eq!(e.kind, ERR_RESERVE_LIMIT);
+
+        // 违约停用（同时含「违约」「次数」，必须归为停用而非超限）
+        let e = classify_business_failure("7天内违约3次，预约功能已被暂停", "提交预约");
+        assert_eq!(e.kind, ERR_RESERVE_SUSPENDED);
+
+        let e = classify_business_failure("您的账号已被限制预约", "提交预约");
+        assert_eq!(e.kind, ERR_RESERVE_SUSPENDED);
+
+        // 兜底
+        let e = classify_business_failure("参数不正确", "提交预约");
+        assert_eq!(e.kind, ERR_BUSINESS_REJECTED);
+        assert!(e.message.contains("提交预约失败"));
+    }
+
+    #[test]
+    fn business_failure_detects_login_expiry_and_network_is_separate() {
+        let e = classify_business_failure("未登录或登录已失效", "提交预约");
+        assert_eq!(e.kind, ERR_CHAOXING_NOT_LOGGED_IN);
+        assert!(e.can_relogin, "登录态问题应可重新登录修复");
+
+        // 网络失败由传输层产生，与业务失败 kind 不同
+        let net = LibraryReserveError::network_unreachable("连接超时");
+        assert_eq!(net.kind, ERR_NETWORK_UNREACHABLE);
+        assert_ne!(net.kind, ERR_SLOT_UNAVAILABLE);
+        assert!(!net.can_relogin);
+    }
+
+    #[test]
+    fn api_data_distinguishes_success_and_business_failure() {
+        // 成功：取 data
+        let ok: Value = serde_json::json!({"success": true, "data": {"a": 1}});
+        assert_eq!(
+            api_data(&ok, "x")
+                .expect("成功")
+                .get("a")
+                .and_then(as_i64_loose),
+            Some(1)
+        );
+
+        // success:false → 业务失败（带 kind）
+        let fail: Value = serde_json::json!({"success": false, "msg": "该时段已被预约"});
+        let err = api_data(&fail, "提交预约").expect_err("应失败");
+        assert_eq!(err.kind, ERR_SLOT_UNAVAILABLE);
+
+        // 非 0 业务码同样归类
+        let coded: Value = serde_json::json!({"code": 500, "message": "超出预约限额"});
+        let err = api_data(&coded, "提交预约").expect_err("应失败");
+        assert_eq!(err.kind, ERR_RESERVE_LIMIT);
+
+        // code=200 视为成功
+        let coded_ok: Value = serde_json::json!({"code": 200, "data": {"b": 2}});
+        assert!(api_data(&coded_ok, "x").is_ok());
+
+        // 无 success / code 字段（如某些查询接口）视为成功
+        let plain: Value = serde_json::json!({"data": {"c": 3}});
+        assert!(api_data(&plain, "x").is_ok());
+
+        // 不套 data 包装的接口：原样返回整个响应，不丢信息
+        let bare: Value = serde_json::json!({"showStyle": "0"});
+        let out = api_data(&bare, "x").expect("成功");
+        assert_eq!(out.get("showStyle").and_then(|v| v.as_str()), Some("0"));
+
+        // success 为字符串 "false" 也要识别
+        let str_fail: Value = serde_json::json!({"success": "false", "msg": "已被预定"});
+        let err = api_data(&str_fail, "提交预约").expect_err("应失败");
+        assert_eq!(err.kind, ERR_SLOT_UNAVAILABLE);
     }
 }
