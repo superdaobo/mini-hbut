@@ -1,12 +1,15 @@
 //! 账号管理领域 Tauri commands（#755）：已保存账号列表 / 一键切换 / 删除账号。
 //!
-//! 仅做参数与错误映射；业务逻辑（解密信封、cookie 注入、密钥环清理）在
-//! `application::AuthService`。切换为纯本地操作，**不发网络登录**。
+//! 仅做参数与错误映射；业务逻辑（解密信封、cookie 注入、在线验证、密钥环清理）
+//! 在 `application::AuthService`。
+//! - `switch_active_account`：纯本地 Cookie 注入，**不发网络登录**（保留给离线/降级路径）。
+//! - `switch_active_account_online`（#1061）：本地注入后立即在线验证目标身份，
+//!   必要时用**目标账号自身**凭据真实重登并复验身份。
 
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::application::{self, SavedAccountInfo};
+use crate::application::{self, SavedAccountInfo, SwitchAccountOnlineResult};
 use crate::transport::tauri::auth::UserInfo;
 use crate::DB_FILENAME;
 
@@ -36,6 +39,23 @@ pub(crate) async fn switch_active_account(
         DB_FILENAME,
     ))
     .switch_active_account(&student_id)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// 一键切换账号并**在线**确认目标身份（#1061）：本地 Cookie 注入后立即面向目标
+/// 账号做真实在线验证，必要时用该账号自身凭据真实重登并复验身份。
+/// 返回四态结果；未在线就绪时前端不得开放在线业务（不虚报成功）。
+#[tauri::command]
+pub(crate) async fn switch_active_account_online(
+    state: State<'_, AppState>,
+    student_id: String,
+) -> Result<SwitchAccountOnlineResult, String> {
+    application::AuthService::new(application::ApplicationContext::new(
+        state.client.clone(),
+        DB_FILENAME,
+    ))
+    .switch_active_account_online(&student_id)
     .await
     .map_err(|e| e.to_string())
 }

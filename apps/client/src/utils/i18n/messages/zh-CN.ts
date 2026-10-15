@@ -3276,6 +3276,8 @@ export const messages: Record<string, string> = {
   'me.toast.noSavedAccounts': '暂无其他已保存账号',
   'me.toast.sessionInvalid': '该账号会话已失效，请先登录该账号后再切换',
   'me.toast.switched': '已切换账号 {name}',
+  'me.toast.switchNeedsLogin': '已切换账号 {name}，但该账号需要重新登录后才能使用在线功能',
+  'me.toast.switchOffline': '已切换账号 {name}，在线验证暂不可用，当前展示缓存数据，将自动重试',
   'me.toast.switchFailedNoId': '切换账号失败：未识别到目标学号',
   'me.toast.switchFailed': '切换账号失败，请稍后重试',
   'me.toast.deleteConfirm': '确定删除账号 {name} 的本地登录记录吗？删除后该账号需重新登录才能使用。',
