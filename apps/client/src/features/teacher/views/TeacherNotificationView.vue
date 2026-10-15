@@ -23,6 +23,7 @@ import {
   type TeacherNoticeItem
 } from '../composables/useTeacherNotifications'
 import { resolveTeacherAccountId } from '../utils/teacher_scope'
+import TeacherSyncBar from '../components/TeacherSyncBar.vue'
 
 const emit = defineEmits<{ (event: 'back'): void }>()
 
@@ -43,6 +44,8 @@ const {
   desktopOnly,
   unreadCount,
   academicNotices,
+  lastSuccessfulSyncAt,
+  syncStatus,
   loadNotices,
   loadReminders,
   markLocalRead,
@@ -71,6 +74,11 @@ const errorMessage = computed(() => {
   if (!error.value) return ''
   return tLocale(TEACHER_ERROR_I18N_KEY[error.value.kind] || 'teacher.error.unknown')
 })
+
+/** 同步栏错误文案 key（更新失败时展示具体错误，而非泛化「可能过期」）。 */
+const syncErrorKey = computed(() =>
+  error.value ? TEACHER_ERROR_I18N_KEY[error.value.kind] || 'teacher.error.unknown' : ''
+)
 
 const selectedIsRead = computed(() => {
   const item = selectedNotice.value
@@ -104,8 +112,14 @@ const reminderTime = (event: TeacherReminderEvent): string => {
 const sourceLabel = (item: TeacherNoticeItem): string =>
   item.source === 'portal' ? tLocale('teacher.notification.academicSource') : item.source
 
-const refresh = async (): Promise<void> => {
+/** 页面进入：缓存优先（先渲染本账号快照，再按 TTL 后台再验证）。 */
+const loadInitial = async (): Promise<void> => {
   await Promise.all([loadNotices(), loadReminders()])
+}
+
+/** 手动刷新：绕过 TTL（仍走 teacherApi 层单飞去重）。 */
+const refresh = async (): Promise<void> => {
+  await Promise.all([loadNotices({ force: true }), loadReminders()])
 }
 
 const openNotice = (item: TeacherNoticeItem): void => {
@@ -155,7 +169,7 @@ const markSelectedAsRead = (): void => {
 
 onMounted(() => {
   window.addEventListener('keydown', closeDetailOnEscape)
-  void refresh()
+  void loadInitial()
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', closeDetailOnEscape))
 </script>
@@ -242,6 +256,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', closeDetailOnEscape)
           </ul>
         </section>
       </template>
+
+      <TeacherSyncBar
+        :status="syncStatus"
+        :last-successful-sync-at="lastSuccessfulSyncAt"
+        :error-key="syncErrorKey"
+      />
     </main>
 
     <TModal :visible="Boolean(selectedNotice || selectedReminder)" :title="detailTitle" width="480px" @close="closeDetail">

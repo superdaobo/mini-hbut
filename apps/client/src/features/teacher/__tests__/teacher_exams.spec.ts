@@ -36,6 +36,7 @@ import {
   teacherExamsErrorKey,
   useTeacherExams
 } from '../composables/useTeacherExams'
+import { resetTeacherSnapshotStore } from '../cache/teacherSnapshotStore'
 
 const makeInvigilation = (overrides: Partial<Invigilation> = {}): Invigilation => ({
   id: 'inv-1',
@@ -93,6 +94,8 @@ const newHook = (accountId = 'T0001', semester = '2026-2027-1') =>
 
 beforeEach(() => {
   apiMock.fetchTeacherExams.mockReset()
+  // #1065：清空模块级快照存储，保证用例间互不串扰。
+  resetTeacherSnapshotStore()
 })
 
 describe('E6 考试与监考：载荷映射与字段清洗', () => {

@@ -25,6 +25,7 @@ vi.mock('../api/teacherApi', () => ({
 const { teacherProfileErrorMessageKey, useTeacherProfile } = await import(
   '../composables/useTeacherProfile'
 )
+const { resetTeacherSnapshotStore } = await import('../cache/teacherSnapshotStore')
 
 const root = process.cwd()
 const readSource = (relative: string) => readFileSync(path.join(root, relative), 'utf8')
@@ -71,6 +72,8 @@ const sanitizedProfile = {
 
 beforeEach(() => {
   fetchTeacherProfileMock.mockReset()
+  // #1065：清空模块级快照存储，保证用例间互不串扰。
+  resetTeacherSnapshotStore()
 })
 
 describe('useTeacherProfile（状态映射）', () => {

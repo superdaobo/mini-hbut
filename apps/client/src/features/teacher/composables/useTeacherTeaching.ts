@@ -27,6 +27,17 @@ import {
   stripTeacherHtml
 } from '../utils/normalizeTeacherData'
 import { buildTeacherScopedKey, normalizeScopeAccountId } from '../utils/teacher_scope'
+import {
+  buildTeacherSnapshotKey,
+  clearTeacherSnapshotScope,
+  readTeacherSnapshot,
+  writeTeacherSnapshot
+} from '../cache/teacherSnapshotStore'
+import {
+  isTeacherOffline,
+  resolveTeacherSyncStatus,
+  type TeacherSyncStatus
+} from '../cache/teacher_sync_status'
 
 /** 教学任务 ↔ 教学班关联项（按 `jxbid` 精确关联；任务列表一条都不会丢）。 */
 export interface TeacherTeachingLink {
@@ -114,12 +125,27 @@ export const useTeacherTeaching = (options: UseTeacherTeachingOptions = {}) => {
 
   /** 请求序号：仅最新一次请求的结果可落地（丢弃切换学期/账号后的过期响应）。 */
   const requestSeq = ref(0)
-  /** 作用域内存缓存：键为 `teacher:{accountId}:{semester}:teaching`，跨账号/学期永不命中。 */
-  const memoryCache = new Map<string, TeacherTeachingData>()
+
+  // #1065：快照元信息（跨页面/重启共享，供 #1066 同步时间栏消费）
+  /** 最后一次**成功**同步时间（ISO）；空串 = 尚未成功同步。 */
+  const lastSuccessfulSyncAt = ref('')
+  /** 当前展示数据是否来自本地快照。 */
+  const fromCache = ref(false)
+  /** 当前快照是否已过期（可能过期）。 */
+  const snapshotStale = ref(false)
 
   const accountId = computed(() => normalizeScopeAccountId(options.accountId?.() ?? ''))
   const scopeKey = computed(() =>
     buildTeacherScopedKey('teaching', accountId.value, semester.value)
+  )
+
+  /** 统一快照键：`teacher:{accountId}:{semester}:teaching`（身份/学期隔离）。 */
+  const snapshotKey = computed(() =>
+    buildTeacherSnapshotKey({
+      resource: 'teaching',
+      accountId: accountId.value,
+      semester: semester.value
+    })
   )
 
   const tasks = computed<TeachingTask[]>(() => state.value.data?.tasks ?? [])
@@ -136,25 +162,104 @@ export const useTeacherTeaching = (options: UseTeacherTeachingOptions = {}) => {
     state.value.error ? teacherTeachingErrorKey(state.value.error.kind) : ''
   )
 
-  /** 拉取当前学期数据；`force` 为 true 时跳过内存缓存。 */
-  const load = async (opts: { force?: boolean } = {}): Promise<void> => {
-    const scope = scopeKey.value
-    if (!opts.force) {
-      const cached = memoryCache.get(scope)
-      if (cached) {
-        state.value = { status: 'ready', data: cached, error: null }
-        return
-      }
-    }
+  /** #1066：诚实同步状态（已同步/正在更新/已缓存/尚未同步/更新失败）。 */
+  const syncStatus = computed<TeacherSyncStatus>(() =>
+    resolveTeacherSyncStatus({
+      phase: state.value.status,
+      hasData: state.value.data !== null,
+      fromCache: fromCache.value,
+      stale: snapshotStale.value,
+      hasSyncTime: Boolean(lastSuccessfulSyncAt.value),
+      offline: isTeacherOffline(),
+      errorKind: state.value.error?.kind ?? null
+    })
+  )
+
+  /** 应用一条快照到视图状态（缓存优先渲染，不触发网络）。 */
+  const applySnapshot = (snapshot: TeacherTeachingData, syncedAt: string, stale: boolean): void => {
+    lastSuccessfulSyncAt.value = syncedAt
+    fromCache.value = true
+    snapshotStale.value = stale
+    // 缓存的空结果仍以 empty 状态呈现（空 ≠ 失败，但也不是 ready 有数据）。
+    const empty = snapshot.tasks.length === 0 && snapshot.classes.length === 0
+    state.value = empty
+      ? { status: 'empty', data: null, error: { kind: 'empty', message: '' } }
+      : { status: 'ready', data: snapshot, error: null }
+  }
+
+  /** 后台再验证（可取消 / 单飞由 teacherApi 层保证）。 */
+  const revalidate = async (scope: string, account: string, key: string): Promise<void> => {
     const seq = ++requestSeq.value
-    state.value = { status: 'loading', data: null, error: null }
-    const result = await fetchTeacherTeaching(semester.value)
+    // 保留已有数据，避免整页闪空（loading 期间仍显示上次内容）
+    state.value = { status: 'loading', data: state.value.data, error: null }
+    const result = await fetchTeacherTeaching(semester.value, { scope: account })
     // 过期响应（已切学期 / 已切账号 / 已有更新请求）一律丢弃，防止串号。
     if (seq !== requestSeq.value || scope !== scopeKey.value) return
+
     if (result.status === 'ready' && result.data) {
-      memoryCache.set(scope, result.data)
+      const syncedAt = new Date().toISOString()
+      lastSuccessfulSyncAt.value = syncedAt
+      fromCache.value = false
+      snapshotStale.value = false
+      if (key) {
+        writeTeacherSnapshot({
+          scopeKey: key,
+          accountId: account,
+          semester: semester.value,
+          resource: 'teaching',
+          queryKey: '',
+          data: result.data,
+          lastSuccessfulSyncAt: syncedAt
+        })
+      }
+      state.value = result
+      return
     }
-    state.value = result
+
+    if (result.status === 'empty') {
+      // 成功空数组也缓存（空 ≠ 失败）；用空载荷写入，避免下次又整页加载。
+      const syncedAt = new Date().toISOString()
+      lastSuccessfulSyncAt.value = syncedAt
+      fromCache.value = false
+      snapshotStale.value = false
+      if (key) {
+        writeTeacherSnapshot({
+          scopeKey: key,
+          accountId: account,
+          semester: semester.value,
+          resource: 'teaching',
+          queryKey: '',
+          data: { tasks: [], classes: [] } satisfies TeacherTeachingData,
+          lastSuccessfulSyncAt: syncedAt
+        })
+      }
+      state.value = result
+      return
+    }
+
+    // 失败：保留上次成功数据（若有），由 syncStatus 标记「已缓存/更新失败」。
+    state.value = { status: 'error', data: state.value.data, error: result.error }
+  }
+
+  /**
+   * 拉取当前学期数据。
+   *
+   * - 非 `force`：先读当前账号正确 scope 的快照立即渲染，TTL 内直接返回；
+   *   过期则继续后台再验证（失败保留旧数据）；
+   * - `force`：跳过缓存读取（手动刷新），仍走同一单飞去重与过期丢弃。
+   */
+  const load = async (opts: { force?: boolean } = {}): Promise<void> => {
+    const scope = scopeKey.value
+    const account = accountId.value
+    const key = snapshotKey.value
+    if (!opts.force && key) {
+      const snapshot = readTeacherSnapshot<TeacherTeachingData>(key)
+      if (snapshot) {
+        applySnapshot(snapshot.data, snapshot.meta.lastSuccessfulSyncAt, snapshot.meta.stale)
+        if (!snapshot.meta.stale) return
+      }
+    }
+    await revalidate(scope, account, key)
   }
 
   /** 切换学期：仅接受合法学期键；标准化后清空当前数据并重新拉取。 */
@@ -163,21 +268,25 @@ export const useTeacherTeaching = (options: UseTeacherTeachingOptions = {}) => {
     if (!isValidTeachingSemester(next) || next === semester.value) return
     semester.value = next
     state.value = { status: 'idle', data: null, error: null }
+    lastSuccessfulSyncAt.value = ''
+    fromCache.value = false
+    snapshotStale.value = false
     await load()
   }
 
   /** 重试当前学期（强制绕过缓存）。 */
   const retry = (): Promise<void> => load({ force: true })
 
-  /** 清空内存缓存（登出 / 账号切换时调用，避免跨账号残留）。 */
+  /** 清理**当前账号**作用域的快照（登出 / 账号切换时调用，杜绝跨账号残留）。 */
   const clearCache = (): void => {
-    memoryCache.clear()
+    clearTeacherSnapshotScope(accountId.value)
   }
 
   return {
     semester,
     accountId,
     scopeKey,
+    snapshotKey,
     state,
     tasks,
     classes,
@@ -187,6 +296,10 @@ export const useTeacherTeaching = (options: UseTeacherTeachingOptions = {}) => {
     isReady,
     isError,
     errorKey,
+    lastSuccessfulSyncAt,
+    fromCache,
+    snapshotStale,
+    syncStatus,
     load,
     setSemester,
     retry,

@@ -10,6 +10,7 @@ import { useTeacherTeaching } from '../composables/useTeacherTeaching'
 import { resolveTeacherAccountId } from '../utils/teacher_scope'
 import { teacherSemesterOptions } from '../utils/teacher_semesters'
 import TeacherRecordDetail, { type TeacherDetailRow } from '../components/TeacherRecordDetail.vue'
+import TeacherSyncBar from '../components/TeacherSyncBar.vue'
 import type { TeachingClass, TeachingTask } from '../types'
 
 const emit = defineEmits<{ back: [] }>()
@@ -20,8 +21,22 @@ const activeTab = ref<TeachingTab>('tasks')
 const selectedTask = ref<TeachingTask | null>(null)
 const selectedClass = ref<TeachingClass | null>(null)
 
-const { semester, tasks, classes, links, isLoading, isError, errorKey, load, setSemester, retry } =
-  useTeacherTeaching({ accountId: () => resolveTeacherAccountId(auth.studentId) })
+const {
+  semester,
+  tasks,
+  classes,
+  links,
+  isLoading,
+  isError,
+  errorKey,
+  lastSuccessfulSyncAt,
+  syncStatus,
+  load,
+  setSemester,
+  retry
+} = useTeacherTeaching({ accountId: () => resolveTeacherAccountId(auth.studentId) })
+/** 是否已有可展示数据（缓存或上次成功）；有数据时即使刷新失败也继续显示列表。 */
+const hasData = computed(() => tasks.value.length > 0 || classes.value.length > 0)
 const semesterDraft = ref(semester.value)
 watch(semester, (value) => { semesterDraft.value = value })
 const semesters = computed(() => teacherSemesterOptions(semesterDraft.value))
@@ -106,8 +121,8 @@ onMounted(() => { void load() })
         </TabsList>
       </Tabs>
 
-      <TEmptyState v-if="isLoading" type="loading" :message="t('teacher.teaching.loading')" />
-      <TEmptyState v-else-if="isError" type="error" :message="t(errorKey)">
+      <TEmptyState v-if="isLoading && !hasData" type="loading" :message="t('teacher.teaching.loading')" />
+      <TEmptyState v-else-if="isError && !hasData" type="error" :message="t(errorKey)">
         <button type="button" class="mt-3 text-primary font-semibold" @click="reload">
           {{ t('teacher.teaching.action.retry') }}
         </button>
@@ -155,6 +170,12 @@ onMounted(() => { void load() })
           </li>
         </ul>
       </template>
+
+      <TeacherSyncBar
+        :status="syncStatus"
+        :last-successful-sync-at="lastSuccessfulSyncAt"
+        :error-key="isError ? errorKey : ''"
+      />
     </main>
 
     <TeacherRecordDetail :visible="showDetail" :title="selectedTitle" :primary="detailRows"
