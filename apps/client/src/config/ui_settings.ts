@@ -24,6 +24,7 @@ export type HomeModuleKey =
   | 'training'
   | 'teaching_eval'
   | 'library'
+  | 'library_reserve'
   | 'campus_map'
   | 'resource_share'
   | 'chaoxing_class'
@@ -105,6 +106,8 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   'broadband',
   'sports_venue',
   'library',
+  // #1055：图书馆预约（座位 / 静音仓 / 研讨室），与馆藏检索 library 并列登记
+  'library_reserve',
   'campus_map',
   'resource_share',
   'towergo',
