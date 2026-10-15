@@ -41,15 +41,50 @@ describe('teacher academic query contract（Rust 角色分派）', () => {
     expect(source).toContain('STUDENT_QXZKB_LIST_PATH')
   })
 
-  it('空教室按会话角色分派到 getZyKjs 且为保守查询', () => {
+  it('空教室按会话角色分派到 getZyKjs，并应用真实时间维度筛选（#1062）', () => {
     const source = read(SCHEDULE_RS)
     expect(source).toContain('fn classroom_query_path_for_role')
     expect(source).toContain('teacher_readonly::PATH_FREE_CLASSROOMS')
     expect(source).toContain('fetch_teacher_classrooms_query')
     expect(source).toContain('user.role.is_teacher()')
-    // 保守查询：明确标记未应用筛选，不伪造结果
-    expect(source).toContain('"filters_applied": false')
-    expect(source).toContain('"filter_mode": "teacher_all"')
+    // #1062：学校确实支持时间维度筛选（recon 09 §2 实测），教师分支发送
+    // zcStr/xqStr/jcStr/type=1，并在校验通过后才标记 filters_applied。
+    expect(source).toContain('"zcStr"')
+    expect(source).toContain('"xqStr"')
+    expect(source).toContain('"jcStr"')
+    expect(source).toContain('"filter_mode": "teacher_period_query"')
+    expect(source).toContain('let filters_applied = true;')
+    // 旧「保守查询」语义必须消失（它正是把筛选失效固化成契约的来源）
+    expect(source).not.toContain('"filter_mode": "teacher_all"')
+  })
+
+  it('教师空教室必须走已登记的纯查询 POST，且禁止硬编码「可用」', () => {
+    const source = read(SCHEDULE_RS)
+    const readonly = read('src-tauri/src/http_client/academic/teacher/readonly.rs')
+    // 学校页面自身以 POST 调用 getZyKjs（recon 09 §1）→ 必须登记为纯查询 POST
+    expect(readonly).toContain('is_teacher_query_post_allowed')
+    expect(source).toContain('is_teacher_query_post_allowed(path)')
+    // #1063：不得用 `jyzt`/`sfqy` 推断逐时段占用（实测 `jyzt` 在资源目录里恒为 "1"，
+    // 属「能否借用」类资源属性，不是占用证据），也不得硬编码「可用/已占用」。
+    // 注：字段名可以出现在 `queryFields` 请求清单与注释里，但不得被读取。
+    expect(source).not.toContain('get("jyzt")')
+    expect(source).not.toContain('get("sfqy")')
+    expect(source).not.toContain('"已占用"')
+    expect(source).not.toContain('"status": "可用"')
+    // 可用性只由 meta.availability 表达
+    expect(source).toContain('"availability": availability.as_str()')
+    expect(source).toContain('classify_availability(')
+  })
+
+  it('教师空教室不得回退到学生楼栋路径或静态兜底列表（#1063）', () => {
+    const source = read(SCHEDULE_RS)
+    // 教师楼栋候选来自同一资源域（getZyKjs 返回教室去重）
+    expect(source).toContain('derive_building_candidates(&page.results)')
+    // 角色分派：学生走 queryForXsd 解析 + 内置兜底；教师不得复用
+    expect(source).toContain('fn fetch_student_classroom_buildings')
+    expect(source).toContain('fn fetch_teacher_classroom_buildings')
+    expect(source).toContain('self.fetch_teacher_classroom_buildings().await')
+    expect(source).toContain('self.fetch_student_classroom_buildings().await')
   })
 
   it('教师路径常量都已在 readonly allowlist 登记且无写动词', () => {
