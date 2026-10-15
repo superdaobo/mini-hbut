@@ -399,6 +399,13 @@ html[data-ui-card='outline'] :is(
   border-width: 1.5px !important;
 }
 
+/* #1064：卡片皮肤（glass/solid/outline）切换不得让共享 TModal 的二级详情透底。
+   TModal 自带不透明实体底 token（--ui-modal-surface），此处用同源 token 兜底，
+   放在皮肤规则之后，确保同特异性下后者生效。 */
+html[data-ui-card] .t-modal__container {
+  background: var(--ui-modal-surface, #ffffff) !important;
+}
+
 :is(.glass-card, .module-card, .room-card, .settings-section, .book-card, .resource-card, .t-card--hoverable):not(.disabled):not(.bottom-tab-bar):hover {
   transform: translateY(-2px);
   box-shadow: var(--ux-card-shadow-hover) !important;
