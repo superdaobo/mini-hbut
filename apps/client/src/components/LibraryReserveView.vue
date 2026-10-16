@@ -1,17 +1,21 @@
 <script setup>
 /**
- * 图书馆预约 — 单页 Tab 框架（#1055 / #1056）
+ * 图书馆预约 — 单页 Tab 框架（#1055 / #1056 / #1057）
  *
  * 四个 Tab：座位预约 / 静音仓 / 研讨室 / 我的预约。
  * - #1056 已接入静音仓与研讨室的完整预约流程（资源列表 → 选时段 → 填表 → 提交）
  *   以及「我的预约」列表与取消，见 ./library-reserve/ 下的子组件；
- * - 座位预约 Tab 仍为占位，由 #1057 负责（seatengine 接口体系，与静音仓/研讨室不同）。
+ * - #1057 已接入座位预约（seatengine 接口体系）的**查询**面板，见 ReserveSeatPanel.vue。
+ *
+ * 各 Tab 的数据加载 / 错误态 / 空态由各自面板负责（面板挂载即拉取），
+ * 本组件只做「会话门禁 + Tab 切换」，不再持有 Tab 级 loading / error 状态。
  *
  * 未登录（在线会话未确认）时展示明确引导并可直接跳转登录，避免出现空白或死入口。
  * 与 LibraryView.vue（馆藏检索 OPAC）无关，二者是相互独立的视图。
  */
-import { computed, onMounted, ref, watch } from 'vue'
-import { TPageHeader, TEmptyState } from './templates'
+import { computed, ref } from 'vue'
+import { TPageHeader } from './templates'
+import ReserveSeatPanel from './library-reserve/ReserveSeatPanel.vue'
 import ReserveRoomPanel from './library-reserve/ReserveRoomPanel.vue'
 import ReserveMinePanel from './library-reserve/ReserveMinePanel.vue'
 import { useLocale } from '../utils/app_i18n'
@@ -25,17 +29,7 @@ const emit = defineEmits(['back', 'require-login'])
 /** 四个 Tab 的 key（同时作为 i18n 词条后缀与状态隔离维度） */
 const TABS = ['seat', 'quiet', 'room', 'mine']
 
-/** 占位图标（Material Symbols 名称，按 Tab 取用） */
-const TAB_ICONS = {
-  seat: 'event_seat',
-  quiet: 'headphones',
-  room: 'groups',
-  mine: 'event_available'
-}
-
 const activeTab = ref('seat')
-const loading = ref(false)
-const error = ref('')
 
 /**
  * 是否已具备使用预约的在线会话。
@@ -44,45 +38,11 @@ const error = ref('')
  */
 const canUse = computed(() => Boolean(authStore.isLoggedIn && authStore.sessionVerified))
 
-/**
- * Tab 占位数据源：本阶段不接真实后端，直接完成（结果恒为空）。
- * S5/S6 接入时把这里替换为 reserve.chaoxing.com 的真实请求即可，
- * 上层 loading / error / 空态的处理无需改动。
- */
-const fetchTabData = async () => {
-  await Promise.resolve()
-}
-
-/** 拉取当前 Tab 数据（切换 Tab 与重试共用同一入口） */
-const loadActiveTab = async () => {
-  if (!canUse.value) return
-  loading.value = true
-  error.value = ''
-  try {
-    await fetchTabData()
-  } catch (e) {
-    error.value = String(e?.message || e || t('library.reserve.state.error'))
-  } finally {
-    loading.value = false
-  }
-}
-
 const selectTab = (tabKey) => {
-  if (activeTab.value === tabKey) return
   activeTab.value = tabKey
-  void loadActiveTab()
 }
 
 const goLogin = () => emit('require-login')
-
-/** 会话确认后自动补拉一次（覆盖「先进页面后登录」的时序） */
-watch(canUse, (ok) => {
-  if (ok) void loadActiveTab()
-})
-
-onMounted(() => {
-  void loadActiveTab()
-})
 </script>
 
 <template>
@@ -117,31 +77,15 @@ onMounted(() => {
           </button>
         </div>
 
-        <TEmptyState v-if="loading" type="loading" :message="t('library.reserve.state.loading')" />
-
-        <section v-else-if="error" class="card error-card">
-          <p class="err">{{ error }}</p>
-          <button type="button" class="ghost" @click="loadActiveTab">
-            {{ t('library.reserve.btn.retry') }}
-          </button>
-        </section>
-
-        <!-- 我的预约（静音仓 / 研讨室，合并展示 + 取消；#1056） -->
-        <ReserveMinePanel v-else-if="activeTab === 'mine'" />
+        <!-- 座位预约：seatengine 查询面板（#1057） -->
+        <ReserveSeatPanel v-if="activeTab === 'seat'" />
 
         <!-- 静音仓 / 研讨室：完整预约流程（#1056），同一面板按 app 复用 -->
         <ReserveRoomPanel v-else-if="activeTab === 'quiet'" key="quiet" app="quiet_room" />
         <ReserveRoomPanel v-else-if="activeTab === 'room'" key="room" app="seminar_room" />
 
-        <!-- 座位预约：由 #1057 负责，暂保留占位 -->
-        <section v-else class="card placeholder">
-          <span class="placeholder__icon material-symbols-outlined" aria-hidden="true">
-            {{ TAB_ICONS[activeTab] }}
-          </span>
-          <h2 class="placeholder__title">{{ t(`library.reserve.tab.${activeTab}`) }}</h2>
-          <p class="placeholder__desc">{{ t(`library.reserve.${activeTab}.desc`) }}</p>
-          <p class="placeholder__hint">{{ t('library.reserve.placeholder.desc') }}</p>
-        </section>
+        <!-- 我的预约（静音仓 / 研讨室，合并展示 + 取消；#1056） -->
+        <ReserveMinePanel v-else />
       </template>
     </div>
   </div>
@@ -158,12 +102,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-.card {
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: calc(16px * var(--ui-radius-scale));
-  padding: 16px;
 }
 
 /* 登录引导 */
@@ -225,73 +163,17 @@ onMounted(() => {
   color: #fff;
 }
 
-/* 占位卡片 */
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 8px;
-  padding: 40px 20px;
-}
-.placeholder__icon {
-  font-size: 44px;
-  color: var(--ui-primary);
-}
-.placeholder__title {
-  margin: 0;
-  font-size: calc(16px * var(--ui-font-scale));
-  color: var(--ui-text);
-}
-.placeholder__desc {
-  margin: 0;
-  font-size: calc(13px * var(--ui-font-scale));
-  color: var(--ui-muted);
-}
-.placeholder__hint {
-  margin: 0;
-  font-size: calc(12px * var(--ui-font-scale));
-  color: var(--ui-muted);
-  opacity: 0.85;
-}
-
-/* 错误态 */
-.error-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-}
-.err {
-  margin: 0;
-  font-size: calc(13px * var(--ui-font-scale));
-  color: var(--ui-danger);
-}
-.sub-hint {
-  margin: 8px 0 0;
-  font-size: calc(12px * var(--ui-font-scale));
-  color: var(--ui-muted);
-}
-
-/* 按钮 */
-.primary,
-.ghost {
+/* 按钮（仅登录引导使用） */
+.primary {
   min-height: 44px;
   padding: 0 20px;
+  border: 0;
   border-radius: calc(14px * var(--ui-radius-scale));
+  background: var(--ui-primary);
+  color: #fff;
   font-size: calc(14px * var(--ui-font-scale));
   font-weight: 700;
   cursor: pointer;
-}
-.primary {
-  border: 0;
-  background: var(--ui-primary);
-  color: #fff;
-}
-.ghost {
-  border: 1px solid var(--ui-surface-border);
-  background: transparent;
-  color: var(--ui-text);
 }
 
 /* 宽屏（≥768 主断点）：Tab 等分占满，内容留出呼吸感 */
@@ -303,8 +185,7 @@ onMounted(() => {
     flex: 1 1 0;
     min-width: 0;
   }
-  .guide,
-  .placeholder {
+  .guide {
     padding: 64px 24px;
   }
 }

@@ -107,7 +107,10 @@ const I18N_MIGRATED_FILES: string[] = [
   'components/TeachingEvalView.vue',
   'components/ConfigEditor.vue',
   // #1055：图书馆预约视图（座位 / 静音仓 / 研讨室 + 我的预约），全量文案走 i18n
-  'components/LibraryReserveView.vue'
+  'components/LibraryReserveView.vue',
+  // #1057：座位预约查询面板与其领域层（全量文案走 i18n，中文仅出现在注释里）
+  'components/library-reserve/ReserveSeatPanel.vue',
+  'components/library-reserve/seatCatalog.ts'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */
