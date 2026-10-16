@@ -289,20 +289,37 @@ const switchToAccount = async (acc) => {
   const requestedSid = normalizePortalAccountId(acc.student_id, requestedRole)
   switchingAccount.value = acc.student_id
   try {
-    const info = await invokeNative('switch_active_account', {
+    // #1061：在线切号 —— Rust 完成本地注入后立即在线验证目标身份，必要时用
+    // 该账号自身凭据真实重登并复验；只有 online_ready 才代表在线可用。
+    const info = await invokeNative('switch_active_account_online', {
       studentId: acc.student_id,
       student_id: acc.student_id
     })
     // 工号与学号都由 Rust 返回的已保存会话身份决定，不能用列表里的本地角色代替。
     const role = normalizeLoginRole(info?.role)
     const sid = normalizePortalAccountId(info?.student_id, role)
-    if (!sid || sid !== requestedSid || role !== requestedRole) {
+    if (!info?.local_activated || !sid || sid !== requestedSid) {
       showToast(t('me.toast.switchFailedNoId'), 'error')
       return
     }
     showAccountSwitchModal.value = false
-    emit('account-switched', { studentId: sid, role })
-    showToast(tf('me.toast.switched', { name: acc.masked_id || sid }), 'success')
+    const onlineReady = info?.online_ready === true
+    const needsLogin = info?.needs_login === true
+    emit('account-switched', {
+      studentId: sid,
+      role,
+      onlineReady,
+      needsLogin,
+      failureReason: String(info?.failure_reason || '')
+    })
+    // 未在线就绪时绝不虚报「切换成功且全部在线」：按原因给出可操作提示。
+    if (onlineReady) {
+      showToast(tf('me.toast.switched', { name: acc.masked_id || sid }), 'success')
+    } else if (needsLogin) {
+      showToast(tf('me.toast.switchNeedsLogin', { name: acc.masked_id || sid }), 'warning')
+    } else {
+      showToast(tf('me.toast.switchOffline', { name: acc.masked_id || sid }), 'info')
+    }
   } catch (e) {
     showToast(String(e?.message || e || t('me.toast.switchFailed')), 'error')
   } finally {

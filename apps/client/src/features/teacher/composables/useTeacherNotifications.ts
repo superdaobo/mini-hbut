@@ -28,6 +28,16 @@ import {
   stripTeacherHtml
 } from '../utils/normalizeTeacherData'
 import { buildTeacherScopedKey, canPersistTeacherState } from '../utils/teacher_scope'
+import {
+  buildTeacherSnapshotKey,
+  readTeacherSnapshot,
+  writeTeacherSnapshot
+} from '../cache/teacherSnapshotStore'
+import {
+  isTeacherOffline,
+  resolveTeacherSyncStatus,
+  type TeacherSyncStatus
+} from '../cache/teacher_sync_status'
 
 // ────────────────────────────────────────────────────────────────
 // 只读红线：UI 决策点（可单测）
@@ -208,7 +218,15 @@ export interface UseTeacherNotificationsReturn {
   source: Ref<string>
   unreadCount: ComputedRef<number>
   academicNotices: ComputedRef<TeacherNoticeItem[]>
-  loadNotices: () => Promise<void>
+  /** #1065/#1066：最后一次**成功**同步时间（优先复用后端 `fetchedAt`）。 */
+  lastSuccessfulSyncAt: Ref<string>
+  /** 当前列表是否来自本地快照。 */
+  fromCache: Ref<boolean>
+  /** 快照是否已过期。 */
+  snapshotStale: Ref<boolean>
+  /** #1066：诚实同步状态。 */
+  syncStatus: ComputedRef<TeacherSyncStatus>
+  loadNotices: (opts?: { force?: boolean }) => Promise<void>
   loadReminders: () => Promise<void>
   markLocalRead: (itemId: string) => void
   isLocallyRead: (itemId: string) => boolean
@@ -228,6 +246,34 @@ export const useTeacherNotifications = (
   const fetchedAt = ref('')
   const source = ref('portal')
   const localReadIds = ref<Set<string>>(new Set())
+
+  // #1065/#1066：快照元信息（跨页面/重启共享）
+  const lastSuccessfulSyncAt = ref('')
+  const fromCache = ref(false)
+  const snapshotStale = ref(false)
+
+  const semesterOf = (): string => (options.semester ? options.semester() ?? '' : '')
+  /** 统一快照键：`teacher:{accountId}:{semester}:notices`（身份/学期隔离）。 */
+  const snapshotKey = computed(() =>
+    buildTeacherSnapshotKey({
+      resource: 'notices',
+      accountId: options.accountId(),
+      semester: semesterOf()
+    })
+  )
+
+  /** #1066：诚实同步状态（已同步/正在更新/已缓存/尚未同步/更新失败）。 */
+  const syncStatus = computed<TeacherSyncStatus>(() =>
+    resolveTeacherSyncStatus({
+      phase: loading.value ? 'loading' : error.value ? 'error' : notices.value.length ? 'ready' : 'empty',
+      hasData: notices.value.length > 0,
+      fromCache: fromCache.value,
+      stale: snapshotStale.value,
+      hasSyncTime: Boolean(lastSuccessfulSyncAt.value),
+      offline: isTeacherOffline(),
+      errorKind: error.value?.kind ?? null
+    })
+  )
 
   const readKey = (): string =>
     teacherNoticeReadKey(options.accountId(), options.semester ? options.semester() : '')
@@ -249,11 +295,30 @@ export const useTeacherNotifications = (
     () => academicNotices.value.filter((item) => !item.isRead).length
   )
 
-  const loadNotices = async (): Promise<void> => {
+  /**
+   * 拉取教务通知列表。
+   *
+   * #1065 缓存优先：先渲染当前账号 scope 的本地快照（新鲜则直接返回），
+   * 再按需后台再验证；成功（含空列表）写入快照并复用后端 `fetchedAt` 作为同步时间。
+   */
+  const loadNotices = async (opts: { force?: boolean } = {}): Promise<void> => {
+    const key = snapshotKey.value
+    const account = options.accountId() ?? ''
+    loadReadIds()
+    if (!opts.force && key) {
+      const snapshot = readTeacherSnapshot<TeacherNoticeItem[]>(key)
+      if (snapshot) {
+        notices.value = snapshot.data
+        fetchedAt.value = snapshot.meta.lastSuccessfulSyncAt
+        lastSuccessfulSyncAt.value = snapshot.meta.lastSuccessfulSyncAt
+        fromCache.value = true
+        snapshotStale.value = snapshot.meta.stale
+        if (!snapshot.meta.stale) return
+      }
+    }
     loading.value = true
     error.value = null
     desktopOnly.value = false
-    loadReadIds()
     try {
       const result = await fetcher()
       notices.value = result.items
@@ -264,6 +329,23 @@ export const useTeacherNotifications = (
         error.value = {
           kind: result.errorKind ?? classifyInboxError(result.errorMessage),
           message: result.errorMessage
+        }
+      } else if (!desktopOnly.value) {
+        // 成功（含空列表）：以可信 `fetchedAt` 为同步时间，否则用成功落地时刻。
+        const syncedAt = result.fetchedAt || new Date().toISOString()
+        lastSuccessfulSyncAt.value = syncedAt
+        fromCache.value = false
+        snapshotStale.value = false
+        if (key && canPersistTeacherState(account)) {
+          writeTeacherSnapshot({
+            scopeKey: key,
+            accountId: account,
+            semester: semesterOf(),
+            resource: 'notices',
+            queryKey: '',
+            data: result.items,
+            lastSuccessfulSyncAt: syncedAt
+          })
         }
       }
     } catch (caught) {
@@ -307,6 +389,10 @@ export const useTeacherNotifications = (
     source,
     unreadCount,
     academicNotices,
+    lastSuccessfulSyncAt,
+    fromCache,
+    snapshotStale,
+    syncStatus,
     loadNotices,
     loadReminders,
     markLocalRead,

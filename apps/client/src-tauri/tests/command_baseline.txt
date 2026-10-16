@@ -3,6 +3,7 @@ get_captcha
 recognize_captcha
 list_saved_accounts
 switch_active_account
+switch_active_account_online
 delete_saved_account
 set_ocr_endpoint
 set_ocr_runtime_config

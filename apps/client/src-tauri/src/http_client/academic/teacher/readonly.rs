@@ -66,8 +66,23 @@ pub const PATH_WORKFLOW_MY_HANDLED: &str = "/admin/activiti/myApply/qryOperation
 pub const PATH_WORKFLOW_MY_TODO: &str = "/admin/activiti/dbsy/listRunningProcessInstaces";
 
 // ── 教务共用查询（recon 03/04；E4 适配）────────────────────────
-/// 教师空教室查询（recon 04 §2.4 记录 `getZyKjs`，191 条口径）。
+/// 教师空教室查询（recon 04 §2.4 记录 `getZyKjs`）。
+///
+/// ⚠️ **必须用 POST**：学校页面 `toZyKjsPage` 自身以 `mtype:"post"` + jqGrid `postData`
+/// 调用本接口（见 `09-classroom-teacher-probe-2026-10-16.md` §1）；GET 只会返回未筛选的
+/// 资源目录。POST 表单字段为纯查询条件（`xnxq/zcStr/xqStr/jcStr/type/jxldm/...`），
+/// 无任何写动词，实测无副作用。
 pub const PATH_FREE_CLASSROOMS: &str = "/admin/system/jxzy/jsxx/getZyKjs";
+/// 空教室查询页（教师端正式来源页；用于取 Referer 与确认页面契约）。
+pub const PATH_FREE_CLASSROOMS_PAGE: &str = "/admin/system/jxzy/jsxx/toZyKjsPage";
+/// 周次字典（实测裸数组，业务字段仅 `zc`，取值 `0..=21`）。
+pub const PATH_CLASSROOM_WEEKS: &str = "/admin/system/jxzy/jsxx/getZcByXnxq";
+/// 指定周次的 7 天日期（实测 `{ret,msg,data:[{xq,rq,xqmc}]}`，`rq` 为 `MM.DD`）。
+pub const PATH_CLASSROOM_WEEK_DATES: &str = "/admin/system/jxzy/jsxx/getXqrqxx";
+/// 教学楼字典（实测 `xqdm=1` 返回 35 栋；教师空教室资源域只覆盖其中 6 栋）。
+pub const PATH_CLASSROOM_BUILDINGS: &str = "/admin/pkgl/pkjssz/getJxlList";
+/// 节次时间表（实测 11 小节 + `djs` 大节号 + `sjd` 时段）。
+pub const PATH_CLASSROOM_PERIODS: &str = "/admin/pkgl/pkglqxzkb/getJcinfo";
 /// 教师全校课表查询（recon 07 D 类）。
 pub const PATH_QXZKB_QUERY: &str = "/admin/jsd/qxzkb/queryQxkbPage";
 /// 教师校历数据（`{xnxq}` 为学期占位段）。
@@ -142,7 +157,32 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     },
     TeacherReadonlyPath {
         path: PATH_FREE_CLASSROOMS,
-        purpose: "教师空教室查询（E4）",
+        purpose: "教师空教室查询（E4；必须 POST，见 09 号报告 §1）",
+        post_ok: true,
+    },
+    TeacherReadonlyPath {
+        path: PATH_FREE_CLASSROOMS_PAGE,
+        purpose: "空教室查询页（取 Referer / 确认页面契约）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CLASSROOM_WEEKS,
+        purpose: "空教室周次字典（纯查询 POST）",
+        post_ok: true,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CLASSROOM_WEEK_DATES,
+        purpose: "空教室按周日期（纯查询 POST；仅传 xnxq 时返回 500）",
+        post_ok: true,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CLASSROOM_BUILDINGS,
+        purpose: "教学楼字典（纯查询 POST）",
+        post_ok: true,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CLASSROOM_PERIODS,
+        purpose: "节次时间表（GET）",
         post_ok: false,
     },
     TeacherReadonlyPath {
@@ -156,6 +196,27 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
         post_ok: false,
     },
 ];
+
+/// 允许以 POST 调用的**纯查询**路径（fail-closed：不在此集合内一律只允许 GET）。
+///
+/// 每一项都必须有实测证据表明它是学校页面自身的查询形态、且无副作用；
+/// 证据见 `data/teacher-api-recon/09-classroom-teacher-probe-2026-10-16.md`。
+pub const TEACHER_QUERY_POST_PATHS: &[&str] = &[
+    // 菜单树（recon 02 实测无副作用的纯查询 POST）
+    PATH_GET_MENU_LIST,
+    // 空教室列表查询（学校页面 mtype:"post"，见 09 §1）
+    PATH_FREE_CLASSROOMS,
+    // 周次字典 / 按周日期 / 教学楼字典（09 §4，纯查询）
+    PATH_CLASSROOM_WEEKS,
+    PATH_CLASSROOM_WEEK_DATES,
+    PATH_CLASSROOM_BUILDINGS,
+];
+
+/// 该路径是否被允许以 POST 调用（运行期 fail-closed 校验）。
+pub fn is_teacher_query_post_allowed(path: &str) -> bool {
+    let candidate = path.trim();
+    TEACHER_QUERY_POST_PATHS.contains(&candidate)
+}
 
 /// 教师端**禁止**出现的写动词词根（与 recon 07 的接入规则一致）。
 ///
@@ -197,6 +258,10 @@ pub fn is_teacher_readonly_path(path: &str) -> bool {
 
 /// allowlist 自检：任一路径命中写动词或未以 `/admin/` 开头即返回错误。
 ///
+/// 同时校验 `post_ok` 与 [`TEACHER_QUERY_POST_PATHS`] 双向一致：
+/// - 标记 `post_ok: true` 的条目必须在纯查询 POST 白名单内；
+/// - 白名单内的路径必须在 allowlist 中且标记 `post_ok: true`。
+///
 /// 供开发期断言与单元测试调用；返回 `Err` 表示 allowlist 被误改。
 pub fn assert_allowlist_readonly() -> Result<(), String> {
     for entry in TEACHER_READONLY_PATHS {
@@ -206,8 +271,18 @@ pub fn assert_allowlist_readonly() -> Result<(), String> {
         if path_has_write_verb(entry.path) {
             return Err(format!("教师只读 allowlist 含写动词路径: {}", entry.path));
         }
-        if !entry.post_ok && entry.path == PATH_GET_MENU_LIST {
-            return Err("getMenuList 必须标记为纯查询 POST".to_string());
+        if entry.post_ok && !TEACHER_QUERY_POST_PATHS.contains(&entry.path) {
+            return Err(format!(
+                "路径被标记为可 POST 但不在纯查询 POST 白名单内: {}",
+                entry.path
+            ));
+        }
+    }
+    for allowed in TEACHER_QUERY_POST_PATHS {
+        match TEACHER_READONLY_PATHS.iter().find(|e| e.path == *allowed) {
+            Some(entry) if entry.post_ok => {}
+            Some(_) => return Err(format!("纯查询 POST 路径未标记 post_ok: {allowed}")),
+            None => return Err(format!("纯查询 POST 路径未登记在只读 allowlist: {allowed}")),
         }
     }
     Ok(())
@@ -255,5 +330,40 @@ mod tests {
         assert!(!is_teacher_readonly_path(
             "/admin/system/zy/xlgl/updateByZc"
         ));
+    }
+
+    #[test]
+    fn query_post_allowlist_is_fail_closed() {
+        // 空教室链路：getZyKjs / 周次字典 / 按周日期 / 教学楼字典 均为已实测纯查询 POST
+        assert!(is_teacher_query_post_allowed(PATH_FREE_CLASSROOMS));
+        assert!(is_teacher_query_post_allowed(PATH_CLASSROOM_WEEKS));
+        assert!(is_teacher_query_post_allowed(PATH_CLASSROOM_WEEK_DATES));
+        assert!(is_teacher_query_post_allowed(PATH_CLASSROOM_BUILDINGS));
+        assert!(is_teacher_query_post_allowed(PATH_GET_MENU_LIST));
+        // 未登记路径不得 POST
+        assert!(!is_teacher_query_post_allowed(PATH_TEACHING_TASKS));
+        assert!(!is_teacher_query_post_allowed(PATH_FREE_CLASSROOMS_PAGE));
+        assert!(!is_teacher_query_post_allowed(""));
+        // 纯查询 POST 路径本身不得含写动词
+        for path in TEACHER_QUERY_POST_PATHS {
+            assert!(
+                !path_has_write_verb(path),
+                "纯查询 POST 白名单含写动词路径: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn classroom_paths_are_registered() {
+        for path in [
+            PATH_FREE_CLASSROOMS,
+            PATH_FREE_CLASSROOMS_PAGE,
+            PATH_CLASSROOM_WEEKS,
+            PATH_CLASSROOM_WEEK_DATES,
+            PATH_CLASSROOM_BUILDINGS,
+            PATH_CLASSROOM_PERIODS,
+        ] {
+            assert!(is_teacher_readonly_path(path), "未登记: {path}");
+        }
     }
 }

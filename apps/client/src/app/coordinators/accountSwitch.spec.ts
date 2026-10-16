@@ -2,13 +2,20 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const coordinator = () => readFileSync(new URL('./AuthCoordinator.ts', import.meta.url), 'utf8')
+const contracts = () => readFileSync(new URL('../contracts/runtime.ts', import.meta.url), 'utf8')
+const meView = () => readFileSync(new URL('../../components/MeView.vue', import.meta.url), 'utf8')
 
-describe('AuthCoordinator account switch contract (#755)', () => {
-  it('exposes handleAccountSwitch on the coordinator', () => {
+describe('AuthCoordinator account switch contract (#755 / #1048 / #1061)', () => {
+  it('exposes handleAccountSwitch on the coordinator with the four-state contract', () => {
     const src = coordinator()
 
-    expect(src).toContain('const handleAccountSwitch = (account: { studentId: string; role: string }) => {')
+    expect(src).toContain('const handleAccountSwitch = (account: AccountSwitchOutcome) => {')
     expect(src).toContain('handleAccountSwitch')
+    // 身份状态契约先固定：四态字段集中在 contracts/runtime.ts
+    const contract = contracts()
+    expect(contract).toContain('export interface AccountSwitchOutcome {')
+    expect(contract).toContain('onlineReady?: boolean')
+    expect(contract).toContain('needsLogin?: boolean')
   })
 
   it('updates the local account marker via saveRememberedUsername', () => {
@@ -20,12 +27,17 @@ describe('AuthCoordinator account switch contract (#755)', () => {
     expect(src).toContain('state.studentId.value = sid')
   })
 
-  it('dispatches the session-online refresh event through notifySessionOnline', () => {
+  it('only dispatches the session-online event after Rust confirmed online_ready', () => {
     const src = coordinator()
 
+    expect(src).toContain('const onlineReady = account?.onlineReady === true')
     expect(src).toContain("runtime.session.notifySessionOnline('account-switch')")
-    expect(src).toContain("await invokeNative<{ student_id?: string; role?: string }>('refresh_session')")
-    expect(src).toContain("if (verifiedId !== sid || verifiedRole !== role)")
+    // 未在线就绪绝不虚报：needs_login 与缓存离线两条失败分支都不发在线事件
+    expect(src).toContain("state.onlineSessionState.value = 'needs_login'")
+    expect(src).toContain("state.onlineSessionState.value = 'cached_offline'")
+    expect(src).toContain("phase: 'need_login'")
+    // 旧实现「切完就 refresh_session」的虚报路径必须消失
+    expect(src).not.toContain("invokeNative<{ student_id?: string; role?: string }>('refresh_session')")
   })
 
   it('refreshes grades and persists cookies for the new account', () => {
@@ -36,6 +48,15 @@ describe('AuthCoordinator account switch contract (#755)', () => {
     expect(src).toContain('runtime.session.startSessionKeepAlive()')
     expect(src).toContain('runtime.session.stopElectricityKeepAlive()')
     expect(src).toContain('if (isTeacherRoleValue(role))')
+  })
+
+  it('MeView calls the online switch command and reports non-online outcomes honestly', () => {
+    const vue = meView()
+
+    expect(vue).toContain("invokeNative('switch_active_account_online', {")
+    expect(vue).toContain('const onlineReady = info?.online_ready === true')
+    expect(vue).toContain('const needsLogin = info?.needs_login === true')
+    expect(vue).toContain("emit('account-switched', {")
   })
 })
 

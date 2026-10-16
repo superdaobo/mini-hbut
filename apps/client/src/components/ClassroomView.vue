@@ -4,6 +4,24 @@ import axios from 'axios'
 import { fetchWithCache, LONG_TTL, SHORT_TTL, DEFAULT_TTL } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
+import {
+  buildClassroomCacheKey,
+  buildClassroomQueryPayload,
+  classroomBadgeKey,
+  classroomCountKey,
+  classroomEmptyMode,
+  classroomNoticeKey,
+  classroomResultCount,
+  classroomRoleFromMeta,
+  formatClassroomCalendarLabel,
+  isClassroomResultTruncated,
+  isVerifiedFree,
+  normalizeClassroomMeta,
+  normalizeRemoteWeeks,
+  resolveBuildingQueryValue,
+  resolveWeekOptions,
+  shouldShowAvailabilityNotice
+} from '../utils/classroom_result.js'
 import { TPageHeader, TEmptyState } from './templates'
 import { useLocale } from '../utils/app_i18n'
 
@@ -54,30 +72,76 @@ const displayLimit = ref(50) // 初始显示 50 条，避免大量 DOM 导致卡
 const errorMsg = ref('')
 const offline = ref(false)
 const syncTime = ref('')
-const currentMeta = ref({
-  date_str: '',
-  week: '',
-  weekday_name: '',
-  semester: ''
-})
+/**
+ * 结果元数据（#1062）：**唯一**的日期/周次来源 = 后端 `meta`。
+ *
+ * 历史缺陷：这里会被本机 `hbu_schedule_meta` 的当前周次覆盖，而教师 Rust 分支
+ * 返回的 `date_str`/`week` 为空 → 出现「未知日期 + 第 7 周」的自相矛盾 UI。
+ * 现在只接受后端 meta，绝不与本机课表周次混用（归一化见 `normalizeClassroomMeta`）。
+ */
+const currentMeta = ref(normalizeClassroomMeta({}))
 const hasSuccessfulQuery = ref(false)
-/** 教师端保守查询标记：后端 meta.filters_applied=false 时置位（不伪造筛选结果）。 */
-const teacherConservative = ref(false)
+/** 本次结果是否为「服务端确实按时间筛选」的空闲结果（#1063 五态）。 */
+const isPeriodVerified = computed(() => isVerifiedFree(currentMeta.value))
+/** 结果可信度提示 key（资源目录 / 状态未知 / 其它）。 */
+const availabilityNoticeKey = computed(() => classroomNoticeKey(currentMeta.value))
+/** 是否需要展示可信度提示。 */
+const showAvailabilityNotice = computed(() =>
+  shouldShowAvailabilityNotice(currentMeta.value, hasSuccessfulQuery.value)
+)
+/** 教室卡片徽标 key（只有 period_free 才是「空闲」）。 */
+const roomBadgeKey = computed(() => classroomBadgeKey(currentMeta.value))
+/** 后端返回的真实可选周次（教师链路）；为空时回退本地范围。 */
+const remoteWeekOptions = ref([])
+/** 后端返回的全量资源目录条数（教师链路）。 */
+const resourceTotal = ref(null)
+/**
+ * 教学楼筛选值的语义（由 `/v2/classroom/buildings` 的 `meta.source` 决定）：
+ * - `teacher_resource_domain`：教师链路，后端按 `jxldm` id 过滤 → 提交 `b.code`
+ * - 其它（学生链路）：后端按 `jxlmc` 名称本地过滤 → 提交 `b.name`
+ *
+ * #1063：师生候选列表与结果来源必须同域，因此筛选值的语义也必须按角色切换。
+ */
+const buildingsFromTeacherDomain = ref(false)
+/** 当前结果所属角色（来自后端 `meta.filter_mode`），用于快照隔离。 */
+const classroomRole = ref('')
+
+/** 当前角色下该楼栋应提交给后端的值。 */
+const buildingQueryValue = (building) =>
+  resolveBuildingQueryValue(building, buildingsFromTeacherDomain.value)
 
 // 显示的教室列表（带分页限制，避免大量 DOM 卡顿）
 const displayedClassrooms = computed(() => classrooms.value.slice(0, displayLimit.value))
 const hasMoreClassrooms = computed(() => classrooms.value.length > displayLimit.value)
 const showMoreClassrooms = () => { displayLimit.value += 50 }
 const queryDateLabel = computed(() => String(currentMeta.value?.date_str || '').trim())
-const queryCalendarLabel = computed(() => {
-  const week = String(currentMeta.value?.week || '').trim()
-  const weekday = String(currentMeta.value?.weekday_name || '').trim()
-  const parts = []
-  // 周次显示经 t() 取词；后端已带「第N周」原文的数据值原样保留
-  if (week) parts.push(week === '?' || /^第.+周$|^Week\s?\d+$/i.test(week) ? week : tr('classroom.week.nth', { n: week }))
-  if (weekday) parts.push(weekday)
-  return parts.join(' · ')
+const queryCalendarLabel = computed(() =>
+  formatClassroomCalendarLabel(currentMeta.value, (n) => tr('classroom.week.nth', { n }))
+)
+/** 实际查询时间（避免用户把旧快照当成刚查的结果）。 */
+const queryTimeLabel = computed(() => {
+  const raw = String(currentMeta.value?.query_time || syncTime.value || '').trim()
+  return raw ? formatRelativeTime(raw) : ''
 })
+/** 结果条数文案：只有 period_free 才允许说「空闲」。 */
+const resultCountLabel = computed(() =>
+  tr(classroomCountKey(currentMeta.value), {
+    n: classroomResultCount(currentMeta.value, classrooms.value.length)
+  })
+)
+/** 结果被截断时展示「已加载 X / 共 Y」。 */
+const resultTruncated = computed(() =>
+  isClassroomResultTruncated(currentMeta.value, classrooms.value.length)
+)
+/** 空态模式：`verified-empty` / `unverified-empty` / `none`（错误与真正的空必须区分）。 */
+const emptyMode = computed(() =>
+  classroomEmptyMode({
+    meta: currentMeta.value,
+    roomCount: classrooms.value.length,
+    loading: loading.value,
+    hasError: !!errorMsg.value || !hasSuccessfulQuery.value
+  })
+)
 
 // 生命周期与并发保护：
 // 1) 组件卸载后不再写入响应数据，避免返回首页后被旧请求回写导致白屏
@@ -108,59 +172,10 @@ const clearAutoRefreshTimer = () => {
 
 const safeArray = (value) => (Array.isArray(value) ? value : [])
 
-const toPositiveInt = (value, fallback = 0) => {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
-}
-
-const readStoredScheduleMeta = () => {
-  if (typeof localStorage === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem('hbu_schedule_meta')
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-const calculateWeekFromStartDate = (startDateText) => {
-  const text = String(startDateText || '').trim()
-  if (!text) return 0
-  const start = new Date(text)
-  if (Number.isNaN(start.getTime())) return 0
-  const now = new Date()
-  const current = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const begin = new Date(start.getFullYear(), start.getMonth(), start.getDate())
-  const diffMs = current.getTime() - begin.getTime()
-  if (diffMs < 0) return 1
-  return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1
-}
-
-const getPreferredCurrentWeek = () => {
-  const meta = readStoredScheduleMeta()
-  const storedWeek = toPositiveInt(meta?.current_week, 0)
-  if (storedWeek > 0) return storedWeek
-  return toPositiveInt(calculateWeekFromStartDate(meta?.start_date), 0)
-}
-
-const resolveClassroomMeta = (meta = {}) => {
-  const preferredWeek = getPreferredCurrentWeek()
-  return {
-    date_str: String(meta?.date_str || '').trim(),
-    week: preferredWeek || String(meta?.week || '').trim(),
-    weekday_name: String(meta?.weekday_name || '').trim(),
-    semester: String(meta?.semester || '').trim()
-  }
-}
-
+/**
 const selectCurrentWeek = () => {
-  const preferredWeek = getPreferredCurrentWeek()
-  if (preferredWeek > 0) {
-    filters.value.week = ''
-    currentMeta.value = resolveClassroomMeta(currentMeta.value)
-  } else {
-    filters.value.week = ''
-  }
+  // 「本周」= 不指定周次，由后端按可靠学期历解析（本机不参与推算）
+  filters.value.week = ''
 }
 
 const createAbortSignal = (type = 'query') => {
@@ -235,6 +250,8 @@ const writeClassroomSnapshot = (reason = 'unknown') => {
     localStorage.setItem(key, JSON.stringify({
       schema_version: CLASSROOM_SNAPSHOT_SCHEMA,
       student_id: sid,
+      // 角色一并落盘：师生走完全不同的空教室数据源，恢复时据此丢弃跨角色快照
+      role: String(classroomRole.value || '').trim(),
       filters: { ...filters.value },
       current_meta: { ...currentMeta.value },
       classrooms: safeArray(classrooms.value),
@@ -251,16 +268,16 @@ const writeClassroomSnapshot = (reason = 'unknown') => {
 
 const applyClassroomSnapshot = (snapshot, options = {}) => {
   if (!snapshot) return false
-  const preferredWeek = getPreferredCurrentWeek()
   filters.value = {
-    week: preferredWeek ? '' : String(snapshot.filters?.week || '').trim(),
+    week: String(snapshot.filters?.week || '').trim(),
     weekday: String(snapshot.filters?.weekday || '').trim(),
     periods: safeArray(snapshot.filters?.periods).map((item) => Number(item)).filter((item) => Number.isFinite(item)),
     building: String(snapshot.filters?.building || '').trim(),
     minSeats: String(snapshot.filters?.minSeats || '').trim(),
     maxSeats: String(snapshot.filters?.maxSeats || '').trim()
   }
-  currentMeta.value = resolveClassroomMeta(snapshot.current_meta)
+  currentMeta.value = normalizeClassroomMeta(snapshot.current_meta)
+  classroomRole.value = String(snapshot.role || '').trim() || classroomRoleFromMeta(snapshot.current_meta)
   classrooms.value = safeArray(snapshot.classrooms)
   syncTime.value = String(snapshot.sync_time || snapshot.updated_at || '').trim()
   offline.value = options?.markOffline !== false
@@ -290,18 +307,6 @@ const getSnapshotAgeMs = (snapshot) => {
   return Math.max(0, Date.now() - ts)
 }
 
-const buildClassroomCacheKey = (studentId, payload) => {
-  const week = payload.week ?? 'auto'
-  const weekday = payload.weekday ?? 'auto'
-  const periods = Array.isArray(payload.periods) && payload.periods.length
-    ? payload.periods.join(',')
-    : 'auto'
-  const building = encodeURIComponent(String(payload.building || 'all')).slice(0, 48)
-  const min = payload.min_seats ?? ''
-  const max = payload.max_seats ?? ''
-  return `classroom:${studentId}:w${week}:d${weekday}:p${periods}:b${building}:s${min}-${max}`
-}
-
 // 筛选条件
 const filters = ref({
   week: '',
@@ -313,24 +318,26 @@ const filters = ref({
 })
 
 // 选项数据
-const weekOptions = Array.from({ length: 25 }, (_, i) => i + 1)
+// 周次选项：优先使用后端返回的真实周次字典（教师链路），避免用户选中越界周次
+// 被服务端静默忽略（实测非法 zcStr 会返回全量资源目录）。
+const weekOptions = computed(() => resolveWeekOptions(remoteWeekOptions.value))
 // 星期标签经 t() 取词（key 形如 classroom.weekday.1~7），保证语言切换即时生效
 const weekdayOptions = [1, 2, 3, 4, 5, 6, 7].map((value) => ({
   value,
   label: t(`classroom.weekday.${value}`)
 }))
 const periodOptions = [
-  { value: 1, label: '08:00-08:45' },
-  { value: 2, label: '08:55-09:40' },
-  { value: 3, label: '10:10-10:55' },
+  { value: 1, label: '08:20-09:05' },
+  { value: 2, label: '09:10-09:55' },
+  { value: 3, label: '10:15-11:00' },
   { value: 4, label: '11:05-11:50' },
   { value: 5, label: '14:00-14:45' },
-  { value: 6, label: '14:55-15:40' },
-  { value: 7, label: '16:10-16:55' },
-  { value: 8, label: '17:05-17:50' },
-  { value: 9, label: '19:00-19:45' },
-  { value: 10, label: '19:55-20:40' },
-  { value: 11, label: '20:50-21:35' }
+  { value: 6, label: '14:50-15:35' },
+  { value: 7, label: '15:55-16:40' },
+  { value: 8, label: '16:45-17:30' },
+  { value: 9, label: '18:30-19:15' },
+  { value: 10, label: '19:20-20:05' },
+  { value: 11, label: '20:10-20:55' }
 ]
 const periodGroups = [
   { key: 'morning', label: t('classroom.time.morning'), periods: periodOptions.slice(0, 4) },
@@ -353,10 +360,22 @@ const fetchBuildings = async () => {
     console.log('[Classroom] Buildings data:', data)
     if (data?.success) {
       buildings.value = safeArray(data.data)
+      // 教师链路：后端返回真实可选周次与全量资源目录条数（#1062/#1063）
+      buildingsFromTeacherDomain.value = String(data?.meta?.source || '') === 'teacher_resource_domain'
+      remoteWeekOptions.value = normalizeRemoteWeeks(data?.meta?.weeks)
+      const total = Number(data?.meta?.resource_total)
+      resourceTotal.value = Number.isFinite(total) && total > 0 ? total : null
       console.log('[Classroom] Buildings loaded:', buildings.value.length)
     } else {
       console.error('[Classroom] Buildings failed:', data)
       buildings.value = []
+      remoteWeekOptions.value = []
+      resourceTotal.value = null
+      buildingsFromTeacherDomain.value = false
+      // #1063：教师链路不回退静态列表；把后端错误如实告知用户，避免展示「有权限不明」的楼栋。
+      if (data?.error && !errorMsg.value) {
+        errorMsg.value = String(data.error)
+      }
     }
   } catch (e) {
     if (String(e?.name || '').trim() === 'CanceledError' || String(e?.message || '').includes('canceled')) {
@@ -371,20 +390,28 @@ const fetchBuildings = async () => {
   }
 }
 
-// 节次时间表 (与 Python classroom.py 一致)
+// 节次时间表：**学校真实值**（`GET /admin/pkgl/pkglqxzkb/getJcinfo` 实测，2026-2027-1）。
+// 旧值（第1节 08:00-08:45 / 第9节 19:00-19:45 等）与学校实际不符，属展示错误，已纠正。
 const CLASS_SCHEDULE = [
-  [8, 0, 8, 45],    // 第1节: 8:00-8:45
-  [8, 55, 9, 40],   // 第2节: 8:55-9:40
-  [10, 10, 10, 55], // 第3节: 10:10-10:55
-  [11, 5, 11, 50],  // 第4节: 11:05-11:50
-  [14, 0, 14, 45],  // 第5节: 14:00-14:45
-  [14, 55, 15, 40], // 第6节: 14:55-15:40
-  [16, 10, 16, 55], // 第7节: 16:10-16:55
-  [17, 5, 17, 50],  // 第8节: 17:05-17:50
-  [19, 0, 19, 45],  // 第9节: 19:00-19:45
-  [19, 55, 20, 40], // 第10节: 19:55-20:40
-  [20, 50, 21, 35], // 第11节: 20:50-21:35
+  [8, 20, 9, 5],    // 第1节
+  [9, 10, 9, 55],   // 第2节
+  [10, 15, 11, 0],  // 第3节
+  [11, 5, 11, 50],  // 第4节
+  [14, 0, 14, 45],  // 第5节
+  [14, 50, 15, 35], // 第6节
+  [15, 55, 16, 40], // 第7节
+  [16, 45, 17, 30], // 第8节
+  [18, 30, 19, 15], // 第9节
+  [19, 20, 20, 5],  // 第10节
+  [20, 10, 20, 55]  // 第11节
 ]
+
+/** 第 1..4 / 5..8 / 9..11 节分别对应上午 / 下午 / 晚上。 */
+const daypartRange = (period) => {
+  if (period <= 4) return [1, 4]
+  if (period <= 8) return [5, 8]
+  return [9, 11]
+}
 
 const buildPeriodRange = (start, end) => {
   const items = []
@@ -392,34 +419,13 @@ const buildPeriodRange = (start, end) => {
   return items
 }
 
-const buildQueryPayload = (studentId = resolveStudentId()) => {
-  const sid = String(studentId || '').trim()
-  const preferredWeek = getPreferredCurrentWeek()
-  const selectedWeek = filters.value.week
-    ? parseInt(filters.value.week, 10)
-    : preferredWeek || null
-  const payload = {
-    student_id: sid,
-    week: selectedWeek,
-    weekday: filters.value.weekday ? parseInt(filters.value.weekday, 10) : null,
-    periods: filters.value.periods.map((p) => parseInt(p, 10)).filter((p) => Number.isFinite(p)),
-    building: filters.value.building,
-    min_seats: filters.value.minSeats ? parseInt(filters.value.minSeats, 10) : null,
-    max_seats: filters.value.maxSeats ? parseInt(filters.value.maxSeats, 10) : null
-  }
-  if (!payload.week) delete payload.week
-  if (!payload.weekday) delete payload.weekday
-  if (!payload.periods.length) delete payload.periods
-  if (!payload.building) delete payload.building
-  if (payload.min_seats == null || Number.isNaN(payload.min_seats)) delete payload.min_seats
-  if (payload.max_seats == null || Number.isNaN(payload.max_seats)) delete payload.max_seats
-  return payload
-}
+const buildQueryPayload = (studentId = resolveStudentId()) =>
+  buildClassroomQueryPayload({ filters: filters.value, studentId })
 
 const buildCurrentQueryFingerprint = (studentId = resolveStudentId()) => {
   const sid = String(studentId || '').trim()
   if (!sid) return ''
-  return buildClassroomCacheKey(sid, buildQueryPayload(sid))
+  return buildClassroomCacheKey(sid, buildQueryPayload(sid), classroomRole.value)
 }
 
 const scheduleDeferredAutoRefresh = (reason = 'deferred', delayMs = CLASSROOM_DEFERRED_REFRESH_MS) => {
@@ -502,10 +508,8 @@ const handleManualQuery = () => {
   })
 }
 
-// 根据当前时间推荐“同时间段剩余节次”
-// 上午 -> 上午剩余；上午结束后切到下午；
-// 下午 -> 下午剩余；下午结束后切到晚上；
-// 晚上 -> 晚上剩余。
+// 根据当前时间推荐「同时间段剩余节次」（依据学校真实节次时间表）
+// 上午 -> 上午剩余；上午结束后切到下午；下午 -> 下午剩余；下午结束后切到晚上。
 const getCurrentClassPeriods = () => {
   const now = new Date()
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
@@ -517,9 +521,8 @@ const getCurrentClassPeriods = () => {
 
     // “当前时间 <= 本节结束时间”即归入该节
     if (currentMinutes <= endMinutes) {
-      if (period <= 4) return buildPeriodRange(period, 4)
-      if (period <= 8) return buildPeriodRange(period, 8)
-      return buildPeriodRange(period, 11)
+      const [start, end] = daypartRange(period)
+      return buildPeriodRange(period, end)
     }
   }
 
@@ -527,28 +530,22 @@ const getCurrentClassPeriods = () => {
   return [9, 10, 11]
 }
 
-// 获取本地时间作为默认值 (防止接口慢导致 UI 空白)
+/**
+ * 本地初值（**只用于筛选控件的默认值**，绝不用于展示日期/周次）。
+ *
+ * #1062：日期与周次一律来自后端 meta；本地不推算、不写入展示字段。
+ */
 const initLocalMeta = () => {
   const now = new Date()
   // 本地星期名经 t() 取词（key 形如 classroom.weekday.1~7，7 对应周日）
   const dayIndex = now.getDay()
   const weekdayKeyValue = dayIndex === 0 ? 7 : dayIndex
-  const preferredWeek = getPreferredCurrentWeek()
-  
-  // 课表页维护的 hbu_schedule_meta 才是本机当前校历周次来源，避免空教室旧快照覆盖成历史周次。
-  currentMeta.value = {
-    date_str: now.toLocaleDateString(),
-    week: preferredWeek || '?',
-    weekday_name: t(`classroom.weekday.${weekdayKeyValue}`),
-    semester: t('classroom.meta.loading')
-  }
-  
-  // 默认选中今天
+
+  // 默认选中今天（仅作为筛选控件初值）
   if (!filters.value.weekday) {
-    // 转换为 API 格式 (1-7, 7是周日)
     filters.value.weekday = weekdayKeyValue
   }
-  
+
   // 根据当前时间自动选择节次
   if (filters.value.periods.length === 0) {
     filters.value.periods = getCurrentClassPeriods()
@@ -590,7 +587,7 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
   try {
     const payload = buildQueryPayload(sid)
     console.log(`[Classroom] queryClassrooms reason=${reason} retry=${retryCount} payload:`, JSON.stringify(payload))
-    const cacheKey = buildClassroomCacheKey(sid, payload)
+    const cacheKey = buildClassroomCacheKey(sid, payload, classroomRole.value)
     const { data } = await fetchWithCache(cacheKey, async () => {
       console.log('[Classroom] Making API call for classrooms')
       const res = await axios.post(`${API_BASE}/v2/classroom/query`, payload, { signal })
@@ -606,18 +603,20 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
       hasSuccessfulQuery.value = true
-      // 更新元数据
+      // 更新元数据：日期/周次**只**来自后端（#1062）
       if (data.meta) {
-        currentMeta.value = resolveClassroomMeta(data.meta)
-        // 教师端保守查询：后端未按周次/节次筛选，明确提示而非伪造结果（E4 #1024）
-        teacherConservative.value = data.meta.filters_applied === false
-
-        // 同步筛选器
-        if (!filters.value.week && !getPreferredCurrentWeek()) filters.value.week = data.meta.week
-        if (!filters.value.weekday) filters.value.weekday = data.meta.weekday
+        currentMeta.value = normalizeClassroomMeta(data.meta)
+        classroomRole.value = classroomRoleFromMeta(data.meta)
+        // 同步筛选器：星期/节次仅在用户未显式选择时回填。
+        // 周次**不回填**：留空即代表「本周」，由后端每次按可靠学期历重新解析，
+        // 避免把某次查询的周次固化到筛选器里（#1062：日期/周次来源唯一且一致）。
+        if (!filters.value.weekday && currentMeta.value.weekday) filters.value.weekday = currentMeta.value.weekday
         if (filters.value.periods.length === 0 && data.meta.periods) {
-          filters.value.periods = data.meta.periods
+          filters.value.periods = safeArray(data.meta.periods)
         }
+      } else {
+        // 后端未给 meta：不猜测日期/周次，明确置空（避免显示旧快照的日期）
+        currentMeta.value = normalizeClassroomMeta({})
       }
       writeClassroomSnapshot('query-success')
     } else {
@@ -628,9 +627,11 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
           : t('classroom.error.sessionExpired')
         return
       }
+      // 失败：清掉上一次的「空闲」语义，避免旧结果的徽标在新错误下继续显示为可用
       if (!preserveResults || !hasSuccessfulQuery.value) {
         classrooms.value = []
       }
+      currentMeta.value = normalizeClassroomMeta({})
       errorMsg.value = data?.error || t('classroom.error.queryFailed')
     }
   } catch (e) {
@@ -838,10 +839,10 @@ onBeforeUnmount(() => {
               <button
                 v-for="b in buildings.filter(b => b.code)"
                 :key="b.code"
-                @click="filters.building = b.name"
+                @click="filters.building = buildingQueryValue(b)"
                 :class="[
                   'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
-                  filters.building === b.name ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
+                  filters.building === buildingQueryValue(b) ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
                 ]"
               >{{ displayBuildingName(b.name) }}</button>
             </div>
@@ -920,8 +921,8 @@ onBeforeUnmount(() => {
 
           <!-- Footer: count + reset + query -->
           <div class="mt-2 flex justify-between items-center pt-3 border-t border-surface-variant">
-            <span class="text-on-surface-variant text-sm">
-              {{ t('classroom.result.foundPrefix') }}<strong>{{ classrooms.length }}</strong>{{ t('classroom.result.foundSuffix') }}
+            <span class="text-on-surface-variant text-sm" data-testid="classroom-count-label">
+              {{ resultCountLabel }}
             </span>
             <button class="text-primary text-xs font-medium flex items-center gap-1" @click="selectTimeRange('clear'); filters.building = ''; filters.week = ''">
               <span class="material-symbols-outlined text-[16px]">filter_alt_off</span>
@@ -941,20 +942,35 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- Error Message -->
-      <div v-if="errorMsg" class="mx-4 px-4 py-3 rounded-xl bg-error-container/60 text-on-error-container text-sm text-center">
+      <div v-if="errorMsg" class="mx-4 px-4 py-3 rounded-xl bg-error-container/60 text-on-error-container text-sm text-center" data-testid="classroom-error">
         {{ errorMsg }}
       </div>
 
-      <!-- 教师端保守查询提示：未按周次/节次筛选（不伪造筛选结果） -->
-      <div v-if="teacherConservative && !errorMsg" class="mx-4 px-4 py-3 rounded-xl bg-surface-container text-on-surface-variant text-xs leading-relaxed">
-        {{ t('teacher.classroom.conservativeNotice') }}
+      <!-- 结果可信度提示（#1063 五态）：非 period_free 时明确说明结果**不代表时段空闲** -->
+      <div
+        v-if="!errorMsg && showAvailabilityNotice"
+        class="mx-4 px-4 py-3 rounded-xl bg-surface-container text-on-surface-variant text-xs leading-relaxed"
+        data-testid="classroom-availability-notice"
+      >
+        {{ t(availabilityNoticeKey) }}
       </div>
 
       <!-- Results List -->
       <section class="px-4 flex flex-col gap-3">
-        <div v-if="hasSuccessfulQuery || classrooms.length > 0" class="classroom-result-meta">
+        <div v-if="hasSuccessfulQuery || classrooms.length > 0" class="classroom-result-meta" data-testid="classroom-result-meta">
           <span>{{ t('classroom.meta.datePrefix') }}<strong>{{ queryDateLabel || t('classroom.meta.dateUnknown') }}</strong></span>
           <span v-if="queryCalendarLabel">{{ queryCalendarLabel }}</span>
+          <span v-if="currentMeta.periods_str">{{ currentMeta.periods_str }}</span>
+          <span v-if="queryTimeLabel" class="classroom-result-meta-time">{{ t('classroom.meta.queryTimePrefix') }}{{ queryTimeLabel }}</span>
+        </div>
+
+        <!-- 截断提示：results 少于 total 时不得让用户以为这就是全部 -->
+        <div
+          v-if="hasSuccessfulQuery && resultTruncated"
+          class="px-3 py-2 rounded-xl bg-surface-container text-on-surface-variant text-xs"
+          data-testid="classroom-truncated"
+        >
+          {{ tr('classroom.result.truncated', { loaded: currentMeta.loaded ?? classrooms.length, total: currentMeta.total ?? classrooms.length }) }}
         </div>
 
         <!-- Classroom Cards -->
@@ -968,7 +984,17 @@ onBeforeUnmount(() => {
             <div class="flex flex-col">
               <h3 class="text-lg font-bold text-on-surface flex items-center gap-2">
                 {{ room.name }}
-                <span class="px-2 py-0.5 rounded-md bg-success-teal/10 text-success-teal text-[10px] font-semibold">{{ t('classroom.badge.free') }}</span>
+                <!-- 徽标只在服务端确实按时间筛选后才显示「空闲」 -->
+                <span
+                  v-if="isPeriodVerified"
+                  class="px-2 py-0.5 rounded-md bg-success-teal/10 text-success-teal text-[10px] font-semibold"
+                  data-testid="classroom-badge-free"
+                >{{ t('classroom.badge.free') }}</span>
+                <span
+                  v-else
+                  class="px-2 py-0.5 rounded-md bg-surface-container text-on-surface-variant text-[10px] font-semibold"
+                  data-testid="classroom-badge-unverified"
+                >{{ t(roomBadgeKey) }}</span>
               </h3>
               <span class="text-secondary text-sm mt-1">{{ room.type || room.campus }}</span>
             </div>
@@ -1005,8 +1031,17 @@ onBeforeUnmount(() => {
           <span class="text-xs font-medium">{{ t('classroom.loading.more') }}</span>
         </div>
 
-        <!-- Empty State -->
-        <TEmptyState v-if="!loading && classrooms.length === 0 && !errorMsg" icon="🏢" :message="t('classroom.empty')" />
+        <!-- 空态：`verified-empty` 才说「没有找到空教室」；`unverified-empty` 明确区分 -->
+        <TEmptyState
+          v-if="emptyMode === 'verified-empty'"
+          icon="🏢"
+          :message="t('classroom.empty')"
+        />
+        <TEmptyState
+          v-else-if="emptyMode === 'unverified-empty'"
+          icon="🏢"
+          :message="t('classroom.emptyUnverified')"
+        />
       </section>
     </main>
   </div>
@@ -1072,6 +1107,15 @@ onBeforeUnmount(() => {
 .classroom-result-meta strong {
   color: #0f172a;
   font-weight: 700;
+}
+
+.classroom-result-meta-time {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+:global(html.dark) .classroom-result-meta-time {
+  color: #64748b;
 }
 
 :global(html.dark) .classroom-filter-label {

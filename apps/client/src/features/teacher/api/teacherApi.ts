@@ -109,7 +109,7 @@ interface TeacherFetchSpec<T> {
  * bridge 返回 `{success:false,error}` 时抛错；成功时取 `data`。
  * 原生 invoke reject 的字符串同样经 `errorMessage` 归一化。
  */
-const runTeacherFetch = async <T>(spec: TeacherFetchSpec<T>): Promise<TeacherLoadState<T>> => {
+const executeTeacherFetch = async <T>(spec: TeacherFetchSpec<T>): Promise<TeacherLoadState<T>> => {
   try {
     let raw: unknown
     if (hasTauri) {
@@ -132,6 +132,56 @@ const runTeacherFetch = async <T>(spec: TeacherFetchSpec<T>): Promise<TeacherLoa
 }
 
 // ────────────────────────────────────────────────────────────────
+// #1067：本层 in-flight singleflight（同 scope/学期/筛选的重复调用合并）
+// ────────────────────────────────────────────────────────────────
+//
+// 说明：
+//   - 只对**只读 GET** 去重；登录 / 刷新会话 / 写型请求**绝不**走本层
+//     （会话状态竞争，见 #1067 边界）；
+//   - key 显式纳入调用方传入的 `scope`（账号/身份令牌），
+//     避免教师 A 的在途请求被教师 B 复用（切号瞬间的串号）；
+//   - 请求结束（成功或失败）后立即从在途表移除，失败不缓存，允许下次重试。
+
+/** 在途请求表：key = command|scope|args，value = 进行中的 Promise。 */
+const teacherFetchInFlight = new Map<string, Promise<unknown>>()
+
+/** 当前在途请求数（测试 / 可观测性用）。 */
+export const teacherFetchInFlightCount = (): number => teacherFetchInFlight.size
+
+/** 清空在途表（账号切换 / 登出时调用，丢弃过期请求引用）。 */
+export const clearTeacherFetchInFlight = (): void => {
+  teacherFetchInFlight.clear()
+}
+
+/** 同一 key 的并发调用合并为同一个 Promise；结束后自动移除。 */
+const runTeacherSingleflight = <T>(key: string, task: () => Promise<T>): Promise<T> => {
+  const existing = teacherFetchInFlight.get(key) as Promise<T> | undefined
+  if (existing) return existing
+  const promise = task().finally(() => {
+    teacherFetchInFlight.delete(key)
+  })
+  teacherFetchInFlight.set(key, promise as Promise<unknown>)
+  return promise
+}
+
+/** 本层可选的去重作用域（账号 / 身份），不参与业务参数。 */
+export interface TeacherFetchOptions {
+  /**
+   * 去重作用域：通常为教师工号。不同 scope 的并发请求**不会**互相复用。
+   * 缺省为空串（仍按 command+args 去重）。
+   */
+  scope?: string
+}
+
+const runTeacherFetch = <T>(
+  spec: TeacherFetchSpec<T>,
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<T>> => {
+  const key = `${spec.command}|${options.scope ?? ''}|${JSON.stringify(spec.tauriArgs)}`
+  return runTeacherSingleflight(key, () => executeTeacherFetch(spec))
+}
+
+// ────────────────────────────────────────────────────────────────
 // 对外 API（E2 / E5 / E6 / E3 消费）
 // ────────────────────────────────────────────────────────────────
 
@@ -141,15 +191,20 @@ const runTeacherFetch = async <T>(spec: TeacherFetchSpec<T>): Promise<TeacherLoa
  * - Tauri：`teacher_profile_fetch()`
  * - bridge：`POST /v2/teacher/profile`
  */
-export const fetchTeacherProfile = (): Promise<TeacherLoadState<TeacherProfile>> =>
-  runTeacherFetch<TeacherProfile>({
-    command: 'teacher_profile_fetch',
-    tauriArgs: {},
-    bridgePath: '/v2/teacher/profile',
-    bridgePayload: {},
-    normalize: normalizeTeacherProfile,
-    isEmpty: (profile) => !profile.accountId && !profile.name
-  })
+export const fetchTeacherProfile = (
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherProfile>> =>
+  runTeacherFetch<TeacherProfile>(
+    {
+      command: 'teacher_profile_fetch',
+      tauriArgs: {},
+      bridgePath: '/v2/teacher/profile',
+      bridgePayload: {},
+      normalize: normalizeTeacherProfile,
+      isEmpty: (profile) => !profile.accountId && !profile.name
+    },
+    options
+  )
 
 /**
  * 拉取教师教学数据（教学任务 + 我的教学班，供 E5 双标签消费）。
@@ -158,16 +213,20 @@ export const fetchTeacherProfile = (): Promise<TeacherLoadState<TeacherProfile>>
  * - bridge：`POST /v2/teacher/teaching`
  */
 export const fetchTeacherTeaching = (
-  semester?: string
+  semester?: string,
+  options: TeacherFetchOptions = {}
 ): Promise<TeacherLoadState<TeacherTeachingData>> =>
-  runTeacherFetch<TeacherTeachingData>({
-    command: 'teacher_teaching_fetch',
-    tauriArgs: { semester: semester ?? null },
-    bridgePath: '/v2/teacher/teaching',
-    bridgePayload: { semester: semester ?? null },
-    normalize: normalizeTeachingData,
-    isEmpty: (data) => data.tasks.length === 0 && data.classes.length === 0
-  })
+  runTeacherFetch<TeacherTeachingData>(
+    {
+      command: 'teacher_teaching_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/teaching',
+      bridgePayload: { semester: semester ?? null },
+      normalize: normalizeTeachingData,
+      isEmpty: (data) => data.tasks.length === 0 && data.classes.length === 0
+    },
+    options
+  )
 
 /**
  * 拉取教师考试与监考数据（监考安排 + 任课班级考试，供 E6 双标签消费）。
@@ -176,16 +235,20 @@ export const fetchTeacherTeaching = (
  * - bridge：`POST /v2/teacher/exams`
  */
 export const fetchTeacherExams = (
-  semester?: string
+  semester?: string,
+  options: TeacherFetchOptions = {}
 ): Promise<TeacherLoadState<TeacherExamData>> =>
-  runTeacherFetch<TeacherExamData>({
-    command: 'teacher_exams_fetch',
-    tauriArgs: { semester: semester ?? null },
-    bridgePath: '/v2/teacher/exams',
-    bridgePayload: { semester: semester ?? null },
-    normalize: normalizeExamData,
-    isEmpty: (data) => data.invigilations.length === 0 && data.exams.length === 0
-  })
+  runTeacherFetch<TeacherExamData>(
+    {
+      command: 'teacher_exams_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/exams',
+      bridgePayload: { semester: semester ?? null },
+      normalize: normalizeExamData,
+      isEmpty: (data) => data.invigilations.length === 0 && data.exams.length === 0
+    },
+    options
+  )
 
 /**
  * 拉取教务通知列表（只读；教师标记已读仅本地，**绝不**写服务端）。
@@ -194,18 +257,22 @@ export const fetchTeacherExams = (
  * - bridge：`POST /v2/teacher/notices`
  */
 export const fetchTeacherNotices = (
-  params: TeacherNoticeQuery = {}
+  params: TeacherNoticeQuery = {},
+  options: TeacherFetchOptions = {}
 ): Promise<TeacherLoadState<TeacherNotice[]>> => {
   const page = typeof params.page === 'number' && params.page > 0 ? Math.floor(params.page) : 1
   const pageSize =
     typeof params.pageSize === 'number' && params.pageSize > 0 ? Math.floor(params.pageSize) : 20
   const keyword = asString(params.keyword)
-  return runTeacherFetch<TeacherNotice[]>({
-    command: 'teacher_notices_fetch',
-    tauriArgs: { page, pageSize, keyword: keyword || null },
-    bridgePath: '/v2/teacher/notices',
-    bridgePayload: { page, page_size: pageSize, keyword: keyword || null },
-    normalize: normalizeNoticeList,
-    isEmpty: (list) => isEmptyTeacherCollection(list)
-  })
+  return runTeacherFetch<TeacherNotice[]>(
+    {
+      command: 'teacher_notices_fetch',
+      tauriArgs: { page, pageSize, keyword: keyword || null },
+      bridgePath: '/v2/teacher/notices',
+      bridgePayload: { page, page_size: pageSize, keyword: keyword || null },
+      normalize: normalizeNoticeList,
+      isEmpty: (list) => isEmptyTeacherCollection(list)
+    },
+    options
+  )
 }

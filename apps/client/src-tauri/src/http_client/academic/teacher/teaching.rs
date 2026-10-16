@@ -244,10 +244,34 @@ async fn fetch_grid(
     interpret_grid_response(status, &final_url, &body)
 }
 
+/// 串行回退开关的环境变量名（#1067：并发可能触发学校反爬/限频时回退）。
+pub(crate) const SERIAL_FETCH_ENV: &str = "HBU_TEACHER_SERIAL_FETCH";
+
+/// 解析串行回退开关值（纯函数，便于单测）。
+///
+/// 仅 `1 / true / yes / on`（大小写不敏感、允许首尾空白）视为开启串行；
+/// 其余（含未设置）走并发。
+pub(crate) fn parse_serial_fetch_flag(value: Option<&str>) -> bool {
+    matches!(
+        value.map(|raw| raw.trim().to_ascii_lowercase()).as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+/// 当前是否强制串行（读取环境变量）。
+fn teacher_fetch_serial_enabled() -> bool {
+    parse_serial_fetch_flag(std::env::var(SERIAL_FETCH_ENV).ok().as_deref())
+}
+
 /// 拉取教学任务与我的教学班，返回 E0 冻结载荷 `{ tasks, classes }`。
 ///
 /// 会话由调用方通过 [`fetch_teaching_with`] 传入的共享 `&HbutClient` 提供；
 /// 会话失效时接口会重定向登录页，被归一为「会话已过期」错误而非假数据。
+///
+/// #1067：两个只读 GET 互相独立，默认**并发**执行（`tokio::join!`）。
+/// 用 `join!` 而非 `try_join!` 是为了**严格保持原有错误优先级**：
+/// 先 `tasks?` 再 `classes?`，与原串行实现完全一致（tasks 失败时错误消息不变）。
+/// 设置 `HBU_TEACHER_SERIAL_FETCH=1` 可回退为串行。
 pub(crate) async fn fetch_teaching_with(
     client: &HbutClient,
     semester: Option<String>,
@@ -266,20 +290,43 @@ pub(crate) async fn fetch_teaching_with(
 
     let referer = format!("{}/admin/", client.jwxt_base_url());
 
-    let tasks_payload = fetch_grid(
-        client,
-        readonly::PATH_TEACHING_TASKS,
-        semester.as_deref(),
-        &referer,
-    )
-    .await?;
-    let classes_payload = fetch_grid(
-        client,
-        readonly::PATH_TEACHING_CLASSES,
-        semester.as_deref(),
-        &referer,
-    )
-    .await?;
+    // 并发或串行取得两个独立只读响应；错误优先级与原实现一致（tasks 优先）。
+    let (tasks_result, classes_result) = if teacher_fetch_serial_enabled() {
+        (
+            fetch_grid(
+                client,
+                readonly::PATH_TEACHING_TASKS,
+                semester.as_deref(),
+                &referer,
+            )
+            .await,
+            fetch_grid(
+                client,
+                readonly::PATH_TEACHING_CLASSES,
+                semester.as_deref(),
+                &referer,
+            )
+            .await,
+        )
+    } else {
+        tokio::join!(
+            fetch_grid(
+                client,
+                readonly::PATH_TEACHING_TASKS,
+                semester.as_deref(),
+                &referer,
+            ),
+            fetch_grid(
+                client,
+                readonly::PATH_TEACHING_CLASSES,
+                semester.as_deref(),
+                &referer,
+            ),
+        )
+    };
+
+    let tasks_payload = tasks_result?;
+    let classes_payload = classes_result?;
 
     let tasks = parse_teaching_tasks(&tasks_payload);
     let classes = parse_teaching_classes(&classes_payload);
@@ -466,5 +513,103 @@ mod tests {
 
         // 非 JSON 正文
         assert!(interpret_grid_response(200, "https://jwxt.example/admin/x", "not json").is_err());
+    }
+
+    #[test]
+    fn serial_fetch_flag_parsing() {
+        assert!(!parse_serial_fetch_flag(None));
+        assert!(!parse_serial_fetch_flag(Some("")));
+        assert!(!parse_serial_fetch_flag(Some("0")));
+        assert!(!parse_serial_fetch_flag(Some("no")));
+        assert!(!parse_serial_fetch_flag(Some("off")));
+        assert!(parse_serial_fetch_flag(Some("1")));
+        assert!(parse_serial_fetch_flag(Some("true")));
+        assert!(parse_serial_fetch_flag(Some(" ON ")));
+        assert!(parse_serial_fetch_flag(Some("Yes")));
+    }
+
+    /// #1067：并发改造后错误优先级必须与原串行实现一致（先 tasks 后 classes）。
+    #[tokio::test]
+    async fn concurrent_join_preserves_sequential_error_precedence() {
+        let tasks: Result<Value, String> = Err("tasks-failed".to_string());
+        let classes: Result<Value, String> = Err("classes-failed".to_string());
+        let (tasks_result, classes_result) =
+            tokio::join!(async move { tasks }, async move { classes });
+        // 复刻 `let _ = tasks_result?; let _ = classes_result?;` 的短路语义。
+        let err = match tasks_result {
+            Ok(_) => classes_result.err().expect("classes 应为错误"),
+            Err(error) => error,
+        };
+        assert_eq!(err, "tasks-failed");
+    }
+
+    /// tasks 成功时，classes 的错误必须原样上抛。
+    #[tokio::test]
+    async fn concurrent_join_returns_classes_error_when_tasks_ok() {
+        let tasks: Result<Value, String> = Ok(json!({ "ret": 0 }));
+        let classes: Result<Value, String> = Err("classes-failed".to_string());
+        let (tasks_result, classes_result) =
+            tokio::join!(async move { tasks }, async move { classes });
+        let err = match tasks_result {
+            Ok(_) => classes_result.err().expect("classes 应为错误"),
+            Err(error) => error,
+        };
+        assert_eq!(err, "classes-failed");
+    }
+
+    /// 模拟一次只读 I/O 往返（仅用于本地并发测量，不触网）。
+    async fn simulated_io(delay: std::time::Duration) -> Result<Value, String> {
+        tokio::time::sleep(delay).await;
+        Ok(json!({ "ret": 0, "results": [] }))
+    }
+
+    /// #1067 并发收益**本地测量**（模拟 I/O，非学校网络；默认忽略，手动运行）：
+    ///
+    /// ```text
+    /// cargo test --lib -- --ignored teacher_concurrency_measure --nocapture
+    /// ```
+    ///
+    /// 每次模拟 I/O 固定 60ms，比较「串行两次」与 `tokio::join!` 并发的 p50/p95。
+    /// ⚠️ 该数字仅说明并发原语的结构性收益，**不代表**学校真实网络 p50/p95。
+    #[tokio::test]
+    #[ignore = "本地性能测量，手动运行（不触网）"]
+    async fn teacher_concurrency_measure_simulated_io() {
+        use std::time::{Duration, Instant};
+
+        const IO: Duration = Duration::from_millis(60);
+        const SAMPLES: usize = 3;
+        let mut serial = Vec::with_capacity(SAMPLES);
+        let mut parallel = Vec::with_capacity(SAMPLES);
+
+        for _ in 0..SAMPLES {
+            let started = Instant::now();
+            let _first = simulated_io(IO).await.expect("simulated io");
+            let _second = simulated_io(IO).await.expect("simulated io");
+            serial.push(started.elapsed().as_secs_f64() * 1000.0);
+
+            let started = Instant::now();
+            let (_a, _b) = tokio::join!(simulated_io(IO), simulated_io(IO));
+            parallel.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        let percentile = |mut values: Vec<f64>, p: f64| -> f64 {
+            values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let index = ((values.len() as f64 - 1.0) * p).round() as usize;
+            values[index]
+        };
+
+        let serial_p50 = percentile(serial.clone(), 0.5);
+        let serial_p95 = percentile(serial.clone(), 0.95);
+        let parallel_p50 = percentile(parallel.clone(), 0.5);
+        let parallel_p95 = percentile(parallel.clone(), 0.95);
+
+        println!("[TeacherTeaching] 模拟 I/O(60ms×2) 串行 samples={serial:?} p50={serial_p50:.1}ms p95={serial_p95:.1}ms");
+        println!("[TeacherTeaching] 模拟 I/O(60ms×2) 并发 samples={parallel:?} p50={parallel_p50:.1}ms p95={parallel_p95:.1}ms");
+
+        // 并发应显著快于串行（结构断言，容忍调度抖动）。
+        assert!(
+            parallel_p50 < serial_p50,
+            "并发 p50 应小于串行：parallel={parallel_p50} serial={serial_p50}"
+        );
     }
 }

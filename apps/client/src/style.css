@@ -11,6 +11,13 @@
   --ui-muted: #475569;
   --ui-surface: rgba(255, 255, 255, 0.9);
   --ui-surface-border: rgba(255, 255, 255, 0.28);
+  /* #1064：共享 TModal 二级详情的不透明实体底 token（浅色纯白）。
+     注意：全局 --ui-surface 由用户「透明度」设置注入且恒 < 1，会让 .glass-card 透出底层；
+     modal 必须用不透明 token。运行时由 components/templates/TModal.vue 注入同一组变量，
+     深色值见下方 html.dark 覆盖，两处取值必须保持一致。 */
+  --ui-modal-surface: #ffffff;
+  --ui-modal-surface-border: rgba(148, 163, 184, 0.28);
+  --ui-modal-surface-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
   --ui-radius-scale: 1;
   --ui-font-scale: 1;
   --ui-space-scale: 1;
@@ -50,6 +57,14 @@
   --glass-bg: var(--ui-surface);
   --glass-border: var(--ui-surface-border);
   --text-color: var(--ui-text);
+}
+
+/* #1064：深色主题下 TModal 二级详情使用不透明实底（夜间模式 class 或深色预设均覆盖） */
+html.dark,
+html[data-theme='graphite_night'] {
+  --ui-modal-surface: #1e293b;
+  --ui-modal-surface-border: rgba(148, 163, 184, 0.24);
+  --ui-modal-surface-shadow: 0 24px 60px rgba(2, 6, 23, 0.6);
 }
 
 *,

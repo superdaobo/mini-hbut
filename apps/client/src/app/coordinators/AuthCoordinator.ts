@@ -6,7 +6,7 @@
  * 通过 state 读写，模板变量名保持不变。
  */
 import axios from 'axios'
-import type { AppRuntime, AuthCoordinator } from '../contracts/runtime'
+import type { AccountSwitchOutcome, AppRuntime, AuthCoordinator } from '../contracts/runtime'
 import { API_BASE, LOGIN_METHOD_VIEW_KEY, LOGIN_METHOD_KEY, LOGIN_TEMP_FLAG_KEY, LOGOUT_REASON_KEY, SESSION_COOKIE_KEY, SESSION_COOKIE_TIME_KEY, LOGIN_SESSION_TOKEN_KEY } from '../state/constants'
 import {
   clearScheduleRenderSnapshot,
@@ -38,6 +38,9 @@ import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/lo
 import { subscribePortalLoginSucceeded } from './loginOutcome'
 import { saveRememberedUsername, getRememberedUsername } from '../../utils/remembered_username'
 import { isTeacherRoleValue, normalizeLoginRole, writeLoginFormAccount } from '../../utils/login_role'
+// #1061/#1065：登出 / 切号时必须丢弃教师只读快照与在途请求，避免跨账号残留
+import { clearTeacherSnapshotScope } from '../../features/teacher/cache/teacherSnapshotStore'
+import { clearTeacherFetchInFlight } from '../../features/teacher/api/teacherApi'
 import { normalizePortalAccountId } from '../../utils/portal_account.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
@@ -313,6 +316,15 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     // 尽力而为（F2）：限制存储环境下清理抛错不得打断登出流程，必须在 state 重置之前就被吞掉。
     runLogoutCleanupSafely('游戏落盘身份清理', () => clearGameIdentityCaches(logoutSid))
 
+    // #1065/#1061：教师只读业务快照（课程名 / 教学班 / 监考考试安排 / 通知正文）按
+    // `teacher:{工号}:{学期}:*` 持久化在 localStorage，登出后仍可读。与游戏身份同理，
+    // 必须在**每次**登出（手动 + 会话失效自动）按账号清理，并丢弃在途的教师请求，
+    // 否则设备共享时下一位用户会看到上一位教师的只读数据。尽力而为，不得打断登出。
+    runLogoutCleanupSafely('教师快照清理', () => {
+      clearTeacherFetchInFlight()
+      clearTeacherSnapshotScope(logoutSid)
+    })
+
     runtime.navigation.applyViewState('home')
     state.gradeData.value = []
     state.gradeTeacherCache.value = null
@@ -376,9 +388,11 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     localStorage.setItem(LOGIN_METHOD_VIEW_KEY, mode)
   }
 
-  // #1048：切号结果来自 Rust 已恢复的目标账号，角色与工号必须一起交付。
-  // 本地 Cookie 注入不是在线验证；只有 refresh_session 成功才升级 online。
-  const handleAccountSwitch = (account: { studentId: string; role: string }) => {
+  // #1048 / #1061：切号结果来自 Rust 已恢复并在线的目标账号，角色与工号必须一起交付。
+  // 本地 Cookie 注入（local_activated）不等于在线可用：只有 Rust 在线确认
+  // （online_ready）才开放在线业务，否则明确提示「目标账号需要重新登录」或
+  // 以缓存离线态自动重试；绝不静默换回旧账号、绝不虚报在线成功。
+  const handleAccountSwitch = (account: AccountSwitchOutcome) => {
     const role = normalizeLoginRole(account?.role)
     const sid = normalizePortalAccountId(account?.studentId, role)
     if (!sid) return
@@ -395,6 +409,10 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     if (previousSid !== sid) {
       runLogoutCleanupSafely('游戏落盘身份清理', () => clearGameIdentityCaches(previousSid))
       clearScheduleRenderSnapshot()
+      // #1061/#1065：切到别的账号时丢弃上一账号在途的教师只读请求，避免其迟到结果
+      // 被目标账号的 singleflight 复用/覆盖（快照本身按 `teacher:{工号}:...` 键隔离，
+      // 故这里只清在途表，不清目标账号自己的快照）。
+      clearTeacherFetchInFlight()
     }
     state.studentId.value = sid
     state.setIdentityRole(role)
@@ -416,18 +434,40 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     localStorage.removeItem(LOGOUT_REASON_KEY)
     runtime.navigation.applyViewState('home')
     runtime.navigation.replaceHistorySnapshot('home')
-    if (isTestAccountSession()) return
+    if (isTestAccountSession()) {
+      state.onlineSessionState.value = 'online'
+      return
+    }
 
-    // 只在学校确认目标账号 Cookie 有效后开启各模块的在线行为。
+    const onlineReady = account?.onlineReady === true
+    const needsLogin = account?.needsLogin === true
+    const failureReason = String(account?.failureReason || '').trim()
+
+    // 未在线就绪：目标身份已切换，但在线业务保持关闭（渐进开放）。
+    if (!onlineReady) {
+      if (needsLogin) {
+        // 目标账号凭据缺失/失效：明确要求重新登录，且不启动自动恢复轮询
+        //（避免用其他账号凭据或反复无效重试掩盖问题）。
+        state.onlineSessionState.value = 'needs_login'
+        runtime.session.markJwxtMaintenance(
+          `已切换到 ${sid}，该账号需要重新登录后才能使用在线功能。`,
+          { phase: 'need_login', detail: failureReason || '目标账号需要重新登录' }
+        )
+      } else {
+        // 网络/维护故障：可重试，保留缓存身份并后台恢复，不诱导用户重新登录。
+        state.onlineSessionState.value = 'cached_offline'
+        runtime.session.markJwxtMaintenance(
+          '已切换账号，在线验证暂不可用，当前展示缓存数据，将自动重试。',
+          { phase: 'failed', detail: failureReason || '在线验证未完成' }
+        )
+        runtime.session.startJwxtRecoveryPolling()
+      }
+      return
+    }
+
+    // 在线就绪：开放在线业务；教师身份不复用学生的电费/通知/成绩任务。
     void (async () => {
       try {
-        // 不能只验证 HTTP 200：必须确认 Cookie 恢复的是目标账号和目标身份。
-        const verified = await invokeNative<{ student_id?: string; role?: string }>('refresh_session')
-        const verifiedRole = normalizeLoginRole(verified?.role)
-        const verifiedId = normalizePortalAccountId(verified?.student_id, verifiedRole)
-        if (verifiedId !== sid || verifiedRole !== role) {
-          throw new Error('恢复的学校会话身份与目标账号不一致')
-        }
         if (!isCurrent()) return
         await runtime.session.persistSessionCookies()
         if (!isCurrent()) return
@@ -450,10 +490,9 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
           console.warn('[CloudSync] 切换账号后自动同步失败:', e)
         })
         setUsageTrackingStudentId(sid)
-      } catch {
-        if (!isCurrent()) return
-        state.onlineSessionState.value = 'cached_offline'
-        runtime.session.startJwxtRecoveryPolling()
+      } catch (e) {
+        // 在线已确认，后续初始化失败不得回退为「未在线」；仅记录日志。
+        console.warn('[Session] 切换账号后初始化在线业务失败:', e)
       }
     })()
   }

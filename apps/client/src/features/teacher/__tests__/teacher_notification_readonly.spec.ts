@@ -28,6 +28,7 @@ import {
   useTeacherNotifications
 } from '../composables/useTeacherNotifications'
 import type { TeacherDataErrorKind } from '../types'
+import { resetTeacherSnapshotStore } from '../cache/teacherSnapshotStore'
 
 const root = process.cwd()
 const read = (relativePath: string): string =>
@@ -87,6 +88,8 @@ const ALL_KINDS: TeacherDataErrorKind[] = [
 
 beforeEach(() => {
   installStorage()
+  // #1065：清空模块级快照存储，保证用例间互不串扰。
+  resetTeacherSnapshotStore()
 })
 
 afterEach(() => {

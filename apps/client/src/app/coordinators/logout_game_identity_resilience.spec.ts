@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { createAuthCoordinator } from './AuthCoordinator'
 import { clearGameIdentityCaches } from '../../utils/api.js'
-import { invokeNative } from '../../platform/native'
 
 vi.mock('../../platform/native', () => ({
   invokeNative: vi.fn(async () => null),
@@ -112,6 +111,7 @@ const makeRuntime = () => {
       stopJwxtRecoveryPolling: vi.fn(),
       startJwxtRecoveryPolling: vi.fn(),
       clearJwxtMaintenance: vi.fn(),
+      markJwxtMaintenance: vi.fn(),
       persistSessionCookies: vi.fn(async () => {}),
       startSessionKeepAlive: vi.fn(),
       startElectricityKeepAlive: vi.fn(),
@@ -173,14 +173,16 @@ describe('F2：限制存储下游戏身份清理失败不得阻断登出 / 换�
     expect(state.studentId.value).toBe(NEXT_SID)
   })
 
-  it('学生切教师时工号与角色同时落地，在线验证前保持 recovering', async () => {
+  it('学生切教师时工号与角色同时落地，在线确认前保持 recovering', async () => {
     storageMap.set('hbu_session_cookies', 'previous-student-cookie')
     storageMap.set('hbu_session_cookie_time', '1234')
     storageMap.set('hbu_training_options', '{"student":"old"}')
     const { runtime, state } = makeRuntime()
-    vi.mocked(invokeNative).mockResolvedValueOnce({ student_id: '20000000', role: 'teacher' })
     const auth = createAuthCoordinator(runtime)
-    expect(() => auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher' })).not.toThrow()
+    // #1061：在线验证结果由 Rust 在线切号命令给出，经 account-switched 负载交付。
+    expect(() =>
+      auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher', onlineReady: true })
+    ).not.toThrow()
     expect(state.studentId.value).toBe('20000000')
     expect(state.role.value).toBe('teacher')
     expect(state.onlineSessionState.value).toBe('recovering')
@@ -198,11 +200,10 @@ describe('F2：限制存储下游戏身份清理失败不得阻断登出 / 换�
 
   it('教师切学生时恢复学生角色与学号，在线确认后才刷新学生成绩', async () => {
     const { runtime, state } = makeRuntime()
-    vi.mocked(invokeNative).mockResolvedValueOnce({ student_id: NEXT_SID, role: 'student' })
     state.studentId.value = '20000000'
     state.setIdentityRole('teacher')
     const auth = createAuthCoordinator(runtime)
-    auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student' })
+    auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student', onlineReady: true })
     expect(state.studentId.value).toBe(NEXT_SID)
     expect(state.role.value).toBe('student')
     expect(state.onlineSessionState.value).toBe('recovering')
@@ -212,38 +213,62 @@ describe('F2：限制存储下游戏身份清理失败不得阻断登出 / 换�
     })
   })
 
-  it('本地 Cookie 恢复了其他账号时，拒绝将目标账号标记为在线', async () => {
+  it('在线验证未通过时不得标记在线，转缓存离线并启动恢复轮询', async () => {
     const { runtime, state } = makeRuntime()
-    vi.mocked(invokeNative).mockResolvedValueOnce({ student_id: NEXT_SID, role: 'student' })
     const auth = createAuthCoordinator(runtime)
-    auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher' })
-    await vi.waitFor(() => {
-      expect(state.onlineSessionState.value).toBe('cached_offline')
-      expect(runtime.session.startJwxtRecoveryPolling).toHaveBeenCalled()
+    auth.handleAccountSwitch({
+      studentId: '20000000',
+      role: 'teacher',
+      onlineReady: false,
+      needsLogin: false,
+      failureReason: '网络异常'
     })
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+    expect(runtime.session.startJwxtRecoveryPolling).toHaveBeenCalled()
     expect(runtime.session.notifySessionOnline).not.toHaveBeenCalled()
     expect(runtime.grade.handleRefreshGrades).not.toHaveBeenCalled()
   })
 
-  it('账号连续切换后，迟到的旧账号校验结果不得再次确认在线', async () => {
-    let releaseOld: (value: unknown) => void = () => {}
-    vi.mocked(invokeNative)
-      .mockImplementationOnce(() => new Promise((resolve) => { releaseOld = resolve }))
-      .mockResolvedValueOnce({ student_id: NEXT_SID, role: 'student' })
+  it('目标账号需要重新登录时标记 needs_login 且不启动自动恢复轮询', async () => {
     const { runtime, state } = makeRuntime()
     const auth = createAuthCoordinator(runtime)
-    auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher' })
-    auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student' })
+    auth.handleAccountSwitch({
+      studentId: '20000000',
+      role: 'teacher',
+      onlineReady: false,
+      needsLogin: true,
+      failureReason: '目标账号需要重新登录'
+    })
+    expect(state.onlineSessionState.value).toBe('needs_login')
+    expect(runtime.session.markJwxtMaintenance).toHaveBeenCalledWith(
+      expect.stringContaining('重新登录'),
+      expect.objectContaining({ phase: 'need_login' })
+    )
+    expect(runtime.session.startJwxtRecoveryPolling).not.toHaveBeenCalled()
+    expect(runtime.session.notifySessionOnline).not.toHaveBeenCalled()
+  })
+
+  it('账号连续切换后，迟到的旧账号在线初始化不得覆盖新账号状态', async () => {
+    const { runtime, state } = makeRuntime()
+    let releaseFirst: () => void = () => {}
+    runtime.session.persistSessionCookies = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { releaseFirst = resolve }))
+      .mockResolvedValue(undefined)
+    const auth = createAuthCoordinator(runtime)
+    auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher', onlineReady: true })
+    auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student', onlineReady: true })
+    // 第二个（新账号）切换先完成初始化并确认在线
     await vi.waitFor(() => {
       expect(runtime.session.notifySessionOnline).toHaveBeenCalledTimes(1)
     })
-    releaseOld({ student_id: '20000000', role: 'teacher' })
+    // 第一个（旧账号）迟到的持久化完成后，不得再次确认在线或改写身份
+    releaseFirst()
     await Promise.resolve()
     await Promise.resolve()
     expect(state.studentId.value).toBe(NEXT_SID)
     expect(state.role.value).toBe('student')
     expect(runtime.session.notifySessionOnline).toHaveBeenCalledTimes(1)
-    expect(runtime.session.persistSessionCookies).toHaveBeenCalledTimes(1)
   })
 
   it('手动登出（manual:true）同样收口：清缓存失败不阻断学号置空与回首页', async () => {
