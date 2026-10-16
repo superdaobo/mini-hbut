@@ -929,12 +929,22 @@ mod tests {
             .contains("seatIdEnc"));
 
         // 已有 detail（如跳转链）时追加而非覆盖
+        // ⚠️ detail 已脱敏为 scheme://host/path，故此处用真实 URL 断言追加语义
         let err = note_missing_seat_id_enc(
-            LibraryReserveError::unexpected("x", &["a".into(), "b".into()]),
+            LibraryReserveError::unexpected(
+                "x",
+                &[
+                    "https://v1.chaoxing.com/a?enc=1".into(),
+                    "https://reserve.chaoxing.com/b".into(),
+                ],
+            ),
             &ctx,
         );
         let detail = err.detail.unwrap_or_default();
-        assert!(detail.starts_with("a -> b"), "原诊断不能被丢弃：{detail}");
+        assert!(
+            detail.starts_with("https://v1.chaoxing.com/a -> https://reserve.chaoxing.com/b"),
+            "原诊断不能被丢弃：{detail}"
+        );
         assert!(detail.contains("seatIdEnc"));
 
         // 已拿到 seatIdEnc 时不做任何附加

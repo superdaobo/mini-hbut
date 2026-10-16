@@ -534,3 +534,194 @@ pub(crate) async fn library_reserve_seat_i18n(
         library_reserve_seat::fetch_i18n(&mut client, app, req.force.unwrap_or(false)).await?;
     Ok(json!({ "success": true, "i18n": i18n }))
 }
+
+#[cfg(test)]
+mod tests {
+    //! 命令层纯逻辑契约（#1058）。
+    //!
+    //! 只覆盖「不触网」的部分：应用标识解析（命令组互斥）、请求体字段形状与
+    //! 错误分支可判别性。真实链路（SSO / 接口）由模块层的既有测试与人工实测覆盖。
+
+    use super::*;
+    use crate::modules::library_reserve::ERR_INVALID_APP;
+
+    // ── 应用标识解析：PC / seat 两组命令互斥 ──
+
+    #[test]
+    fn parse_pc_app_accepts_rooms_and_rejects_seat() {
+        // 静音仓 / 研讨室：key、mAppId、中文名均可
+        assert_eq!(parse_pc_app("quiet_room").unwrap(), LibraryApp::QuietRoom);
+        assert_eq!(parse_pc_app("19261750").unwrap(), LibraryApp::QuietRoom);
+        assert_eq!(parse_pc_app("静音仓预约").unwrap(), LibraryApp::QuietRoom);
+        assert_eq!(
+            parse_pc_app("seminar_room").unwrap(),
+            LibraryApp::SeminarRoom
+        );
+        assert_eq!(parse_pc_app("19248835").unwrap(), LibraryApp::SeminarRoom);
+
+        // 座位预约属 seatengine，必须被 PC 命令组明确拒绝（而不是误当成静音仓）
+        for raw in ["seat", "19248837", "座位预约"] {
+            let err = parse_pc_app(raw).expect_err("座位预约不应被 PC 命令组接受");
+            assert_eq!(err.kind, ERR_INVALID_APP);
+            assert!(
+                err.message.contains("seatengine"),
+                "错误应说明归属：{}",
+                err.message
+            );
+        }
+
+        // 未知标识同样是 invalid_app
+        assert_eq!(parse_pc_app("nope").unwrap_err().kind, ERR_INVALID_APP);
+        assert_eq!(parse_pc_app("").unwrap_err().kind, ERR_INVALID_APP);
+    }
+
+    #[test]
+    fn parse_seat_app_accepts_seat_and_rejects_rooms() {
+        assert_eq!(parse_seat_app("seat").unwrap(), LibraryApp::Seat);
+        assert_eq!(parse_seat_app("19248837").unwrap(), LibraryApp::Seat);
+        assert_eq!(parse_seat_app("座位预约").unwrap(), LibraryApp::Seat);
+
+        for raw in ["quiet_room", "seminar_room", "19261750", "19248835"] {
+            let err = parse_seat_app(raw).expect_err("非座位预约不应被 seat 命令组接受");
+            assert_eq!(err.kind, ERR_INVALID_APP);
+            assert!(
+                err.message.contains("reservepc"),
+                "错误应说明归属：{}",
+                err.message
+            );
+        }
+
+        assert_eq!(parse_seat_app("nope").unwrap_err().kind, ERR_INVALID_APP);
+    }
+
+    #[test]
+    fn pc_and_seat_command_groups_are_mutually_exclusive() {
+        // 每个应用恰好归属一个命令组：互斥且完备，避免「两边都收」或「两边都不收」
+        for app in LibraryApp::all() {
+            let in_pc = parse_pc_app(app.key()).is_ok();
+            let in_seat = parse_seat_app(app.key()).is_ok();
+            assert!(
+                in_pc ^ in_seat,
+                "应用 {} 必须恰好归属一个命令组（pc={in_pc}, seat={in_seat}）",
+                app.key()
+            );
+            assert_eq!(in_seat, app == LibraryApp::Seat);
+        }
+    }
+
+    // ── 请求体形状：snake_case 字段名 + 可选字段默认 ──
+
+    #[test]
+    fn resolve_requests_accept_app_and_default_force() {
+        let one: LibraryReserveResolveRequest =
+            serde_json::from_value(json!({ "app": "seat" })).expect("解析");
+        assert_eq!(one.app, "seat");
+        assert_eq!(one.force, None, "force 缺省应为 None，不强制重跑 SSO");
+
+        let all: LibraryReserveResolveAllRequest = serde_json::from_value(json!({})).expect("解析");
+        assert_eq!(all.force, None);
+    }
+
+    #[test]
+    fn pc_requests_use_snake_case_fields() {
+        let pc: LibraryReservePcRequest =
+            serde_json::from_value(json!({ "app": "quiet_room", "force": true })).expect("解析");
+        assert_eq!(pc.app, "quiet_room");
+        assert_eq!(pc.force, Some(true));
+
+        let time: LibraryReserveTimeListRequest = serde_json::from_value(json!({
+            "app": "quiet_room",
+            "start_time": "2026-10-16",
+            "end_time": "2026-10-17"
+        }))
+        .expect("解析");
+        assert_eq!(time.start_time.as_deref(), Some("2026-10-16"));
+        assert_eq!(time.end_time.as_deref(), Some("2026-10-17"));
+
+        // 命令层契约固定 snake_case：驼峰字段名被忽略（回落默认值），不会污染请求
+        let camel: LibraryReserveTimeListRequest =
+            serde_json::from_value(json!({ "app": "quiet_room", "startTime": "X" })).expect("解析");
+        assert_eq!(
+            camel.start_time, None,
+            "驼峰字段名不应被接受（契约固定 snake_case）"
+        );
+
+        let dialog: LibraryReserveDialogRequest = serde_json::from_value(json!({
+            "app": "quiet_room",
+            "dialog_agree_status": true
+        }))
+        .expect("解析");
+        assert_eq!(dialog.dialog_agree_status, Some(true));
+    }
+
+    #[test]
+    fn submit_request_shape_and_defaults() {
+        let submit: LibraryReserveSubmitRequest = serde_json::from_value(json!({
+            "app": "seminar_room",
+            "aprv_id": " 42 ",
+            "cycle_type": 1,
+            "form_data": { "userName": "张三" }
+        }))
+        .expect("解析");
+        assert_eq!(submit.app, "seminar_room");
+        // 命令层不做 trim（去空白属模块层职责），此处只锁形状
+        assert_eq!(submit.aprv_id.as_deref(), Some(" 42 "));
+        assert_eq!(submit.cycle_type, Some(1));
+        assert_eq!(
+            submit.form_data.get("userName").map(String::as_str),
+            Some("张三")
+        );
+        // 未提供的可选字段回落默认（空 map / None），不 panic
+        assert!(submit.extra.is_empty());
+        assert_eq!(submit.form_user_id, None);
+        assert_eq!(submit.aprv_status_type_id, None);
+    }
+
+    #[test]
+    fn cancel_request_requires_aprv_id() {
+        // aprv_id 必填：缺失即解析失败，而不是静默提交空 ID
+        let err = serde_json::from_value::<LibraryReserveCancelRequest>(json!({
+            "app": "quiet_room"
+        }))
+        .expect_err("缺少 aprv_id 应解析失败");
+        assert!(
+            err.to_string().contains("aprv_id"),
+            "错误应指出缺失字段：{err}"
+        );
+
+        let cancel: LibraryReserveCancelRequest = serde_json::from_value(json!({
+            "app": "quiet_room",
+            "aprv_id": "42"
+        }))
+        .expect("解析");
+        assert_eq!(cancel.aprv_id, "42");
+        assert!(cancel.extra.is_empty());
+    }
+
+    #[test]
+    fn seat_requests_share_same_shape() {
+        for raw in ["seat", "19248837"] {
+            let req: LibraryReserveSeatRequest =
+                serde_json::from_value(json!({ "app": raw })).expect("解析");
+            assert_eq!(req.app, raw);
+            assert_eq!(req.force, None);
+        }
+    }
+
+    // ── 错误分支可判别（前端按 kind 分支） ──
+
+    #[test]
+    fn invalid_app_error_serializes_kind_for_frontend() {
+        let err = parse_pc_app("seat").unwrap_err();
+        let value = serde_json::to_value(&err).expect("可序列化");
+        assert_eq!(
+            value.get("kind").and_then(|k| k.as_str()),
+            Some(ERR_INVALID_APP)
+        );
+        // 参数类失败不能提示「重新登录」修复
+        assert_eq!(
+            value.get("canRelogin").and_then(|b| b.as_bool()),
+            Some(false)
+        );
+    }
+}
