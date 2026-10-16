@@ -154,6 +154,21 @@ export const matchesDate = (raw: unknown, dateKey: string): boolean => {
   return false
 }
 
+/**
+ * 由所选日期构造时段查询的起止边界（含当天全天）。
+ *
+ * ⚠️ 语义来源：Rust `LibraryReserveTimeListRequest.start_time / end_time` 支持该参数，
+ * 实测语义为「日期边界」（见 #1053 与 `data/library-reserve-recon/01-api-contract.md`）。
+ * **这是基于实测的推断，尚未在真实数据下验证**：若后端实际按「时刻」解释、或对非空值
+ * 返回空列表，则需回退为不传该参数（见 `ReserveRoomPanel.loadSlots` 中的说明）。
+ * 日期为空时返回空串，调用方应据此省略参数，避免下发无意义边界。
+ */
+export const buildSlotTimeRange = (dateKey: string): { startTime: string; endTime: string } => {
+  const day = String(dateKey ?? '').trim()
+  if (!day) return { startTime: '', endTime: '' }
+  return { startTime: `${day} 00:00`, endTime: `${day} 23:59` }
+}
+
 // ── 时段 ──
 
 /** 时段可约状态 */
@@ -414,6 +429,36 @@ export const validateFormValues = (fields: FormField[], values: FormValues): For
   return { valid: Object.keys(errors).length === 0, errors }
 }
 
+/**
+ * 按校验错误 key 选择应插入 `{n}` 的数值。
+ *
+ * 修复 P1-2：`library.reserve.form.max` 必须取 `field.max`、`library.reserve.form.min`
+ * 取 `field.min`；其它错误（必填 / 数字 / 格式）无 `{n}` 占位，返回 null。
+ * 旧实现 `field.min ?? field.max` 在字段同时具备上下限时（如研讨室人数 min=2 / max=6）
+ * 恒取下限，导致输入超上限时文案把上限显示成下限（「不能大于 2」）。
+ */
+export const resolveFieldErrorLimit = (field: FormField, errorKey: string): number | null => {
+  if (errorKey === 'library.reserve.form.max') return field.max
+  if (errorKey === 'library.reserve.form.min') return field.min
+  return null
+}
+
+/**
+ * 渲染字段错误文案：取词后按错误 key 对应的上下限替换 `{n}`（无占位则原样返回）。
+ * 组件只负责展示，文案与限值选择逻辑集中在此，便于单测断言最终渲染文本。
+ */
+export const formatFieldErrorText = (
+  field: FormField,
+  errorKey: string,
+  translate: (key: string) => string
+): string => {
+  if (!errorKey) return ''
+  const text = translate(errorKey)
+  const limit = resolveFieldErrorLimit(field, errorKey)
+  if (limit === null || limit === undefined) return text
+  return text.split('{n}').join(String(limit))
+}
+
 /** 归一化表单值 → 提交体（`form_data`，字符串键值） */
 export const toFormData = (fields: FormField[], values: FormValues): Record<string, string> => {
   const data: Record<string, string> = {}
@@ -467,6 +512,18 @@ export const normalizeSlot = (
     raw
   }
 }
+
+/**
+ * 从「当前可见」的时段列表中解析已选项。
+ *
+ * 修复 P1-3：必须基于 `visibleSlots`（当前日期可见）而非全量 `slots` 解析，否则切换
+ * 日期后已选时段（属于旧日期、已从网格消失）仍会被解析出来，导致表单 / 提交条 /
+ * 确认弹窗与网格实际展示脱钩。不在可见列表中的 id 一律返回 null。
+ */
+export const pickSelectedSlot = (
+  slots: NormalizedSlot[],
+  slotId: string
+): NormalizedSlot | null => slots.find((item) => item.id === slotId) || null
 
 /** 判断「我的预约」条目是否属于给定日期之后（用于排序，缺失日期时排在末尾） */
 export const sortKeyOf = (value: { date: string; start: string }): string =>

@@ -96,7 +96,12 @@ pub struct LibraryReserveError {
     pub message: String,
     /// 是否可通过「重新登录融合门户」修复
     pub can_relogin: bool,
-    /// 诊断细节（重定向链等；不含密码与凭证正文）
+    /// 诊断细节（重定向链）。
+    ///
+    /// ⚠️ 该字段会经 IPC 交给前端，因此链上 URL **已脱敏**：只保留
+    /// `scheme://host/path`，query / fragment 全部丢弃（见 [`chain_detail`]）。
+    /// 链上 query 携带 `enc` / `fidEnc` / `uid` / `code` / `mappIdEnc` / `seatIdEnc`
+    /// 等短时效凭证，绝不外泄。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }
@@ -159,12 +164,38 @@ impl std::fmt::Display for LibraryReserveError {
 
 impl std::error::Error for LibraryReserveError {}
 
-/// 跳转链 → 诊断文本（None 表示无跳转链）
+/// 跳转链 → 诊断文本（None 表示无跳转链）。
+///
+/// ⚠️ **脱敏**：链上 URL 的 query 携带 `enc` / `fidEnc` / `uid` / `code` /
+/// `mappIdEnc` / `seatIdEnc` 等短时效凭证，而 `detail` 会经 IPC 交给前端，
+/// 因此这里只保留 `scheme://host/path`，丢弃全部 query 与 fragment。
+/// 诊断（跳到哪个 host / path、链路长度）不依赖 query，凭证则没必要外泄。
 fn chain_detail(chain: &[String]) -> Option<String> {
     if chain.is_empty() {
         None
     } else {
-        Some(chain.join(" -> "))
+        Some(
+            chain
+                .iter()
+                .map(|hop| sanitize_url(hop))
+                .collect::<Vec<_>>()
+                .join(" -> "),
+        )
+    }
+}
+
+/// URL 脱敏：只保留 `scheme://host/path`（丢弃 query / fragment）。
+///
+/// 解析失败时返回固定占位符而**不回显原串**：无法确认形态的文本同样可能含凭证。
+fn sanitize_url(raw: &str) -> String {
+    match Url::parse(raw) {
+        Ok(u) => format!(
+            "{}://{}{}",
+            u.scheme(),
+            u.host_str().unwrap_or(""),
+            u.path()
+        ),
+        Err(_) => "<无法解析的地址>".to_string(),
     }
 }
 
@@ -292,6 +323,20 @@ pub(crate) const ERR_BUSINESS_REJECTED: &str = "business_rejected";
 /// 调用方参数非法（本地校验拦截，未发请求）
 pub(crate) const ERR_INVALID_PARAMS: &str = "invalid_params";
 
+/// 登录态失效类提示语特征。
+///
+/// 部分接口在登录态失效时以 `success:false` 返回（而不是 HTML 登录页），
+/// 因此登录态判定不能只看 HTTP 形态，必须同时看提示语：
+/// [`classify_business_failure`] 与 [`classify_entry_json_failure`] 共用本表。
+const LOGIN_NEEDLES: [&str; 6] = [
+    "未登录",
+    "请登录",
+    "登录失效",
+    "登录已失效",
+    "重新登录",
+    "会话已失效",
+];
+
 /// 违约 / 停用类提示语特征（判定顺序最优先：既含「违约」又含「次数」的提示应归为停用）
 const SUSPENDED_NEEDLES: [&str; 8] = [
     "停用",
@@ -342,17 +387,7 @@ pub(crate) fn classify_business_failure(message: &str, context: &str) -> Library
     };
 
     // 部分接口在登录态失效时以 `success:false` 返回，而不是 HTML 登录页
-    if contains_any(
-        msg,
-        &[
-            "未登录",
-            "请登录",
-            "登录失效",
-            "登录已失效",
-            "重新登录",
-            "会话已失效",
-        ],
-    ) {
+    if contains_any(msg, &LOGIN_NEEDLES) {
         return LibraryReserveError::not_logged_in(format!(
             "{context}失败：{msg}。请重新登录融合门户后重试"
         ));
@@ -382,6 +417,10 @@ pub(crate) fn contains_any(haystack: &str, needles: &[&str]) -> bool {
 
 /// 取 `data` 字段，并把 `success:false` / 非 0 业务码统一转成可区分的错误。
 ///
+/// ⚠️ 这是**读操作**的宽松判定：无 `success` / `code` 字段时视为成功
+/// （部分查询接口确实不套成功标志）。**写操作必须用 [`api_write_result`]**，
+/// 它要求显式成功信号，不会把「服务端用其它形态表达拒绝」当成成功。
+///
 /// 少数接口不套 `data` 包装（直接把业务对象放顶层），此时原样返回整个响应，
 /// 避免解析结果变成 `null` 而丢失信息。
 pub(crate) fn api_data(value: &Value, context: &str) -> Result<Value, LibraryReserveError> {
@@ -396,6 +435,84 @@ pub(crate) fn api_data(value: &Value, context: &str) -> Result<Value, LibraryRes
     match value.get("data") {
         Some(data) => Ok(data.clone()),
         None => Ok(value.clone()),
+    }
+}
+
+/// **写操作**（提交 / 取消）的响应判定结果。
+#[derive(Debug, Clone)]
+pub(crate) struct WriteOutcome {
+    /// 业务数据（`data` 字段；无包装时为空对象）
+    pub data: Value,
+    /// 服务端提示语（可能为空）
+    pub message: Option<String>,
+    /// 原始响应（原样返回，便于联调与前端兜底展示）
+    pub raw: Value,
+}
+
+/// **写操作**响应判定：必须拿到**显式成功信号**，否则一律报错，**绝不默认成功**。
+///
+/// 为什么不能用 [`api_data`]：写接口的契约尚未实测（`reserve/multiple/submit` /
+/// `reserve/del/form/aprv`，见 TODO(#1053)）。服务端只要用「非 `success:false`、
+/// 非 `code!=0`」的形态表达拒绝（如 `{"msg":"该时段已被预约"}`、`{}`、
+/// `{"result":false}`），宽松判定就会把它当成成功，前端弹出**成功样式**的 toast，
+/// 用户以为约到了，实际没有 —— 这类假成功比报错更糟。
+///
+/// 判定顺序：
+/// 1. **显式失败**（`success == false` / `code` 非 `0`、`200`）→ 走
+///    [`classify_business_failure`] 得到可区分的业务 `kind`；
+/// 2. **显式成功**（`success == true`，或 `code ∈ {0, 200}`）→ 返回 [`WriteOutcome`]；
+/// 3. 两者皆无 → 返回「结果未知」错误（`unexpected_response`），
+///    提示用户到「我的预约」核对，而不是重试（重试可能造成重复预约）。
+pub(crate) fn api_write_result(
+    value: &Value,
+    context: &str,
+) -> Result<WriteOutcome, LibraryReserveError> {
+    // 1) 显式失败优先：与读操作共用同一套业务失败分类（含登录态失效识别）
+    if bool_field(value, "success") == Some(false) {
+        return Err(classify_business_failure(&error_message(value), context));
+    }
+    let code = value.get("code").and_then(as_i64_loose);
+    if let Some(code) = code {
+        if code != 0 && code != 200 {
+            return Err(classify_business_failure(&error_message(value), context));
+        }
+    }
+
+    // 2) 显式成功
+    let explicit_ok = bool_field(value, "success") == Some(true) || matches!(code, Some(0 | 200));
+    if !explicit_ok {
+        // 3) 结果未知：不能判成功，也不能判业务失败（服务端没说清楚）。
+        // 完整响应只进本地日志；IPC 侧的 message 仅带截断预览（避免超长刷屏）。
+        crate::runtime_log::log_warn(
+            "LibraryReserve",
+            format!("{context}响应缺少显式成功标志，原始响应：{value}"),
+        );
+        let preview = truncate_for_diagnostic(value, 200);
+        return Err(LibraryReserveError::unexpected(
+            format!(
+                "{context}未返回明确的成功标志（既无 success:true 也无 code:0/200），无法确认是否生效。\
+                 请到「我的预约」核对结果后再操作；响应：{preview}"
+            ),
+            &[],
+        ));
+    }
+
+    Ok(WriteOutcome {
+        data: value.get("data").cloned().unwrap_or_else(|| value.clone()),
+        // 成功提示语沿用改造前的键集（`msg` / `message`），不做扩大，避免误取 errorMsg
+        message: value_string(value, &["msg", "message"]),
+        raw: value.clone(),
+    })
+}
+
+/// 把 JSON 压成单行并截断，用于诊断文本（避免超长响应刷屏）
+fn truncate_for_diagnostic(value: &Value, max_chars: usize) -> String {
+    let text = value.to_string();
+    if text.chars().count() <= max_chars {
+        text
+    } else {
+        let head: String = text.chars().take(max_chars).collect();
+        format!("{head}…（已截断）")
     }
 }
 
@@ -428,7 +545,10 @@ pub(crate) async fn read_api_response(
         .map_err(|e| classify_transport_error(&e))?;
     let trimmed = text.trim();
 
-    if looks_like_login_body(trimmed) {
+    // 登录页正文启发式**只对非 JSON 正文生效**（见 [`looks_like_login_page_body`]）：
+    // `seat/i18n` 的契约是「全量文案（含业务提示语）」，其中出现「账号登录」等
+    // 标记的概率很高，若据此判未登录，会把正常响应误导成「请重新登录」。
+    if looks_like_login_page_body(trimmed) {
         return Err(LibraryReserveError::not_logged_in(format!(
             "调用「{path}」时超星返回登录页，登录态已失效。请重新登录融合门户后重试"
         )));
@@ -945,9 +1065,7 @@ async fn follow_chain(
             ));
         }
         if let Some(msg) = json_error_message(&body) {
-            return Err(LibraryReserveError::no_permission(format!(
-                "超星拒绝该应用入口：{msg}"
-            )));
+            return Err(classify_entry_json_failure(&msg));
         }
         if looks_like_no_permission(status, &body) {
             return Err(LibraryReserveError::no_permission(format!(
@@ -1082,6 +1200,25 @@ pub(crate) fn looks_like_login_body(body: &str) -> bool {
     MARKERS.iter().any(|m| body.contains(m))
 }
 
+/// 登录页**正文**启发式（仅对**非 JSON** 正文生效）。
+///
+/// 直接调用 [`looks_like_login_body`] 会把 JSON 响应也纳入判定，而 `seat/i18n`
+/// 契约是「**全量文案（含业务提示语）**」，正常响应里很可能出现「账号登录」等
+/// 标记 → 正常响应被判成未登录（`can_relogin=true`），误导用户去重新登录。
+///
+/// 能解析为 JSON（或以 `{` / `[` 开头）的正文一律按 JSON 处理，不参与该启发式；
+/// 与 [`looks_like_no_permission`] 的「长度门槛 / 错误码门槛」防误判思路一致。
+fn looks_like_login_page_body(body: &str) -> bool {
+    !looks_like_json_body(body) && looks_like_login_body(body)
+}
+
+/// 正文是否 JSON（`{` / `[` 开头，或能成功 `serde_json::from_str`）
+fn looks_like_json_body(trimmed: &str) -> bool {
+    trimmed.starts_with('{')
+        || trimmed.starts_with('[')
+        || serde_json::from_str::<Value>(trimmed).is_ok()
+}
+
 /// 正文 / 状态码是否「无权限」。
 ///
 /// 分强弱特征判定：强特征（超星「应用未配置」错误页专有文案）无条件命中；
@@ -1120,6 +1257,30 @@ fn json_error_message(body: &str) -> Option<String> {
         .and_then(|m| m.as_str())
         .unwrap_or("超星返回失败");
     Some(msg.to_string())
+}
+
+/// 入口链路 `{"success":false,...}` 的提示语 → 可判别错误。
+///
+/// ⚠️ 不能一律归为 `no_permission`：`no_permission` 的语义是「已登录，但该账号
+/// 确实没有此应用权限」，`can_relogin=false`，会告诉用户「重新登录无用」。
+/// 但入口被拒的提示语同样可能是登录态失效（「未登录 / 请登录 / 登录失效」），
+/// 那种情况重新登录正是解法，误判会让用户卡死在「无权限」上。
+///
+/// 登录类提示语复用与 [`classify_business_failure`] 同一张特征表（[`LOGIN_NEEDLES`]），
+/// 保证全局判定一致。
+fn classify_entry_json_failure(message: &str) -> LibraryReserveError {
+    let msg = message.trim();
+    let msg = if msg.is_empty() {
+        "超星返回失败"
+    } else {
+        msg
+    };
+    if contains_any(msg, &LOGIN_NEEDLES) {
+        return LibraryReserveError::not_logged_in(format!(
+            "超星拒绝该应用入口（登录态相关）：{msg}。请重新登录融合门户后重试"
+        ));
+    }
+    LibraryReserveError::no_permission(format!("超星拒绝该应用入口：{msg}"))
 }
 
 /// 从 HTML 正文中提取下一跳（meta refresh / JS location / 目标绝对 URL）
@@ -1474,9 +1635,19 @@ mod tests {
         assert_eq!(net.kind, ERR_NETWORK_UNREACHABLE);
         let bad = LibraryReserveError::invalid_app("x");
         assert_eq!(bad.kind, ERR_INVALID_APP);
-        let un = LibraryReserveError::unexpected("x", &["a".into(), "b".into()]);
+        let un = LibraryReserveError::unexpected(
+            "x",
+            &[
+                "https://v1.chaoxing.com/a?enc=1".into(),
+                "https://reserve.chaoxing.com/b".into(),
+            ],
+        );
         assert_eq!(un.kind, ERR_UNEXPECTED_RESPONSE);
-        assert_eq!(un.detail.as_deref(), Some("a -> b"));
+        // detail 已脱敏：只保留 scheme://host/path
+        assert_eq!(
+            un.detail.as_deref(),
+            Some("https://v1.chaoxing.com/a -> https://reserve.chaoxing.com/b")
+        );
         // 业务失败：kind 由调用方指定，且「重新登录」无意义
         let biz = LibraryReserveError::business("slot_unavailable", "该时段已被预约");
         assert_eq!(biz.kind, "slot_unavailable");
@@ -1601,5 +1772,240 @@ mod tests {
         let str_fail: Value = serde_json::json!({"success": "false", "msg": "已被预定"});
         let err = api_data(&str_fail, "提交预约").expect_err("应失败");
         assert_eq!(err.kind, ERR_SLOT_UNAVAILABLE);
+    }
+
+    // ── P1-4：诊断链脱敏（detail 不得携带凭证） ──
+
+    #[test]
+    fn error_detail_strips_credentials_from_chain() {
+        let chain = vec![
+            "https://v1.chaoxing.com/mobileSet/redirectUrlMobile?mAppId=19248837".to_string(),
+            "https://auth.chaoxing.com/connect/oauth2/authorize?appid=abc&redirect_uri=https%3A%2F%2Freserve.chaoxing.com%2Fx%3Fenc%3DENCSECRET%26uid%3D406591160".to_string(),
+            "https://reserve.chaoxing.com/front/apps/seatengine/index?seatId=3597&enc=ENCSECRET&fidEnc=FIDSECRET&code=CODESECRET&state=25285&mappIdEnc=MAPPSECRET".to_string(),
+        ];
+        let err = LibraryReserveError::unexpected("入口未落到预约系统", &chain);
+        // 先序列化（模拟经 IPC 交给前端的实际形态），再取 detail 做断言
+        let json = serde_json::to_string(&err).expect("可序列化");
+        let detail = err.detail.expect("应带诊断链");
+
+        // 凭证一律不得出现（query 全丢）
+        for secret in [
+            "ENCSECRET",
+            "FIDSECRET",
+            "CODESECRET",
+            "MAPPSECRET",
+            "406591160",
+        ] {
+            assert!(
+                !detail.contains(secret),
+                "detail 泄漏凭证 {secret}：{detail}"
+            );
+        }
+        assert!(!detail.contains("enc="));
+        assert!(!detail.contains("uid="));
+        assert!(!detail.contains('?'));
+
+        // 诊断能力保留：host + path 足以定位「跳到哪个系统」
+        assert!(detail.contains("https://v1.chaoxing.com/mobileSet/redirectUrlMobile"));
+        assert!(detail.contains("https://auth.chaoxing.com/connect/oauth2/authorize"));
+        assert!(detail.contains("https://reserve.chaoxing.com/front/apps/seatengine/index"));
+        assert_eq!(detail.split(" -> ").count(), 3);
+
+        // 序列化后经 IPC 交给前端时同样不含凭证
+        assert!(!json.contains("ENCSECRET"));
+        assert!(!json.contains("FIDSECRET"));
+        assert!(json.contains("reserve.chaoxing.com/front/apps/seatengine/index"));
+    }
+
+    #[test]
+    fn sanitize_url_keeps_scheme_host_path_only() {
+        assert_eq!(
+            sanitize_url(
+                "https://reserve.chaoxing.com/front/apps/seatengine/index?enc=S&uid=1#frag"
+            ),
+            "https://reserve.chaoxing.com/front/apps/seatengine/index"
+        );
+        assert_eq!(
+            sanitize_url("https://auth.chaoxing.com"),
+            "https://auth.chaoxing.com/"
+        );
+        // 解析失败时不回显原串（畸形文本同样可能含凭证）
+        assert_eq!(sanitize_url("not a url"), "<无法解析的地址>");
+    }
+
+    // ── P1-2：JSON 正文不参与登录页正文启发式 ──
+
+    #[test]
+    fn json_body_is_not_treated_as_login_page() {
+        // `seat/i18n` 是「全量文案（含业务提示语）」，含「账号登录」等标记也不能判未登录
+        assert!(!looks_like_login_page_body(
+            r#"{"i18n":{"loginBtn":"账号登录","smsBtn":"短信登录"}}"#
+        ));
+        assert!(!looks_like_login_page_body(
+            r#"{"msg":"请使用账号登录后重试"}"#
+        ));
+        assert!(!looks_like_login_page_body(r#"[{"text":"统一身份认证"}]"#));
+
+        // HTML 登录页仍必须判出来（CAS / 超星登录页）
+        assert!(looks_like_login_page_body(
+            "<html><title>账号登录</title></html>"
+        ));
+        assert!(looks_like_login_page_body(
+            "<!DOCTYPE html><form action=\"/authserver/login\"></form>"
+        ));
+        // 普通业务 HTML 页不误判
+        assert!(!looks_like_login_page_body(
+            "<html><title>座位预约</title></html>"
+        ));
+
+        // 底层标记函数行为不变：HTML 场景仍按它判定
+        assert!(looks_like_login_body(r#"{"msg":"账号登录"}"#));
+        // JSON 识别
+        assert!(looks_like_json_body(r#"{"a":1}"#));
+        assert!(looks_like_json_body("[]"));
+        assert!(looks_like_json_body("  {\"a\":1}  "));
+        assert!(!looks_like_json_body("<html></html>"));
+        assert!(!looks_like_json_body(""));
+    }
+
+    // ── P1-1：入口 {"success":false} 必须分登录 / 权限 ──
+
+    #[test]
+    fn entry_json_failure_separates_login_from_permission() {
+        // 登录态类提示语 → 未登录（可重新登录修复）
+        for msg in [
+            "未登录",
+            "请登录后访问",
+            "登录失效",
+            "登录已失效",
+            "请重新登录",
+            "会话已失效",
+        ] {
+            let e = classify_entry_json_failure(msg);
+            assert_eq!(e.kind, ERR_CHAOXING_NOT_LOGGED_IN, "msg={msg}");
+            assert!(e.can_relogin, "msg={msg} 应可通过重新登录修复");
+        }
+        // 真正的权限类提示语 → 无权限（重新登录无用）
+        for msg in ["应用不存在", "未查询到您所访问的应用", "无权限访问"] {
+            let e = classify_entry_json_failure(msg);
+            assert_eq!(e.kind, ERR_NO_PERMISSION, "msg={msg}");
+            assert!(!e.can_relogin, "msg={msg}");
+        }
+        // 空提示语兜底为无权限，不 panic
+        assert_eq!(classify_entry_json_failure("  ").kind, ERR_NO_PERMISSION);
+    }
+
+    // ── P1-3：写操作必须拿到显式成功信号 ──
+
+    #[test]
+    fn api_write_result_requires_explicit_success() {
+        // ① {} —— 无任何成功标志：绝不能判成功
+        let e = api_write_result(&serde_json::json!({}), "提交预约").expect_err("不得默认成功");
+        assert_eq!(e.kind, ERR_UNEXPECTED_RESPONSE);
+        assert!(!e.can_relogin);
+        assert!(e.message.contains("提交预约"));
+        assert!(e.message.contains("未返回明确的成功标志"), "{}", e.message);
+
+        // ② {"msg":"..."} —— 服务端用提示语表达拒绝（如时段被占），同样不能判成功
+        let e = api_write_result(&serde_json::json!({"msg": "该时段已被预约"}), "提交预约")
+            .expect_err("不得默认成功");
+        assert_eq!(e.kind, ERR_UNEXPECTED_RESPONSE);
+        // {"result":false} 形态同理
+        let e = api_write_result(&serde_json::json!({"result": false}), "取消预约")
+            .expect_err("不得默认成功");
+        assert_eq!(e.kind, ERR_UNEXPECTED_RESPONSE);
+
+        // ③ {"success":true} —— 合法成功形态，必须判成功（不得引入成功误判为失败的回归）
+        let ok = api_write_result(&serde_json::json!({"success": true}), "提交预约").expect("成功");
+        assert_eq!(ok.raw.get("success").and_then(|v| v.as_bool()), Some(true));
+        assert!(ok.message.is_none());
+
+        // ④ {"code":0} —— 合法成功形态；code=200 / 数字字符串 / success:"true" 同样算成功
+        assert!(api_write_result(&serde_json::json!({"code": 0}), "提交预约").is_ok());
+        assert!(api_write_result(&serde_json::json!({"code": 200}), "提交预约").is_ok());
+        assert!(api_write_result(&serde_json::json!({"code": "0"}), "提交预约").is_ok());
+        assert!(api_write_result(&serde_json::json!({"success": "true"}), "提交预约").is_ok());
+
+        // ⑤ {"success":false} —— 显式失败 → 业务 kind
+        let e = api_write_result(&serde_json::json!({"success": false}), "提交预约")
+            .expect_err("应失败");
+        assert_eq!(e.kind, ERR_BUSINESS_REJECTED);
+
+        // ⑥ {"code":500} —— 显式失败 → 业务 kind
+        let e =
+            api_write_result(&serde_json::json!({"code": 500}), "提交预约").expect_err("应失败");
+        assert_eq!(e.kind, ERR_BUSINESS_REJECTED);
+    }
+
+    #[test]
+    fn api_write_result_keeps_business_classification_and_raw() {
+        // 显式失败仍走业务分类（时段被占 / 超限 / 登录失效）
+        let e = api_write_result(
+            &serde_json::json!({"success": false, "msg": "该时段已被预约"}),
+            "提交预约",
+        )
+        .expect_err("应失败");
+        assert_eq!(e.kind, ERR_SLOT_UNAVAILABLE);
+
+        let e = api_write_result(
+            &serde_json::json!({"code": 500, "message": "超出预约限额"}),
+            "提交预约",
+        )
+        .expect_err("应失败");
+        assert_eq!(e.kind, ERR_RESERVE_LIMIT);
+
+        let e = api_write_result(
+            &serde_json::json!({"success": false, "msg": "未登录或登录已失效"}),
+            "提交预约",
+        )
+        .expect_err("应失败");
+        assert_eq!(e.kind, ERR_CHAOXING_NOT_LOGGED_IN);
+        assert!(e.can_relogin);
+
+        // 成功时返回 data + message + raw（raw 供联调）
+        let ok = api_write_result(
+            &serde_json::json!({"success": true, "msg": "预约成功", "data": {"aprvId": 42}}),
+            "提交预约",
+        )
+        .expect("成功");
+        assert_eq!(ok.data.get("aprvId").and_then(as_i64_loose), Some(42));
+        assert_eq!(ok.message.as_deref(), Some("预约成功"));
+        assert_eq!(ok.raw.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        // 无 data 包装时原样返回整个响应（不丢信息）
+        let ok = api_write_result(
+            &serde_json::json!({"success": true, "result": 1}),
+            "提交预约",
+        )
+        .expect("成功");
+        assert_eq!(ok.data.get("result").and_then(as_i64_loose), Some(1));
+
+        // 「结果未知」提示用户去核对，而不是重试（重试可能造成重复预约）
+        let e = api_write_result(&serde_json::json!({}), "取消预约").expect_err("应失败");
+        assert!(e.message.contains("核对"), "{}", e.message);
+    }
+
+    #[test]
+    fn read_path_stays_lenient_while_write_path_is_strict() {
+        // 读操作（api_data）保持宽松：无 success / code 也视为成功，避免误伤查询接口
+        let plain = serde_json::json!({"data": {"c": 3}});
+        assert!(api_data(&plain, "获取时段").is_ok());
+        let bare = serde_json::json!({"showStyle": "0"});
+        assert!(api_data(&bare, "获取视图标记").is_ok());
+        // 写操作（api_write_result）对同一形态必须报「结果未知」
+        assert_eq!(
+            api_write_result(&bare, "提交预约").unwrap_err().kind,
+            ERR_UNEXPECTED_RESPONSE
+        );
+
+        // 显式失败 / 显式成功：两条路径判定一致（只是写路径更严）
+        let fail = serde_json::json!({"success": false, "msg": "已被预定"});
+        assert_eq!(
+            api_data(&fail, "x").unwrap_err().kind,
+            api_write_result(&fail, "x").unwrap_err().kind
+        );
+        let ok = serde_json::json!({"success": true, "data": {"a": 1}});
+        assert!(api_data(&ok, "x").is_ok());
+        assert!(api_write_result(&ok, "x").is_ok());
     }
 }

@@ -8,6 +8,7 @@
  * 3. 时段归一化三态（free / taken / closed）与日期工具。
  */
 import { describe, expect, it } from 'vitest'
+import { t } from '../../utils/app_i18n'
 import {
   RESERVE_ERROR_MESSAGE_KEYS,
   SEMINAR_RESOURCES,
@@ -15,11 +16,15 @@ import {
   RESOURCE_CATALOG,
   buildDateOptions,
   buildInitialValues,
+  buildSlotTimeRange,
   extractHm,
+  formatFieldErrorText,
   matchesDate,
   normalizeFormFields,
   normalizeSlot,
   parseReserveFailure,
+  pickSelectedSlot,
+  resolveFieldErrorLimit,
   sortKeyOf,
   stripHtml,
   summarizeFormValues,
@@ -197,6 +202,40 @@ describe('动态表单（normalizeFormFields / 校验 / 提交体）', () => {
   })
 })
 
+describe('表单错误文案（P1-2：按错误 key 取对应限值，而非恒取下限）', () => {
+  // 研讨室人数：同时具备上下限（min=2 / max=6），旧实现 `field.min ?? field.max` 恒取 2
+  const people = normalizeFormFields({
+    parsed: true,
+    fields: [{ key: 'people', label: '人数', fieldType: 'number', raw: { min: 2, max: 6 } }]
+  }).fields[0]
+
+  it('resolveFieldErrorLimit：max 取上限、min 取下限，其它错误无 {n}', () => {
+    expect(resolveFieldErrorLimit(people, 'library.reserve.form.max')).toBe(6)
+    expect(resolveFieldErrorLimit(people, 'library.reserve.form.min')).toBe(2)
+    expect(resolveFieldErrorLimit(people, 'library.reserve.form.required')).toBeNull()
+  })
+
+  it('渲染文本：输入超上限显示上限值（不能大于 6，而非把容量说成 2）', () => {
+    const validation = validateFormValues([people], { people: '9' })
+    expect(validation.errors.people).toBe('library.reserve.form.max')
+    // 断言最终渲染文本 —— 旧测试只断言 error key，故未捕获「不能大于 2」的文案错误
+    expect(formatFieldErrorText(people, validation.errors.people, t)).toBe('不能大于 6')
+  })
+
+  it('渲染文本：低于下限显示下限值', () => {
+    const validation = validateFormValues([people], { people: '1' })
+    expect(validation.errors.people).toBe('library.reserve.form.min')
+    expect(formatFieldErrorText(people, validation.errors.people, t)).toBe('不能小于 2')
+  })
+
+  it('无 {n} 占位的错误原样返回；空 key 返回空串', () => {
+    const required = formatFieldErrorText(people, 'library.reserve.form.required', t)
+    expect(required).not.toContain('{n}')
+    expect(required).not.toContain('6')
+    expect(formatFieldErrorText(people, '', t)).toBe('')
+  })
+})
+
 describe('normalizeSlot（时段三态与表单解析标记）', () => {
   const quiet: ReserveResource = QUIET_RESOURCES[0]
 
@@ -226,6 +265,37 @@ describe('normalizeSlot（时段三态与表单解析标记）', () => {
     expect(normalizeSlot({}, 0, quiet).formParsed).toBe(true)
     const unparsed = normalizeSlot({ customFormConfig: { fields: [{ key: 'x' }] } }, 0, quiet)
     expect(unparsed.formParsed).toBe(false)
+  })
+})
+
+describe('pickSelectedSlot（P1-3：只在当前可见时段中解析已选）', () => {
+  const quiet: ReserveResource = QUIET_RESOURCES[0]
+  const dayA = normalizeSlot({ aprvId: 1, date: '2026-10-16', startTime: '09:00' }, 0, quiet)
+  const dayB = normalizeSlot({ aprvId: 2, date: '2026-10-17', startTime: '10:00' }, 1, quiet)
+
+  it('命中可见列表返回条目', () => {
+    expect(pickSelectedSlot([dayA, dayB], dayA.id)).toBe(dayA)
+  })
+
+  it('切换日期后旧时段不在可见列表 → 返回 null（表单 / 提交条随之隐藏）', () => {
+    // 日期 B 的可见列表不含日期 A 的时段；若仍从全量 slots 解析，旧时段会残留并被误提交
+    expect(pickSelectedSlot([dayB], dayA.id)).toBeNull()
+    expect(pickSelectedSlot([], dayA.id)).toBeNull()
+    expect(pickSelectedSlot([dayA, dayB], '')).toBeNull()
+  })
+})
+
+describe('buildSlotTimeRange（P1-4：所选日期 → 查询起止边界）', () => {
+  it('按日期边界生成起止（当天 00:00 – 23:59）', () => {
+    expect(buildSlotTimeRange('2026-10-16')).toEqual({
+      startTime: '2026-10-16 00:00',
+      endTime: '2026-10-16 23:59'
+    })
+  })
+
+  it('空日期返回空串（调用方据此省略参数，不下发无意义边界）', () => {
+    expect(buildSlotTimeRange('')).toEqual({ startTime: '', endTime: '' })
+    expect(buildSlotTimeRange('   ')).toEqual({ startTime: '', endTime: '' })
   })
 })
 

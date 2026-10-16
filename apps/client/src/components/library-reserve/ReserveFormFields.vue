@@ -7,6 +7,7 @@
  * 字段定义来自后端 `customFormConfig`（归一化见 `catalog.ts`）。
  */
 import { useLocale } from '../../utils/app_i18n'
+import { formatFieldErrorText } from './catalog'
 
 const props = defineProps({
   /** 归一化后的字段定义 */
@@ -44,17 +45,12 @@ const toggleOption = (key, optionValue) => {
 /** 取值字符串（用于 textarea / input 的 :value） */
 const textValue = (key) => String(props.values[key] ?? '')
 
-/** 错误文案：支持 {n} 占位（上下限校验） */
-const errorText = (field) => {
-  const key = props.errors[field.key]
-  if (!key) return ''
-  const limit = field.min ?? field.max
-  let text = t(key)
-  if (limit !== null && limit !== undefined) {
-    text = text.split('{n}').join(String(limit))
-  }
-  return text
-}
+/**
+ * 错误文案：按错误 key 选择上下限替换 {n}。
+ * 修复 P1-2：交由 catalog.formatFieldErrorText 按 key 取对应限值，避免 min/max 并存时
+ * 「不能大于」文案显示成下限（旧实现以 min 优先，恒取下限）。
+ */
+const errorText = (field) => formatFieldErrorText(field, props.errors[field.key], t)
 
 /** 占位提示：字段自带优先，否则用通用文案 */
 const placeholderOf = (field) => field.placeholder || t('library.reserve.form.placeholder')

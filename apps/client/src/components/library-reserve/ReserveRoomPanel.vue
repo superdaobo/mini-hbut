@@ -25,10 +25,12 @@ import {
   WEEKDAY_KEYS,
   buildDateOptions,
   buildInitialValues,
+  buildSlotTimeRange,
   matchesDate,
   normalizeSlot,
   parseReserveFailure,
   pickRawString,
+  pickSelectedSlot,
   stripHtml,
   summarizeFormValues,
   toFormData,
@@ -75,9 +77,10 @@ const slotsErrorDetail = ref('')
 const selectedDate = ref('')
 const selectedSlotId = ref('')
 
-const selectedSlot = computed(
-  () => slots.value.find((item) => item.id === selectedSlotId.value) || null
-)
+// 已选时段只在「当前日期可见」的时段（visibleSlots，见下）中解析：
+// 修复 P1-3 —— 切换日期后旧日期已选时段不再残留于表单 / 提交条 / 确认弹窗。
+// visibleSlots 为下方 computed，getter 惰性求值，此处引用安全。
+const selectedSlot = computed(() => pickSelectedSlot(visibleSlots.value, selectedSlotId.value))
 
 // ── 动态表单 ──
 const formValues = ref({})
@@ -181,7 +184,15 @@ const loadConstraints = async () => {
   }
 }
 
-/** 拉取可预约时段（与实测契约一致：不传起止时间，日期在前端过滤） */
+/**
+ * 拉取可预约时段。
+ *
+ * 修复 P1-4：把所选日期作为起止边界（`start_time` / `end_time`，snake_case，与 Rust
+ * `LibraryReserveTimeListRequest` 一致）下发给后端 —— 此前只传 `{ app }`，日期选择器
+ * 在真实契约下形同虚设（响应条目无 `date` 字段，前端也无法自行过滤）。
+ * ⚠️ 该参数语义为「基于实测的推断」（日期边界），尚未在真实数据下验证；若后端按「时刻」
+ * 解释或对非空值返回空列表，应回退为不传该参数（即删掉下方 start_time/end_time 赋值）。
+ */
 const loadSlots = async () => {
   const resource = selectedResource.value
   if (!resource) return
@@ -189,7 +200,13 @@ const loadSlots = async () => {
   slotsError.value = ''
   slotsErrorDetail.value = ''
   try {
-    const res = await invokeNative('library_reserve_time_list', { req: { app: props.app } })
+    const range = buildSlotTimeRange(selectedDate.value)
+    const req = { app: props.app }
+    if (range.startTime) {
+      req.start_time = range.startTime
+      req.end_time = range.endTime
+    }
+    const res = await invokeNative('library_reserve_time_list', { req })
     const items = Array.isArray(res?.items) ? res.items : []
     slots.value = items
       .map((item, index) => normalizeSlot(item, index, resource))
@@ -204,24 +221,39 @@ const loadSlots = async () => {
   }
 }
 
-/** 进入某房间的预约页 */
-const selectResource = async (resource) => {
-  selectedResourceId.value = resource.id
+/** 清空已选时段与表单状态（切换房间 / 日期 / 返回列表 / 提交成功后复用） */
+const resetSlotSelection = () => {
   selectedSlotId.value = ''
   formValues.value = {}
   formErrors.value = {}
+}
+
+/** 进入某房间的预约页 */
+const selectResource = async (resource) => {
+  selectedResourceId.value = resource.id
+  resetSlotSelection()
   selectedDate.value = dateOptions.value[0]?.value || ''
+  await loadSlots()
+}
+
+/**
+ * 切换日期：先重置已选时段与表单，再按新日期重新拉取时段。
+ * 修复 P1-3：旧实现只改 `selectedDate`，导致旧日期已选时段残留在表单 / 提交条 /
+ * 确认弹窗（弹窗显示新日期，实际提交的却是旧日期时段），用户「确认」的内容与提交对象不一致。
+ */
+const selectDate = async (dateKey) => {
+  if (!dateKey || dateKey === selectedDate.value) return
+  selectedDate.value = dateKey
+  resetSlotSelection()
   await loadSlots()
 }
 
 /** 返回资源列表 */
 const backToList = () => {
   selectedResourceId.value = ''
-  selectedSlotId.value = ''
+  resetSlotSelection()
   slots.value = []
   slotsError.value = ''
-  formValues.value = {}
-  formErrors.value = {}
 }
 
 /** 选择时段：不可约给出提示，重复点击取消选择 */
@@ -287,9 +319,7 @@ const confirmSubmit = async () => {
     const res = await invokeNative('library_reserve_submit', { req })
     confirmVisible.value = false
     showToast(res?.message || t('library.reserve.toast.submitSuccess'), 'success')
-    selectedSlotId.value = ''
-    formValues.value = {}
-    formErrors.value = {}
+    resetSlotSelection()
     // 提交成功后刷新时段余量，避免展示过期状态
     await loadSlots()
   } catch (e) {
@@ -405,7 +435,7 @@ watch(
           class="date"
           :class="{ 'date--on': option.value === selectedDate }"
           :aria-pressed="option.value === selectedDate"
-          @click="selectedDate = option.value"
+          @click="selectDate(option.value)"
         >
           <span class="date__week">{{ dateLabel(option).weekday }}</span>
           <strong class="date__md">{{ dateLabel(option).md }}</strong>

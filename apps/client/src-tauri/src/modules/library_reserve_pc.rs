@@ -30,6 +30,9 @@
 //! - 提交 / 取消失败必须能区分**业务失败**（时段被占 / 超限 / 违约停用）与**网络失败**：
 //!   前者返回 [`ERR_SLOT_UNAVAILABLE`] 等业务 kind，后者返回
 //!   [`crate::modules::library_reserve::ERR_NETWORK_UNREACHABLE`]。
+//! - **写操作（提交 / 取消）要求显式成功信号**（`success:true` 或 `code ∈ {0,200}`）：
+//!   契约未实测的端点上，「没有任何成功标志」一律判为**结果未知**并报错，
+//!   **绝不默认成功**（假成功比报错更糟）。读操作仍走宽松判定 [`api_data`]。
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -40,8 +43,8 @@ use serde_json::Value;
 
 use crate::http_client::HbutClient;
 use crate::modules::library_reserve::{
-    self, api_data, classify_transport_error, encode_form, non_empty, read_api_response,
-    value_bool, value_f64, value_i64, value_string, LibraryApp, LibraryAppEntry,
+    self, api_data, api_write_result, classify_transport_error, encode_form, non_empty,
+    read_api_response, value_bool, value_f64, value_i64, value_string, LibraryApp, LibraryAppEntry,
     LibraryReserveError, ERR_INVALID_PARAMS, RESERVE_API_BASE,
 };
 
@@ -647,14 +650,23 @@ pub(crate) struct CancelReserveRequest {
     pub extra: BTreeMap<String, String>,
 }
 
-/// 提交体里由本模块统一注入、**不允许调用方覆盖**的键（防越权改写身份 / 凭证）
-const PROTECTED_FORM_KEYS: [&str; 6] = [
+/// 提交 / 取消体里由本模块统一注入、**不允许调用方覆盖**的键
+/// （防越权改写身份 / 凭证 / 取消目标）。
+///
+/// ⚠️ 这些键都在 [`merge_form_fields`] **之前**注入：若漏在此列，`form_data` / `extra`
+/// 会**静默覆盖**显式请求字段 —— 例如 `extra.formUserId` 改写身份、
+/// `extra.aprvId` 改写取消目标（可能取消掉别人的预约）、
+/// `extra.aprvStatusTypeId` 改写审批状态类型。
+const PROTECTED_FORM_KEYS: [&str; 9] = [
     "reserveId",
     "reserveIdEnc",
     "resvAppId",
     "fidEnc",
     "ua",
     "cycleType",
+    "aprvId",
+    "aprvStatusTypeId",
+    "formUserId",
 ];
 
 /// 合并调用方透传字段，保护键与空键名一律忽略
@@ -933,11 +945,14 @@ pub(crate) async fn submit_reservation(
     let ctx = resolve_context(client, app, force).await?;
     let params = submit_params(&ctx, req);
     let value = post_form(client, ENDPOINT_SUBMIT, &params).await?;
-    let data = api_data(&value, "提交预约")?;
+    // ⚠️ 写操作必须用 api_write_result（要求显式成功信号）：本端点契约未实测
+    // （TODO(#1053)），服务端可能用 `{"msg":"该时段已被预约"}` / `{}` 等形态拒绝，
+    // 宽松判定会把它当成成功 → 前端弹出成功样式 toast，属「假成功」。
+    let outcome = api_write_result(&value, "提交预约")?;
     Ok(ReserveActionOutcome {
-        message: value_string(&value, &["msg", "message"]),
-        data,
-        raw: value,
+        message: outcome.message,
+        data: outcome.data,
+        raw: outcome.raw,
     })
 }
 
@@ -959,11 +974,12 @@ pub(crate) async fn cancel_reservation(
     let ctx = resolve_context(client, app, force).await?;
     let params = cancel_params(&ctx, req);
     let value = post_form(client, ENDPOINT_CANCEL, &params).await?;
-    let data = api_data(&value, "取消预约")?;
+    // 同提交：端点契约未实测，必须要求显式成功信号，避免「假取消成功」
+    let outcome = api_write_result(&value, "取消预约")?;
     Ok(ReserveActionOutcome {
-        message: value_string(&value, &["msg", "message"]),
-        data,
-        raw: value,
+        message: outcome.message,
+        data: outcome.data,
+        raw: outcome.raw,
     })
 }
 
@@ -1183,6 +1199,87 @@ mod tests {
         assert_eq!(p.get("formUserId").map(String::as_str), Some("406591160"));
         assert_eq!(p.get("reason").map(String::as_str), Some("临时有事"));
         assert_eq!(p.get("fidEnc").map(String::as_str), Some("FID"));
+    }
+
+    #[test]
+    fn protected_keys_cannot_be_overridden_by_extra_or_form_data() {
+        let ctx = ReserveContext::from_entry(
+            LibraryApp::QuietRoom,
+            &make_entry(LibraryApp::QuietRoom, Some("FID"), Some("ENC")),
+        )
+        .expect("可构造");
+
+        // 提交：extra 试图改写身份 / 审批目标 / 凭证，必须被静默忽略
+        let mut extra = BTreeMap::new();
+        extra.insert("formUserId".to_string(), "HACKER".to_string());
+        extra.insert("aprvId".to_string(), "999999".to_string());
+        extra.insert("aprvStatusTypeId".to_string(), "9".to_string());
+        extra.insert("fidEnc".to_string(), "HACK".to_string());
+        let req = SubmitReserveRequest {
+            aprv_id: Some("42".to_string()),
+            aprv_status_type_id: Some("1".to_string()),
+            form_user_id: Some("406591160".to_string()),
+            cycle_type: None,
+            form_data: BTreeMap::new(),
+            extra,
+        };
+        let p = submit_params(&ctx, &req);
+        assert_eq!(p.get("formUserId").map(String::as_str), Some("406591160"));
+        assert_eq!(p.get("aprvId").map(String::as_str), Some("42"));
+        assert_eq!(p.get("aprvStatusTypeId").map(String::as_str), Some("1"));
+        assert_eq!(p.get("fidEnc").map(String::as_str), Some("FID"));
+
+        // 取消：extra.aprvId 不得改写取消目标（否则可能取消掉别人的预约）
+        let mut extra = BTreeMap::new();
+        extra.insert("aprvId".to_string(), "999999".to_string());
+        extra.insert("formUserId".to_string(), "HACKER".to_string());
+        let req = CancelReserveRequest {
+            aprv_id: "77".to_string(),
+            form_user_id: Some("406591160".to_string()),
+            extra,
+        };
+        let p = cancel_params(&ctx, &req);
+        assert_eq!(p.get("aprvId").map(String::as_str), Some("77"));
+        assert_eq!(p.get("formUserId").map(String::as_str), Some("406591160"));
+
+        // form_data（动态表单字段）同样受保护，不能覆盖注入键
+        let mut form_data = BTreeMap::new();
+        form_data.insert("formUserId".to_string(), "HACKER".to_string());
+        form_data.insert("aprvId".to_string(), "999999".to_string());
+        let req = SubmitReserveRequest {
+            aprv_id: Some("42".to_string()),
+            form_user_id: Some("406591160".to_string()),
+            form_data,
+            ..Default::default()
+        };
+        let p = submit_params(&ctx, &req);
+        assert_eq!(p.get("formUserId").map(String::as_str), Some("406591160"));
+        assert_eq!(p.get("aprvId").map(String::as_str), Some("42"));
+
+        // 保护键大小写不敏感（服务端字段大小写不稳定）
+        let mut extra = BTreeMap::new();
+        extra.insert("FORMUSERID".to_string(), "HACKER".to_string());
+        let req = SubmitReserveRequest {
+            form_user_id: Some("406591160".to_string()),
+            extra,
+            ..Default::default()
+        };
+        let p = submit_params(&ctx, &req);
+        assert_eq!(p.get("formUserId").map(String::as_str), Some("406591160"));
+        assert!(!p.contains_key("FORMUSERID"));
+    }
+
+    #[test]
+    fn write_actions_use_strict_success_judgement() {
+        // 写接口契约未实测：无 success/code 的响应必须报「结果未知」，不得默认成功
+        let unknown = api_write_result(&serde_json::json!({"msg": "该时段已被预约"}), "提交预约")
+            .expect_err("不得默认成功");
+        assert_eq!(unknown.kind, ERR_UNEXPECTED_RESPONSE);
+
+        // 显式成功仍要判成功（不得引入「成功误判为失败」的回归）
+        assert!(api_write_result(&serde_json::json!({"success": true}), "提交预约").is_ok());
+        assert!(api_write_result(&serde_json::json!({"code": 0}), "取消预约").is_ok());
+        assert!(api_write_result(&serde_json::json!({"code": 200}), "取消预约").is_ok());
     }
 
     // ── 响应解析 ──
