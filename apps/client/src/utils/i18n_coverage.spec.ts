@@ -105,7 +105,9 @@ const I18N_MIGRATED_FILES: string[] = [
   'components/SchoolWebsiteView.vue',
   'components/PrivacyDataView.vue',
   'components/TeachingEvalView.vue',
-  'components/ConfigEditor.vue'
+  'components/ConfigEditor.vue',
+  // #1055：图书馆预约视图（座位 / 静音仓 / 研讨室 + 我的预约），全量文案走 i18n
+  'components/LibraryReserveView.vue'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */

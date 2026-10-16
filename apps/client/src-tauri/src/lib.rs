@@ -688,6 +688,10 @@ pub fn run() {
             transport::tauri::teacher::teacher_teaching_fetch,
             transport::tauri::teacher::teacher_exams_fetch,
             transport::tauri::teacher::teacher_notices_fetch,
+            // #1052：图书馆预约（超星 reserve）基础链路——应用目录 + 真实入口/凭证解析
+            transport::tauri::library_reserve::library_reserve_list_apps,
+            transport::tauri::library_reserve::library_reserve_resolve_entry,
+            transport::tauri::library_reserve::library_reserve_resolve_all,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -23,7 +23,8 @@ describe('towergo home integration contract', () => {
     )
     expect(dashboard).not.toContain("id: 'smart_orientation'")
     expect(dashboard).toContain("id: 'towergo'")
-    expect(dashboard).toContain("['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class']")
+    // #1055：图书馆预约（library_reserve）并入「学习通」分类
+    expect(dashboard).toContain("['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'library_reserve']")
     expect(app).toContain("const loadTowerGoView: Loader = () => import('../components/TowerGoView.vue')")
     expect(app).toContain("towergo: loadTowerGoView")
     expect(app).toContain("currentView === 'towergo'")

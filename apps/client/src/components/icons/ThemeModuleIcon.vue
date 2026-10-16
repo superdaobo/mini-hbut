@@ -24,6 +24,7 @@ const iconMap = {
   course_selection: 'playlist_add_check',
   training: 'account_tree',
   library: 'local_library',
+  library_reserve: 'event_seat',
   campus_map: 'map',
   resource_share: 'cloud',
   chaoxing_class: 'menu_book',

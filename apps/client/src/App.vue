@@ -560,7 +560,7 @@ const {
         @back="handleBackToDashboard"
       />
 
-
+      <component v-else-if="currentView === 'library_reserve'" :is="VIEW_COMPONENTS.library_reserve" :student-id="studentId" @back="handleBackToDashboard" />
       <!-- 小塔出行 -->
       <TowerGoView
         v-else-if="currentView === 'towergo'"

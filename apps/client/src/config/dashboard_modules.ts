@@ -60,6 +60,8 @@ export const BASE_MODULES: DashboardModule[] = [
   // 场馆依赖 172.16.54.20 校园网 + accessToken；外网/无校园网时 third/open 无法落地，暂禁用避免死入口
   { id: 'sports_venue', name: 'home.module.sports_venue', iconKey: 'sports_venue', color: '#16a34a', desc: 'home.module.sports_venue.desc', available: false, requiresLogin: true },
   { id: 'library', name: 'home.module.library', iconKey: 'library', color: '#0f766e', desc: 'home.module.library.desc', available: true, requiresLogin: false },
+  // #1055：图书馆预约（座位 / 静音仓 / 研讨室 + 我的预约），依赖超星账号登录
+  { id: 'library_reserve', name: 'home.module.library_reserve', iconKey: 'library_reserve', color: '#1d4ed8', desc: 'home.module.library_reserve.desc', available: true, requiresLogin: true },
   { id: 'campus_map', name: 'home.module.campus_map', iconKey: 'campus_map', color: '#14b8a6', desc: 'home.module.campus_map.desc', available: true, requiresLogin: false },
   { id: 'resource_share', name: 'home.module.resource_share', iconKey: 'resource_share', color: '#0ea5e9', desc: 'home.module.resource_share.desc', available: true, requiresLogin: false },
   { id: 'towergo', name: 'home.module.towergo', iconKey: 'towergo', color: '#22c55e', desc: 'home.module.towergo.desc', available: true, requiresLogin: false },
@@ -86,7 +88,7 @@ export const MODULE_CATEGORY_DEFS: ModuleCategoryDef[] = [
   },
   {
     title: 'home.cat.chaoxing',
-    ids: ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class']
+    ids: ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'library_reserve']
   },
   {
     title: 'home.cat.yimatong',
@@ -136,6 +138,7 @@ export const QUICK_ENTRY_META: Record<string, QuickEntryMeta> = {
   broadband: { name: 'home.module.broadband', icon: 'fa-wifi', color: 'bg-cyan-50', iconColor: 'text-cyan-600' },
   sports_venue: { name: 'home.module.sports_venue', icon: 'fa-futbol', color: 'bg-green-50', iconColor: 'text-green-600' },
   library: { name: 'home.module.library', icon: 'fa-book', color: 'bg-lime-50', iconColor: 'text-lime-600' },
+  library_reserve: { name: 'home.module.library_reserve', icon: 'fa-chair', color: 'bg-indigo-50', iconColor: 'text-indigo-700' },
   resource_share: { name: 'home.module.resource_share', icon: 'fa-cloud', color: 'bg-blue-50', iconColor: 'text-blue-500' },
   campus_map: { name: 'home.module.campus_map', icon: 'fa-map-marked-alt', color: 'bg-teal-50', iconColor: 'text-teal-600' },
   towergo: { name: 'home.module.towergo', icon: 'fa-bicycle', color: 'bg-emerald-50', iconColor: 'text-emerald-600' },
@@ -151,6 +154,7 @@ export const FEATURE_ICON_COLORS: Record<string, string> = {
   chaoxing_hub: 'bg-blue-600', chaoxing_inbox: 'bg-indigo-600', chaoxing_class: 'bg-sky-500',
   broadband: 'bg-cyan-600', sports_venue: 'bg-green-600',
   library: 'bg-emerald-600', campus_map: 'bg-teal-500', resource_share: 'bg-blue-500',
+  library_reserve: 'bg-indigo-700',
   towergo: 'bg-emerald-500',
   ai: 'bg-gray-400'
 }
@@ -164,6 +168,7 @@ export const FEATURE_ICONS: Record<string, string> = {
   chaoxing_hub: 'fa-graduation-cap', chaoxing_inbox: 'fa-inbox', chaoxing_class: 'fa-folder-open',
   broadband: 'fa-wifi', sports_venue: 'fa-futbol',
   library: 'fa-book', campus_map: 'fa-map-marked-alt', resource_share: 'fa-cloud',
+  library_reserve: 'fa-chair',
   towergo: 'fa-bicycle',
   ai: 'fa-robot'
 }

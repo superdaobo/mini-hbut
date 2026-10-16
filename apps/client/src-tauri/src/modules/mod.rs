@@ -16,6 +16,8 @@ pub mod classroom;
 pub mod course_selection;
 pub mod electricity;
 pub mod exam;
+// #1052：图书馆预约（超星 reserve）基础链路：mAppId → 真实系统入口 + 凭证
+pub mod library_reserve;
 pub mod module_bundle;
 pub mod notification;
 pub mod one_code;
