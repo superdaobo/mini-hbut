@@ -1,484 +1,288 @@
-//! Android Widget 快照写入 Tauri commands（SharedPreferences XML）。
-
-use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::Manager;
-
-// #891：所有 Widget SharedPreferences 的 read-modify-write 必须串行。
-// 启动阶段 theme_mode/theme_color/snapshot 可能并发到达；若不加锁，
-// 后写入者会基于旧 XML 覆盖先写入者，且旧实现还会竞争同一个 tmp 文件。
-static WIDGET_PREFS_WRITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-static WIDGET_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+//! Android 小组件原生桥（#1029 / #1030）。
+//!
+//! 旧实现由 Rust 直接覆盖 Android SharedPreferences XML，与 Android 端内存缓存
+//! 不一致，且在早期的 JNI 广播错误分支可能错误释放外部持有的 Context 引用。
+//! 现在仅经 Android 官方 SharedPreferences API 提交数据；具体渲染仍由 Provider 执行。
+//! 无 Widget / 无网络时不会尝试唤醒 WebView，更不会把「重绘」伪装为数据更新。
 
 #[cfg(target_os = "android")]
-fn trigger_android_widget_refresh() -> Result<(), String> {
+mod android {
     use jni::objects::{JObject, JValue};
+    use std::mem::ManuallyDrop;
 
-    let ctx = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
-        .map_err(|e| format!("获取 Android VM 失败: {}", e))?;
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| format!("附加 Android 线程失败: {}", e))?;
-    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
-    let package_name = env
-        .call_method(&context, "getPackageName", "()Ljava/lang/String;", &[])
-        .and_then(|value| value.l())
-        .map_err(|e| format!("读取 Android packageName 失败: {}", e))?;
+    const PREFS_NAME: &str = "mini_hbut_widget";
 
-    for action_name in [
-        "com.hbut.mini.widget.ACTION_REFRESH",
-        "com.hbut.mini.widget.ACTION_ELECTRICITY_REFRESH",
-        "com.hbut.mini.widget.ACTION_EXAM_REFRESH",
-    ] {
-        let action = env
-            .new_string(action_name)
-            .map_err(|e| format!("创建 Widget refresh action 失败: {}", e))?;
-        let action_obj = JObject::from(action);
-        let intent = env
-            .new_object(
-                "android/content/Intent",
-                "(Ljava/lang/String;)V",
-                &[JValue::Object(&action_obj)],
+    // ndk_context 保存的是由宿主持有的 GlobalRef。绝不能把它当成临时 LocalRef
+    // drop；即使某个 JNI 调用提前失败，也必须保持原始引用归宿主所有。
+    pub(super) fn run(entries: Option<&[(&str, &str)]>, refresh: bool) -> Result<(), String> {
+        let ctx = ndk_context::android_context();
+        if ctx.vm().is_null() || ctx.context().is_null() {
+            return Err("Widget Android VM/Context 未初始化".to_string());
+        }
+        let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("获取 Widget Android VM 失败: {e}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("附加 Widget JNI 线程失败: {e}"))?;
+        let borrowed_context =
+            ManuallyDrop::new(unsafe { JObject::from_raw(ctx.context().cast()) });
+
+        let result = (|| {
+            // 统一拿 ApplicationContext，避免异步命令留住可能正在销毁的 Activity。
+            let context = env
+                .call_method(
+                    &*borrowed_context,
+                    "getApplicationContext",
+                    "()Landroid/content/Context;",
+                    &[],
+                )
+                .and_then(|v| v.l())
+                .map_err(|e| format!("读取 ApplicationContext 失败: {e}"))?;
+            if context.is_null() {
+                return Err("Widget ApplicationContext 为空".to_string());
+            }
+            if let Some(pairs) = entries {
+                write_preferences(&mut env, &context, pairs)?;
+            }
+            if refresh {
+                send_refresh_broadcasts(&mut env, &context)?;
+            }
+            Ok(())
+        })();
+
+        // JavaException 若不清理，会污染当前 JNI 附加线程的后续调用。
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
+            return Err(result
+                .err()
+                .unwrap_or_else(|| "Widget 原生调用发生 Java 异常".to_string()));
+        }
+        result
+    }
+
+    fn write_preferences(
+        env: &mut jni::JNIEnv<'_>,
+        context: &JObject<'_>,
+        entries: &[(&str, &str)],
+    ) -> Result<(), String> {
+        let prefs_name = JObject::from(
+            env.new_string(PREFS_NAME)
+                .map_err(|e| format!("Widget prefs 名称创建失败: {e}"))?,
+        );
+        let prefs = env
+            .call_method(
+                context,
+                "getSharedPreferences",
+                "(Ljava/lang/String;I)Landroid/content/SharedPreferences;",
+                &[JValue::Object(&prefs_name), JValue::Int(0)],
             )
-            .map_err(|e| format!("创建 Widget refresh Intent 失败: {}", e))?;
-        env.call_method(
-            &intent,
-            "setPackage",
-            "(Ljava/lang/String;)Landroid/content/Intent;",
-            &[JValue::Object(&package_name)],
-        )
-        .map_err(|e| format!("限制 Widget refresh Intent 包名失败: {}", e))?;
-        env.call_method(
-            &context,
-            "sendBroadcast",
-            "(Landroid/content/Intent;)V",
-            &[JValue::Object(&intent)],
-        )
-        .map_err(|e| format!("发送 Widget refresh 广播失败: {}", e))?;
-    }
+            .and_then(|v| v.l())
+            .map_err(|e| format!("打开 Widget SharedPreferences 失败: {e}"))?;
+        let editor = env
+            .call_method(
+                &prefs,
+                "edit",
+                "()Landroid/content/SharedPreferences$Editor;",
+                &[],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| format!("Widget editor 创建失败: {e}"))?;
 
-    // context 句柄由 Android 生命周期管理，此处仅借用。
-    std::mem::forget(context);
-    Ok(())
-}
-
-#[cfg(not(target_os = "android"))]
-fn trigger_android_widget_refresh() -> Result<(), String> {
-    Ok(())
-}
-
-fn resolve_shared_prefs_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    // 方案 1：从 data_dir 推导
-    if let Ok(data_dir) = app.path().data_dir() {
-        // 向上遍历找到包名目录
-        let mut current = data_dir.as_path();
-        for _ in 0..5 {
-            if let Some(name) = current.file_name() {
-                if name.to_string_lossy().contains("com.hbut.mini") {
-                    return Ok(current.join("shared_prefs"));
-                }
-            }
-            match current.parent() {
-                Some(parent) => current = parent,
-                None => break,
-            }
+        for (key, value) in entries {
+            let k = JObject::from(env.new_string(key).map_err(|e| e.to_string())?);
+            let v = JObject::from(env.new_string(value).map_err(|e| e.to_string())?);
+            env.call_method(
+                &editor,
+                "putString",
+                "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;",
+                &[JValue::Object(&k), JValue::Object(&v)],
+            )
+            .map_err(|e| format!("Widget 写入字段 {key} 失败: {e}"))?;
         }
-        // 如果没找到包名目录，尝试 data_dir 的 parent
-        if let Some(parent) = data_dir.parent() {
-            let candidate = parent.join("shared_prefs");
-            return Ok(candidate);
-        }
-    }
 
-    // 方案 2：硬编码路径（Android 标准位置）
-    let hardcoded = std::path::PathBuf::from("/data/data/com.hbut.mini/shared_prefs");
-    Ok(hardcoded)
-}
-
-/// 将 widget 快照 JSON 写入 Android SharedPreferences XML 文件。
-/// SharedPreferences 路径：/data/data/{package}/shared_prefs/mini_hbut_widget.xml
-/// Widget 的 WidgetDataStore.kt 从同一文件读取。
-#[tauri::command]
-pub(crate) async fn write_widget_snapshot(
-    app: tauri::AppHandle,
-    snapshot_json: String,
-) -> Result<(), String> {
-    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
-    let prefs_dir = resolve_shared_prefs_dir(&app)?;
-
-    tokio::fs::create_dir_all(&prefs_dir)
-        .await
-        .map_err(|e| format!("创建 shared_prefs 目录失败: {}", e))?;
-
-    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-
-    // 读取现有内容保留其他字段
-    let existing = tokio::fs::read_to_string(&prefs_file)
-        .await
-        .unwrap_or_default();
-    let electricity_json = extract_xml_string(&existing, "electricity_json");
-    let exam_json = extract_xml_string(&existing, "exam_json");
-    let theme_color = extract_xml_string(&existing, "theme_color");
-    let theme_mode = extract_xml_string(&existing, "theme_mode");
-
-    let xml_content = format!(
-        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="snapshot_json">{}</string>
-    <string name="electricity_json">{}</string>
-    <string name="exam_json">{}</string>
-    <string name="theme_color">{}</string>
-    <string name="theme_mode">{}</string>
-    <int name="snapshot_version" value="1" />
-    <long name="last_write_ts" value="{}" />
-</map>
-"#,
-        escape_xml(&snapshot_json),
-        electricity_json,
-        exam_json,
-        theme_color,
-        theme_mode,
-        now_ms
-    );
-
-    atomic_write_file(&prefs_file, xml_content.as_bytes())
-        .await
-        .map_err(|e| format!("写入 widget 快照失败: {} (path: {:?})", e, prefs_file))?;
-
-    Ok(())
-}
-
-/// 清空 widget 快照数据
-#[tauri::command]
-pub(crate) async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
-    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
-    let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-
-    if prefs_file.exists() {
-        let existing = tokio::fs::read_to_string(&prefs_file)
-            .await
-            .unwrap_or_default();
-        let theme_color = extract_xml_string(&existing, "theme_color");
-        let theme_mode = extract_xml_string(&existing, "theme_mode");
+        // last_write_ts 仅表示「写入原生存储」，不能作为联网同步成功时间。
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_millis();
-
-        let xml_content = format!(
-            r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="snapshot_json"></string>
-    <string name="electricity_json"></string>
-    <string name="exam_json"></string>
-    <string name="theme_color">{}</string>
-    <string name="theme_mode">{}</string>
-    <int name="snapshot_version" value="1" />
-    <long name="last_write_ts" value="{}" />
-</map>
-"#,
-            theme_color, theme_mode, now_ms
+            .as_millis() as i64;
+        let version_key = JObject::from(
+            env.new_string("snapshot_version")
+                .map_err(|e| e.to_string())?,
         );
-
-        atomic_write_file(&prefs_file, xml_content.as_bytes())
-            .await
-            .map_err(|e| format!("清空 widget 快照失败: {}", e))?;
+        let write_time_key =
+            JObject::from(env.new_string("last_write_ts").map_err(|e| e.to_string())?);
+        env.call_method(
+            &editor,
+            "putInt",
+            "(Ljava/lang/String;I)Landroid/content/SharedPreferences$Editor;",
+            &[JValue::Object(&version_key), JValue::Int(1)],
+        )
+        .map_err(|e| format!("Widget 保存版本号失败: {e}"))?;
+        env.call_method(
+            &editor,
+            "putLong",
+            "(Ljava/lang/String;J)Landroid/content/SharedPreferences$Editor;",
+            &[JValue::Object(&write_time_key), JValue::Long(now_ms)],
+        )
+        .map_err(|e| format!("Widget 保存写入时间失败: {e}"))?;
+        let committed = env
+            .call_method(&editor, "commit", "()Z", &[])
+            .and_then(|v| v.z())
+            .map_err(|e| format!("Widget SharedPreferences commit 异常: {e}"))?;
+        if !committed {
+            return Err("Widget SharedPreferences commit 返回 false".to_string());
+        }
+        Ok(())
     }
 
-    Ok(())
+    fn send_refresh_broadcasts(
+        env: &mut jni::JNIEnv<'_>,
+        context: &JObject<'_>,
+    ) -> Result<(), String> {
+        let package_name = env
+            .call_method(context, "getPackageName", "()Ljava/lang/String;", &[])
+            .and_then(|v| v.l())
+            .map_err(|e| format!("Widget 包名获取失败: {e}"))?;
+
+        for action in [
+            "com.hbut.mini.widget.ACTION_REFRESH",
+            "com.hbut.mini.widget.ACTION_ELECTRICITY_REFRESH",
+            "com.hbut.mini.widget.ACTION_EXAM_REFRESH",
+        ] {
+            let action_obj = JObject::from(
+                env.new_string(action)
+                    .map_err(|e| format!("Widget action 构建失败: {e}"))?,
+            );
+            let intent = env
+                .new_object(
+                    "android/content/Intent",
+                    "(Ljava/lang/String;)V",
+                    &[JValue::Object(&action_obj)],
+                )
+                .map_err(|e| format!("Widget Intent 创建失败: {e}"))?;
+            env.call_method(
+                &intent,
+                "setPackage",
+                "(Ljava/lang/String;)Landroid/content/Intent;",
+                &[JValue::Object(&package_name)],
+            )
+            .map_err(|e| format!("Widget Intent 包名设置失败: {e}"))?;
+            env.call_method(
+                context,
+                "sendBroadcast",
+                "(Landroid/content/Intent;)V",
+                &[JValue::Object(&intent)],
+            )
+            .map_err(|e| format!("Widget 刷新广播发送失败: {e}"))?;
+        }
+        Ok(())
+    }
 }
 
-/// 写入主题色到 SharedPreferences（供小组件读取）
+#[cfg(not(target_os = "android"))]
+mod android {
+    pub(super) fn run(_entries: Option<&[(&str, &str)]>, _refresh: bool) -> Result<(), String> {
+        // Android-only Tauri 命令不会影响桌面/iOS；Web 与桌面在 JS 侧也不发起写入。
+        Ok(())
+    }
+}
+
+const MAX_WIDGET_JSON_BYTES: usize = 512 * 1024;
+
+async fn persist_fields(fields: Vec<(&'static str, String)>) -> Result<(), String> {
+    if fields
+        .iter()
+        .any(|(_, value)| value.len() > MAX_WIDGET_JSON_BYTES)
+    {
+        return Err("Widget 快照超过 512KB 限制".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let borrowed = fields
+            .iter()
+            .map(|(key, value)| (*key, value.as_str()))
+            .collect::<Vec<_>>();
+        android::run(Some(&borrowed), false)
+    })
+    .await
+    .map_err(|e| format!("Widget 原生写入任务失败: {e}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn write_widget_snapshot(
+    _app: tauri::AppHandle,
+    snapshot_json: String,
+) -> Result<(), String> {
+    persist_fields(vec![("snapshot_json", snapshot_json)]).await
+}
+
+#[tauri::command]
+pub(crate) async fn write_electricity_snapshot(
+    _app: tauri::AppHandle,
+    json: String,
+) -> Result<(), String> {
+    persist_fields(vec![("electricity_json", json)]).await
+}
+
+#[tauri::command]
+pub(crate) async fn write_exam_snapshot(
+    _app: tauri::AppHandle,
+    json: String,
+) -> Result<(), String> {
+    persist_fields(vec![("exam_json", json)]).await
+}
+
 #[tauri::command]
 pub(crate) async fn write_widget_theme_color(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     color: String,
 ) -> Result<(), String> {
-    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
-    let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    tokio::fs::create_dir_all(&prefs_dir)
-        .await
-        .map_err(|e| format!("创建目录失败: {}", e))?;
-
-    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-    let existing = tokio::fs::read_to_string(&prefs_file)
-        .await
-        .unwrap_or_default();
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-
-    let snapshot_json = extract_xml_string(&existing, "snapshot_json");
-    let electricity_json = extract_xml_string(&existing, "electricity_json");
-    let exam_json = extract_xml_string(&existing, "exam_json");
-    let theme_mode = extract_xml_string(&existing, "theme_mode");
-
-    let xml_content = format!(
-        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="snapshot_json">{}</string>
-    <string name="electricity_json">{}</string>
-    <string name="exam_json">{}</string>
-    <string name="theme_color">{}</string>
-    <string name="theme_mode">{}</string>
-    <int name="snapshot_version" value="1" />
-    <long name="last_write_ts" value="{}" />
-</map>
-"#,
-        snapshot_json,
-        electricity_json,
-        exam_json,
-        escape_xml(&color),
-        theme_mode,
-        now_ms
-    );
-
-    atomic_write_file(&prefs_file, xml_content.as_bytes())
-        .await
-        .map_err(|e| format!("写入主题色失败: {}", e))?;
-    Ok(())
+    if color.len() != 7
+        || !color.starts_with('#')
+        || !color[1..].bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Err("Widget 主题色不是 #RRGGBB".to_string());
+    }
+    persist_fields(vec![("theme_color", color)]).await
 }
 
-/// 写入主题模式到 SharedPreferences（system/light/dark）。
 #[tauri::command]
 pub(crate) async fn write_widget_theme_mode(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     mode: String,
 ) -> Result<(), String> {
-    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
-    let normalized = match mode.trim().to_ascii_lowercase().as_str() {
-        "system" => "system",
-        "light" => "light",
-        "dark" => "dark",
-        _ => return Err("主题模式必须为 system/light/dark".to_string()),
-    };
-    let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    tokio::fs::create_dir_all(&prefs_dir)
-        .await
-        .map_err(|e| format!("创建目录失败: {}", e))?;
-    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-    let existing = tokio::fs::read_to_string(&prefs_file)
-        .await
-        .unwrap_or_default();
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    if !matches!(mode.as_str(), "system" | "light" | "dark") {
+        return Err("Widget 模式必须是 system/light/dark".to_string());
+    }
+    persist_fields(vec![("theme_mode", mode)]).await
+}
 
-    let snapshot_json = extract_xml_string(&existing, "snapshot_json");
-    let electricity_json = extract_xml_string(&existing, "electricity_json");
-    let exam_json = extract_xml_string(&existing, "exam_json");
-    let theme_color = extract_xml_string(&existing, "theme_color");
-
-    let xml_content = format!(
-        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="snapshot_json">{}</string>
-    <string name="electricity_json">{}</string>
-    <string name="exam_json">{}</string>
-    <string name="theme_color">{}</string>
-    <string name="theme_mode">{}</string>
-    <int name="snapshot_version" value="1" />
-    <long name="last_write_ts" value="{}" />
-</map>
-"#,
-        snapshot_json, electricity_json, exam_json, theme_color, normalized, now_ms
-    );
-
-    atomic_write_file(&prefs_file, xml_content.as_bytes())
-        .await
-        .map_err(|e| format!("写入主题模式失败: {}", e))?;
-    Ok(())
+#[tauri::command]
+pub(crate) async fn clear_widget_snapshot(_app: tauri::AppHandle) -> Result<(), String> {
+    // 单事务清空账号数据，不删除用户的 Widget 主题偏好。
+    persist_fields(vec![
+        ("snapshot_json", String::new()),
+        ("electricity_json", String::new()),
+        ("exam_json", String::new()),
+    ])
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn request_widget_refresh() -> Result<(), String> {
-    trigger_android_widget_refresh()
+    tauri::async_runtime::spawn_blocking(|| android::run(None, true))
+        .await
+        .map_err(|e| format!("Widget 原生刷新任务失败: {e}"))?
 }
 
-/// 写入电费快照到 SharedPreferences
 #[tauri::command]
-pub(crate) async fn write_electricity_snapshot(
-    app: tauri::AppHandle,
-    json: String,
-) -> Result<(), String> {
-    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
-    let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    tokio::fs::create_dir_all(&prefs_dir)
-        .await
-        .map_err(|e| format!("创建目录失败: {}", e))?;
-
-    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-
-    // 读取现有内容并更新 electricity_json 字段
-    let existing = tokio::fs::read_to_string(&prefs_file)
-        .await
-        .unwrap_or_default();
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-
-    // 提取现有的 snapshot_json
-    let snapshot_json = extract_xml_string(&existing, "snapshot_json");
-    let exam_json = extract_xml_string(&existing, "exam_json");
-    let theme_color = extract_xml_string(&existing, "theme_color");
-    let theme_mode = extract_xml_string(&existing, "theme_mode");
-
-    let xml_content = format!(
-        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="snapshot_json">{}</string>
-    <string name="electricity_json">{}</string>
-    <string name="exam_json">{}</string>
-    <string name="theme_color">{}</string>
-    <string name="theme_mode">{}</string>
-    <int name="snapshot_version" value="1" />
-    <long name="last_write_ts" value="{}" />
-</map>
-"#,
-        snapshot_json,
-        escape_xml(&json),
-        exam_json,
-        theme_color,
-        theme_mode,
-        now_ms
-    );
-
-    atomic_write_file(&prefs_file, xml_content.as_bytes())
-        .await
-        .map_err(|e| format!("写入电费快照失败: {}", e))?;
-    Ok(())
-}
-
-/// 写入考试快照到 SharedPreferences
-#[tauri::command]
-pub(crate) async fn write_exam_snapshot(app: tauri::AppHandle, json: String) -> Result<(), String> {
-    let _guard = WIDGET_PREFS_WRITE_LOCK.lock().await;
-    let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    tokio::fs::create_dir_all(&prefs_dir)
-        .await
-        .map_err(|e| format!("创建目录失败: {}", e))?;
-
-    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-
-    let existing = tokio::fs::read_to_string(&prefs_file)
-        .await
-        .unwrap_or_default();
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-
-    let snapshot_json = extract_xml_string(&existing, "snapshot_json");
-    let electricity_json = extract_xml_string(&existing, "electricity_json");
-    let theme_color = extract_xml_string(&existing, "theme_color");
-    let theme_mode = extract_xml_string(&existing, "theme_mode");
-
-    let xml_content = format!(
-        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="snapshot_json">{}</string>
-    <string name="electricity_json">{}</string>
-    <string name="exam_json">{}</string>
-    <string name="theme_color">{}</string>
-    <string name="theme_mode">{}</string>
-    <int name="snapshot_version" value="1" />
-    <long name="last_write_ts" value="{}" />
-</map>
-"#,
-        snapshot_json,
-        electricity_json,
-        escape_xml(&json),
-        theme_color,
-        theme_mode,
-        now_ms
-    );
-
-    atomic_write_file(&prefs_file, xml_content.as_bytes())
-        .await
-        .map_err(|e| format!("写入考试快照失败: {}", e))?;
-    Ok(())
-}
-
-/// 从 SharedPreferences XML 中提取指定 key 的 string 值
-fn extract_xml_string(xml: &str, key: &str) -> String {
-    let pattern = format!(r#"<string name="{}">"#, key);
-    if let Some(start_idx) = xml.find(&pattern) {
-        let value_start = start_idx + pattern.len();
-        if let Some(end_idx) = xml[value_start..].find("</string>") {
-            return xml[value_start..value_start + end_idx].to_string();
-        }
-    }
-    String::new()
-}
-
-/// 调试命令：返回 widget 相关路径信息，用于诊断写入问题
-#[tauri::command]
-pub(crate) async fn debug_widget_paths(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let data_dir = app
-        .path()
-        .data_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|e| format!("ERROR: {}", e));
-
-    let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-    let file_exists = prefs_file.exists();
-    let file_content = if file_exists {
-        tokio::fs::read_to_string(&prefs_file)
-            .await
-            .unwrap_or_else(|e| format!("READ_ERROR: {}", e))
-    } else {
-        "FILE_NOT_FOUND".to_string()
-    };
-
+pub(crate) async fn debug_widget_paths(
+    _app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    // 调试 API 不再泄露包含学号/课表等敏感信息的 SharedPreferences XML 内容。
     Ok(serde_json::json!({
-        "data_dir": data_dir,
-        "prefs_dir": prefs_dir.to_string_lossy().to_string(),
-        "prefs_file": prefs_file.to_string_lossy().to_string(),
-        "file_exists": file_exists,
-        "file_content_preview": if file_content.len() > 500 { format!("{}...(truncated)", &file_content[..500]) } else { file_content },
         "platform": std::env::consts::OS,
+        "backend": "android-jni-sharedpreferences",
+        "persistence": "mini_hbut_widget",
+        "details": "diagnostics do not expose user data"
     }))
-}
-
-/// XML 特殊字符转义
-fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
-/// 原子写文件：先写同目录 `.tmp` 临时文件再 rename 覆盖目标（#550）。
-/// 任一时刻磁盘上只存在完整内容，避免写一半时被 widget/其它进程读到残缺 XML。
-async fn atomic_write_file(path: &std::path::Path, content: &[u8]) -> std::io::Result<()> {
-    let file_name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "out.bin".to_string());
-    let unique = WIDGET_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_path = path.with_file_name(format!(
-        "{}.{}.{}.tmp",
-        file_name,
-        std::process::id(),
-        unique
-    ));
-    tokio::fs::write(&tmp_path, content).await?;
-    // rename 为原子操作（同目录/同文件系统），成功即覆盖目标
-    match tokio::fs::rename(&tmp_path, path).await {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = tokio::fs::remove_file(&tmp_path).await;
-            Err(e)
-        }
-    }
 }

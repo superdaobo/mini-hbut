@@ -27,12 +27,22 @@ export const isTauriDesktopRuntime = () =>
 export const isTauriMobileRuntime = () =>
   isTauriRuntime() && (isLikelyIOSUserAgent() || isLikelyAndroidUserAgent())
 
-/** 调试管道命令：禁止再打 pushDebugLog，否则会与 runtime_log 形成死循环白屏 */
+/**
+ * 调试命令不得递归记录；Widget JSON 可能包含学号、课表、考场等隐私，
+ * 原生调用也禁止把完整 args 写入本地调试日志（#1029）。
+ */
 const SILENT_NATIVE_COMMANDS = new Set([
   'push_runtime_log',
   'get_runtime_logs',
   'clear_runtime_logs',
-  'get_runtime_diag'
+  'get_runtime_diag',
+  'write_widget_snapshot',
+  'write_electricity_snapshot',
+  'write_exam_snapshot',
+  'clear_widget_snapshot',
+  'write_widget_theme_color',
+  'write_widget_theme_mode',
+  'request_widget_refresh'
 ])
 
 /**

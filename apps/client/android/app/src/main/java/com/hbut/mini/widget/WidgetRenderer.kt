@@ -33,20 +33,22 @@ object WidgetRenderer {
         val snapshot = WidgetScheduleResolver.resolveToday(snapshotJson)
         val date = snapshot?.optString("date", "") ?: ""
         val weekIndex = snapshot?.optInt("week_index", 0) ?: 0
-        val studentId = snapshot?.optString("student_id", "") ?: ""
-        val courses = snapshot?.optJSONArray("courses")
-        val courseCount = courses?.length() ?: 0
-        val emptyMessage = WidgetLayoutHelper.emptyStateMessage(context, snapshot)
-        // #759：快照 date 早于今天 = 跨天重写失败（WebView 冻结/进程被杀后前端定时器失效）。
-        // 兜底策略：标题日期显示今天 + 溢出位显示「数据更新于 X月X日」陈旧标记，
-        // 深链同样携带今天，避免点击后前端高亮到昨天。快照内容仍由前端主修路径重写。
+        // 没有 schedule_index 时，旧日期快照绝不能当作今天的真实课程。
         val snapshotDate = try { java.time.LocalDate.parse(date) } catch (_: Exception) { null }
         val today = try {
             java.time.LocalDate.parse(WidgetScheduleResolver.todayDateString())
         } catch (_: Exception) {
             java.time.LocalDate.now()
         }
-        val outdated = snapshotDate != null && snapshotDate.isBefore(today)
+        val outdated = snapshot != null && snapshotDate != today
+        val courses = if (outdated) JSONArray() else snapshot?.optJSONArray("courses")
+        val courseCount = courses?.length() ?: 0
+        val emptyMessage = when {
+            outdated -> "课程数据已过期，请打开应用刷新"
+            snapshot != null && WidgetLayoutHelper.isStale(snapshot) && courseCount == 0 ->
+                "课表可能已变化，请打开应用更新"
+            else -> WidgetLayoutHelper.emptyStateMessage(context, snapshot)
+        }
         val stale = (snapshot != null && WidgetLayoutHelper.isStale(snapshot)) || outdated
 
         val titleId = context.resources.getIdentifier("widget_title", "id", packageName)
