@@ -338,12 +338,14 @@ describe('缓存 key（账号 + 角色 + 筛选隔离）', () => {
     const teacherKey = buildClassroomCacheKey('A1', payload, 'teacher')
     const studentKey = buildClassroomCacheKey('A1', payload, 'student')
     expect(teacherKey).not.toBe(studentKey)
-    expect(teacherKey).toContain('classroom:teacher:A1')
+    // 段序固定为 `classroom:{sid}:{role}:…`：登出清理走 `${prefix}${sid}` + startsWith，
+    // sid 必须紧跟前缀，否则该账号的缓存清不掉
+    expect(teacherKey).toContain('classroom:A1:teacher')
   })
 
   it('未指定筛选时用 auto 占位，且账号隔离', () => {
     const key = buildClassroomCacheKey('A1', {}, 'student')
-    expect(key).toBe('classroom:student:A1:wauto:dauto:pauto:ball:s-')
+    expect(key).toBe('classroom:A1:student:wauto:dauto:pauto:ball:s-')
     expect(buildClassroomCacheKey('A2', {}, 'student')).not.toBe(key)
   })
 
@@ -391,7 +393,7 @@ describe('学生链路 meta 契约（不得被误判为状态未知）', () => {
   it('学生 meta 必须能推导出 student 角色（缓存键隔离维度）', () => {
     expect(classroomRoleFromMeta(META_STUDENT_PERIOD_FREE)).toBe('student')
     const payload = buildClassroomQueryPayload({ studentId: 'A1', filters: { week: 7, weekday: 1 } })
-    expect(buildClassroomCacheKey('A1', payload, 'student')).toContain('classroom:student:A1')
+    expect(buildClassroomCacheKey('A1', payload, 'student')).toContain('classroom:A1:student')
   })
 
   it('（反例）缺失 availability 的旧后端响应仍必须保守判 unknown，不得假设空闲', () => {

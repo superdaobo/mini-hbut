@@ -1298,6 +1298,13 @@ impl HbutClient {
         self.last_username = Some(sid.clone());
         if !password.trim().is_empty() {
             self.last_password = Some(password.to_string());
+        } else {
+            // #1061：目标账号**没有**存储密码时必须显式清空 `last_password`。
+            // `reset_http_state()` 只重置 cookie jar / http client / OCR client，
+            // 不动凭据字段（`last_username` / `last_password`）；若此处不清理，
+            // 切号后 `refresh_session` 的学生分支（电费 keep-alive 链路）可能读到
+            // **上一账号**残留的密码，构成跨账号凭据复用风险。
+            self.last_password = None;
         }
         println!(
             "[调试] 账号切换：student_id={} display_name={} v2_restored={} chaoxing_mode={}",
@@ -1386,5 +1393,62 @@ impl HbutClient {
             let _ = std::fs::remove_file(path);
         }
         Self::invalidate_jw_uf_soft_ttl();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #1061：切号到「没有存储密码」的账号时必须清空上一账号残留的 `last_password`。
+    ///
+    /// `reset_http_state()` 只重置 cookie jar / http client / OCR client，不动凭据字段；
+    /// 若目标账号无密码时不显式清空，切号后 `refresh_session` 的学生分支
+    /// （电费 keep-alive 链路）可能读到**上一账号**的密码。
+    #[test]
+    fn activate_saved_account_clears_stale_password_when_target_has_none() {
+        let mut client = HbutClient::new();
+        client.set_credentials("2510230001".to_string(), "secret-of-a".to_string());
+        assert_eq!(client.last_password.as_deref(), Some("secret-of-a"));
+
+        let user = client.activate_saved_account_session(
+            "29990001",
+            "Code: CASTGC=x",
+            "",
+            "",
+            "",
+            "",
+            crate::IdentityRole::Teacher,
+            &[],
+        );
+
+        assert_eq!(user.student_id, "29990001");
+        assert_eq!(user.role, crate::IdentityRole::Teacher);
+        assert_eq!(
+            client.last_password, None,
+            "目标账号无存储密码时必须清空上一账号残留的 last_password"
+        );
+        assert_eq!(client.last_username.as_deref(), Some("29990001"));
+    }
+
+    /// 反向：目标账号**有**密码时必须写入该账号自己的密码（不得沿用上一账号）。
+    #[test]
+    fn activate_saved_account_writes_target_password_when_present() {
+        let mut client = HbutClient::new();
+        client.set_credentials("2510230001".to_string(), "secret-of-a".to_string());
+
+        client.activate_saved_account_session(
+            "29990002",
+            "Code: CASTGC=y",
+            "secret-of-b",
+            "",
+            "",
+            "",
+            crate::IdentityRole::Student,
+            &[],
+        );
+
+        assert_eq!(client.last_username.as_deref(), Some("29990002"));
+        assert_eq!(client.last_password.as_deref(), Some("secret-of-b"));
     }
 }

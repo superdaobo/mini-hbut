@@ -227,6 +227,12 @@ export const buildClassroomQueryPayload = ({ filters = {}, studentId = '' } = {}
  *
  * 角色必须进 key：教师与学生走**完全不同**的空教室数据源，
  * 混用会让学生缓存被教师结果污染（#1063 验收）。
+ *
+ * ⚠️ 段序**必须**是 `classroom:{sid}:{role}:…`（sid 紧跟前缀）：
+ * 登出/切号清理走的是通用前缀拼接 `${prefix}${sid}`（`utils/api.ts` 的
+ * `clearUserScopedCaches`、`AuthCoordinator` 的 `clearCacheByPrefix`），
+ * 用 `startsWith` 匹配。若把 role 插在 `classroom:` 与 `{sid}` 之间，
+ * 前缀就匹配不到，该账号的空教室内存缓存会残留到进程结束。
  */
 export const buildClassroomCacheKey = (studentId, payload = {}, role = '') => {
   const sid = String(studentId || '').trim()
@@ -239,7 +245,7 @@ export const buildClassroomCacheKey = (studentId, payload = {}, role = '') => {
   const building = encodeURIComponent(String(payload.building || 'all')).slice(0, 48)
   const min = payload.min_seats ?? ''
   const max = payload.max_seats ?? ''
-  return `classroom:${roleKey}:${sid}:w${week}:d${weekday}:p${periods}:b${building}:s${min}-${max}`
+  return `classroom:${sid}:${roleKey}:w${week}:d${weekday}:p${periods}:b${building}:s${min}-${max}`
 }
 
 /** 角色标识（来自后端 meta 的 `filter_mode`，用于快照与缓存隔离）。 */

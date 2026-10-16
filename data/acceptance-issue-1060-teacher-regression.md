@@ -88,7 +88,7 @@ LOGIN ok  role=teacher  sid_len=8  elapsed=3528ms
 | `check-frontend-safety.mjs` | ✅ 3 项通过 |
 | `check-design-tokens.mjs` | ✅ 通过 |
 | `check_arch_guards.mjs` | ✅ 架构守卫全部通过 |
-| `cargo test --lib` | ✅ **490 passed / 0 failed / 1 ignored** |
+| `cargo test --lib` | ✅ **492 passed / 0 failed / 1 ignored** |
 | `cargo fmt --all -- --check` | ✅ rc=0 |
 | `cargo clippy --lib` | ✅ 0 error（247 条既有 warning，均不在本次改动文件） |
 
@@ -100,7 +100,7 @@ LOGIN ok  role=teacher  sid_len=8  elapsed=3528ms
 ## 3.1 集成审查（独立对抗式）发现与修复
 
 四个分支合并后，由**独立 agent** 对 `origin/main...HEAD` 的 56 文件 diff 做对抗式审查（只读）。
-共 1 个 P0、0 个 P1、6 个 P2。已修复项：
+共 1 个 P0、0 个 P1、8 个 P2（6 个已修 + 2 个遗留，见 §4.1）。已修复项：
 
 | 级别 | 问题 | 修复 |
 | --- | --- | --- |
@@ -109,6 +109,8 @@ LOGIN ok  role=teacher  sid_len=8  elapsed=3528ms
 | P2 | `TModal` 新增容器 `padding`，会同时改变另外 7 个共用 TModal 的布局（原先容器 padding 为 0、由调用方自管） | 去掉该非必要改动；`#1064` 只保留不透明实底相关样式 |
 | P2 | 登出 / 切号未清理教师只读快照与在途请求（`clearTeacherFetchInFlight` 为死代码），与 #1065「登出清理」要求不符 | `AuthCoordinator` 登出时按账号 `clearTeacherSnapshotScope(sid)` + `clearTeacherFetchInFlight()`；切号时丢弃上一账号在途请求 |
 | P2 | `useTeacherProfile.revalidate` 缺请求作用域守卫（与 teaching/exams 不一致） | 补 `snapshotKey/accountId` 守卫，迟到结果不写入当前状态 |
+| P2 | `activate_saved_account_session` 切号到「无存储密码」的账号时残留上一账号 `last_password`（`reset_http_state` 不重置凭据字段），后续 `refresh_session` 学生分支（电费 keep-alive）可能读到上一账号密码 | 目标账号无密码时显式 `last_password = None`；补 2 条 Rust 单测（无密码清空 / 有密码写入目标账号密码） |
+| P2 | 空教室缓存 key 为 `classroom:{role}:{sid}:…`，而登出清理按 `${prefix}${sid}` + `startsWith` 匹配 → 该账号空教室内存缓存清不掉 | key 段序改为 `classroom:{sid}:{role}:…`（sid 紧跟前缀），使通用清理前缀重新命中；同步更新 3 处契约断言 |
 
 **另修复 CI 阻断（Linux 专属）**：`test-rust`（ubuntu）失败，根因是新增测试 `account_password_lookup_never_crosses_accounts`
 依赖系统密钥环落库，而 Linux runner 无 Secret Service，`save_user_session` 按设计拒绝把密码落库。
@@ -132,8 +134,9 @@ epoch 守卫覆盖迟到写入；i18n 三语 key 集合完全一致（各 3645 �
      缓存/同步/singleflight 共 50 个单测、以及 §2 的真实接口端到端验证。
 3. **真实学校网络 p50/p95 未测量**：只做了单次耗时采样（§2.2/§2.3），未做 ≥3 次统计。并发改造的 p50/p95 是在
    **本地模拟 I/O** 下测得的（串行 p50 137.3ms → 并发 62.6ms，约 −54%），非学校网络实测。
-4. **学生端空教室链路未实测**：学生分支 `status` 由 `jyzt` 推断改为固定「空闲」（依据是该请求本身已带时间筛选），
-   此改动**基于推断**，未探测学生接口；仅影响导出预览文案，空教室页面本身不读 `status`。
+4. **学生端空教室链路未实测**：学生接口 `mobile/jsxx` 本轮未探测。因此学生分支的 `status` **按原样保留**改动前的
+   `jyzt == "0" → 可用 / 否则 已占用` 语义，**未做任何基于推断的改动**（集成审查曾发现一处把教师接口实测结论外推到
+   学生分支的改动，已还原）。学生接口的真实过滤语义仍待探测确认。
 5. **`zcStr=20/21` 返回 191 的成因未定**（可能是该周确实全空闲，也可能是过滤被忽略）；
    已用「`total` == 无筛选基线 → `unknown`」保守兜底，无法根治。
 6. **非本部校区（`xqdm != 1`）行为未探测**；教师资源域实测全为 `xqmc=本部`。
@@ -142,13 +145,21 @@ epoch 守卫覆盖迟到写入；i18n 三语 key 集合完全一致（各 3645 �
 
 ---
 
+### 4.1 已知遗留（P2，本 PR 未修复，建议另立 issue 跟进）
+
+| 项 | 说明 | 影响 |
+| --- | --- | --- |
+| 并发改造的**错误路径额外请求** | 采用 `tokio::join!` 以严格保持错误优先级（tasks 优先），代价是 tasks 失败时仍会发出 classes 请求；原串行实现不会。返回的错误与消息不变，仅错误路径多 1 次**只读** GET | 低。与 #1067「无意义的额外调用」有轻微张力，如实披露。改用 `try_join!` 可取消但会丢失「tasks 优先」的确定性，属取舍而非纯缺陷 |
+| 并发测试是「逻辑复刻」而非真实函数 | `teaching.rs:533` / `exams.rs` 的 `concurrent_join_*` 测试在测试内重写 `join!` + `?` 语义再断言，未调用 `fetch_teaching_with`（`fetch_grid` 依赖真实 `&HbutClient`，无可注入点）。若有人对调生产函数里 `tasks_payload?` / `classes_payload?` 的绑定顺序，测试仍会绿 | 低（属测试有效性缺口，非线上缺陷）。彻底修需把 join/串行 + 有序 `?` 抽成可注入 helper 并让生产代码复用 |
+
 ## 5. 安全与边界核查
 
 - 全程**只读**：未调用任何写型/产物型接口；新增的查询型 POST 走 `TEACHER_QUERY_POST_PATHS` **fail-closed 白名单**，
   且 `assert_allowlist_readonly` 双向校验。
 - 未把账号、密码、Cookie、个人数据写入任何仓库文件 / 日志 / 文档 / 提交。
 - 教师缓存按 `role + accountId + semester + resource + filter` 隔离；未知工号 → **空 key 拒绝缓存**（fail-closed）。
-- 空教室缓存键加入 `teacher:` / `student:` 角色前缀，杜绝师生链路互相命中。
+- 空教室缓存键含 `accountId` + 角色段（`classroom:{accountId}:{role}:…`），杜绝师生链路互相命中；
+  段序刻意让 `accountId` 紧跟前缀，使登出清理的 `${prefix}${accountId}` + `startsWith` 能正确命中。
 - 失败一律 fail-closed：在线切号失败不静默换回旧账号；空教室无证据时标 `unknown` 而非「空闲」。
 
 ---
