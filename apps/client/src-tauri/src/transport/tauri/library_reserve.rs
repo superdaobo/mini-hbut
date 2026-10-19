@@ -302,6 +302,58 @@ pub(crate) async fn library_reserve_item_setting(
     }))
 }
 
+/// 预约对象**实时占用**请求体（#1080）。
+///
+/// ⚠️ 嵌套字段一律 **snake_case**（命令级 `rename_all = "camelCase"` 不影响结构体字段）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryReserveItemOccupancyRequest {
+    /// 应用标识：`quiet_room`（静音仓）/ `seminar_room`（研讨室）
+    pub app: String,
+    /// 是否强制重跑超星 SSO（默认 false）
+    #[serde(default)]
+    pub force: Option<bool>,
+    /// 预约对象（房间）ID，来自房间列表的 `itemId`
+    pub item_id: i64,
+    /// 起始日期 `YYYY-MM-DD`（含）
+    pub start_time: String,
+    /// 结束日期 `YYYY-MM-DD`（含）
+    pub end_time: String,
+}
+
+/// 预约对象**实时占用**（`GET reserve/item/user/list` + 服务端时间 `reserve/special/rule`）。
+///
+/// 返回：
+/// - `records`：占用记录（`intervalId` + `date` + `reserveNum`，前端按 `intervalId_date` 聚合）；
+/// - `serverNow`：服务端当前时间（Unix 毫秒；取不到为 `null` → 前端不做时间置灰）；
+/// - `unkeyed`：无法归属到「时段 + 日期」的记录数（`> 0` → 前端必须按「占用未知」降级）。
+///
+/// ⚠️ `reserve/item/setting` 的 `available` 只是**配置层**开放标记，**不是**实时占用；
+/// 本命令才是「某天某时段是否已被别人约满」的依据。
+#[tauri::command(rename_all = "camelCase")]
+pub(crate) async fn library_reserve_item_occupancy(
+    state: State<'_, AppState>,
+    req: LibraryReserveItemOccupancyRequest,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    let app = parse_pc_app(&req.app)?;
+    let mut client = state.client.write().await;
+    let occupancy = library_reserve_pc::fetch_item_occupancy(
+        &mut client,
+        app,
+        req.item_id,
+        &req.start_time,
+        &req.end_time,
+        req.force.unwrap_or(false),
+    )
+    .await?;
+    Ok(json!({
+        "success": true,
+        "records": occupancy.records,
+        "serverNow": occupancy.server_now_ms,
+        "unkeyed": occupancy.unkeyed,
+        "raw": occupancy.raw,
+    }))
+}
+
 /// 我的预约列表
 #[tauri::command(rename_all = "camelCase")]
 pub(crate) async fn library_reserve_my_reservations(
@@ -988,6 +1040,50 @@ mod tests {
         .expect("解析");
         assert_eq!(req.item_id, 49091);
         assert_eq!(req.force, None);
+    }
+
+    #[test]
+    fn item_occupancy_request_shape_and_required_fields() {
+        // #1080：item_id / start_time / end_time 必填，嵌套字段 snake_case
+        let req: LibraryReserveItemOccupancyRequest = serde_json::from_value(json!({
+            "app": "quiet_room",
+            "item_id": 49091,
+            "start_time": "2026-10-19",
+            "end_time": "2026-10-25"
+        }))
+        .expect("解析");
+        assert_eq!(req.app, "quiet_room");
+        assert_eq!(req.item_id, 49091);
+        assert_eq!(req.start_time, "2026-10-19");
+        assert_eq!(req.end_time, "2026-10-25");
+        assert_eq!(req.force, None);
+
+        // 缺日期即解析失败（服务端对日期强校验，缺了会返回 400 HTML）
+        for missing in ["start_time", "end_time", "item_id"] {
+            let mut value = json!({
+                "app": "quiet_room",
+                "item_id": 49091,
+                "start_time": "2026-10-19",
+                "end_time": "2026-10-25"
+            });
+            value.as_object_mut().expect("对象").remove(missing);
+            let err = serde_json::from_value::<LibraryReserveItemOccupancyRequest>(value)
+                .expect_err("缺少必填字段应解析失败");
+            assert!(
+                err.to_string().contains(missing),
+                "错误应指出缺失字段 {missing}：{err}"
+            );
+        }
+
+        // 驼峰字段名不被接受（会 missing field，实测踩过）
+        let err = serde_json::from_value::<LibraryReserveItemOccupancyRequest>(json!({
+            "app": "quiet_room",
+            "item_id": 49091,
+            "startTime": "2026-10-19",
+            "endTime": "2026-10-25"
+        }))
+        .expect_err("驼峰字段名不应被接受");
+        assert!(err.to_string().contains("start_time"), "{err}");
     }
 
     #[test]

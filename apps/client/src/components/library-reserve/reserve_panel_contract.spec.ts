@@ -350,3 +350,60 @@ describe('#1081 签名脚本依赖（缺 hex_md5 会 ReferenceError，实测踩�
     expect(ensureAt).toBeLessThan(signAt)
   })
 })
+
+describe('#1080 静音仓 / 研讨室：实时占用接线（配置开放 ≠ 可预约）', () => {
+  it('房间选中后同时拉「真实时段 + 实时占用」', () => {
+    const block = blockOf(panel, 'const selectRoom = ')
+    expect(block, '未定位到 selectRoom 代码块').toContain('loadRoomSetting(view.room.itemId)')
+    expect(block).toContain('loadRoomOccupancy(view.room.itemId)')
+  })
+
+  it('占用走 library_reserve_item_occupancy，且字段一律 snake_case', () => {
+    const block = blockOf(panel, 'const loadRoomOccupancy = async')
+    expect(block, '未定位到 loadRoomOccupancy 代码块').toContain(
+      "invokeNative('library_reserve_item_occupancy'"
+    )
+    for (const field of ['item_id:', 'start_time:', 'end_time:']) {
+      expect(block, `占用查询缺少 ${field}`).toContain(field)
+    }
+    // 命令层嵌套结构体是 snake_case（camelCase 会 missing field，实测踩过）
+    expect(block).not.toMatch(/\b(itemId|startTime|endTime)\s*:/)
+    expect(block).toContain('normalizeRoomOccupancy')
+  })
+
+  it('占用合入网格判定（occupancyUsed + occupancyKnown 传给 buildRoomGrid）', () => {
+    const block = blockOf(panel, 'const grid = computed')
+    expect(block).toContain('occupancyUsed.value')
+    expect(block).toContain('occupancyKnown.value')
+  })
+
+  it('占用未知 / 失败必须明确降级：整表置灰 + 提示 + 重试入口', () => {
+    const block = blockOf(panel, 'const occupancyKnown = computed')
+    // 占用查询失败、统计不完整、或没有真实时段 ID → 一律「未知」
+    expect(block).toContain('occupancyLoaded.value')
+    expect(block).toContain('occupancyError.value')
+    expect(block).toContain('occupancyUnkeyed.value')
+    expect(block).toContain('intervalSlots.value.length > 0')
+    // 提示与重试
+    expect(panel).toContain('library.reserve.booking.occupancyUnknown')
+    expect(panel).toContain('library.reserve.booking.occupancyLoading')
+    expect(panel).toContain('@click="loadRoomOccupancy(selectedRoomView.room.itemId)"')
+    // 未知时不得允许提交
+    const submitBlock = blockOf(panel, 'const requestSubmit = ')
+    expect(submitBlock).toContain('occupancyKnown.value')
+  })
+
+  it('已满与未知在网格上有区分（cellState / 图例）', () => {
+    expect(panel).toContain("if (cell.occupied) return 'full'")
+    expect(panel).toContain("if (cell.unknown) return 'unknown'")
+    expect(panel).toContain('gcell--full')
+    expect(panel).toContain('gcell--unknown')
+    expect(panel).toContain('library.reserve.booking.legendFull')
+    expect(panel).toContain('library.reserve.toast.slotOccupied')
+  })
+
+  it('提交成功后立即刷新占用（否则刚约到的时段仍显示可约）', () => {
+    const block = blockOf(panel, 'const confirmSubmit = async')
+    expect(block).toContain('loadRoomOccupancy(room.itemId)')
+  })
+})

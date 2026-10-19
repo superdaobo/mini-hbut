@@ -70,6 +70,24 @@ const ENDPOINT_TIME_LIST: &str = "reserve/item/list/time";
 /// 返回 `data.commonIntervalMap["1".."7"] = [{id,startTime,endTime,week,available,…}]`。
 /// 提交 `reserve/multiple/submit` 时 `reserveUsers[].intervalIds` 必须用这里的 `id`。
 const ENDPOINT_ITEM_SETTING: &str = "reserve/item/setting";
+/// 预约对象「**所有用户**的预约数据」= 实时占用（#1080 核心）
+///
+/// 实测（2026-10-19，官方 `reservepc/item` 页内联 JS + curl 双重复核）：
+/// 官方页面用 `$.getJSON`（**GET**）调用，参数
+/// `reserveId / itemId / fidEnc / startTime(YYYY-MM-DD) / endTime(YYYY-MM-DD)`
+/// （`startTime` / `endTime` **必填**，缺失时服务端返回 HTTP 400 HTML 错误页）。
+///
+/// 响应 `data.reserveUserList[]` 每条为**一个时段**的预约记录（同一笔跨多个时段的预约会
+/// 重复出现多条，`id` 相同、`reserveIntervalId` 不同），字段见 [`ItemOccupancyRecord`]。
+/// `data.reserveIntervalId` 与 `reserve/item/setting` 的 `commonIntervalMap[].id` 同源。
+const ENDPOINT_ITEM_USER_LIST: &str = "reserve/item/user/list";
+/// 规则 + **服务端时间**（`data.serverNow`，Unix 毫秒）
+///
+/// 实测（2026-10-19）：`POST reserve/special/rule` body `reserveId/itemId`
+/// → `{"data":{"serverNow":1792405979859},"success":true}`。
+/// 官方 `reservepc/item` 页的 `serverNow` 由服务端注入页面 HTML（`new Date('...+08:00')`），
+/// 接口侧等价来源即本端点，用于判断「今天已过去的时段」。
+const ENDPOINT_SPECIAL_RULE: &str = "reserve/special/rule";
 /// 用户视图标记
 const ENDPOINT_USER_VIEW_FLAG: &str = "reservepc/user/view/flag";
 /// 是否开放团队预约
@@ -126,7 +144,7 @@ async fn post_form(
     read_api_response(resp, path).await
 }
 
-/// GET 并返回 JSON（仅 `reserve/dialog` 使用）
+/// GET 并返回 JSON（`reserve/dialog`、`reserve/item/user/list` 等 XHR 风格 GET 端点）
 async fn get_json(
     client: &HbutClient,
     path: &str,
@@ -145,6 +163,8 @@ async fn get_json(
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9")
         .header(REFERER, RESERVE_PC_REFERER)
+        // 官方页面这些 GET 走 `$.getJSON`，带 `X-Requested-With`（与 POST 侧保持一致）
+        .header("X-Requested-With", "XMLHttpRequest")
         .timeout(API_TIMEOUT)
         .send()
         .await
@@ -1119,6 +1139,9 @@ pub(crate) async fn fetch_time_list(
 ///
 /// 实测字段：`id / startTime / endTime / week / available / userNum / intervalBetweenId`。
 /// 提交 `reserve/multiple/submit` 时，`reserveUsers[].intervalIds` 就是这里的 `id` 集合。
+///
+/// ⚠️ `available` 只是**配置层**「该时段是否开放」，**不是**实时占用（#1080 的根因）；
+/// 实时占用必须另查 [`ENDPOINT_ITEM_USER_LIST`]，判定规则见 [`ItemOccupancy`]。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ItemSettingInterval {
@@ -1132,6 +1155,8 @@ pub(crate) struct ItemSettingInterval {
     pub end_time: String,
     /// 该时段是否开放（`available != 0`；缺失按开放处理）
     pub available: bool,
+    /// 该时段**容量**（服务端 `userNum`；官方页面判定「已满」用 `userNum <= 已占用份数`）
+    pub user_num: i64,
 }
 
 /// `reserve/item/setting` 的归一化结果。
@@ -1161,6 +1186,10 @@ fn item_setting_of(data: &Value) -> ItemSetting {
                     end_time: value_string(entry, &["endTime", "end"]).unwrap_or_default(),
                     // 缺失 available 时按开放处理（交由服务端最终裁决）
                     available: value_i64(entry, &["available", "isAvailable"]).unwrap_or(1) != 0,
+                    // 容量：官方页面按 `userNum <= 已占用` 判「已满」；缺失按 1（一次一人）处理
+                    user_num: value_i64(entry, &["userNum", "user_num", "capacity"])
+                        .filter(|n| *n > 0)
+                        .unwrap_or(1),
                 });
             }
         }
@@ -1195,6 +1224,243 @@ pub(crate) async fn fetch_item_setting(
     let value = post_form(client, ENDPOINT_ITEM_SETTING, &params).await?;
     let data = api_data(&value, "获取预约对象时段设置")?;
     Ok(item_setting_of(&data))
+}
+
+// ── 实时占用（#1080：`reserve/item/user/list`） ──
+
+/// 一条**实时占用记录**（`reserve/item/user/list` → `data.reserveUserList[]` 元素）。
+///
+/// 实测样本（2026-10-19，静音仓 1 号 49091）：
+///
+/// ```json
+/// {"aprvId":0,"deptId":25285,"endtime":1792503000000,"id":30031777,"itemId":49091,
+///  "remark":"学习","reserveId":24727,"reserveIntervalId":2035215,"reserveNum":1,
+///  "starttime":1792490400000,"teamLeaderCancel":0,"today":"2026-10-20",
+///  "uid":360838955,"uname":"廖宏伟"}
+/// ```
+///
+/// ⚠️ 同一笔跨多时段的预约会**重复出现多条**（`id` 相同、`reserveIntervalId` 不同），
+/// 因此占用必须按 `intervalId + date` **聚合**（官方页面即如此：`userCount += reserveNum`）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ItemOccupancyRecord {
+    /// 预约记录 ID（同一笔预约的多条记录共用）
+    pub id: Option<i64>,
+    /// 时段 ID（= `commonIntervalMap[].id`；官方页面的聚合键）
+    pub interval_id: i64,
+    /// 预约日期 `YYYY-MM-DD`（服务端 `today`；缺失时由 `starttime` 按北京时间换算）
+    pub date: Option<String>,
+    /// 开始时间（Unix 毫秒，实测 `starttime`）
+    pub start_time_ms: Option<i64>,
+    /// 结束时间（Unix 毫秒，实测 `endtime`）
+    pub end_time_ms: Option<i64>,
+    /// 该记录占用的**份数**（实测 `reserveNum`；官方页面缺失时按 1 处理）
+    pub reserve_num: i64,
+    /// 预约人 uid（实测 `uid`；隐私模式下可能缺失）
+    pub uid: Option<i64>,
+    /// 预约人姓名（实测 `uname`；隐私模式下可能缺失）
+    pub user_name: Option<String>,
+    /// 备注（实测 `remark`）
+    pub remark: Option<String>,
+    /// 原始记录
+    pub raw: Value,
+}
+
+/// `reserve/item/user/list` 的归一化结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ItemOccupancy {
+    /// 实时占用记录（已按服务端原样展开，未聚合；聚合口径见 [`ItemOccupancyRecord`]）
+    pub records: Vec<ItemOccupancyRecord>,
+    /// 服务端当前时间（Unix 毫秒；来自 `reserve/special/rule`，取不到为 `None`）
+    ///
+    /// 前端用它判断「今天已过去的时段」；**缺失时前端不得自行推断**（宁可不置灰）。
+    pub server_now_ms: Option<i64>,
+    /// 无法归属到「时段 + 日期」的记录数
+    ///
+    /// 契约变更的哨兵：`> 0` 说明有记录缺少 `reserveIntervalId` / 日期，
+    /// 占用统计**不完整** —— 调用方必须按「占用未知」降级（不得显示为可预约）。
+    pub unkeyed: usize,
+    /// 原始 `data`
+    pub raw: Value,
+}
+
+/// 解析 `data.reserveUserList`（缺失 / 形态异常 → 空列表 + 未归属计数）。
+fn occupancy_records_of(data: &Value) -> (Vec<ItemOccupancyRecord>, usize) {
+    let Some(list) = data.get("reserveUserList").and_then(|v| v.as_array()) else {
+        return (Vec::new(), 0);
+    };
+    let mut records = Vec::with_capacity(list.len());
+    let mut unkeyed = 0usize;
+    for entry in list {
+        // `reserveIntervalId` 是聚合键；缺失则**无法**判断该笔占用落在哪个时段，
+        // 计入 unkeyed 让调用方降级（绝不猜、绝不当成「无人预约」）。
+        let Some(interval_id) = value_i64(entry, &["reserveIntervalId", "intervalId"]) else {
+            unkeyed += 1;
+            continue;
+        };
+        let start_time_ms = value_i64(entry, &["starttime", "startTime"]);
+        let date =
+            value_string(entry, &["today", "date"]).or_else(|| ms_to_date_key(start_time_ms));
+        if date.is_none() {
+            unkeyed += 1;
+            continue;
+        }
+        records.push(ItemOccupancyRecord {
+            id: value_i64(entry, &["id"]),
+            interval_id,
+            date,
+            start_time_ms,
+            end_time_ms: value_i64(entry, &["endtime", "endTime"]),
+            // 官方页面：`if (!value.reserveNum) value.reserveNum = 1`
+            reserve_num: value_i64(entry, &["reserveNum"])
+                .filter(|n| *n > 0)
+                .unwrap_or(1),
+            uid: value_i64(entry, &["uid"]),
+            user_name: value_string(entry, &["uname", "userName"]),
+            remark: value_string(entry, &["remark"]),
+            raw: entry.clone(),
+        });
+    }
+    (records, unkeyed)
+}
+
+/// Unix 毫秒 → `YYYY-MM-DD`（按北京时间 UTC+8；非法 / 缺失 → `None`）
+fn ms_to_date_key(ms: Option<i64>) -> Option<String> {
+    let ms = ms?;
+    let tz = chrono::FixedOffset::east_opt(8 * 3600)?;
+    tz.timestamp_millis_opt(ms)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+}
+
+/// 校验并规范化 `YYYY-MM-DD` 日期（非法 → [`ERR_INVALID_PARAMS`]）
+///
+/// 服务端对该端点的日期参数**强校验**：缺失 / 空值时返回 HTTP 400 HTML 错误页
+/// （实测 2026-10-19），因此必须在本地先拦住，给出可读错误。
+fn normalize_date(raw: &str, field: &str) -> Result<String, LibraryReserveError> {
+    let value = raw.trim();
+    let parts: Vec<&str> = value.split('-').collect();
+    let ok = parts.len() == 3
+        && parts[0].len() == 4
+        && parts[1].len() == 2
+        && parts[2].len() == 2
+        && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit()));
+    if !ok {
+        return Err(LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            format!("占用查询参数 {field} 必须是 YYYY-MM-DD 日期（收到「{value}」）"),
+        ));
+    }
+    Ok(value.to_string())
+}
+
+/// 占用查询请求体（**GET query**，与官方页面 `$.getJSON` 逐字段对齐）
+fn occupancy_params(
+    ctx: &ReserveContext,
+    item_id: i64,
+    start_date: &str,
+    end_date: &str,
+) -> BTreeMap<String, String> {
+    let mut p = BTreeMap::new();
+    p.insert("reserveId".into(), ctx.reserve_id.clone());
+    p.insert("itemId".into(), item_id.to_string());
+    p.insert("fidEnc".into(), ctx.fid_enc.clone());
+    p.insert("startTime".into(), start_date.to_string());
+    p.insert("endTime".into(), end_date.to_string());
+    p
+}
+
+/// 服务端时间请求体（实测：`reserveId` + `itemId`）
+fn server_now_params(ctx: &ReserveContext, item_id: i64) -> BTreeMap<String, String> {
+    let mut p = BTreeMap::new();
+    p.insert("reserveId".into(), ctx.reserve_id.clone());
+    p.insert("itemId".into(), item_id.to_string());
+    p
+}
+
+/// 取服务端当前时间（Unix 毫秒）。**失败不阻断**占用查询：返回 `None` 并记警告，
+/// 由前端按「无服务端时钟 → 不做时间置灰」处理（绝不拿本机时间当服务端时间）。
+async fn fetch_server_now(client: &HbutClient, ctx: &ReserveContext, item_id: i64) -> Option<i64> {
+    match post_form(
+        client,
+        ENDPOINT_SPECIAL_RULE,
+        &server_now_params(ctx, item_id),
+    )
+    .await
+    {
+        Ok(value) => match api_data(&value, "获取服务端时间") {
+            Ok(data) => value_i64(&data, &["serverNow"]),
+            Err(err) => {
+                crate::runtime_log::log_warn(
+                    "LibraryReservePc",
+                    format!("服务端时间解析失败（不阻断占用查询）：{}", err.message),
+                );
+                None
+            }
+        },
+        Err(err) => {
+            crate::runtime_log::log_warn(
+                "LibraryReservePc",
+                format!("服务端时间获取失败（不阻断占用查询）：{}", err.message),
+            );
+            None
+        }
+    }
+}
+
+/// 预约对象**实时占用**（`reserve/item/user/list` + 服务端时间 `reserve/special/rule`）。
+///
+/// 这是 #1080 的核心数据源：`reserve/item/setting` 的 `available` 只表示「该时段被配置开放」，
+/// **别人已预约的时段在官方页面是灰色不可约**，本接口才是判定依据。
+///
+/// 官方页面判定（`reservepc/item` 内联 JS，实测原文）：
+/// - 聚合：`key = reserveIntervalId + '_' + YYYY-MM-DD`，`userCount += reserveNum`；
+/// - **已满**：`interval.userNum <= userCount` → 不可点；
+/// - 自己已约（`uid === 本人`）→ 显示「已预约」而非可选；
+/// - 已过去：`date === serverNow 日期` 且 `endTime <= serverNow` → 不可点。
+pub(crate) async fn fetch_item_occupancy(
+    client: &mut HbutClient,
+    app: LibraryApp,
+    item_id: i64,
+    start_date: &str,
+    end_date: &str,
+    force: bool,
+) -> Result<ItemOccupancy, LibraryReserveError> {
+    if item_id <= 0 {
+        return Err(LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            "占用查询需要有效的 itemId",
+        ));
+    }
+    let start = normalize_date(start_date, "startTime")?;
+    let end = normalize_date(end_date, "endTime")?;
+    if start > end {
+        return Err(LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            format!("占用查询日期区间非法：startTime={start} 晚于 endTime={end}"),
+        ));
+    }
+
+    let ctx = resolve_context(client, app, force).await?;
+    let params = occupancy_params(&ctx, item_id, &start, &end);
+    let value = get_json(client, ENDPOINT_ITEM_USER_LIST, &params).await?;
+    let data = api_data(&value, "获取预约占用情况")?;
+    let (records, unkeyed) = occupancy_records_of(&data);
+    if unkeyed > 0 {
+        // 契约漂移哨兵：统计不完整 → 前端按「占用未知」降级（不得显示为可预约）
+        crate::runtime_log::log_warn(
+            "LibraryReservePc",
+            format!("占用数据有 {unkeyed} 条无法归属到时段/日期，已按「占用未知」上报"),
+        );
+    }
+    let server_now_ms = fetch_server_now(client, &ctx, item_id).await;
+    Ok(ItemOccupancy {
+        records,
+        server_now_ms,
+        unkeyed,
+        raw: data,
+    })
 }
 
 /// 我的预约列表（`reservepc/user/histroy`）。
@@ -1827,6 +2093,185 @@ mod tests {
         assert!(setting.intervals[2].available);
     }
 
+    // ── #1080：实时占用（reserve/item/user/list） ──
+
+    #[test]
+    fn item_setting_keeps_capacity_from_user_num() {
+        // #1080：判定「已满」需要容量（服务端 userNum），必须原样带出；
+        // 缺失 / 非法（<=0）时按 1（一次一人）处理，绝不放大容量。
+        let data = serde_json::json!({
+            "commonIntervalMap": {
+                "1": [
+                    {"id": 1, "week": 1, "startTime": "08:00", "endTime": "09:00", "available": 1, "userNum": 3},
+                    {"id": 2, "week": 1, "startTime": "09:00", "endTime": "10:00", "available": 1},
+                    {"id": 3, "week": 1, "startTime": "10:00", "endTime": "11:00", "available": 1, "userNum": 0}
+                ]
+            }
+        });
+        let setting = item_setting_of(&data);
+        assert_eq!(setting.intervals[0].user_num, 3);
+        assert_eq!(setting.intervals[1].user_num, 1, "缺失按 1");
+        assert_eq!(setting.intervals[2].user_num, 1, "非法值按 1");
+        // 序列化为 camelCase（前端读 userNum）
+        let value = serde_json::to_value(&setting).expect("可序列化");
+        assert_eq!(
+            value["intervals"][0]
+                .get("userNum")
+                .and_then(|v| v.as_i64()),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn occupancy_records_parse_measured_user_list() {
+        // 实测响应（2026-10-19，静音仓 1 号 49091）：同一笔预约跨 3 个时段 → 3 条记录
+        let data: Value = serde_json::json!({
+            "expiredCountShow": false,
+            "expiredReserveList": [],
+            "reserveUserList": [
+                {"aprvId": 0, "deptId": 25285, "endtime": 1792503000000i64, "id": 30031777,
+                 "itemId": 49091, "remark": "学习", "reserveId": 24727,
+                 "reserveIntervalId": 2035215, "reserveNum": 1, "starttime": 1792490400000i64,
+                 "teamLeaderCancel": 0, "today": "2026-10-20", "uid": 360838955, "uname": "廖宏伟"},
+                {"aprvId": 0, "endtime": 1792503000000i64, "id": 30031777,
+                 "reserveIntervalId": 2035216, "reserveNum": 1, "starttime": 1792490400000i64,
+                 "today": "2026-10-20", "uid": 360838955, "uname": "廖宏伟"},
+                {"aprvId": 0, "endtime": 1792503000000i64, "id": 30031777,
+                 "reserveIntervalId": 2035217, "reserveNum": 1, "starttime": 1792490400000i64,
+                 "today": "2026-10-20", "uid": 360838955, "uname": "廖宏伟"}
+            ]
+        });
+        let (records, unkeyed) = occupancy_records_of(&data);
+        assert_eq!(unkeyed, 0);
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].interval_id, 2035215);
+        assert_eq!(records[0].date.as_deref(), Some("2026-10-20"));
+        assert_eq!(records[0].reserve_num, 1);
+        assert_eq!(records[0].uid, Some(360838955));
+        assert_eq!(records[0].user_name.as_deref(), Some("廖宏伟"));
+        assert_eq!(records[0].id, Some(30031777));
+        assert_eq!(records[0].remark.as_deref(), Some("学习"));
+        assert_eq!(records[0].start_time_ms, Some(1792490400000));
+        assert_eq!(records[0].end_time_ms, Some(1792503000000));
+    }
+
+    #[test]
+    fn occupancy_records_count_unkeyable_and_use_ms_date_fallback() {
+        // 缺 reserveIntervalId → 无法归属，计入 unkeyed（调用方据此降级为「占用未知」）
+        let (records, unkeyed) = occupancy_records_of(&serde_json::json!({
+            "reserveUserList": [
+                {"id": 1, "today": "2026-10-20", "reserveNum": 2},
+                {"id": 2, "reserveIntervalId": 9, "today": "2026-10-20", "reserveNum": 0}
+            ]
+        }));
+        assert_eq!(unkeyed, 1);
+        assert_eq!(records.len(), 1);
+        // reserveNum 缺失 / 0 → 按 1（官方页面同样兜底），绝不按 0（会漏算占用）
+        assert_eq!(records[0].reserve_num, 1);
+
+        // today 缺失时用 starttime（Unix 毫秒）按北京时间换算日期
+        let (records, unkeyed) = occupancy_records_of(&serde_json::json!({
+            "reserveUserList": [
+                {"reserveIntervalId": 7, "starttime": 1792490400000i64, "reserveNum": 1}
+            ]
+        }));
+        assert_eq!(unkeyed, 0);
+        assert_eq!(records[0].date.as_deref(), Some("2026-10-20"));
+
+        // 既无 today 又无 starttime → 计入 unkeyed
+        let (_, unkeyed) = occupancy_records_of(&serde_json::json!({
+            "reserveUserList": [{"reserveIntervalId": 7}]
+        }));
+        assert_eq!(unkeyed, 1);
+
+        // 形态异常 / 缺失 → 空列表且不 panic（未归属计数为 0：没有「疑似记录」可言）
+        assert_eq!(occupancy_records_of(&serde_json::json!({})).0.len(), 0);
+        assert_eq!(
+            occupancy_records_of(&serde_json::json!({"reserveUserList": "oops"})).1,
+            0
+        );
+        assert_eq!(occupancy_records_of(&Value::Null).1, 0);
+    }
+
+    #[test]
+    fn occupancy_params_match_contract() {
+        let ctx = ReserveContext::from_entry(
+            LibraryApp::QuietRoom,
+            &make_entry(LibraryApp::QuietRoom, Some("FID"), Some("ENC")),
+        )
+        .expect("可构造");
+        // 实测（2026-10-19）：GET query = reserveId/itemId/fidEnc/startTime/endTime
+        // （不含 reserveIdEnc —— 该端点实测不需要）
+        let p = occupancy_params(&ctx, 49091, "2026-10-19", "2026-10-25");
+        assert_eq!(p.get("reserveId").map(String::as_str), Some("24727"));
+        assert_eq!(p.get("itemId").map(String::as_str), Some("49091"));
+        assert_eq!(p.get("fidEnc").map(String::as_str), Some("FID"));
+        assert_eq!(p.get("startTime").map(String::as_str), Some("2026-10-19"));
+        assert_eq!(p.get("endTime").map(String::as_str), Some("2026-10-25"));
+        assert_eq!(p.len(), 5, "占用查询不应多带参数：{p:?}");
+
+        // 服务端时间：reserveId + itemId
+        let s = server_now_params(&ctx, 49091);
+        assert_eq!(s.get("reserveId").map(String::as_str), Some("24727"));
+        assert_eq!(s.get("itemId").map(String::as_str), Some("49091"));
+        assert_eq!(s.len(), 2);
+    }
+
+    #[test]
+    fn normalize_date_rejects_malformed_input() {
+        assert_eq!(
+            normalize_date(" 2026-10-19 ", "startTime").unwrap(),
+            "2026-10-19"
+        );
+        // 服务端对日期强校验（缺失 → HTTP 400 HTML），必须在本地先拦住
+        for bad in [
+            "",
+            "  ",
+            "2026-10-19 12:00",
+            "2026/10/19",
+            "2026-1-9",
+            "abcd-ef-gh",
+            "2026-10-19T00:00:00",
+        ] {
+            let err = normalize_date(bad, "startTime").expect_err("应报参数非法");
+            assert_eq!(err.kind, ERR_INVALID_PARAMS, "「{bad}」应被拦截");
+            assert!(
+                err.message.contains("startTime"),
+                "错误应点名参数：{}",
+                err.message
+            );
+        }
+    }
+
+    #[test]
+    fn ms_to_date_key_converts_beijing_date() {
+        // 1792490400000 = 2026-10-19T22:00:00Z = 北京时间 2026-10-20 06:00
+        assert_eq!(
+            ms_to_date_key(Some(1792490400000)).as_deref(),
+            Some("2026-10-20")
+        );
+        assert_eq!(ms_to_date_key(None), None);
+        assert_eq!(ms_to_date_key(Some(i64::MAX)), None);
+    }
+
+    #[test]
+    fn occupancy_records_serialize_as_camel_case() {
+        let (records, _) = occupancy_records_of(&serde_json::json!({
+            "reserveUserList": [
+                {"reserveIntervalId": 2035215, "today": "2026-10-20", "reserveNum": 1, "uid": 1, "uname": "甲"}
+            ]
+        }));
+        let value = serde_json::to_value(&records[0]).expect("可序列化");
+        // 前端按 camelCase 读取（命令层 rename_all 不影响嵌套结构体）
+        assert_eq!(
+            value.get("intervalId").and_then(|v| v.as_i64()),
+            Some(2035215)
+        );
+        assert_eq!(value.get("reserveNum").and_then(|v| v.as_i64()), Some(1));
+        assert_eq!(value.get("userName").and_then(|v| v.as_str()), Some("甲"));
+        assert!(value.get("interval_id").is_none(), "不得出现 snake_case 键");
+    }
+
     #[test]
     fn protected_keys_cannot_be_overridden_by_extra_or_form_data() {
         let ctx = ReserveContext::from_entry(
@@ -2053,6 +2498,9 @@ mod tests {
         assert_eq!(ENDPOINT_TIME_LIST, "reserve/item/list/time");
         // 实测新增（2026-10-19）：时段 ID 来自 reserve/item/setting
         assert_eq!(ENDPOINT_ITEM_SETTING, "reserve/item/setting");
+        // #1080 实时占用 + 服务端时间（2026-10-19 实测：GET / POST）
+        assert_eq!(ENDPOINT_ITEM_USER_LIST, "reserve/item/user/list");
+        assert_eq!(ENDPOINT_SPECIAL_RULE, "reserve/special/rule");
         assert_eq!(ENDPOINT_USER_VIEW_FLAG, "reservepc/user/view/flag");
         assert_eq!(ENDPOINT_OPEN_TEAM, "reservepc/open/team");
         assert_eq!(ENDPOINT_TEAM_LIST, "reservepc/team/list");
@@ -2069,6 +2517,8 @@ mod tests {
             ENDPOINT_ITEM_INFO,
             ENDPOINT_TIME_LIST,
             ENDPOINT_ITEM_SETTING,
+            ENDPOINT_ITEM_USER_LIST,
+            ENDPOINT_SPECIAL_RULE,
             ENDPOINT_SUBMIT,
             ENDPOINT_CANCEL,
             ENDPOINT_MY_RESERVATIONS,

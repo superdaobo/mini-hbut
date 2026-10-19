@@ -38,6 +38,7 @@ import {
   parseReserveFailure,
   stripHtml,
   summarizeFormValues,
+  toDateKey,
   toFormData,
   truncateReserveDetail,
   validateFormValues
@@ -46,6 +47,7 @@ import {
   buildRoomGrid,
   normalizeRoomIntervalSlots,
   normalizeRoomList,
+  normalizeRoomOccupancy,
   resolveAdvanceDays,
   resolveCatalogResource,
   resolveRoomGridDays,
@@ -92,6 +94,45 @@ const serverClock = ref(null)
 const intervalSlots = ref([])
 const settingLoading = ref(false)
 const settingError = ref('')
+
+// ── 实时占用（`library_reserve_item_occupancy` → `reserve/item/user/list`，2026-10-19 实测） ──
+/**
+ * ⚠️ #1080 根因：`reserve/item/setting` 的 `available` 只是**配置层**「该时段被配置开放」，
+ * **不是**实时占用 —— 别人已预约的时段在官方页面是灰色不可约，本面板却仍显示「可预约」，
+ * 用户点选提交后才收到「当前预约时间段已满，请重新选择」。
+ *
+ * 因此必须另查「该房间所有用户的预约数据」，并按官方口径判定：
+ * `已满 ⇔ 容量(userNum) <= 已占用份数(Σ reserveNum)`。
+ */
+const occupancyUsed = ref(null)
+const occupancyLoading = ref(false)
+const occupancyError = ref('')
+const occupancyLoaded = ref(false)
+/** 后端上报的「无法归属到时段/日期」记录数（> 0 → 统计不完整，必须按未知降级） */
+const occupancyUnkeyed = ref(0)
+
+/**
+ * 占用状态是否**可信**（决定网格是否允许点选）。
+ *
+ * 任一条件不满足即视为「未知」，此时整表置灰 ——
+ * **绝不能把「未知」显示成「可预约」**（宁可让用户重试，也不让用户白提交一次）。
+ */
+const occupancyKnown = computed(
+  () =>
+    occupancyLoaded.value &&
+    !occupancyError.value &&
+    occupancyUnkeyed.value === 0 &&
+    intervalSlots.value.length > 0
+)
+
+/** 占用查询日期区间：本地今天前一天 ~ 今天 + 网格天数（±1 天余量，避免服务端/本机日期错位漏数据） */
+const occupancyRange = () => {
+  const today = new Date()
+  const days = Math.max(1, Number(gridDays.value) || 1)
+  const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  const to = new Date(today.getFullYear(), today.getMonth(), today.getDate() + days)
+  return { start: toDateKey(from), end: toDateKey(to) }
+}
 
 /**
  * 失败信息 → 可读文案（#1082：**始终**把服务端原文带出来）。
@@ -151,7 +192,7 @@ const gridDays = computed(() =>
   resolveRoomGridDays(advanceDays.value, itemInfo.value?.advanceTime)
 )
 
-/** 日期 × 时段网格（行 = 日期，列 = **服务端真实时段**；可用性逐时段判定 + 服务端时间置灰） */
+/** 日期 × 时段网格（行 = 日期，列 = **服务端真实时段**；可用性逐时段判定 + 实时占用 + 服务端时间置灰） */
 const grid = computed(() =>
   buildRoomGrid(
     selectedRoom.value,
@@ -161,7 +202,10 @@ const grid = computed(() =>
     new Date(),
     serverClock.value,
     // 真实时段（含非整点档，如 20:00-21:30）；拿不到时空数组 → 回落到按粒度切分
-    intervalSlots.value
+    intervalSlots.value,
+    // #1080：实时占用（`intervalId_date` → 已占用份数）+ 占用是否可信
+    occupancyUsed.value,
+    occupancyKnown.value
   )
 )
 
@@ -178,9 +222,13 @@ const selectedCell = ref(null)
 const formValues = ref({})
 const formErrors = ref({})
 
-/** 单元格选中态：`on` 已选 / `off` 可约 / `closed` 不可约（单元格自带日期，比较无需行上下文） */
+/** 单元格选中态：`on` 已选 / `off` 可约 / `full` 已满 / `unknown` 占用未知 / `closed` 不可约 */
 const cellState = (cell) => {
-  if (!cell.available) return 'closed'
+  if (!cell.available) {
+    if (cell.occupied) return 'full'
+    if (cell.unknown) return 'unknown'
+    return 'closed'
+  }
   const picked = selectedCell.value
   if (picked && picked.date === cell.date && picked.start === cell.start && picked.end === cell.end) {
     return 'on'
@@ -191,7 +239,17 @@ const cellState = (cell) => {
 /** 单元格样式类（行级可用性由 cell.available 决定） */
 const cellClass = (cell) => {
   const state = cellState(cell)
-  return ['gcell', state === 'on' ? 'gcell--on' : state === 'closed' ? 'gcell--closed' : 'gcell--free']
+  const modifier =
+    state === 'on'
+      ? 'gcell--on'
+      : state === 'full'
+        ? 'gcell--full'
+        : state === 'unknown'
+          ? 'gcell--unknown'
+          : state === 'closed'
+            ? 'gcell--closed'
+            : 'gcell--free'
+  return ['gcell', modifier]
 }
 
 /** 日期行标记：今天 / 明天 */
@@ -209,7 +267,13 @@ const gridStyle = computed(() => ({
 /** 选择单元格：不可约给出提示，重复点击取消选择 */
 const chooseCell = (cell) => {
   if (!cell.available) {
-    showToast(t('library.reserve.toast.slotUnavailable'), 'warning')
+    // #1080：已满 / 占用未知 / 未开放 三类原因分别给出可读提示
+    const key = cell.occupied
+      ? 'library.reserve.toast.slotOccupied'
+      : cell.unknown
+        ? 'library.reserve.booking.occupancyUnknown'
+        : 'library.reserve.toast.slotUnavailable'
+    showToast(t(key), 'warning')
     return
   }
   const picked = selectedCell.value
@@ -352,11 +416,50 @@ const resetCellSelection = () => {
   formErrors.value = {}
 }
 
-/** 选择房间（网格来自该房间自带的 intervals；真实时段 ID 另拉 setting） */
+/**
+ * 拉取该房间的**实时占用**（`reserve/item/user/list`，2026-10-19 实测）。
+ *
+ * 失败 / 统计不完整 → `occupancyKnown=false` → 网格整表置灰并给出重试入口
+ * （**不允许**把「占用未知」显示成「可预约」，否则用户又会白提交一次）。
+ * 顺带用响应里的服务端时间 `serverNow` 校准「今天已过去的时段」。
+ */
+const loadRoomOccupancy = async (itemId) => {
+  occupancyUsed.value = null
+  occupancyError.value = ''
+  occupancyUnkeyed.value = 0
+  occupancyLoaded.value = false
+  if (!itemId) return
+  occupancyLoading.value = true
+  try {
+    const range = occupancyRange()
+    const res = await invokeNative('library_reserve_item_occupancy', {
+      req: {
+        app: props.app,
+        item_id: Number(itemId),
+        start_time: range.start,
+        end_time: range.end
+      }
+    })
+    const view = normalizeRoomOccupancy(res)
+    occupancyUsed.value = view.used
+    occupancyUnkeyed.value = view.unkeyed
+    occupancyLoaded.value = true
+    // 服务端时钟：优先于 best-effort 的顶层解析（房间接口契约并未提供该字段）
+    if (view.clock) serverClock.value = view.clock
+  } catch (e) {
+    const failure = parseReserveFailure(e)
+    occupancyError.value = failureText(failure)
+  } finally {
+    occupancyLoading.value = false
+  }
+}
+
+/** 选择房间（网格来自该房间自带的 intervals；真实时段 ID 与实时占用另拉） */
 const selectRoom = (view) => {
   selectedRoomKey.value = view.key
   resetCellSelection()
   void loadRoomSetting(view.room.itemId)
+  void loadRoomOccupancy(view.room.itemId)
 }
 
 /** 返回房间列表 */
@@ -365,6 +468,10 @@ const backToList = () => {
   resetCellSelection()
   intervalSlots.value = []
   settingError.value = ''
+  occupancyUsed.value = null
+  occupancyError.value = ''
+  occupancyUnkeyed.value = 0
+  occupancyLoaded.value = false
 }
 
 /** 表单值变更（子组件回抛） */
@@ -374,6 +481,11 @@ const onFormValues = (next) => {
 
 /** 提交入口：先本地校验，通过后弹二次确认 */
 const requestSubmit = () => {
+  // #1080：占用状态不可信时不得提交（否则必然被服务端以「时间段已满」拒绝）
+  if (!occupancyKnown.value) {
+    showToast(t('library.reserve.booking.occupancyUnknown'), 'warning')
+    return
+  }
   if (!selectedCell.value) {
     showToast(t('library.reserve.toast.selectSlot'), 'warning')
     return
@@ -438,8 +550,9 @@ const confirmSubmit = async () => {
     confirmVisible.value = false
     showToast(res?.message || t('library.reserve.toast.submitSuccess'), 'success')
     resetCellSelection()
-    // 提交成功后刷新房间时段可用性，避免展示过期状态
-    await loadRooms()
+    // 提交成功后刷新房间时段可用性 + 实时占用，避免展示过期状态
+    // （刚提交成功的时段必须立刻变成「已满/已约」，否则用户会重复点选）
+    await Promise.all([loadRooms(), loadRoomOccupancy(room.itemId)])
   } catch (e) {
     confirmVisible.value = false
     const failure = parseReserveFailure(e)
@@ -465,6 +578,10 @@ watch(
     serverClock.value = null
     intervalSlots.value = []
     settingError.value = ''
+    occupancyUsed.value = null
+    occupancyError.value = ''
+    occupancyUnkeyed.value = 0
+    occupancyLoaded.value = false
     void loadConstraints()
     void loadRooms()
   }
@@ -552,6 +669,21 @@ watch(
       <p v-if="settingLoading" class="hint">{{ t('library.reserve.booking.settingLoading') }}</p>
       <p v-else-if="settingError" class="hint hint--warn">{{ settingError }}</p>
 
+      <!-- 实时占用（#1080）：加载中 / 失败都必须明说，失败时整表置灰并提供重试 -->
+      <p v-if="occupancyLoading" class="hint">{{ t('library.reserve.booking.occupancyLoading') }}</p>
+      <template v-else-if="!occupancyKnown && grid.columns.length">
+        <p class="hint hint--warn">{{ t('library.reserve.booking.occupancyUnknown') }}</p>
+        <p v-if="occupancyError" class="hint">{{ occupancyError }}</p>
+        <button
+          type="button"
+          class="ghost"
+          :disabled="occupancyLoading || !selectedRoomView"
+          @click="loadRoomOccupancy(selectedRoomView.room.itemId)"
+        >
+          {{ t('library.reserve.btn.retry') }}
+        </button>
+      </template>
+
       <p v-if="!grid.columns.length" class="hint">{{ t('library.reserve.booking.noIntervals') }}</p>
       <template v-else>
         <div class="grid-scroll">
@@ -589,6 +721,7 @@ watch(
         <p class="hint">{{ t('library.reserve.booking.gridHint') }}</p>
         <div class="legend">
           <span><i class="dot dot--free" />{{ t('library.reserve.booking.legendFree') }}</span>
+          <span><i class="dot dot--full" />{{ t('library.reserve.booking.legendFull') }}</span>
           <span><i class="dot dot--closed" />{{ t('library.reserve.booking.legendClosed') }}</span>
           <span><i class="dot dot--on" />{{ t('library.reserve.booking.legendSelected') }}</span>
         </div>
@@ -631,7 +764,7 @@ watch(
         <button
           type="button"
           class="primary"
-          :disabled="!selectedCell || submitting || settingLoading"
+          :disabled="!selectedCell || submitting || settingLoading || occupancyLoading || !occupancyKnown"
           @click="requestSubmit"
         >
           {{ submitting ? t('library.reserve.btn.submitting') : t('library.reserve.btn.submit') }}
@@ -918,6 +1051,23 @@ watch(
   opacity: 0.6;
   cursor: not-allowed;
 }
+/* 已满（#1080）：与「未开放」区分——用危险色描边，明确表达「别人已约满」 */
+.gcell--full {
+  border-color: color-mix(in oklab, var(--ui-danger) 40%, transparent);
+  background: color-mix(in oklab, var(--ui-danger) 12%, transparent);
+  color: var(--ui-danger);
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+/* 占用未知（#1080）：不显示为可预约；虚线边框表达「状态待确认」 */
+.gcell--unknown {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--ui-muted) 45%, transparent);
+  background: transparent;
+  color: var(--ui-muted);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 .legend {
   display: flex;
@@ -944,6 +1094,10 @@ watch(
 }
 .dot--closed {
   background: color-mix(in oklab, var(--ui-muted) 30%, transparent);
+}
+.dot--full {
+  background: color-mix(in oklab, var(--ui-danger) 45%, transparent);
+  border-color: color-mix(in oklab, var(--ui-danger) 55%, transparent);
 }
 .dot--on {
   background: var(--ui-primary);

@@ -90,7 +90,7 @@ describe('图书馆预约 · 视图与命令注册（#1055–#1057）', () => {
     expect(app).toContain('VIEW_COMPONENTS.library_reserve')
   })
 
-  it('Tauri 命令层定义与 lib.rs 注册一一对应（25 条）', () => {
+  it('Tauri 命令层定义与 lib.rs 注册一一对应（26 条）', () => {
     const transport = read('src-tauri/src/transport/tauri/library_reserve.rs')
     const lib = read('src-tauri/src/lib.rs')
     const defined = [...transport.matchAll(/pub\(crate\) async fn (library_reserve_[a-z0-9_]+)/g)].map(
@@ -101,7 +101,9 @@ describe('图书馆预约 · 视图与命令注册（#1055–#1057）', () => {
     ].map((m) => m[1])
     // 18 条（#1052–#1057）+ 4 条座位余量查询 + 2 条本机提交（prepare / submit，2026-10-16）
     // + 1 条预约对象时段设置（item_setting，2026-10-19 实测：提交 intervalIds 必需）
-    expect(defined).toHaveLength(25)
+    // + 1 条实时占用查询（item_occupancy，2026-10-19 实测：`reserve/item/user/list`，
+    //   配置开放 ≠ 可预约 —— 别人已约满的时段必须置灰）
+    expect(defined).toHaveLength(26)
     expect(new Set(registered)).toEqual(new Set(defined))
   })
 
