@@ -27,7 +27,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { invokeNative } from '../../platform/native'
 import { showToast } from '../../utils/toast'
 import { useLocale, tf } from '../../utils/app_i18n'
-import { TEmptyState, TModal } from '../templates'
+import { TCollapse, TEmptyState, TModal } from '../templates'
 import ReserveFormFields from './ReserveFormFields.vue'
 import {
   RESOURCE_CATALOG,
@@ -69,8 +69,6 @@ const loading = ref(true)
 const loadError = ref('')
 const loadErrorDetail = ref('')
 const itemInfo = ref(null)
-/** 「预约须知 / 特别提醒」默认折叠（功能区置顶，通知置底） */
-const noticeOpen = ref(false)
 
 // ── 房间列表（房间模式 time_list：不传 start_time / end_time） ──
 const rooms = ref([])
@@ -572,7 +570,6 @@ watch(
   () => props.app,
   () => {
     backToList()
-    noticeOpen.value = false
     rooms.value = []
     topAdvanceDays.value = null
     serverClock.value = null
@@ -660,7 +657,6 @@ watch(
         >
           {{ tf('library.reserve.resource.capacity', { min: selectedRoomView.capacityMin, max: selectedRoomView.capacityMax }) }}
         </p>
-        <p v-if="selectedRoomView.note" class="res-card__note">{{ selectedRoomView.note }}</p>
       </section>
 
       <!-- 日期 × 时段网格（可视化点选，替代「选日期 + 选时段」两步） -->
@@ -718,7 +714,6 @@ watch(
             </button>
           </div>
         </div>
-        <p class="hint">{{ t('library.reserve.booking.gridHint') }}</p>
         <div class="legend">
           <span><i class="dot dot--free" />{{ t('library.reserve.booking.legendFree') }}</span>
           <span><i class="dot dot--full" />{{ t('library.reserve.booking.legendFull') }}</span>
@@ -772,20 +767,20 @@ watch(
       </div>
     </template>
 
-    <!-- ③ 预约须知 / 特别提醒（置底，可折叠；功能区优先展示） -->
+    <!-- ③ 预约须知 / 特别提醒（置底）：违约后果常驻，其余明细默认折叠（#1082 文字精简） -->
     <section v-if="hasNotice" class="card notice">
-      <button
-        type="button"
-        class="notice__toggle"
-        :aria-expanded="noticeOpen"
-        @click="noticeOpen = !noticeOpen"
-      >
-        <strong class="notice__title">{{ t('library.reserve.notice.title') }}</strong>
-        <span class="material-symbols-outlined" aria-hidden="true">
-          {{ noticeOpen ? 'expand_less' : 'expand_more' }}
-        </span>
+      <!-- 违约后果：常驻（折叠会让用户不看就提交） -->
+      <p class="notice__body notice__body--danger">{{ t('library.reserve.notice.violation') }}</p>
+
+      <!-- 约束加载失败：同样常驻（藏进折叠区会让重试入口一起消失） -->
+      <p v-if="loadError" class="notice__body notice__body--danger">
+        {{ loadError }}<span v-if="loadErrorDetail"> {{ loadErrorDetail }}</span>
+      </p>
+      <button v-if="loadError" type="button" class="ghost" @click="loadConstraints">
+        {{ t('library.reserve.btn.retry') }}
       </button>
-      <div v-if="noticeOpen" class="notice__content">
+
+      <TCollapse :title="t('library.reserve.notice.title')">
         <p v-if="notice.title" class="notice__body notice__body--strong">{{ notice.title }}</p>
         <p v-if="notice.body" class="notice__body">{{ notice.body }}</p>
         <p v-if="loading" class="notice__body">{{ t('library.reserve.state.loading') }}</p>
@@ -794,15 +789,8 @@ watch(
             <li>{{ tf('library.reserve.notice.advance', { n: advanceDays }) }}</li>
             <li v-if="durationLimit">{{ tf('library.reserve.notice.duration', { n: durationLimit }) }}</li>
           </ul>
-          <p class="notice__body notice__body--danger">{{ t('library.reserve.notice.violation') }}</p>
-          <p v-if="loadError" class="notice__body notice__body--danger">
-            {{ loadError }}<span v-if="loadErrorDetail"> {{ loadErrorDetail }}</span>
-          </p>
-          <button v-if="loadError" type="button" class="ghost" @click="loadConstraints">
-            {{ t('library.reserve.btn.retry') }}
-          </button>
         </template>
-      </div>
+      </TCollapse>
     </section>
 
     <!-- 二次确认（必须：含违约后果） -->
@@ -812,7 +800,6 @@ watch(
       width="420px"
       @close="confirmVisible = false"
     >
-      <p class="confirm__lead">{{ t('library.reserve.confirm.body') }}</p>
       <dl class="confirm__list">
         <div v-for="(row, i) in confirmRows" :key="i" class="confirm__row">
           <dt>{{ row.label }}</dt>
@@ -853,27 +840,6 @@ watch(
 
 /* 提醒 / 约束（置底可折叠） */
 .notice {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.notice__toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--ui-muted);
-  cursor: pointer;
-}
-.notice__title {
-  font-size: calc(14px * var(--ui-font-scale));
-  color: var(--ui-text);
-}
-.notice__content {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1140,11 +1106,6 @@ watch(
 }
 
 /* 确认弹窗 */
-.confirm__lead {
-  margin: 0 0 10px;
-  font-size: calc(13px * var(--ui-font-scale));
-  color: var(--ui-muted);
-}
 .confirm__list {
   margin: 0;
   display: flex;

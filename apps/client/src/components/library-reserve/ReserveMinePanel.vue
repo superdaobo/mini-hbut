@@ -162,14 +162,13 @@ onMounted(load)
       </button>
     </section>
 
+    <!-- 空态：不再补一行「你还没有预约任何…」（与「暂无预约记录」重复，#1082） -->
     <TEmptyState
       v-else-if="!items.length"
       class="span-all"
       type="empty"
       :message="t('library.reserve.mine.empty')"
-    >
-      <p class="hint">{{ t('library.reserve.mine.hint') }}</p>
-    </TEmptyState>
+    />
 
     <template v-else>
       <article v-for="item in items" :key="item.key" class="card order">

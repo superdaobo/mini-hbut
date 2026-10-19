@@ -19,6 +19,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { invokeNative } from '../../platform/native'
 import { useLocale } from '../../utils/app_i18n'
+import { TCollapse } from '../templates'
 
 const props = defineProps({
   /** 应用标识：seat / quiet_room / seminar_room */
@@ -168,7 +169,11 @@ defineExpose({ open, close })
         {{ t('library.reserve.embed.close') }}
       </button>
     </div>
-    <p class="hint">{{ t('library.reserve.embed.hint') }}</p>
+    <!-- 常驻只留一句结论（13 字）；完整说明（#1082 全项目最长的一条）默认收起 -->
+    <p class="hint">{{ t('library.reserve.embed.hintShort') }}</p>
+    <TCollapse :title="t('library.reserve.collapse.hint')">
+      <p class="hint">{{ t('library.reserve.embed.hint') }}</p>
+    </TCollapse>
     <p v-if="error" class="err">{{ error }}</p>
     <!-- 原生浮层覆盖区：仅打开时挂载 -->
     <div v-if="opened" ref="host" class="embed__host"></div>
