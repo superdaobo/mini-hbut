@@ -30,7 +30,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { invokeNative } from '../../platform/native'
 import { showToast } from '../../utils/toast'
 import { useLocale, tf } from '../../utils/app_i18n'
-import { TEmptyState, TModal } from '../templates'
+import { TCollapse, TEmptyState, TModal } from '../templates'
 // 复用既有白名单净化器（`school_inbox_content` 自带单测看守），避免自造第二套 HTML 过滤
 import { linkifyPlainText, looksLikeHtml, sanitizeSchoolInboxHtml } from '../../utils/school_inbox_content'
 import { parseReserveFailure, WEEKDAY_KEYS, formatReserveFailureText, truncateReserveDetail } from './catalog'
@@ -85,13 +85,7 @@ const clock = computed(() => parseSeatClock(payload.value?.serverNow))
 const serverClockText = computed(() =>
   clock.value ? `${clock.value.dateKey} ${clock.value.clock}` : ''
 )
-/** 时间来源说明（Rust 侧 `serverNowSource`：response / page） */
-const timeSourceText = computed(() => {
-  const source = payload.value?.serverNowSource
-  if (source === 'response') return t('library.reserve.seat.time.sourceResponse')
-  if (source === 'page') return t('library.reserve.seat.time.sourcePage')
-  return ''
-})
+/** 时间来源说明（Rust 侧 `serverNowSource`）已于 #1082 移除：属实现细节，对用户无决策价值 */
 const todayRange = computed(() => resolveTodayOpenRange(config.value, clock.value))
 const openState = computed(() => resolveOpenState(clock.value, todayRange.value))
 const openStateText = computed(() => {
@@ -367,7 +361,16 @@ const ruleLines = computed(() => {
   if (c.timeUnit !== null && c.timeUnit > 0) {
     lines.push(tf('library.reserve.seat.rule.timeUnit', { n: c.timeUnit }))
   }
-  const { violateTimes, violationLimitDay, violationLimitDuration } = c
+  if (c.onlySupportsApiSignIn === true) lines.push(t('library.reserve.seat.rule.signInApiOnly'))
+  return lines
+})
+
+/**
+ * 违约后果（#1082）：**常驻可见，不进折叠区**（唯一「不做会亏」的信息）。
+ * 三个阈值齐全才展示，缺失时整行不渲染（宁可不说，不要说错）。
+ */
+const violationLine = computed(() => {
+  const { violateTimes, violationLimitDay, violationLimitDuration } = config.value
   if (
     violateTimes !== null &&
     violateTimes > 0 &&
@@ -376,17 +379,15 @@ const ruleLines = computed(() => {
     violationLimitDuration !== null &&
     violationLimitDuration > 0
   ) {
-    lines.push(
-      tf('library.reserve.seat.rule.violation', {
-        times: violateTimes,
-        days: violationLimitDay,
-        duration: violationLimitDuration
-      })
-    )
+    return tf('library.reserve.seat.rule.violation', {
+      times: violateTimes,
+      days: violationLimitDay,
+      duration: violationLimitDuration
+    })
   }
-  if (c.onlySupportsApiSignIn === true) lines.push(t('library.reserve.seat.rule.signInApiOnly'))
-  return lines
+  return ''
 })
+
 const hasRules = computed(() => openHours.value.length > 0 || ruleLines.value.length > 0)
 /** 每日时段展示：星期名走 i18n（无法判定星期时用服务端给出的星期名原文），单侧缺失用占位符 */
 const openHourText = (row) =>
@@ -402,6 +403,8 @@ const noticeHtml = computed(() => {
   return looksLikeHtml(raw) ? sanitizeSchoolInboxHtml(raw) : linkifyPlainText(raw)
 })
 const noticeTitle = computed(() => config.value.noticeName || t('library.reserve.seat.section.notice'))
+/** 规则明细是否还有可折叠内容（全空时整块不渲染，避免出现空折叠与「服务端未返回…」技术空态） */
+const hasRuleDetails = computed(() => hasRules.value || Boolean(noticeHtml.value))
 
 // ── 我的预约（当前 / 最近） ──
 const currentRows = computed(() => normalizeSeatReservations(payload.value?.currentReservations))
@@ -501,7 +504,7 @@ onMounted(refresh)
       v-if="loading"
       class="span-all"
       type="loading"
-      :message="t('library.reserve.seat.loading')"
+      :message="t('library.reserve.state.loading')"
     />
 
     <section v-else-if="error" class="card error-card span-all">
@@ -567,13 +570,15 @@ onMounted(refresh)
             <p v-if="!hasSelectableCell" class="hint hint--warn">
               {{ t('library.reserve.seat.time.allPast') }}
             </p>
-            <p class="hint">{{ t('library.reserve.seat.time.gridHint') }}</p>
+            <!-- 操作说明（一次性阅读）：默认收起，不再占首屏（#1082） -->
+            <TCollapse :title="t('library.reserve.collapse.hint')">
+              <p class="hint">{{ t('library.reserve.seat.time.gridHint') }}</p>
+            </TCollapse>
           </div>
 
           <button type="button" class="primary" :disabled="!canSearch || matching" @click="findSeat">
             {{ matching ? t('library.reserve.seat.find.searching') : t('library.reserve.seat.find.action') }}
           </button>
-          <p class="hint">{{ t('library.reserve.seat.find.hint') }}</p>
 
           <!-- 查询结果：区域 + 座位号 + 时段 + 本机「确认预约」 -->
           <div v-if="matchError" class="match match--error">
@@ -641,35 +646,36 @@ onMounted(refresh)
       <!-- ③ 官方页面内嵌（座位提交需 cxCaptcha 人工验证，纯接口不可行） -->
       <LibraryReserveEmbed class="span-all" app="seat" kind="live" />
 
-      <!-- ④ 通知 / 规则区（置底） -->
+      <!-- ④ 通知 / 规则区（置底）：状态与违约后果常驻，规则明细默认折叠（#1082 文字精简） -->
       <section class="card notice span-all">
-        <h3 class="card__title">{{ t('library.reserve.seat.section.notice') }}</h3>
-
         <!-- 服务端时间 + 开放 / 放号状态：压缩为一行小字（时间缺失则整行不展示） -->
         <p v-if="clock" class="notice__time">
           {{ t('library.reserve.seat.time.label') }}：{{ serverClockText }}
-          <span v-if="timeSourceText" class="notice__src">{{ timeSourceText }}</span>
           <span class="notice__sep">·</span>{{ openStateText }}
           <span class="notice__sep">·</span>{{ releaseStateText }}
         </p>
 
-        <h4 class="notice__subtitle">{{ t('library.reserve.seat.section.rules') }}</h4>
-        <template v-if="hasRules">
-          <template v-if="openHours.length">
-            <p class="notice__label">{{ t('library.reserve.seat.rule.openTime') }}</p>
-            <ul class="notice__list">
-              <li v-for="row in openHours" :key="row.key">{{ openHourText(row) }}</li>
+        <!-- 违约后果：常驻（折叠会让用户不看就提交） -->
+        <p v-if="violationLine" class="notice__violation">{{ violationLine }}</p>
+
+        <!-- 规则明细（每日开放时段 / 限额 / 服务端原文）：默认收起，折叠标题即区块标题 -->
+        <TCollapse v-if="hasRuleDetails" :title="t('library.reserve.seat.section.notice')">
+          <template v-if="hasRules">
+            <template v-if="openHours.length">
+              <p class="notice__label">{{ t('library.reserve.seat.rule.openTime') }}</p>
+              <ul class="notice__list">
+                <li v-for="row in openHours" :key="row.key">{{ openHourText(row) }}</li>
+              </ul>
+            </template>
+            <ul v-if="ruleLines.length" class="notice__list">
+              <li v-for="(line, i) in ruleLines" :key="`rule-${i}`">{{ line }}</li>
             </ul>
           </template>
-          <ul v-if="ruleLines.length" class="notice__list">
-            <li v-for="(line, i) in ruleLines" :key="`rule-${i}`">{{ line }}</li>
-          </ul>
-        </template>
-        <p v-else class="hint">{{ t('library.reserve.seat.rulesEmpty') }}</p>
-
-        <h4 class="notice__subtitle">{{ noticeTitle }}</h4>
-        <div v-if="noticeHtml" class="rich" v-html="noticeHtml"></div>
-        <p v-else class="hint">{{ t('library.reserve.seat.notice.empty') }}</p>
+          <template v-if="noticeHtml">
+            <h4 class="notice__subtitle">{{ noticeTitle }}</h4>
+            <div class="rich" v-html="noticeHtml"></div>
+          </template>
+        </TCollapse>
 
         <p class="hint notice__unsupported">{{ t('library.reserve.seat.unsupported.hint') }}</p>
       </section>
@@ -684,7 +690,6 @@ onMounted(refresh)
       :close-on-overlay="!submitting"
       @close="submitVisible = false"
     >
-      <p class="confirm__lead">{{ t('library.reserve.seat.submit.lead') }}</p>
       <div v-if="match" class="confirm__rows">
         <p class="confirm__line">{{ tf('library.reserve.seat.find.area', { area: matchAreaText || '--' }) }}</p>
         <p class="confirm__line">{{ tf('library.reserve.seat.find.seatNo', { seat: match.seatNum || '--' }) }}</p>
@@ -934,12 +939,16 @@ onMounted(refresh)
   color: var(--ui-muted);
   opacity: 0.9;
 }
-.notice__src {
-  margin-left: 6px;
-  opacity: 0.85;
-}
 .notice__sep {
   margin: 0 6px;
+}
+/* 违约后果：常驻可见（#1082 不折叠） */
+.notice__violation {
+  margin: 0;
+  font-size: calc(12px * var(--ui-font-scale));
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--ui-danger);
 }
 .notice__label {
   margin: 4px 0 4px;
@@ -1006,11 +1015,6 @@ onMounted(refresh)
   border: 1px solid var(--ui-surface-border);
   border-radius: calc(10px * var(--ui-radius-scale));
   background: #fff;
-}
-.confirm__lead {
-  margin: 0 0 10px;
-  font-size: calc(13px * var(--ui-font-scale));
-  color: var(--ui-muted);
 }
 .confirm__rows {
   display: flex;
