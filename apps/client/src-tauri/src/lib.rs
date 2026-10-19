@@ -490,6 +490,8 @@ pub fn run() {
             modules::library_reserve_embed::library_reserve_embed_open,
             modules::library_reserve_embed::library_reserve_embed_resize,
             modules::library_reserve_embed::library_reserve_embed_close,
+            // #1081：iOS 无 Window::add_child → 改走 Bridge 反向代理 + iframe
+            modules::library_reserve_embed::library_reserve_embed_proxy_url,
             // #719：冷启动校内证书探测（独立严格校验客户端，结果供「我的」页兼容模式提示）
             modules::cert_probe::probe_school_cert_status,
             // #452：长后台回前台 ensure/respawn loopback HTTP Bridge
