@@ -24,6 +24,8 @@ pub mod library_reserve_pc;
 pub mod library_reserve_seat;
 // 2026-10-19：图书馆预约 · 官方页面内嵌子 WebView（座位提交需 cxCaptcha 人工验证，纯接口不可行）
 pub mod library_reserve_embed;
+// #1081：图书馆预约 · 官方页 Bridge 反向代理（iOS 无 add_child，改走「代理 + iframe」）
+pub mod library_reserve_proxy;
 pub mod module_bundle;
 pub mod notification;
 pub mod one_code;

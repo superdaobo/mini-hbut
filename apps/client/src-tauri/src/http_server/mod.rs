@@ -290,6 +290,7 @@ fn build_router() -> Router<HttpState> {
         .merge(routes::system::router())
         .merge(routes::teacher::router())
         .merge(routes::proxy::router())
+        .merge(routes::library_reserve::router())
         .merge(routes::ai::router())
         .merge(routes::local_data::router());
 
@@ -435,6 +436,15 @@ mod ensure_http_bridge_tests {
             bridge_route_policy("/school-website/news/info/1"),
             BridgeRoutePolicy::PublicEmbed
         );
+        // #1081：图书馆预约官方页代理（读放行 + 写需可信上下文）
+        assert_eq!(
+            bridge_route_policy("/reserve-embed/front/apps/seatengine/live/select"),
+            BridgeRoutePolicy::PublicEmbedWrite
+        );
+        assert_eq!(
+            bridge_route_policy("/reserve-embed/@captcha/load-d.min.js"),
+            BridgeRoutePolicy::PublicEmbedWrite
+        );
         assert_eq!(
             bridge_route_policy("/module_bundle/prepare"),
             BridgeRoutePolicy::Protected
@@ -536,6 +546,66 @@ mod ensure_http_bridge_tests {
             decide_bridge_access(
                 BridgeRoutePolicy::PublicEmbed,
                 &Method::GET,
+                &hostile,
+                true,
+                true,
+            ),
+            BridgeAccessDecision::ForbiddenOrigin
+        );
+    }
+
+    #[test]
+    fn reserve_embed_routes_allow_read_but_require_trusted_context_for_writes() {
+        // #1081：官方页代理。GET/HEAD 无条件放行（iframe 顶层导航可能没有 Origin）；
+        // 写方法（官方提交 `POST data/apps/seatengine/submit`）必须来自可信桥上下文。
+        let empty = HeaderMap::new();
+        for method in [Method::GET, Method::HEAD] {
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::PublicEmbedWrite,
+                    &method,
+                    &empty,
+                    false,
+                    true,
+                ),
+                BridgeAccessDecision::Allow
+            );
+        }
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::PublicEmbedWrite,
+                &Method::POST,
+                &empty,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::Unauthorized
+        );
+
+        // 桥内 iframe 的 Origin 恒为 loopback → 放行
+        let mut iframe = HeaderMap::new();
+        iframe.insert("origin", HeaderValue::from_static("http://127.0.0.1:4399"));
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::PublicEmbedWrite,
+                &Method::POST,
+                &iframe,
+                false,
+                true,
+            ),
+            BridgeAccessDecision::Allow
+        );
+
+        // 外部站点伪造 Origin 一律 403（即使同时带了有效令牌）
+        let mut hostile = HeaderMap::new();
+        hostile.insert(
+            "origin",
+            HeaderValue::from_static("https://attacker.example"),
+        );
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::PublicEmbedWrite,
+                &Method::POST,
                 &hostile,
                 true,
                 true,

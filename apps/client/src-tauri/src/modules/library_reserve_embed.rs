@@ -75,6 +75,31 @@ pub struct LibraryReserveEmbedOpenRequest {
     pub bounds: LibraryReserveEmbedBounds,
 }
 
+/// 请求桥内 iframe 地址（#1081：iOS / 无 `add_child` 平台的内嵌路线）
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LibraryReserveEmbedProxyRequest {
+    /// 应用标识：`seat` / `quiet_room` / `seminar_room`
+    pub app: String,
+    /// 页面形态：`live`（座位快速预约页，默认）/ `index`（入口落地页）
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// 是否强制重跑超星 SSO（默认 false）
+    #[serde(default)]
+    pub force: Option<bool>,
+}
+
+/// 桥内 iframe 地址解析结果
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryReserveEmbedProxyInfo {
+    /// 桥内 iframe URL（`http://127.0.0.1:<bridge_port>/reserve-embed/…`，含短时效凭证）
+    pub url: String,
+    /// 官方原始入口 URL（**含短时效凭证**；桥不可达时供「用系统浏览器打开」降级）
+    pub entry_url: String,
+    /// Bridge 监听基址（诊断用）
+    pub bridge_base: String,
+}
+
 /// 是否属于可内嵌的域（超星系 + 学校门户，保证 SSO 跳转不跳出 App）
 pub fn is_embeddable_embed_host(host: &str) -> bool {
     host == "chaoxing.com"
@@ -111,6 +136,52 @@ pub fn resolve_embed_target_url(entry_url: &str, app: LibraryApp, kind: Option<&
         }
     }
     entry_url.to_string()
+}
+
+/// 解析官方入口 → 桥内 iframe 地址（#1081，**全平台可用**）。
+///
+/// 与 [`library_reserve_embed_open`] 的区别：不创建任何 WebView，只把「官方入口 + 凭证」
+/// 换算成 Bridge 反向代理地址，交给前端 `<iframe>` 加载。iOS 上 `Window::add_child`
+/// 不可用（cfg 为 `all(desktop, feature = "unstable")`），故走这条路线。
+///
+/// 凭证短时效，**每次打开都现取**（不缓存、不持久化）；主机白名单校验在
+/// [`crate::modules::library_reserve_proxy::build_reserve_embed_bridge_url`] 内完成。
+#[tauri::command]
+pub async fn library_reserve_embed_proxy_url(
+    state: State<'_, AppState>,
+    req: LibraryReserveEmbedProxyRequest,
+) -> Result<LibraryReserveEmbedProxyInfo, String> {
+    let library_app =
+        LibraryApp::from_key(&req.app).ok_or_else(|| format!("未知应用标识「{}」", req.app))?;
+
+    let mut client = state.client.write().await;
+    let entry =
+        library_reserve::resolve_entry(&mut client, library_app, req.force.unwrap_or(false))
+            .await
+            .map_err(|e| e.message)?;
+    let entry_url = resolve_embed_target_url(&entry.entry_url, library_app, req.kind.as_deref());
+
+    let bridge_base = crate::modules::library_reserve_proxy::bridge_base_url();
+    let url = crate::modules::library_reserve_proxy::build_reserve_embed_bridge_url(
+        &bridge_base,
+        &entry_url,
+    )?;
+
+    crate::runtime_log::log_info(
+        "LibraryReserveEmbed",
+        format!(
+            "代理入口解析完成 app={} bridge={} 目标={}",
+            library_app.key(),
+            bridge_base,
+            entry.system_path
+        ),
+    );
+
+    Ok(LibraryReserveEmbedProxyInfo {
+        url,
+        entry_url,
+        bridge_base,
+    })
 }
 
 #[cfg(desktop)]
