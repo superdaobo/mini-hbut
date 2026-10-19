@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { t } from '../../utils/app_i18n'
 import {
+  RESERVE_ERROR_DETAIL_MAX,
   RESERVE_ERROR_MESSAGE_KEYS,
   SEMINAR_RESOURCES,
   QUIET_RESOURCES,
@@ -19,8 +20,10 @@ import {
   buildSlotTimeRange,
   extractHm,
   formatFieldErrorText,
+  formatReserveFailureText,
   matchesDate,
   normalizeFormFields,
+  normalizeMyReservation,
   normalizeSlot,
   parseReserveFailure,
   pickSelectedSlot,
@@ -30,6 +33,8 @@ import {
   summarizeFormValues,
   toFormData,
   toDateKey,
+  toLocalHm,
+  truncateReserveDetail,
   validateFormValues,
   type FormField,
   type ReserveResource
@@ -78,6 +83,7 @@ describe('parseReserveFailure（错误分支可判别）', () => {
     for (const kind of [
       'chaoxing_not_logged_in',
       'no_permission',
+      'credential_invalid',
       'network_unreachable',
       'invalid_app',
       'unexpected_response',
@@ -89,6 +95,19 @@ describe('parseReserveFailure（错误分支可判别）', () => {
     ]) {
       expect(RESERVE_ERROR_MESSAGE_KEYS[kind], `缺少 kind=${kind} 的映射`).toBeTruthy()
     }
+  })
+
+  it('#1075：credential_invalid 与 no_permission 必须是不同文案，且不标记 network', () => {
+    const credential = parseReserveFailure({ kind: 'credential_invalid', message: '凭证缺失' })
+    expect(credential.kind).toBe('credential_invalid')
+    expect(credential.messageKey).toBe('library.reserve.error.credentialInvalid')
+    expect(credential.network).toBe(false)
+    // 缺凭证 ≠ 无权限：文案必须区分（否则又会把用户引向「账号被禁用」的误判）
+    expect(credential.messageKey).not.toBe(parseReserveFailure({ kind: 'no_permission' }).messageKey)
+    // 且不得与「未登录」混同
+    expect(credential.messageKey).not.toBe(
+      parseReserveFailure({ kind: 'chaoxing_not_logged_in' }).messageKey
+    )
   })
 
   it('非结构化异常回落为通用失败（不误判为业务 / 网络）', () => {
@@ -105,6 +124,51 @@ describe('parseReserveFailure（错误分支可判别）', () => {
     const emptyMsg = parseReserveFailure({ kind: 'no_permission', message: '   ' })
     expect(emptyMsg.messageKey).toBe('library.reserve.error.noPermission')
     expect(emptyMsg.detail).toBe('')
+  })
+})
+
+// ── #1082 失败文案组装（用户反馈：提交失败必须能看见服务端原文） ──
+
+describe('#1082 失败文案组装（始终带出服务端原文）', () => {
+  /** 假翻译：直接回显 key，便于断言拼接结构 */
+  const translate = (key: string): string => `[${key}]`
+
+  it('truncateReserveDetail：空 / 空白 → 空串；正常原样；超长截断并加省略号', () => {
+    expect(truncateReserveDetail('')).toBe('')
+    expect(truncateReserveDetail('   ')).toBe('')
+    expect(truncateReserveDetail(null)).toBe('')
+    expect(truncateReserveDetail(undefined)).toBe('')
+    expect(truncateReserveDetail('预约区域不存在')).toBe('预约区域不存在')
+
+    const long = 'x'.repeat(RESERVE_ERROR_DETAIL_MAX + 50)
+    const cut = truncateReserveDetail(long)
+    expect(cut).toHaveLength(RESERVE_ERROR_DETAIL_MAX + 1) // 截断 + 省略号
+    expect(cut.endsWith('…')).toBe(true)
+    // 自定义上限
+    expect(truncateReserveDetail('abcdef', 3)).toBe('abc…')
+  })
+
+  it('已知 kind：i18n 文案 + 细节后缀 + 服务端原文（原文不再被丢弃）', () => {
+    const failure = parseReserveFailure({ kind: 'slot_unavailable', message: '该时段已被预约' })
+    expect(formatReserveFailureText(failure, translate)).toBe(
+      '[library.reserve.error.slotUnavailable][library.reserve.error.detailSuffix]该时段已被预约'
+    )
+  })
+
+  it('未知 kind：直接给服务端原文；原文也为空 → 回落 fallbackKey（座位提交用专用兜底）', () => {
+    const unknown = parseReserveFailure({ kind: 'brand_new_kind', message: '服务端拒绝：区域已关闭' })
+    expect(formatReserveFailureText(unknown, translate)).toBe('服务端拒绝：区域已关闭')
+
+    const empty = parseReserveFailure({ kind: 'brand_new_kind' })
+    expect(formatReserveFailureText(empty, translate)).toBe('[library.reserve.error.unknown]')
+    expect(
+      formatReserveFailureText(empty, translate, 'library.reserve.seat.submit.error.submit')
+    ).toBe('[library.reserve.seat.submit.error.submit]')
+  })
+
+  it('已知 kind 但无 detail → 只给 i18n 文案（不拼接空的细节后缀）', () => {
+    const failure = parseReserveFailure({ kind: 'no_permission' })
+    expect(formatReserveFailureText(failure, translate)).toBe('[library.reserve.error.noPermission]')
   })
 })
 
@@ -346,6 +410,94 @@ describe('日期 / 文本工具', () => {
   it('sortKeyOf：缺失日期排末尾', () => {
     expect(sortKeyOf({ date: '2026-10-16', start: '08:00' })).toBe('2026-10-16 08:00')
     expect(sortKeyOf({ date: '', start: '' })).toBe('9999-99-99 99:99')
+  })
+})
+
+describe('toLocalHm（#1076：毫秒时间戳 → 本地 HH:mm）', () => {
+  it('毫秒时间戳按本地时区转换为 HH:mm（数字与纯数字字符串两种形态）', () => {
+    const ms = new Date(2026, 6, 11, 9, 30).getTime() // 2026-07-11 09:30 本地
+    expect(toLocalHm(ms)).toBe('09:30')
+    expect(toLocalHm(String(ms))).toBe('09:30')
+  })
+
+  it('保留既有字符串时分行为（向后兼容）', () => {
+    expect(toLocalHm('08:00')).toBe('08:00')
+    expect(toLocalHm('8:05')).toBe('08:05')
+    expect(toLocalHm('08:00:00')).toBe('08:00')
+    expect(toLocalHm('2026-10-16 08:00:00')).toBe('08:00')
+  })
+
+  it('无法识别 / 空值返回空串，不猜测', () => {
+    expect(toLocalHm('')).toBe('')
+    expect(toLocalHm(null)).toBe('')
+    expect(toLocalHm(undefined)).toBe('')
+    expect(toLocalHm('时间待定')).toBe('')
+    expect(toLocalHm(0)).toBe('')
+    // 秒级时间戳无法与其它数字区分，不按毫秒解释
+    expect(toLocalHm(1783760400)).toBe('')
+  })
+})
+
+describe('normalizeMyReservation（#1076：按 reservepc/user/histroy 实测字段映射）', () => {
+  // 与实测样本同形（见 data/library-reserve-recon/02-live-verification-2026-10-16.md §4.2）
+  const ROW = {
+    id: 29589158,
+    itemId: 49136,
+    name: '4号静音仓',
+    today: '2026-07-11',
+    starttime: new Date(2026, 6, 11, 9, 0).getTime(),
+    endtime: new Date(2026, 6, 11, 11, 0).getTime(),
+    status: 2,
+    isCancel: 0,
+    aprvId: 0
+  }
+
+  it('真实字段：名称 / 日期 / 毫秒起止时间正确渲染', () => {
+    const item = normalizeMyReservation(ROW, 'quiet_room', 0)
+    expect(item.name).toBe('4号静音仓')
+    expect(item.date).toBe('2026-07-11')
+    expect(item.start).toBe('09:00')
+    expect(item.end).toBe('11:00')
+    expect(item.status).toBe(2)
+    expect(item.cancelled).toBe(false)
+    expect(item.statusKey).toBe('library.reserve.mine.statusFallback')
+  })
+
+  it('aprvId 恒为 0 时不作为取消 id，改取真实 id', () => {
+    const item = normalizeMyReservation(ROW, 'quiet_room', 0)
+    expect(item.recordId).toBe('29589158')
+    expect(item.key).toBe('quiet_room-29589158-0')
+  })
+
+  it('isCancel=1 标记为已取消并使用取消文案', () => {
+    const item = normalizeMyReservation({ ...ROW, isCancel: 1 }, 'quiet_room', 0)
+    expect(item.cancelled).toBe(true)
+    expect(item.statusKey).toBe('library.reserve.mine.statusCancelled')
+  })
+
+  it('兼容后端已归一化的 camelCase 形态与嵌套 raw 兜底', () => {
+    // 后端可能已归一化为 camelCase 顶层，但 date/startTime 候选键不含真实字段，真实行挂在 raw
+    const nested = normalizeMyReservation(
+      { aprvId: 0, itemName: null, date: null, startTime: null, raw: ROW },
+      'quiet_room',
+      0
+    )
+    expect(nested.name).toBe('4号静音仓')
+    expect(nested.date).toBe('2026-07-11')
+    expect(nested.start).toBe('09:00')
+    expect(nested.end).toBe('11:00')
+    expect(nested.recordId).toBe('29589158')
+  })
+
+  it('缺失字段 / 空对象不抛错，回落空值', () => {
+    const empty = normalizeMyReservation(null, 'seminar_room', 2)
+    expect(empty.name).toBe('')
+    expect(empty.date).toBe('')
+    expect(empty.recordId).toBe('')
+    expect(empty.start).toBe('')
+    expect(empty.status).toBeNull()
+    expect(empty.cancelled).toBe(false)
+    expect(empty.key).toBe('seminar_room-row-2')
   })
 })
 

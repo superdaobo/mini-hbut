@@ -1,17 +1,27 @@
 <script setup>
 /**
- * 静音仓 / 研讨室 预约面板（#1056）
+ * 静音仓 / 研讨室 预约面板（#1056 建，**#1081 改为日期×时段网格**）
  *
- * 单套应用的完整预约流程：资源列表 → 选日期与时段 → 动态表单 → 二次确认 → 提交。
- * 同一组件按 `app` 参数复用于静音仓（quiet_room）与研讨室（seminar_room）。
+ * 用户反馈两条：
+ * 1. 「预约时间段不要让用户自己选开始和结束时间，做成像表一样，直接点选那一天的那个时间段」；
+ * 2. 「静音仓/研讨室每天都显示没有时段」——根因是前端把**日期范围**当 `start_time/end_time`
+ *    下发给接口，服务端按日期过滤成 0 条；正确做法是**不传**这两个参数，走「房间列表」模式。
  *
- * 后端命令（Rust 层 `transport/tauri/library_reserve.rs`，#1053）：
- * - `library_reserve_item_info`        → 约束（advanceDays / durationLimitMin / 提醒内容）
- * - `library_reserve_time_list`        → 可预约时段（含 customFormConfig 动态表单定义）
- * - `library_reserve_submit`           → 提交预约
+ * 因此本面板的数据流改为：
+ * `library_reserve_time_list`（**不传** start_time/end_time）→ 房间列表（每间自带按星期几的
+ * `intervals`）→ 选中房间后按 `intervals` + `advanceDays` 渲染**日期 × 时段网格**
+ * （行 = 日期，列 = 时段；`available=0` 的星期几整行置灰）→ 点单元格选中 → 填表 → 提交。
  *
- * ⚠️ 契约不确定处（见 #1053）：`customFormConfig` → 提交体映射、取消路径等按已知形态实现，
- * 不做「猜测后伪装成已确定」；失败一律以 Rust 返回的结构化 `kind` 区分业务失败与网络失败。
+ * 后端命令（Rust 层 `transport/tauri/library_reserve.rs`）：
+ * - `library_reserve_item_info`    → 约束（advanceDays / advanceTime / durationLimitMin / 提醒内容）
+ * - `library_reserve_time_list`    → **房间列表 + 按星期几的开放窗口**（含 `customFormConfig`）
+ * - `library_reserve_item_setting` → **真实时段 ID**（`commonIntervalMap`，提交 `intervalIds` 用）
+ * - `library_reserve_submit`       → 提交预约（官方 `reserve/multiple/submit` 契约，实测 2026-10-19）
+ *
+ * ⚠️ 提交契约（实测）：`reserveUsers` 是 JSON 字符串，元素
+ * `{itemId, starttime:"YYYY-MM-DD HH:mm", endtime, remark, today, intervalIds:"[id,…]"}`；
+ * `reserveNum` 为房间数（单选固定 1），`cycleType=0`，`wfwEngineEnc` 传空串。
+ * 日期 / 时段**不能**直接以 `date/startTime/endTime` 透传（服务端会当作无时段拒绝）。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { invokeNative } from '../../platform/native'
@@ -20,22 +30,30 @@ import { useLocale, tf } from '../../utils/app_i18n'
 import { TEmptyState, TModal } from '../templates'
 import ReserveFormFields from './ReserveFormFields.vue'
 import {
-  FALLBACK_ADVANCE_DAYS,
   RESOURCE_CATALOG,
   WEEKDAY_KEYS,
-  buildDateOptions,
   buildInitialValues,
-  buildSlotTimeRange,
-  matchesDate,
-  normalizeSlot,
+  formatReserveFailureText,
+  normalizeFormFields,
   parseReserveFailure,
-  pickRawString,
-  pickSelectedSlot,
   stripHtml,
   summarizeFormValues,
   toFormData,
+  truncateReserveDetail,
   validateFormValues
 } from './catalog'
+import {
+  buildRoomGrid,
+  normalizeRoomIntervalSlots,
+  normalizeRoomList,
+  resolveAdvanceDays,
+  resolveCatalogResource,
+  resolveRoomGridDays,
+  resolveRoomIntervalIds,
+  resolveRoomServerClock,
+  roomOpenRange,
+  weekdayKeyOfDate
+} from './roomCatalog'
 
 const props = defineProps({
   /** 应用标识：quiet_room（静音仓）/ seminar_room（研讨室） */
@@ -44,63 +62,186 @@ const props = defineProps({
 
 const { t, locale } = useLocale()
 
-// ── 资源目录（静态勘察事实，随语言切换重算插值文案） ──
-const resources = computed(() => {
-  void locale.value
-  const list = RESOURCE_CATALOG[props.app] || []
-  return list.map((item) => ({
-    ...item,
-    name: tf(item.nameKey, { n: item.index }),
-    location: t(item.locationKey),
-    note: item.noteKey ? t(item.noteKey) : ''
-  }))
-})
-
 // ── 约束（预约项详情） ──
 const loading = ref(true)
 const loadError = ref('')
 const loadErrorDetail = ref('')
 const itemInfo = ref(null)
-const noticeDismissed = ref(false)
+/** 「预约须知 / 特别提醒」默认折叠（功能区置顶，通知置底） */
+const noticeOpen = ref(false)
 
-// ── 资源选择 ──
-const selectedResourceId = ref('')
-const selectedResource = computed(
-  () => resources.value.find((item) => item.id === selectedResourceId.value) || null
+// ── 房间列表（房间模式 time_list：不传 start_time / end_time） ──
+const rooms = ref([])
+const roomsLoading = ref(false)
+const roomsError = ref('')
+const roomsErrorDetail = ref('')
+/** 响应顶层 `advanceDays`（与条目内同名字段并存，作为房间级缺失时的回落） */
+const topAdvanceDays = ref(null)
+/**
+ * 服务端时钟（#1082 best-effort：房间接口契约未列服务端时间字段，取不到为 `null`）。
+ * `null` 时网格**不做任何时间置灰**（宁可不禁用也不猜本地时间）。
+ */
+const serverClock = ref(null)
+
+// ── 真实时段 ID（`library_reserve_item_setting`，2026-10-19 实测） ──
+/**
+ * 提交 `reserve/multiple/submit` 需要 `reserveUsers[].intervalIds`，
+ * 而 ID 只能从 `reserve/item/setting` 的 `commonIntervalMap` 拿到（房间列表的
+ * `reserveIntervalList` 只有开放窗口，没有 ID）。
+ */
+const intervalSlots = ref([])
+const settingLoading = ref(false)
+const settingError = ref('')
+
+/**
+ * 失败信息 → 可读文案（#1082：**始终**把服务端原文带出来）。
+ * 已知 kind 走 i18n 文案 + 细节后缀 + 服务端原文；未知 kind 直接给服务端原文。
+ */
+const failureText = (failure) => formatReserveFailureText(failure, t)
+
+/** 房间渲染模型（服务端字段优先，静态目录仅用于补地点 / 提示等展示属性） */
+const roomViews = computed(() => {
+  void locale.value
+  const catalog = RESOURCE_CATALOG[props.app] || []
+  return rooms.value.map((room) => {
+    const fallback = resolveCatalogResource(catalog, room)
+    const range = roomOpenRange(room)
+    return {
+      key: room.key,
+      room,
+      name:
+        room.name ||
+        (fallback ? tf(fallback.nameKey, { n: fallback.index }) : t('library.reserve.booking.roomFallback')),
+      capacityMin: room.minUserNum ?? fallback?.capacityMin ?? null,
+      capacityMax: room.maxUserNum ?? fallback?.capacityMax ?? null,
+      openFrom: range.openFrom || fallback?.openFrom || '',
+      openTo: range.openTo || fallback?.openTo || '',
+      location: fallback ? t(fallback.locationKey) : '',
+      note: fallback?.noteKey ? t(fallback.noteKey) : ''
+    }
+  })
+})
+
+// ── 房间选择 ──
+const selectedRoomKey = ref('')
+const selectedRoomView = computed(
+  () => roomViews.value.find((view) => view.key === selectedRoomKey.value) || null
+)
+const selectedRoom = computed(() => selectedRoomView.value?.room || null)
+
+/**
+ * 可提前天数：**预约项（`reserve/info`）优先**，其次房间条目，最后响应顶层。
+ *
+ * ⚠️ 顺序不可颠倒（2026-10-19 实测）：房间条目的 `advanceDays` 实测为 **14**，
+ * 那是房间自身配置；而真正决定可约窗口的是预约项的 `advanceDays`（实测 **3**）。
+ * 官方页面同样取 `reserveData.advanceDays`（= `reserve/info`）。
+ * 若优先取房间值，网格会多渲染 10 天，用户选到第 5 天起提交必然被服务端拒绝
+ * （「当前预约时间段未开放，请重新选择」）。
+ */
+const advanceDays = computed(() =>
+  resolveAdvanceDays(
+    itemInfo.value?.advanceDays,
+    selectedRoom.value?.advanceDays,
+    topAdvanceDays.value
+  )
 )
 
-// ── 时段 ──
-const slots = ref([])
-const slotsLoading = ref(false)
-const slotsError = ref('')
-const slotsErrorDetail = ref('')
-const selectedDate = ref('')
-const selectedSlotId = ref('')
+/** 日期 × 时段网格应展示的天数（含今天；按官方 `advanceDays + 放号时间` 规则） */
+const gridDays = computed(() =>
+  resolveRoomGridDays(advanceDays.value, itemInfo.value?.advanceTime)
+)
 
-// 已选时段只在「当前日期可见」的时段（visibleSlots，见下）中解析：
-// 修复 P1-3 —— 切换日期后旧日期已选时段不再残留于表单 / 提交条 / 确认弹窗。
-// visibleSlots 为下方 computed，getter 惰性求值，此处引用安全。
-const selectedSlot = computed(() => pickSelectedSlot(visibleSlots.value, selectedSlotId.value))
+/** 日期 × 时段网格（行 = 日期，列 = **服务端真实时段**；可用性逐时段判定 + 服务端时间置灰） */
+const grid = computed(() =>
+  buildRoomGrid(
+    selectedRoom.value,
+    // buildRoomGrid 内部按 `advanceDays + 1` 天生成，这里传入「总天数 - 1」
+    Math.max(0, gridDays.value - 1),
+    selectedRoom.value?.timeUnit ?? null,
+    new Date(),
+    serverClock.value,
+    // 真实时段（含非整点档，如 20:00-21:30）；拿不到时空数组 → 回落到按粒度切分
+    intervalSlots.value
+  )
+)
 
-// ── 动态表单 ──
+/** 动态表单定义（房间条目自带 `customFormConfig`，缺失视为无需填写） */
+const roomForm = computed(() => {
+  const raw = selectedRoom.value?.raw
+  const config = raw ? raw.customFormConfig : null
+  if (config === null || config === undefined) return { fields: [], parsed: true }
+  return normalizeFormFields(config)
+})
+
+// ── 已选单元格 ──
+const selectedCell = ref(null)
 const formValues = ref({})
 const formErrors = ref({})
 
-// ── 提交 ──
-const confirmVisible = ref(false)
-const submitting = ref(false)
+/** 单元格选中态：`on` 已选 / `off` 可约 / `closed` 不可约（单元格自带日期，比较无需行上下文） */
+const cellState = (cell) => {
+  if (!cell.available) return 'closed'
+  const picked = selectedCell.value
+  if (picked && picked.date === cell.date && picked.start === cell.start && picked.end === cell.end) {
+    return 'on'
+  }
+  return 'off'
+}
 
-/** 失败信息 → 可读文案（已知 kind 用 i18n，未知回落后端 / 运行时说明） */
-const failureText = (failure) =>
-  failure.messageKey ? t(failure.messageKey) : failure.detail || t('library.reserve.error.unknown')
+/** 单元格样式类（行级可用性由 cell.available 决定） */
+const cellClass = (cell) => {
+  const state = cellState(cell)
+  return ['gcell', state === 'on' ? 'gcell--on' : state === 'closed' ? 'gcell--closed' : 'gcell--free']
+}
 
-/** 可提前天数：以后端约束为准，缺失时回落勘察值（3 天） */
-const advanceDays = computed(() => {
-  const raw = Number(itemInfo.value?.advanceDays)
-  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : FALLBACK_ADVANCE_DAYS
+/** 日期行标记：今天 / 明天 */
+const dateTag = (row) => {
+  if (row.offset === 0) return t('library.reserve.date.today')
+  if (row.offset === 1) return t('library.reserve.date.tomorrow')
+  return ''
+}
+
+/** 网格列宽（首列为日期列） */
+const gridStyle = computed(() => ({
+  gridTemplateColumns: `84px repeat(${grid.value.columns.length}, minmax(68px, 1fr))`
+}))
+
+/** 选择单元格：不可约给出提示，重复点击取消选择 */
+const chooseCell = (cell) => {
+  if (!cell.available) {
+    showToast(t('library.reserve.toast.slotUnavailable'), 'warning')
+    return
+  }
+  const picked = selectedCell.value
+  if (picked && picked.date === cell.date && picked.start === cell.start && picked.end === cell.end) {
+    selectedCell.value = null
+    formValues.value = {}
+    formErrors.value = {}
+    return
+  }
+  selectedCell.value = { date: cell.date, start: cell.start, end: cell.end }
+  formValues.value = buildInitialValues(roomForm.value.fields)
+  formErrors.value = {}
+}
+
+/** 时段展示文案 */
+const cellTimeText = (cell) => (cell ? `${cell.start}-${cell.end}` : '')
+
+/** 提交前摘要行（确认弹窗展示） */
+const confirmRows = computed(() => {
+  const view = selectedRoomView.value
+  const cell = selectedCell.value
+  if (!view || !cell) return []
+  return [
+    { label: t('library.reserve.confirm.room'), value: view.name },
+    { label: t('library.reserve.confirm.date'), value: cell.date },
+    { label: t('library.reserve.confirm.time'), value: cellTimeText(cell) },
+    ...summarizeFormValues(roomForm.value.fields, formValues.value).map((row) => ({
+      label: row.label,
+      value: row.value
+    }))
+  ]
 })
-
-const dateOptions = computed(() => buildDateOptions(advanceDays.value))
 
 /** 单次最长时长（分钟），缺失时不展示该条约束 */
 const durationLimit = computed(() => {
@@ -113,57 +254,18 @@ const notice = computed(() => ({
   title: String(itemInfo.value?.dialogTitle ?? '').trim(),
   body: stripHtml(itemInfo.value?.dialogContent)
 }))
-const showNotice = computed(
-  () => !noticeDismissed.value && Boolean(notice.value.title || notice.value.body)
+/** 是否有可展示的通知内容（决定折叠区是否渲染） */
+const hasNotice = computed(
+  () =>
+    loading.value ||
+    Boolean(loadError.value) ||
+    Boolean(notice.value.title || notice.value.body) ||
+    Boolean(durationLimit.value)
 )
 
-/** 后端时段是否携带日期维度（有则按所选日期过滤，无则视为全量） */
-const slotsHaveDate = computed(() => slots.value.some((slot) => Boolean(slot.date)))
-
-const visibleSlots = computed(() => {
-  if (!slotsHaveDate.value) return slots.value
-  return slots.value.filter((slot) => matchesDate(slot.date, selectedDate.value))
-})
-
-/** 日期展示：星期 + 月-日 + 今天 / 明天标记 */
-const dateLabel = (option) => ({
-  weekday: t(WEEKDAY_KEYS[option.date.getDay()]),
-  md: `${String(option.date.getMonth() + 1).padStart(2, '0')}-${String(option.date.getDate()).padStart(2, '0')}`,
-  tag:
-    option.offset === 0
-      ? t('library.reserve.date.today')
-      : option.offset === 1
-        ? t('library.reserve.date.tomorrow')
-        : ''
-})
-
-/** 时段展示文案 */
-const slotTimeText = (slot) =>
-  slot.end ? `${slot.start}-${slot.end}` : slot.start || t('library.reserve.booking.slotUnknown')
-
-/** 时段样式类 */
-const slotClass = (slot) => [
-  'slot',
-  slot.state === 'free' ? 'slot--free' : slot.state === 'taken' ? 'slot--taken' : 'slot--closed',
-  { 'slot--on': slot.id === selectedSlotId.value }
-]
-
-/** 提交前摘要行（确认弹窗展示） */
-const confirmRows = computed(() => {
-  const resource = selectedResource.value
-  const slot = selectedSlot.value
-  if (!resource || !slot) return []
-  return [
-    // 房间名优先取后端时段自带的 itemName（权威来源）；缺失时回落所选房间
-    { label: t('library.reserve.confirm.room'), value: slot.itemName || resource.name },
-    { label: t('library.reserve.confirm.date'), value: selectedDate.value },
-    { label: t('library.reserve.confirm.time'), value: slotTimeText(slot) },
-    ...summarizeFormValues(slot.fields, formValues.value).map((row) => ({
-      label: row.label,
-      value: row.value
-    }))
-  ]
-})
+/** 提交 ── */
+const confirmVisible = ref(false)
+const submitting = ref(false)
 
 /** 拉取预约项约束（失败不阻断浏览，仅降级展示） */
 const loadConstraints = async () => {
@@ -176,99 +278,93 @@ const loadConstraints = async () => {
   } catch (e) {
     const failure = parseReserveFailure(e)
     itemInfo.value = null
-    loadError.value = failureText(failure)
-    loadErrorDetail.value = failure.messageKey ? failure.detail : ''
+    // 主行给 i18n / 服务端原文，副行（仅已知 kind）附服务端原文细节，避免 detail 重复展示
+    loadError.value = failure.messageKey
+      ? t(failure.messageKey)
+      : failure.detail || t('library.reserve.error.unknown')
+    loadErrorDetail.value = failure.messageKey ? truncateReserveDetail(failure.detail) : ''
   } finally {
     loading.value = false
-    if (!selectedDate.value) selectedDate.value = dateOptions.value[0]?.value || ''
   }
 }
 
 /**
- * 拉取可预约时段。
+ * 拉取房间列表 + 时段可用性。
  *
- * 修复 P1-4：把所选日期作为起止边界（`start_time` / `end_time`，snake_case，与 Rust
- * `LibraryReserveTimeListRequest` 一致）下发给后端 —— 此前只传 `{ app }`，日期选择器
- * 在真实契约下形同虚设（响应条目无 `date` 字段，前端也无法自行过滤）。
- * ⚠️ 该参数语义为「基于实测的推断」（日期边界），尚未在真实数据下验证；若后端按「时刻」
- * 解释或对非空值返回空列表，应回退为不传该参数（即删掉下方 start_time/end_time 赋值）。
+ * ⚠️ **必须不传 `start_time` / `end_time`**：传日期范围会让服务端按日期过滤成 0 条
+ * （用户上报的「每天都显示没有时段」）。不传才进入「房间列表」模式，返回按星期几的 `intervals`。
  */
-const loadSlots = async () => {
-  const resource = selectedResource.value
-  if (!resource) return
-  slotsLoading.value = true
-  slotsError.value = ''
-  slotsErrorDetail.value = ''
+const loadRooms = async () => {
+  roomsLoading.value = true
+  roomsError.value = ''
+  roomsErrorDetail.value = ''
   try {
-    const range = buildSlotTimeRange(selectedDate.value)
-    const req = { app: props.app }
-    if (range.startTime) {
-      req.start_time = range.startTime
-      req.end_time = range.endTime
-    }
-    const res = await invokeNative('library_reserve_time_list', { req })
-    const items = Array.isArray(res?.items) ? res.items : []
-    slots.value = items
-      .map((item, index) => normalizeSlot(item, index, resource))
-      .sort((a, b) => String(a.start).localeCompare(String(b.start)))
+    const res = await invokeNative('library_reserve_time_list', { req: { app: props.app } })
+    rooms.value = normalizeRoomList(res?.items)
+    topAdvanceDays.value = res?.advanceDays ?? null
+    // 服务端时钟 best-effort（契约未列该字段，取不到保持 null → 网格不做时间置灰）
+    serverClock.value = resolveRoomServerClock(res)
   } catch (e) {
     const failure = parseReserveFailure(e)
-    slots.value = []
-    slotsError.value = failureText(failure)
-    slotsErrorDetail.value = failure.messageKey ? failure.detail : ''
+    rooms.value = []
+    serverClock.value = null
+    // 主行给 i18n / 服务端原文，副行（仅已知 kind）附服务端原文细节，避免 detail 重复展示
+    roomsError.value = failure.messageKey
+      ? t(failure.messageKey)
+      : failure.detail || t('library.reserve.error.unknown')
+    roomsErrorDetail.value = failure.messageKey ? truncateReserveDetail(failure.detail) : ''
   } finally {
-    slotsLoading.value = false
+    roomsLoading.value = false
   }
 }
 
-/** 清空已选时段与表单状态（切换房间 / 日期 / 返回列表 / 提交成功后复用） */
-const resetSlotSelection = () => {
-  selectedSlotId.value = ''
+/**
+ * 拉取房间的真实时段 ID（`reserve/item/setting`）。
+ *
+ * 该请求失败**不阻断**浏览（网格仍按开放窗口渲染），但提交时必须拿到 ID，
+ * 否则给出明确提示而不是盲目提交。
+ */
+const loadRoomSetting = async (itemId) => {
+  intervalSlots.value = []
+  settingError.value = ''
+  if (!itemId) return
+  settingLoading.value = true
+  try {
+    const res = await invokeNative('library_reserve_item_setting', {
+      req: { app: props.app, item_id: Number(itemId) }
+    })
+    intervalSlots.value = normalizeRoomIntervalSlots(res?.intervals)
+    if (!intervalSlots.value.length) {
+      settingError.value = t('library.reserve.booking.settingEmpty')
+    }
+  } catch (e) {
+    const failure = parseReserveFailure(e)
+    settingError.value = failureText(failure)
+  } finally {
+    settingLoading.value = false
+  }
+}
+
+/** 清空已选单元格与表单状态（切换房间 / 提交成功后复用） */
+const resetCellSelection = () => {
+  selectedCell.value = null
   formValues.value = {}
   formErrors.value = {}
 }
 
-/** 进入某房间的预约页 */
-const selectResource = async (resource) => {
-  selectedResourceId.value = resource.id
-  resetSlotSelection()
-  selectedDate.value = dateOptions.value[0]?.value || ''
-  await loadSlots()
+/** 选择房间（网格来自该房间自带的 intervals；真实时段 ID 另拉 setting） */
+const selectRoom = (view) => {
+  selectedRoomKey.value = view.key
+  resetCellSelection()
+  void loadRoomSetting(view.room.itemId)
 }
 
-/**
- * 切换日期：先重置已选时段与表单，再按新日期重新拉取时段。
- * 修复 P1-3：旧实现只改 `selectedDate`，导致旧日期已选时段残留在表单 / 提交条 /
- * 确认弹窗（弹窗显示新日期，实际提交的却是旧日期时段），用户「确认」的内容与提交对象不一致。
- */
-const selectDate = async (dateKey) => {
-  if (!dateKey || dateKey === selectedDate.value) return
-  selectedDate.value = dateKey
-  resetSlotSelection()
-  await loadSlots()
-}
-
-/** 返回资源列表 */
+/** 返回房间列表 */
 const backToList = () => {
-  selectedResourceId.value = ''
-  resetSlotSelection()
-  slots.value = []
-  slotsError.value = ''
-}
-
-/** 选择时段：不可约给出提示，重复点击取消选择 */
-const chooseSlot = (slot) => {
-  if (slot.state !== 'free') {
-    showToast(t('library.reserve.toast.slotUnavailable'), 'warning')
-    return
-  }
-  if (selectedSlotId.value === slot.id) {
-    selectedSlotId.value = ''
-    return
-  }
-  selectedSlotId.value = slot.id
-  formValues.value = buildInitialValues(slot.fields)
-  formErrors.value = {}
+  selectedRoomKey.value = ''
+  resetCellSelection()
+  intervalSlots.value = []
+  settingError.value = ''
 }
 
 /** 表单值变更（子组件回抛） */
@@ -278,12 +374,11 @@ const onFormValues = (next) => {
 
 /** 提交入口：先本地校验，通过后弹二次确认 */
 const requestSubmit = () => {
-  const slot = selectedSlot.value
-  if (!slot) {
+  if (!selectedCell.value) {
     showToast(t('library.reserve.toast.selectSlot'), 'warning')
     return
   }
-  const validation = validateFormValues(slot.fields, formValues.value)
+  const validation = validateFormValues(roomForm.value.fields, formValues.value)
   formErrors.value = validation.errors
   if (!validation.valid) {
     showToast(t('library.reserve.toast.formInvalid'), 'warning')
@@ -292,36 +387,59 @@ const requestSubmit = () => {
   confirmVisible.value = true
 }
 
-/** 确认后真正提交 */
+/** 确认后真正提交（官方 `reserve/multiple/submit` 契约，2026-10-19 实测） */
 const confirmSubmit = async () => {
-  const slot = selectedSlot.value
-  if (!slot) {
+  const room = selectedRoom.value
+  const cell = selectedCell.value
+  if (!room || !cell) {
     confirmVisible.value = false
+    return
+  }
+  // 真实时段 ID 必须命中：拿不到就别提交（服务端会当作「无时段」拒绝）
+  const intervalIds = resolveRoomIntervalIds(
+    intervalSlots.value,
+    weekdayKeyOfDate(cell.date),
+    cell.start,
+    cell.end
+  )
+  if (!intervalIds.length) {
+    confirmVisible.value = false
+    showToast(t('library.reserve.toast.intervalMissing'), 'error', 3400)
     return
   }
   submitting.value = true
   try {
-    const cycleType = Number(itemInfo.value?.cycleType)
+    // 官方契约：reserveUsers 是 JSON 字符串，元素含 today/starttime/endtime/intervalIds
+    // （intervalIds 本身也是 JSON 字符串），reserveNum 为房间数（单选固定 1）。
+    const reserveUsers = [
+      {
+        itemId: Number(room.itemId),
+        starttime: `${cell.date} ${cell.start}`,
+        endtime: `${cell.date} ${cell.end}`,
+        remark: '',
+        today: cell.date,
+        intervalIds: JSON.stringify(intervalIds)
+      }
+    ]
     const req = {
       app: props.app,
-      // aprvId 来自时段条目（实测可能为 0，原样透传；缺失则交由后端推导）
-      aprv_id: slot.aprvId === null ? undefined : String(slot.aprvId),
-      // 以下两项契约未实测，按常见键名从原始条目兜底提取（取不到则不传）
-      aprv_status_type_id: pickRawString(slot.raw, [
-        'aprvStatusTypeId',
-        'statusTypeId',
-        'aprvStatusType'
-      ]),
-      form_user_id: pickRawString(slot.raw, ['formUserId', 'formUser', 'userId', 'applyUserId']),
-      cycle_type: Number.isFinite(cycleType) ? cycleType : 0,
-      form_data: toFormData(slot.fields, formValues.value)
+      cycle_type: 0,
+      form_data: toFormData(roomForm.value.fields, formValues.value),
+      extra: {
+        itemId: room.itemId,
+        reserveUsers: JSON.stringify(reserveUsers),
+        reserveNum: '1',
+        // 与官方页面一致：风控关闭，wfwEngineEnc 传空串
+        wfwEngineEnc: ''
+      }
     }
+
     const res = await invokeNative('library_reserve_submit', { req })
     confirmVisible.value = false
     showToast(res?.message || t('library.reserve.toast.submitSuccess'), 'success')
-    resetSlotSelection()
-    // 提交成功后刷新时段余量，避免展示过期状态
-    await loadSlots()
+    resetCellSelection()
+    // 提交成功后刷新房间时段可用性，避免展示过期状态
+    await loadRooms()
   } catch (e) {
     confirmVisible.value = false
     const failure = parseReserveFailure(e)
@@ -332,36 +450,211 @@ const confirmSubmit = async () => {
   }
 }
 
-onMounted(loadConstraints)
+onMounted(() => {
+  void loadConstraints()
+  void loadRooms()
+})
 // app 变化（静音仓 ⇄ 研讨室）时重置并重新加载
 watch(
   () => props.app,
   () => {
     backToList()
-    noticeDismissed.value = false
-    selectedDate.value = ''
+    noticeOpen.value = false
+    rooms.value = []
+    topAdvanceDays.value = null
+    serverClock.value = null
+    intervalSlots.value = []
+    settingError.value = ''
     void loadConstraints()
+    void loadRooms()
   }
 )
 </script>
 
 <template>
   <div class="panel">
-    <!-- ① 资源列表 -->
-    <template v-if="!selectedResource">
-      <section v-if="showNotice" class="card notice">
-        <div class="notice__head">
-          <strong>{{ notice.title || t('library.reserve.notice.title') }}</strong>
-          <button type="button" class="icon-btn" :aria-label="t('common.close')" @click="noticeDismissed = true">
-            <span class="material-symbols-outlined" aria-hidden="true">close</span>
-          </button>
-        </div>
-        <p v-if="notice.body" class="notice__body">{{ notice.body }}</p>
+    <!-- ① 功能区（置顶）：房间列表 -->
+    <template v-if="!selectedRoomView">
+      <h2 class="section-title">{{ t('library.reserve.resource.title') }}</h2>
+
+      <TEmptyState
+        v-if="roomsLoading"
+        type="loading"
+        :message="t('library.reserve.state.loading')"
+      />
+
+      <section v-else-if="roomsError" class="card error-card">
+        <p class="err">{{ roomsError }}</p>
+        <p v-if="roomsErrorDetail" class="hint">{{ roomsErrorDetail }}</p>
+        <button type="button" class="ghost" @click="loadRooms">
+          {{ t('library.reserve.btn.retry') }}
+        </button>
       </section>
 
-      <!-- 约束 / 违约后果：必须提示 -->
-      <section class="card notice notice--warn">
-        <strong>{{ t('library.reserve.notice.title') }}</strong>
+      <TEmptyState
+        v-else-if="!roomViews.length"
+        type="empty"
+        :message="t('library.reserve.booking.roomsEmpty')"
+      />
+
+      <div v-else class="res-list">
+        <button
+          v-for="view in roomViews"
+          :key="view.key"
+          type="button"
+          class="res-card"
+          @click="selectRoom(view)"
+        >
+          <div class="res-card__top">
+            <h3 class="res-card__name">{{ view.name }}</h3>
+            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+          </div>
+          <p v-if="view.openFrom && view.openTo" class="res-card__meta">
+            {{ tf('library.reserve.resource.openTime', { range: `${view.openFrom}-${view.openTo}` }) }}
+          </p>
+          <p v-if="view.location" class="res-card__meta">
+            {{ tf('library.reserve.resource.location', { place: view.location }) }}
+          </p>
+          <p v-if="view.capacityMin !== null && view.capacityMax !== null" class="res-card__meta">
+            {{ tf('library.reserve.resource.capacity', { min: view.capacityMin, max: view.capacityMax }) }}
+          </p>
+          <p v-if="view.note" class="res-card__note">{{ view.note }}</p>
+        </button>
+      </div>
+    </template>
+
+    <!-- ② 预约（日期 × 时段网格 → 填表 → 提交） -->
+    <template v-else>
+      <button type="button" class="back-link" @click="backToList">
+        <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+        {{ selectedRoomView.name }}
+      </button>
+
+      <section class="card res-summary">
+        <p v-if="selectedRoomView.openFrom && selectedRoomView.openTo" class="res-card__meta">
+          {{ tf('library.reserve.resource.openTime', { range: `${selectedRoomView.openFrom}-${selectedRoomView.openTo}` }) }}
+        </p>
+        <p v-if="selectedRoomView.location" class="res-card__meta">
+          {{ tf('library.reserve.resource.location', { place: selectedRoomView.location }) }}
+        </p>
+        <p
+          v-if="selectedRoomView.capacityMin !== null && selectedRoomView.capacityMax !== null"
+          class="res-card__meta"
+        >
+          {{ tf('library.reserve.resource.capacity', { min: selectedRoomView.capacityMin, max: selectedRoomView.capacityMax }) }}
+        </p>
+        <p v-if="selectedRoomView.note" class="res-card__note">{{ selectedRoomView.note }}</p>
+      </section>
+
+      <!-- 日期 × 时段网格（可视化点选，替代「选日期 + 选时段」两步） -->
+      <h3 class="section-title">{{ t('library.reserve.booking.grid') }}</h3>
+
+      <p v-if="settingLoading" class="hint">{{ t('library.reserve.booking.settingLoading') }}</p>
+      <p v-else-if="settingError" class="hint hint--warn">{{ settingError }}</p>
+
+      <p v-if="!grid.columns.length" class="hint">{{ t('library.reserve.booking.noIntervals') }}</p>
+      <template v-else>
+        <div class="grid-scroll">
+          <div class="grid grid--head" :style="gridStyle">
+            <span class="grid__corner">{{ t('library.reserve.booking.gridDate') }}</span>
+            <span v-for="column in grid.columns" :key="column.key" class="grid__col">
+              {{ column.label }}
+            </span>
+          </div>
+          <div
+            v-for="row in grid.rows"
+            :key="row.key"
+            class="grid grid--row"
+            :class="{ 'grid--off': row.disabled }"
+            :style="gridStyle"
+          >
+            <span class="grid__date">
+              <span class="grid__week">{{ t(WEEKDAY_KEYS[row.weekday]) }}</span>
+              <strong class="grid__md">{{ row.date.slice(5) }}</strong>
+              <em v-if="dateTag(row)" class="grid__tag">{{ dateTag(row) }}</em>
+            </span>
+            <button
+              v-for="cell in row.cells"
+              :key="cell.key"
+              type="button"
+              :class="cellClass(cell)"
+              :disabled="!cell.available"
+              :aria-pressed="cellState(cell) === 'on'"
+              @click="chooseCell(cell)"
+            >
+              <span class="gcell__label">{{ cell.label }}</span>
+            </button>
+          </div>
+        </div>
+        <p class="hint">{{ t('library.reserve.booking.gridHint') }}</p>
+        <div class="legend">
+          <span><i class="dot dot--free" />{{ t('library.reserve.booking.legendFree') }}</span>
+          <span><i class="dot dot--closed" />{{ t('library.reserve.booking.legendClosed') }}</span>
+          <span><i class="dot dot--on" />{{ t('library.reserve.booking.legendSelected') }}</span>
+        </div>
+      </template>
+
+      <!-- 动态表单 -->
+      <template v-if="selectedCell">
+        <h3 class="section-title">{{ t('library.reserve.booking.form') }}</h3>
+        <section class="card">
+          <p
+            v-if="selectedRoomView.capacityMin !== null && selectedRoomView.capacityMax !== null"
+            class="hint"
+          >
+            {{ tf('library.reserve.booking.capacityHint', { min: selectedRoomView.capacityMin, max: selectedRoomView.capacityMax }) }}
+          </p>
+          <ReserveFormFields
+            v-if="roomForm.fields.length"
+            :fields="roomForm.fields"
+            :values="formValues"
+            :errors="formErrors"
+            :disabled="submitting"
+            @update:values="onFormValues"
+          />
+          <p v-else-if="!roomForm.parsed" class="hint">
+            {{ t('library.reserve.booking.formUnparsed') }}
+          </p>
+          <p v-else class="hint">{{ t('library.reserve.booking.formEmpty') }}</p>
+        </section>
+      </template>
+
+      <!-- 提交条 -->
+      <div class="submit-bar">
+        <div class="submit-bar__info">
+          <template v-if="selectedCell">
+            <strong>{{ cellTimeText(selectedCell) }}</strong>
+            <span class="muted">{{ selectedCell.date }}</span>
+          </template>
+          <span v-else class="muted">{{ t('library.reserve.booking.selectHint') }}</span>
+        </div>
+        <button
+          type="button"
+          class="primary"
+          :disabled="!selectedCell || submitting || settingLoading"
+          @click="requestSubmit"
+        >
+          {{ submitting ? t('library.reserve.btn.submitting') : t('library.reserve.btn.submit') }}
+        </button>
+      </div>
+    </template>
+
+    <!-- ③ 预约须知 / 特别提醒（置底，可折叠；功能区优先展示） -->
+    <section v-if="hasNotice" class="card notice">
+      <button
+        type="button"
+        class="notice__toggle"
+        :aria-expanded="noticeOpen"
+        @click="noticeOpen = !noticeOpen"
+      >
+        <strong class="notice__title">{{ t('library.reserve.notice.title') }}</strong>
+        <span class="material-symbols-outlined" aria-hidden="true">
+          {{ noticeOpen ? 'expand_less' : 'expand_more' }}
+        </span>
+      </button>
+      <div v-if="noticeOpen" class="notice__content">
+        <p v-if="notice.title" class="notice__body notice__body--strong">{{ notice.title }}</p>
+        <p v-if="notice.body" class="notice__body">{{ notice.body }}</p>
         <p v-if="loading" class="notice__body">{{ t('library.reserve.state.loading') }}</p>
         <template v-else>
           <ul class="notice__list">
@@ -376,163 +669,8 @@ watch(
             {{ t('library.reserve.btn.retry') }}
           </button>
         </template>
-      </section>
-
-      <h2 class="section-title">{{ t('library.reserve.resource.title') }}</h2>
-
-      <div class="res-list">
-        <button
-          v-for="resource in resources"
-          :key="resource.id"
-          type="button"
-          class="res-card"
-          @click="selectResource(resource)"
-        >
-          <div class="res-card__top">
-            <h3 class="res-card__name">{{ resource.name }}</h3>
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-          </div>
-          <p class="res-card__meta">
-            {{ tf('library.reserve.resource.openTime', { range: `${resource.openFrom}-${resource.openTo}` }) }}
-          </p>
-          <p class="res-card__meta">{{ tf('library.reserve.resource.location', { place: resource.location }) }}</p>
-          <p class="res-card__meta">
-            {{ tf('library.reserve.resource.capacity', { min: resource.capacityMin, max: resource.capacityMax }) }}
-          </p>
-          <p v-if="resource.note" class="res-card__note">{{ resource.note }}</p>
-        </button>
       </div>
-    </template>
-
-    <!-- ② 预约（选日期 / 时段 / 填表 / 提交） -->
-    <template v-else>
-      <button type="button" class="back-link" @click="backToList">
-        <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
-        {{ selectedResource.name }}
-      </button>
-
-      <section class="card res-summary">
-        <p class="res-card__meta">
-          {{ tf('library.reserve.resource.openTime', { range: `${selectedResource.openFrom}-${selectedResource.openTo}` }) }}
-        </p>
-        <p class="res-card__meta">
-          {{ tf('library.reserve.resource.location', { place: selectedResource.location }) }}
-        </p>
-        <p class="res-card__meta">
-          {{ tf('library.reserve.resource.capacity', { min: selectedResource.capacityMin, max: selectedResource.capacityMax }) }}
-        </p>
-        <p v-if="selectedResource.note" class="res-card__note">{{ selectedResource.note }}</p>
-        <p class="notice__body notice__body--danger">{{ t('library.reserve.notice.violation') }}</p>
-      </section>
-
-      <!-- 日期 -->
-      <h3 class="section-title">{{ t('library.reserve.booking.date') }}</h3>
-      <div class="dates">
-        <button
-          v-for="option in dateOptions"
-          :key="option.value"
-          type="button"
-          class="date"
-          :class="{ 'date--on': option.value === selectedDate }"
-          :aria-pressed="option.value === selectedDate"
-          @click="selectDate(option.value)"
-        >
-          <span class="date__week">{{ dateLabel(option).weekday }}</span>
-          <strong class="date__md">{{ dateLabel(option).md }}</strong>
-          <span v-if="dateLabel(option).tag" class="date__tag">{{ dateLabel(option).tag }}</span>
-        </button>
-      </div>
-
-      <!-- 时段 -->
-      <h3 class="section-title">{{ t('library.reserve.booking.slot') }}</h3>
-
-      <TEmptyState
-        v-if="slotsLoading"
-        type="loading"
-        :message="t('library.reserve.state.loading')"
-      />
-
-      <section v-else-if="slotsError" class="card error-card">
-        <p class="err">{{ slotsError }}</p>
-        <p v-if="slotsErrorDetail" class="hint">{{ slotsErrorDetail }}</p>
-        <button type="button" class="ghost" @click="loadSlots">
-          {{ t('library.reserve.btn.retry') }}
-        </button>
-      </section>
-
-      <TEmptyState
-        v-else-if="!visibleSlots.length"
-        type="empty"
-        :message="t('library.reserve.booking.slotEmpty')"
-      />
-
-      <template v-else>
-        <div class="slots">
-          <button
-            v-for="slot in visibleSlots"
-            :key="slot.id"
-            type="button"
-            :class="slotClass(slot)"
-            :aria-disabled="slot.state !== 'free'"
-            :aria-pressed="slot.id === selectedSlotId"
-            @click="chooseSlot(slot)"
-          >
-            <span class="slot__time">{{ slotTimeText(slot) }}</span>
-            <span v-if="slot.itemName" class="slot__name">{{ slot.itemName }}</span>
-            <span v-if="slot.remaining !== null" class="slot__sub">
-              {{ tf('library.reserve.booking.remaining', { n: slot.remaining }) }}
-            </span>
-          </button>
-        </div>
-        <div class="legend">
-          <span><i class="dot dot--free" />{{ t('library.reserve.booking.legendFree') }}</span>
-          <span><i class="dot dot--taken" />{{ t('library.reserve.booking.legendTaken') }}</span>
-          <span><i class="dot dot--closed" />{{ t('library.reserve.booking.legendClosed') }}</span>
-          <span><i class="dot dot--on" />{{ t('library.reserve.booking.legendSelected') }}</span>
-        </div>
-      </template>
-
-      <!-- 动态表单 -->
-      <template v-if="selectedSlot">
-        <h3 class="section-title">{{ t('library.reserve.booking.form') }}</h3>
-        <section class="card">
-          <p class="hint">
-            {{ tf('library.reserve.booking.capacityHint', { min: selectedResource.capacityMin, max: selectedResource.capacityMax }) }}
-          </p>
-          <ReserveFormFields
-            v-if="selectedSlot.fields.length"
-            :fields="selectedSlot.fields"
-            :values="formValues"
-            :errors="formErrors"
-            :disabled="submitting"
-            @update:values="onFormValues"
-          />
-          <p v-else-if="!selectedSlot.formParsed" class="hint">
-            {{ t('library.reserve.booking.formUnparsed') }}
-          </p>
-          <p v-else class="hint">{{ t('library.reserve.booking.formEmpty') }}</p>
-        </section>
-      </template>
-
-      <!-- 提交条 -->
-      <div class="submit-bar">
-        <div class="submit-bar__info">
-          <template v-if="selectedSlot">
-            <strong>{{ slotTimeText(selectedSlot) }}</strong>
-            <span class="muted">{{ selectedDate }}</span>
-          </template>
-          <span v-else class="muted">{{ t('library.reserve.booking.selectHint') }}</span>
-        </div>
-        <button
-          type="button"
-          class="primary"
-          :disabled="!selectedSlot || submitting"
-          @click="requestSubmit"
-        >
-          {{ submitting ? t('library.reserve.btn.submitting') : t('library.reserve.btn.submit') }}
-        </button>
-      </div>
-    </template>
+    </section>
 
     <!-- 二次确认（必须：含违约后果） -->
     <TModal
@@ -580,30 +718,42 @@ watch(
   color: var(--ui-text);
 }
 
-/* 提醒 / 约束 */
+/* 提醒 / 约束（置底可折叠） */
 .notice {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.notice--warn {
-  border-color: color-mix(in oklab, var(--ui-danger) 40%, var(--ui-surface-border));
-}
-.notice__head {
+.notice__toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
 }
-.notice__head strong {
+.notice__title {
   font-size: calc(14px * var(--ui-font-scale));
   color: var(--ui-text);
+}
+.notice__content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .notice__body {
   margin: 0;
   font-size: calc(13px * var(--ui-font-scale));
   line-height: 1.6;
   color: var(--ui-muted);
+}
+.notice__body--strong {
+  font-weight: 700;
+  color: var(--ui-text);
 }
 .notice__body--danger {
   color: var(--ui-danger);
@@ -617,7 +767,7 @@ watch(
   line-height: 1.7;
 }
 
-/* 资源列表 */
+/* 房间列表 */
 .res-list {
   display: grid;
   grid-template-columns: 1fr;
@@ -681,108 +831,99 @@ watch(
   gap: 2px;
 }
 
-/* 日期 */
-.dates {
-  display: flex;
-  gap: 8px;
+/* 日期 × 时段网格 */
+.grid-scroll {
   overflow-x: auto;
-  padding-bottom: 4px;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
 }
-.date {
-  flex: 0 0 auto;
-  min-width: 62px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  border: 1px solid var(--ui-surface-border);
-  border-radius: calc(12px * var(--ui-radius-scale));
-  background: var(--ui-surface);
-  color: var(--ui-text);
-  cursor: pointer;
-}
-.date--on {
-  background: var(--ui-primary);
-  border-color: var(--ui-primary);
-  color: #fff;
-}
-.date__week {
-  font-size: calc(11px * var(--ui-font-scale));
-  opacity: 0.85;
-}
-.date__md {
-  font-size: calc(13px * var(--ui-font-scale));
-}
-.date__tag {
-  font-size: calc(10px * var(--ui-font-scale));
-  opacity: 0.9;
-}
-
-/* 时段 */
-.slots {
+.grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 6px;
+  align-items: stretch;
+  min-width: 100%;
+  width: max-content;
 }
-.slot {
-  min-height: 52px;
-  padding: 8px 6px;
+.grid + .grid {
+  margin-top: 6px;
+}
+.grid--head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-bottom: 2px;
+  background: var(--ui-surface);
+}
+.grid__corner,
+.grid__col {
+  font-size: calc(11px * var(--ui-font-scale));
+  font-weight: 700;
+  color: var(--ui-muted);
+  text-align: center;
+  padding: 2px 0;
+}
+.grid__corner {
+  text-align: left;
+}
+.grid__date {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
+  padding: 4px 0;
+}
+.grid__week {
+  font-size: calc(11px * var(--ui-font-scale));
+  color: var(--ui-muted);
+}
+.grid__md {
+  font-size: calc(12px * var(--ui-font-scale));
+  color: var(--ui-text);
+}
+.grid__tag {
+  font-size: calc(10px * var(--ui-font-scale));
+  font-style: normal;
+  color: var(--ui-primary);
+}
+.grid--off .grid__date {
+  opacity: 0.55;
+}
+.gcell {
+  min-height: 38px;
+  padding: 4px 6px;
   border: 1px solid var(--ui-surface-border);
-  border-radius: calc(12px * var(--ui-radius-scale));
+  border-radius: calc(10px * var(--ui-radius-scale));
   background: var(--ui-surface);
   color: var(--ui-text);
+  font-size: calc(11px * var(--ui-font-scale));
+  font-weight: 600;
   cursor: pointer;
-  transition: transform calc(0.12s * var(--ui-motion-scale)) ease;
 }
-.slot__time {
-  font-size: calc(12px * var(--ui-font-scale));
-  font-weight: 700;
-}
-.slot__sub {
-  font-size: calc(10px * var(--ui-font-scale));
-  opacity: 0.8;
-}
-/* 后端时段自带的房间名（契约提供时展示，便于核对预约对象） */
-.slot__name {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.gcell__label {
   white-space: nowrap;
-  font-size: calc(10px * var(--ui-font-scale));
-  opacity: 0.85;
 }
-.slot--free:active {
+.gcell--free:active {
   transform: scale(0.97);
 }
-.slot--taken {
-  background: color-mix(in oklab, var(--ui-danger) 14%, transparent);
-  border-color: color-mix(in oklab, var(--ui-danger) 40%, var(--ui-surface-border));
-  color: var(--ui-danger);
-  cursor: not-allowed;
+.gcell--on {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary);
+  color: #fff;
 }
-.slot--closed {
+.gcell--closed {
+  border-color: transparent;
   background: color-mix(in oklab, var(--ui-muted) 12%, transparent);
   color: var(--ui-muted);
+  opacity: 0.6;
   cursor: not-allowed;
-  opacity: 0.75;
-}
-.slot--on {
-  background: var(--ui-primary);
-  border-color: var(--ui-primary);
-  color: #fff;
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 14px;
+  margin-top: 8px;
   font-size: calc(11px * var(--ui-font-scale));
   color: var(--ui-muted);
 }
@@ -801,9 +942,6 @@ watch(
 .dot--free {
   background: var(--ui-surface);
 }
-.dot--taken {
-  background: color-mix(in oklab, var(--ui-danger) 45%, transparent);
-}
 .dot--closed {
   background: color-mix(in oklab, var(--ui-muted) 30%, transparent);
 }
@@ -813,9 +951,15 @@ watch(
 }
 
 /* 提交条 */
+/* 提交条：**固定贴屏幕底部**（用户反馈：原 sticky 停在内容中段，挡住网格）。
+   ⚠️ `library_reserve` 不是主 Tab，页面无底部导航栏（见 appState.showTabBar），
+   故可直接贴底，仅留安全区与 12px 呼吸位。 */
 .submit-bar {
-  position: sticky;
-  bottom: 72px;
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(12px + var(--app-safe-bottom, 0px));
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -897,6 +1041,9 @@ watch(
   color: var(--ui-muted);
   line-height: 1.6;
 }
+.hint--warn {
+  color: var(--ui-danger);
+}
 .primary,
 .ghost {
   min-height: 44px;
@@ -923,32 +1070,18 @@ watch(
 .ghost:disabled {
   opacity: 0.6;
 }
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  border: 0;
-  background: transparent;
-  color: var(--ui-muted);
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.icon-btn .material-symbols-outlined {
-  font-size: 18px;
-}
 
-/* 宽屏（≥768 主断点）：资源与时段多列排布 */
+/* 宽屏（≥768 主断点）：房间多列排布 */
 @media (min-width: 768px) {
   .res-list {
     grid-template-columns: repeat(2, 1fr);
   }
-  .slots {
-    grid-template-columns: repeat(6, 1fr);
-  }
+  /* 固定条在宽屏下居中限宽，避免横跨整屏 */
   .submit-bar {
-    bottom: 24px;
+    left: 50%;
+    right: auto;
+    width: min(720px, calc(100% - 32px));
+    transform: translateX(-50%);
   }
 }
 </style>

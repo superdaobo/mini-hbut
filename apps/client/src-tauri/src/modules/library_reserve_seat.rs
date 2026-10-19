@@ -4,9 +4,9 @@
 //! **只读查询**能力；静音仓 / 研讨室（PC 版 `reservepc`）在
 //! [`crate::modules::library_reserve_pc`]（#1053）中，两者平行、互不依赖。
 //!
-//! ## 接口契约（`data/library-reserve-recon/01-api-contract.md`，实测）
+//! ## 接口契约
 //!
-//! Base `https://reserve.chaoxing.com/data/apps/`；**全部为 GET**（与 reservepc 的 POST 不同）：
+//! 第一轮勘察（`data/library-reserve-recon/01-api-contract.md`）确认了四个 **GET** 端点：
 //!
 //! ```text
 //! GET seat/i18n                                                    全量文案
@@ -15,47 +15,71 @@
 //! GET seatengine/identity/verify?mappId=..&seatId=..&seatIdEnc=..  身份校验
 //! ```
 //!
-//! ⚠️ 本 issue **只做查询**：选座 / 提交 / 签到 / 暂离的契约尚未抓到
-//! （座位预约二级页依赖超星 App 原生桥接，浏览器走不通），
-//! 因此本模块**不实现、也不猜测**这些接口形态。
+//! 第二轮勘察（`data/library-reserve-recon/03-seat-availability-and-quick-reserve.md`，实测）
+//! 补上了**余量查询 / 找空座位**这一整条链路，全部为 **POST** 表单
+//! （页面里 `loadData(url, data)` = `$.post(url, data)`，
+//! `Content-Type: application/x-www-form-urlencoded; charset=UTF-8`）：
 //!
-//! ## 两个关键约束
+//! ```text
+//! POST seatengine/room/list        {seatId, seatIdEnc}                    房间列表（容量 / 开放时间）
+//! POST seatengine/levels           {seatId, type[, firstLevelName[, secondLevelName]]}  区域列表
+//! POST seatengine/getstartendtime  {deptIdEnc, seatId}                    当日可选时间范围
+//! POST seatengine/getseatinfo      {seatId, deptIdEnc, startTime, endTime, 三级区域名}  按时间找空座位
+//! ```
 //!
-//! 1. **`seatIdEnc` 不得硬编码**（疑似短时效）：优先取入口链路
+//! ⚠️ 本 issue **只做只读查询**：提交（`seatengine/submit`）需要客户端签名 `enc`
+//! 与验证码（`securityVerify=1`），契约尚未打通，因此本模块**不实现、也不猜测**提交形态。
+//!
+//! ## 三个关键约束
+//!
+//! 1. **`seatIdEnc` / `deptIdEnc` 不得硬编码**（疑似短时效）：优先取入口链路
 //!    （[`crate::modules::library_reserve::resolve_entry`]）的实时解析结果。
-//!    勘察显示该参数**不在跳转链上**，而是由座位预约页面注入，因此缺失时会再实时抓取一次
-//!    页面 HTML 做 best-effort 提取（[`fetch_page_hints`]）；仍取不到则记告警继续请求
-//!    （服务端可能由会话推导）。
+//!    勘察显示二者**不在跳转链上**，而是由座位预约页面注入，因此缺失时会再实时抓取一次
+//!    页面 HTML 做 best-effort 提取（复用地基模块的
+//!    [`crate::modules::library_reserve::fetch_page_injected`]）。
+//!    `seatIdEnc` 仍缺失则记告警继续请求（服务端可能由会话推导）；
+//!    `deptIdEnc` 缺失时**传空串**（实测空串仍可用），绝不报错。
 //! 2. **时间以服务端为准**：页面用服务端注入的 `serverNow` 判断开放时段，本地时间不可信。
 //!    本模块把服务端时间**原样透传**给前端（`serverNow`），前端必须以它做开放判断。
+//! 3. **`getseatinfo` 是「给我一个可用座位」而非座位图**：返回单条 `matchReserve`
+//!    （座位号 + 区域），且该座位会被服务端**临时锁定**（页面随后开始倒计时）。
 //!
 //! ## 契约完整度（代码中逐处标注）
 //!
-//! - ✅ **已实测**：四个端点路径与 GET 参数；`seatConfig` 的核心配置字段（issue #1054 实测表：
-//!   放号 / 时长 / 限额 / 违约 / 规则原文 / `onlySupportsApiSignIn`）；
-//!   `entrance/config` 的五个开关；`data.curReserves` / `data.nearReserves` 的存在。
+//! - ✅ **已实测**：GET 四端点的路径与参数；POST 四端点的路径与参数；
+//!   `seatConfig` 的核心配置字段（issue #1054 实测表）；`entrance/config` 的五个开关；
+//!   `room/list` 的房间字段（`id` / 容量 / 放号 / `gridStyle` / `picSeatMode`）；
+//!   `levels` 的 `data.levels[].{first,second,third}LevelName`；
+//!   `getstartendtime` 的 `{ymd, commonPauseTimes, startTime, endTime}`；
+//!   `getseatinfo` 的 `data.matchReserve` 字段（`seatNum` 为**带前导零的字符串**）。
 //! - ❓ **未实测（TODO(#1054)）**：`i18n` 的键空间、`identity/verify` 的响应结构、
-//!   预约条目（`curReserves` / `nearReserves` 元素）的字段名、服务端时间在响应里的字段名。
+//!   预约条目（`curReserves` / `nearReserves` 元素）的字段名、服务端时间在响应里的字段名、
+//!   房间 `seatEngineSpecialTime` 的结构、`commonPauseTimes` 的元素结构。
 //!   这些一律「宽松解析 + `raw` 原样保留」，**不把推测伪装成已确定**。
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, REFERER};
+use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, ORIGIN, REFERER};
+use reqwest::Url;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::http_client::HbutClient;
 use crate::modules::library_reserve::{
-    self, api_data, classify_transport_error, encode_form, looks_like_login_body,
-    looks_like_no_permission, non_empty, read_api_response, value_bool, value_i64, value_string,
-    LibraryApp, LibraryAppEntry, LibraryReserveError, RESERVE_API_BASE,
+    self, api_data, api_write_result, classify_transport_error, encode_form, non_empty,
+    read_api_response, value_bool, value_i64, value_string, LibraryApp, LibraryAppEntry,
+    LibraryReserveError, ERR_INVALID_PARAMS, RESERVE_API_BASE,
 };
 
 // ── 常量 ──
 
 /// 座位预约页面 Referer（超星会校验来源；实测接口由该页面 AJAX 发起）
 const SEAT_REFERER: &str = "https://reserve.chaoxing.com/front/apps/seatengine/index";
+/// Origin 头（表单 POST 必需）
+const RESERVE_ORIGIN: &str = "https://reserve.chaoxing.com";
+/// 实测的 Content-Type（**带 charset**，与契约一致；reqwest 的 `.form()` 不带 charset，故手工组体）
+const FORM_CONTENT_TYPE: &str = "application/x-www-form-urlencoded; charset=UTF-8";
 /// 业务接口超时（短于主客户端，避免前端长时间无反馈）
 const API_TIMEOUT: Duration = Duration::from_secs(25);
 
@@ -67,9 +91,33 @@ const ENDPOINT_ENTRANCE_CONFIG: &str = "seat/entrance/config";
 const ENDPOINT_SEAT_INDEX: &str = "seatengine/index";
 /// 身份校验
 const ENDPOINT_IDENTITY_VERIFY: &str = "seatengine/identity/verify";
+/// 房间列表（容量 / 开放时间）
+const ENDPOINT_ROOM_LIST: &str = "seatengine/room/list";
+/// 区域列表（一 / 二 / 三级）
+const ENDPOINT_LEVELS: &str = "seatengine/levels";
+/// 当日可选时间范围
+const ENDPOINT_START_END_TIME: &str = "seatengine/getstartendtime";
+/// 按时间找空座位（余量 / 匹配）
+const ENDPOINT_GET_SEAT_INFO: &str = "seatengine/getseatinfo";
+/// 图片验证码（提交预约需要；与会话绑定，必须用同一会话客户端取）
+const ENDPOINT_CAPTCHA: &str = "seat/captcha";
+/// 提交座位预约（写操作）
+const ENDPOINT_SUBMIT: &str = "seatengine/submit";
+/// 快速预约页（`submit_enc` 随机串由该页 HTML 服务端注入）
+const SEAT_LIVE_SELECT_PATH: &str = "/front/apps/seatengine/live/select";
+
+/// 预约系统根地址（构造快速预约页 URL 的兜底）
+const RESERVE_BASE: &str = "https://reserve.chaoxing.com";
 
 /// `seat/entrance/config` 实测固定参数：`appType=2`
 const ENTRANCE_APP_TYPE: &str = "2";
+
+/// 区域层级：一级（返回 `firstLevelName`）
+pub(crate) const LEVEL_TYPE_FIRST: i64 = 0;
+/// 区域层级：二级（返回 `secondLevelName`，需 `firstLevelName`）
+pub(crate) const LEVEL_TYPE_SECOND: i64 = 1;
+/// 区域层级：三级（返回 `thirdLevelName`，需 `firstLevelName` + `secondLevelName`）
+pub(crate) const LEVEL_TYPE_THIRD: i64 = 2;
 
 /// 服务端时间字段的候选键名。
 ///
@@ -99,19 +147,11 @@ const COMMON_TIME_DAY_PREFIXES: [(&str, &str); 7] = [
     ("sun", "周日"),
 ];
 
-// ── 页面注入参数（best-effort 实时发现） ──
-
-/// 从座位预约页面 HTML 中提取到的注入参数。
-///
-/// 依据：勘察确认页面内联注入 `serverNow = new Date('...')` 与 `seatIdEnc`，
-/// 二者都**不**出现在入口跳转链上。这里只做「读取页面」而不猜测任何接口形态。
-#[derive(Debug, Clone, Default)]
-struct SeatPageHints {
-    /// 页面注入的座位 ID 加密串（短时效）
-    seat_id_enc: Option<String>,
-    /// 页面注入的服务端当前时间（原样文本）
-    server_now: Option<String>,
-}
+// ── 页面注入参数（best-effort 实时发现，复用地基模块能力） ──
+//
+// `seatIdEnc` / `deptIdEnc` / `serverNow` 都不在入口跳转链上，由落地页服务端注入。
+// 提取能力已上提到 [`crate::modules::library_reserve::fetch_page_injected`]，
+// 本模块只负责调用与降级。
 
 // ── 凭证上下文 ──
 
@@ -122,10 +162,14 @@ pub(crate) struct SeatContext {
     seat_id: String,
     /// 座位 ID 加密串（短时效，可能缺失）
     seat_id_enc: Option<String>,
+    /// 部门 ID 加密串（短时效，可能缺失；**缺失时按空串发请求**，实测空串仍可用）
+    dept_id_enc: Option<String>,
     /// 超星 mAppId（`identity/verify` 需要）
     mapp_id: String,
     /// 页面注入的服务端当前时间（best-effort；响应里若有同义字段则优先用响应值）
     page_server_now: Option<String>,
+    /// 入口落地 URL（含短时效凭证；用于构造快速预约页 `live/select` 的地址）
+    entry_url: String,
 }
 
 impl SeatContext {
@@ -148,9 +192,17 @@ impl SeatContext {
         Ok(Self {
             seat_id,
             seat_id_enc,
+            // 入口链路通常不带 deptIdEnc（同样由页面注入）；有则优先用实时值
+            dept_id_enc: non_empty(entry.credentials.dept_id_enc.as_deref()),
             mapp_id: app.m_app_id().to_string(),
             page_server_now: None,
+            entry_url: entry.entry_url.clone(),
         })
+    }
+
+    /// `deptIdEnc` 的请求值：**取不到时返回空串**（实测空串仍可用），绝不因此报错。
+    fn dept_id_enc_or_empty(&self) -> String {
+        self.dept_id_enc.clone().unwrap_or_default()
     }
 }
 
@@ -173,14 +225,35 @@ async fn resolve_seat_context(
     let entry = library_reserve::resolve_entry(client, app, force).await?;
     let mut ctx = SeatContext::from_entry(app, &entry)?;
 
-    // seatIdEnc 与页面注入的服务端时间都不在跳转链上，需要实时抓一次页面
-    if ctx.seat_id_enc.is_none() || ctx.page_server_now.is_none() {
-        match fetch_page_hints(client, &entry).await {
+    // seatIdEnc / deptIdEnc 与页面注入的服务端时间都不在跳转链上，需要实时抓一次页面
+    // （复用地基模块能力）
+    if ctx.seat_id_enc.is_none() || ctx.dept_id_enc.is_none() || ctx.page_server_now.is_none() {
+        match library_reserve::fetch_page_injected(
+            client,
+            &entry,
+            &[
+                library_reserve::PAGE_KEY_SEAT_ID_ENC,
+                library_reserve::PAGE_KEY_DEPT_ID_ENC,
+                library_reserve::PAGE_KEY_SERVER_NOW,
+            ],
+        )
+        .await
+        {
             Ok(hints) => {
                 if ctx.seat_id_enc.is_none() {
-                    ctx.seat_id_enc = hints.seat_id_enc;
+                    ctx.seat_id_enc = hints
+                        .get(library_reserve::PAGE_KEY_SEAT_ID_ENC)
+                        .map(str::to_string);
                 }
-                ctx.page_server_now = hints.server_now;
+                if ctx.dept_id_enc.is_none() {
+                    // 页面里若为 `deptIdEnc = ''`，extract_page_value 会返回 None → 仍留空串语义
+                    ctx.dept_id_enc = hints
+                        .get(library_reserve::PAGE_KEY_DEPT_ID_ENC)
+                        .map(str::to_string);
+                }
+                ctx.page_server_now = hints
+                    .get(library_reserve::PAGE_KEY_SERVER_NOW)
+                    .map(str::to_string);
             }
             // 页面抓取失败只降级、不阻断：主流程仍可用（服务端可能由会话推导参数）
             Err(err) => crate::runtime_log::log_warn(
@@ -196,87 +269,14 @@ async fn resolve_seat_context(
     crate::runtime_log::log_info(
         "LibraryReserveSeat",
         format!(
-            "座位预约上下文就绪 seatId={} 有 seatIdEnc={} 有服务端时间={}",
+            "座位预约上下文就绪 seatId={} 有 seatIdEnc={} 有 deptIdEnc={} 有服务端时间={}",
             ctx.seat_id,
             ctx.seat_id_enc.is_some(),
+            ctx.dept_id_enc.is_some(),
             ctx.page_server_now.is_some()
         ),
     );
     Ok(ctx)
-}
-
-/// 实时抓取座位预约页面，提取页面注入的 `seatIdEnc` / `serverNow`。
-///
-/// 失败（登录态失效 / 页面结构变更 / 网络问题）**不阻断主流程**，由调用方降级处理。
-async fn fetch_page_hints(
-    client: &HbutClient,
-    entry: &LibraryAppEntry,
-) -> Result<SeatPageHints, LibraryReserveError> {
-    crate::runtime_log::log_info("LibraryReserveSeat", "抓取座位预约页面以提取注入参数");
-    let resp = client
-        .client
-        .get(&entry.entry_url)
-        .header(ACCEPT, "text/html,application/xhtml+xml,*/*;q=0.8")
-        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9")
-        .timeout(API_TIMEOUT)
-        .send()
-        .await
-        .map_err(|e| classify_transport_error(&e))?;
-
-    let status = resp.status().as_u16();
-    let html = resp
-        .text()
-        .await
-        .map_err(|e| classify_transport_error(&e))?;
-
-    if looks_like_login_body(&html) {
-        return Err(LibraryReserveError::not_logged_in(
-            "抓取座位预约页面时超星返回登录页，登录态已失效",
-        ));
-    }
-    if looks_like_no_permission(status, &html) {
-        return Err(LibraryReserveError::no_permission(format!(
-            "抓取座位预约页面被超星拒绝（HTTP {status}）"
-        )));
-    }
-
-    Ok(SeatPageHints {
-        seat_id_enc: extract_page_value(&html, "seatIdEnc"),
-        server_now: extract_page_value(&html, "serverNow"),
-    })
-}
-
-/// 从页面 HTML / 内联 JS 中提取某个键的字符串值（best-effort）。
-///
-/// 支持两种形态（按优先级）：
-/// 1. 赋值 / JSON 字段：`key = new Date('2026-10-15T23:31:03.073+08:00')`、`key = "v"`、
-///    `"key":"v"` —— 键后允许一个引号（JSON 键），等号 / 冒号与引号之间允许少量
-///    「非分隔符」字符（如 ` new Date(`）；
-/// 2. URL query 里的裸值：`key=value`（值到 `&` / 引号 / 空白为止）。
-///
-/// 刻意排除 `& ? = / , : ; { } [ ] < > \` 等分隔符，避免把后续无关的引号串误当成该键的值。
-fn extract_page_value(html: &str, key: &str) -> Option<String> {
-    let escaped = regex::escape(key);
-
-    let quoted = regex::Regex::new(&format!(
-        r#"{escaped}['"]?\s*[:=][^'"\n&?=/,:;{{}}\[\]<>\\]{{0,32}}['"]([^'"]{{1,200}})['"]"#
-    ))
-    .ok()?;
-    if let Some(cap) = quoted.captures(html).and_then(|c| c.get(1)) {
-        let text = cap.as_str().trim();
-        if !text.is_empty() {
-            return Some(text.to_string());
-        }
-    }
-
-    let bare = regex::Regex::new(&format!(r#"{escaped}=([^&'"\s<>\\]{{1,200}})"#)).ok()?;
-    let cap = bare.captures(html).and_then(|c| c.get(1))?;
-    let text = cap.as_str().trim();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text.to_string())
-    }
 }
 
 /// 粗判字符串是否像一个服务端时间。
@@ -339,6 +339,38 @@ async fn get_json(
     read_api_response(resp, path).await
 }
 
+/// POST 表单并返回 JSON。
+///
+/// 实测（2026-10-16）：余量 / 找空座位这一整条链路页面里都走 `$.post`，
+/// `Content-Type: application/x-www-form-urlencoded; charset=UTF-8`（reqwest 的 `.form()`
+/// 不带 charset，故手工组体，与 `library_reserve_pc` 的 `post_form` 对齐）。
+async fn post_json(
+    client: &HbutClient,
+    path: &str,
+    params: &BTreeMap<String, String>,
+) -> Result<Value, LibraryReserveError> {
+    let url = format!("{RESERVE_API_BASE}{path}");
+    crate::runtime_log::log_info(
+        "LibraryReserveSeat",
+        format!("POST {path} 参数数={}", params.len()),
+    );
+    let resp = client
+        .client
+        .post(&url)
+        .header(CONTENT_TYPE, FORM_CONTENT_TYPE)
+        .header(ACCEPT, "application/json, text/plain, */*")
+        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9")
+        .header(REFERER, SEAT_REFERER)
+        .header(ORIGIN, RESERVE_ORIGIN)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .timeout(API_TIMEOUT)
+        .body(encode_form(params))
+        .send()
+        .await
+        .map_err(|e| classify_transport_error(&e))?;
+    read_api_response(resp, path).await
+}
+
 // ── 请求体构造（与实测契约逐字段对齐） ──
 
 /// `seatengine/index`：实测仅 `seatId` + `seatIdEnc`
@@ -368,6 +400,137 @@ fn entrance_config_params(ctx: &SeatContext) -> BTreeMap<String, String> {
     p.insert("appType".into(), ENTRANCE_APP_TYPE.to_string());
     p.insert("appId".into(), ctx.seat_id.clone());
     p
+}
+
+/// `seatengine/room/list`：实测 `seatId` + `seatIdEnc`
+fn room_list_params(ctx: &SeatContext) -> BTreeMap<String, String> {
+    let mut p = BTreeMap::new();
+    p.insert("seatId".into(), ctx.seat_id.clone());
+    if let Some(enc) = &ctx.seat_id_enc {
+        p.insert("seatIdEnc".into(), enc.clone());
+    }
+    p
+}
+
+/// `seatengine/levels`：实测 `seatId` + `type`（+ 上级区域名）。
+///
+/// - `type=0`（一级）：仅 `seatId` + `type`；
+/// - `type=1`（二级）：追加 `firstLevelName`；
+/// - `type=2`（三级）：追加 `firstLevelName` + `secondLevelName`。
+///
+/// 上级区域名为空时**不带该参数**（与页面 `$.post` 的实参一致）。
+fn levels_params(
+    ctx: &SeatContext,
+    level_type: i64,
+    first_level_name: Option<&str>,
+    second_level_name: Option<&str>,
+) -> BTreeMap<String, String> {
+    let mut p = BTreeMap::new();
+    p.insert("seatId".into(), ctx.seat_id.clone());
+    p.insert("type".into(), level_type.to_string());
+    if let Some(name) = non_empty(first_level_name) {
+        p.insert("firstLevelName".into(), name);
+    }
+    if let Some(name) = non_empty(second_level_name) {
+        p.insert("secondLevelName".into(), name);
+    }
+    p
+}
+
+/// `seatengine/getstartendtime`：实测 `deptIdEnc` + `seatId`。
+///
+/// ⚠️ `deptIdEnc` **恒带**（取不到时传空串，实测空串仍可用），与 `seatIdEnc` 的
+/// 「缺失即不带」语义不同。
+fn time_range_params(ctx: &SeatContext) -> BTreeMap<String, String> {
+    let mut p = BTreeMap::new();
+    p.insert("deptIdEnc".into(), ctx.dept_id_enc_or_empty());
+    p.insert("seatId".into(), ctx.seat_id.clone());
+    p
+}
+
+/// `seatengine/getseatinfo`：实测 `seatId` + `deptIdEnc` + `startTime` + `endTime` + 三级区域名。
+///
+/// 三个区域名**恒带**（页面实参即为空串），未指定时传空串（= 任意区域）。
+fn match_params(
+    ctx: &SeatContext,
+    start_time: &str,
+    end_time: &str,
+    first_level_name: Option<&str>,
+    second_level_name: Option<&str>,
+    third_level_name: Option<&str>,
+) -> BTreeMap<String, String> {
+    let mut p = BTreeMap::new();
+    p.insert("seatId".into(), ctx.seat_id.clone());
+    p.insert("deptIdEnc".into(), ctx.dept_id_enc_or_empty());
+    p.insert("startTime".into(), start_time.to_string());
+    p.insert("endTime".into(), end_time.to_string());
+    p.insert(
+        "firstLevelName".into(),
+        first_level_name.unwrap_or_default().to_string(),
+    );
+    p.insert(
+        "secondLevelName".into(),
+        second_level_name.unwrap_or_default().to_string(),
+    );
+    p.insert(
+        "thirdLevelName".into(),
+        third_level_name.unwrap_or_default().to_string(),
+    );
+    p
+}
+
+/// 把 `HH:mm` / `H:mm` 归一化为零填充的 `HH:mm`（与页面 `moment(...).format('HH:mm')` 对齐）；
+/// 非法（缺冒号 / 非数字 / 越界）返回 `None`。
+fn normalize_hh_mm(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let (hour_text, minute_text) = trimmed.split_once(':')?;
+    let hour: u32 = hour_text.trim().parse().ok()?;
+    let minute: u32 = minute_text.trim().parse().ok()?;
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+    Some(format!("{hour:02}:{minute:02}"))
+}
+
+/// 校验并归一化 `YYYY-MM-DD`（trim 后原样返回）；非法返回 `None`。
+///
+/// 只做形态校验（长度 + 分隔符 + 数字），不校验日历合法性（服务端为准）。
+fn normalize_day(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return None;
+    }
+    if !bytes
+        .iter()
+        .enumerate()
+        .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// 从快速预约页 HTML 提取提交随机串 `#submit_enc` 的 `value`。
+///
+/// 实测形态：`<input type="hidden" id="submit_enc" value="c2e1ec6696a74df188850419513a1261_406591160"/>`。
+/// 正则刻意宽松：允许 `id` / `value` 任意顺序、属性间任意空白；取不到返回 `None`（调用方降级为空串）。
+fn extract_submit_enc(html: &str) -> Option<String> {
+    const ID_FIRST: &str = r#"id\s*=\s*["']submit_enc["'][^>]{0,200}?value\s*=\s*["']([^"']+)["']"#;
+    const VALUE_FIRST: &str =
+        r#"value\s*=\s*["']([^"']+)["'][^>]{0,200}?id\s*=\s*["']submit_enc["']"#;
+    for pattern in [ID_FIRST, VALUE_FIRST] {
+        let Ok(re) = regex::Regex::new(pattern) else {
+            continue;
+        };
+        if let Some(cap) = re.captures(html).and_then(|c| c.get(1)) {
+            let value = cap.as_str().trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 // ── 响应模型 ──
@@ -695,6 +858,363 @@ fn reservations_of(data: &Value, key: &str) -> Vec<SeatReservation> {
         .unwrap_or_default()
 }
 
+// ── 余量查询 / 找空座位（第二轮勘察，实测） ──
+
+/// 单个房间（`seatengine/room/list` 的 `data` 元素）。
+///
+/// 实测字段（`data/library-reserve-recon/03-…md`）：
+/// `id` / `firstLevelName` / `capacity` / `reserveBeforeDay` / `reserveBeforeTime` /
+/// `reserveAfterDay` / `reserveAfterTime` / `gridStyle` / `picSeatMode`。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatRoom {
+    /// 房间 ID（提交预约时的 `roomId` 来源）
+    pub id: Option<i64>,
+    /// 一级区域名（实测「四楼D区（有插座）」）
+    pub first_level_name: Option<String>,
+    /// 二级区域名
+    pub second_level_name: Option<String>,
+    /// 三级区域名
+    pub third_level_name: Option<String>,
+    /// 容量（实测 118 / 240）
+    pub capacity: Option<i64>,
+    /// 可提前预约天数（实测 1）
+    pub reserve_before_day: Option<i64>,
+    /// 放号时间 `HH:mm`（实测 `08:00`）
+    pub reserve_before_time: Option<String>,
+    /// 可延后预约天数（实测 -1）
+    pub reserve_after_day: Option<i64>,
+    /// 延后截止时间 `HH:mm`（实测 `12:00`）
+    pub reserve_after_time: Option<String>,
+    /// 座位图样式（实测 0 / 1）
+    pub grid_style: Option<i64>,
+    /// 选座模式（实测 1 / 2）
+    pub pic_seat_mode: Option<i64>,
+    /// 每日开放时段（由 `seatEngineSpecialTime` best-effort 归一化；识别不了为空）
+    pub open_hours: Vec<DayTimeRange>,
+    /// 原始房间条目（未建模字段原样保留）
+    pub raw: Value,
+}
+
+impl SeatRoom {
+    fn from_value(v: &Value) -> Self {
+        let open_hours = v
+            .get("seatEngineSpecialTime")
+            .or_else(|| v.get("seatSpecialTime"))
+            .filter(|x| !x.is_null())
+            .map(open_hours_from_special_time)
+            .unwrap_or_default();
+        Self {
+            id: value_i64(v, &["id", "roomId"]),
+            first_level_name: value_string(v, &["firstLevelName"]),
+            second_level_name: value_string(v, &["secondLevelName"]),
+            third_level_name: value_string(v, &["thirdLevelName"]),
+            capacity: value_i64(v, &["capacity"]),
+            reserve_before_day: value_i64(v, &["reserveBeforeDay"]),
+            reserve_before_time: value_string(v, &["reserveBeforeTime"]),
+            reserve_after_day: value_i64(v, &["reserveAfterDay"]),
+            reserve_after_time: value_string(v, &["reserveAfterTime"]),
+            grid_style: value_i64(v, &["gridStyle"]),
+            pic_seat_mode: value_i64(v, &["picSeatMode"]),
+            open_hours,
+            raw: v.clone(),
+        }
+    }
+}
+
+/// 房间列表（`seatengine/room/list` 响应）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatRooms {
+    /// 房间列表（可能为空）
+    pub rooms: Vec<SeatRoom>,
+    /// 原始响应 `data`
+    pub raw: Value,
+}
+
+impl SeatRooms {
+    fn from_data(data: &Value) -> Self {
+        Self {
+            rooms: room_list_of(data),
+            raw: data.clone(),
+        }
+    }
+}
+
+/// 从响应 `data` 中宽松取房间数组。
+///
+/// ⚠️ TODO(#1054)：勘察实测只给出 `totalRow=2` 与房间字段，**未记录数组所在键名**
+/// （推测为 `rows`）。故此处按 `rows` / `rooms` / `list` / `records` 依次尝试，
+/// 并兼容 `data` 本身即数组的形态。
+fn room_list_of(data: &Value) -> Vec<SeatRoom> {
+    let items = ["rows", "rooms", "list", "records"]
+        .iter()
+        .find_map(|key| data.get(*key).and_then(|v| v.as_array()))
+        .or_else(|| data.as_array());
+    items
+        .map(|arr| arr.iter().map(SeatRoom::from_value).collect())
+        .unwrap_or_default()
+}
+
+/// 把房间的 `seatEngineSpecialTime` 归一化成每日时段（best-effort）。
+///
+/// ⚠️ 该字段的**真实结构未实测**（勘察只确认房间列表含容量 / 放号 / 开放时间字段）。
+/// 这里只做「宽松归一化 + 原样保留 `raw`」：支持「JSON 字符串 / 对象 / 对象数组」三种形态，
+/// 复用 [`CommonTimeConfig`] 的 `{星期前缀}StartTime/EndTime` 键位思路；
+/// 识别不了就返回空列表，前端仍可从 `room.raw` 兜底渲染。
+fn open_hours_from_special_time(value: &Value) -> Vec<DayTimeRange> {
+    match value {
+        Value::String(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Vec::new();
+            }
+            serde_json::from_str::<Value>(trimmed)
+                .map(|parsed| open_hours_from_special_time(&parsed))
+                .unwrap_or_default()
+        }
+        Value::Array(items) => items
+            .iter()
+            .flat_map(|item| {
+                // 优先「显式 day/start/end」形态；否则回落到星期前缀键位
+                let explicit = explicit_day_range(item);
+                if let Some(range) = explicit {
+                    vec![range]
+                } else {
+                    CommonTimeConfig::from_value(item).days
+                }
+            })
+            .collect(),
+        Value::Object(_) => CommonTimeConfig::from_value(value).days,
+        _ => Vec::new(),
+    }
+}
+
+/// 单条「显式 day/start/end」形态（如 `{"day":"周一","startTime":"08:00","endTime":"22:00"}`）
+fn explicit_day_range(item: &Value) -> Option<DayTimeRange> {
+    let day = value_string(item, &["day", "week", "weekDay", "dayName"])?;
+    let start = value_string(item, &["startTime", "start", "beginTime"]);
+    let end = value_string(item, &["endTime", "end", "finishTime"]);
+    if start.is_none() && end.is_none() {
+        return None;
+    }
+    Some(DayTimeRange { day, start, end })
+}
+
+/// 区域列表（`seatengine/levels` 响应）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatLevels {
+    /// 请求的层级（0 一级 / 1 二级 / 2 三级）
+    pub level_type: i64,
+    /// 该层级的区域名列表（按请求层级取对应键；可能为空）
+    pub levels: Vec<String>,
+    /// 原始响应 `data`
+    pub raw: Value,
+}
+
+impl SeatLevels {
+    fn from_data(data: &Value, level_type: i64) -> Self {
+        Self {
+            level_type,
+            levels: levels_of(data, level_type),
+            raw: data.clone(),
+        }
+    }
+}
+
+/// 按请求层级取 `data.levels[]` 里对应的键（宽松：元素可为字符串或对象）。
+fn levels_of(data: &Value, level_type: i64) -> Vec<String> {
+    let key = match level_type {
+        LEVEL_TYPE_SECOND => "secondLevelName",
+        LEVEL_TYPE_THIRD => "thirdLevelName",
+        _ => "firstLevelName",
+    };
+    let items = data
+        .get("levels")
+        .and_then(|v| v.as_array())
+        .or_else(|| data.as_array());
+    items
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| level_name(item, key))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 取单条层级名：元素可能是字符串本身，也可能是对象（含 `key` 字段）。
+fn level_name(item: &Value, key: &str) -> Option<String> {
+    match item {
+        Value::String(s) => non_empty(Some(s.as_str())),
+        _ => value_string(item, &[key]),
+    }
+}
+
+/// 当日可选时间范围（`seatengine/getstartendtime` 响应）。
+///
+/// 实测：`{"ymd":"2026-10-16","commonPauseTimes":[],"startTime":0,"endTime":50400000}`。
+/// `startTime` / `endTime` 为**当日毫秒偏移**（0 → 50400000 = 14:00），
+/// 页面用 `seatConfig.timeUnit`（实测 60 分钟）切成可选时间片。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatTimeRange {
+    /// 目标日期 `YYYY-MM-DD`
+    pub ymd: Option<String>,
+    /// 起始时间（当日毫秒偏移）
+    pub start_offset_ms: Option<i64>,
+    /// 结束时间（当日毫秒偏移）
+    pub end_offset_ms: Option<i64>,
+    /// 暂停 / 不可用时段（`commonPauseTimes` 原样透传；元素结构未实测）
+    pub pause_times: Vec<Value>,
+    /// 原始响应 `data`
+    pub raw: Value,
+}
+
+impl SeatTimeRange {
+    fn from_data(data: &Value) -> Self {
+        Self {
+            ymd: value_string(data, &["ymd", "day", "date"]),
+            start_offset_ms: value_i64(data, &["startTime"]),
+            end_offset_ms: value_i64(data, &["endTime"]),
+            pause_times: data
+                .get("commonPauseTimes")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default(),
+            raw: data.clone(),
+        }
+    }
+}
+
+/// 匹配到的可用座位（`seatengine/getseatinfo` 的 `data.matchReserve`）。
+///
+/// 实测：`{"duration":"2.0","roomId":13248,"seatNum":"136",
+/// "firstLevelName":"二楼A区（现刊报纸阅览室）","startTime":1792112400000,"endTime":1792119600000}`。
+///
+/// ⚠️ `seat_num` 为**带前导零的字符串**（实测 `"016"` / `"136"`），必须按字符串透传，
+/// 不得当整数解析（否则 `016` 会变成 `16`，提交时座位号错误）。
+/// ⚠️ `duration` 实测为字符串 `"2.0"`（小时）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatMatch {
+    /// 房间 ID（提交预约的 `roomId`）
+    pub room_id: Option<i64>,
+    /// 座位号（**保留前导零的字符串**）
+    pub seat_num: Option<String>,
+    /// 一级区域名
+    pub first_level_name: Option<String>,
+    /// 二级区域名（实测样本未返回）
+    pub second_level_name: Option<String>,
+    /// 三级区域名（实测样本未返回）
+    pub third_level_name: Option<String>,
+    /// 开始时间（Unix 毫秒）
+    pub start_time_ms: Option<i64>,
+    /// 结束时间（Unix 毫秒）
+    pub end_time_ms: Option<i64>,
+    /// 时长（小时；实测为字符串 `"2.0"`）
+    pub duration: Option<String>,
+    /// 原始 `matchReserve`
+    pub raw: Value,
+}
+
+impl SeatMatch {
+    fn from_value(v: &Value) -> Self {
+        Self {
+            room_id: value_i64(v, &["roomId"]),
+            seat_num: value_string(v, &["seatNum"]),
+            first_level_name: value_string(v, &["firstLevelName"]),
+            second_level_name: value_string(v, &["secondLevelName"]),
+            third_level_name: value_string(v, &["thirdLevelName"]),
+            start_time_ms: value_i64(v, &["startTime"]),
+            end_time_ms: value_i64(v, &["endTime"]),
+            duration: value_string(v, &["duration"]),
+            raw: v.clone(),
+        }
+    }
+}
+
+/// 找空座位的结果：匹配到的座位 + 原始响应 `data`。
+///
+/// ⚠️ 语义是「给我一个该时段可用的座位」（服务端自动分配），**不是**座位图；
+/// 且该座位会被服务端**临时锁定**（页面随后开始倒计时），需在倒计时内提交。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatMatchResult {
+    /// 匹配到的座位
+    pub matched: SeatMatch,
+    /// 原始响应 `data`
+    pub raw: Value,
+}
+
+impl SeatMatchResult {
+    fn from_data(data: &Value) -> Self {
+        // 契约：座位信息在 `data.matchReserve`；缺失时回落到 `data` 本身（宽松）
+        let matched = data
+            .get("matchReserve")
+            .filter(|v| v.is_object())
+            .unwrap_or(data);
+        Self {
+            matched: SeatMatch::from_value(matched),
+            raw: data.clone(),
+        }
+    }
+}
+
+// ── 提交预约（快速预约链路，实测） ──
+
+/// 提交预约前的准备数据（验证码 + 页面注入的提交随机串）。
+///
+/// 实测（2026-10-16）：
+/// - `captchaUrl`：`GET seat/captcha?appType=2&appId=<seatId>` → `data.captchaUrl`（base64 图片）；
+///   验证码**与会话绑定**，必须由同一 Rust 会话客户端获取后立即提交；
+/// - `submitEnc`：快速预约页 `/front/apps/seatengine/live/select` 的 HTML 注入
+///   `#submit_enc`（形如 `c2e1ec…_406591160`），**best-effort** 提取，取不到为空串。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatSubmitPrepare {
+    /// 验证码图片（`data:image/...;base64,...`；取不到为 `None`）
+    pub captcha_url: Option<String>,
+    /// 页面注入的提交随机串（取不到为空串，前端可留空提交，由服务端判定）
+    pub submit_enc: String,
+    /// 验证码接口的原始 `data`（保留未建模字段，如 captchaId）
+    pub raw: Value,
+}
+
+/// 提交座位预约请求（字段与实测契约逐项对齐）。
+///
+/// ⚠️ `enc` 为**前端计算的客户端签名**，本层原样透传，不做校验 / 猜测；
+/// `wyToken` 恒为空串（实测 `seat/risk/check/config` → `riskCheckOpen:false`）。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SeatSubmitRequest {
+    /// 房间 ID（来自 `getseatinfo` 的 `matchReserve.roomId`）
+    pub room_id: i64,
+    /// 座位号（**保留前导零的字符串**，如 `"016"`）
+    pub seat_num: String,
+    /// 开始时间 `HH:mm`
+    pub start_time: String,
+    /// 结束时间 `HH:mm`
+    pub end_time: String,
+    /// 预约日期 `YYYY-MM-DD`
+    pub day: String,
+    /// 验证码（用户按 `captchaUrl` 输入）
+    pub captcha: String,
+    /// 客户端签名（前端计算）
+    pub enc: String,
+}
+
+/// 提交预约结果（写操作；必须显式成功才算成功）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatSubmitOutcome {
+    /// 服务端成功提示语（可能为空）
+    pub message: Option<String>,
+    /// 业务数据（`data`；无包装时为空对象）
+    pub data: Value,
+    /// 原始响应
+    pub raw: Value,
+}
+
 // ── 业务接口：只读查询 ──
 
 /// 若本次未能取得 `seatIdEnc`，在错误的**诊断字段**里标注（便于定位「接口莫名失败」）。
@@ -725,6 +1245,28 @@ async fn fetch_data(
     context: &str,
 ) -> Result<Value, LibraryReserveError> {
     let value = match get_json(client, path, params).await {
+        Ok(value) => value,
+        Err(err) => return Err(note_missing_seat_id_enc(err, ctx)),
+    };
+    match api_data(&value, context) {
+        Ok(data) => Ok(data),
+        Err(err) => Err(note_missing_seat_id_enc(err, ctx)),
+    }
+}
+
+/// POST + 统一取 `data`（余量 / 找空座位链路；失败分类见 [`api_data`]）。
+///
+/// 业务失败（如「无可用座位」）由 [`api_data`] →
+/// [`crate::modules::library_reserve::classify_business_failure`] 归入
+/// 可区分的业务 `kind` 并**保留服务端 `msg`**，绝不吞成 `unexpected_response`。
+async fn post_data(
+    client: &HbutClient,
+    ctx: &SeatContext,
+    path: &str,
+    params: &BTreeMap<String, String>,
+    context: &str,
+) -> Result<Value, LibraryReserveError> {
+    let value = match post_json(client, path, params).await {
         Ok(value) => value,
         Err(err) => return Err(note_missing_seat_id_enc(err, ctx)),
     };
@@ -829,11 +1371,342 @@ pub(crate) async fn fetch_i18n(
     Ok(data)
 }
 
+// ── 余量查询 / 找空座位（POST 表单） ──
+
+/// 房间列表（容量 / 放号 / 开放时间）。
+///
+/// `POST seatengine/room/list {seatId, seatIdEnc}`。
+pub(crate) async fn fetch_seat_rooms(
+    client: &mut HbutClient,
+    app: LibraryApp,
+    force: bool,
+) -> Result<SeatRooms, LibraryReserveError> {
+    let ctx = resolve_seat_context(client, app, force).await?;
+    let data = post_data(
+        client,
+        &ctx,
+        ENDPOINT_ROOM_LIST,
+        &room_list_params(&ctx),
+        "获取座位房间列表",
+    )
+    .await?;
+    let rooms = SeatRooms::from_data(&data);
+    crate::runtime_log::log_info(
+        "LibraryReserveSeat",
+        format!("座位房间列表已获取 房间数={}", rooms.rooms.len()),
+    );
+    Ok(rooms)
+}
+
+/// 区域列表（按层级）。
+///
+/// `POST seatengine/levels {seatId, type[, firstLevelName[, secondLevelName]]}`。
+/// `level_type` 取值见 [`LEVEL_TYPE_FIRST`] / [`LEVEL_TYPE_SECOND`] / [`LEVEL_TYPE_THIRD`]。
+pub(crate) async fn fetch_seat_levels(
+    client: &mut HbutClient,
+    app: LibraryApp,
+    level_type: i64,
+    first_level_name: Option<&str>,
+    second_level_name: Option<&str>,
+    force: bool,
+) -> Result<SeatLevels, LibraryReserveError> {
+    let ctx = resolve_seat_context(client, app, force).await?;
+    let data = post_data(
+        client,
+        &ctx,
+        ENDPOINT_LEVELS,
+        &levels_params(&ctx, level_type, first_level_name, second_level_name),
+        "获取座位区域列表",
+    )
+    .await?;
+    let levels = SeatLevels::from_data(&data, level_type);
+    crate::runtime_log::log_info(
+        "LibraryReserveSeat",
+        format!(
+            "座位区域列表已获取 层级={} 区域数={}",
+            levels.level_type,
+            levels.levels.len()
+        ),
+    );
+    Ok(levels)
+}
+
+/// 当日可选时间范围（`startTime` / `endTime` 为当日毫秒偏移）。
+///
+/// `POST seatengine/getstartendtime {deptIdEnc, seatId}`。
+pub(crate) async fn fetch_seat_time_range(
+    client: &mut HbutClient,
+    app: LibraryApp,
+    force: bool,
+) -> Result<SeatTimeRange, LibraryReserveError> {
+    let ctx = resolve_seat_context(client, app, force).await?;
+    let data = post_data(
+        client,
+        &ctx,
+        ENDPOINT_START_END_TIME,
+        &time_range_params(&ctx),
+        "获取座位可选时间范围",
+    )
+    .await?;
+    Ok(SeatTimeRange::from_data(&data))
+}
+
+/// 按时间找空座位（余量匹配）。
+///
+/// `POST seatengine/getseatinfo {seatId, deptIdEnc, startTime, endTime, 三级区域名}`。
+///
+/// - `start_time` / `end_time` 为 `HH:mm`（本地校验并归一化为零填充形态，非法则返回
+///   [`ERR_INVALID_PARAMS`]，**不发请求**）；
+/// - 区域名可选（未指定 = 任意区域）；
+/// - 业务失败（如「无可用座位」）保留服务端 `msg`。
+pub(crate) async fn fetch_seat_match(
+    client: &mut HbutClient,
+    app: LibraryApp,
+    start_time: &str,
+    end_time: &str,
+    first_level_name: Option<&str>,
+    second_level_name: Option<&str>,
+    third_level_name: Option<&str>,
+    force: bool,
+) -> Result<SeatMatchResult, LibraryReserveError> {
+    let start = normalize_hh_mm(start_time).ok_or_else(|| {
+        LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            format!("开始时间「{start_time}」不是合法的 HH:mm 时间"),
+        )
+    })?;
+    let end = normalize_hh_mm(end_time).ok_or_else(|| {
+        LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            format!("结束时间「{end_time}」不是合法的 HH:mm 时间"),
+        )
+    })?;
+
+    let ctx = resolve_seat_context(client, app, force).await?;
+    let data = post_data(
+        client,
+        &ctx,
+        ENDPOINT_GET_SEAT_INFO,
+        &match_params(
+            &ctx,
+            &start,
+            &end,
+            first_level_name,
+            second_level_name,
+            third_level_name,
+        ),
+        "查询可用座位",
+    )
+    .await?;
+    Ok(SeatMatchResult::from_data(&data))
+}
+
+// ── 提交预约（快速预约链路，实测） ──
+
+/// `seat/captcha` 请求体（实测固定 `appType=2` + `appId=<seatId>`）
+fn captcha_params(ctx: &SeatContext) -> BTreeMap<String, String> {
+    let mut p = BTreeMap::new();
+    p.insert("appType".into(), ENTRANCE_APP_TYPE.to_string());
+    p.insert("appId".into(), ctx.seat_id.clone());
+    p
+}
+
+/// `seatengine/submit` 请求体（与实测契约逐字段对齐）。
+///
+/// `wyToken` **恒为空串**（实测 `seat/risk/check/config` → `riskCheckOpen:false`）。
+///
+/// ⚠️ `wfwEngineEnc` **必须为空串**：实测（2026-10-19）快速预约页 `live/select` 内联脚本为
+/// `var deptIdEnc = '', seatIdEnc = '…', wfwEngineEnc = ''` —— 官方提交用的就是空串。
+/// 若改传入口链的 `wfwEnc`，服务端会返回「您不具备访问此应用的权限, 请联系管理员处理」。
+fn submit_params(_ctx: &SeatContext, req: &SeatSubmitRequest) -> BTreeMap<String, String> {
+    let mut p = BTreeMap::new();
+    p.insert("roomId".into(), req.room_id.to_string());
+    p.insert("startTime".into(), req.start_time.trim().to_string());
+    p.insert("endTime".into(), req.end_time.trim().to_string());
+    p.insert("day".into(), req.day.trim().to_string());
+    p.insert("captcha".into(), req.captcha.trim().to_string());
+    // 座位号保留原样（可能带前导零），只去首尾空白
+    p.insert("seatNum".into(), req.seat_num.trim().to_string());
+    p.insert("wyToken".into(), String::new());
+    // 与官方 live/select 页一致：wfwEngineEnc 恒为空串（详见函数文档）
+    p.insert("wfwEngineEnc".into(), String::new());
+    p.insert("enc".into(), req.enc.trim().to_string());
+    p
+}
+
+/// 构造快速预约页地址：把入口落地 URL 的路径换成 `live/select`，**保留原 query 凭证**。
+fn live_select_url(ctx: &SeatContext) -> String {
+    match Url::parse(&ctx.entry_url) {
+        Ok(mut url) => {
+            url.set_path(SEAT_LIVE_SELECT_PATH);
+            url.to_string()
+        }
+        Err(_) => format!("{RESERVE_BASE}{SEAT_LIVE_SELECT_PATH}"),
+    }
+}
+
+/// 取图片验证码（`data.captchaUrl`）。验证码与会话绑定，必须由本会话客户端即时获取。
+async fn fetch_seat_captcha(
+    client: &HbutClient,
+    ctx: &SeatContext,
+) -> Result<Value, LibraryReserveError> {
+    let value = get_json(client, ENDPOINT_CAPTCHA, &captcha_params(ctx)).await?;
+    api_data(&value, "获取座位预约验证码")
+}
+
+/// 抓快速预约页并提取 `#submit_enc`（**best-effort**：失败只记 warn，返回 `None`，不中断）。
+async fn fetch_submit_enc(client: &HbutClient, ctx: &SeatContext) -> Option<String> {
+    let url = live_select_url(ctx);
+    let resp = match client
+        .client
+        .get(&url)
+        .header(ACCEPT, "text/html,application/xhtml+xml,*/*;q=0.8")
+        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9")
+        .header(REFERER, SEAT_REFERER)
+        .timeout(API_TIMEOUT)
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(err) => {
+            crate::runtime_log::log_warn(
+                "LibraryReserveSeat",
+                format!("抓取快速预约页失败，submitEnc 留空（不影响主流程）：{err}"),
+            );
+            return None;
+        }
+    };
+    let html = match resp.text().await {
+        Ok(html) => html,
+        Err(err) => {
+            crate::runtime_log::log_warn(
+                "LibraryReserveSeat",
+                format!("读取快速预约页正文失败，submitEnc 留空（不影响主流程）：{err}"),
+            );
+            return None;
+        }
+    };
+    match extract_submit_enc(&html) {
+        Some(value) => Some(value),
+        None => {
+            crate::runtime_log::log_warn(
+                "LibraryReserveSeat",
+                "快速预约页未找到 #submit_enc（页面结构可能变更），submitEnc 留空",
+            );
+            None
+        }
+    }
+}
+
+/// 提交预约前置准备：验证码图片 + 页面注入的提交随机串。
+///
+/// `captchaUrl` 失败即报错（无验证码无法提交）；`submitEnc` 为 best-effort（取不到为空串）。
+pub(crate) async fn prepare_seat_submit(
+    client: &mut HbutClient,
+    app: LibraryApp,
+    force: bool,
+) -> Result<SeatSubmitPrepare, LibraryReserveError> {
+    let ctx = resolve_seat_context(client, app, force).await?;
+    // 顺序与官方页一致：先加载 live/select 页（服务端在该页下发 submit_enc），再取验证码。
+    //
+    // ⚠️ 但 `seat/captcha` 的图片验证码**不是**本应用当前使用的验证方式：
+    // `seat/captcha/type` 返回 `captchaType=0 / captchaOpen=true`，官方页走的是
+    // cxCaptcha 行为验证（`captcha.chaoxing.com`，`initCXCaptcha` + captchaId），
+    // 提交时 `captcha` 应为该组件回调里的 `token`。图片验证码仅旧模板使用，
+    // 真实提交会返回「验证码校验未通过」（2026-10-19 实测）。
+    let submit_enc = fetch_submit_enc(client, &ctx).await.unwrap_or_default();
+    let data = fetch_seat_captcha(client, &ctx).await?;
+    let captcha_url = value_string(&data, &["captchaUrl", "url", "image", "img"]);
+    if captcha_url.is_none() {
+        crate::runtime_log::log_warn(
+            "LibraryReserveSeat",
+            "验证码接口未返回 captchaUrl（响应结构可能变更）",
+        );
+    }
+    crate::runtime_log::log_info(
+        "LibraryReserveSeat",
+        format!(
+            "提交准备完成 有验证码={} 有 submitEnc={}",
+            captcha_url.is_some(),
+            !submit_enc.is_empty()
+        ),
+    );
+    Ok(SeatSubmitPrepare {
+        captcha_url,
+        submit_enc,
+        raw: data,
+    })
+}
+
+/// 提交座位预约（写操作）。
+///
+/// ⚠️ 必须用 [`api_write_result`] 判定：只有**显式成功**（`success:true` 或 `code∈{0,200}`）
+/// 才算成功；显式失败原样抛出服务端 `msg`（经业务分类）；两者皆无则报「结果未知」，
+/// **绝不默认成功**（假成功会让用户误以为约到了）。
+pub(crate) async fn submit_seat_reservation(
+    client: &mut HbutClient,
+    app: LibraryApp,
+    req: &SeatSubmitRequest,
+    force: bool,
+) -> Result<SeatSubmitOutcome, LibraryReserveError> {
+    // 本地参数校验（不发请求，避免无谓的服务端往返与误判）
+    if req.room_id <= 0 {
+        return Err(LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            "提交座位预约需要有效的 roomId（来自「找空座位」结果）",
+        ));
+    }
+    let seat_num = non_empty(Some(req.seat_num.as_str())).ok_or_else(|| {
+        LibraryReserveError::business(ERR_INVALID_PARAMS, "提交座位预约需要座位号 seatNum")
+    })?;
+    let start = normalize_hh_mm(&req.start_time).ok_or_else(|| {
+        LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            format!("开始时间「{}」不是合法的 HH:mm 时间", req.start_time),
+        )
+    })?;
+    let end = normalize_hh_mm(&req.end_time).ok_or_else(|| {
+        LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            format!("结束时间「{}」不是合法的 HH:mm 时间", req.end_time),
+        )
+    })?;
+    let day = normalize_day(&req.day).ok_or_else(|| {
+        LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            format!("预约日期「{}」不是合法的 YYYY-MM-DD", req.day),
+        )
+    })?;
+    let captcha = non_empty(Some(req.captcha.as_str())).ok_or_else(|| {
+        LibraryReserveError::business(ERR_INVALID_PARAMS, "提交座位预约需要验证码 captcha")
+    })?;
+
+    let ctx = resolve_seat_context(client, app, force).await?;
+    let normalized = SeatSubmitRequest {
+        room_id: req.room_id,
+        seat_num,
+        start_time: start,
+        end_time: end,
+        day,
+        captcha,
+        enc: req.enc.clone(),
+    };
+    let params = submit_params(&ctx, &normalized);
+    let value = post_json(client, ENDPOINT_SUBMIT, &params).await?;
+    let outcome = api_write_result(&value, "提交座位预约")?;
+    Ok(SeatSubmitOutcome {
+        message: outcome.message,
+        data: outcome.data,
+        raw: outcome.raw,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::modules::library_reserve::{
-        LibraryReserveCredentials, ERR_INVALID_APP, ERR_UNEXPECTED_RESPONSE,
+        LibraryReserveCredentials, ERR_BUSINESS_REJECTED, ERR_INVALID_APP, ERR_INVALID_PARAMS,
+        ERR_UNEXPECTED_RESPONSE,
     };
 
     /// 构造一个最小可用的入口解析结果（仅测试用）
@@ -873,6 +1746,13 @@ mod tests {
             &make_entry(LibraryApp::Seat, seat_id_enc, None),
         )
         .expect("可构造")
+    }
+
+    /// 指定 deptIdEnc 的座位上下文（第二轮勘察新增参数）
+    fn seat_context_with_dept(seat_id_enc: Option<&str>, dept_id_enc: Option<&str>) -> SeatContext {
+        let mut entry = make_entry(LibraryApp::Seat, seat_id_enc, None);
+        entry.credentials.dept_id_enc = dept_id_enc.map(str::to_string);
+        SeatContext::from_entry(LibraryApp::Seat, &entry).expect("可构造")
     }
 
     // ── 上下文与保护 ──
@@ -997,72 +1877,48 @@ mod tests {
 
     #[test]
     fn endpoints_match_recon_contract() {
-        // 防止重构时误改路径（契约文档 01-api-contract.md）
+        // 防止重构时误改路径（契约文档 01-api-contract.md / 03-seat-availability-and-quick-reserve.md）
         assert_eq!(ENDPOINT_I18N, "seat/i18n");
         assert_eq!(ENDPOINT_ENTRANCE_CONFIG, "seat/entrance/config");
         assert_eq!(ENDPOINT_SEAT_INDEX, "seatengine/index");
         assert_eq!(ENDPOINT_IDENTITY_VERIFY, "seatengine/identity/verify");
+        // 第二轮勘察（实测）新增的 POST 端点
+        assert_eq!(ENDPOINT_ROOM_LIST, "seatengine/room/list");
+        assert_eq!(ENDPOINT_LEVELS, "seatengine/levels");
+        assert_eq!(ENDPOINT_START_END_TIME, "seatengine/getstartendtime");
+        assert_eq!(ENDPOINT_GET_SEAT_INFO, "seatengine/getseatinfo");
+        // 快速预约链路（实测）：验证码 + 提交 + 快速预约页
+        assert_eq!(ENDPOINT_CAPTCHA, "seat/captcha");
+        assert_eq!(ENDPOINT_SUBMIT, "seatengine/submit");
+        assert_eq!(SEAT_LIVE_SELECT_PATH, "/front/apps/seatengine/live/select");
         assert_eq!(ENTRANCE_APP_TYPE, "2");
+        // 层级常量与契约 `type: 0|1|2` 对齐
+        assert_eq!(
+            [LEVEL_TYPE_FIRST, LEVEL_TYPE_SECOND, LEVEL_TYPE_THIRD],
+            [0, 1, 2]
+        );
         // 基址以 / 结尾，路径不得以 / 开头（否则拼接出错）
         for p in [
             ENDPOINT_I18N,
             ENDPOINT_ENTRANCE_CONFIG,
             ENDPOINT_SEAT_INDEX,
             ENDPOINT_IDENTITY_VERIFY,
+            ENDPOINT_ROOM_LIST,
+            ENDPOINT_LEVELS,
+            ENDPOINT_START_END_TIME,
+            ENDPOINT_GET_SEAT_INFO,
+            ENDPOINT_CAPTCHA,
+            ENDPOINT_SUBMIT,
         ] {
             assert!(!p.starts_with('/'), "路径不应以 / 开头：{p}");
         }
         assert!(RESERVE_API_BASE.ends_with('/'));
-        // 座位预约全部为 GET，不得引入 POST 端点
+        // 座位预约 Referer 是 seatengine 页面，不得混入 reservepc
         assert!(!SEAT_REFERER.ends_with("reservepc/index"));
+        assert!(SEAT_REFERER.contains("seatengine"));
     }
 
-    // ── 页面注入参数提取 ──
-
-    #[test]
-    fn extract_page_value_handles_js_json_and_query() {
-        // 勘察原文形态：serverNow = new Date('...')
-        let html = "serverNow = new Date('2026-10-15T23:31:03.073+08:00'), \
-                    currentServerTime = seatBaseUtils.createServerClock(serverNow);";
-        assert_eq!(
-            extract_page_value(html, "serverNow").as_deref(),
-            Some("2026-10-15T23:31:03.073+08:00")
-        );
-
-        // 直接赋值（单 / 双引号）
-        assert_eq!(
-            extract_page_value("var seatIdEnc = \"b146028eafa4eea9\";", "seatIdEnc").as_deref(),
-            Some("b146028eafa4eea9")
-        );
-        assert_eq!(
-            extract_page_value("seatIdEnc = 'b146028eafa4eea9'", "seatIdEnc").as_deref(),
-            Some("b146028eafa4eea9")
-        );
-
-        // JSON 字段形态
-        assert_eq!(
-            extract_page_value(r#"{"seatIdEnc":"abc123","other":"x"}"#, "seatIdEnc").as_deref(),
-            Some("abc123")
-        );
-
-        // URL query 里的裸值
-        assert_eq!(
-            extract_page_value(
-                "url + '/front/apps/seatengine/index?seatId=3597&seatIdEnc=deadbeef'",
-                "seatIdEnc"
-            )
-            .as_deref(),
-            Some("deadbeef")
-        );
-
-        // 键不存在 / 值为空 → None（不得把相邻的无关引号串当值）
-        assert_eq!(extract_page_value("<html></html>", "seatIdEnc"), None);
-        assert_eq!(extract_page_value("seatIdEnc = ''", "seatIdEnc"), None);
-        assert_eq!(
-            extract_page_value("seatIdEnc = null, other: \"bar\"", "seatIdEnc"),
-            None
-        );
-    }
+    // ── 页面注入参数提取（能力已上提到 library_reserve，提取测试随迁） ──
 
     #[test]
     fn plausible_server_time_rejects_slot_strings() {
@@ -1339,5 +2195,530 @@ mod tests {
             ERR_INVALID_APP, ERR_UNEXPECTED_RESPONSE,
             "两种错误必须可区分"
         );
+    }
+
+    // ── 余量查询 / 找空座位：请求体构造（与第二轮实测契约逐字段对齐） ──
+
+    #[test]
+    fn room_list_params_match_contract() {
+        // 实测：POST seatengine/room/list { seatId: '3597', seatIdEnc: '<enc>' }
+        let p = room_list_params(&seat_context(Some("b146028eafa4eea9")));
+        assert_eq!(p.get("seatId").map(String::as_str), Some("3597"));
+        assert_eq!(
+            p.get("seatIdEnc").map(String::as_str),
+            Some("b146028eafa4eea9")
+        );
+        assert_eq!(p.len(), 2, "room/list 不应多带参数：{p:?}");
+
+        // seatIdEnc 缺失时按既有逻辑「不带该参数」（与 seatIdEnc 的既有语义一致）
+        let p = room_list_params(&seat_context(None));
+        assert_eq!(p.get("seatId").map(String::as_str), Some("3597"));
+        assert!(!p.contains_key("seatIdEnc"));
+        assert_eq!(p.len(), 1);
+    }
+
+    #[test]
+    fn levels_params_match_contract_by_level() {
+        let ctx = seat_context(None);
+
+        // type=0：仅 seatId + type
+        let p = levels_params(&ctx, LEVEL_TYPE_FIRST, None, None);
+        assert_eq!(p.get("seatId").map(String::as_str), Some("3597"));
+        assert_eq!(p.get("type").map(String::as_str), Some("0"));
+        assert_eq!(p.len(), 2, "一级区域不应多带参数：{p:?}");
+
+        // type=1：追加 firstLevelName
+        let p = levels_params(&ctx, LEVEL_TYPE_SECOND, Some("四楼D区（有插座）"), None);
+        assert_eq!(p.get("type").map(String::as_str), Some("1"));
+        assert_eq!(
+            p.get("firstLevelName").map(String::as_str),
+            Some("四楼D区（有插座）")
+        );
+        assert!(!p.contains_key("secondLevelName"));
+        assert_eq!(p.len(), 3);
+
+        // type=2：追加 firstLevelName + secondLevelName
+        let p = levels_params(&ctx, LEVEL_TYPE_THIRD, Some("A区"), Some("A-1"));
+        assert_eq!(p.get("type").map(String::as_str), Some("2"));
+        assert_eq!(p.get("firstLevelName").map(String::as_str), Some("A区"));
+        assert_eq!(p.get("secondLevelName").map(String::as_str), Some("A-1"));
+        assert_eq!(p.len(), 4);
+
+        // 空串上级区域名视同未提供（页面实参即空串 → 不带）
+        let p = levels_params(&ctx, LEVEL_TYPE_FIRST, Some("   "), Some(""));
+        assert!(!p.contains_key("firstLevelName"));
+        assert!(!p.contains_key("secondLevelName"));
+        assert_eq!(p.len(), 2);
+    }
+
+    #[test]
+    fn time_range_params_always_send_dept_id_enc() {
+        // 实测：POST seatengine/getstartendtime { deptIdEnc: '', seatId: '3597' }
+        let p = time_range_params(&seat_context(None));
+        assert_eq!(p.get("deptIdEnc").map(String::as_str), Some(""));
+        assert_eq!(p.get("seatId").map(String::as_str), Some("3597"));
+        assert_eq!(p.len(), 2, "时间范围接口不应多带参数：{p:?}");
+
+        // 有 deptIdEnc 时用实时值
+        let p = time_range_params(&seat_context_with_dept(None, Some("DEPT-ENC")));
+        assert_eq!(p.get("deptIdEnc").map(String::as_str), Some("DEPT-ENC"));
+    }
+
+    #[test]
+    fn match_params_always_send_level_names_and_dept_id_enc() {
+        let ctx = seat_context(None);
+        // 实测：三级区域名恒带（未指定即空串）
+        let p = match_params(&ctx, "09:00", "11:00", None, None, None);
+        assert_eq!(p.get("seatId").map(String::as_str), Some("3597"));
+        assert_eq!(p.get("deptIdEnc").map(String::as_str), Some(""));
+        assert_eq!(p.get("startTime").map(String::as_str), Some("09:00"));
+        assert_eq!(p.get("endTime").map(String::as_str), Some("11:00"));
+        assert_eq!(p.get("firstLevelName").map(String::as_str), Some(""));
+        assert_eq!(p.get("secondLevelName").map(String::as_str), Some(""));
+        assert_eq!(p.get("thirdLevelName").map(String::as_str), Some(""));
+        assert_eq!(p.len(), 7, "getseatinfo 参数数固定为 7：{p:?}");
+
+        // 指定区域 + deptIdEnc
+        let ctx = seat_context_with_dept(Some("SEAT-ENC"), Some("DEPT-ENC"));
+        let p = match_params(
+            &ctx,
+            "09:00",
+            "11:00",
+            Some("四楼D区（有插座）"),
+            None,
+            None,
+        );
+        assert_eq!(p.get("deptIdEnc").map(String::as_str), Some("DEPT-ENC"));
+        assert_eq!(
+            p.get("firstLevelName").map(String::as_str),
+            Some("四楼D区（有插座）")
+        );
+    }
+
+    #[test]
+    fn normalize_hh_mm_pads_and_rejects_garbage() {
+        assert_eq!(normalize_hh_mm("09:00").as_deref(), Some("09:00"));
+        assert_eq!(normalize_hh_mm(" 9:5 ").as_deref(), Some("09:05"));
+        assert_eq!(normalize_hh_mm("23:59").as_deref(), Some("23:59"));
+        assert_eq!(normalize_hh_mm("0:00").as_deref(), Some("00:00"));
+        // 非法：缺冒号 / 非数字 / 越界 / 空
+        assert_eq!(normalize_hh_mm("0900"), None);
+        assert_eq!(normalize_hh_mm("aa:bb"), None);
+        assert_eq!(normalize_hh_mm("24:00"), None);
+        assert_eq!(normalize_hh_mm("09:60"), None);
+        assert_eq!(normalize_hh_mm(""), None);
+    }
+
+    // ── 余量查询 / 找空座位：响应解析（实测 JSON 作为 fixture） ──
+
+    #[test]
+    fn room_list_parses_recon_sample() {
+        // 第二轮勘察实测（totalRow=2）
+        let data = serde_json::json!({
+            "totalRow": 2,
+            "rows": [
+                {"id": 10892, "firstLevelName": "四楼D区（有插座）", "capacity": 118,
+                 "reserveBeforeDay": 1, "reserveBeforeTime": "08:00",
+                 "reserveAfterDay": -1, "reserveAfterTime": "12:00",
+                 "gridStyle": 1, "picSeatMode": 1},
+                {"id": 13248, "firstLevelName": "二楼A区（现刊报纸阅览室）", "capacity": 240,
+                 "reserveBeforeDay": 1, "reserveBeforeTime": "08:00",
+                 "reserveAfterDay": -1, "reserveAfterTime": "12:00",
+                 "gridStyle": 0, "picSeatMode": 2}
+            ]
+        });
+        let rooms = SeatRooms::from_data(&data);
+        assert_eq!(rooms.rooms.len(), 2);
+
+        let first = &rooms.rooms[0];
+        assert_eq!(first.id, Some(10892));
+        assert_eq!(first.first_level_name.as_deref(), Some("四楼D区（有插座）"));
+        assert_eq!(first.capacity, Some(118));
+        assert_eq!(first.reserve_before_day, Some(1));
+        assert_eq!(first.reserve_before_time.as_deref(), Some("08:00"));
+        assert_eq!(first.reserve_after_day, Some(-1));
+        assert_eq!(first.reserve_after_time.as_deref(), Some("12:00"));
+        assert_eq!(first.grid_style, Some(1));
+        assert_eq!(first.pic_seat_mode, Some(1));
+        // 未提供 seatEngineSpecialTime → 开放时段为空（不 panic）
+        assert!(first.open_hours.is_empty());
+        // 原始条目原样保留
+        assert_eq!(
+            first.raw.get("capacity").and_then(|v| v.as_i64()),
+            Some(118)
+        );
+
+        let second = &rooms.rooms[1];
+        assert_eq!(second.id, Some(13248));
+        assert_eq!(second.capacity, Some(240));
+        assert_eq!(second.pic_seat_mode, Some(2));
+        assert!(rooms.raw.get("totalRow").is_some());
+    }
+
+    #[test]
+    fn room_list_tolerates_missing_array_and_odd_shapes() {
+        // 无 rows / rooms / list：空列表，不 panic
+        let rooms = SeatRooms::from_data(&serde_json::json!({"totalRow": 0}));
+        assert!(rooms.rooms.is_empty());
+
+        // data 本身即数组
+        let rooms = SeatRooms::from_data(&serde_json::json!([{"id": 1, "capacity": 5}]));
+        assert_eq!(rooms.rooms.len(), 1);
+        assert_eq!(rooms.rooms[0].id, Some(1));
+
+        // 数字字符串 / 缺字段也要能解析
+        let rooms = SeatRooms::from_data(&serde_json::json!({
+            "rows": [{"id": "10892", "capacity": "118", "reserveBeforeDay": "1"}]
+        }));
+        assert_eq!(rooms.rooms[0].id, Some(10892));
+        assert_eq!(rooms.rooms[0].capacity, Some(118));
+        assert_eq!(rooms.rooms[0].reserve_before_day, Some(1));
+    }
+
+    #[test]
+    fn open_hours_from_special_time_handles_shapes() {
+        // 对象（星期前缀键位，复用 CommonTimeConfig 思路）
+        let days = open_hours_from_special_time(&serde_json::json!({
+            "monStartTime": "08:00", "monEndTime": "22:00"
+        }));
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].day, "周一");
+        assert_eq!(days[0].start.as_deref(), Some("08:00"));
+
+        // JSON 字符串
+        let days = open_hours_from_special_time(&serde_json::json!(
+            "{\"monStartTime\":\"08:00\",\"monEndTime\":\"22:00\"}"
+        ));
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].day, "周一");
+
+        // 对象数组：显式 day/start/end
+        let days = open_hours_from_special_time(&serde_json::json!([
+            {"day": "周一", "startTime": "08:00", "endTime": "22:00"},
+            {"day": "周二", "startTime": "08:00", "endTime": "21:00"}
+        ]));
+        assert_eq!(days.len(), 2);
+        assert_eq!(days[0].day, "周一");
+        assert_eq!(days[1].end.as_deref(), Some("21:00"));
+
+        // 对象数组：星期前缀键位
+        let days = open_hours_from_special_time(&serde_json::json!([
+            {"satStartTime": "09:00", "satEndTime": "18:00"}
+        ]));
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].day, "周六");
+
+        // 无法识别：空列表，不 panic
+        assert!(open_hours_from_special_time(&serde_json::json!("not json")).is_empty());
+        assert!(open_hours_from_special_time(&serde_json::json!("")).is_empty());
+        assert!(open_hours_from_special_time(&serde_json::json!(123)).is_empty());
+        assert!(open_hours_from_special_time(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn room_open_hours_reads_special_time_field() {
+        let room = SeatRoom::from_value(&serde_json::json!({
+            "id": 10892,
+            "seatEngineSpecialTime": {"monStartTime": "08:00", "monEndTime": "22:00"}
+        }));
+        assert_eq!(room.open_hours.len(), 1);
+        assert_eq!(room.open_hours[0].day, "周一");
+    }
+
+    #[test]
+    fn levels_extracts_name_by_level_type() {
+        // 实测（type=0）：data.levels[].firstLevelName
+        let data = serde_json::json!({
+            "levels": [
+                {"firstLevelName": "四楼D区（有插座）"},
+                {"firstLevelName": "二楼A区（现刊报纸阅览室）"}
+            ]
+        });
+        assert_eq!(
+            levels_of(&data, LEVEL_TYPE_FIRST),
+            vec![
+                "四楼D区（有插座）".to_string(),
+                "二楼A区（现刊报纸阅览室）".to_string()
+            ]
+        );
+
+        // type=1 → secondLevelName；type=2 → thirdLevelName（宽松：只认对应键）
+        let data = serde_json::json!({
+            "levels": [
+                {"secondLevelName": "A-1", "firstLevelName": "忽略我"},
+                {"secondLevelName": "A-2"}
+            ]
+        });
+        assert_eq!(levels_of(&data, LEVEL_TYPE_SECOND), vec!["A-1", "A-2"]);
+
+        let data = serde_json::json!({
+            "levels": [{"thirdLevelName": "x"}, {"firstLevelName": "y"}]
+        });
+        assert_eq!(levels_of(&data, LEVEL_TYPE_THIRD), vec!["x"]);
+
+        // 元素为裸字符串也要能取（宽松）
+        let data = serde_json::json!({"levels": ["一层", "二层"]});
+        assert_eq!(levels_of(&data, LEVEL_TYPE_FIRST), vec!["一层", "二层"]);
+
+        // 实测（type=1 该区无二级）：空数组
+        let data = serde_json::json!({"levels": []});
+        assert!(levels_of(&data, LEVEL_TYPE_SECOND).is_empty());
+
+        // 空串被过滤，缺字段不 panic
+        let data = serde_json::json!({"levels": [{"firstLevelName": ""}, {"other": 1}]});
+        assert!(levels_of(&data, LEVEL_TYPE_FIRST).is_empty());
+        assert!(levels_of(&serde_json::json!({}), LEVEL_TYPE_FIRST).is_empty());
+    }
+
+    #[test]
+    fn time_range_parses_recon_sample() {
+        // 实测：{"ymd":"2026-10-16","commonPauseTimes":[],"startTime":0,"endTime":50400000}
+        let data = serde_json::json!({
+            "ymd": "2026-10-16",
+            "commonPauseTimes": [],
+            "startTime": 0,
+            "endTime": 50400000
+        });
+        let range = SeatTimeRange::from_data(&data);
+        assert_eq!(range.ymd.as_deref(), Some("2026-10-16"));
+        assert_eq!(range.start_offset_ms, Some(0));
+        assert_eq!(range.end_offset_ms, Some(50_400_000));
+        assert!(range.pause_times.is_empty());
+        assert!(range.raw.get("ymd").is_some());
+
+        // 有暂停时段时原样透传元素
+        let range = SeatTimeRange::from_data(&serde_json::json!({
+            "ymd": "2026-10-16",
+            "commonPauseTimes": [{"startTime": "12:00", "endTime": "13:00"}]
+        }));
+        assert_eq!(range.pause_times.len(), 1);
+        assert!(range.start_offset_ms.is_none());
+
+        // 缺字段不 panic
+        let range = SeatTimeRange::from_data(&serde_json::json!({}));
+        assert!(range.ymd.is_none());
+        assert!(range.start_offset_ms.is_none());
+        assert!(range.pause_times.is_empty());
+    }
+
+    #[test]
+    fn seat_match_parses_recon_sample() {
+        // 实测：seatNum 为带前导零的字符串；duration 为字符串 "2.0"
+        let data = serde_json::json!({
+            "matchReserve": {
+                "duration": "2.0",
+                "roomId": 13248,
+                "seatNum": "136",
+                "firstLevelName": "二楼A区（现刊报纸阅览室）",
+                "startTime": 1792112400000i64,
+                "endTime": 1792119600000i64
+            }
+        });
+        let result = SeatMatchResult::from_data(&data);
+        let m = &result.matched;
+        assert_eq!(m.room_id, Some(13248));
+        assert_eq!(m.seat_num.as_deref(), Some("136"));
+        assert_eq!(
+            m.first_level_name.as_deref(),
+            Some("二楼A区（现刊报纸阅览室）")
+        );
+        assert_eq!(m.start_time_ms, Some(1792112400000));
+        assert_eq!(m.end_time_ms, Some(1792119600000));
+        assert_eq!(m.duration.as_deref(), Some("2.0"));
+        // 样本未返回二级 / 三级区域名
+        assert!(m.second_level_name.is_none());
+        assert!(m.third_level_name.is_none());
+        assert!(result.raw.get("matchReserve").is_some());
+
+        // 前导零必须原样保留（当整数解析会变成 16 → 座位号错误）
+        let data = serde_json::json!({
+            "matchReserve": {"duration": "1.0", "roomId": 10892, "seatNum": "016",
+                             "firstLevelName": "四楼D区（有插座）"}
+        });
+        let result = SeatMatchResult::from_data(&data);
+        assert_eq!(result.matched.seat_num.as_deref(), Some("016"));
+        assert_eq!(result.matched.room_id, Some(10892));
+
+        // 缺 matchReserve → 回落到 data 本身（宽松，不 panic）
+        let result = SeatMatchResult::from_data(&serde_json::json!({"roomId": 1}));
+        assert_eq!(result.matched.room_id, Some(1));
+        assert!(SeatMatchResult::from_data(&serde_json::json!({}))
+            .matched
+            .room_id
+            .is_none());
+    }
+
+    #[test]
+    fn match_business_failure_keeps_server_message() {
+        // 业务失败（无可用座位等）必须保留服务端 msg，不能吞成 unknown
+        let value = serde_json::json!({"success": false, "msg": "该时段已无可用座位"});
+        let err = api_data(&value, "查询可用座位").expect_err("应失败");
+        assert_eq!(err.kind, ERR_BUSINESS_REJECTED);
+        assert!(
+            err.message.contains("该时段已无可用座位"),
+            "服务端 msg 必须保留：{}",
+            err.message
+        );
+        assert_ne!(err.kind, ERR_UNEXPECTED_RESPONSE);
+
+        // 登录态失效仍走登录类错误（可重新登录）
+        let value = serde_json::json!({"success": false, "msg": "未登录或登录已失效"});
+        let err = api_data(&value, "查询可用座位").expect_err("应失败");
+        assert_eq!(
+            err.kind,
+            crate::modules::library_reserve::ERR_CHAOXING_NOT_LOGGED_IN
+        );
+
+        // 成功：取 data（matchReserve）
+        let value = serde_json::json!({"success": true, "data": {"matchReserve": {"roomId": 1}}});
+        let data = api_data(&value, "查询可用座位").expect("成功");
+        assert!(data.get("matchReserve").is_some());
+    }
+
+    #[test]
+    fn invalid_params_error_is_used_for_bad_time() {
+        // 本地参数校验失败用 invalid_params（命令层 / 模块层共用同一 kind）
+        let err = LibraryReserveError::business(ERR_INVALID_PARAMS, "开始时间非法");
+        assert_eq!(err.kind, ERR_INVALID_PARAMS);
+        assert!(!err.can_relogin, "参数错误不应提示重新登录");
+    }
+
+    // ── 提交预约（快速预约链路，实测契约） ──
+
+    /// 指定 wfw 凭证的座位上下文（提交需要 wfwEngineEnc）
+    fn seat_context_with_wfw(wfw_enc: Option<&str>, wfw_engine_enc: Option<&str>) -> SeatContext {
+        let mut entry = make_entry(LibraryApp::Seat, None, None);
+        entry.credentials.wfw_enc = wfw_enc.map(str::to_string);
+        entry.credentials.wfw_engine_enc = wfw_engine_enc.map(str::to_string);
+        SeatContext::from_entry(LibraryApp::Seat, &entry).expect("可构造")
+    }
+
+    #[test]
+    fn captcha_params_match_contract() {
+        // 实测：seat/captcha?appType=2&appId=3597
+        let p = captcha_params(&seat_context(None));
+        assert_eq!(p.get("appType").map(String::as_str), Some("2"));
+        assert_eq!(p.get("appId").map(String::as_str), Some("3597"));
+        assert_eq!(p.len(), 2, "验证码接口不应多带参数：{p:?}");
+    }
+
+    #[test]
+    fn extract_submit_enc_handles_orders_and_missing() {
+        // 实测原文形态（id 在 value 之前）
+        let html = r#"<input type="hidden" id="submit_enc" value="c2e1ec6696a74df188850419513a1261_406591160"/>"#;
+        assert_eq!(
+            extract_submit_enc(html).as_deref(),
+            Some("c2e1ec6696a74df188850419513a1261_406591160")
+        );
+
+        // value 在 id 之前也要能取（正则宽松）
+        let html = r#"<input type="hidden" value="abc_123" id='submit_enc'>"#;
+        assert_eq!(extract_submit_enc(html).as_deref(), Some("abc_123"));
+
+        // 属性间任意空白 / 换行
+        let html = "<input\n  id = \"submit_enc\"\n  value = \"xyz\"\n/>";
+        assert_eq!(extract_submit_enc(html).as_deref(), Some("xyz"));
+
+        // 取不到 / 空值 → None（不报错）
+        assert_eq!(extract_submit_enc("<html>no such input</html>"), None);
+        assert_eq!(
+            extract_submit_enc(r#"<input id="submit_enc" value="">"#),
+            None
+        );
+        // 同名但不相关（不同 id）不应误取
+        assert_eq!(
+            extract_submit_enc(r#"<input id="other" value="leak">"#),
+            None
+        );
+    }
+
+    #[test]
+    fn live_select_url_swaps_path_and_keeps_credentials() {
+        let ctx = seat_context(None);
+        let url = live_select_url(&ctx);
+        assert!(url.contains("/front/apps/seatengine/live/select"), "{url}");
+        // 入口凭证（query）必须保留
+        assert!(url.contains("seatId=3597"), "{url}");
+        assert!(!url.contains("/index"), "路径应被替换：{url}");
+    }
+
+    #[test]
+    fn submit_params_match_contract_and_keep_leading_zero() {
+        let ctx = seat_context_with_wfw(Some("9C32209DB3CDFF7CC351BD42FF5C8270"), None);
+        let req = SeatSubmitRequest {
+            room_id: 10892,
+            // 前导零必须原样保留（当整数解析会变成 16 → 座位号错误）
+            seat_num: " 016 ".to_string(),
+            start_time: " 09:00 ".to_string(),
+            end_time: "11:00".to_string(),
+            day: " 2026-10-17 ".to_string(),
+            captcha: " 8a9b ".to_string(),
+            enc: " SIGN ".to_string(),
+        };
+        let p = submit_params(&ctx, &req);
+        assert_eq!(p.get("roomId").map(String::as_str), Some("10892"));
+        assert_eq!(p.get("startTime").map(String::as_str), Some("09:00"));
+        assert_eq!(p.get("endTime").map(String::as_str), Some("11:00"));
+        assert_eq!(p.get("day").map(String::as_str), Some("2026-10-17"));
+        assert_eq!(p.get("captcha").map(String::as_str), Some("8a9b"));
+        assert_eq!(p.get("seatNum").map(String::as_str), Some("016"));
+        // 风控关闭（riskCheckOpen:false）→ wyToken 恒空串
+        assert_eq!(p.get("wyToken").map(String::as_str), Some(""));
+        // 官方 live/select 页 wfwEngineEnc 恒为空串（2026-10-19 实测）
+        assert_eq!(p.get("wfwEngineEnc").map(String::as_str), Some(""));
+        assert_eq!(p.get("enc").map(String::as_str), Some("SIGN"));
+        assert_eq!(p.len(), 9, "提交参数数固定为 9：{p:?}");
+
+        // 入口链 wfwEnc / 显式 wfwEngineEnc 都不再影响提交体（必为空串）
+        let ctx = seat_context_with_wfw(Some("W"), Some("E"));
+        assert_eq!(
+            submit_params(&ctx, &req)
+                .get("wfwEngineEnc")
+                .map(String::as_str),
+            Some("")
+        );
+        let ctx = seat_context_with_wfw(None, None);
+        assert_eq!(
+            submit_params(&ctx, &req)
+                .get("wfwEngineEnc")
+                .map(String::as_str),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn normalize_day_validates_shape() {
+        assert_eq!(normalize_day("2026-10-17").as_deref(), Some("2026-10-17"));
+        assert_eq!(normalize_day(" 2026-10-17 ").as_deref(), Some("2026-10-17"));
+        // 非法形态
+        assert_eq!(normalize_day("2026/10/17"), None);
+        assert_eq!(normalize_day("20261017"), None);
+        assert_eq!(normalize_day("2026-1-7"), None);
+        assert_eq!(normalize_day(""), None);
+    }
+
+    #[test]
+    fn submit_write_judgement_never_defaults_to_success() {
+        // 写操作：无显式成功标志 → 结果未知（unexpected_response），绝不默认成功
+        let unknown = api_write_result(&serde_json::json!({"msg": "预约失败"}), "提交座位预约")
+            .expect_err("不得默认成功");
+        assert_eq!(unknown.kind, ERR_UNEXPECTED_RESPONSE);
+        assert_ne!(unknown.kind, ERR_BUSINESS_REJECTED);
+
+        // 显式失败：原样保留服务端 msg（经业务分类）
+        let rejected = api_write_result(
+            &serde_json::json!({"success": false, "msg": "该时段已无可用座位"}),
+            "提交座位预约",
+        )
+        .expect_err("应失败");
+        assert!(
+            rejected.message.contains("该时段已无可用座位"),
+            "服务端 msg 必须保留：{}",
+            rejected.message
+        );
+
+        // 显式成功才判成功
+        assert!(api_write_result(&serde_json::json!({"success": true}), "提交座位预约").is_ok());
+        assert!(api_write_result(&serde_json::json!({"code": 200}), "提交座位预约").is_ok());
     }
 }

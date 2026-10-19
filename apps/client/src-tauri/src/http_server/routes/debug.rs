@@ -645,7 +645,12 @@ async fn debug_frontend_eval(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_debug_or_dev(&state)?;
-    let window = state.app.get_webview_window("main").ok_or_else(|| {
+    // ⚠️ 用 `get_webview` 而不是 `get_webview_window`：存在**子 WebView** 时
+    // （学校官网内嵌 / 图书馆预约内嵌），`get_webview_window("main")` 会返回 None，
+    // 导致本接口与原生截图一起失效（实测 2026-10-19）。`get_webview` 走 webview 注册表，
+    // 子 WebView 存在时仍能定位到主 WebView。
+    // 标题回读仍需要窗口对象（`Webview` 没有 `title`），故两者分开取。
+    let webview = state.app.get_webview("main").ok_or_else(|| {
         err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "webview_missing",
@@ -654,7 +659,7 @@ async fn debug_frontend_eval(
     })?;
     // tauri eval 是 fire-and-forget；约定前端把诊断结果写入 document.title（DIAG:... 前缀），
     // 这里执行后读回 title 作为返回值（仅 debug 构建的测试链路约定）。
-    window.eval(&req.js).map_err(|e| {
+    webview.eval(&req.js).map_err(|e| {
         err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "eval_failed",
@@ -662,7 +667,11 @@ async fn debug_frontend_eval(
         )
     })?;
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    let title = window.title().unwrap_or_default();
+    let title = state
+        .app
+        .get_window("main")
+        .and_then(|window| window.title().ok())
+        .unwrap_or_default();
     let result = title.strip_prefix("DIAG:").map(|s| s.to_string());
     Ok(ok(serde_json::json!({ "diag": result })))
 }

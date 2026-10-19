@@ -75,7 +75,11 @@ const onOverlayClick = () => {
   /* 滚动不穿透到背后的列表，保持关闭后滚动位置 */
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  border-radius: calc(20px * var(--ui-radius-scale)) !important;
+  /* 弹窗内容与边框留白：此前容器无 padding（各调用方自管），导致标题 / 正文 / 按钮
+     贴边显得拥挤。这里统一给出舒适内边距（随用户「间距」设置缩放），
+     并放宽圆角；调用方原有的内部块级样式不受影响。 */
+  padding: calc(20px * var(--ui-space-scale)) calc(22px * var(--ui-space-scale));
+  border-radius: calc(24px * var(--ui-radius-scale)) !important;
 }
 /* #1064：二级详情必须是可感知的**前景实体**面板。
    全局 .glass-card 的 --ui-surface 由用户「透明度」设置注入（默认 0.88/0.76，恒 < 1），
@@ -90,15 +94,15 @@ const onOverlayClick = () => {
   /* 实底无需毛玻璃：去掉模糊既省 GPU，也避免 iOS WebView 的合成异常 */
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  /* 刻意**不**新增容器 padding：容器历来无 padding、由各调用方自管（已核实
-     被加载的 index.css / dark-mode.css 均未给 .glass-card 提供 padding）。
-     #1064 只要求不透明实底，新增内边距会同时改变另外 7 个共用 TModal 的布局。 */
+  /* 容器内边距统一由基础 .t-modal__container 规则提供（见上）；
+     此处只负责不透明实底皮肤，不再单独调整布局。 */
 }
 .t-modal__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: calc(14px * var(--ui-space-scale));
+  gap: 12px;
+  margin-bottom: calc(18px * var(--ui-space-scale));
 }
 .t-modal__title {
   margin: 0;
@@ -127,14 +131,15 @@ const onOverlayClick = () => {
 }
 .t-modal__body {
   color: var(--ui-text);
+  line-height: 1.65;
 }
 .t-modal__footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  padding-top: calc(14px * var(--ui-space-scale));
-  margin-top: calc(14px * var(--ui-space-scale));
+  gap: 12px;
+  padding-top: calc(18px * var(--ui-space-scale));
+  margin-top: calc(18px * var(--ui-space-scale));
   border-top: 1px solid rgba(148, 163, 184, 0.18);
 }
 

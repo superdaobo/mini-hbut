@@ -1,21 +1,24 @@
 <script setup>
 /**
- * 我的预约 · 静音仓 / 研讨室（#1056）
+ * 我的预约 · 静音仓 / 研讨室（#1056 / #1076 / 2026-10-19 取消接入）
  *
- * 合并两套应用（静音仓 / 研讨室）的预约记录，支持取消（取消前二次确认）。
- * 后端命令（Rust 层 `transport/tauri/library_reserve.rs`，#1053）：
+ * 合并两套应用（静音仓 / 研讨室）的预约记录，支持取消。
+ * 后端命令（Rust 层 `transport/tauri/library_reserve.rs`）：
  * - `library_reserve_my_reservations` → 我的预约列表
- * - `library_reserve_cancel`         → 取消预约（`aprv_id` 必填）
+ * - `library_reserve_cancel`         → 取消预约（**契约已实测**）
  *
- * ⚠️ 列表与取消接口的完整契约未实测（见 #1053）：字段按已知形态解析并保留 `raw` 兜底；
- * 取消按钮对全部记录可见，由服务端裁决是否可取消，失败时给出可读文案。
+ * #1076：列表字段映射按 `reservepc/user/histroy` 实测字段修正
+ * （`name / today / starttime(ms) / endtime(ms) / status / isCancel / id / itemId`）。
+ *
+ * 2026-10-19 实测：取消端点为 `reserve/item/user/cancel`，主键是记录 `id`（`aprvId` 恒为 0，
+ * **不是**主键），body `{id, allCancel}`；成功后该条 `status=7`、`isCancel=true`。
  */
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { invokeNative } from '../../platform/native'
 import { showToast } from '../../utils/toast'
-import { useLocale, tf } from '../../utils/app_i18n'
+import { useLocale } from '../../utils/app_i18n'
 import { TEmptyState, TModal } from '../templates'
-import { extractHm, parseReserveFailure, sortKeyOf } from './catalog'
+import { normalizeMyReservation, parseReserveFailure, sortKeyOf } from './catalog'
 
 /** 需要合并展示的两套应用（与 Rust 命令层 parse_pc_app 的取值一致） */
 const APPS = ['quiet_room', 'seminar_room']
@@ -28,9 +31,11 @@ const errorDetail = ref('')
 const partialError = ref('')
 const items = ref([])
 
+/** 取消确认弹窗状态 */
+const cancelTarget = ref(null)
 const cancelVisible = ref(false)
 const cancelling = ref(false)
-const pendingCancel = ref(null)
+const cancelError = ref('')
 
 /** 失败信息 → 可读文案 */
 const failureText = (failure) =>
@@ -40,29 +45,24 @@ const failureText = (failure) =>
 const appName = (app) =>
   app === 'quiet_room' ? t('library.reserve.tab.quiet') : t('library.reserve.tab.room')
 
-/** 归一化单条记录 */
+/**
+ * 归一化单条记录（#1076：字段映射修正）。
+ *
+ * 真实字段为 `name / today / starttime(ms) / endtime(ms) / status / isCancel / id / itemId`，
+ * 纯映射逻辑集中在 `normalizeMyReservation`，此处只补应用名兜底。
+ */
 const normalizeItem = (raw, app, index) => {
-  const record = raw && typeof raw === 'object' ? raw : {}
-  const aprvId =
-    record.aprvId === null || record.aprvId === undefined || record.aprvId === ''
-      ? ''
-      : String(record.aprvId)
-  return {
-    key: `${app}-${aprvId || 'row'}-${index}`,
-    app,
-    aprvId,
-    name: String(record.itemName ?? '').trim() || appName(app),
-    statusName: String(record.statusName ?? '').trim(),
-    date: String(record.date ?? '').trim(),
-    start: extractHm(record.startTime),
-    end: extractHm(record.endTime)
-  }
+  const item = normalizeMyReservation(raw, app, index)
+  return { ...item, name: item.name || appName(app) }
 }
 
 const timeText = (item) => {
   if (item.start && item.end) return `${item.start}-${item.end}`
   return item.start || item.end || ''
 }
+
+/** 只有「有记录 id 且未取消」的预约才可取消 */
+const canCancel = (item) => Boolean(item.recordId) && !item.cancelled
 
 /** 加载两套应用的预约记录（单套失败不阻断另一套） */
 const load = async () => {
@@ -86,7 +86,8 @@ const load = async () => {
     }
   })
 
-  merged.sort((a, b) => sortKeyOf(a).localeCompare(sortKeyOf(b)))
+  // 最近的预约排前面（日期 + 起始时间倒序），避免历史记录压住当前预约
+  merged.sort((a, b) => sortKeyOf(b).localeCompare(sortKeyOf(a)))
   items.value = merged
 
   if (failures.length && !merged.length) {
@@ -100,49 +101,37 @@ const load = async () => {
   loading.value = false
 }
 
-/** 打开取消确认 */
+/** 打开取消确认弹窗 */
 const askCancel = (item) => {
-  if (!item.aprvId) {
-    showToast(t('library.reserve.mine.noAprvId'), 'warning')
-    return
-  }
-  pendingCancel.value = item
+  if (!canCancel(item)) return
+  cancelTarget.value = item
+  cancelError.value = ''
   cancelVisible.value = true
 }
 
-/** 确认取消 */
+/** 确认取消：契约 `{id, allCancel}`（aprvId 恒为 0，不能用） */
 const confirmCancel = async () => {
-  const item = pendingCancel.value
-  if (!item || !item.aprvId) {
+  const item = cancelTarget.value
+  if (!item?.recordId) {
     cancelVisible.value = false
     return
   }
   cancelling.value = true
+  cancelError.value = ''
   try {
-    const res = await invokeNative('library_reserve_cancel', {
-      req: { app: item.app, aprv_id: String(item.aprvId) }
+    await invokeNative('library_reserve_cancel', {
+      req: { app: item.app, id: item.recordId }
     })
     cancelVisible.value = false
-    showToast(res?.message || t('library.reserve.toast.cancelSuccess'), 'success')
+    showToast(t('library.reserve.mine.cancelSuccess'), 'success')
     await load()
   } catch (e) {
-    cancelVisible.value = false
     const failure = parseReserveFailure(e)
-    showToast(failureText(failure), failure.network ? 'warning' : 'error', failure.network ? 2600 : 3400)
+    cancelError.value = failureText(failure)
   } finally {
     cancelling.value = false
   }
 }
-
-const cancelBody = computed(() => {
-  const item = pendingCancel.value
-  if (!item) return ''
-  return tf('library.reserve.cancel.body', {
-    name: item.name,
-    date: item.date,
-    time: timeText(item)
-  })
-})
 
 onMounted(load)
 </script>
@@ -186,31 +175,54 @@ onMounted(load)
       <article v-for="item in items" :key="item.key" class="card order">
         <div class="order__top">
           <strong class="order__name">{{ item.name }}</strong>
-          <span class="badge">{{ item.statusName || t('library.reserve.mine.statusFallback') }}</span>
+          <span class="badge" :class="{ 'badge--off': item.cancelled }">
+            {{ item.statusName || t(item.statusKey) }}
+          </span>
         </div>
         <p class="meta">{{ item.date }} {{ timeText(item) }}</p>
-        <div class="order__actions">
-          <button type="button" class="ghost" @click="askCancel(item)">
-            {{ t('library.reserve.cancel.action') }}
+        <div class="order__foot">
+          <span class="tag">{{ appName(item.app) }}</span>
+          <button
+            v-if="canCancel(item)"
+            type="button"
+            class="danger-link"
+            @click="askCancel(item)"
+          >
+            {{ t('library.reserve.mine.cancel') }}
           </button>
         </div>
       </article>
     </template>
 
-    <!-- 取消二次确认 -->
+    <!-- 取消确认（契约已实测：{id, allCancel}） -->
     <TModal
       :visible="cancelVisible"
-      :title="t('library.reserve.cancel.title')"
-      width="400px"
+      :title="t('library.reserve.mine.cancelTitle')"
+      width="380px"
       @close="cancelVisible = false"
     >
-      <p class="confirm__body">{{ cancelBody }}</p>
+      <p class="hint">{{ t('library.reserve.mine.cancelHint') }}</p>
+      <dl v-if="cancelTarget" class="confirm__list">
+        <div class="confirm__row">
+          <dt>{{ t('library.reserve.confirm.room') }}</dt>
+          <dd>{{ cancelTarget.name }}</dd>
+        </div>
+        <div class="confirm__row">
+          <dt>{{ t('library.reserve.confirm.date') }}</dt>
+          <dd>{{ cancelTarget.date }}</dd>
+        </div>
+        <div class="confirm__row">
+          <dt>{{ t('library.reserve.confirm.time') }}</dt>
+          <dd>{{ timeText(cancelTarget) }}</dd>
+        </div>
+      </dl>
+      <p v-if="cancelError" class="warn">{{ cancelError }}</p>
       <template #footer>
         <button type="button" class="ghost" :disabled="cancelling" @click="cancelVisible = false">
-          {{ t('library.reserve.btn.back') }}
+          {{ t('library.reserve.mine.cancelKeep') }}
         </button>
         <button type="button" class="danger" :disabled="cancelling" @click="confirmCancel">
-          {{ cancelling ? t('library.reserve.btn.submitting') : t('library.reserve.btn.confirm') }}
+          {{ cancelling ? t('library.reserve.mine.cancelling') : t('library.reserve.mine.cancelConfirm') }}
         </button>
       </template>
     </TModal>
@@ -265,10 +277,69 @@ onMounted(load)
   font-size: calc(12px * var(--ui-font-scale));
   color: var(--ui-muted);
 }
-.order__actions {
+.order__foot {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 10px;
+}
+.tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ui-surface-border);
+  color: var(--ui-muted);
+  font-size: calc(11px * var(--ui-font-scale));
+  font-weight: 700;
+}
+.badge--off {
+  background: var(--ui-surface-border);
+  color: var(--ui-muted);
+}
+.danger-link {
+  border: 0;
+  background: transparent;
+  color: var(--ui-danger);
+  font-size: calc(12px * var(--ui-font-scale));
+  font-weight: 700;
+  cursor: pointer;
+  padding: 6px 0;
+}
+.danger {
+  min-height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: calc(14px * var(--ui-radius-scale));
+  background: var(--ui-danger);
+  color: #fff;
+  font-size: calc(14px * var(--ui-font-scale));
+  font-weight: 700;
+  cursor: pointer;
+}
+.danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.confirm__list {
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.confirm__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: calc(13px * var(--ui-font-scale));
+}
+.confirm__row dt {
+  color: var(--ui-muted);
+}
+.confirm__row dd {
+  margin: 0;
+  color: var(--ui-text);
+  font-weight: 700;
+  text-align: right;
 }
 .warn {
   margin: 0;
@@ -292,33 +363,18 @@ onMounted(load)
   color: var(--ui-muted);
   line-height: 1.6;
 }
-.confirm__body {
-  margin: 0;
-  font-size: calc(13px * var(--ui-font-scale));
-  line-height: 1.7;
-  color: var(--ui-text);
-}
-.ghost,
-.danger {
+.ghost {
   min-height: 44px;
   padding: 0 20px;
+  border: 1px solid var(--ui-surface-border);
   border-radius: calc(14px * var(--ui-radius-scale));
+  background: transparent;
+  color: var(--ui-text);
   font-size: calc(14px * var(--ui-font-scale));
   font-weight: 700;
   cursor: pointer;
 }
-.ghost {
-  border: 1px solid var(--ui-surface-border);
-  background: transparent;
-  color: var(--ui-text);
-}
-.danger {
-  border: 0;
-  background: var(--ui-danger);
-  color: #fff;
-}
-.ghost:disabled,
-.danger:disabled {
+.ghost:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
