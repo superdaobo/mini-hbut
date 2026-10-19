@@ -173,8 +173,13 @@ export interface RoomIntervalSlot {
   start: string
   /** 结束 `HH:mm` */
   end: string
-  /** 是否开放（服务端 `available != 0`） */
+  /** 是否开放（服务端 `available != 0`，**配置层**语义，不是实时占用） */
   available: boolean
+  /**
+   * 该时段容量（服务端 `userNum`；官方页面判定「已满」用 `userNum <= 已占用份数`）。
+   * 缺失 / 非法一律回落 1（一次一人），**绝不放大容量**。
+   */
+  userNum: number
 }
 
 /** 归一化后端 `library_reserve_item_setting` 下发的 `intervals`（非数组 → 空） */
@@ -186,15 +191,108 @@ export const normalizeRoomIntervalSlots = (raw: unknown): RoomIntervalSlot[] => 
     const id = toInt(record.id)
     const week = toInt(record.week)
     if (id === null || week === null) continue
+    const capacity = toInt(record.userNum ?? record.user_num)
     out.push({
       id,
       week,
       start: extractHm(record.startTime ?? record.start),
       end: extractHm(record.endTime ?? record.end),
-      available: !(record.available === 0 || record.available === false || record.available === '0')
+      available: !(record.available === 0 || record.available === false || record.available === '0'),
+      userNum: capacity !== null && capacity > 0 ? capacity : 1
     })
   }
   return out.sort((a, b) => a.week - b.week || a.start.localeCompare(b.start))
+}
+
+// ── 实时占用（`reserve/item/user/list`，2026-10-19 实测） ──
+
+/**
+ * 一条实时占用记录（`library_reserve_item_occupancy` → `records[]`）。
+ *
+ * ⚠️ 同一笔跨多个时段的预约会**重复出现多条**（`recordId` 相同、`intervalId` 不同），
+ * 因此占用必须按 `intervalId + date` 聚合（官方页面即 `userCount += reserveNum`）。
+ *
+ * `uid` / `userName` 原样保留：官方页面用 `uid === 本人` 区分「我的预约」（点击即取消），
+ * 并用 `uname` 展示预约人；本面板当前只做「已满」判定，但归一化层不丢这两个字段。
+ */
+export interface RoomOccupancyRecord {
+  /** 预约记录 ID */
+  recordId: number | null
+  /** 时段 ID（= `RoomIntervalSlot.id`） */
+  intervalId: number
+  /** 预约日期 `YYYY-MM-DD` */
+  date: string
+  /** 占用份数（服务端 `reserveNum`；缺失按 1） */
+  reserveNum: number
+  /** 预约人 uid（隐私模式下可能缺失） */
+  uid: number | null
+  /** 预约人姓名（隐私模式下可能缺失） */
+  userName: string
+}
+
+/** 归一化后的占用视图 */
+export interface RoomOccupancyView {
+  records: RoomOccupancyRecord[]
+  /** `${intervalId}_${date}` → 已占用份数（官方页面同款聚合键） */
+  used: Record<string, number>
+  /** 服务端时钟（`serverNow`；缺失为 `null`，此时前端不做「已过去」置灰） */
+  clock: SeatClock | null
+  /**
+   * 无法归属到「时段 + 日期」的记录数。
+   * `> 0` 说明统计**不完整** → 调用方必须按「占用未知」降级（不得显示为可预约）。
+   */
+  unkeyed: number
+}
+
+/** 占用聚合键（与官方页面 `reserveIntervalId + '_' + YYYY-MM-DD` 一致） */
+export const roomOccupancyKey = (intervalId: number, date: string): string =>
+  `${intervalId}_${String(date ?? '').trim()}`
+
+/** 归一化占用记录（非数组 / 非法元素一律丢弃；字段缺失不编造） */
+const normalizeOccupancyRecords = (raw: unknown): RoomOccupancyRecord[] => {
+  if (!Array.isArray(raw)) return []
+  const out: RoomOccupancyRecord[] = []
+  for (const entry of raw) {
+    const record = asRecord(entry)
+    const intervalId = toInt(record.intervalId ?? record.interval_id)
+    const date = String(record.date ?? '').trim()
+    if (intervalId === null || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+    const reserveNum = toInt(record.reserveNum ?? record.reserve_num)
+    out.push({
+      recordId: toInt(record.id ?? record.recordId ?? record.record_id),
+      intervalId,
+      date,
+      // 缺失 / 非法按 1（官方页面同样兜底）：按 0 会漏算占用 → 误报「可预约」
+      reserveNum: reserveNum !== null && reserveNum > 0 ? reserveNum : 1,
+      uid: toInt(record.uid),
+      userName: String(record.userName ?? record.user_name ?? record.uname ?? '').trim()
+    })
+  }
+  return out
+}
+
+/**
+ * 归一化占用响应（`library_reserve_item_occupancy` 的返回值）。
+ *
+ * - `records` → 按 {@link roomOccupancyKey} 聚合出 `used`；
+ * - `serverNow` → {@link SeatClock}（服务端墙上时间）；
+ * - `unkeyed` → 后端上报的「无法归属记录数」；`records` 为空但 `unkeyed > 0` 也照实带出。
+ */
+export const normalizeRoomOccupancy = (raw: unknown): RoomOccupancyView => {
+  const record = asRecord(raw)
+  const records = normalizeOccupancyRecords(record.records)
+  const used: Record<string, number> = {}
+  for (const item of records) {
+    const key = roomOccupancyKey(item.intervalId, item.date)
+    used[key] = (used[key] ?? 0) + item.reserveNum
+  }
+  const unkeyedRaw = toInt(record.unkeyed)
+  return {
+    records,
+    used,
+    clock: parseSeatClock(record.serverNow ?? record.server_now),
+    unkeyed: unkeyedRaw !== null && unkeyedRaw > 0 ? unkeyedRaw : 0
+  }
 }
 
 /** `YYYY-MM-DD` → 星期键（1=周一 … 7=周日；非法日期返回 0） */
@@ -291,10 +389,19 @@ export interface RoomGridColumn {
 export interface RoomGridCell extends RoomGridColumn {
   /** 该单元格所属日期 `YYYY-MM-DD`（自包含，选中态比较不必再带行上下文） */
   date: string
-  /** 该日期该时段是否可约（服务端 intervals 判定 + 未过去） */
+  /** 该日期该时段是否可约（配置开放 + **实时占用未满** + 未过去 + 占用已知） */
   available: boolean
   /** 该日期+时段是否已过去（服务端时间判定；服务端时间缺失时恒为 false） */
   past: boolean
+  /** 该时段是否已被约满（占用份数 ≥ 容量）——官方页面同样置灰不可点 */
+  occupied: boolean
+  /**
+   * 占用状态**未知**（占用查询失败 / 未取到真实时段 ID / 统计不完整）。
+   *
+   * ⚠️ 未知**绝不**显示为可预约：此类单元格一律 `available=false`，
+   * 由调用方给出「占用未知」提示与重试入口。
+   */
+  unknown: boolean
 }
 
 /** 网格行（一天） */
@@ -401,12 +508,17 @@ export const isRoomCellPast = (dateKey: string, end: string, clock: SeatClock | 
  *   若前端按 `timeUnit` 自己切分，会产出与配置不一致的时段，提交必被拒绝
  *   （实测报错：`预约时间段与系统设置时间段不一致，请重新选择`）；
  *   `slots` 为空时回落到「按 `timeUnit` 切分 `intervals` 窗口」的旧行为（离线/降级）；
- * - **单元格可用性**：该行星期几开放且该时段可用（有 `slots` 时逐时段判定），且该日期+时段未过去；
- *   `available=0` 的星期几整行 `disabled`。
+ * - **单元格可用性**：该行星期几开放且该时段可用（有 `slots` 时逐时段判定）、
+ *   **未被约满**（`occupancyUsed` 按 `intervalId_date` 聚合 ≥ `slot.userNum` 即已满）、
+ *   且该日期+时段未过去；`available=0` 的星期几整行 `disabled`。
  *
- * `clock` 为服务端时钟（来自 {@link resolveRoomServerClock}）：
+ * `clock` 为服务端时钟（来自 `resolveRoomServerClock` 或占用查询的 `serverNow`）：
  * - 提供时：行以**服务端日期**为基准（今天 = 服务端今天），当日已过去的片置灰；
  * - 缺失时：行以本地 `now` 为基准，**不做任何时间置灰**（宁可不禁用也不猜）。
+ *
+ * `occupancyKnown`（#1080）为 `false` 时表示**占用状态不可信**（查询失败 / 未取到真实时段
+ * ID / 统计不完整）：此时**所有**单元格一律 `unknown=true && available=false` ——
+ * 宁可全置灰，也不把「未知」显示成「可预约」。
  *
  * 房间为空 / 无任何可用时段 → 返回空网格（调用方给出「未获取到时段配置」提示，
  * 而不是伪造一排可点格子）。
@@ -417,7 +529,11 @@ export const buildRoomGrid = (
   timeUnitMin: number | null,
   now: Date = new Date(),
   clock: SeatClock | null = null,
-  slots: RoomIntervalSlot[] = []
+  slots: RoomIntervalSlot[] = [],
+  /** 已占用份数（`${intervalId}_${date}` → 份数；见 {@link RoomOccupancyView.used}） */
+  occupancyUsed: Record<string, number> | null = null,
+  /** 占用状态是否可信（`false` → 全部单元格按「未知」置灰） */
+  occupancyKnown = true
 ): RoomGrid => {
   if (!room) return { columns: [], rows: [] }
 
@@ -468,11 +584,13 @@ export const buildRoomGrid = (
     const cells: RoomGridCell[] = columns.map((column) => {
       const past = isRoomCellPast(option.value, column.end, clock)
       let open: boolean
+      // 命中的服务端真实时段（用于取容量与占用键；slots 为空时无从判定占用）
+      const slot = daySlots.find(
+        (candidate) => candidate.start === column.start && candidate.end === column.end
+      )
       if (slots.length) {
         // 逐时段判定：必须存在同起止且可用的真实时段
-        open = daySlots.some(
-          (slot) => slot.start === column.start && slot.end === column.end && slot.available
-        )
+        open = Boolean(slot && slot.available)
       } else {
         const cellStart = hmToMinutes(column.start)
         const cellEnd = hmToMinutes(column.end)
@@ -484,7 +602,23 @@ export const buildRoomGrid = (
           cellStart >= startMinutes &&
           cellEnd <= endMinutes
       }
-      return { ...column, date: option.value, available: !rowDisabled && open && !past, past }
+      // 实时占用：官方页面口径 `userNum <= 已占用份数` 即「已满」
+      const capacity = slot ? Math.max(1, slot.userNum) : 0
+      const used =
+        slot && occupancyUsed
+          ? occupancyUsed[roomOccupancyKey(slot.id, option.value)] ?? 0
+          : 0
+      const occupied = Boolean(slot) && open && capacity > 0 && used >= capacity
+      // 占用未知：查询不可信时整表置灰（绝不显示为可预约）
+      const unknown = !occupancyKnown
+      return {
+        ...column,
+        date: option.value,
+        available: !rowDisabled && open && !past && !occupied && !unknown,
+        past,
+        occupied,
+        unknown
+      }
     })
     return {
       key: option.value,

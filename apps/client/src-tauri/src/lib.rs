@@ -704,6 +704,7 @@ pub fn run() {
             transport::tauri::library_reserve::library_reserve_time_list,
             // 实测新增（2026-10-19）：时段 ID（提交 intervalIds 用）
             transport::tauri::library_reserve::library_reserve_item_setting,
+            transport::tauri::library_reserve::library_reserve_item_occupancy,
             transport::tauri::library_reserve::library_reserve_my_reservations,
             transport::tauri::library_reserve::library_reserve_user_view_flag,
             transport::tauri::library_reserve::library_reserve_open_team,
