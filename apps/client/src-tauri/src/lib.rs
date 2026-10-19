@@ -121,7 +121,10 @@ pub fn run() {
         // #984：登录链路（CAS POST / caslogin / fetch_user_info 的最终 URL 与阶段归因）
         // 需要在 release 的文件日志里也留痕，否则线上只能拿到失败收口那一行。
         // http_client 此前没有任何 log:: 调用，这里放行 Info 不会引入第三方刷屏。
-        .level_for("hbut_helper::http_client", log::LevelFilter::Info);
+        .level_for("hbut_helper::http_client", log::LevelFilter::Info)
+        // 图书馆预约等运行时诊断：`runtime_log` 以显式 target 落盘，release 下 stderr 被丢弃，
+        // 只有放行 Info 才能在真机取证（体积已由 1MB 上限 + KeepSome(3) 限制）。
+        .level_for("hbut_helper::runtime_log", log::LevelFilter::Info);
     #[cfg(debug_assertions)]
     {
         log_plugin = log_plugin.level_for("hbut_helper", log::LevelFilter::Debug);
@@ -483,6 +486,10 @@ pub fn run() {
             modules::school_website_embed::school_website_embed_open,
             modules::school_website_embed::school_website_embed_resize,
             modules::school_website_embed::school_website_embed_close,
+            // 2026-10-19：图书馆预约官方页面内嵌（座位提交需 cxCaptcha 人工验证）
+            modules::library_reserve_embed::library_reserve_embed_open,
+            modules::library_reserve_embed::library_reserve_embed_resize,
+            modules::library_reserve_embed::library_reserve_embed_close,
             // #719：冷启动校内证书探测（独立严格校验客户端，结果供「我的」页兼容模式提示）
             modules::cert_probe::probe_school_cert_status,
             // #452：长后台回前台 ensure/respawn loopback HTTP Bridge
@@ -695,6 +702,8 @@ pub fn run() {
             // #1053：图书馆预约·静音仓/研讨室（PC 版 reservepc）——查询 + 提交 + 取消
             transport::tauri::library_reserve::library_reserve_item_info,
             transport::tauri::library_reserve::library_reserve_time_list,
+            // 实测新增（2026-10-19）：时段 ID（提交 intervalIds 用）
+            transport::tauri::library_reserve::library_reserve_item_setting,
             transport::tauri::library_reserve::library_reserve_my_reservations,
             transport::tauri::library_reserve::library_reserve_user_view_flag,
             transport::tauri::library_reserve::library_reserve_open_team,
@@ -710,6 +719,14 @@ pub fn run() {
             transport::tauri::library_reserve::library_reserve_seat_entrance_config,
             transport::tauri::library_reserve::library_reserve_seat_identity_verify,
             transport::tauri::library_reserve::library_reserve_seat_i18n,
+            // #1054：座位预约余量查询 / 找空座位（POST 表单；只读）
+            transport::tauri::library_reserve::library_reserve_seat_rooms,
+            transport::tauri::library_reserve::library_reserve_seat_levels,
+            transport::tauri::library_reserve::library_reserve_seat_time_range,
+            transport::tauri::library_reserve::library_reserve_seat_match,
+            // #1054：座位预约提交（快速预约链路：验证码 + 提交随机串 + 提交）
+            transport::tauri::library_reserve::library_reserve_seat_submit_prepare,
+            transport::tauri::library_reserve::library_reserve_seat_submit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

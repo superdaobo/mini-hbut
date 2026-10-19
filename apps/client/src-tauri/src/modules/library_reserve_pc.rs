@@ -37,6 +37,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use chrono::TimeZone;
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, ORIGIN, REFERER};
 use serde::Serialize;
 use serde_json::Value;
@@ -63,6 +64,12 @@ const API_TIMEOUT: Duration = Duration::from_secs(25);
 const ENDPOINT_ITEM_INFO: &str = "reserve/info";
 /// 可预约时段列表（核心）
 const ENDPOINT_TIME_LIST: &str = "reserve/item/list/time";
+/// 预约对象时段设置（`commonIntervalMap`：按星期几的**真实时段 ID**）
+///
+/// 实测（2026-10-19）：`POST reserve/item/setting` body `reserveId/itemId/fidEnc`，
+/// 返回 `data.commonIntervalMap["1".."7"] = [{id,startTime,endTime,week,available,…}]`。
+/// 提交 `reserve/multiple/submit` 时 `reserveUsers[].intervalIds` 必须用这里的 `id`。
+const ENDPOINT_ITEM_SETTING: &str = "reserve/item/setting";
 /// 用户视图标记
 const ENDPOINT_USER_VIEW_FLAG: &str = "reservepc/user/view/flag";
 /// 是否开放团队预约
@@ -77,15 +84,17 @@ const ENDPOINT_DIALOG: &str = "reserve/dialog";
 const ENDPOINT_SUBMIT: &str = "reserve/multiple/submit";
 /// 我的预约列表
 ///
-/// TODO(#1053)：契约文档只列出 `reserve/latest/data`（「最近预约数据」）这一条线索，
-/// **未实测**其响应结构；此处按该路径实现，字段解析做了多形态兜底。补齐需在开放时段真实调用一次。
-const ENDPOINT_MY_RESERVATIONS: &str = "reserve/latest/data";
+/// 实测（2026-10-16）修正：原用 `reserve/latest/data` 返回 **HTTP 400**
+/// （`Required request parameter 'itemId' …is not present`），**并非列表接口**。
+/// 正确端点为 `POST /data/apps/reservepc/user/histroy`，body
+/// `reserveId/resvAppId/reserveIdEnc/fidEnc`，返回
+/// `{"data":{"totalRow":N,"totalPage":N,"rows":[…]}}`。
+const ENDPOINT_MY_RESERVATIONS: &str = "reservepc/user/histroy";
 /// 取消预约
 ///
-/// TODO(#1053)：契约**未给出**取消接口的实测路径。此处采用 JS 静态提取到的
-/// `reserve/del/form/aprv`（「删除表单审批」）作为最可能的候选，**未经实测**。
-/// 若上线后取消失败，需重新勘察该路径与字段。
-const ENDPOINT_CANCEL: &str = "reserve/del/form/aprv";
+/// 实测（2026-10-19）：`POST reserve/item/user/cancel`，**主键是记录 `id`（不是 `aprvId`，
+/// 后者恒为 0）**，body 另带 `allCancel`（0/1）。成功后「我的预约」该条 `status=7`、`isCancel=true`。
+const ENDPOINT_CANCEL: &str = "reserve/item/user/cancel";
 
 // ── HTTP 层 ──
 
@@ -335,19 +344,10 @@ impl ReserveContext {
         let (_, business_value) = app.business_id();
         let reserve_id = non_empty(entry.credentials.reserve_id.as_deref())
             .unwrap_or_else(|| business_value.to_string());
+        // 入口链路**不含** reserveIdEnc（实测：该参数由落地页 HTML 服务端注入），
+        // 缺失时由 resolve_context 补抓一次落地页；此处先保留 Option。
         let reserve_id_enc = non_empty(entry.credentials.reserve_id_enc.as_deref());
         let reserve_id_live = reserve_id.clone();
-        if reserve_id_enc.is_none() {
-            // 契约要求携带 reserveIdEnc；缺失时仍尝试请求（部分接口可能由会话推导），
-            // 但记录告警，便于定位「接口莫名失败」的根因。
-            crate::runtime_log::log_warn(
-                "LibraryReservePc",
-                format!(
-                    "入口未返回 reserveIdEnc（app={}）；契约要求携带该参数，若业务接口失败需重新解析入口",
-                    app.key()
-                ),
-            );
-        }
 
         Ok(Self {
             app,
@@ -357,6 +357,22 @@ impl ReserveContext {
             // TODO(#1053)：resvAppId 实测与 reserveId 同值（24727 / 24679）；
             // 此处跟随实时解析出的 reserveId，若二者在其它配置下确为独立 ID，需改为单独取值。
             resv_app_id: reserve_id_live,
+        })
+    }
+
+    /// 预约凭证（`reserveIdEnc`）**必需**：缺失时报 [`LibraryReserveError::credential_invalid`]。
+    ///
+    /// 实测：缺 `reserveIdEnc` 时超星返回
+    /// `{"msg":"未查询到您所访问的应用…","success":false}`，旧实现会把它误判为
+    /// `no_permission`。因此需要该参数的接口**必须在发请求前显式校验**，
+    /// 绝不能「缺参数照常请求、再被打成无权限」。
+    fn require_reserve_id_enc(&self) -> Result<&str, LibraryReserveError> {
+        self.reserve_id_enc.as_deref().ok_or_else(|| {
+            LibraryReserveError::credential_invalid(format!(
+                "未取得预约凭证 reserveIdEnc（app={}，入口链路与落地页均未提供），无法调用该接口；\
+                 请重试或重新登录融合门户",
+                self.app.key()
+            ))
         })
     }
 
@@ -391,14 +407,54 @@ fn ensure_pc_app(app: LibraryApp) -> Result<(), LibraryReserveError> {
     Ok(())
 }
 
-/// 解析应用 → 入口 → 业务上下文（每次调用都实时解析，不复用旧凭证）
+/// 解析应用 → 入口 → 业务上下文（每次调用都实时解析，不复用旧凭证）。
+///
+/// `reserveIdEnc` 不在入口跳转链上（实测由落地页 HTML 服务端注入），缺失时会补抓一次落地页；
+/// 仍取不到则由需要该参数的接口通过 [`ReserveContext::require_reserve_id_enc`] 报
+/// [`LibraryReserveError::credential_invalid`]。
 async fn resolve_context(
     client: &mut HbutClient,
     app: LibraryApp,
     force: bool,
 ) -> Result<ReserveContext, LibraryReserveError> {
     let entry = library_reserve::resolve_entry(client, app, force).await?;
-    let ctx = ReserveContext::from_entry(app, &entry)?;
+    let mut ctx = ReserveContext::from_entry(app, &entry)?;
+
+    if ctx.reserve_id_enc.is_none() {
+        match library_reserve::fetch_page_injected(
+            client,
+            &entry,
+            &[library_reserve::PAGE_KEY_RESERVE_ID_ENC],
+        )
+        .await
+        {
+            Ok(hints) => {
+                ctx.reserve_id_enc = hints
+                    .get(library_reserve::PAGE_KEY_RESERVE_ID_ENC)
+                    .map(str::to_string);
+            }
+            // 落地页抓取失败不在此处阻断：需要该参数的接口会统一报「凭证未取到」，
+            // 不需要该参数的辅助接口（view/flag、open/team、team/list、person/role）仍可用。
+            Err(err) => crate::runtime_log::log_warn(
+                "LibraryReservePc",
+                format!(
+                    "从落地页提取 reserveIdEnc 失败（需要该参数的接口将报凭证未取到）：{}",
+                    err.message
+                ),
+            ),
+        }
+    }
+
+    if ctx.reserve_id_enc.is_none() {
+        crate::runtime_log::log_warn(
+            "LibraryReservePc",
+            format!(
+                "未取得 reserveIdEnc（app={}）；入口链路与落地页均未提供",
+                app.key()
+            ),
+        );
+    }
+
     crate::runtime_log::log_info(
         "LibraryReservePc",
         format!(
@@ -509,43 +565,204 @@ impl ReserveTimeItem {
     }
 }
 
+/// 房间（可预约项）的归一化视图（`reserve/item/list/time` **不传时间窗口**时的实测字段）。
+///
+/// 实测（2026-10-16）：该端点实为「房间列表 + 可选时间筛选」——
+/// `startTime` / `endTime` 留空时返回全部房间（1~5 号静音仓），每个房间自带
+/// `reserveIntervalList`（**按星期几**的可用时段）；传日期窗口时服务端按该窗口过滤
+/// （实测返回 0 条，**不能**用来取「某天的时段」，故不能靠它按天筛选）。
+///
+/// 实测字段：`reserveIntervalList` / `reserveInterval`（当天）/ `rangestime` / `rangeetime`
+/// （当日毫秒偏移，实测 0 / 36000000 → 08:00 / 18:00）/ `timeUnit` / `advanceDays` /
+/// `minUserNum` / `maxUserNum` / `formId` / `customFormConfig`。
+/// 未建模字段（如 `customFormConfig`、`reserveInterval`）由 `raw` 原样保留。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReserveRoomItem {
+    /// 房间 / 预约项 ID
+    pub item_id: Option<i64>,
+    /// 房间名（实测如「1号静音仓」）
+    pub name: Option<String>,
+    /// 最少使用人数（实测 1）
+    pub min_user_num: Option<i64>,
+    /// 最多使用人数（实测 20）
+    pub max_user_num: Option<i64>,
+    /// 动态表单 ID（实测 `formId`）
+    pub form_id: Option<i64>,
+    /// 可提前预约天数（实测 14）
+    pub advance_days: Option<i64>,
+    /// 时间粒度（分钟；实测 0，前端按预约项配置兜底）
+    pub time_unit: Option<i64>,
+    /// 当日可选起始毫秒偏移（实测 `rangestime`，0 → 08:00）
+    pub range_start_ms: Option<i64>,
+    /// 当日可选结束毫秒偏移（实测 `rangeetime`，36000000 → 18:00）
+    pub range_end_ms: Option<i64>,
+    /// 按星期几的可用时段（实测 `reserveIntervalList`）
+    pub intervals: Vec<ReserveInterval>,
+    /// 原始房间条目（`customFormConfig` 等未建模字段原样保留）
+    pub raw: Value,
+}
+
+impl ReserveRoomItem {
+    fn from_value(v: &Value) -> Self {
+        Self {
+            item_id: value_i64(v, &["id", "itemId", "reserveItemId", "reserveId"]),
+            name: value_string(v, &["name", "itemName", "reserveItemName", "roomName"]),
+            min_user_num: value_i64(v, &["minUserNum"]),
+            max_user_num: value_i64(v, &["maxUserNum"]),
+            form_id: value_i64(v, &["formId", "formid"]),
+            advance_days: value_i64(v, &["advanceDays"]),
+            time_unit: value_i64(v, &["timeUnit"]),
+            // 实测键名为全小写 `rangestime` / `rangeetime`（非驼峰）
+            range_start_ms: value_i64(v, &["rangestime", "rangeStartTime", "rangeStartMs"]),
+            range_end_ms: value_i64(v, &["rangeetime", "rangeEndTime", "rangeEndMs"]),
+            intervals: intervals_of(v),
+            raw: v.clone(),
+        }
+    }
+}
+
+/// 按星期几的单个可用时段（`reserveIntervalList` 元素，实测契约）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReserveInterval {
+    /// 星期几（1=周一 … 7=周日）
+    pub week: Option<i64>,
+    /// 是否可用（实测 1 可用 / 0 不可用）
+    pub available: Option<i64>,
+    /// 开始时间 `HH:mm`（实测 `08:00`）
+    pub start_time: Option<String>,
+    /// 结束时间 `HH:mm`（实测 `21:30`）
+    pub end_time: Option<String>,
+}
+
+impl ReserveInterval {
+    fn from_value(v: &Value) -> Self {
+        Self {
+            week: value_i64(v, &["week", "weekDay", "day"]),
+            available: value_i64(v, &["available", "isAvailable", "status"]),
+            start_time: value_string(v, &["startTime", "start"]),
+            end_time: value_string(v, &["endTime", "end"]),
+        }
+    }
+}
+
+/// 从房间条目取 `reserveIntervalList`（缺失 / 非数组 → 空列表，不 panic）
+fn intervals_of(v: &Value) -> Vec<ReserveInterval> {
+    v.get("reserveIntervalList")
+        .or_else(|| v.get("reserveIntervals"))
+        .and_then(|x| x.as_array())
+        .map(|arr| arr.iter().map(ReserveInterval::from_value).collect())
+        .unwrap_or_default()
+}
+
 /// 可预约时段列表响应
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReserveTimeList {
-    pub items: Vec<ReserveTimeItem>,
+    /// 归一化条目（按是否传入时间窗口区分，见 [`ReserveTimeListItems`]）
+    pub items: ReserveTimeListItems,
     /// 顶层 `advanceDays`（实测响应里与条目内同名字段并存）
     pub advance_days: Option<i64>,
     pub raw: Value,
 }
 
-/// 我的预约条目（字段名多为推测，见 `raw` 兜底）
+/// `reserve/item/list/time` 的归一化条目：按**是否传入时间窗口**区分。
+///
+/// 两个变体都是数组，序列化后形态一致（`items: [...]`），前端按调用形态解析。
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub(crate) enum ReserveTimeListItems {
+    /// 未传时间窗口：房间列表（含按星期几的可用时段）
+    Rooms(Vec<ReserveRoomItem>),
+    /// 传了时间窗口：既有的时段筛选条目
+    Slots(Vec<ReserveTimeItem>),
+}
+
+/// 我的预约条目。
+///
+/// 字段映射按实测（2026-10-16，`reservepc/user/histroy` → `data.rows[]`）修正：
+/// 真实字段为 `id / itemId / name / today / starttime / endtime / status / isCancel /
+/// aprvId / reserveId / resvAppId / reserveDuration / remark`，
+/// 其中 `starttime` / `endtime` 为 **Unix 毫秒**，`aprvId` 实测**恒为 0**。
+/// 这里把毫秒转成可读 `HH:mm`（同时保留毫秒原值），并原样保留 `raw` 兜底。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MyReservation {
+    /// 预约记录 ID（实测 `id`）
+    pub id: Option<i64>,
+    /// 预约项 ID（实测 `itemId`）
+    pub item_id: Option<i64>,
+    /// 审批 ID（实测 `aprvId`，**恒为 0**；疑非取消接口主键，见 [`ENDPOINT_CANCEL`]）
     pub aprv_id: Option<i64>,
+    /// 状态码（实测数字，如 `2`）
     pub status: Option<i64>,
+    /// 状态文案（服务端可能不返回；未建模状态码时留空，由前端按 `status` 渲染）
     pub status_name: Option<String>,
+    /// 是否已取消（实测 `isCancel`：0/1）
+    pub is_cancel: Option<bool>,
+    /// 预约项名（实测 `name`，如「4号静音仓」）
     pub item_name: Option<String>,
+    /// 预约日期（实测 `today`，如 `2026-07-11`）
     pub date: Option<String>,
+    /// 开始时间 `HH:mm`（由实测 Unix 毫秒 `starttime` 转换；无毫秒时回退字符串字段）
     pub start_time: Option<String>,
+    /// 结束时间 `HH:mm`（由实测 Unix 毫秒 `endtime` 转换）
     pub end_time: Option<String>,
-    pub create_time: Option<String>,
+    /// 原始开始时间（Unix 毫秒，实测 `starttime`）
+    pub start_time_ms: Option<i64>,
+    /// 原始结束时间（Unix 毫秒，实测 `endtime`）
+    pub end_time_ms: Option<i64>,
+    /// 预约时长（实测 `reserveDuration`；单位未实测，原样透传）
+    pub reserve_duration: Option<i64>,
+    /// 备注（实测 `remark`）
+    pub remark: Option<String>,
+    /// 预约项 ID（实测 `reserveId`）
+    pub reserve_id: Option<i64>,
+    /// 应用 ID（实测 `resvAppId`）
+    pub resv_app_id: Option<i64>,
+    /// 动态表单定义（若条目内嵌；实测样本未出现，保留兜底）
     pub custom_form_config: Option<CustomFormConfig>,
+    /// 原始条目
     pub raw: Value,
+}
+
+/// Unix 毫秒 → `HH:mm`（按**北京时间 UTC+8** 渲染）。
+///
+/// 理由：超星预约服务面向中国高校，使用固定 UTC+8 可保证结果与用户本机时区无关、可复现；
+/// 实测样本 `1783760400000` 为 `2026-07-11T09:00:00Z`（= 北京时间 17:00）。
+/// TODO(#1076)：若后续实测证明服务端把「本地墙钟」编码为 UTC（而非真 epoch），需调整换算。
+fn ms_to_hhmm(ms: Option<i64>) -> Option<String> {
+    let ms = ms?;
+    let tz = chrono::FixedOffset::east_opt(8 * 3600)?;
+    tz.timestamp_millis_opt(ms)
+        .single()
+        .map(|dt| dt.format("%H:%M").to_string())
 }
 
 impl MyReservation {
     fn from_value(v: &Value) -> Self {
+        let start_time_ms = value_i64(v, &["starttime", "startTime", "beginTime"]);
+        let end_time_ms = value_i64(v, &["endtime", "endTime", "finishTime"]);
         Self {
-            aprv_id: value_i64(v, &["aprvId", "id"]),
+            id: value_i64(v, &["id"]),
+            item_id: value_i64(v, &["itemId", "item_id"]),
+            aprv_id: value_i64(v, &["aprvId"]),
             status: value_i64(v, &["status", "aprvStatus"]),
             status_name: value_string(v, &["statusName", "aprvStatusName", "statusText"]),
+            is_cancel: value_bool(v, &["isCancel", "isCanceled", "canceled", "cancel"]),
             item_name: value_string(v, &["name", "itemName", "reserveName", "roomName"]),
-            date: value_string(v, &["date", "reserveDate", "day"]),
-            start_time: value_string(v, &["startTime", "beginTime"]),
-            end_time: value_string(v, &["endTime", "finishTime"]),
-            create_time: value_string(v, &["createTime", "createDate", "reserveTime"]),
+            date: value_string(v, &["today", "date", "reserveDate", "day"]),
+            start_time: ms_to_hhmm(start_time_ms)
+                .or_else(|| value_string(v, &["startTime", "beginTime"])),
+            end_time: ms_to_hhmm(end_time_ms)
+                .or_else(|| value_string(v, &["endTime", "finishTime"])),
+            start_time_ms,
+            end_time_ms,
+            reserve_duration: value_i64(v, &["reserveDuration"]),
+            remark: value_string(v, &["remark", "remarks", "memo"]),
+            reserve_id: value_i64(v, &["reserveId"]),
+            resv_app_id: value_i64(v, &["resvAppId"]),
             custom_form_config: CustomFormConfig::of(v),
             raw: v.clone(),
         }
@@ -640,14 +857,20 @@ pub(crate) struct SubmitReserveRequest {
     pub extra: BTreeMap<String, String>,
 }
 
-/// 取消预约请求
+/// 取消预约请求（**契约已实测**，2026-10-19）。
+///
+/// 官方页面调用：
+/// ```js
+/// doRequest('data/apps/reserve/item/user/cancel', { id: e.id, allCancel: allCancel }, true)
+/// ```
+/// 其中 `e.id` 是「我的预约」条目的 `id`（实测如 `30035270`）；`aprvId` 恒为 0，**不能作主键**。
+/// 已实测：带 `{id, allCancel}` 调用返回 `{"success":true,...}`，记录随即变为已取消。
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CancelReserveRequest {
-    /// 审批 / 预约记录 ID（来自「我的预约」列表）
-    pub aprv_id: String,
-    pub form_user_id: Option<String>,
-    /// 其它透传参数
-    pub extra: BTreeMap<String, String>,
+    /// 预约记录 ID（`reservepc/user/histroy` 条目的 `id`）
+    pub id: String,
+    /// 是否同时取消同组成员（`teamLeaderCancel` 场景；默认 false）
+    pub all_cancel: bool,
 }
 
 /// 提交 / 取消体里由本模块统一注入、**不允许调用方覆盖**的键
@@ -705,29 +928,36 @@ fn submit_params(ctx: &ReserveContext, req: &SubmitReserveRequest) -> BTreeMap<S
     p
 }
 
-/// 取消体：基础参数 + `ua=pc` + `aprvId` + 透传字段
+/// 取消体：基础参数 + `ua=pc` + `id` + `allCancel`（实测契约）。
 fn cancel_params(ctx: &ReserveContext, req: &CancelReserveRequest) -> BTreeMap<String, String> {
     let mut p = ctx.base_params();
     p.insert("ua".into(), "pc".into());
-    p.insert("aprvId".into(), req.aprv_id.trim().to_string());
-    if let Some(v) = non_empty(req.form_user_id.as_deref()) {
-        p.insert("formUserId".into(), v);
-    }
-    merge_form_fields(&mut p, &req.extra);
+    p.insert("id".into(), req.id.trim().to_string());
+    p.insert(
+        "allCancel".into(),
+        if req.all_cancel { "1" } else { "0" }.into(),
+    );
     p
 }
 
-/// 时段列表请求体（与实测契约逐字段对齐）
+/// 时段列表请求体（与实测契约逐字段对齐）。
+///
+/// 实测 body（2026-10-16）：
+/// `sw=''` + `reserveId` + `resvAppId` + `sortIds=''` + `startTime` + `endTime` +
+/// `reserveIdEnc` + `fidEnc`。
+/// `startTime` / `endTime` 留空 = 取**房间列表**（含按星期几的可用时段）；
+/// 传日期窗口 = 服务端按窗口筛选（实测窗口内通常 0 条）。
 fn time_list_params(
     ctx: &ReserveContext,
     start_time: Option<&str>,
     end_time: Option<&str>,
 ) -> BTreeMap<String, String> {
     let mut p = BTreeMap::new();
-    // `sw` 实测为空串（含义未验证），保持原样以复现契约
+    // `sw` / `sortIds` 实测均为空串（含义未验证），保持原样以复现契约
     p.insert("sw".into(), String::new());
     p.insert("reserveId".into(), ctx.reserve_id.clone());
     p.insert("resvAppId".into(), ctx.resv_app_id.clone());
+    p.insert("sortIds".into(), String::new());
     p.insert(
         "startTime".into(),
         start_time.unwrap_or("").trim().to_string(),
@@ -793,6 +1023,47 @@ fn extract_list(data: &Value) -> Vec<Value> {
     Vec::new()
 }
 
+/// 房间（可预约项）列表的候选外层键名。
+///
+/// 实测**未记录** `reserve/item/list/time` 响应里房间数组所在的键名，故按常见键名
+/// 依次尝试（`reserveItemList` 优先，与既有实现一致），并兼容 `data` 本身即数组、
+/// 以及「首个对象数组值」的兜底形态。
+const ROOM_LIST_KEYS: [&str; 10] = [
+    "reserveItemList",
+    "reserveList",
+    "rooms",
+    "roomList",
+    "rows",
+    "list",
+    "dataList",
+    "records",
+    "items",
+    "data",
+];
+
+/// 从响应 data 中提取房间数组（宽松，缺失 → 空列表，不 panic）
+fn room_items_of(data: &Value) -> Vec<Value> {
+    if let Value::Array(items) = data {
+        return items.clone();
+    }
+    for key in ROOM_LIST_KEYS {
+        if let Some(Value::Array(items)) = data.get(key) {
+            return items.clone();
+        }
+    }
+    // 兜底：第一个「含对象元素」的数组值
+    if let Value::Object(map) = data {
+        for child in map.values() {
+            if let Value::Array(items) = child {
+                if items.iter().any(|i| i.is_object()) {
+                    return items.clone();
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
 // ── 业务接口：查询 ──
 
 /// 预约项详情（约束字段：`advanceDays` / `durationLimitMin` / `dialogTitle` 等）
@@ -802,13 +1073,21 @@ pub(crate) async fn fetch_item_info(
     force: bool,
 ) -> Result<ReserveItemInfo, LibraryReserveError> {
     let ctx = resolve_context(client, app, force).await?;
+    // 缺 reserveIdEnc 时明确报「凭证未取到」，绝不带缺失参数发请求（否则会被误判为无权限）
+    ctx.require_reserve_id_enc()?;
     let value = post_form(client, ENDPOINT_ITEM_INFO, &info_params(&ctx)).await?;
     let data = api_data(&value, "获取预约项详情")?;
     let reserve_data = data.get("reserveData").cloned().unwrap_or(Value::Null);
     Ok(ReserveItemInfo::from_value(&reserve_data))
 }
 
-/// 可预约时段列表（核心；含 `customFormConfig` 动态表单定义）
+/// 可预约时段 / 房间列表（核心；含 `customFormConfig` 动态表单定义）。
+///
+/// 实测（2026-10-16）语义修正：该端点实为「**房间列表 + 可选时间筛选**」——
+/// - **未传** `start_time` / `end_time`（或传空串）→ 取**房间列表**：每个房间自带
+///   `reserveIntervalList`（按星期几的可用时段），归一化为 [`ReserveRoomItem`]；
+/// - **传了**时间窗口 → 服务端按窗口过滤，保持既有「时段筛选」语义
+///   （归一化为 [`ReserveTimeItem`]；实测窗口内通常 0 条）。
 pub(crate) async fn fetch_time_list(
     client: &mut HbutClient,
     app: LibraryApp,
@@ -817,14 +1096,18 @@ pub(crate) async fn fetch_time_list(
     force: bool,
 ) -> Result<ReserveTimeList, LibraryReserveError> {
     let ctx = resolve_context(client, app, force).await?;
+    ctx.require_reserve_id_enc()?;
+    // 空串等同未提供（前端可能下发 ""），统一按「无时间窗口」处理
+    let has_window = non_empty(start_time).is_some() || non_empty(end_time).is_some();
     let params = time_list_params(&ctx, start_time, end_time);
     let value = post_form(client, ENDPOINT_TIME_LIST, &params).await?;
     let data = api_data(&value, "获取可预约时段")?;
-    let items = data
-        .get("reserveItemList")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().map(ReserveTimeItem::from_value).collect())
-        .unwrap_or_default();
+    let raw_items = room_items_of(&data);
+    let items = if has_window {
+        ReserveTimeListItems::Slots(raw_items.iter().map(ReserveTimeItem::from_value).collect())
+    } else {
+        ReserveTimeListItems::Rooms(raw_items.iter().map(ReserveRoomItem::from_value).collect())
+    };
     Ok(ReserveTimeList {
         items,
         advance_days: value_i64(&data, &["advanceDays"]),
@@ -832,16 +1115,100 @@ pub(crate) async fn fetch_time_list(
     })
 }
 
-/// 我的预约列表
+/// 预约对象的一个可预约时段（`reserve/item/setting` → `commonIntervalMap` 元素）。
 ///
-/// TODO(#1053)：端点与响应结构未实测，见 [`ENDPOINT_MY_RESERVATIONS`]。
+/// 实测字段：`id / startTime / endTime / week / available / userNum / intervalBetweenId`。
+/// 提交 `reserve/multiple/submit` 时，`reserveUsers[].intervalIds` 就是这里的 `id` 集合。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ItemSettingInterval {
+    /// 时段 ID（提交 `intervalIds` 用）
+    pub id: i64,
+    /// 星期几（1=周一 … 7=周日；取条目 `week`，缺失时回落到 map 的键）
+    pub week: Option<i64>,
+    /// 开始 `HH:mm`
+    pub start_time: String,
+    /// 结束 `HH:mm`
+    pub end_time: String,
+    /// 该时段是否开放（`available != 0`；缺失按开放处理）
+    pub available: bool,
+}
+
+/// `reserve/item/setting` 的归一化结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ItemSetting {
+    /// 全部星期的时段（按 `week`、`startTime` 排序）
+    pub intervals: Vec<ItemSettingInterval>,
+    pub raw: Value,
+}
+
+/// 解析 `commonIntervalMap`（7 个键 × 时段数组），缺失 / 形态异常时返回空列表。
+fn item_setting_of(data: &Value) -> ItemSetting {
+    let mut intervals = Vec::new();
+    if let Some(map) = data.get("commonIntervalMap").and_then(|v| v.as_object()) {
+        for (week_key, list) in map {
+            let week_from_key = week_key.parse::<i64>().ok();
+            let Some(arr) = list.as_array() else { continue };
+            for entry in arr {
+                let Some(id) = value_i64(entry, &["id"]) else {
+                    continue;
+                };
+                intervals.push(ItemSettingInterval {
+                    id,
+                    week: value_i64(entry, &["week", "weekDay"]).or(week_from_key),
+                    start_time: value_string(entry, &["startTime", "start"]).unwrap_or_default(),
+                    end_time: value_string(entry, &["endTime", "end"]).unwrap_or_default(),
+                    // 缺失 available 时按开放处理（交由服务端最终裁决）
+                    available: value_i64(entry, &["available", "isAvailable"]).unwrap_or(1) != 0,
+                });
+            }
+        }
+    }
+    intervals.sort_by(|a, b| (a.week, a.start_time.as_str()).cmp(&(b.week, b.start_time.as_str())));
+    ItemSetting {
+        intervals,
+        raw: data.clone(),
+    }
+}
+
+/// 预约对象时段设置（`reserve/item/setting`）：拿到**真实时段 ID**，供提交组装 `intervalIds`。
+///
+/// 实测 body 只需 `reserveId` / `itemId` / `fidEnc`（不需要 `reserveIdEnc`）。
+pub(crate) async fn fetch_item_setting(
+    client: &mut HbutClient,
+    app: LibraryApp,
+    item_id: i64,
+    force: bool,
+) -> Result<ItemSetting, LibraryReserveError> {
+    if item_id <= 0 {
+        return Err(LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            "获取时段设置需要有效的 itemId",
+        ));
+    }
+    let ctx = resolve_context(client, app, force).await?;
+    let mut params = BTreeMap::new();
+    params.insert("reserveId".into(), ctx.reserve_id.clone());
+    params.insert("itemId".into(), item_id.to_string());
+    params.insert("fidEnc".into(), ctx.fid_enc.clone());
+    let value = post_form(client, ENDPOINT_ITEM_SETTING, &params).await?;
+    let data = api_data(&value, "获取预约对象时段设置")?;
+    Ok(item_setting_of(&data))
+}
+
+/// 我的预约列表（`reservepc/user/histroy`）。
+///
+/// 实测 body：`reserveId` / `resvAppId` / `reserveIdEnc` / `fidEnc`（即 [`ReserveContext::base_params`]）；
+/// 响应 `data` 为 `{"totalRow":N,"totalPage":N,"rows":[…]}`，条目字段见 [`MyReservation`]。
 pub(crate) async fn fetch_my_reservations(
     client: &mut HbutClient,
     app: LibraryApp,
     force: bool,
 ) -> Result<MyReservationList, LibraryReserveError> {
     let ctx = resolve_context(client, app, force).await?;
-    let value = post_form(client, ENDPOINT_MY_RESERVATIONS, &ctx.simple_params()).await?;
+    ctx.require_reserve_id_enc()?;
+    let value = post_form(client, ENDPOINT_MY_RESERVATIONS, &ctx.base_params()).await?;
     let data = api_data(&value, "获取我的预约")?;
     let items = extract_list(&data)
         .iter()
@@ -849,7 +1216,8 @@ pub(crate) async fn fetch_my_reservations(
         .collect();
     Ok(MyReservationList {
         items,
-        total: value_i64(&data, &["total", "totalCount", "count"]),
+        // 实测分页字段为 totalRow（保留旧的常见键名兜底）
+        total: value_i64(&data, &["totalRow", "total", "totalCount", "count"]),
         raw: data,
     })
 }
@@ -943,6 +1311,7 @@ pub(crate) async fn submit_reservation(
     force: bool,
 ) -> Result<ReserveActionOutcome, LibraryReserveError> {
     let ctx = resolve_context(client, app, force).await?;
+    ctx.require_reserve_id_enc()?;
     let params = submit_params(&ctx, req);
     let value = post_form(client, ENDPOINT_SUBMIT, &params).await?;
     // ⚠️ 写操作必须用 api_write_result（要求显式成功信号）：本端点契约未实测
@@ -956,25 +1325,27 @@ pub(crate) async fn submit_reservation(
     })
 }
 
-/// 取消预约。
+/// 取消预约（**契约已实测**，2026-10-19）。
 ///
-/// TODO(#1053)：端点（[`ENDPOINT_CANCEL`]）与完整字段契约均未实测。
+/// 端点：[`ENDPOINT_CANCEL`]；body 见 [`cancel_params`]（`id` + `allCancel`）。
+/// 写操作同样要求显式成功信号（[`api_write_result`]），避免「假取消成功」。
 pub(crate) async fn cancel_reservation(
     client: &mut HbutClient,
     app: LibraryApp,
     req: &CancelReserveRequest,
     force: bool,
 ) -> Result<ReserveActionOutcome, LibraryReserveError> {
-    if req.aprv_id.trim().is_empty() {
+    if req.id.trim().is_empty() {
         return Err(LibraryReserveError::business(
             ERR_INVALID_PARAMS,
-            "取消预约需要 aprvId（可从「我的预约」列表获取）",
+            "取消预约需要记录 id（来自「我的预约」列表；aprvId 恒为 0，不能用）",
         ));
     }
     let ctx = resolve_context(client, app, force).await?;
+    ctx.require_reserve_id_enc()?;
     let params = cancel_params(&ctx, req);
     let value = post_form(client, ENDPOINT_CANCEL, &params).await?;
-    // 同提交：端点契约未实测，必须要求显式成功信号，避免「假取消成功」
+    // 写操作必须要求显式成功信号，避免「假取消成功」
     let outcome = api_write_result(&value, "取消预约")?;
     Ok(ReserveActionOutcome {
         message: outcome.message,
@@ -1055,6 +1426,102 @@ mod tests {
         assert_eq!(ctx.reserve_id, "24679");
     }
 
+    #[test]
+    fn require_reserve_id_enc_reports_credential_invalid() {
+        // 需要该参数的接口在缺失时必须报「凭证未取到」（credential_invalid），
+        // 绝不能带缺失参数发请求、再被打成 no_permission。
+        let missing = ReserveContext::from_entry(
+            LibraryApp::QuietRoom,
+            &make_entry(LibraryApp::QuietRoom, Some("FID"), None),
+        )
+        .expect("可构造");
+        let err = missing
+            .require_reserve_id_enc()
+            .expect_err("应报凭证未取到");
+        assert_eq!(
+            err.kind,
+            crate::modules::library_reserve::ERR_CREDENTIAL_INVALID
+        );
+        assert!(err.can_relogin, "凭证问题应可重新登录 / 重试");
+        assert!(
+            err.message.contains("reserveIdEnc"),
+            "错误应点名缺失的凭证：{}",
+            err.message
+        );
+
+        // 已有凭证时正常返回
+        let present = ReserveContext::from_entry(
+            LibraryApp::QuietRoom,
+            &make_entry(LibraryApp::QuietRoom, Some("FID"), Some("838c48dae07db28c")),
+        )
+        .expect("可构造");
+        assert_eq!(
+            present.require_reserve_id_enc().expect("应有凭证"),
+            "838c48dae07db28c"
+        );
+    }
+
+    // ── P1：我的预约（reservepc/user/histroy）端点与字段映射 ──
+
+    #[test]
+    fn my_reservation_parses_measured_histroy_row() {
+        // 实测条目（2026-10-16）：starttime/endtime 为 Unix 毫秒，aprvId 恒为 0
+        let v: Value = serde_json::json!({
+            "id": 29589158, "itemId": 49136, "name": "4号静音仓", "today": "2026-07-11",
+            "starttime": 1783760400000i64, "endtime": 1783767600000i64,
+            "status": 2, "isCancel": 0, "reserveDuration": 206000,
+            "remark": "讨论问题", "aprvId": 0, "reserveId": 24727, "resvAppId": 24727
+        });
+        let r = MyReservation::from_value(&v);
+        assert_eq!(r.id, Some(29589158));
+        assert_eq!(r.item_id, Some(49136));
+        assert_eq!(r.item_name.as_deref(), Some("4号静音仓"));
+        assert_eq!(r.date.as_deref(), Some("2026-07-11"));
+        assert_eq!(r.status, Some(2));
+        assert_eq!(r.is_cancel, Some(false));
+        assert_eq!(r.aprv_id, Some(0), "实测 aprvId 恒为 0");
+        assert_eq!(r.reserve_id, Some(24727));
+        assert_eq!(r.resv_app_id, Some(24727));
+        assert_eq!(r.reserve_duration, Some(206000));
+        assert_eq!(r.remark.as_deref(), Some("讨论问题"));
+        // 毫秒时间戳：原值保留 + 按北京时间渲染 HH:mm（1783760400000 = 09:00Z = 17:00+08:00）
+        assert_eq!(r.start_time_ms, Some(1783760400000));
+        assert_eq!(r.end_time_ms, Some(1783767600000));
+        assert_eq!(r.start_time.as_deref(), Some("17:00"));
+        assert_eq!(r.end_time.as_deref(), Some("19:00"));
+        assert_eq!(r.raw.get("id").and_then(|x| x.as_i64()), Some(29589158));
+    }
+
+    #[test]
+    fn my_reservation_list_reads_rows_and_total_row() {
+        // 实测响应形态：{"totalRow":N,"totalPage":N,"rows":[…]}
+        let data: Value = serde_json::json!({
+            "totalRow": 1, "totalPage": 1,
+            "rows": [{"id": 1, "name": "4号静音仓", "starttime": 1783760400000i64}]
+        });
+        let items: Vec<MyReservation> = extract_list(&data)
+            .iter()
+            .map(MyReservation::from_value)
+            .collect();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_name.as_deref(), Some("4号静音仓"));
+        // 分页总数取 totalRow
+        assert_eq!(
+            value_i64(&data, &["totalRow", "total", "totalCount", "count"]),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn ms_to_hhmm_handles_missing_and_converts_epoch() {
+        assert_eq!(ms_to_hhmm(None), None);
+        // 北京时间固定 UTC+8（与用户本机时区无关，可复现）
+        assert_eq!(ms_to_hhmm(Some(1783760400000)).as_deref(), Some("17:00"));
+        assert_eq!(ms_to_hhmm(Some(1783767600000)).as_deref(), Some("19:00"));
+        // 非法值（超出可表示范围）不 panic
+        assert_eq!(ms_to_hhmm(Some(i64::MAX)), None);
+    }
+
     // ── 请求体构造（与实测契约逐字段对齐） ──
 
     #[test]
@@ -1089,20 +1556,144 @@ mod tests {
         )
         .expect("可构造");
         let p = time_list_params(&ctx, None, None);
-        // 实测：sw=&reserveId=24727&resvAppId=24727&startTime=&endTime=&reserveIdEnc=<enc>&fidEnc=<fidEnc>
+        // 实测：sw=&reserveId=24727&resvAppId=24727&sortIds=&startTime=&endTime=&reserveIdEnc=<enc>&fidEnc=<fidEnc>
         assert_eq!(p.get("sw").map(String::as_str), Some(""));
         assert_eq!(p.get("reserveId").map(String::as_str), Some("24727"));
         assert_eq!(p.get("resvAppId").map(String::as_str), Some("24727"));
+        assert_eq!(p.get("sortIds").map(String::as_str), Some(""));
         assert_eq!(p.get("startTime").map(String::as_str), Some(""));
         assert_eq!(p.get("endTime").map(String::as_str), Some(""));
         assert_eq!(p.get("reserveIdEnc").map(String::as_str), Some("ENC"));
         assert_eq!(p.get("fidEnc").map(String::as_str), Some("FID"));
-        assert_eq!(p.len(), 7);
+        assert_eq!(p.len(), 8);
 
         // 传入时间范围时原样透传
         let p = time_list_params(&ctx, Some(" 2026-10-16 "), Some("2026-10-17"));
         assert_eq!(p.get("startTime").map(String::as_str), Some("2026-10-16"));
         assert_eq!(p.get("endTime").map(String::as_str), Some("2026-10-17"));
+    }
+
+    // ── P0：房间列表归一化（reserve/item/list/time 不传时间窗口） ──
+
+    #[test]
+    fn room_item_parses_measured_interval_list() {
+        // 实测房间形态（2026-10-16）：静音仓房间自带按星期几的可用时段
+        let v: Value = serde_json::json!({
+            "id": 49136,
+            "name": "1号静音仓",
+            "minUserNum": 1,
+            "maxUserNum": 20,
+            "formId": 12345,
+            "advanceDays": 14,
+            "timeUnit": 0,
+            "rangestime": 0,
+            "rangeetime": 36000000,
+            "reserveInterval": {"startTime": "08:00", "endTime": "21:30"},
+            "reserveIntervalList": [
+                {"available": 1, "startTime": "08:00", "endTime": "21:30", "week": 1},
+                {"available": 0, "startTime": "08:00", "endTime": "18:00", "week": 2}
+            ],
+            "customFormConfig": "[{\"fieldName\":\"userName\"}]"
+        });
+        let item = ReserveRoomItem::from_value(&v);
+        assert_eq!(item.item_id, Some(49136));
+        assert_eq!(item.name.as_deref(), Some("1号静音仓"));
+        assert_eq!(item.min_user_num, Some(1));
+        assert_eq!(item.max_user_num, Some(20));
+        assert_eq!(item.form_id, Some(12345));
+        assert_eq!(item.advance_days, Some(14));
+        assert_eq!(item.time_unit, Some(0));
+        assert_eq!(item.range_start_ms, Some(0));
+        assert_eq!(item.range_end_ms, Some(36_000_000));
+
+        // intervals 归一化：week / available / startTime / endTime 逐字段保留
+        assert_eq!(item.intervals.len(), 2);
+        assert_eq!(item.intervals[0].week, Some(1));
+        assert_eq!(item.intervals[0].available, Some(1));
+        assert_eq!(item.intervals[0].start_time.as_deref(), Some("08:00"));
+        assert_eq!(item.intervals[0].end_time.as_deref(), Some("21:30"));
+        assert_eq!(item.intervals[1].week, Some(2));
+        assert_eq!(item.intervals[1].available, Some(0));
+        assert_eq!(item.intervals[1].end_time.as_deref(), Some("18:00"));
+
+        // 未建模字段（customFormConfig / reserveInterval）保留在 raw
+        assert!(item.raw.get("customFormConfig").is_some());
+        assert!(item.raw.get("reserveInterval").is_some());
+    }
+
+    #[test]
+    fn room_item_tolerates_missing_intervals_and_odd_shapes() {
+        // 缺 reserveIntervalList → 空列表，不 panic
+        let item = ReserveRoomItem::from_value(&serde_json::json!({"id": "49136"}));
+        assert_eq!(item.item_id, Some(49136));
+        assert!(item.intervals.is_empty());
+        assert!(item.name.is_none());
+        assert!(item.min_user_num.is_none());
+
+        // reserveIntervalList 非数组 → 空列表
+        let item = ReserveRoomItem::from_value(&serde_json::json!({
+            "reserveIntervalList": "oops"
+        }));
+        assert!(item.intervals.is_empty());
+
+        // 驼峰兜底键名也要能取（服务端字段大小写不稳定）
+        let item = ReserveRoomItem::from_value(&serde_json::json!({
+            "rangeStartTime": 0, "rangeEndTime": 1, "formid": 7
+        }));
+        assert_eq!(item.range_start_ms, Some(0));
+        assert_eq!(item.range_end_ms, Some(1));
+        assert_eq!(item.form_id, Some(7));
+    }
+
+    #[test]
+    fn room_items_of_extracts_array_by_common_keys() {
+        // 首选 reserveItemList
+        let data = serde_json::json!({
+            "reserveItemList": [{"id": 1}, {"id": 2}]
+        });
+        assert_eq!(room_items_of(&data).len(), 2);
+
+        // 其它常见键
+        assert_eq!(
+            room_items_of(&serde_json::json!({"rows": [{"id": 1}]})).len(),
+            1
+        );
+        assert_eq!(
+            room_items_of(&serde_json::json!({"rooms": [{"id": 1}]})).len(),
+            1
+        );
+        // data 本身即数组
+        assert_eq!(room_items_of(&serde_json::json!([{"id": 1}])).len(), 1);
+        // 未知键但含对象数组 → 兜底
+        assert_eq!(
+            room_items_of(&serde_json::json!({"whatever": [{"id": 1}]})).len(),
+            1
+        );
+        // 无数组 → 空
+        assert!(room_items_of(&serde_json::json!({"totalRow": 0})).is_empty());
+        assert!(room_items_of(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn time_list_items_serialize_as_plain_arrays() {
+        // 两种形态序列化后都是数组（前端按调用形态解析 items）
+        let rooms = ReserveTimeListItems::Rooms(vec![ReserveRoomItem::from_value(
+            &serde_json::json!({"id": 1, "name": "1号静音仓"}),
+        )]);
+        let value = serde_json::to_value(&rooms).expect("可序列化");
+        assert!(value.is_array());
+        assert_eq!(value[0].get("itemId").and_then(|v| v.as_i64()), Some(1));
+        assert!(value[0]
+            .get("intervals")
+            .map(|v| v.is_array())
+            .unwrap_or(false));
+
+        let slots = ReserveTimeListItems::Slots(vec![ReserveTimeItem::from_value(
+            &serde_json::json!({"aprvId": 0, "startTime": "08:00"}),
+        )]);
+        let value = serde_json::to_value(&slots).expect("可序列化");
+        assert!(value.is_array());
+        assert_eq!(value[0].get("aprvId").and_then(|v| v.as_i64()), Some(0));
     }
 
     #[test]
@@ -1180,25 +1771,60 @@ mod tests {
     }
 
     #[test]
-    fn cancel_params_include_aprv_id_and_ua() {
+    fn cancel_params_use_record_id_and_all_cancel() {
         let ctx = ReserveContext::from_entry(
             LibraryApp::QuietRoom,
             &make_entry(LibraryApp::QuietRoom, Some("FID"), Some("ENC")),
         )
         .expect("可构造");
-        let mut extra = BTreeMap::new();
-        extra.insert("reason".to_string(), "临时有事".to_string());
         let req = CancelReserveRequest {
-            aprv_id: " 77 ".to_string(),
-            form_user_id: Some("406591160".to_string()),
-            extra,
+            id: " 30035270 ".to_string(),
+            all_cancel: true,
         };
         let p = cancel_params(&ctx, &req);
-        assert_eq!(p.get("aprvId").map(String::as_str), Some("77"));
+        // 实测（2026-10-19）：取消主键是记录 id，不是 aprvId
+        assert_eq!(p.get("id").map(String::as_str), Some("30035270"));
+        assert_eq!(p.get("allCancel").map(String::as_str), Some("1"));
         assert_eq!(p.get("ua").map(String::as_str), Some("pc"));
-        assert_eq!(p.get("formUserId").map(String::as_str), Some("406591160"));
-        assert_eq!(p.get("reason").map(String::as_str), Some("临时有事"));
         assert_eq!(p.get("fidEnc").map(String::as_str), Some("FID"));
+        assert!(!p.contains_key("aprvId"), "aprvId 恒为 0，不得再下发");
+
+        // all_cancel 默认 0
+        let p = cancel_params(
+            &ctx,
+            &CancelReserveRequest {
+                id: "30035270".to_string(),
+                all_cancel: false,
+            },
+        );
+        assert_eq!(p.get("allCancel").map(String::as_str), Some("0"));
+    }
+
+    #[test]
+    fn item_setting_flattens_common_interval_map() {
+        let data = serde_json::json!({
+            "commonIntervalMap": {
+                "1": [
+                    {"id": 2035233, "week": 1, "startTime": "08:00", "endTime": "09:00", "available": 1},
+                    {"id": 2035234, "week": 1, "startTime": "09:00", "endTime": "10:00", "available": 0}
+                ],
+                "2": [
+                    {"id": 2035300, "startTime": "08:00", "endTime": "09:00"}
+                ]
+            }
+        });
+        let setting = item_setting_of(&data);
+        assert_eq!(setting.intervals.len(), 3);
+        assert_eq!(setting.intervals[0].id, 2035233);
+        assert_eq!(setting.intervals[0].week, Some(1));
+        assert!(setting.intervals[0].available);
+        assert!(
+            !setting.intervals[1].available,
+            "available=0 必须置为不可用"
+        );
+        // week 缺失时回落到 map 键；available 缺失按开放处理
+        assert_eq!(setting.intervals[2].week, Some(2));
+        assert!(setting.intervals[2].available);
     }
 
     #[test]
@@ -1229,18 +1855,16 @@ mod tests {
         assert_eq!(p.get("aprvStatusTypeId").map(String::as_str), Some("1"));
         assert_eq!(p.get("fidEnc").map(String::as_str), Some("FID"));
 
-        // 取消：extra.aprvId 不得改写取消目标（否则可能取消掉别人的预约）
-        let mut extra = BTreeMap::new();
-        extra.insert("aprvId".to_string(), "999999".to_string());
-        extra.insert("formUserId".to_string(), "HACKER".to_string());
-        let req = CancelReserveRequest {
-            aprv_id: "77".to_string(),
-            form_user_id: Some("406591160".to_string()),
-            extra,
-        };
-        let p = cancel_params(&ctx, &req);
-        assert_eq!(p.get("aprvId").map(String::as_str), Some("77"));
-        assert_eq!(p.get("formUserId").map(String::as_str), Some("406591160"));
+        // 取消：取消体只由显式字段构成（id / allCancel），不接受透传改写
+        let p = cancel_params(
+            &ctx,
+            &CancelReserveRequest {
+                id: "30035270".to_string(),
+                all_cancel: false,
+            },
+        );
+        assert_eq!(p.get("id").map(String::as_str), Some("30035270"));
+        assert_eq!(p.get("allCancel").map(String::as_str), Some("0"));
 
         // form_data（动态表单字段）同样受保护，不能覆盖注入键
         let mut form_data = BTreeMap::new();
@@ -1427,16 +2051,24 @@ mod tests {
         // 防止重构时误改路径（契约文档 01-api-contract.md）
         assert_eq!(ENDPOINT_ITEM_INFO, "reserve/info");
         assert_eq!(ENDPOINT_TIME_LIST, "reserve/item/list/time");
+        // 实测新增（2026-10-19）：时段 ID 来自 reserve/item/setting
+        assert_eq!(ENDPOINT_ITEM_SETTING, "reserve/item/setting");
         assert_eq!(ENDPOINT_USER_VIEW_FLAG, "reservepc/user/view/flag");
         assert_eq!(ENDPOINT_OPEN_TEAM, "reservepc/open/team");
         assert_eq!(ENDPOINT_TEAM_LIST, "reservepc/team/list");
         assert_eq!(ENDPOINT_PERSON_ROLE, "seat/person/role");
         assert_eq!(ENDPOINT_DIALOG, "reserve/dialog");
         assert_eq!(ENDPOINT_SUBMIT, "reserve/multiple/submit");
+        // 实测修正（2026-10-16）：我的预约端点为 reservepc/user/histroy
+        // （旧值 reserve/latest/data 实测返回 HTTP 400，需要 itemId，并非列表接口）
+        assert_eq!(ENDPOINT_MY_RESERVATIONS, "reservepc/user/histroy");
+        // 取消端点与契约已实测（2026-10-19）：POST {id, allCancel}
+        assert_eq!(ENDPOINT_CANCEL, "reserve/item/user/cancel");
         // 基址以 / 结尾，路径不得以 / 开头（否则拼接出错）
         for p in [
             ENDPOINT_ITEM_INFO,
             ENDPOINT_TIME_LIST,
+            ENDPOINT_ITEM_SETTING,
             ENDPOINT_SUBMIT,
             ENDPOINT_CANCEL,
             ENDPOINT_MY_RESERVATIONS,

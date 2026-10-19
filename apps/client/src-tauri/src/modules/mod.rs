@@ -22,6 +22,8 @@ pub mod library_reserve;
 pub mod library_reserve_pc;
 // #1054：图书馆预约 · 座位预约只读查询（seatengine 接口体系；写接口契约未抓到，暂不实现）
 pub mod library_reserve_seat;
+// 2026-10-19：图书馆预约 · 官方页面内嵌子 WebView（座位提交需 cxCaptcha 人工验证，纯接口不可行）
+pub mod library_reserve_embed;
 pub mod module_bundle;
 pub mod notification;
 pub mod one_code;

@@ -69,6 +69,8 @@ const MAX_REDIRECT_HOPS: usize = 12;
 const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 /// 入口请求超时
 const ENTRY_TIMEOUT: Duration = Duration::from_secs(25);
+/// 抓取落地页（提取服务端注入参数）的超时
+const PAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(25);
 
 // ── 错误分类 ──
 
@@ -82,6 +84,14 @@ pub const ERR_NETWORK_UNREACHABLE: &str = "network_unreachable";
 pub const ERR_INVALID_APP: &str = "invalid_app";
 /// 其它非预期响应（携带诊断信息）
 pub const ERR_UNEXPECTED_RESPONSE: &str = "unexpected_response";
+/// 预约凭证未取得或已失效（入口解析失败 / 缺 `seatIdEnc` / `reserveIdEnc` / 被超星判定「应用未找到」）
+///
+/// 与 [`ERR_NO_PERMISSION`] **严格区分**：超星在**缺凭证**时返回
+/// `{"msg":"未查询到您所访问的应用，请咨询管理员配置是否正确","success":false}`（HTTP 200），
+/// 这是「凭证缺失 / 失效」而**不是**「当前账号没有该应用权限」（见
+/// `data/library-reserve-recon/02-live-verification-2026-10-16.md` §二 / §三）。
+/// 属**可重试**类：重新走入口链路（必要时重新登录）会重新派生凭证。
+pub const ERR_CREDENTIAL_INVALID: &str = "credential_invalid";
 
 /// 可区分的预约链路错误。
 ///
@@ -129,6 +139,17 @@ impl LibraryReserveError {
     /// 已登录但无权限
     pub fn no_permission(message: impl Into<String>) -> Self {
         Self::new(ERR_NO_PERMISSION, message, false, None)
+    }
+
+    /// 预约凭证未取得或已失效（可重试）。
+    ///
+    /// `can_relogin = true` 的理由：
+    /// 1. 凭证（`seatIdEnc` / `reserveIdEnc` / `fidEnc` 等）由**登录态驱动的入口链路**实时派生，
+    ///    重新登录会重跑入口解析并重新注入凭证；
+    /// 2. 已 grep 前端（`apps/client/src/**`）：`canRelogin` **未在任何逻辑中被消费**（仅注释提及），
+    ///    因此该标志只承载提示语义，按「可重新登录 / 重试」取值即可，不会触发前端误行为。
+    pub fn credential_invalid(message: impl Into<String>) -> Self {
+        Self::new(ERR_CREDENTIAL_INVALID, message, true, None)
     }
 
     /// 网络不可达
@@ -336,6 +357,14 @@ const LOGIN_NEEDLES: [&str; 6] = [
     "重新登录",
     "会话已失效",
 ];
+
+/// 「应用未找到」类提示语特征 —— 属**凭证缺失 / 失效**，**不是**「无权限」。
+///
+/// 实测（2026-10-16）：缺 `seatIdEnc` / `reserveIdEnc` 时，接口返回
+/// `{"msg":"未查询到您所访问的应用，请咨询管理员配置是否正确","success":false}`。
+/// [`looks_like_credential_invalid`] 与 [`classify_entry_json_failure`] 共用本表，
+/// 保证「缺凭证」在整条链路上都被判为 [`ERR_CREDENTIAL_INVALID`]。
+const CREDENTIAL_INVALID_NEEDLES: [&str; 2] = ["未查询到您所访问的应用", "应用不存在"];
 
 /// 违约 / 停用类提示语特征（判定顺序最优先：既含「违约」又含「次数」的提示应归为停用）
 const SUSPENDED_NEEDLES: [&str; 8] = [
@@ -551,6 +580,14 @@ pub(crate) async fn read_api_response(
     if looks_like_login_page_body(trimmed) {
         return Err(LibraryReserveError::not_logged_in(format!(
             "调用「{path}」时超星返回登录页，登录态已失效。请重新登录融合门户后重试"
+        )));
+    }
+    // 「凭证缺失 / 失效」必须**早于**「无权限」判定：实测缺 seatIdEnc/reserveIdEnc 时
+    // 超星返回的正是「未查询到您所访问的应用」文案，若判成 no_permission 会给出
+    // 「重新登录也没用」的误导（见 02-live-verification §三）。
+    if looks_like_credential_invalid(status, trimmed) {
+        return Err(LibraryReserveError::credential_invalid(format!(
+            "调用「{path}」时超星提示「应用未找到」（HTTP {status}）：预约凭证可能未取得或已失效，请重试"
         )));
     }
     if looks_like_no_permission(status, trimmed) {
@@ -979,6 +1016,132 @@ pub async fn resolve_entry(
     })
 }
 
+// ── 落地页服务端注入参数（`seatIdEnc` / `reserveIdEnc` / `serverNow`） ──
+//
+// 实测（2026-10-16）：`seatIdEnc` / `reserveIdEnc` **不在入口跳转链上**，而是由真实系统
+// 落地页 HTML 由**服务端注入**（座位页内联 `seatIdEnc: '…'`，静音仓页内联
+// `reserveIdEnc: '…'`）。因此需要这两个参数的业务模块，必须在入口解析后**再抓一次落地页**。
+// 该能力收拢在基础模块，座位（seatengine）与静音仓/研讨室（reservepc）共用，避免各写一套。
+
+/// 落地页注入参数键名：座位 ID 加密串
+pub(crate) const PAGE_KEY_SEAT_ID_ENC: &str = "seatIdEnc";
+/// 落地页注入参数键名：预约项 ID 加密串
+pub(crate) const PAGE_KEY_RESERVE_ID_ENC: &str = "reserveIdEnc";
+/// 落地页注入参数键名：服务端当前时间
+pub(crate) const PAGE_KEY_SERVER_NOW: &str = "serverNow";
+/// 落地页注入参数键名：部门 ID 加密串（座位余量 / 找空座位接口需要）
+///
+/// 实测（2026-10-16）：`deptIdEnc` 同样由座位落地页注入，且**取不到时传空串仍可用**
+/// （与 `seatIdEnc` 不同），故调用方按「空串兜底」处理，不因缺失而报错。
+pub(crate) const PAGE_KEY_DEPT_ID_ENC: &str = "deptIdEnc";
+
+/// 落地页服务端注入参数的提取结果（按 key 取值）。
+///
+/// ⚠️ 全部为**短时效**值，禁止持久化 / 硬编码。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PageInjectedHints {
+    values: BTreeMap<String, String>,
+}
+
+impl PageInjectedHints {
+    /// 按 key 取值（键名见 [`PAGE_KEY_SEAT_ID_ENC`] 等；未取到返回 `None`）
+    pub(crate) fn get(&self, key: &str) -> Option<&str> {
+        self.values.get(key).map(String::as_str)
+    }
+}
+
+/// 抓取落地页 HTML，提取请求的注入参数（`keys`，如 `seatIdEnc` / `reserveIdEnc` / `serverNow`）。
+///
+/// 失败（登录态失效 / 页面结构变更 / 网络问题）返回 `Err`，**由调用方决定是否降级**：
+/// 座位模块允许缺失（best-effort），静音仓 / 研讨室在缺少 `reserveIdEnc` 时会报
+/// [`ERR_CREDENTIAL_INVALID`]（绝不带缺失参数发请求，见 `library_reserve_pc.rs`）。
+pub(crate) async fn fetch_page_injected(
+    client: &HbutClient,
+    entry: &LibraryAppEntry,
+    keys: &[&str],
+) -> Result<PageInjectedHints, LibraryReserveError> {
+    crate::runtime_log::log_info(
+        "LibraryReserve",
+        format!(
+            "抓取落地页以提取注入参数 app={} 键数={}",
+            entry.app,
+            keys.len()
+        ),
+    );
+    let resp = client
+        .client
+        .get(&entry.entry_url)
+        .header(ACCEPT, "text/html,application/xhtml+xml,*/*;q=0.8")
+        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9")
+        .timeout(PAGE_FETCH_TIMEOUT)
+        .send()
+        .await
+        .map_err(|e| classify_transport_error(&e))?;
+
+    let status = resp.status().as_u16();
+    let html = resp
+        .text()
+        .await
+        .map_err(|e| classify_transport_error(&e))?;
+
+    if looks_like_login_body(&html) {
+        return Err(LibraryReserveError::not_logged_in(
+            "抓取落地页时超星返回登录页，登录态已失效",
+        ));
+    }
+    if looks_like_credential_invalid(status, &html) {
+        return Err(LibraryReserveError::credential_invalid(format!(
+            "抓取落地页提示「应用未找到」（HTTP {status}）"
+        )));
+    }
+    if looks_like_no_permission(status, &html) {
+        return Err(LibraryReserveError::no_permission(format!(
+            "抓取落地页被超星拒绝（HTTP {status}）"
+        )));
+    }
+
+    let mut values = BTreeMap::new();
+    for key in keys {
+        if let Some(value) = extract_page_value(&html, key) {
+            values.insert((*key).to_string(), value);
+        }
+    }
+    Ok(PageInjectedHints { values })
+}
+
+/// 从页面 HTML / 内联 JS 中提取某个键的字符串值（best-effort）。
+///
+/// 支持两种形态（按优先级）：
+/// 1. 赋值 / JSON 字段：`key = new Date('2026-10-15T23:31:03.073+08:00')`、`key = "v"`、
+///    `"key":"v"` —— 键后允许一个引号（JSON 键），等号 / 冒号与引号之间允许少量
+///    「非分隔符」字符（如 ` new Date(`）；
+/// 2. URL query 里的裸值：`key=value`（值到 `&` / 引号 / 空白为止）。
+///
+/// 刻意排除 `& ? = / , : ; { } [ ] < > \` 等分隔符，避免把后续无关的引号串误当成该键的值。
+fn extract_page_value(html: &str, key: &str) -> Option<String> {
+    let escaped = regex::escape(key);
+
+    let quoted = regex::Regex::new(&format!(
+        r#"{escaped}['"]?\s*[:=][^'"\n&?=/,:;{{}}\[\]<>\\]{{0,32}}['"]([^'"]{{1,200}})['"]"#
+    ))
+    .ok()?;
+    if let Some(cap) = quoted.captures(html).and_then(|c| c.get(1)) {
+        let text = cap.as_str().trim();
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+
+    let bare = regex::Regex::new(&format!(r#"{escaped}=([^&'"\s<>\\]{{1,200}})"#)).ok()?;
+    let cap = bare.captures(html).and_then(|c| c.get(1))?;
+    let text = cap.as_str().trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
 /// 跳转链终态
 struct RedirectTrace {
     final_url: String,
@@ -1066,6 +1229,12 @@ async fn follow_chain(
         }
         if let Some(msg) = json_error_message(&body) {
             return Err(classify_entry_json_failure(&msg));
+        }
+        // HTML 错误页上的「应用未找到」文案同样属凭证缺失 / 失效，不能落进「无权限」
+        if looks_like_credential_invalid(status, &body) {
+            return Err(LibraryReserveError::credential_invalid(format!(
+                "预约入口提示「应用未找到」（HTTP {status}）：凭证可能未取得或已失效，请重试"
+            )));
         }
         if looks_like_no_permission(status, &body) {
             return Err(LibraryReserveError::no_permission(format!(
@@ -1219,26 +1388,44 @@ fn looks_like_json_body(trimmed: &str) -> bool {
         || serde_json::from_str::<Value>(trimmed).is_ok()
 }
 
+/// 正文是否「凭证缺失 / 失效」类错误（超星「应用未找到」）。
+///
+/// 实测：缺 `seatIdEnc` / `reserveIdEnc` 时接口返回
+/// `{"msg":"未查询到您所访问的应用，请咨询管理员配置是否正确","success":false}`（HTTP 200），
+/// 语义是**凭证未取得 / 已失效**，而非「账号无权限」。
+///
+/// 防误判（关键）：`seat/i18n` 的契约是「**全量文案（含业务提示语）**」，其中出现
+/// 「应用不存在」等同名字符串的概率不低。因此对能解析为 JSON 的正文**只认显式失败**
+/// （`success:false`）；非 JSON（错误页）则沿用「HTTP 错误码 / 短正文」门槛。
+/// 与 [`looks_like_no_permission`] 的防误判思路一致。
+pub(crate) fn looks_like_credential_invalid(status: u16, body: &str) -> bool {
+    if !contains_any(body, &CREDENTIAL_INVALID_NEEDLES) {
+        return false;
+    }
+    match serde_json::from_str::<Value>(body.trim()) {
+        // JSON：必须是显式失败响应，避免把成功 JSON（全量文案）里的同名字符串误判
+        Ok(v) => bool_field(&v, "success") == Some(false),
+        // 非 JSON（错误页）：短正文或 HTTP 错误码才判定
+        Err(_) => status >= 400 || body.len() < 1500,
+    }
+}
+
 /// 正文 / 状态码是否「无权限」。
 ///
-/// 分强弱特征判定：强特征（超星「应用未配置」错误页专有文案）无条件命中；
-/// 弱特征仅在 HTTP 错误响应或**短正文**（错误页）上判定，
-/// 避免把正常业务页内联文案里的「未授权」误判成无权限。
+/// 判定已按实测收紧：
+/// - **不再**把「未查询到您所访问的应用 / 应用不存在」当无权限 —— 那是**凭证缺失 / 失效**
+///   （见 [`looks_like_credential_invalid`]）；
+/// - `403` **不再**无条件判无权限（403 也可能是风控 / 来源校验），
+///   必须正文**同时命中**权限类特征词；
+/// - 弱特征仅在 HTTP 错误响应或**短正文**（错误页）上判定，
+///   避免把正常业务页内联文案里的「未授权」误判成无权限。
 pub(crate) fn looks_like_no_permission(status: u16, body: &str) -> bool {
-    // 强特征：只出现在「应用不存在 / 未配置」错误页
-    const STRONG: [&str; 2] = ["未查询到您所访问的应用", "应用不存在"];
-    if STRONG.iter().any(|m| body.contains(m)) {
-        return true;
+    // 正常业务页（体量大且非错误码）不参与判定
+    if status < 400 && body.len() >= 1500 {
+        return false;
     }
-    if status == 403 {
-        return true;
-    }
-    // 弱特征：正常业务页（体量大）不参与判定
-    if status >= 400 || body.len() < 1500 {
-        const WEAK: [&str; 4] = ["无权限", "没有权限", "暂无权限", "未授权"];
-        return WEAK.iter().any(|m| body.contains(m));
-    }
-    false
+    const WEAK: [&str; 4] = ["无权限", "没有权限", "暂无权限", "未授权"];
+    contains_any(body, &WEAK)
 }
 
 /// 正文是否为 `{"success":false,...}` 形态的失败响应，返回其中的提示语
@@ -1266,6 +1453,9 @@ fn json_error_message(body: &str) -> Option<String> {
 /// 但入口被拒的提示语同样可能是登录态失效（「未登录 / 请登录 / 登录失效」），
 /// 那种情况重新登录正是解法，误判会让用户卡死在「无权限」上。
 ///
+/// 实测补充（2026-10-16）：「未查询到您所访问的应用 / 应用不存在」是**凭证 / 应用
+/// 配置未命中**（可重试），归入 [`ERR_CREDENTIAL_INVALID`]，而**不是**「无权限」。
+///
 /// 登录类提示语复用与 [`classify_business_failure`] 同一张特征表（[`LOGIN_NEEDLES`]），
 /// 保证全局判定一致。
 fn classify_entry_json_failure(message: &str) -> LibraryReserveError {
@@ -1278,6 +1468,11 @@ fn classify_entry_json_failure(message: &str) -> LibraryReserveError {
     if contains_any(msg, &LOGIN_NEEDLES) {
         return LibraryReserveError::not_logged_in(format!(
             "超星拒绝该应用入口（登录态相关）：{msg}。请重新登录融合门户后重试"
+        ));
+    }
+    if contains_any(msg, &CREDENTIAL_INVALID_NEEDLES) {
+        return LibraryReserveError::credential_invalid(format!(
+            "超星未找到该应用入口（凭证可能未取得或已失效）：{msg}。请重试；若持续失败请重新登录融合门户"
         ));
     }
     LibraryReserveError::no_permission(format!("超星拒绝该应用入口：{msg}"))
@@ -1562,11 +1757,19 @@ mod tests {
             "<html><title>座位预约</title></html>"
         ));
 
-        assert!(looks_like_no_permission(
+        // 实测修正：超星「应用未找到」文案是**凭证缺失/失效**，不再判无权限
+        assert!(!looks_like_no_permission(
             500,
             "未查询到您所访问的应用，请咨询管理员配置是否正确"
         ));
-        assert!(looks_like_no_permission(403, ""));
+        assert!(looks_like_credential_invalid(
+            500,
+            "未查询到您所访问的应用，请咨询管理员配置是否正确"
+        ));
+        // 403 不再无条件判无权限：正文无特征词 → 不是无权限
+        assert!(!looks_like_no_permission(403, ""));
+        // 403 且正文命中权限特征词 → 仍判无权限
+        assert!(looks_like_no_permission(403, "<div>无权限</div>"));
         assert!(!looks_like_no_permission(
             200,
             "{\"data\":{\"seatConfig\":{}}}"
@@ -1579,6 +1782,36 @@ mod tests {
     }
 
     #[test]
+    fn credential_invalid_detection_requires_explicit_json_failure() {
+        // 实测的失败响应（HTTP 200）→ 判凭证缺失
+        assert!(looks_like_credential_invalid(
+            200,
+            r#"{"msg":"未查询到您所访问的应用，请咨询管理员配置是否正确","success":false}"#
+        ));
+        assert!(looks_like_credential_invalid(
+            200,
+            r#"{"success":false,"msg":"应用不存在"}"#
+        ));
+        // 成功 JSON 里出现同名字符串（如 seat/i18n 全量文案）**不得**误判
+        assert!(!looks_like_credential_invalid(
+            200,
+            r#"{"i18n":{"appNotFound":"应用不存在","tip":"未查询到您所访问的应用"}}"#
+        ));
+        assert!(!looks_like_credential_invalid(
+            200,
+            r#"{"success":true,"data":{"msg":"应用不存在"}}"#
+        ));
+        // 无特征词 → 不判
+        assert!(!looks_like_credential_invalid(200, r#"{"success":false}"#));
+        // 非 JSON 错误页：短正文 / HTTP 错误码命中
+        assert!(looks_like_credential_invalid(500, "<div>应用不存在</div>"));
+        assert!(looks_like_credential_invalid(400, "未查询到您所访问的应用"));
+        // 非 JSON 且体量大、非错误码 → 不判（避免误伤正常页面）
+        let big = format!("<html>{}应用不存在</html>", "x".repeat(4000));
+        assert!(!looks_like_credential_invalid(200, &big));
+    }
+
+    #[test]
     fn json_error_message_reads_failure_payload() {
         assert_eq!(
             json_error_message("{\"success\":false,\"msg\":\"应用不存在\"}").as_deref(),
@@ -1586,6 +1819,85 @@ mod tests {
         );
         assert_eq!(json_error_message("{\"success\":true}"), None);
         assert_eq!(json_error_message("<html></html>"), None);
+    }
+
+    // ── P0-2：落地页服务端注入参数提取（座位 / PC 共用） ──
+
+    #[test]
+    fn extract_page_value_handles_js_json_and_query() {
+        // 勘察原文形态：serverNow = new Date('...')
+        let html = "serverNow = new Date('2026-10-15T23:31:03.073+08:00'), \
+                    currentServerTime = seatBaseUtils.createServerClock(serverNow);";
+        assert_eq!(
+            extract_page_value(html, PAGE_KEY_SERVER_NOW).as_deref(),
+            Some("2026-10-15T23:31:03.073+08:00")
+        );
+
+        // 直接赋值（单 / 双引号）
+        assert_eq!(
+            extract_page_value(
+                "var seatIdEnc = \"b146028eafa4eea9\";",
+                PAGE_KEY_SEAT_ID_ENC
+            )
+            .as_deref(),
+            Some("b146028eafa4eea9")
+        );
+        // 实测原文形态（静音仓页）：reserveIdEnc: '838c48dae07db28c'
+        assert_eq!(
+            extract_page_value(
+                "reserveIdEnc: '838c48dae07db28c', fidEnc: fidEnc",
+                PAGE_KEY_RESERVE_ID_ENC
+            )
+            .as_deref(),
+            Some("838c48dae07db28c")
+        );
+
+        // JSON 字段形态
+        assert_eq!(
+            extract_page_value(
+                r#"{"seatIdEnc":"abc123","other":"x"}"#,
+                PAGE_KEY_SEAT_ID_ENC
+            )
+            .as_deref(),
+            Some("abc123")
+        );
+
+        // URL query 里的裸值
+        assert_eq!(
+            extract_page_value(
+                "url + '/front/apps/seatengine/index?seatId=3597&seatIdEnc=deadbeef'",
+                PAGE_KEY_SEAT_ID_ENC
+            )
+            .as_deref(),
+            Some("deadbeef")
+        );
+
+        // 键不存在 / 值为空 → None（不得把相邻的无关引号串当值）
+        assert_eq!(
+            extract_page_value("<html></html>", PAGE_KEY_SEAT_ID_ENC),
+            None
+        );
+        assert_eq!(
+            extract_page_value("seatIdEnc = ''", PAGE_KEY_SEAT_ID_ENC),
+            None
+        );
+        assert_eq!(
+            extract_page_value("seatIdEnc = null, other: \"bar\"", PAGE_KEY_SEAT_ID_ENC),
+            None
+        );
+    }
+
+    #[test]
+    fn page_injected_hints_get_by_key() {
+        let mut values = BTreeMap::new();
+        values.insert(PAGE_KEY_RESERVE_ID_ENC.to_string(), "838c".to_string());
+        let hints = PageInjectedHints { values };
+        assert_eq!(
+            hints.get(PAGE_KEY_RESERVE_ID_ENC),
+            Some("838c"),
+            "按 key 取值"
+        );
+        assert_eq!(hints.get(PAGE_KEY_SEAT_ID_ENC), None, "未提取的键为 None");
     }
 
     #[test]
@@ -1631,6 +1943,11 @@ mod tests {
         let p = LibraryReserveError::no_permission("x");
         assert_eq!(p.kind, ERR_NO_PERMISSION);
         assert!(!p.can_relogin);
+        // 凭证缺失 / 失效：与无权限严格区分，且可重试
+        let cred = LibraryReserveError::credential_invalid("x");
+        assert_eq!(cred.kind, ERR_CREDENTIAL_INVALID);
+        assert!(cred.can_relogin);
+        assert_ne!(cred.kind, ERR_NO_PERMISSION);
         let net = LibraryReserveError::network_unreachable("x");
         assert_eq!(net.kind, ERR_NETWORK_UNREACHABLE);
         let bad = LibraryReserveError::invalid_app("x");
@@ -1886,10 +2203,16 @@ mod tests {
             assert!(e.can_relogin, "msg={msg} 应可通过重新登录修复");
         }
         // 真正的权限类提示语 → 无权限（重新登录无用）
-        for msg in ["应用不存在", "未查询到您所访问的应用", "无权限访问"] {
+        for msg in ["无权限访问", "没有权限使用该应用"] {
             let e = classify_entry_json_failure(msg);
             assert_eq!(e.kind, ERR_NO_PERMISSION, "msg={msg}");
             assert!(!e.can_relogin, "msg={msg}");
+        }
+        // 实测修正：「应用未找到」是凭证缺失 / 失效（可重试），**不是**无权限
+        for msg in ["应用不存在", "未查询到您所访问的应用"] {
+            let e = classify_entry_json_failure(msg);
+            assert_eq!(e.kind, ERR_CREDENTIAL_INVALID, "msg={msg}");
+            assert!(e.can_relogin, "msg={msg} 应可重新登录 / 重试");
         }
         // 空提示语兜底为无权限，不 panic
         assert_eq!(classify_entry_json_failure("  ").kind, ERR_NO_PERMISSION);

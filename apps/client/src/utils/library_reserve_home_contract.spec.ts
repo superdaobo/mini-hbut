@@ -90,7 +90,7 @@ describe('图书馆预约 · 视图与命令注册（#1055–#1057）', () => {
     expect(app).toContain('VIEW_COMPONENTS.library_reserve')
   })
 
-  it('Tauri 命令层定义与 lib.rs 注册一一对应（18 条）', () => {
+  it('Tauri 命令层定义与 lib.rs 注册一一对应（25 条）', () => {
     const transport = read('src-tauri/src/transport/tauri/library_reserve.rs')
     const lib = read('src-tauri/src/lib.rs')
     const defined = [...transport.matchAll(/pub\(crate\) async fn (library_reserve_[a-z0-9_]+)/g)].map(
@@ -99,7 +99,9 @@ describe('图书馆预约 · 视图与命令注册（#1055–#1057）', () => {
     const registered = [
       ...lib.matchAll(/library_reserve::(library_reserve_[a-z0-9_]+)/g)
     ].map((m) => m[1])
-    expect(defined).toHaveLength(18)
+    // 18 条（#1052–#1057）+ 4 条座位余量查询 + 2 条本机提交（prepare / submit，2026-10-16）
+    // + 1 条预约对象时段设置（item_setting，2026-10-19 实测：提交 intervalIds 必需）
+    expect(defined).toHaveLength(25)
     expect(new Set(registered)).toEqual(new Set(defined))
   })
 
@@ -108,6 +110,65 @@ describe('图书馆预约 · 视图与命令注册（#1055–#1057）', () => {
     // capabilities/main.json 只登记 core / 插件权限。锁住该边界，防止误加条目。
     const capability = read('src-tauri/capabilities/main.json')
     expect(capability).not.toContain('library_reserve')
+  })
+})
+
+describe('图书馆预约 · 官方页面内嵌（2026-10-19，座位 cxCaptcha 需要）', () => {
+  const embedRust = read('src-tauri/src/modules/library_reserve_embed.rs')
+  const lib = read('src-tauri/src/lib.rs')
+
+  it('模块存在且三条命令都在 lib.rs 注册', () => {
+    for (const command of [
+      'library_reserve_embed_open',
+      'library_reserve_embed_resize',
+      'library_reserve_embed_close'
+    ]) {
+      expect(embedRust, `模块缺少 ${command}`).toContain(command)
+      expect(lib, `lib.rs 未注册 ${command}`).toContain(
+        `modules::library_reserve_embed::${command}`
+      )
+    }
+  })
+
+  it('必须注入 cookie 才能带会话落地（否则 302 登录页）', () => {
+    expect(embedRust).toContain('set_cookie')
+    expect(embedRust).toContain('export_cookie_pairs_for_origins')
+    // 自检：回读目标域 cookie 数（0 说明注入没生效，不用再猜「服务端不认」）
+    expect(embedRust).toContain('cookies_for_url')
+  })
+
+  it('两个实测坑必须保留修复：域不能带前导点 + 注入后等提交完成', () => {
+    // 坑 1：domain(".chaoxing.com") 会被 WebView2 忽略 → 必须用无点域
+    expect(embedRust).not.toContain('.domain(".chaoxing.com")')
+    expect(embedRust).toContain('trim_start_matches(\'.\')')
+    // 坑 2：set_cookie 异步提交，紧接着 navigate 会抢跑 → 必须 sleep
+    expect(embedRust).toMatch(/set_cookie[\s\S]*sleep\(std::time::Duration::from_millis\(700\)\)/)
+  })
+
+  it('内嵌白名单只放行超星系与学校门户，其它外链走外部浏览器', () => {
+    expect(embedRust).toContain('is_embeddable_embed_host')
+    expect(embedRust).toContain('chaoxing.com')
+    expect(embedRust).toContain('hbut.edu.cn')
+    expect(embedRust).toContain('open_external')
+  })
+
+  it('座位 live 页由入口 URL 派生且保留凭证 query', () => {
+    expect(embedRust).toContain('/front/apps/seatengine/live/select')
+    expect(embedRust).toContain('resolve_embed_target_url')
+  })
+
+  it('子 WebView 存在时调试桥仍能定位主 WebView（截图 / frontend-eval）', () => {
+    // 实测：get_webview_window("main") 在子 WebView 存在时返回 None
+    const bridge = read('src-tauri/src/debug_bridge.rs')
+    const debugRoutes = read('src-tauri/src/http_server/routes/debug.rs')
+    // 截图改为按窗口 HWND 取（`get_window` + `app.windows()` 兜底）
+    expect(bridge).toContain('.get_window("main")')
+    expect(bridge).toContain('app.windows().into_values()')
+    // 旧写法（webview_windows 兜底）不得回归 —— 注释里提到旧 API 名是允许的，故只锁调用形态
+    expect(bridge).not.toContain('app.webview_windows().into_values()')
+    // frontend-eval 改为按 webview 注册表取（`Webview` 没有 title，标题另取窗口）
+    expect(debugRoutes).toContain('.get_webview("main")')
+    expect(debugRoutes).not.toContain('.get_webview_window("main")')
   })
 })
 

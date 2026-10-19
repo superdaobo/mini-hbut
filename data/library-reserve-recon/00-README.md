@@ -22,6 +22,48 @@
 
 ---
 
+## 🔍 实测 vs 静态提取的边界（2026-10-16 补充）
+
+> **本节用于防止本文档（及 `01-api-contract.md`）的勘察期结论被当成「已实测事实」使用。**
+
+- **2026-10-15 勘察期**：只做**只读可达性确认** + **页面 HTML / 内联 JS 静态提取**，
+  绝大多数端点**未实际发起请求**去验证参数与响应。
+- **2026-10-16 实测轮**：用**已登录超星的浏览器会话**对三个预约系统做了**全量实测**，
+  发现多处与勘察期结论不符（含 2 个契约错误）。
+
+| 类别 | 可信度 | 使用方式 |
+| --- | --- | --- |
+| ✅ 已实测（2026-10-16，附请求/响应证据） | 高 | 可作为实现依据 |
+| ⚠️ 静态提取、待验证 | 低 | **不得**当作既定事实实现 |
+| 🚫 实测证伪 | — | 原结论不可用，以更正为准 |
+
+**完整实测证据（先读它）**：**[`02-live-verification-2026-10-16.md`](./02-live-verification-2026-10-16.md)**
+
+`01-api-contract.md` 已在相关条目下就地插入「⚠️ 2026-10-16 实测更正」小节
+（**保留原文 + 给出更正**，便于追溯勘察期的判断偏差）。
+
+### 已确认需要更正的勘察期结论（摘要）
+
+1. **入口链不含 `seatIdEnc` / `reserveIdEnc`**：整条 `redirectUrlMobile → OAuth → 真实系统` 的
+   `redirect_uri` 只带 `enc / fidEnc / uid / mappIdEnc / formid / wfwEnc / mappId / appId / appKey / state`；
+   两个 `*Enc` 由**落地页 HTML 服务端注入**（座位页 `seatIdEnc: 'b146028eafa4eea9'`；
+   静音仓页 `reserveIdEnc: '838c48dae07db28c'`）。客户端必须**先抓落地页再抠值**。
+2. **静音仓 / 研讨室落地路径是两跳**：`redirect_uri` 先给
+   `/front/apps/reserve/item/index?reserveId=…&resvAppId=…`，服务端再跳 `/front/web/apps/reservepc/index`
+   （**不是**直达 `reservepc`）。
+3. **缺 `*Enc` ≠ 无权限**：超星返回
+   `HTTP 200 {"msg":"未查询到您所访问的应用，请咨询管理员配置是否正确","success":false}`
+   —— 这句文案的真实语义是「应用未找到（凭证缺失/失效）」，**极易被误读为「无权限」**。
+4. **`reserve/latest/data` 不是「最近预约数据」**：实测需要 `itemId` 参数，缺则 **HTTP 400**；
+   「我的预约」的正确端点是 `reservepc/user/histroy`。
+5. **取消预约**：页面实际引用 `reserve/item/user/cancel`
+   （勘察期静态提取的是 `reserve/del/form/aprv`）。
+
+> ⚠️ **边界**：上表 1~5 是「已实测」；`01-api-contract.md` 中未标注 ✅ 的端点仍属
+> 「静态提取、待验证」，**不要**直接实现。
+
+---
+
 ## 🎯 核心结论
 
 **三个预约系统都可以在电脑浏览器直接打开，完全不需要微信客户端。**
@@ -98,6 +140,10 @@ https://v1.chaoxing.com/mobileSet/redirectUrlMobile?mAppId=<APP_ID>
 | **座位预约** | `19248837` | `reserve.chaoxing.com/front/apps/seatengine/index?seatId=3597` |
 | **静音仓预约** | `19261750` | `reserve.chaoxing.com/front/web/apps/reservepc/index?reserveId=24727` |
 | **研讨室预约** | `19248835` | `reserve.chaoxing.com/front/web/apps/reservepc/index?reserveId=24679` |
+
+> ⚠️ **2026-10-16 实测更正**：静音仓 / 研讨室的 `redirect_uri` 实际先指向
+> `/front/apps/reserve/item/index?reserveId=…&resvAppId=…`，再由**服务端 302** 跳到上表的
+> `/front/web/apps/reservepc/index`。即**落地路径是两跳**，不是直达（见「实测 vs 静态提取的边界」）。
 
 > 注：服务大厅 UI 上给的是**外层卡片 ID**，需要再解一层才到真实 appId：
 > - 座位预约：卡片 `20796755` → 真实 `19248837`

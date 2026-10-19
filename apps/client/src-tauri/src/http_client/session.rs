@@ -895,6 +895,37 @@ impl HbutClient {
         serde_json::Value::Object(map)
     }
 
+    /// 导出**指定 origin** 的 `(host, name=value 对)`，供内嵌 WebView 注入 cookie 用。
+    ///
+    /// 与 [`Self::export_domain_cookie_rows`] 的差别：那个走固定的门户/学习通域清单；
+    /// 本方法按调用方给的 origin 现查 cookie jar —— 例如 `reserve.chaoxing.com`
+    /// 不在固定清单里，但 `.chaoxing.com` 域 cookie 对它同样有效。
+    /// 返回的 `(name, value)` 已去重（同名保留首个）。
+    pub fn export_cookie_pairs_for_origins(
+        &self,
+        origins: &[&str],
+    ) -> Vec<(String, Vec<(String, String)>)> {
+        let mut out = Vec::new();
+        for origin in origins {
+            let Ok(url) = Url::parse(origin) else {
+                continue;
+            };
+            let Some(host) = url.host_str().map(str::to_string) else {
+                continue;
+            };
+            let raw = self.cookie_header_for_origin(origin);
+            if raw.trim().is_empty() {
+                continue;
+            }
+            let pairs = parse_cookie_pairs(&raw);
+            if pairs.is_empty() {
+                continue;
+            }
+            out.push((host, pairs));
+        }
+        out
+    }
+
     /// 导出 (domain_host, cookie_header) 供 auth_cookie_v2 落库
     pub fn export_domain_cookie_rows(&self) -> Vec<(String, String)> {
         let mut rows = Vec::new();

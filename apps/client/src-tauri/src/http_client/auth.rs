@@ -2550,6 +2550,8 @@ mod login_runtime_log_tests {
     /// 教务会话落地失败 → 调试日志里必须出现 `stage=JwxtBootstrap kind=Some(JwxtBootstrapFailed)`。
     #[tokio::test]
     async fn runtime_log_records_bootstrap_failure_with_stage() {
+        // 断言的是进程级日志缓冲，必须与「会清空缓冲」的测试串行（见 runtime_log::TEST_SERIAL）
+        let _serial = crate::runtime_log::TEST_SERIAL.lock().await;
         let mut client = test_client();
         client.test_login_page = Some(Arc::new(|| {
             Ok(LoginPageInfo {
@@ -2591,6 +2593,8 @@ mod login_runtime_log_tests {
     /// 成功登录 → 调试日志里必须出现 `成功 stage=Done`。
     #[tokio::test]
     async fn runtime_log_records_success_with_done_stage() {
+        // 断言的是进程级日志缓冲，必须与「会清空缓冲」的测试串行（见 runtime_log::TEST_SERIAL）
+        let _serial = crate::runtime_log::TEST_SERIAL.lock().await;
         let mut client = test_client();
         client.test_login_page = Some(Arc::new(|| {
             Ok(LoginPageInfo {
@@ -2636,6 +2640,8 @@ mod login_runtime_log_tests {
     /// 冷却门拦截也要有痕迹（失败发生在最前面的阶段）。
     #[tokio::test]
     async fn runtime_log_records_gate_failure() {
+        // 断言的是进程级日志缓冲，必须与「会清空缓冲」的测试串行（见 runtime_log::TEST_SERIAL）
+        let _serial = crate::runtime_log::TEST_SERIAL.lock().await;
         let mut client = test_client();
         client.last_login_attempt =
             Some(std::time::Instant::now() - std::time::Duration::from_millis(500));

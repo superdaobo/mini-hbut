@@ -8,7 +8,8 @@
 //!
 //! 错误类型为 [`LibraryReserveError`]（实现 `Serialize`），前端可依据 `kind` 区分：
 //!
-//! - 会话 / 权限 / 网络：`chaoxing_not_logged_in` / `no_permission` / `network_unreachable`；
+//! - 会话 / 凭证 / 权限 / 网络：`chaoxing_not_logged_in` / `credential_invalid`（凭证未取得或失效，
+//!   可重试）/ `no_permission` / `network_unreachable`；
 //! - 业务规则（#1053 / #1054 共用）：`slot_unavailable`（时段被占）/ `reserve_limit_exceeded`（超限）/
 //!   `reserve_suspended`（违约停用）/ `business_rejected`（其它拒绝）/
 //!   `invalid_params`（本地参数校验拦截）。
@@ -24,7 +25,8 @@ use tauri::State;
 
 use crate::app_state::AppState;
 use crate::modules::library_reserve::{
-    self, LibraryApp, LibraryReserveError, ERR_CHAOXING_NOT_LOGGED_IN, ERR_NETWORK_UNREACHABLE,
+    self, LibraryApp, LibraryReserveError, ERR_CHAOXING_NOT_LOGGED_IN, ERR_INVALID_PARAMS,
+    ERR_NETWORK_UNREACHABLE,
 };
 use crate::modules::library_reserve_pc::{self, CancelReserveRequest, SubmitReserveRequest};
 use crate::modules::library_reserve_seat;
@@ -197,20 +199,20 @@ pub struct LibraryReserveSubmitRequest {
     pub extra: BTreeMap<String, String>,
 }
 
-/// 取消预约请求体
+/// 取消预约请求体（**契约已实测**，2026-10-19）
 ///
-/// ⚠️ 取消接口路径与字段契约**未实测**（见 issue #1053）。
+/// 官方页面：`reserve/item/user/cancel` + `{ id, allCancel }`。
+/// `id` 是「我的预约」条目的记录 ID；`aprvId` 实测恒为 0，**不能作主键**。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LibraryReserveCancelRequest {
     pub app: String,
     #[serde(default)]
     pub force: Option<bool>,
-    /// 审批 / 预约记录 ID（来自「我的预约」列表）
-    pub aprv_id: String,
+    /// 预约记录 ID（来自「我的预约」列表的 `id`）
+    pub id: String,
+    /// 是否同时取消同组预约（默认 false）
     #[serde(default)]
-    pub form_user_id: Option<String>,
-    #[serde(default)]
-    pub extra: BTreeMap<String, String>,
+    pub all_cancel: Option<bool>,
 }
 
 /// 解析静音仓 / 研讨室应用标识（座位预约属 seatengine，明确拦截并给出可读错误）
@@ -262,6 +264,41 @@ pub(crate) async fn library_reserve_time_list(
         "items": list.items,
         "advanceDays": list.advance_days,
         "raw": list.raw,
+    }))
+}
+
+/// 预约对象时段设置请求体（实测：`reserveId` / `itemId` / `fidEnc`）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryReserveItemSettingRequest {
+    pub app: String,
+    #[serde(default)]
+    pub force: Option<bool>,
+    /// 预约对象（房间）ID，来自房间列表的 `itemId`
+    pub item_id: i64,
+}
+
+/// 预约对象时段设置（拿到**真实时段 ID**，提交时组装 `reserveUsers[].intervalIds`）。
+///
+/// `POST reserve/item/setting` 返回 `data.commonIntervalMap["1".."7"]`，每项含
+/// `id / startTime / endTime / week / available`。
+#[tauri::command(rename_all = "camelCase")]
+pub(crate) async fn library_reserve_item_setting(
+    state: State<'_, AppState>,
+    req: LibraryReserveItemSettingRequest,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    let app = parse_pc_app(&req.app)?;
+    let mut client = state.client.write().await;
+    let setting = library_reserve_pc::fetch_item_setting(
+        &mut client,
+        app,
+        req.item_id,
+        req.force.unwrap_or(false),
+    )
+    .await?;
+    Ok(json!({
+        "success": true,
+        "intervals": setting.intervals,
+        "raw": setting.raw,
     }))
 }
 
@@ -389,9 +426,7 @@ pub(crate) async fn library_reserve_submit(
     }))
 }
 
-/// 取消预约。
-///
-/// ⚠️ 取消接口路径与字段契约未实测（见 issue #1053）；`aprv_id` 必填。
+/// 取消预约（**契约已实测**：记录 `id` + `allCancel`）。
 #[tauri::command(rename_all = "camelCase")]
 pub(crate) async fn library_reserve_cancel(
     state: State<'_, AppState>,
@@ -399,9 +434,8 @@ pub(crate) async fn library_reserve_cancel(
 ) -> Result<serde_json::Value, LibraryReserveError> {
     let app = parse_pc_app(&req.app)?;
     let cancel = CancelReserveRequest {
-        aprv_id: req.aprv_id,
-        form_user_id: req.form_user_id,
-        extra: req.extra,
+        id: req.id,
+        all_cancel: req.all_cancel.unwrap_or(false),
     };
     let mut client = state.client.write().await;
     let outcome = library_reserve_pc::cancel_reservation(
@@ -533,6 +567,247 @@ pub(crate) async fn library_reserve_seat_i18n(
     let i18n =
         library_reserve_seat::fetch_i18n(&mut client, app, req.force.unwrap_or(false)).await?;
     Ok(json!({ "success": true, "i18n": i18n }))
+}
+
+// ── #1054：座位预约余量查询 / 找空座位（POST 表单） ──
+
+/// 区域列表请求体
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryReserveSeatLevelsRequest {
+    /// 应用标识：`seat`（座位预约）；也接受 mAppId `19248837` 与中文名
+    pub app: String,
+    /// 是否强制重跑超星 SSO（默认 false）
+    #[serde(default)]
+    pub force: Option<bool>,
+    /// 层级：0 一级 / 1 二级 / 2 三级
+    pub level_type: i64,
+    /// 一级区域名（`level_type>=1` 时必填）
+    #[serde(default)]
+    pub first_level_name: Option<String>,
+    /// 二级区域名（`level_type=2` 时必填）
+    #[serde(default)]
+    pub second_level_name: Option<String>,
+}
+
+/// 找空座位请求体
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryReserveSeatMatchRequest {
+    /// 应用标识：`seat`（座位预约）
+    pub app: String,
+    /// 是否强制重跑超星 SSO（默认 false）
+    #[serde(default)]
+    pub force: Option<bool>,
+    /// 开始时间 `HH:mm`
+    pub start_time: String,
+    /// 结束时间 `HH:mm`
+    pub end_time: String,
+    /// 一级区域名（可选；不传 = 任意区域）
+    #[serde(default)]
+    pub first_level_name: Option<String>,
+    /// 二级区域名（可选）
+    #[serde(default)]
+    pub second_level_name: Option<String>,
+    /// 三级区域名（可选）
+    #[serde(default)]
+    pub third_level_name: Option<String>,
+}
+
+/// 房间列表（容量 / 放号 / 开放时间）。
+///
+/// `POST seatengine/room/list`。
+#[tauri::command(rename_all = "camelCase")]
+pub(crate) async fn library_reserve_seat_rooms(
+    state: State<'_, AppState>,
+    req: LibraryReserveSeatRequest,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    let app = parse_seat_app(&req.app)?;
+    let mut client = state.client.write().await;
+    let rooms =
+        library_reserve_seat::fetch_seat_rooms(&mut client, app, req.force.unwrap_or(false))
+            .await?;
+    Ok(json!({
+        "success": true,
+        "rooms": rooms.rooms,
+        "raw": rooms.raw,
+    }))
+}
+
+/// 区域列表（按层级：0 一级 / 1 二级 / 2 三级）。
+///
+/// `POST seatengine/levels`。
+#[tauri::command(rename_all = "camelCase")]
+pub(crate) async fn library_reserve_seat_levels(
+    state: State<'_, AppState>,
+    req: LibraryReserveSeatLevelsRequest,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    let app = parse_seat_app(&req.app)?;
+    // 层级必须是 0/1/2；否则前端传参有误，本地拦截（不发请求）。
+    // 常量取自模块层，保证「命令层校验」与「模块层解析」共用同一份取值定义。
+    if !matches!(
+        req.level_type,
+        library_reserve_seat::LEVEL_TYPE_FIRST
+            | library_reserve_seat::LEVEL_TYPE_SECOND
+            | library_reserve_seat::LEVEL_TYPE_THIRD
+    ) {
+        return Err(LibraryReserveError::business(
+            ERR_INVALID_PARAMS,
+            format!(
+                "区域层级 level_type={} 非法；应为 0（一级）/ 1（二级）/ 2（三级）",
+                req.level_type
+            ),
+        ));
+    }
+    let mut client = state.client.write().await;
+    let levels = library_reserve_seat::fetch_seat_levels(
+        &mut client,
+        app,
+        req.level_type,
+        req.first_level_name.as_deref(),
+        req.second_level_name.as_deref(),
+        req.force.unwrap_or(false),
+    )
+    .await?;
+    Ok(json!({
+        "success": true,
+        "levelType": levels.level_type,
+        "levels": levels.levels,
+        "raw": levels.raw,
+    }))
+}
+
+/// 当日可选时间范围（`startOffsetMs` / `endOffsetMs` 为当日毫秒偏移）。
+///
+/// `POST seatengine/getstartendtime`。
+#[tauri::command(rename_all = "camelCase")]
+pub(crate) async fn library_reserve_seat_time_range(
+    state: State<'_, AppState>,
+    req: LibraryReserveSeatRequest,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    let app = parse_seat_app(&req.app)?;
+    let mut client = state.client.write().await;
+    let range =
+        library_reserve_seat::fetch_seat_time_range(&mut client, app, req.force.unwrap_or(false))
+            .await?;
+    Ok(json!({
+        "success": true,
+        "ymd": range.ymd,
+        "startOffsetMs": range.start_offset_ms,
+        "endOffsetMs": range.end_offset_ms,
+        "pauseTimes": range.pause_times,
+        "raw": range.raw,
+    }))
+}
+
+/// 按时间找空座位（余量匹配）。
+///
+/// `POST seatengine/getseatinfo`；返回**单个**匹配座位（服务端自动分配，非座位图）。
+/// ⚠️ 该座位会被服务端临时锁定，需在倒计时内提交（提交能力不在本命令组内）。
+#[tauri::command(rename_all = "camelCase")]
+pub(crate) async fn library_reserve_seat_match(
+    state: State<'_, AppState>,
+    req: LibraryReserveSeatMatchRequest,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    let app = parse_seat_app(&req.app)?;
+    let mut client = state.client.write().await;
+    let result = library_reserve_seat::fetch_seat_match(
+        &mut client,
+        app,
+        &req.start_time,
+        &req.end_time,
+        req.first_level_name.as_deref(),
+        req.second_level_name.as_deref(),
+        req.third_level_name.as_deref(),
+        req.force.unwrap_or(false),
+    )
+    .await?;
+    Ok(json!({
+        "success": true,
+        "match": result.matched,
+        "raw": result.raw,
+    }))
+}
+
+// ── #1054：座位预约提交（快速预约链路） ──
+
+/// 提交座位预约请求体。
+///
+/// ⚠️ 嵌套字段沿用仓库既有约定 **snake_case**（与 `start_time` / `aprv_id` 一致）；
+/// 命令级 `rename_all = "camelCase"` 只影响命令入参名，不影响本结构体。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryReserveSeatSubmitRequest {
+    /// 应用标识：`seat`（座位预约）
+    pub app: String,
+    /// 是否强制重跑超星 SSO（默认 false）
+    #[serde(default)]
+    pub force: Option<bool>,
+    /// 房间 ID（来自「找空座位」结果的 `roomId`）
+    pub room_id: i64,
+    /// 座位号（**保留前导零的字符串**，如 `"016"`）
+    pub seat_num: String,
+    /// 开始时间 `HH:mm`
+    pub start_time: String,
+    /// 结束时间 `HH:mm`
+    pub end_time: String,
+    /// 预约日期 `YYYY-MM-DD`
+    pub day: String,
+    /// 验证码（用户按验证码图片输入）
+    pub captcha: String,
+    /// 客户端签名（由前端计算后传入；本层原样透传）
+    pub enc: String,
+}
+
+/// 提交前准备：验证码图片 + 页面注入的提交随机串。
+///
+/// `POST seat/captcha`（验证码与会话绑定，必须由同一会话即时获取）+
+/// 抓取 `/front/apps/seatengine/live/select` 提取 `#submit_enc`（best-effort）。
+#[tauri::command(rename_all = "camelCase")]
+pub(crate) async fn library_reserve_seat_submit_prepare(
+    state: State<'_, AppState>,
+    req: LibraryReserveSeatRequest,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    let app = parse_seat_app(&req.app)?;
+    let mut client = state.client.write().await;
+    let prepare =
+        library_reserve_seat::prepare_seat_submit(&mut client, app, req.force.unwrap_or(false))
+            .await?;
+    Ok(json!({
+        "success": true,
+        "captchaUrl": prepare.captcha_url,
+        "submitEnc": prepare.submit_enc,
+        "raw": prepare.raw,
+    }))
+}
+
+/// 提交座位预约（**写操作**：只有显式成功才算成功，否则原样抛出服务端 `msg`）。
+#[tauri::command(rename_all = "camelCase")]
+pub(crate) async fn library_reserve_seat_submit(
+    state: State<'_, AppState>,
+    req: LibraryReserveSeatSubmitRequest,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    let app = parse_seat_app(&req.app)?;
+    let submit = library_reserve_seat::SeatSubmitRequest {
+        room_id: req.room_id,
+        seat_num: req.seat_num,
+        start_time: req.start_time,
+        end_time: req.end_time,
+        day: req.day,
+        captcha: req.captcha,
+        enc: req.enc,
+    };
+    let mut client = state.client.write().await;
+    let outcome = library_reserve_seat::submit_seat_reservation(
+        &mut client,
+        app,
+        &submit,
+        req.force.unwrap_or(false),
+    )
+    .await?;
+    Ok(json!({
+        "success": true,
+        "message": outcome.message,
+        "data": outcome.data,
+        "raw": outcome.raw,
+    }))
 }
 
 #[cfg(test)]
@@ -678,24 +953,41 @@ mod tests {
     }
 
     #[test]
-    fn cancel_request_requires_aprv_id() {
-        // aprv_id 必填：缺失即解析失败，而不是静默提交空 ID
+    fn cancel_request_requires_record_id() {
+        // id 必填：缺失即解析失败，而不是静默提交空 ID
         let err = serde_json::from_value::<LibraryReserveCancelRequest>(json!({
             "app": "quiet_room"
         }))
-        .expect_err("缺少 aprv_id 应解析失败");
-        assert!(
-            err.to_string().contains("aprv_id"),
-            "错误应指出缺失字段：{err}"
-        );
+        .expect_err("缺少 id 应解析失败");
+        assert!(err.to_string().contains("id"), "错误应指出缺失字段：{err}");
 
         let cancel: LibraryReserveCancelRequest = serde_json::from_value(json!({
             "app": "quiet_room",
-            "aprv_id": "42"
+            "id": "30035270"
         }))
         .expect("解析");
-        assert_eq!(cancel.aprv_id, "42");
-        assert!(cancel.extra.is_empty());
+        assert_eq!(cancel.id, "30035270");
+        // all_cancel 缺省为 None（模块层按 false 处理）
+        assert_eq!(cancel.all_cancel, None);
+        // 嵌套字段为 snake_case（all_cancel）
+        let cancel: LibraryReserveCancelRequest = serde_json::from_value(json!({
+            "app": "quiet_room",
+            "id": "30035270",
+            "all_cancel": true
+        }))
+        .expect("解析");
+        assert_eq!(cancel.all_cancel, Some(true));
+    }
+
+    #[test]
+    fn item_setting_request_shape() {
+        let req: LibraryReserveItemSettingRequest = serde_json::from_value(json!({
+            "app": "quiet_room",
+            "item_id": 49091
+        }))
+        .expect("解析");
+        assert_eq!(req.item_id, 49091);
+        assert_eq!(req.force, None);
     }
 
     #[test]
@@ -706,6 +998,103 @@ mod tests {
             assert_eq!(req.app, raw);
             assert_eq!(req.force, None);
         }
+    }
+
+    #[test]
+    fn seat_levels_request_shape_and_defaults() {
+        let req: LibraryReserveSeatLevelsRequest = serde_json::from_value(json!({
+            "app": "seat",
+            "level_type": 1,
+            "first_level_name": "四楼D区（有插座）"
+        }))
+        .expect("解析");
+        assert_eq!(req.app, "seat");
+        assert_eq!(req.level_type, 1);
+        assert_eq!(req.first_level_name.as_deref(), Some("四楼D区（有插座）"));
+        assert_eq!(req.second_level_name, None);
+        assert_eq!(req.force, None);
+
+        // level_type 必填：缺失即解析失败，而不是静默当成一级
+        let err =
+            serde_json::from_value::<LibraryReserveSeatLevelsRequest>(json!({ "app": "seat" }))
+                .expect_err("缺少 level_type 应解析失败");
+        assert!(
+            err.to_string().contains("level_type"),
+            "错误应指出缺失字段：{err}"
+        );
+    }
+
+    #[test]
+    fn seat_match_request_shape_and_defaults() {
+        let req: LibraryReserveSeatMatchRequest = serde_json::from_value(json!({
+            "app": "seat",
+            "start_time": "09:00",
+            "end_time": "11:00"
+        }))
+        .expect("解析");
+        assert_eq!(req.start_time, "09:00");
+        assert_eq!(req.end_time, "11:00");
+        assert_eq!(req.first_level_name, None);
+        assert_eq!(req.second_level_name, None);
+        assert_eq!(req.third_level_name, None);
+
+        // start_time / end_time 必填
+        let err =
+            serde_json::from_value::<LibraryReserveSeatMatchRequest>(json!({ "app": "seat" }))
+                .expect_err("缺少时间应解析失败");
+        assert!(
+            err.to_string().contains("start_time"),
+            "错误应指出缺失字段：{err}"
+        );
+    }
+
+    #[test]
+    fn seat_submit_request_uses_snake_case_fields() {
+        let req: LibraryReserveSeatSubmitRequest = serde_json::from_value(json!({
+            "app": "seat",
+            "room_id": 10892,
+            "seat_num": "016",
+            "start_time": "09:00",
+            "end_time": "11:00",
+            "day": "2026-10-17",
+            "captcha": "8a9b",
+            "enc": "SIGN"
+        }))
+        .expect("解析");
+        assert_eq!(req.app, "seat");
+        assert_eq!(req.room_id, 10892);
+        assert_eq!(req.seat_num, "016");
+        assert_eq!(req.start_time, "09:00");
+        assert_eq!(req.end_time, "11:00");
+        assert_eq!(req.day, "2026-10-17");
+        assert_eq!(req.captcha, "8a9b");
+        assert_eq!(req.enc, "SIGN");
+        assert_eq!(req.force, None);
+
+        // 必填字段缺失 → 解析失败（不静默提交空值）
+        let err = serde_json::from_value::<LibraryReserveSeatSubmitRequest>(json!({
+            "app": "seat"
+        }))
+        .expect_err("缺少必填字段应解析失败");
+        assert!(
+            err.to_string().contains("room_id"),
+            "错误应指出缺失字段：{err}"
+        );
+
+        // 命令层契约固定 snake_case：驼峰 roomId 被忽略
+        let camel: LibraryReserveSeatSubmitRequest = serde_json::from_value(json!({
+            "app": "seat",
+            "room_id": 1,
+            "seat_num": "1",
+            "start_time": "09:00",
+            "end_time": "10:00",
+            "day": "2026-10-17",
+            "captcha": "c",
+            "enc": "e",
+            "roomId": 999
+        }))
+        .expect("解析");
+        assert_eq!(camel.room_id, 1, "驼峰字段名不应被接受");
     }
 
     // ── 错误分支可判别（前端按 kind 分支） ──

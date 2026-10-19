@@ -111,7 +111,7 @@ export interface DateOption {
   offset: number
 }
 
-const pad2 = (n: number): string => String(n).padStart(2, '0')
+export const pad2 = (n: number): string => String(n).padStart(2, '0')
 
 /** 本地日期 → `YYYY-MM-DD`（不使用 UTC，避免时区错位） */
 export const toDateKey = (date: Date): string =>
@@ -139,6 +139,47 @@ export const extractHm = (raw: unknown): string => {
   const matched = String(raw ?? '').match(/(\d{1,2}):(\d{2})/)
   if (!matched) return ''
   return `${pad2(Number(matched[1]))}:${matched[2]}`
+}
+
+/**
+ * Unix 毫秒时间戳的量级下界（约 1973-03-03）。
+ * 大于该值才按「毫秒时间戳」解释，避免把普通数字误当时间戳。
+ */
+const MS_TIMESTAMP_MIN = 1e11
+
+/** 毫秒时间戳 → 本地 `HH:mm`（非法值返回空串） */
+const hmFromMs = (ms: number): string => {
+  const date = new Date(ms)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
+/**
+ * 后端时间字段 → 本地 `HH:mm`（issue #1076 实测：`starttime` / `endtime` 为 Unix 毫秒）。
+ *
+ * 兼容两类真实形态，且保留原有字符串行为：
+ * - Unix **毫秒**时间戳（数字或纯数字字符串，如 `1783760400000`）→ 按本地时区转 `HH:mm`；
+ * - 既有字符串时分（`08:00` / `08:00:00` / `2026-10-16 08:00:00`）→ 沿用 {@link extractHm}。
+ *
+ * 无法识别时返回空串（由调用方决定兜底展示），不做猜测。
+ */
+export const toLocalHm = (raw: unknown): string => {
+  if (raw === null || raw === undefined || raw === '') return ''
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) && Math.abs(raw) >= MS_TIMESTAMP_MIN ? hmFromMs(raw) : ''
+  }
+  const text = String(raw).trim()
+  if (!text) return ''
+  // 纯数字：仅在达到毫秒量级时按时间戳处理（秒级时间戳无法与其它数字区分，宁缺勿猜）
+  if (/^\d+$/.test(text)) {
+    const n = Number(text)
+    return Math.abs(n) >= MS_TIMESTAMP_MIN ? hmFromMs(n) : ''
+  }
+  // 含冒号的字符串（`HH:mm` / `HH:mm:ss` / 日期时间）沿用既有解析
+  if (text.includes(':')) return extractHm(text)
+  // 其余可被 Date 解析的形态（如 ISO 日期串）兜底解析
+  const parsed = Date.parse(text)
+  return Number.isNaN(parsed) ? '' : hmFromMs(parsed)
 }
 
 /**
@@ -200,11 +241,11 @@ export interface NormalizedSlot {
 }
 
 /** 安全取对象（非对象一律回落空对象，避免上游形态变化直接抛错） */
-const asRecord = (value: unknown): Record<string, unknown> =>
+export const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 
 /** 宽松取整（兼容数字字符串） */
-const toInt = (value: unknown): number | null => {
+export const toInt = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') return null
   const n = Number(value)
   return Number.isFinite(n) ? Math.trunc(n) : null
@@ -529,6 +570,115 @@ export const pickSelectedSlot = (
 export const sortKeyOf = (value: { date: string; start: string }): string =>
   value.date ? `${value.date} ${value.start || '00:00'}` : '9999-99-99 99:99'
 
+// ── 我的预约条目归一化（#1076：按 `reservepc/user/histroy` 实测字段） ──
+
+/**
+ * 归一化后的「我的预约」条目。
+ *
+ * 字段来源（issue #1076 实测，`data/library-reserve-recon/02-live-verification-2026-10-16.md`）：
+ * 真实行是 `name / today / starttime(ms) / endtime(ms) / status(数字) / isCancel / id / itemId`，
+ * 其中 `aprvId` **恒为 0**（不可用作取消 id）。为兼容后端可能的中间归一化形态
+ * （camelCase 顶层 + 原始行挂 `raw`）与旧字段名，取值时同时查条目本身与其 `raw`。
+ */
+export interface NormalizedMyReservation {
+  /** 列表 key */
+  key: string
+  app: ReserveApp
+  /** 取消 / 定位用记录 id（优先 `id`，其次 `itemId`，最后非 0 的 `aprvId`；无有效值则为空串） */
+  recordId: string
+  /** 后端直接给出的状态文案（非空时优先展示，可能为空） */
+  statusName: string
+  /** 状态兜底展示 i18n key（后端无文案时使用） */
+  statusKey: string
+  /** 预约项名称（缺失由调用方用应用名兜底） */
+  name: string
+  /** 展示日期（`YYYY-MM-DD`，后端原值，可能为空） */
+  date: string
+  /** 起始本地 `HH:mm`（毫秒时间戳已转换） */
+  start: string
+  /** 结束本地 `HH:mm` */
+  end: string
+  /** 状态码（数字，缺失为 null） */
+  status: number | null
+  /** 是否已取消（`isCancel` 非 0） */
+  cancelled: boolean
+  /** 原始条目（透传字段兜底用） */
+  raw: Record<string, unknown>
+}
+
+/** 条目本身与其 `raw`（后端原始行）中的嵌套对象 */
+const nestedRawOf = (record: Record<string, unknown>): Record<string, unknown> => asRecord(record.raw)
+
+/**
+ * 在条目本身与其 `raw` 中按候选键取首个「非空」值。
+ * 先查条目顶层（后端归一化后的 camelCase），再查原始行（服务端真实字段名）。
+ */
+const pickEntryValue = (record: Record<string, unknown>, keys: string[]): unknown => {
+  const nested = nestedRawOf(record)
+  for (const key of keys) {
+    const direct = record[key]
+    if (direct !== null && direct !== undefined && String(direct).trim() !== '') return direct
+    const inner = nested[key]
+    if (inner !== null && inner !== undefined && String(inner).trim() !== '') return inner
+  }
+  return undefined
+}
+
+/**
+ * 解析记录 id：优先真实 `id`，其次 `itemId`，最后非 0 的 `aprvId`。
+ * 实测 `aprvId` 恒为 0，直接使用会让取消按钮恒不可用，故显式跳过 0。
+ */
+const resolveRecordId = (record: Record<string, unknown>): string => {
+  for (const key of ['id', 'itemId', 'aprvId']) {
+    const value = toInt(pickEntryValue(record, [key]))
+    if (value !== null && value !== 0) return String(value)
+  }
+  return ''
+}
+
+/** `isCancel` 非 0（含布尔 true）视为已取消 */
+const resolveCancelled = (record: Record<string, unknown>): boolean => {
+  const raw = pickEntryValue(record, ['isCancel', 'is_cancel', 'canceled', 'cancelled'])
+  if (raw === true) return true
+  const n = toInt(raw)
+  return n !== null && n !== 0
+}
+
+/**
+ * 把「我的预约」原始条目归一化为渲染模型。
+ *
+ * 兼容：真实服务端字段（`name` / `today` / `starttime` / `endtime` / `status` / `isCancel` /
+ * `id` / `itemId`）、后端可能已归一化的 camelCase 字段（`itemName` / `date` / `startTime` /
+ * `endTime` / `statusName` / `aprvId`），以及两者的嵌套形态（`raw`）。
+ */
+export const normalizeMyReservation = (
+  raw: unknown,
+  app: ReserveApp,
+  index: number
+): NormalizedMyReservation => {
+  const record = asRecord(raw)
+  const recordId = resolveRecordId(record)
+  const cancelled = resolveCancelled(record)
+  return {
+    key: `${app}-${recordId || 'row'}-${index}`,
+    app,
+    recordId,
+    statusName: String(
+      pickEntryValue(record, ['statusName', 'aprvStatusName', 'statusText']) ?? ''
+    ).trim(),
+    statusKey: cancelled
+      ? 'library.reserve.mine.statusCancelled'
+      : 'library.reserve.mine.statusFallback',
+    name: String(pickEntryValue(record, ['name', 'itemName', 'reserveName', 'roomName']) ?? '').trim(),
+    date: String(pickEntryValue(record, ['today', 'date', 'reserveDate', 'day']) ?? '').trim(),
+    start: toLocalHm(pickEntryValue(record, ['starttime', 'startTime', 'beginTime'])),
+    end: toLocalHm(pickEntryValue(record, ['endtime', 'endTime', 'finishTime'])),
+    status: toInt(pickEntryValue(record, ['status', 'aprvStatus'])),
+    cancelled,
+    raw: record
+  }
+}
+
 // ── 透传字段提取（契约未定，best-effort） ──
 
 /** 从原始条目里按候选键取非空字符串（用于 aprvStatusTypeId / formUserId 等透传字段） */
@@ -548,6 +698,9 @@ export const pickRawString = (raw: Record<string, unknown>, keys: string[]): str
 export const RESERVE_ERROR_MESSAGE_KEYS: Record<string, string> = {
   chaoxing_not_logged_in: 'library.reserve.error.notLoggedIn',
   no_permission: 'library.reserve.error.noPermission',
+  // #1075：预约凭证未取得或已失效（入口页 `*Enc` 缺失 / 过期），可重试；
+  // 语义**不是**「无权限」，故与 noPermission 分开映射。
+  credential_invalid: 'library.reserve.error.credentialInvalid',
   network_unreachable: 'library.reserve.error.network',
   slot_unavailable: 'library.reserve.error.slotUnavailable',
   reserve_limit_exceeded: 'library.reserve.error.limit',
@@ -603,3 +756,40 @@ export const stripHtml = (raw: unknown): string =>
     .replace(/&amp;/gi, '&')
     .replace(/\s+/g, ' ')
     .trim()
+
+// ── 失败文案组装（#1082：始终把服务端原文带出来，不再只给「请稍后重试」） ──
+
+/** 底层细节的最大展示长度（超出截断，避免超长服务端文案撑爆布局） */
+export const RESERVE_ERROR_DETAIL_MAX = 200
+
+/**
+ * 截断底层细节（纯文本；空 → 空串；超长追加省略号）。
+ * `max` 非法时回落 {@link RESERVE_ERROR_DETAIL_MAX}。
+ */
+export const truncateReserveDetail = (detail: unknown, max = RESERVE_ERROR_DETAIL_MAX): string => {
+  const text = String(detail ?? '').trim()
+  if (!text) return ''
+  const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : RESERVE_ERROR_DETAIL_MAX
+  return text.length > limit ? `${text.slice(0, limit)}…` : text
+}
+
+/**
+ * 组装「始终带出底层信息」的失败文案（纯文本，调用方直接渲染，无 XSS 风险）。
+ *
+ * - 已知 kind（`messageKey` 非空）：i18n 文案 + 细节后缀 + 服务端原文（截断）；
+ * - 未知 kind：服务端原文（截断）；原文也为空 → 回落 `fallbackKey` 通用文案。
+ *
+ * 动机（用户实测反馈）：提交失败时不能只显示「提交失败，请稍后重试。」而丢掉服务端真实原因，
+ * 否则用户无法判断是时段被占、参数错误还是风控拦截。`translate` 由组件注入（`t`）。
+ */
+export const formatReserveFailureText = (
+  failure: ReserveFailure,
+  translate: (key: string) => string,
+  fallbackKey = 'library.reserve.error.unknown'
+): string => {
+  const detail = truncateReserveDetail(failure.detail)
+  const base = failure.messageKey ? translate(failure.messageKey) : ''
+  if (!base) return detail || translate(fallbackKey)
+  if (!detail) return base
+  return `${base}${translate('library.reserve.error.detailSuffix')}${detail}`
+}

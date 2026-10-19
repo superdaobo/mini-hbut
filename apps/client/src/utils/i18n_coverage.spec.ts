@@ -110,7 +110,10 @@ const I18N_MIGRATED_FILES: string[] = [
   'components/LibraryReserveView.vue',
   // #1057：座位预约查询面板与其领域层（全量文案走 i18n，中文仅出现在注释里）
   'components/library-reserve/ReserveSeatPanel.vue',
-  'components/library-reserve/seatCatalog.ts'
+  'components/library-reserve/seatCatalog.ts',
+  // #1081：房间模式领域层与页面内签名模块（同样无用户可见硬编码中文）
+  'components/library-reserve/roomCatalog.ts',
+  'components/library-reserve/seatSigner.ts'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */
