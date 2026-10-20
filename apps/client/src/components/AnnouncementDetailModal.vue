@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { isHttpLink } from '../utils/external_link'
+import { useLocale } from '../utils/app_i18n'
+
+const { t } = useLocale()
 /**
  * #1089：跨页面复用的独立全屏公告详情；只负责展示和事件，
  * Markdown 清洗与链接打开仍交由 RemoteConfigCoordinator。
@@ -27,23 +30,23 @@ const emit = defineEmits<{
           class="announcement-fullscreen-card"
           role="dialog"
           aria-modal="true"
-          :aria-label="announcement?.title || '公告详情'"
+          :aria-label="announcement?.title || t('home.notice.detailTitle')"
         >
           <header class="announcement-fullscreen-header">
             <button
               v-if="fromHomePanel"
               type="button"
               class="announcement-fullscreen-nav"
-              aria-label="返回通知列表"
+              :aria-label="t('home.notice.detailBack')"
               @click="emit('back')"
             >
               <i class="fas fa-arrow-left" aria-hidden="true"></i>
             </button>
-            <h2>{{ announcement?.title || '公告详情' }}</h2>
+            <h2>{{ announcement?.title || t('home.notice.detailTitle') }}</h2>
             <button
               type="button"
               class="announcement-fullscreen-nav"
-              aria-label="关闭公告"
+              :aria-label="t('home.notice.detailClose')"
               @click="emit('dismiss')"
             >
               <i class="fas fa-times" aria-hidden="true"></i>
@@ -51,10 +54,10 @@ const emit = defineEmits<{
           </header>
           <div class="announcement-fullscreen-body">
             <div v-if="announcement?.updated_at" class="announcement-fullscreen-meta">
-              更新时间：{{ announcement.updated_at }}
+              {{ t('home.notice.updatedAt') }}：{{ announcement.updated_at }}
             </div>
             <div v-if="announcement?.image" class="announcement-fullscreen-image">
-              <img :src="announcement.image" :alt="announcement.title || '公告图片'" />
+              <img :src="announcement.image" :alt="announcement.title || t('home.notice.detailTitle')" />
             </div>
             <div
               class="announcement-fullscreen-content select-text"
@@ -68,7 +71,7 @@ const emit = defineEmits<{
               target="_blank"
               rel="noopener noreferrer"
               @click.prevent="(event) => emit('external-open', announcement?.link || '', event)"
-            >查看原文 <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></a>
+            >{{ t('home.notice.openSource') }} <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></a>
           </div>
         </section>
       </div>
