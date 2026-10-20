@@ -25,6 +25,7 @@ export type HomeModuleKey =
   | 'teaching_eval'
   | 'library'
   | 'library_reserve'
+  | 'chaoxing_reserve'
   | 'campus_map'
   | 'resource_share'
   | 'chaoxing_class'
@@ -108,6 +109,8 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   'library',
   // #1055：图书馆预约（座位 / 静音仓 / 研讨室），与馆藏检索 library 并列登记
   'library_reserve',
+  // A15：预约（内嵌超星官方预约页），与原生模块 library_reserve 并列登记
+  'chaoxing_reserve',
   'campus_map',
   'resource_share',
   'towergo',

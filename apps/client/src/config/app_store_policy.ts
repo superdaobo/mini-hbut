@@ -250,6 +250,8 @@ export const APP_STORE_BLOCKED_MODULE_IDS: ReadonlySet<string> = Object.freeze(
     'more_chaoxing_checkin',
     // #1055：图书馆预约（座位 / 静音仓 / 研讨室）属校园写操作，合规构建一律拦截
     'library_reserve',
+    // A15：预约（内嵌官方预约页）同样是校园写操作，合规构建一律拦截
+    'chaoxing_reserve',
     // 远程代码 / 出行 / 其它高风险
     'resource_share',
     'towergo',

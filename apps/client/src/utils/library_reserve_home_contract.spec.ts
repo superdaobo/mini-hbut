@@ -46,7 +46,8 @@ describe('图书馆预约 · 首页模块注册（#1055）', () => {
       'chaoxing_hub',
       'chaoxing_inbox',
       'chaoxing_class',
-      'library_reserve'
+      'library_reserve',
+      'chaoxing_reserve'
     ])
   })
 

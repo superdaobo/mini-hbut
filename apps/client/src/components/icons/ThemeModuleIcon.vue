@@ -25,6 +25,8 @@ const iconMap = {
   training: 'account_tree',
   library: 'local_library',
   library_reserve: 'event_seat',
+  // A15：预约（内嵌官方页）用 web_asset 表示「内嵌网页」
+  chaoxing_reserve: 'web_asset',
   campus_map: 'map',
   resource_share: 'cloud',
   chaoxing_class: 'menu_book',

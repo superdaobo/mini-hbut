@@ -24,7 +24,7 @@ import { useAuthStore } from '../stores/auth'
 const { t } = useLocale()
 const authStore = useAuthStore()
 
-const emit = defineEmits(['back', 'require-login'])
+const emit = defineEmits(['back', 'require-login', 'open-official'])
 
 /** 四个 Tab 的 key（同时作为 i18n 词条后缀与状态隔离维度） */
 const TABS = ['seat', 'quiet', 'room', 'mine']
@@ -77,8 +77,8 @@ const goLogin = () => emit('require-login')
           </button>
         </div>
 
-        <!-- 座位预约：seatengine 查询面板（#1057） -->
-        <ReserveSeatPanel v-if="activeTab === 'seat'" />
+        <!-- 座位预约：seatengine 查询面板（#1057）；A15 起官方页提交已移至「预约」模块 -->
+        <ReserveSeatPanel v-if="activeTab === 'seat'" @open-official="emit('open-official')" />
 
         <!-- 静音仓 / 研讨室：完整预约流程（#1056），同一面板按 app 复用 -->
         <ReserveRoomPanel v-else-if="activeTab === 'quiet'" key="quiet" app="quiet_room" />
