@@ -2,12 +2,12 @@
  * #1089：将首页通知浮层交互从 Dashboard 大组件抽出，保持首页体积守卫与状态隔离。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { buildHomeNoticeEntries, type HomeNoticeEntry, type HomeAnnouncementGroups } from '../../utils/home_notice_center'
+import { buildHomeNoticeEntries, type HomeNoticeEntry } from '../../utils/home_notice_center'
 
 export const HOME_NOTICE_DISMISS_EVENT = 'hbu-home-notice-dismiss'
 
 export function useHomeNoticeCenter(
-  props: HomeAnnouncementGroups,
+  props: { confirmNotices: unknown[]; pinnedNotices: unknown[]; noticeList: unknown[]; tickerNotices: unknown[] },
   emit: (event: string, ...args: unknown[]) => void,
   sessionStatusVisual: { value: string },
   sessionDetailOpen: { value: boolean }
@@ -16,10 +16,10 @@ export function useHomeNoticeCenter(
   const profileCardRef = ref<HTMLElement | null>(null)
   const homeNoticePanelStyle = ref<Record<string, string>>({})
   const homeNoticeEntries = computed(() => buildHomeNoticeEntries({
-    confirm: props.confirm,
-    pinned: props.pinned,
-    list: props.list,
-    ticker: props.ticker
+    confirm: props.confirmNotices,
+    pinned: props.pinnedNotices,
+    list: props.noticeList,
+    ticker: props.tickerNotices
   }))
 
   const positionHomeNoticePanel = () => {
