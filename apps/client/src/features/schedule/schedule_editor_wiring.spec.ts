@@ -36,6 +36,13 @@ const WIRED_DETAIL_BINDING = '@open-edit-course="openCourseEditor"'
 const VISIBILITY_SYNC = 'showArrangement.value = editor.showAddCourse.value'
 
 /**
+ * 完整转义正则元字符（含反斜杠）。
+ * 只转义 `.` 会让常量一旦含 `(`/`[` 等字符就构造出错误正则，也是 CodeQL
+ * js/incomplete-sanitization 指出的同源问题。
+ */
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
  * 剥离 `//` 与 `/* *\/` 注释（保留字符串字面量内的内容，如 'https://…'）。
  * 逐字符扫描而非正则替换：模板里存在 `//` 开头的 URL 与含引号的文案。
  */
@@ -156,7 +163,7 @@ describe('#1086 课表编辑入口接线契约', () => {
   })
 
   it('反向自检 B：删掉真实源码里的可见性同步行时，五步判据必须判红', () => {
-    const withoutSync = viewSource.replace(new RegExp(`\\n\\s*${VISIBILITY_SYNC.replace(/\./g, '\\.')}`, 'g'), '\n')
+    const withoutSync = viewSource.replace(new RegExp(`\\n\\s*${escapeRegExp(VISIBILITY_SYNC)}`, 'g'), '\n')
     expect(withoutSync).not.toBe(viewSource)
     const body = extractArrowBody(stripComments(withoutSync), 'openCourseEditor')
     expect(body).not.toBe('')
