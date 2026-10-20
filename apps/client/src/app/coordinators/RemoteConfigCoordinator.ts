@@ -95,6 +95,7 @@ export const createRemoteConfigCoordinator = (runtime: AppRuntime): RemoteConfig
     const announcement = item && typeof item === 'object' ? item as Record<string, any> : null
     if (!announcement) return
     state.activeAnnouncement.value = announcement
+    state.activeAnnouncementHtml.value = ''
     state.showAnnouncementModal.value = true
     const token = ++state.mutable.activeAnnouncementRenderToken
     void renderMarkdown(announcement.content || announcement.body || '').then((html) => {
@@ -103,6 +104,8 @@ export const createRemoteConfigCoordinator = (runtime: AppRuntime): RemoteConfig
   }
 
   const closeAnnouncement = () => {
+    // 旧公告尚未完成的异步 Markdown 渲染不可回填到下一次阅读。
+    state.mutable.activeAnnouncementRenderToken += 1
     state.showAnnouncementModal.value = false
     state.activeAnnouncement.value = null
     state.activeAnnouncementHtml.value = ''
