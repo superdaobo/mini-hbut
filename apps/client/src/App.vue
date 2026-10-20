@@ -761,7 +761,7 @@ const {
 
   <!-- 确认公告弹窗 -->
   <Transition name="modal-pop">
-  <div v-if="showBlockingAnnouncement" class="notice-confirm-overlay">
+  <div v-if="showBlockingAnnouncement && !showAnnouncementModal" class="notice-confirm-overlay">
     <div class="notice-confirm-card modal-pop-card">
       <h3>重要公告</h3>
       <p class="notice-confirm-title">{{ blockingAnnouncement?.title }}</p>
