@@ -1,0 +1,43 @@
+# One-shot run-status report after removing the temporary dispatcher for #1089.
+# This reporter only runs during the cleanup push and is itself removed afterward.
+name: Record TestFlight run for issue 1089
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-testflight-1089.yml'
+
+permissions:
+  actions: read
+  issues: write
+
+jobs:
+  report:
+    if: github.repository == 'superdaobo/mini-hbut'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Locate recent TestFlight dispatch and record the result on issue 1089
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in 1 2 3 4 5; do
+            run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ios-testflight.yml/runs?per_page=20" \
+              --jq '[.workflow_runs[] | select(.event == "workflow_dispatch" and .head_branch == "main" and .created_at >= "2026-10-20T15:19:30Z")] | sort_by(.created_at) | last | .id // empty')"
+            if [ -n "$run_id" ]; then break; fi
+            sleep 10
+          done
+          if [ -n "$run_id" ]; then
+            workflow_state="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status + " / " + (.conclusion // "pending")')"
+            url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+            gh issue comment 1089 --repo "$GITHUB_REPOSITORY" --body "TestFlight 已检测到执行记录：${url}（${workflow_state}）。由 PR #1091 的一次性调度触发；IPA 上传与 Apple 处理结果请在该运行内核实。"
+            echo "TestFlight run: $url ($workflow_state)"
+          else
+            gh issue comment 1089 --repo "$GITHUB_REPOSITORY" --body "未检测到 PR #1091 之后的 TestFlight workflow_dispatch 运行。请检查一次性调度作业日志或手动运行 ios-testflight.yml。"
+            echo 'No TestFlight workflow_dispatch run found after PR #1091.'
+            exit 1
+          fi
