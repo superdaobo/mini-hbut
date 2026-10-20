@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isHttpLink } from '../utils/external_link'
 /**
  * #1089：跨页面复用的独立全屏公告详情；只负责展示和事件，
  * Markdown 清洗与链接打开仍交由 RemoteConfigCoordinator。
@@ -61,7 +62,7 @@ const emit = defineEmits<{
               v-html="html"
             ></div>
             <a
-              v-if="announcement?.link"
+              v-if="announcement?.link && isHttpLink(announcement.link)"
               class="announcement-fullscreen-link"
               :href="announcement.link"
               target="_blank"
