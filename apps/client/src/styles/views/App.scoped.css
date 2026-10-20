@@ -832,3 +832,91 @@
   gap: 12px;
   margin-top: 16px;
 }
+
+/* #1089：公告详情在整屏蒙层之上沉浸式显示；正文滚动、标题栏固定。 */
+.notice-modal-overlay {
+  background: rgba(15, 23, 42, 0.46);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  padding:
+    max(12px, var(--app-safe-top, 0px))
+    max(12px, env(safe-area-inset-right, 0px))
+    max(12px, var(--app-safe-bottom, 0px))
+    max(12px, env(safe-area-inset-left, 0px));
+}
+.notice-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 720px;
+  height: min(85dvh, 860px);
+  max-height: calc(100dvh - 32px - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px));
+  padding: 0;
+  overflow: hidden;
+  border-radius: 24px;
+  background: var(--ui-modal-surface, #fff);
+  color: var(--ui-text, #0f172a);
+  border: 1px solid var(--ui-modal-surface-border, rgba(148, 163, 184, 0.24));
+}
+.notice-modal-header {
+  flex: 0 0 auto;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+.notice-modal-header h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.4;
+  font-size: 18px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+.notice-back,
+.notice-modal-header .notice-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ui-primary-soft, #f1f5f9);
+  color: var(--ui-text, #475569);
+  cursor: pointer;
+}
+.notice-modal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding: 6px 22px 28px;
+}
+.notice-modal-meta { margin: 14px 0; }
+.notice-modal-content {
+  color: var(--ui-text, #334155);
+  font-size: 15px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.notice-modal-content :deep(img),
+.notice-modal-content :deep(video) {
+  max-width: 100%;
+  height: auto;
+}
+.notice-modal-image img { max-width: 100%; height: auto; }
+:global(html.dark) .notice-modal,
+:global(html[data-theme='graphite_night']) .notice-modal {
+  background: var(--ui-modal-surface, #1e293b);
+}
+@media (max-width: 599px) {
+  .notice-modal { height: 100%; max-height: 100%; border-radius: 20px; }
+  .notice-modal-header { padding: 14px 15px 12px; }
+  .notice-modal-scroll { padding: 4px 17px 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice-modal-overlay,
+  .notice-modal { transition: none !important; animation: none !important; }
+}
