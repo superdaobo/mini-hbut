@@ -25,14 +25,26 @@ export function useAnnouncementModalNavigation(options: {
     announcementFromHomePanel.value = false
     if (dismissHomePanel) window.dispatchEvent(new Event('hbu-home-notice-dismiss'))
   }
+  const handleSystemBack = (event: Event) => {
+    if (!options.showAnnouncementModal.value) return
+    event.preventDefault()
+    if (announcementFromHomePanel.value) handleAnnouncementBack()
+    else handleAnnouncementDismiss()
+  }
   const handleAnnouncementEscape = (event: KeyboardEvent) => {
     if (event.key !== 'Escape' || !options.showAnnouncementModal.value) return
     event.preventDefault()
     event.stopImmediatePropagation()
     handleAnnouncementDismiss()
   }
-  onMounted(() => window.addEventListener('keydown', handleAnnouncementEscape, true))
-  onBeforeUnmount(() => window.removeEventListener('keydown', handleAnnouncementEscape, true))
+  onMounted(() => {
+    window.addEventListener('keydown', handleAnnouncementEscape, true)
+    window.addEventListener('hbu-overlay-back', handleSystemBack)
+  })
+  onBeforeUnmount(() => {
+    window.removeEventListener('keydown', handleAnnouncementEscape, true)
+    window.removeEventListener('hbu-overlay-back', handleSystemBack)
+  })
 
   return {
     announcementFromHomePanel,
