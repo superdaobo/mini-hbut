@@ -66,6 +66,12 @@ export function useHomeNoticeCenter(
   const handleViewportChange = () => {
     if (homeNoticePanelOpen.value) positionHomeNoticePanel()
   }
+  const handleSystemBack = (event: Event) => {
+    if (document.querySelector('.announcement-fullscreen-overlay')) return
+    if (!homeNoticePanelOpen.value) return
+    event.preventDefault()
+    closeHomeNoticePanel()
+  }
 
   watch(() => sessionStatusVisual.value, (tone) => {
     if (tone === 'green') sessionDetailOpen.value = false
@@ -76,11 +82,13 @@ export function useHomeNoticeCenter(
     window.addEventListener('resize', handleViewportChange)
     window.addEventListener('keydown', handleEscape)
     window.addEventListener(HOME_NOTICE_DISMISS_EVENT, closeHomeNoticePanel)
+    window.addEventListener('hbu-overlay-back', handleSystemBack)
   })
   onBeforeUnmount(() => {
     window.removeEventListener('resize', handleViewportChange)
     window.removeEventListener('keydown', handleEscape)
     window.removeEventListener(HOME_NOTICE_DISMISS_EVENT, closeHomeNoticePanel)
+    window.removeEventListener('hbu-overlay-back', handleSystemBack)
   })
 
   return {
