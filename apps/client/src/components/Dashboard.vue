@@ -5,6 +5,7 @@ import { fetchWithCache, getCachedData, setCachedData, DEFAULT_SWR_OPTIONS } fro
 import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown_text.js'
+import { buildHomeNoticeEntries } from '../utils/home_notice_center'
 import ThemeModuleIcon from './icons/ThemeModuleIcon.vue'
 import LayoutCollisionFxLayer from './LayoutCollisionFxLayer.vue'
 import SortableSurface from './SortableSurface.vue'
@@ -54,6 +55,7 @@ const props = defineProps({
   jwxtLastCheckTime: { type: String, default: '' },
   tickerNotices: { type: Array, default: () => [] },
   pinnedNotices: { type: Array, default: () => [] },
+  confirmNotices: { type: Array, default: () => [] },
   noticeList: { type: Array, default: () => [] }
 })
 
@@ -110,9 +112,52 @@ const maintenanceNotices = computed(() => {
  * - blink：后台重连中
  * - green：已连接
  * 注意：不要在 onMounted 人为先红后绿（进出模块会 remount，会闪红点）。
- * 详情仅点击非绿点时展开。
+ * 绿点打开通知中心；非绿状态仍按原有逻辑展示登录/维护详情。
  */
 const sessionDetailOpen = ref(false)
+const homeNoticePanelOpen = ref(false)
+const profileCardRef = ref(null)
+const homeNoticePanelStyle = ref({})
+const homeNoticeEntries = computed(() => buildHomeNoticeEntries({
+  confirm: props.confirmNotices,
+  pinned: props.pinnedNotices,
+  list: props.noticeList,
+  ticker: props.tickerNotices
+}))
+
+// 一级浮层通过 Teleport 绕开 app-shell 滚动/裁切，并对齐用户信息卡下缘。
+const positionHomeNoticePanel = () => {
+  const rect = profileCardRef.value?.getBoundingClientRect?.()
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const width = Math.min(460, Math.max(240, vw - 32))
+  const desiredHeight = Math.min(380, Math.max(160, vh - 80))
+  const left = Math.max(16, Math.min((rect?.right ?? (vw + width) / 2) - width, vw - width - 16))
+  const top = Math.max(16, Math.min((rect?.bottom ?? 95) + 12, vh - desiredHeight - 16))
+  homeNoticePanelStyle.value = {
+    left: left + 'px',
+    top: top + 'px',
+    width: width + 'px',
+    maxHeight: Math.max(100, vh - top - 16) + 'px'
+  }
+}
+
+const closeHomeNoticePanel = () => {
+  homeNoticePanelOpen.value = false
+}
+const openHomeNotice = (entry) => {
+  // 列表持续挂载在二级详情背后，返回时保留 scrollTop。
+  emit('open-notice', entry.raw, { fromPanel: true })
+}
+const handleHomeNoticeEscape = (event) => {
+  if (event.key !== 'Escape' || !homeNoticePanelOpen.value) return
+  if (document.querySelector('.notice-modal-overlay')) return
+  event.preventDefault()
+  closeHomeNoticePanel()
+}
+const handleHomeNoticeViewportChange = () => {
+  if (homeNoticePanelOpen.value) positionHomeNoticePanel()
+}
 
 /**
  * 在线会话状态（GitHub #659）：缓存身份 ≠ 在线会话。
@@ -168,18 +213,19 @@ const onSessionStatusClick = (event) => {
   event?.preventDefault?.()
   if (sessionStatusVisual.value === 'green') {
     sessionDetailOpen.value = false
+    if (!homeNoticePanelOpen.value) positionHomeNoticePanel()
+    homeNoticePanelOpen.value = !homeNoticePanelOpen.value
     return
   }
+  closeHomeNoticePanel()
   sessionDetailOpen.value = !sessionDetailOpen.value
 }
 
 watch(
-  () => [props.jwxtMaintenance, props.jwxtRecoveryPhase, props.isLoggedIn],
-  () => {
-    // 连上后自动收起详情，避免绿点还挂着维护卡
-    if (sessionStatusVisual.value === 'green') {
-      sessionDetailOpen.value = false
-    }
+  () => sessionStatusVisual.value,
+  (tone) => {
+    if (tone === 'green') sessionDetailOpen.value = false
+    else closeHomeNoticePanel()
   }
 )
 
@@ -1445,6 +1491,9 @@ onMounted(() => {
   syncNowTick()
   clockTimer = window.setInterval(() => { syncNowTick() }, CLOCK_TICK_MS)
   window.addEventListener('resize', handleNoticeResize)
+  window.addEventListener('resize', handleHomeNoticeViewportChange)
+  window.addEventListener('keydown', handleHomeNoticeEscape)
+  window.addEventListener('hbu-home-notice-dismiss', closeHomeNoticePanel)
   window.addEventListener('focus', syncNowTick)
   window.addEventListener(SCHEDULE_EVENT_CHANGED_EVENT, handleScheduleEventChanged)
   window.addEventListener(SCHEDULE_VISIBILITY_CHANGED_EVENT, handleScheduleVisibilityChanged)
@@ -1461,6 +1510,9 @@ onBeforeUnmount(() => {
   if (clockTimer) { window.clearInterval(clockTimer); clockTimer = null }
   if (tickerResumeTimer) { window.clearTimeout(tickerResumeTimer); tickerResumeTimer = null }
   window.removeEventListener('resize', handleNoticeResize)
+  window.removeEventListener('resize', handleHomeNoticeViewportChange)
+  window.removeEventListener('keydown', handleHomeNoticeEscape)
+  window.removeEventListener('hbu-home-notice-dismiss', closeHomeNoticePanel)
   if (noticeResizeRaf) { window.cancelAnimationFrame(noticeResizeRaf); noticeResizeRaf = 0 }
   window.removeEventListener('focus', syncNowTick)
   window.removeEventListener(SCHEDULE_EVENT_CHANGED_EVENT, handleScheduleEventChanged)
