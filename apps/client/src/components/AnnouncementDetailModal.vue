@@ -66,7 +66,7 @@ const emit = defineEmits<{
               :href="announcement.link"
               target="_blank"
               rel="noopener noreferrer"
-              @click.prevent="(event) => emit('external-open', announcement!.link!, event)"
+              @click.prevent="(event) => emit('external-open', announcement?.link || '', event)"
             >查看原文 <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></a>
           </div>
         </section>
