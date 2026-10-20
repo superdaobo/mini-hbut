@@ -35,7 +35,6 @@ import { TCollapse, TEmptyState, TModal } from '../templates'
 import { linkifyPlainText, looksLikeHtml, sanitizeSchoolInboxHtml } from '../../utils/school_inbox_content'
 import { parseReserveFailure, WEEKDAY_KEYS, formatReserveFailureText, truncateReserveDetail } from './catalog'
 import { SeatSignError, buildSeatEnc } from './seatSigner'
-import LibraryReserveEmbed from './LibraryReserveEmbed.vue'
 import {
   buildSeatTimeCells,
   buildSeatTimeSlices,
@@ -64,6 +63,13 @@ import {
 const SEAT_APP = 'seat'
 
 const { t } = useLocale()
+
+/**
+ * A15：座位提交必须带 cxCaptcha 行为验证 token（需真人点击），纯接口不可行，
+ * 因此官方页能力已独立成「预约」模块（`chaoxing_reserve`）。
+ * 本面板只负责原生查询，提交入口通过事件冒泡到父级切页。
+ */
+const emit = defineEmits(['open-official'])
 
 const loading = ref(true)
 const error = ref('')
@@ -643,8 +649,14 @@ onMounted(refresh)
         </ul>
       </section>
 
-      <!-- ③ 官方页面内嵌（座位提交需 cxCaptcha 人工验证，纯接口不可行） -->
-      <LibraryReserveEmbed class="span-all" app="seat" kind="live" />
+      <!-- ③ 官方页提交入口（A15：内嵌官方页已独立为「预约」模块，这里只做引导） -->
+      <section class="card span-all">
+        <h3 class="card__title">{{ t('library.reserve.embed.title') }}</h3>
+        <p class="hint">{{ t('library.reserve.seat.official.hint') }}</p>
+        <button type="button" class="ghost" @click="emit('open-official')">
+          {{ t('library.reserve.seat.official.action') }}
+        </button>
+      </section>
 
       <!-- ④ 通知 / 规则区（置底）：状态与违约后果常驻，规则明细默认折叠（#1082 文字精简） -->
       <section class="card notice span-all">

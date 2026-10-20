@@ -34,6 +34,7 @@ const ALL_MODULE_IDS = [
   'sports_venue',
   'library',
   'library_reserve',
+  'chaoxing_reserve',
   'campus_map',
   'resource_share',
   'towergo',

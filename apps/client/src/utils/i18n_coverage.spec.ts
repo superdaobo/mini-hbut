@@ -116,7 +116,9 @@ const I18N_MIGRATED_FILES: string[] = [
   'components/library-reserve/seatSigner.ts',
   // #1081：官方页内嵌三分支（桌面浮层 / 桥代理 iframe / 系统浏览器降级）与其模式判定
   'components/library-reserve/LibraryReserveEmbed.vue',
-  'utils/library_reserve_embed.ts'
+  'utils/library_reserve_embed.ts',
+  // A15：预约模块（内嵌官方页）视图，文案全部走 i18n
+  'components/ChaoxingReserveView.vue'
 ]
 
 /** CJK 统一表意文字 + 扩展A 区段（中文标点不在区段内，目标是消灭表意文字本身） */

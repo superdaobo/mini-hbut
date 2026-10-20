@@ -299,13 +299,19 @@ describe('#1081 座位面板：本机提交（验证码 + 页面内签名）', (
   })
 })
 
-describe('2026-10-19 官方页面内嵌（座位 cxCaptcha 需人工验证，纯接口不可行）', () => {
+describe('A15：官方页面内嵌已迁出原生面板（独立为「预约」模块 chaoxing_reserve）', () => {
   const embed = readVueContractSource('src/components/library-reserve/LibraryReserveEmbed.vue')
 
-  it('座位面板挂载内嵌组件（live 页 = 真正的快速预约表单）', () => {
-    expect(seatPanel).toContain('LibraryReserveEmbed')
-    expect(seatPanel).toContain('app="seat"')
-    expect(seatPanel).toContain('kind="live"')
+  it('座位面板不再引用内嵌组件（原生与内嵌两套逻辑必须彻底分离）', () => {
+    expect(seatPanel).not.toContain('LibraryReserveEmbed')
+    expect(seatPanel).not.toContain('app="seat"')
+    expect(seatPanel).not.toContain('kind="live"')
+  })
+
+  it('座位面板保留指向「预约」模块的引导事件，避免形成死路', () => {
+    expect(seatPanel).toContain("defineEmits(['open-official'])")
+    expect(seatPanel).toContain("emit('open-official')")
+    expect(seatPanel).toContain('library.reserve.seat.official.hint')
   })
 
   it('组件调用 open / resize / close 三条命令', () => {

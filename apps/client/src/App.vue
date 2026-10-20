@@ -560,7 +560,9 @@ const {
         @back="handleBackToDashboard"
       />
 
-      <component v-else-if="currentView === 'library_reserve'" :is="VIEW_COMPONENTS.library_reserve" :student-id="studentId" @back="handleBackToDashboard" @require-login="handleRequireLogin" />
+      <component v-else-if="currentView === 'library_reserve'" :is="VIEW_COMPONENTS.library_reserve" :student-id="studentId" @back="handleBackToDashboard" @require-login="handleRequireLogin" @open-official="handleNavigate('chaoxing_reserve')" />
+      <!-- A15：预约（内嵌超星官方预约页：座位 / 静音仓 / 研讨室） -->
+      <component v-else-if="currentView === 'chaoxing_reserve'" :is="VIEW_COMPONENTS.chaoxing_reserve" @back="handleBackToDashboard" @require-login="handleRequireLogin" />
       <!-- 小塔出行 -->
       <TowerGoView
         v-else-if="currentView === 'towergo'"

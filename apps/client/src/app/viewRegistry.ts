@@ -64,6 +64,8 @@ const loadCampusMapView: Loader = async () => {
 const loadLibraryView: Loader = () => import('../components/LibraryView.vue')
 // #1055：图书馆预约（座位 / 静音仓 / 研讨室 + 我的预约），与馆藏检索 library 相互独立
 const loadLibraryReserveView: Loader = () => import('../components/LibraryReserveView.vue')
+// A15：预约（内嵌超星官方预约页：座位 / 静音仓 / 研讨室），与原生模块 library_reserve 相互独立
+const loadChaoxingReserveView: Loader = () => import('../components/ChaoxingReserveView.vue')
 const loadResourceShareView: Loader = () => import('../components/ResourceShareView.vue')
 const loadChaoxingClassView: Loader = () => import('../components/ChaoxingClassView.vue')
 const loadChaoxingHubView: Loader = () => import('../components/ChaoxingHubView.vue')
@@ -120,6 +122,7 @@ export const VIEW_COMPONENTS: Record<string, Component> = {
   campus_map: createAsyncPage(loadCampusMapView),
   library: createAsyncPage(loadLibraryView),
   library_reserve: createAsyncPage(loadLibraryReserveView),
+  chaoxing_reserve: createAsyncPage(loadChaoxingReserveView),
   resource_share: createAsyncPage(loadResourceShareView),
   chaoxing_class: createAsyncPage(loadChaoxingClassView),
   chaoxing_hub: createAsyncPage(loadChaoxingHubView),
@@ -177,6 +180,7 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   campus_map: loadCampusMapView,
   library: loadLibraryView,
   library_reserve: loadLibraryReserveView,
+  chaoxing_reserve: loadChaoxingReserveView,
   resource_share: loadResourceShareView,
   chaoxing_class: loadChaoxingClassView,
   chaoxing_hub: loadChaoxingHubView,

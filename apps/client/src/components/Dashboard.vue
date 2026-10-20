@@ -211,7 +211,8 @@ const LOGIN_METHOD_KEY = 'hbu_login_method'
 const JWXT_MODULE_ALLOWLIST = new Set([
   'grades', 'classroom', 'exams', 'ranking', 'calendar', 'school_inbox', 'academic',
   'qxzkb', 'course_selection', 'training', 'teaching_eval', 'library', 'campus_map', 'resource_share',
-  'chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'broadband', 'sports_venue', 'towergo', 'library_reserve'
+  'chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'broadband', 'sports_venue', 'towergo', 'library_reserve',
+  'chaoxing_reserve'
 ])
 const loginMethod = ref('')
 const isChaoxingMethod = (value) => String(value || '').trim().startsWith('chaoxing')

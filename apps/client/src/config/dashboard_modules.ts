@@ -62,6 +62,8 @@ export const BASE_MODULES: DashboardModule[] = [
   { id: 'library', name: 'home.module.library', iconKey: 'library', color: '#0f766e', desc: 'home.module.library.desc', available: true, requiresLogin: false },
   // #1055：图书馆预约（座位 / 静音仓 / 研讨室 + 我的预约），依赖超星账号登录
   { id: 'library_reserve', name: 'home.module.library_reserve', iconKey: 'library_reserve', color: '#1d4ed8', desc: 'home.module.library_reserve.desc', available: true, requiresLogin: true },
+  // A15：预约（内嵌超星官方预约页，覆盖座位 / 静音仓 / 研讨室），依赖超星账号会话
+  { id: 'chaoxing_reserve', name: 'home.module.chaoxing_reserve', iconKey: 'chaoxing_reserve', color: '#7c3aed', desc: 'home.module.chaoxing_reserve.desc', available: true, requiresLogin: true },
   { id: 'campus_map', name: 'home.module.campus_map', iconKey: 'campus_map', color: '#14b8a6', desc: 'home.module.campus_map.desc', available: true, requiresLogin: false },
   { id: 'resource_share', name: 'home.module.resource_share', iconKey: 'resource_share', color: '#0ea5e9', desc: 'home.module.resource_share.desc', available: true, requiresLogin: false },
   { id: 'towergo', name: 'home.module.towergo', iconKey: 'towergo', color: '#22c55e', desc: 'home.module.towergo.desc', available: true, requiresLogin: false },
@@ -88,7 +90,7 @@ export const MODULE_CATEGORY_DEFS: ModuleCategoryDef[] = [
   },
   {
     title: 'home.cat.chaoxing',
-    ids: ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'library_reserve']
+    ids: ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'library_reserve', 'chaoxing_reserve']
   },
   {
     title: 'home.cat.yimatong',
