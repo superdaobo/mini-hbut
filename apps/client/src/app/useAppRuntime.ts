@@ -177,21 +177,7 @@ export const useAppRuntime = () => {
   const handleGlobalLinkClick = (event: Event) => {
     void runtime.remoteConfig.handleContentClick(event)
   }
-  // #1089：系统/浏览器返回优先关闭前景公告层，不能在弹窗还显示时离开首页。
-  const handlePopState = () => {
-    const layerBack = new Event('hbu-overlay-back', { cancelable: true })
-    window.dispatchEvent(layerBack)
-    if (layerBack.defaultPrevented) {
-      runtime.navigation.replaceHistorySnapshot(state.currentView.value)
-      return
-    }
-    if (document.querySelector('.home-notice-overlay')) {
-      window.dispatchEvent(new Event('hbu-home-notice-dismiss'))
-      runtime.navigation.replaceHistorySnapshot(state.currentView.value)
-      return
-    }
-    void runtime.navigation.handlePopState()
-  }
+  const handlePopState = () => void runtime.navigation.handlePopState()
   const handleMaintenanceEvent = (event: Event) => runtime.session.handleJwxtMaintenanceEvent(event)
   const handleRemoteModeEvent = () => runtime.remoteConfig.handleRemoteConfigModeChanged()
   const handleRemoteUpdatedEvent = () => runtime.remoteConfig.handleRemoteConfigUpdated()
