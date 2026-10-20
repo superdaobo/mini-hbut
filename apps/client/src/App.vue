@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
@@ -121,6 +122,31 @@ const {
   handleAccountSwitch
 } = handlers
 
+// #1089：公告详情的“返回列表”与“退出整个通知中心”使用不同的关闭语义。
+const announcementFromHomePanel = ref(false)
+const handleDashboardAnnouncementOpen = (notice: unknown, context?: { fromPanel?: boolean }) => {
+  announcementFromHomePanel.value = context?.fromPanel === true
+  openAnnouncement(notice)
+}
+const handleAnnouncementBack = () => {
+  closeAnnouncement()
+  announcementFromHomePanel.value = false
+}
+const handleAnnouncementDismiss = () => {
+  const dismissHomePanel = announcementFromHomePanel.value
+  closeAnnouncement()
+  announcementFromHomePanel.value = false
+  if (dismissHomePanel) window.dispatchEvent(new Event('hbu-home-notice-dismiss'))
+}
+const handleAnnouncementEscape = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape' || !showAnnouncementModal.value) return
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  handleAnnouncementDismiss()
+}
+onMounted(() => window.addEventListener('keydown', handleAnnouncementEscape, true))
+onBeforeUnmount(() => window.removeEventListener('keydown', handleAnnouncementEscape, true))
+
 const {
   home: Dashboard,
   grades: GradeView,
@@ -225,12 +251,13 @@ const {
         :jwxt-last-check-time="jwxtLastCheckTime"
         :ticker-notices="announcementData.ticker"
         :pinned-notices="announcementData.pinned"
+        :confirm-notices="announcementData.confirm"
         :notice-list="announcementData.list"
         @navigate="handleNavigate"
         @logout="handleLogout"
         @require-login="handleRequireLogin"
         @retry-session-recovery="handleRetrySessionRecovery"
-        @open-notice="openAnnouncement"
+        @open-notice="handleDashboardAnnouncementOpen"
         @openSettings="openWorkspaceLayoutEditor('home')"
       />
 
@@ -737,33 +764,44 @@ const {
   </div>
   </Transition>
 
-  <!-- 公告详情弹窗 -->
-  <Transition name="modal-pop">
-  <div v-if="showAnnouncementModal" class="notice-modal-overlay" @click.self="closeAnnouncement">
-    <div class="notice-modal modal-pop-card">
-      <div class="notice-modal-header">
-        <h3>{{ activeAnnouncement?.title }}</h3>
-        <button class="notice-close" @click="closeAnnouncement">×</button>
+  <!-- #1089：二级全屏公告详情，独立 Teleport/遮罩，不嵌入一级通知列表。 -->
+  <Teleport to="body">
+    <Transition name="modal-pop">
+      <div v-if="showAnnouncementModal" class="notice-modal-overlay" @click.self="handleAnnouncementDismiss">
+        <section class="notice-modal modal-pop-card" role="dialog" aria-modal="true" :aria-label="activeAnnouncement?.title || '公告详情'">
+          <div class="notice-modal-header">
+            <button
+              v-if="announcementFromHomePanel"
+              class="notice-back"
+              type="button"
+              aria-label="返回通知列表"
+              @click="handleAnnouncementBack"
+            ><i class="fas fa-arrow-left" aria-hidden="true"></i></button>
+            <h3>{{ activeAnnouncement?.title }}</h3>
+            <button class="notice-close" type="button" aria-label="关闭公告" @click="handleAnnouncementDismiss">×</button>
+          </div>
+          <div class="notice-modal-scroll">
+            <div v-if="activeAnnouncement?.updated_at" class="notice-modal-meta">
+              更新时间：{{ activeAnnouncement.updated_at }}
+            </div>
+            <div v-if="activeAnnouncement?.image" class="notice-modal-image">
+              <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
+            </div>
+            <div class="notice-modal-content select-text" @click="handleContentClick" v-html="activeAnnouncementHtml"></div>
+            <a
+              v-if="activeAnnouncement?.link"
+              class="notice-link"
+              :href="activeAnnouncement.link"
+              target="_blank"
+              @click.prevent="handleExternalOpen(activeAnnouncement.link, $event)"
+            >
+              查看原文
+            </a>
+          </div>
+        </section>
       </div>
-      <div v-if="activeAnnouncement?.updated_at" class="notice-modal-meta">
-        更新时间：{{ activeAnnouncement.updated_at }}
-      </div>
-      <div v-if="activeAnnouncement?.image" class="notice-modal-image">
-        <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
-      </div>
-      <div class="notice-modal-content select-text" @click="handleContentClick" v-html="activeAnnouncementHtml"></div>
-      <a
-        v-if="activeAnnouncement?.link"
-        class="notice-link"
-        :href="activeAnnouncement.link"
-        target="_blank"
-        @click.prevent="handleExternalOpen(activeAnnouncement.link, $event)"
-      >
-        查看原文
-      </a>
-    </div>
-  </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 
   <!-- 确认公告弹窗 -->
   <Transition name="modal-pop">
