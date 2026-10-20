@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import UpdateDialog from './components/UpdateDialog.vue'
+import AnnouncementDetailModal from './components/AnnouncementDetailModal.vue'
+import { useAnnouncementModalNavigation } from './app/composables/useAnnouncementModalNavigation'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import DemoModeBanner from './components/DemoModeBanner.vue'
@@ -122,6 +124,13 @@ const {
 } = handlers
 
 const {
+  announcementFromHomePanel,
+  handleDashboardAnnouncementOpen,
+  handleAnnouncementBack,
+  handleAnnouncementDismiss
+} = useAnnouncementModalNavigation({ showAnnouncementModal, openAnnouncement, closeAnnouncement })
+
+const {
   home: Dashboard,
   grades: GradeView,
   electricity: ElectricityView,
@@ -225,12 +234,13 @@ const {
         :jwxt-last-check-time="jwxtLastCheckTime"
         :ticker-notices="announcementData.ticker"
         :pinned-notices="announcementData.pinned"
+        :confirm-notices="announcementData.confirm"
         :notice-list="announcementData.list"
         @navigate="handleNavigate"
         @logout="handleLogout"
         @require-login="handleRequireLogin"
         @retry-session-recovery="handleRetrySessionRecovery"
-        @open-notice="openAnnouncement"
+        @open-notice="handleDashboardAnnouncementOpen"
         @openSettings="openWorkspaceLayoutEditor('home')"
       />
 
@@ -737,37 +747,21 @@ const {
   </div>
   </Transition>
 
-  <!-- 公告详情弹窗 -->
-  <Transition name="modal-pop">
-  <div v-if="showAnnouncementModal" class="notice-modal-overlay" @click.self="closeAnnouncement">
-    <div class="notice-modal modal-pop-card">
-      <div class="notice-modal-header">
-        <h3>{{ activeAnnouncement?.title }}</h3>
-        <button class="notice-close" @click="closeAnnouncement">×</button>
-      </div>
-      <div v-if="activeAnnouncement?.updated_at" class="notice-modal-meta">
-        更新时间：{{ activeAnnouncement.updated_at }}
-      </div>
-      <div v-if="activeAnnouncement?.image" class="notice-modal-image">
-        <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
-      </div>
-      <div class="notice-modal-content select-text" @click="handleContentClick" v-html="activeAnnouncementHtml"></div>
-      <a
-        v-if="activeAnnouncement?.link"
-        class="notice-link"
-        :href="activeAnnouncement.link"
-        target="_blank"
-        @click.prevent="handleExternalOpen(activeAnnouncement.link, $event)"
-      >
-        查看原文
-      </a>
-    </div>
-  </div>
-  </Transition>
+  <!-- #1089：独立全屏公告阅读器，详情层级高于首页通知列表。 -->
+  <AnnouncementDetailModal
+    :visible="showAnnouncementModal"
+    :announcement="activeAnnouncement"
+    :html="activeAnnouncementHtml"
+    :from-home-panel="announcementFromHomePanel"
+    @back="handleAnnouncementBack"
+    @dismiss="handleAnnouncementDismiss"
+    @content-click="handleContentClick"
+    @external-open="handleExternalOpen"
+  />
 
   <!-- 确认公告弹窗 -->
   <Transition name="modal-pop">
-  <div v-if="showBlockingAnnouncement" class="notice-confirm-overlay">
+  <div v-if="showBlockingAnnouncement && !showAnnouncementModal" class="notice-confirm-overlay">
     <div class="notice-confirm-card modal-pop-card">
       <h3>重要公告</h3>
       <p class="notice-confirm-title">{{ blockingAnnouncement?.title }}</p>

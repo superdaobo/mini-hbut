@@ -49,7 +49,7 @@
       </div>
 
       <!-- User Profile Card + 会话状态点（红/闪/绿，点开才看维护详情） -->
-      <div class="home-area-user bg-white rounded-2xl p-4 flex items-center justify-between gap-3 card-shadow">
+      <div ref="profileCardRef" class="home-area-user bg-white rounded-2xl p-4 flex items-center justify-between gap-3 card-shadow">
         <div class="flex items-center space-x-4 min-w-0 flex-1 cursor-pointer" @click="handleProfileClick">
           <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-blue-500 shrink-0">
             <i class="fas fa-user-graduate text-2xl"></i>
@@ -517,6 +517,52 @@
           </div>
         </div>
       </div>
+    </Teleport>
+
+    <!-- #1089：绿点的远程公告浮层；二级详情继续走 App.vue 的全屏 modal。 -->
+    <Teleport to="body">
+      <Transition name="home-notice-fade">
+        <div
+          v-if="homeNoticePanelOpen"
+          class="home-notice-overlay"
+          @click.self="closeHomeNoticePanel"
+        >
+          <section
+            class="home-notice-panel"
+            :style="homeNoticePanelStyle"
+            role="dialog"
+            aria-modal="true"
+            aria-label="通知中心"
+          >
+            <div class="home-notice-head">
+              <div class="home-notice-heading">
+                <div class="home-notice-title"><i class="fas fa-bell" aria-hidden="true"></i> 通知中心</div>
+                <div class="home-notice-online"><span class="home-notice-online-dot"></span>{{ t('home.session.connected') }}</div>
+              </div>
+              <button type="button" class="home-notice-close" aria-label="关闭通知中心" @click="closeHomeNoticePanel">
+                <i class="fas fa-times" aria-hidden="true"></i>
+              </button>
+            </div>
+            <div class="home-notice-list" role="list">
+              <div v-if="homeNoticeEntries.length === 0" class="home-notice-empty">
+                <i class="far fa-bell" aria-hidden="true"></i>
+                <span>暂无公告</span>
+              </div>
+              <div v-for="entry in homeNoticeEntries" :key="entry.key" role="listitem">
+                <button type="button" class="home-notice-item" @click="openHomeNotice(entry)">
+                  <div class="home-notice-item-top">
+                    <span class="home-notice-kind" :class="'home-notice-kind--' + entry.kind">{{ entry.kindLabel }}</span>
+                    <span v-if="entry.updatedAt" class="home-notice-date">{{ entry.updatedAt }}</span>
+                  </div>
+                  <div class="home-notice-item-title">{{ entry.title }}</div>
+                  <div v-if="entry.summary" class="home-notice-item-summary">{{ entry.summary }}</div>
+                  <i class="fas fa-chevron-right home-notice-arrow" aria-hidden="true"></i>
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </Transition>
     </Teleport>
 
     <!-- Quick Entry Editor Modal -->

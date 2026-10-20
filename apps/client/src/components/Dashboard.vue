@@ -5,6 +5,7 @@ import { fetchWithCache, getCachedData, setCachedData, DEFAULT_SWR_OPTIONS } fro
 import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown_text.js'
+import { useHomeNoticeCenter } from '../features/home/useHomeNoticeCenter'
 import ThemeModuleIcon from './icons/ThemeModuleIcon.vue'
 import LayoutCollisionFxLayer from './LayoutCollisionFxLayer.vue'
 import SortableSurface from './SortableSurface.vue'
@@ -54,6 +55,7 @@ const props = defineProps({
   jwxtLastCheckTime: { type: String, default: '' },
   tickerNotices: { type: Array, default: () => [] },
   pinnedNotices: { type: Array, default: () => [] },
+  confirmNotices: { type: Array, default: () => [] },
   noticeList: { type: Array, default: () => [] }
 })
 
@@ -110,7 +112,7 @@ const maintenanceNotices = computed(() => {
  * - blink：后台重连中
  * - green：已连接
  * 注意：不要在 onMounted 人为先红后绿（进出模块会 remount，会闪红点）。
- * 详情仅点击非绿点时展开。
+ * 绿点打开通知中心；非绿状态仍按原有逻辑展示登录/维护详情。
  */
 const sessionDetailOpen = ref(false)
 
@@ -163,25 +165,15 @@ const sessionStatusAria = computed(() => {
   return t('home.session.offline')
 })
 
-const onSessionStatusClick = (event) => {
-  event?.stopPropagation?.()
-  event?.preventDefault?.()
-  if (sessionStatusVisual.value === 'green') {
-    sessionDetailOpen.value = false
-    return
-  }
-  sessionDetailOpen.value = !sessionDetailOpen.value
-}
-
-watch(
-  () => [props.jwxtMaintenance, props.jwxtRecoveryPhase, props.isLoggedIn],
-  () => {
-    // 连上后自动收起详情，避免绿点还挂着维护卡
-    if (sessionStatusVisual.value === 'green') {
-      sessionDetailOpen.value = false
-    }
-  }
-)
+const {
+  homeNoticePanelOpen,
+  profileCardRef,
+  homeNoticePanelStyle,
+  homeNoticeEntries,
+  onSessionStatusClick,
+  openHomeNotice,
+  closeHomeNoticePanel
+} = useHomeNoticeCenter(props, emit, sessionStatusVisual, sessionDetailOpen)
 
 const uiSettings = useUiSettings()
 

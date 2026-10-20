@@ -582,7 +582,18 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
   const handleOpenConfig = () => goToView('config')
   const handleOpenSettings = () => goToView('settings')
 
+  // #1089：系统返回键优先交给当前公告详情/首页通知浮层，不触发主页离开或退出确认。
+  const consumeOverlayBack = (): boolean => {
+    const event = new Event('hbu-overlay-back', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+
   const handlePopState = async () => {
+    if (consumeOverlayBack()) {
+      replaceHistorySnapshot(state.currentView.value)
+      return
+    }
     if (!isDesktopLike) {
       const fromView = state.currentView.value
       const handled = goToParentView()
@@ -621,6 +632,10 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       if (!appWindow) return
       state.mutable.unlistenCloseRequested = await appWindow.onCloseRequested(async (event: { preventDefault: () => void }) => {
         if (state.mutable.isClosingByUser) return
+        if (consumeOverlayBack()) {
+          event.preventDefault()
+          return
+        }
         if (state.currentView.value !== 'home') {
           event.preventDefault()
           if ((window.history.length > 1) && (window.location.hash || '#/') !== '#/') {

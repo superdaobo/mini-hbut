@@ -17,8 +17,12 @@ describe('home dashboard interaction contract', () => {
     expect(source).not.toContain('class="home-fixed-header')
     expect(source).not.toContain('class="home-scroll-content')
     expect(rootRule).not.toContain('--home-header-height')
-    expect(source).not.toContain('position: fixed')
-    expect(source).not.toContain('position: sticky')
+    // #1089：通知浮层可 fixed，但首页主布局/header 本身始终参与正常文档流。
+    expect(rootRule).not.toContain('position: fixed')
+    expect(rootRule).not.toContain('position: sticky')
+    expect(getRuleBody(source, '.dashboard-main')).not.toContain('position: fixed')
+    expect(getRuleBody(source, '.dashboard-main')).not.toContain('position: sticky')
+    expect(getRuleBody(source, '.home-notice-overlay')).toContain('position: fixed')
     expect(source).not.toContain('sticky top-0')
   })
 
