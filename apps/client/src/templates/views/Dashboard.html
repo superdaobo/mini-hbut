@@ -532,26 +532,26 @@
             :style="homeNoticePanelStyle"
             role="dialog"
             aria-modal="true"
-            aria-label="通知中心"
+            :aria-label="t('home.notice.center')"
           >
             <div class="home-notice-head">
               <div class="home-notice-heading">
-                <div class="home-notice-title"><i class="fas fa-bell" aria-hidden="true"></i> 通知中心</div>
+                <div class="home-notice-title"><i class="fas fa-bell" aria-hidden="true"></i> {{ t('home.notice.center') }}</div>
                 <div class="home-notice-online"><span class="home-notice-online-dot"></span>{{ t('home.session.connected') }}</div>
               </div>
-              <button type="button" class="home-notice-close" aria-label="关闭通知中心" @click="closeHomeNoticePanel">
+              <button type="button" class="home-notice-close" :aria-label="t('home.notice.close')" @click="closeHomeNoticePanel">
                 <i class="fas fa-times" aria-hidden="true"></i>
               </button>
             </div>
             <div class="home-notice-list" role="list">
               <div v-if="homeNoticeEntries.length === 0" class="home-notice-empty">
                 <i class="far fa-bell" aria-hidden="true"></i>
-                <span>暂无公告</span>
+                <span>{{ t('home.notice.empty') }}</span>
               </div>
               <div v-for="entry in homeNoticeEntries" :key="entry.key" role="listitem">
                 <button type="button" class="home-notice-item" @click="openHomeNotice(entry)">
                   <div class="home-notice-item-top">
-                    <span class="home-notice-kind" :class="'home-notice-kind--' + entry.kind">{{ entry.kindLabel }}</span>
+                    <span class="home-notice-kind" :class="'home-notice-kind--' + entry.kind">{{ t('home.notice.kind.' + entry.kind) }}</span>
                     <span v-if="entry.updatedAt" class="home-notice-date">{{ entry.updatedAt }}</span>
                   </div>
                   <div class="home-notice-item-title">{{ entry.title }}</div>
