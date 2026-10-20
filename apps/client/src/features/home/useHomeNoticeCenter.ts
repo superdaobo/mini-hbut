@@ -34,6 +34,7 @@ export function useHomeNoticeCenter(
       left: left + 'px',
       top: top + 'px',
       width: width + 'px',
+      height: Math.min(380, Math.max(100, vh - top - 16)) + 'px',
       maxHeight: Math.max(100, vh - top - 16) + 'px'
     }
   }
@@ -58,7 +59,7 @@ export function useHomeNoticeCenter(
   }
   const handleEscape = (event: KeyboardEvent) => {
     if (event.key !== 'Escape' || !homeNoticePanelOpen.value) return
-    if (document.querySelector('.notice-modal-overlay')) return
+    if (document.querySelector('.announcement-fullscreen-overlay')) return
     event.preventDefault()
     closeHomeNoticePanel()
   }
