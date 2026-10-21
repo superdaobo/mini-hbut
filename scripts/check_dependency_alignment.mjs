@@ -68,18 +68,18 @@ const rootPackage = readJson('package.json')
 const rootLock = assertNpmLockSafe('package-lock.json')
 const capacitorPackages = ['@capacitor/core', '@capacitor/android', '@capacitor/ios']
 for (const name of capacitorPackages) {
-  if (rootPackage.dependencies?.[name] !== '6.2.1') fail(`${name} must be pinned to 6.2.1`)
-  assertLocked(rootLock, name, '6.2.1', 'root')
+  if (rootPackage.dependencies?.[name] !== '6.2.2') fail(`${name} must be pinned to patched 6.2.2`)
+  assertLocked(rootLock, name, '6.2.2', 'root')
 }
-if (rootPackage.devDependencies?.['@capacitor/cli'] !== '6.2.1') fail('@capacitor/cli must match runtime 6.2.1')
-assertLocked(rootLock, '@capacitor/cli', '6.2.1', 'root')
+if (rootPackage.devDependencies?.['@capacitor/cli'] !== '6.2.2') fail('@capacitor/cli must match runtime 6.2.2')
+assertLocked(rootLock, '@capacitor/cli', '6.2.2', 'root')
 if (rootPackage.overrides?.['@capacitor/cli']?.tar !== '7.5.22') fail('Capacitor 6 CLI must override tar to patched 7.5.22')
 assertLocked(rootLock, 'tar', '7.5.22', 'root')
 if (rootPackage.dependencies?.['@tauri-apps/api'] !== '2.11.1') fail('@tauri-apps/api must be pinned to 2.11.1')
 if (rootPackage.devDependencies?.['@tauri-apps/cli'] !== '2.11.4') fail('@tauri-apps/cli must be pinned to 2.11.4')
 assertLocked(rootLock, '@tauri-apps/api', '2.11.1', 'root')
 assertLocked(rootLock, '@tauri-apps/cli', '2.11.4', 'root')
-for (const version of packageVersions(rootLock, 'vite')) assertAtLeast(version, '6.4.3', 'root vite')
+for (const version of packageVersions(rootLock, 'vite')) assertAtLeast(version, '6.4.4', 'root vite')
 for (const version of packageVersions(rootLock, 'rollup')) assertAtLeast(version, '4.59.0', 'root rollup')
 
 assertNpmLockSafe(path.join(repoRoot, 'website/package-lock.json'), { website: true })

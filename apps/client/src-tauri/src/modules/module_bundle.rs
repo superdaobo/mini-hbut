@@ -350,15 +350,20 @@ fn write_bundle_archive(dest_root: &Path, zip_bytes: &[u8]) -> Result<(), String
         let mut entry = archive
             .by_index(index)
             .map_err(|e| format!("读取压缩包条目失败: {}", e))?;
+        // zip v9 的条目名称解析会返回 Result；拒绝解码失败的名称，
+        // 不以不可信名称或默认值构造文件路径。
+        let entry_name = entry
+            .name()
+            .map_err(|e| format!("解码压缩包条目名称失败: {}", e))?;
         let enclosed = entry
             .enclosed_name()
-            .ok_or_else(|| format!("压缩包包含非法路径：{}", entry.name()))?
+            .ok_or_else(|| format!("压缩包包含非法路径：{}", entry_name))?
             .to_path_buf();
         let output_path = temp_root.join(&enclosed);
         if !output_path.starts_with(&temp_root) {
             return Err("压缩包路径越界".to_string());
         }
-        if entry.name().ends_with('/') {
+        if entry_name.ends_with('/') {
             fs::create_dir_all(&output_path).map_err(|e| format!("创建模块子目录失败: {}", e))?;
             continue;
         }

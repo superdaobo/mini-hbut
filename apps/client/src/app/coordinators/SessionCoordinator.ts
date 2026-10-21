@@ -39,6 +39,7 @@ import { startNotificationMonitor } from '../../utils/notify_center.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
+import { createSessionBridge } from './sessionBridge'
 import {
   LOGIN_METHOD_CHAOXING_PASSWORD,
   LOGIN_METHOD_PORTAL_PASSWORD
@@ -57,31 +58,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     invokeNative<T>(command, args)
 
   // ── 桥接 / Cookie ────────────────────────────────────────────────────
-  const bridgePost = async (path: string, payload: Record<string, unknown> = {}) => {
-    const bridgeBase = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
-    const res = await fetch(`${bridgeBase}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {})
-    })
-    return res.json()
-  }
-
-  const restoreSessionViaBridge = async (cookies: string) => {
-    const res = await bridgePost('/restore_session', { cookies })
-    if (res?.success && res?.data?.student_id) {
-      return res.data
-    }
-    throw new Error(res?.error?.message || '恢复会话失败')
-  }
-
-  const importCookiesViaBridge = async (snapshot: Record<string, unknown>) => {
-    const res = await bridgePost('/import_cookies', snapshot || {})
-    if (res?.success && res?.data?.user?.student_id) {
-      return res.data.user
-    }
-    throw new Error(res?.error?.message || '导入 cookies 失败')
-  }
+  const { restoreSessionViaBridge, importCookiesViaBridge } = createSessionBridge(hasTauri)
 
   const persistSessionCookies = async () => {
     if (isTestAccountSession()) return
