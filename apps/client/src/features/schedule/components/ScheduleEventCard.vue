@@ -41,13 +41,13 @@ const isSingleLine = computed(() => isDense.value || heightPercent.value < 4)
 /** 空间足够才展示完整时间区间，否则只展示开始时间 */
 const showTimeRange = computed(() => !isSingleLine.value && widthPercent.value >= 48)
 
-/** 地点为次级信息：窄/矮时隐藏 */
+/** 地点为次级信息：确保两行标题和时间有足够空间后才展示地点。 */
 const showPlace = computed(
   () =>
     !isSingleLine.value &&
     !!props.item?.subtitle &&
     widthPercent.value >= 52 &&
-    heightPercent.value >= 8
+    heightPercent.value >= 10
 )
 
 /** 同簇被聚合隐藏的条目数（> 0 时在卡片内提示 `+N`） */
@@ -132,6 +132,7 @@ const openDetail = () => emit('open-detail', props.item?.raw)
 .event-card__body {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   padding: 2px 3px;
   display: flex;
   flex-direction: column;
@@ -140,16 +141,23 @@ const openDetail = () => emit('open-detail', props.item?.raw)
 }
 
 .event-card__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
   font-size: 10px;
   font-weight: 600;
   line-height: 1.15;
   color: #1e293b;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .event-card__time {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -174,6 +182,7 @@ const openDetail = () => emit('open-detail', props.item?.raw)
 }
 
 .event-card__place {
+  flex: 0 0 auto;
   font-size: 9px;
   line-height: 1.1;
   color: #64748b;

@@ -94,6 +94,13 @@ const visibleEventsForDay = (day) => {
 /** 课程对象 → lane 匹配键（与 courseToTimelineItem 的 id 取值口径保持一致） */
 const courseKeyOf = (course) => String(course?._uid ?? course?.id ?? course?.source_id ?? '')
 
+/** 单节课没有容纳三行名称和全部辅助信息的高度，优先保证教室可读。 */
+const isSinglePeriodCourse = (course) => {
+  const start = Number(course?.period) || 1
+  const span = Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course?.djs) || 1))
+  return span === 1
+}
+
 /** 汇总某天参与 lane 计算的条目：课程（教务 / 自定义）+ 个人日程 */
 const collectTimelineItems = (day) => {
   const items = []
@@ -363,20 +370,24 @@ const openEventDetail = (raw) => {
               :class="[
                 `course-card--${scheduleCourseCardStyle}`,
                 { conflict: course.is_conflict },
+                { 'course-card--single-period': isSinglePeriodCourse(course) },
                 { 'widget-highlight': isWidgetHighlighted(course, day) }
               ]"
               :style="[getCourseStyle(course), courseLaneStyle(course, day)]"
               @click="openCourseDetail(course)"
             >
               <div class="course-name">{{ course.name }}</div>
-              <div class="course-room">
-                {{ course.is_conflict ? t('schedule.grid.conflictHint') : (course.room_code || course.room) }}
-              </div>
-              <div
-                v-if="scheduleCourseCardStyle === 'class' && !course.is_conflict"
-                class="course-teacher"
-              >
-                {{ course.teacher || t('schedule.grid.noTeacher') }}
+              <!-- 教室/教师独立占位，不被增至三行的标题挤到卡片底边或课节虚线上。 -->
+              <div class="course-meta">
+                <div class="course-room">
+                  {{ course.is_conflict ? t('schedule.grid.conflictHint') : (course.room_code || course.room) }}
+                </div>
+                <div
+                  v-if="scheduleCourseCardStyle === 'class' && !course.is_conflict"
+                  class="course-teacher"
+                >
+                  {{ course.teacher || t('schedule.grid.noTeacher') }}
+                </div>
               </div>
             </div>
 
@@ -779,7 +790,10 @@ html.dark .event-overflow-chip {
 
 .course-card {
   margin: 1px;
-  padding: 4px;
+  padding: 4px 4px 5px;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
   background: var(--course-bg, #ffffff) !important;
   color: var(--course-text, #0f172a) !important;
   border-color: var(--course-border, #e5e7eb) !important;
@@ -821,7 +835,7 @@ html.dark .event-overflow-chip {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 4px 2px;
+  padding: 4px 2px 5px;
 }
 
 .courses-grid .day-column > .course-card.course-card--traditional .course-name {
@@ -842,7 +856,7 @@ html.dark .event-overflow-chip {
   border-left: 3px solid var(--course-border, #e5e7eb) !important;
   border-radius: 12px !important;
   box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
-  padding: 4px 6px;
+  padding: 4px 6px 5px;
   gap: 2px;
   align-items: flex-start;
   justify-content: center;
@@ -879,17 +893,44 @@ html.dark .event-overflow-chip {
 }
 
 .course-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
   font-weight: 700;
   font-size: 11px;
   margin-bottom: 2px;
   line-height: 1.3;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* 标题可以收缩，底部信息不能收缩；仍保留卡片的底部内边距。 */
+.course-meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: inherit;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 单节或最后一节被截断的课程，显示一行标题并优先保证教室可读。 */
+.course-card--single-period .course-name {
+  -webkit-line-clamp: 1;
+}
+
+.course-card--single-period .course-teacher {
+  display: none;
 }
 
 .course-room {
+  width: 100%;
   font-size: 10px;
   opacity: 0.85;
   font-weight: 500;
@@ -901,6 +942,7 @@ html.dark .event-overflow-chip {
 }
 
 .course-teacher {
+  width: 100%;
   font-size: 10px;
   opacity: 0.75;
   font-weight: 500;
@@ -958,7 +1000,7 @@ html.dark .event-overflow-chip {
   }
 
   .course-card {
-    padding: 3px 2px;
+    padding: 3px 2px 5px;
     margin: 1px 0;
     font-size: 10px;
   }
