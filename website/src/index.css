@@ -1,8 +1,8 @@
 /* Google Fonts import removed to enforce local SmileySans usage */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+@source "./";
 
 @layer base {
   /* @font-face 在 layout.tsx 注入（带 basePath），避免 GitHub Pages 子路径下 /fonts 404 */

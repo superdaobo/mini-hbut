@@ -1,3 +1,7 @@
+@import "tailwindcss" layer(tailwind);
+@config "../tailwind.config.ts";
+@source "./templates/views";
+
 :root {
   --app-vh: 1vh;
   /* #810：顶部安全区三层取值（取最大）：
@@ -63,12 +67,7 @@
   --text-color: var(--ui-text);
 }
 
-/* Tailwind CSS */
-@layer tailwind {
-  @tailwind base;
-  @tailwind components;
-  @tailwind utilities;
-}
+/* Tailwind v4's CSS-first engine is scoped to the existing tailwind layer. */
 
 /* Safe area insets for mobile platforms (Capacitor iOS/Android) */
 @supports (padding-top: env(safe-area-inset-top, 0px)) {
