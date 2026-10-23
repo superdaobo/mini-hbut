@@ -172,7 +172,6 @@ const clearAutoRefreshTimer = () => {
 
 const safeArray = (value) => (Array.isArray(value) ? value : [])
 
-/**
 const selectCurrentWeek = () => {
   // 「本周」= 不指定周次，由后端按可靠学期历解析（本机不参与推算）
   filters.value.week = ''
