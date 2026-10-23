@@ -41,6 +41,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const CHECKED_FILES = [
   'src/components/Dashboard.vue',
   'src/components/LoginV3.vue',
+  // #1099：空教室曾因未闭合注释吞掉脚本声明，导致整页白屏。
+  'src/components/ClassroomView.vue',
   // #1057：座位预约查询面板（纯 JS SFC，纳入门禁防「未定义标识符」整页白屏）
   'src/components/library-reserve/ReserveSeatPanel.vue'
 ]
