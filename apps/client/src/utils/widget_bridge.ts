@@ -7,6 +7,7 @@
 
 import {
   buildTodayCourseSnapshot,
+  buildRollingWidgetScheduleIndex,
   resolveWeekIndexFromAnchor
 } from './widget_snapshot'
 import {
@@ -106,6 +107,12 @@ function readCustomCoursesInline(studentId: string, _semester: string): unknown[
   }
 }
 
+// #1029：只在 Android Tauri 构建 14 天以内的课程索引，避免影响桌面和 iOS 的启动。
+const shouldUseRollingIndex = () =>
+  isTauriRuntime() &&
+  typeof navigator !== 'undefined' &&
+  /android/i.test(navigator.userAgent)
+
 // ─── 公开 API ───
 
 /**
@@ -199,17 +206,31 @@ export async function afterScheduleRefresh(
     const allCourses = buildEffectiveSchedule(sid, effectiveSemester, remoteCourses, customCourses)
     const baseWeekIndex = readMetaCurrentWeekOr(opts.selectedWeek)
     const now = new Date()
+    const isAndroidWidget = shouldUseRollingIndex()
+    const meta = isAndroidWidget ? readScheduleMetaInline() : null
+    const startDate = toSafeText(payloadMeta?.start_date || meta?.start_date)
+    const totalWeeks = Number(payloadMeta?.total_weeks || meta?.total_weeks || 25)
+    const weekIndex = isAndroidWidget && startDate
+      ? resolveWeekIndexFromAnchor(startDate, now, totalWeeks) || baseWeekIndex
+      : baseWeekIndex
 
     const snapshot = buildTodayCourseSnapshot({
       cache: allCourses,
       studentId: sid,
-      // #759：真实周优先（meta.current_week 是服务端权威值）；缺失时才退回界面选中周，
-      // 避免用户手动翻周污染小组件快照
-      weekIndex: baseWeekIndex,
+      // #759：避免用户手动翻周污染小组件快照；有开学锚点时按真实日期重算。
+      weekIndex,
       now
     })
-    // #891：诊断阶段不在 App 主流程预展开整学期 schedule_index。
-    // 保留原生 resolver/schema 的兼容能力，后续改为紧凑课程索引后再恢复跨天数据。
+    if (isAndroidWidget) {
+      // 仅预计算本周与下周，避免 #881 全学期的 CPU/IPC 放大问题。
+      snapshot.schedule_index = buildRollingWidgetScheduleIndex({
+        cache: allCourses,
+        baseWeekIndex: weekIndex,
+        startDate,
+        totalWeeks,
+        now
+      })
+    }
 
     await writeSnapshotWithRetry(snapshot)
   } catch (err: unknown) {
@@ -252,8 +273,16 @@ export async function tryWriteSnapshotFromCache(sid: string): Promise<void> {
       weekIndex,
       now
     })
-    // #891：启动/恢复路径保持 beta.503 级别的小 Today Snapshot，
-    // 避免主页挂载后立刻构建、校验并通过 IPC 传输整学期展开数据。
+    if (shouldUseRollingIndex()) {
+      const meta = readScheduleMetaInline()
+      snapshot.schedule_index = buildRollingWidgetScheduleIndex({
+        cache: allCourses,
+        baseWeekIndex: weekIndex,
+        startDate: toSafeText(meta?.start_date),
+        totalWeeks: Number(meta?.total_weeks || 25),
+        now
+      })
+    }
 
     await writeSnapshotWithRetry(snapshot)
   } catch (err: unknown) {
@@ -300,12 +329,15 @@ export async function writeElectricityToWidget(data: {
   room?: string
   acQuantity?: number
   isLow?: boolean
+  updated_at?: string
 }): Promise<void> {
+  if (!Number.isFinite(data.quantity) || data.quantity < 0) return
   try {
     await writeElectricitySnapshot(data)
   } catch (err: unknown) {
     console.warn('[widget] writeElectricityToWidget failed:', err)
     pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeElectricityToWidget' })
+    throw err
   }
 }
 
@@ -313,14 +345,16 @@ export async function writeElectricityToWidget(data: {
  * 写入考试数据到小组件
  */
 export async function writeExamToWidget(data: {
-  exams: Array<{ course_name: string; exam_date: string; exam_time: string; location: string }>
+  exams: Array<{ course_name: string; exam_date: string; exam_time: string; location: string; seat_no?: string }>
   days_left?: number
+  updated_at?: string
 }): Promise<void> {
   try {
     await writeExamSnapshot(data)
   } catch (err: unknown) {
     console.warn('[widget] writeExamToWidget failed:', err)
     pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeExamToWidget' })
+    throw err
   }
 }
 

@@ -56,6 +56,8 @@ export interface ElectricityWidgetSnapshot {
   room?: string
   acQuantity?: number
   isLow?: boolean
+  /** 数据源成功查询的时间，不能用 Widget 重绘时间冒充。 */
+  updated_at?: string
 }
 
 export interface ExamWidgetItem {
@@ -69,6 +71,8 @@ export interface ExamWidgetItem {
 export interface ExamWidgetSnapshot {
   exams: ExamWidgetItem[]
   days_left?: number
+  /** 数据源成功同步时间；倒计时由 Android 每次渲染时重新计算。 */
+  updated_at?: string
 }
 
 export type WidgetBridgeErrorCode =
