@@ -2469,6 +2469,9 @@ export const messages: Record<string, string> = {
   'notify.notice.schoolBody': '新しい学校のお知らせがあります',
   'notify.notice.chaoxingTitle': '研究通知',
   'notify.notice.chaoxingBody': '新しい学習ニュースがあります',
+  // #1106：受信箱の1ラウンド送信上限を超えた分の集約通知（{n} = 残り件数）
+  'notify.notice.inboxDigestTitle': '新しい学校のお知らせが他にもあります',
+  'notify.notice.inboxDigestBody': '他に {n} 件の新着メッセージがあります。「学校だより / 研究通知」を開いて確認してください。',
 
   // ============ 本地提醒（#610 预调度通知，发送时刻取词） =====,
   'reminder.class.title': '授業のリマインダー',

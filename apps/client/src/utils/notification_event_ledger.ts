@@ -8,7 +8,7 @@
  *
  * 设计约束：
  * 1. 不是业务数据缓存：不存完整成绩/考试/消息内容，只存非敏感 eventKey + 时间；
- * 2. 有界：最多 LEDGER_MAX_ENTRIES 条，超出丢最旧（FIFO）；
+ * 2. 有界：最多 LEDGER_MAX_ENTRIES 条（#1104 起为 500），超出丢最旧（FIFO）；
  * 3. 清理：超过 LEDGER_ENTRY_TTL_MS 的旧条目定期剔除（清账时顺带清理）；
  * 4. schema/version：LEDGER_SCHEMA_VERSION 不兼容时安全清空（降级为空账本，不 crash）；
  * 5. 账号隔离：账本 key 按 studentId 分 scope 存储，切换账号互不串数据；
@@ -27,8 +27,8 @@ import { readJSON, toSafeText, writeJSON } from './notify_center_util.js'
 /** 账本 schema 版本：不兼容布局升级时必须递增，读取时按版本安全降级。 */
 export const LEDGER_SCHEMA_VERSION = 1
 
-/** 账本容量上限（#614 要求 50~100 条，取 100）。 */
-export const LEDGER_MAX_ENTRIES = 100
+/** 账本容量上限（#1104：20 次 × 50 条突发需完整覆盖，由 100 提升到 500）。 */
+export const LEDGER_MAX_ENTRIES = 500
 
 /** 单条 entry 最长保留时间（7 天），超过后视为过期清理。 */
 export const LEDGER_ENTRY_TTL_MS = 7 * 24 * 60 * 60 * 1000

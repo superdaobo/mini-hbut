@@ -2470,6 +2470,9 @@ export const messages: Record<string, string> = {
   'notify.notice.schoolBody': 'You have a new school message',
   'notify.notice.chaoxingTitle': 'Chaoxing Alert',
   'notify.notice.chaoxingBody': 'You have a new Chaoxing message',
+  // #1106: merged digest for inbox notices beyond the per-round send cap ({n} = remaining count)
+  'notify.notice.inboxDigestTitle': 'More new school messages',
+  'notify.notice.inboxDigestBody': '{n} more new messages were not alerted one by one. Open School Messages / Chaoxing Alerts to view them.',
 
   // ============ Local reminders (#610 scheduled notifications, translated at send time) =====,
   'reminder.class.title': 'Class Reminder',
