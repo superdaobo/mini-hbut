@@ -309,11 +309,70 @@ export const powerStateKeyFor = (studentId: string, roomKey: string): string =>
   `hbu_notify_power_state:${studentId}:${roomKey}`
 export const classReminderStateKeyFor = (studentId: string): string =>
   `hbu_notify_class_state:${studentId}`
+// #1106：键名保持逐字节不变（存量快照不失效）。
+// 不引入 source 维度：来源隔离改由「渠道互斥」保证——「学校消息」渠道只承载教务
+// （portal）来源，学习通登录方式下直接跳过（见 notify_center_checks.checkSchoolInbox）。
+// 这样同一 key 内不会混入两种 id 命名空间，也不需要一次性迁移。
 export const schoolInboxStateKeyFor = (studentId: string): string =>
   `hbu_notify_school_inbox_state:${studentId}`
 // #715：学习通通知独立去重快照（与学校消息互不串扰）
 export const chaoxingInboxStateKeyFor = (studentId: string): string =>
   `hbu_notify_chaoxing_inbox_state:${studentId}`
+
+// ============================================================
+// #1106：收件箱去重快照 schema v2
+// ------------------------------------------------------------
+// - ids 只增（新 ∪ 旧，上限 2000，超出按最旧（尾部）淘汰）；
+// - initialized 只由 trusted 全量抓取写 true；读取缺失/旧快照一律按 false
+//   处理（首次同步只建基线、不推历史）；
+// - untrustedStreak：连续不可信抓取计数；达到 UNTRUSTED_DOWNGRADE_THRESHOLD
+//   时执行一次性降级（把当前并集设为基线），防止「永远不再推送」。
+// ============================================================
+export const INBOX_DEDUPE_ID_CAP = 2000
+export const UNTRUSTED_DOWNGRADE_THRESHOLD = 3
+
+export interface InboxDedupeStateV2 {
+  schema: 2
+  /** 是否已完成 trusted 全量抓取（首次同步只建基线，不推送历史消息） */
+  initialized: boolean
+  /** 已知消息 id 的单调增并集（较新的在前） */
+  ids: string[]
+  updated_at: string
+  /** #1106 护栏：连续不可信抓取次数（见 UNTRUSTED_DOWNGRADE_THRESHOLD） */
+  untrustedStreak: number
+}
+
+/** #1106：把旧版/v2 快照归一化为 schema v2；非法输入（非对象、ids 非数组）返回 null。 */
+export const normalizeInboxDedupeState = (raw: unknown): InboxDedupeStateV2 | null => {
+  if (!raw || typeof raw !== 'object') return null
+  const obj = raw as Record<string, unknown>
+  if (!Array.isArray(obj.ids)) return null
+  const streak =
+    typeof obj.untrustedStreak === 'number' &&
+    Number.isFinite(obj.untrustedStreak) &&
+    obj.untrustedStreak > 0
+      ? Math.floor(obj.untrustedStreak)
+      : 0
+  return {
+    schema: 2,
+    initialized: obj.initialized === true,
+    ids: obj.ids.map((item) => toSafeText(item)).filter(Boolean),
+    updated_at: toSafeText(obj.updated_at),
+    untrustedStreak: streak
+  }
+}
+
+/** #1106：ids 只增 —— newIds ∪ oldIds，去重保留首次出现，超 2000 上限淘汰最旧（尾部）。 */
+export const mergeInboxDedupeIds = (newIds: string[], oldIds: string[]): string[] => {
+  const seen = new Set<string>()
+  const merged: string[] = []
+  for (const id of [...newIds, ...oldIds]) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    merged.push(id)
+  }
+  return merged.slice(0, INBOX_DEDUPE_ID_CAP)
+}
 
 export const resolveLoginMode = (): string => toSafeText(localStorage.getItem('hbu_login_method'))
 

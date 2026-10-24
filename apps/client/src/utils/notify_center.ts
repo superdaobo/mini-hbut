@@ -71,6 +71,9 @@ export interface NotificationMonitorInput {
 
 export const NOTIFY_SNAPSHOT_EVENT = 'hbu-notify-snapshot-updated'
 
+/** 去重快照 id 并集上限（契约 §2：2000 条、保留最新；20 次 × 50 条突发不溢出）。 */
+const SCHOOL_INBOX_IDS_CAP = 2000
+
 /** 将学校消息 id 写入通知去重快照，避免重登或后续检查重复推送。 */
 export const markSchoolInboxNotified = (studentId: unknown, itemId: unknown): boolean => {
   const sid = toSafeText(studentId)
@@ -80,9 +83,15 @@ export const markSchoolInboxNotified = (studentId: unknown, itemId: unknown): bo
   const state = readSchoolInboxState(sid)
   if (state.ids.includes(id)) return true
 
-  const nextIds = [id, ...state.ids].slice(0, 500)
+  // #1102：已读标记只做 id 并集追加，不得改变「首次可信抓取是否已完成」
+  // （initialized）的语义。快照缺失时按 { schema: 2, initialized: false }
+  // 创建：后续第一次检查仍走基线（不推送），已读 id 留在并集里避免之后
+  // 重复通知；若这里写死 initialized: true，第一次检查会把整张未读表
+  // 当成"新消息"一次性全部弹出。
+  const nextIds = [id, ...state.ids].slice(0, SCHOOL_INBOX_IDS_CAP)
   writeJSON(schoolInboxStateKeyFor(sid), {
-    initialized: true,
+    schema: 2,
+    initialized: state.initialized,
     ids: nextIds,
     updated_at: nowIso()
   })
@@ -233,61 +242,111 @@ export const runNotificationCheck = async (
   return snapshot
 }
 
+// ============================================================
+// 后台轮询监控
+// 设计（#1104 契约 §4）：
+// - 单飞锁：同一时刻至多一次检查在途，锁由检查自身的 finally 复位；
+//   stop 不清除它——否则 stop 瞬间在途检查会失去互斥保护，之后新代际
+//   的检查可能与仍在途的旧检查并发，把同一批数据推送 N 次；
+// - 代际令牌：stop/换账号时递增，旧代际的 interval / 延迟检查回调与
+//   异步挂起步骤在恢复执行后自毁（定时器句柄本身也同步清除，双保险）；
+// - 启动串行链：并发 / 秒级重复的 start 依次排队，同账号已监控时幂等
+//   复用，换账号先销毁旧代际再重建；任何时刻至多 1 个 interval +
+//   1 个延迟检查；
+// - 超时抢占：单飞锁持有超过 MONITOR_CHECK_STALE_MS 视为挂起，允许下一次
+//   检查抢占，避免某次平台调用永不返回导致监控永久停摆。
+// ============================================================
+
+/** 单飞锁的超时抢占阈值：超过即视为泄漏（检查本身已有 15~60s 网络超时）。 */
+const MONITOR_CHECK_STALE_MS = 5 * 60 * 1000
+
 let monitorTimer: number | null = null
 let monitorLaunchTimer: number | null = null
 let monitorStudentId = ''
-let monitorChecking = false
+/** 单飞锁的持有者代际：0 表示空闲，非 0 表示该代际的一次检查仍在途。 */
+let monitorCheckingGen = 0
+/** 单飞锁的获取时刻（毫秒），用于超时抢占判定。 */
+let monitorCheckStartedAt = 0
+/** 代际令牌：stop/换账号时递增；旧代际回调与挂起步骤据此自毁。 */
+let monitorGeneration = 0
+/** 启动串行链：把并发 start 串成队列，杜绝交叠的 start 各自建定时器。 */
+let monitorStartChain: Promise<unknown> = Promise.resolve()
 let monitorResumeListener: { remove: () => Promise<void> } | null = null
 let monitorOnUpdate: ((snapshot: NotificationSnapshot) => void) | null = null
 
 const clearResumeListener = async (): Promise<void> => {
   if (!monitorResumeListener) return
+  // 先取走本地引用并置空，再等 remove：避免 await 挂起期间新一代注册
+  // 的监听器被旧代际的清理误清
+  const listener = monitorResumeListener
+  monitorResumeListener = null
   try {
-    await monitorResumeListener.remove()
+    await listener.remove()
   } catch {
     // ignore
   }
-  monitorResumeListener = null
 }
 
 const monitorCheck = async ({
   launchCheck = false,
   reason = 'interval',
-  priority = 'foreground'
+  priority = 'background'
 }: {
   launchCheck?: boolean
   reason?: string
   priority?: string
 } = {}): Promise<NotificationSnapshot | null> => {
-  if (!monitorStudentId || monitorChecking) return null
-  monitorChecking = true
+  if (!monitorStudentId) return null
+  // 单飞锁：检查在途时直接忽略，避免并发检查把同一批数据推送 N 次。
+  // 抢占兜底：某次检查因平台调用永久挂起时不至于让监控彻底停摆。
+  const running = monitorCheckingGen !== 0
+  const stale = running && Date.now() - monitorCheckStartedAt > MONITOR_CHECK_STALE_MS
+  if (running && !stale) return null
+  if (stale) {
+    pushDebugLog('Notify', '检测到超时的在飞检查，抢占单飞锁继续检查', 'warn')
+  }
+  const sid = monitorStudentId
+  const generation = monitorGeneration
+  monitorCheckingGen = generation
+  monitorCheckStartedAt = Date.now()
   try {
     const snapshot = await runNotificationCheck({
-      studentId: monitorStudentId,
+      studentId: sid,
       launchCheck,
       reason,
       priority,
       allowPermissionPrompt: false
     })
-    if (typeof monitorOnUpdate === 'function' && snapshot) {
+    // 代际校验：检查期间若发生 stop/换账号，旧代际结果不再交给新一代 UI 回调
+    if (generation === monitorGeneration && typeof monitorOnUpdate === 'function' && snapshot) {
       monitorOnUpdate(snapshot)
     }
     return snapshot
   } finally {
-    monitorChecking = false
+    // #1104：单飞锁由检查自身复位（stop 不清除）；且只释放自己持有的那把
+    if (monitorCheckingGen === generation) {
+      monitorCheckingGen = 0
+      monitorCheckStartedAt = 0
+    }
   }
 }
 
-export const startNotificationMonitor = async (
-  input: NotificationMonitorInput = {}
+/** 启动核心：只在串行链内执行，保证任意时刻至多一组定时器。 */
+const startMonitorCore = async (
+  sid: string,
+  callback: ((snapshot: NotificationSnapshot) => void) | null
 ): Promise<boolean> => {
-  const { studentId, onUpdate } = input || {}
-  const sid = toSafeText(studentId)
+  // 同账号已在监控：幂等复用现有定时器，只更新 UI 回调
+  if (monitorStudentId === sid && monitorTimer !== null) {
+    if (callback) monitorOnUpdate = callback
+    return true
+  }
+  // 换账号 / 重新启用：先完整销毁旧代际（定时器、监听器），再重建
   await stopNotificationMonitor()
-  if (!sid) return false
+  const generation = monitorGeneration
 
   monitorStudentId = sid
-  monitorOnUpdate = typeof onUpdate === 'function' ? onUpdate : null
+  monitorOnUpdate = callback
 
   const settings = getNotifySettings()
   const intervalMinutes = Math.max(
@@ -295,25 +354,34 @@ export const startNotificationMonitor = async (
     Number(settings.intervalMinutes || DEFAULT_INTERVAL_MINUTES)
   )
 
-  // 定时轮询：间隔来自通知设置页；启动检查延迟执行，避免和首页首屏请求抢占。
+  // 定时轮询：间隔来自通知设置页；回调先校验代际，旧代际定时器自毁
   monitorTimer = window.setInterval(() => {
+    if (generation !== monitorGeneration) return
     monitorCheck({ launchCheck: false, reason: 'interval', priority: 'background' }).catch(() => {})
   }, intervalMinutes * 60 * 1000)
   pushDebugLog('Notify', `通知轮询已启动 interval=${intervalMinutes}min`, 'info', { studentId: sid })
 
+  // 启动检查延迟 7s 执行，避免和首页首屏请求抢占
   monitorLaunchTimer = window.setTimeout(() => {
     monitorLaunchTimer = null
+    if (generation !== monitorGeneration) return
     monitorCheck({ launchCheck: true, reason: 'app-launch', priority: 'background' }).catch(() => {})
   }, 7000)
 
   if (isCapacitorRuntime()) {
     try {
       const mod = await import('@capacitor/app')
-      monitorResumeListener = await mod.App.addListener('appStateChange', (state: { isActive?: boolean }) => {
-        if (state?.isActive) {
+      const listener = await mod.App.addListener('appStateChange', (state: { isActive?: boolean }) => {
+        if (state?.isActive && generation === monitorGeneration) {
           monitorCheck({ launchCheck: false, reason: 'resume', priority: 'background' }).catch(() => {})
         }
       })
+      // 挂起期间若发生 stop/换账号，代际已变：立即移除，不收养旧监听器
+      if (generation === monitorGeneration) {
+        monitorResumeListener = listener
+      } else {
+        await listener.remove().catch(() => undefined)
+      }
     } catch {
       // ignore
     }
@@ -322,7 +390,27 @@ export const startNotificationMonitor = async (
   return true
 }
 
+export const startNotificationMonitor = async (
+  input: NotificationMonitorInput = {}
+): Promise<boolean> => {
+  const { studentId, onUpdate } = input || {}
+  const sid = toSafeText(studentId)
+  const callback = typeof onUpdate === 'function' ? onUpdate : null
+  if (!sid) return false
+
+  // 串行链：并发 / 秒级重复的 start 依次执行核心逻辑（幂等复用或销毁重建），
+  // 杜绝旧实现里"后到的 start 等前一个 stop 完成"造成的定时器交叠/泄漏
+  const result = monitorStartChain.then(() => startMonitorCore(sid, callback))
+  monitorStartChain = result.then(
+    () => undefined,
+    () => undefined
+  )
+  return result
+}
+
 export const stopNotificationMonitor = async (): Promise<void> => {
+  // 代际递增：旧代际的定时器回调与异步挂起步骤从此刻起全部自毁
+  monitorGeneration += 1
   if (monitorTimer) {
     window.clearInterval(monitorTimer)
     monitorTimer = null
@@ -333,7 +421,7 @@ export const stopNotificationMonitor = async (): Promise<void> => {
   }
   await clearResumeListener()
   monitorStudentId = ''
-  monitorChecking = false
+  // #1104：不清除单飞锁（monitorCheckingGen）——在途检查由检查自身的 finally 复位
   monitorOnUpdate = null
   pushDebugLog('Notify', '通知轮询已停止', 'debug')
 }

@@ -2471,6 +2471,9 @@ export const messages: Record<string, string> = {
   'notify.notice.schoolBody': '你有新的学校消息',
   'notify.notice.chaoxingTitle': '学习通通知',
   'notify.notice.chaoxingBody': '你有新的学习通消息',
+  // #1106：收件箱单轮发送上限外的合并摘要（{n} = 剩余条数）
+  'notify.notice.inboxDigestTitle': '还有新的学校消息',
+  'notify.notice.inboxDigestBody': '另有 {n} 条新消息未逐条提醒，打开「学校消息 / 学习通通知」查看。',
 
   // ============ 本地提醒（#610 预调度通知，发送时刻取词） =====,
   'reminder.class.title': '上课提醒',

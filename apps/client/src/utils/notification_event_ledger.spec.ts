@@ -121,6 +121,21 @@ describe('Ledger 存取与去重', () => {
     expect(pruned.entries[pruned.entries.length - 1].eventKey).toBe(`grades:S-${LEDGER_MAX_ENTRIES + 19}`)
   })
 
+  it('#1104：501 条突发经真实写入路径后容量为 500，最旧条目被淘汰', () => {
+    // 20 次 × 50 条 = 1000 条中的前 501 条：模拟通知洪峰连续入账
+    const base = Date.now() - 30 * 60 * 1000 // 30 分钟前开始，全部在 7 天 TTL 内
+    for (let i = 0; i <= LEDGER_MAX_ENTRIES; i += 1) {
+      recordLedgerEntry('burst', `school-message:msg-${i}`, 'school-message',
+        new Date(base + i * 1000).toISOString())
+    }
+    const state = readLedgerState('burst')
+    expect(state.entries).toHaveLength(LEDGER_MAX_ENTRIES)
+    // 最旧一条（msg-0）被 FIFO 淘汰，最新的保留
+    const keys = state.entries.map((entry) => entry.eventKey)
+    expect(keys).not.toContain('school-message:msg-0')
+    expect(keys).toContain(`school-message:msg-${LEDGER_MAX_ENTRIES}`)
+  })
+
   it('TTL 清理：超过 LEDGER_ENTRY_TTL_MS 的旧条目被剔除', () => {
     const now = new Date('2026-08-13T00:00:00.000Z')
     const stale = new Date(now.getTime() - LEDGER_ENTRY_TTL_MS - 1000).toISOString()

@@ -8,12 +8,12 @@ export interface NotificationCheckOptions {
   priority?: string
 }
 
-export function markSchoolInboxNotified(studentId: string, itemId: string | number): void
+export function markSchoolInboxNotified(studentId: string, itemId: string | number): boolean
 export function runNotificationCheck(options?: NotificationCheckOptions): Promise<unknown>
 export function startNotificationMonitor(options?: {
   studentId?: string
   onUpdate?: (snapshot: unknown) => void
-}): Promise<unknown>
+}): Promise<boolean>
 export function stopNotificationMonitor(): Promise<void>
 export function getLastNotifySnapshot(studentId: string): unknown
 export function getNotificationMonitorSettings(): unknown
