@@ -1,0 +1,45 @@
+# One-shot TestFlight dispatch for the classroom white-screen hotfix (#1099/#1100).
+# This workflow exists ONLY on the temporary ops branch and must be deleted after dispatch.
+# It never builds or uploads locally: GitHub triggers the existing audited ios-testflight.yml on main.
+name: One-shot TestFlight dispatch for classroom hotfix #1099
+
+on:
+  push:
+    branches:
+      - ops/testflight-1099-20261024
+    paths:
+      - '.github/workflows/one-shot-testflight-1099.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: github.repository == 'superdaobo/mini-hbut' && github.ref == 'refs/heads/ops/testflight-1099-20261024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Verify main exactly contains reviewed classroom hotfix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          expected="f465c6c26b8adbf828b542946dd1dac0d9182649"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::main moved from reviewed hotfix $expected to $actual; aborting upload"
+            exit 1
+          fi
+          echo "Verified main at classroom hotfix $actual"
+
+      - name: Dispatch existing signed iOS TestFlight workflow on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run ios-testflight.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field whats_new='修复进入空教室页面直接白屏的问题；恢复教学楼、周次与节次筛选及空教室查询，并新增编译级回归检查。'
+          echo 'Dispatched ios-testflight.yml against reviewed main commit.'
