@@ -407,6 +407,13 @@ export const messages: Record<string, string> = {
   'schedule.drawer.section.view': '视图显示',
   'schedule.drawer.section.style': '课程样式',
   'schedule.drawer.styleSwitchAria': '课程样式切换',
+  'schedule.conflictDisplay.title': '冲突课程显示方式',
+  'schedule.conflictDisplay.aria': '冲突课程显示方式切换',
+  'schedule.conflictDisplay.merged': '合并显示（旧版）',
+  'schedule.conflictDisplay.mergedDesc': '冲突时用一张汇总卡，点击查看全部课程',
+  'schedule.conflictDisplay.sideBySide': '并列显示（新版）',
+  'schedule.conflictDisplay.sideBySideDesc': '冲突课程并排显示，不生成汇总卡',
+  'schedule.conflictDisplay.toast': '已切换为{t}',
   'schedule.drawer.section.manage': '自定义课程管理',
   'schedule.drawer.addCourse': '添加课程',
   // #836：入口升级为统一「添加安排」；旧 key 保留，防其他引用断裂

@@ -8,7 +8,7 @@
  */
 
 import { t } from '../../utils/app_i18n'
-import type { ScheduleViewMode } from '../../config/ui_settings'
+import type { ScheduleConflictDisplayMode, ScheduleViewMode } from '../../config/ui_settings'
 
 /**
  * 一周七天标签（含序号前缀，用于日期头展示）。
@@ -48,6 +48,27 @@ export const getScheduleViewModeOptions = (): { key: ScheduleViewMode; label: st
   { key: 'all', label: t('schedule.viewMode.all') },
   { key: 'courses', label: t('schedule.viewMode.courses') },
   { key: 'events', label: t('schedule.viewMode.events') }
+]
+
+/**
+ * #1116：冲突课程显示方式（独立于课程卡片样式与视图过滤）。
+ * key 为持久化标识，label/desc 每次调用经 t() 取词。
+ */
+export const getConflictDisplayOptions = (): {
+  key: ScheduleConflictDisplayMode
+  label: string
+  desc: string
+}[] => [
+  {
+    key: 'merged',
+    label: t('schedule.conflictDisplay.merged'),
+    desc: t('schedule.conflictDisplay.mergedDesc')
+  },
+  {
+    key: 'side-by-side',
+    label: t('schedule.conflictDisplay.sideBySide'),
+    desc: t('schedule.conflictDisplay.sideBySideDesc')
+  }
 ]
 
 /** 节次时间表（第 1-11 节起止时间） */

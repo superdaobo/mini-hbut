@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
  * 课表页面入口（编排层）。
  * 原巨型单文件（约 4900 行）已按职责拆分至 src/features/schedule/**：
@@ -72,7 +72,13 @@ const semesterApi = useScheduleSemester({
   isAnyOverlayOpen: () => anyOverlayOpen.value,
 })
 const data = useScheduleData(props, emit, { semester: semesterApi })
-const grid = useScheduleGrid({ data, semester: semesterApi, menu })
+const grid = useScheduleGrid({
+  data,
+  semester: semesterApi,
+  menu,
+  // #1116：冲突显示偏好变化时，computed 依赖该 getter 即时重算
+  conflictDisplay: () => menu.scheduleConflictDisplayMode.value,
+})
 const detail = useScheduleDetail({ data, semester: semesterApi })
 const editor = useScheduleEditor({ props, data, semester: semesterApi, detail, menu, confirmDialog })
 // #833 Wave2：当前周个人日程数据层（按 weekDates 区间拉取；含切周竞态令牌与失败降级）
@@ -188,12 +194,15 @@ const {
   showMenu,
   scheduleCourseCardStyle,
   scheduleViewMode,
+  scheduleConflictDisplayMode,
   courseCardRefreshNonce,
   styleOptions,
   viewModeOptions,
+  conflictDisplayOptions,
   toggleMenu,
   setScheduleCourseCardStyle,
   setScheduleViewMode,
+  setScheduleConflictDisplayMode,
 } = menu
 // 数据
 const {
@@ -681,8 +690,10 @@ onBeforeUnmount(() => {
       :semester-error="semesterError"
       :schedule-course-card-style="scheduleCourseCardStyle"
       :schedule-view-mode="scheduleViewMode"
+      :schedule-conflict-display-mode="scheduleConflictDisplayMode"
       :view-mode-options="viewModeOptions"
       :style-options="styleOptions"
+      :conflict-display-options="conflictDisplayOptions"
       :adding-course="addingCourse"
       :loading-manage-courses="loadingManageCourses"
       :sync-uploading="syncUploading"
@@ -703,6 +714,7 @@ onBeforeUnmount(() => {
       @semester-change="handleSemesterChange"
       @set-view-mode="setScheduleViewMode"
       @set-style="setScheduleCourseCardStyle"
+      @set-conflict-display="setScheduleConflictDisplayMode"
       @open-add-arrangement="openAddArrangement"
       @open-manage-courses="editor.openManageCoursesDialog"
       @open-ai-import="importApi.openImportDialog"

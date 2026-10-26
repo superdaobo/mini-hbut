@@ -16,8 +16,11 @@ const props = defineProps({
   semesterError: { type: String, default: '' },
   scheduleCourseCardStyle: { type: String, default: 'modern' },
   scheduleViewMode: { type: String, default: 'all' },
+  // #1116：冲突显示方式（merged / side-by-side），与课程卡片外观独立
+  scheduleConflictDisplayMode: { type: String, default: 'merged' },
   viewModeOptions: { type: Array, default: () => [] },
   styleOptions: { type: Array, default: () => [] },
+  conflictDisplayOptions: { type: Array, default: () => [] },
   addingCourse: { type: Boolean, default: false },
   loadingManageCourses: { type: Boolean, default: false },
   syncUploading: { type: Boolean, default: false },
@@ -40,6 +43,7 @@ const emit = defineEmits([
   'semester-change',
   'set-view-mode',
   'set-style',
+  'set-conflict-display',
   'open-add-arrangement',
   'open-manage-courses',
   'open-ai-import',
@@ -121,6 +125,29 @@ const { t } = useI18n()
             @click.stop="emit('set-style', item.key)"
           >
             <strong>{{ item.label }}</strong>
+          </button>
+        </div>
+      </div>
+
+      <!-- #1116：冲突显示方式是独立偏好，不与课程卡片样式/内容过滤混在一起 -->
+      <div class="drawer-section">
+        <div class="drawer-subtitle">{{ t('schedule.conflictDisplay.title') }}</div>
+        <div
+          class="drawer-conflict-switch"
+          role="group"
+          :aria-label="t('schedule.conflictDisplay.aria')"
+        >
+          <button
+            v-for="item in conflictDisplayOptions"
+            :key="item.key"
+            type="button"
+            class="drawer-conflict-chip"
+            :class="{ active: scheduleConflictDisplayMode === item.key }"
+            :aria-pressed="scheduleConflictDisplayMode === item.key"
+            @click.stop="emit('set-conflict-display', item.key)"
+          >
+            <strong>{{ item.label }}</strong>
+            <span class="drawer-conflict-desc">{{ item.desc }}</span>
           </button>
         </div>
       </div>
@@ -400,6 +427,69 @@ const { t } = useI18n()
   background: var(--ui-primary, #2563eb);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
   font-weight: 600;
+}
+
+/* #1116：冲突显示方式（独立分组，两行说明，触摸目标 ≥44px） */
+.drawer-conflict-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawer-conflict-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(248, 250, 252, 0.9);
+  color: #475569;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.drawer-conflict-chip strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.drawer-conflict-desc {
+  font-size: 11px;
+  line-height: 1.35;
+  color: #64748b;
+}
+
+.drawer-conflict-chip.active {
+  border-color: var(--ui-primary, #2563eb);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, #ffffff 90%);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 18%, transparent 82%);
+}
+
+.drawer-conflict-chip.active strong {
+  color: var(--ui-primary, #2563eb);
+}
+
+:global(html.dark) .drawer-conflict-chip {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.72);
+  color: #cbd5e1;
+}
+
+:global(html.dark) .drawer-conflict-desc {
+  color: #94a3b8;
+}
+
+:global(html.dark) .drawer-conflict-chip.active {
+  border-color: var(--ui-primary, #3b82f6);
+  background: color-mix(in srgb, var(--ui-primary, #3b82f6) 18%, #0f172a 82%);
+}
+
+:global(html.dark) .drawer-conflict-chip.active strong {
+  color: #dbeafe;
 }
 
 :global(html.dark) .drawer-view-switch {

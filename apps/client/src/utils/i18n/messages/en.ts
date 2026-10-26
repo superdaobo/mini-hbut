@@ -406,6 +406,13 @@ export const messages: Record<string, string> = {
   'schedule.drawer.section.view': 'View display',
   'schedule.drawer.section.style': 'Course style',
   'schedule.drawer.styleSwitchAria': 'Course style switch',
+  'schedule.conflictDisplay.title': 'Conflict display',
+  'schedule.conflictDisplay.aria': 'Conflict display switch',
+  'schedule.conflictDisplay.merged': 'Merged (legacy)',
+  'schedule.conflictDisplay.mergedDesc': 'Show one summary card; tap to view all courses',
+  'schedule.conflictDisplay.sideBySide': 'Side by side (new)',
+  'schedule.conflictDisplay.sideBySideDesc': 'Show real conflicting courses side by side',
+  'schedule.conflictDisplay.toast': 'Switched to {t}',
   'schedule.drawer.section.manage': 'Custom courses',
   'schedule.drawer.addCourse': 'Add course',
   // #836: drawer entry upgraded to the unified "Add arrangement"; the old key is kept
