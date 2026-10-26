@@ -19,6 +19,7 @@ import { formatMinuteToClock } from '../utils/formatters'
 import { buildScheduleTimeGeometry, getGridTotalHeight } from '../utils/timeGeometry'
 import { courseToTimelineItem, eventToTimelineItem } from '../utils/timelineAdapters'
 import { gridYToMinute, layoutTimelineItems, splitOutOfRangeEvents } from '../utils/timelineLayout'
+import { buildOverflowConflictCourse } from '../utils/layout'
 import {
   buildBlankTimeSelection,
   courseBlockToGridRect,
@@ -96,8 +97,11 @@ const courseKeyOf = (course) => String(course?._uid ?? course?.id ?? course?.sou
 
 /** 单节课没有容纳三行名称和全部辅助信息的高度，优先保证教室可读。 */
 const isSinglePeriodCourse = (course) => {
-  const start = Number(course?.period) || 1
-  const span = Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course?.djs) || 1))
+  const start = Number(course?._displayStart ?? course?.period) || 1
+  const span = Math.max(
+    1,
+    Math.min(MAX_PERIOD - start + 1, Number(course?._displaySpan ?? course?.djs) || 1)
+  )
   return span === 1
 }
 
@@ -311,6 +315,27 @@ const openCourseDetail = (course) => {
   emit('open-detail', course)
 }
 
+/**
+ * #1115：lane 超过可读上限时，隐藏项可能包含真实课程。
+ * - 隐藏项含课程：打开一张合成「课程冲突」详情，列出全部被隐藏课程（仍可逐门查看）；
+ * - 纯日程：沿用 #837 的「打开第一条日程」行为。
+ */
+const openOverflowGroup = (group) => {
+  const items = Array.isArray(group?.items) ? group.items : []
+  const hiddenCourseCount = items.filter((item) => item?.kind === 'course' && item.raw).length
+  const synthetic = buildOverflowConflictCourse(
+    group,
+    t('schedule.grid.conflictOverflowTitle').replace('{n}', String(hiddenCourseCount)),
+    t('schedule.grid.conflictHint'),
+    Number(props.selectedWeek) || 0
+  )
+  if (synthetic) {
+    openCourseDetail(synthetic)
+    return
+  }
+  openFirstEvent(items)
+}
+
 const openEventDetail = (raw) => {
   clearBlankSelection()
   emit('open-event-detail', raw)
@@ -430,7 +455,7 @@ const openEventDetail = (raw) => {
                 type="button"
                 class="event-overflow-chip"
                 :style="{ top: `${group.topPercent}%` }"
-                @click.stop="openFirstEvent(group.items)"
+                @click.stop="openOverflowGroup(group)"
               >{{ `+${group.hiddenCount}` }}</button>
 
               <!-- 晚于最后一节的日程：汇总为列底入口 -->

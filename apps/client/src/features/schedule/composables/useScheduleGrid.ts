@@ -4,6 +4,7 @@
  */
 import { computed, ref } from 'vue'
 import { buildWeekCoursesWithColors, getCourseStyle } from '../utils/layout'
+import type { ScheduleConflictDisplayMode } from '../utils/layout'
 import type { ScheduleData } from './useScheduleData'
 import type { ScheduleMenu } from './useScheduleMenu'
 import type { ScheduleSemester } from './useScheduleSemester'
@@ -12,6 +13,8 @@ export interface ScheduleGridOptions {
   data: ScheduleData
   semester: ScheduleSemester
   menu: ScheduleMenu
+  /** #1115：冲突显示方式 getter；默认 merged（C2 接入用户偏好后传入） */
+  conflictDisplay?: () => ScheduleConflictDisplayMode | string
 }
 
 export const useScheduleGrid = (options: ScheduleGridOptions) => {
@@ -21,12 +24,16 @@ export const useScheduleGrid = (options: ScheduleGridOptions) => {
   const widgetHighlightPeriod = ref(0)
   const widgetHighlightDay = ref(0)
 
-  /** 当前周整周课程（含合并与冲突块，已分配配色） */
+  /** 当前周整周课程（合并 + 冲突呈现方式，已分配配色） */
   const weekCoursesWithColor = computed(() => {
     const fallbackSemester = String(semester.semester.value || semester.semesterDraft.value || '').trim()
+    const conflictDisplay = options.conflictDisplay?.() === 'side-by-side'
+      ? 'side-by-side'
+      : 'merged'
     return buildWeekCoursesWithColors(Number(semester.selectedWeek.value || 1), {
       scheduleData: data.scheduleData.value,
-      fallbackSemester
+      fallbackSemester,
+      conflictDisplay
     })
   })
 
@@ -36,12 +43,12 @@ export const useScheduleGrid = (options: ScheduleGridOptions) => {
     return weekCoursesWithColor.value[day] || []
   }
 
-  /** 课程卡片是否应被 Widget 深链接高亮（同一天 + period 范围包含目标节次） */
+  /** 课程卡片是否应被 Widget 深链接高亮（同一天 + 显示区间包含目标节次） */
   const isWidgetHighlighted = (course: any, day: any): boolean => {
     if (!widgetHighlightPeriod.value || !widgetHighlightDay.value) return false
     if (Number(day) !== widgetHighlightDay.value) return false
-    const start = Number(course?.period) || 1
-    const span = Math.max(1, Number(course?.djs) || 1)
+    const start = Number(course?._displayStart ?? course?.period) || 1
+    const span = Math.max(1, Number(course?._displaySpan ?? course?.djs) || 1)
     const end = start + span - 1
     return widgetHighlightPeriod.value >= start && widgetHighlightPeriod.value <= end
   }

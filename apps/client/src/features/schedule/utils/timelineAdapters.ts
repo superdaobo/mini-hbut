@@ -68,9 +68,11 @@ export function courseToTimelineItem(
   const day = normalizeDayIndex(dayIndex) ?? normalizeDayIndex(course.weekday)
   if (day === null) return null
 
+  // #1115：合并显示模式下课程可能只保留冲突区间之外的显示切片；
+  // lane/真实时间换算必须使用显示区间，详情仍由 raw 保留完整 period/djs。
   const interval = getCourseRealInterval(
-    Number(course.period),
-    Number(course.djs),
+    Number(course._displayStart ?? course.period),
+    Number(course._displaySpan ?? course.djs),
     timeSchedule
   )
   if (interval === null) return null
