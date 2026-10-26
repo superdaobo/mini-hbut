@@ -1279,6 +1279,8 @@ export const messages: Record<string, string> = {
   'grade.dist.stat.median': '中位数',
   'grade.dist.stat.min': '最低分',
   'grade.dist.stat.samples': '样本数',
+  // #1110：给分记录独立页标题
+  'grade.dist.title': '给分记录',
   'grade.empty': '没有找到符合条件的成绩',
   'grade.estimated': '估算',
   'grade.filter.all': '全部',
@@ -1426,6 +1428,9 @@ export const messages: Record<string, string> = {
   'home.module.exams.desc': '查询考试时间地点',
   'home.module.grades': '成绩查询',
   'home.module.grades.desc': '查看所有学期成绩',
+  // #1110：给分记录独立首页模块
+  'home.module.grade_distribution': '给分记录',
+  'home.module.grade_distribution.desc': '查看课程给分分布与样本统计',
   'home.module.library': '图书查询',
   'home.module.library.desc': '馆藏检索与定位',
   'home.module.library_reserve': '图书馆预约',

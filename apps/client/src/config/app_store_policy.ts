@@ -279,6 +279,8 @@ export const APP_STORE_ALLOWED_CORE_IDS: ReadonlySet<string> = Object.freeze(
     'home',
     'schedule',
     'grades',
+    // #1110：给分记录独立模块，与 grades 同级只读查询（不在黑名单）
+    'grade_distribution',
     'exams',
     'classroom',
     'academic',
