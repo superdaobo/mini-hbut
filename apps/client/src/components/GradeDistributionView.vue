@@ -64,7 +64,7 @@ const loadData = async () => {
     total.value = result.total
   } catch (e) {
     if (seq !== requestSeq) return
-    error.value = `${t('grade.dist.errorPrefix')}${e.message}`
+    error.value = `${t('grade.dist.errorPrefix')}${e?.message || String(e)}`
     items.value = []
     total.value = 0
   } finally {
@@ -103,8 +103,10 @@ const onSearchInput = () => {
   searchTimer = setTimeout(() => {
     searchTimer = null
     if (hasQuery.value) {
+      // 页码从 >1 回到 1 时由 watch(page) 统一加载，避免本处与 watcher 重复请求
+      const pageChanged = page.value !== 1
       page.value = 1
-      loadData()
+      if (!pageChanged) loadData()
     } else {
       // 清空文本 / 空输入：作废在途请求并重置列表 / 错误 / 详情，
       // 不触发全库查询
