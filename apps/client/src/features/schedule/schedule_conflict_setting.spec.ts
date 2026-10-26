@@ -52,13 +52,17 @@ describe('#1116 选项与菜单 setter', () => {
 
 describe('#1116 抽屉与 ScheduleView 接线', () => {
   const drawer = read('./components/ScheduleDrawer.vue')
-  it('抽屉有独立分组、aria-pressed、说明与事件', () => {
+  it('抽屉有独立分组、左右分段、aria-pressed、单行说明与事件', () => {
     expect(drawer).toContain('scheduleConflictDisplayMode')
     expect(drawer).toContain('conflictDisplayOptions')
     expect(drawer).toContain("'set-conflict-display'")
     expect(drawer).toContain("t('schedule.conflictDisplay.title')")
     expect(drawer).toContain(':aria-pressed="scheduleConflictDisplayMode === item.key"')
     expect(drawer).toContain('drawer-conflict-chip')
+    // 左右分段 + 选中项下方单行说明；说明不再塞进每个按钮
+    expect(drawer).toContain('drawer-conflict-hint')
+    expect(drawer).toContain('activeConflictDesc')
+    expect(drawer).not.toContain('drawer-conflict-desc')
   })
 
   const view = read('../../components/ScheduleView.vue')
