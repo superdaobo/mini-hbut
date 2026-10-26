@@ -20,6 +20,8 @@ const createAsyncPage = (loader: Loader): Component =>
 
 const loadDashboardView: Loader = () => import('../components/Dashboard.vue')
 const loadGradeView: Loader = () => import('../components/GradeView.vue')
+// #1110：给分记录独立首页模块（复用 GradeDistributionView，独立页面壳）
+const loadGradeDistributionPageView: Loader = () => import('../components/GradeDistributionPage.vue')
 const loadElectricityView: Loader = () => import('../components/ElectricityView.vue')
 const loadClassroomView: Loader = () => import('../components/ClassroomView.vue')
 const loadScheduleView: Loader = () => import('../components/ScheduleView.vue')
@@ -87,6 +89,8 @@ const loadTeacherWorkflowView: Loader = () => import('../features/teacher/views/
 export const VIEW_COMPONENTS: Record<string, Component> = {
   home: createAsyncPage(loadDashboardView),
   grades: createAsyncPage(loadGradeView),
+  // #1110：给分记录独立页面（首页模块 → view）
+  grade_distribution: createAsyncPage(loadGradeDistributionPageView),
   electricity: createAsyncPage(loadElectricityView),
   classroom: createAsyncPage(loadClassroomView),
   schedule: createAsyncPage(loadScheduleView),
@@ -163,6 +167,8 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   game_center: loadGameCenterView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
   grades: loadGradeView,
+  // #1110：给分记录独立页面（prefetch）
+  grade_distribution: loadGradeDistributionPageView,
   electricity: loadElectricityView,
   transactions: loadTransactionHistoryView,
   campus_code: loadCampusCodeView,

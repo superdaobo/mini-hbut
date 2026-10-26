@@ -42,6 +42,8 @@ const homeWidgetMeta = {
 
 const homeModuleMeta = {
   grades: '成绩查询',
+  // #1110：给分记录独立模块（该映射为硬编码中文，保持一致）
+  grade_distribution: '给分记录',
   classroom: '空教室',
   electricity: '电费查询',
   transactions: '交易记录',
