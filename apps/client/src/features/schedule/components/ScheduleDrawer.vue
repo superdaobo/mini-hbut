@@ -61,6 +61,12 @@ const semesterDraftModel = computed({
   set: (value) => emit('update:semesterDraft', value),
 })
 
+// #1116：切换器下方只展示当前选中项的说明，避免两段说明挤在按钮里
+const activeConflictDesc = computed(() => {
+  const options = Array.isArray(props.conflictDisplayOptions) ? props.conflictDisplayOptions : []
+  return options.find((item) => item?.key === props.scheduleConflictDisplayMode)?.desc || ''
+})
+
 // 响应式 t：语言切换后抽屉文案即时生效
 const { t } = useI18n()
 </script>
@@ -129,7 +135,7 @@ const { t } = useI18n()
         </div>
       </div>
 
-      <!-- #1116：冲突显示方式是独立偏好，不与课程卡片样式/内容过滤混在一起 -->
+      <!-- #1116：冲突显示方式是独立偏好，采用与「视图/样式」一致的左右分段切换 -->
       <div class="drawer-section">
         <div class="drawer-subtitle">{{ t('schedule.conflictDisplay.title') }}</div>
         <div
@@ -147,9 +153,9 @@ const { t } = useI18n()
             @click.stop="emit('set-conflict-display', item.key)"
           >
             <strong>{{ item.label }}</strong>
-            <span class="drawer-conflict-desc">{{ item.desc }}</span>
           </button>
         </div>
+        <p v-if="activeConflictDesc" class="drawer-conflict-hint">{{ activeConflictDesc }}</p>
       </div>
 
       <div class="drawer-actions">
@@ -429,27 +435,36 @@ const { t } = useI18n()
   font-weight: 600;
 }
 
-/* #1116：冲突显示方式（独立分组，两行说明，触摸目标 ≥44px） */
+/* #1116：冲突显示方式采用与「视图/样式」一致的左右分段切换；
+   选中态主色实底，说明改为切换器下方单行提示，避免两张高卡抢视觉重点。 */
 .drawer-conflict-switch {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  gap: 0;
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid #f0f0f0;
+  background: #f9fafb;
 }
 
 .drawer-conflict-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  min-height: 44px;
-  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(248, 250, 252, 0.9);
-  color: #475569;
-  text-align: left;
+  min-height: 44px;
+  padding: 6px 10px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  white-space: normal;
+  line-height: 1.25;
+  font-size: 13px;
+  font-weight: 500;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 
 .drawer-conflict-chip strong {
@@ -457,39 +472,37 @@ const { t } = useI18n()
   font-weight: 600;
 }
 
-.drawer-conflict-desc {
+.drawer-conflict-chip.active {
+  color: #ffffff;
+  background: var(--ui-primary, #2563eb);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
+  font-weight: 600;
+}
+
+.drawer-conflict-hint {
+  margin: 8px 2px 0;
   font-size: 11px;
-  line-height: 1.35;
+  line-height: 1.45;
   color: #64748b;
 }
 
-.drawer-conflict-chip.active {
-  border-color: var(--ui-primary, #2563eb);
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, #ffffff 90%);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 18%, transparent 82%);
-}
-
-.drawer-conflict-chip.active strong {
-  color: var(--ui-primary, #2563eb);
+:global(html.dark) .drawer-conflict-switch {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.72);
 }
 
 :global(html.dark) .drawer-conflict-chip {
-  border-color: rgba(148, 163, 184, 0.24);
-  background: rgba(15, 23, 42, 0.72);
-  color: #cbd5e1;
-}
-
-:global(html.dark) .drawer-conflict-desc {
   color: #94a3b8;
 }
 
 :global(html.dark) .drawer-conflict-chip.active {
-  border-color: var(--ui-primary, #3b82f6);
-  background: color-mix(in srgb, var(--ui-primary, #3b82f6) 18%, #0f172a 82%);
+  color: #ffffff;
+  background: var(--ui-primary, #3b82f6);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #3b82f6) 38%, transparent 62%);
 }
 
-:global(html.dark) .drawer-conflict-chip.active strong {
-  color: #dbeafe;
+:global(html.dark) .drawer-conflict-hint {
+  color: #94a3b8;
 }
 
 :global(html.dark) .drawer-view-switch {
