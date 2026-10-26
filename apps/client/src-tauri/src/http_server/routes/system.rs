@@ -523,7 +523,7 @@ async fn campus_code_config(
         .query_campus_code_config(req.payload)
         .await
         .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        .map_err(|e| err(StatusCode::BAD_REQUEST, e.kind(), e.to_string()))
 }
 
 // ────────────────────────────────────────────────────────────
@@ -537,7 +537,7 @@ async fn campus_code_qrcode(
         .query_campus_code_qrcode(req.payload)
         .await
         .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        .map_err(|e| err(StatusCode::BAD_REQUEST, e.kind(), e.to_string()))
 }
 
 // ────────────────────────────────────────────────────────────
@@ -551,7 +551,7 @@ async fn campus_code_order_status(
         .query_campus_code_order_status(req.payload)
         .await
         .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        .map_err(|e| err(StatusCode::BAD_REQUEST, e.kind(), e.to_string()))
 }
 
 // GENERATED DOMAIN ROUTERS — 路由协议由原始 method+path 清单生成。

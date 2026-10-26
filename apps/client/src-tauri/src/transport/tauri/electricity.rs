@@ -4,6 +4,7 @@ use tauri::State;
 
 use crate::app_state::AppState;
 use crate::db;
+use crate::http_client::CampusCodeCommandError;
 use crate::transport::tauri::common::{attach_sync_time, persist_electricity_tokens};
 use crate::DB_FILENAME;
 
@@ -134,12 +135,12 @@ pub(crate) async fn fetch_transaction_history(
 pub(crate) async fn campus_code_fetch_config(
     state: State<'_, AppState>,
     payload: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CampusCodeCommandError> {
     let mut client = state.client.write().await;
     let result = client
         .query_campus_code_config(payload)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(CampusCodeCommandError::from)?;
     persist_electricity_tokens(&client);
     Ok(result)
 }
@@ -148,12 +149,12 @@ pub(crate) async fn campus_code_fetch_config(
 pub(crate) async fn campus_code_fetch_qrcode(
     state: State<'_, AppState>,
     payload: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CampusCodeCommandError> {
     let mut client = state.client.write().await;
     let result = client
         .query_campus_code_qrcode(payload)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(CampusCodeCommandError::from)?;
     persist_electricity_tokens(&client);
     Ok(result)
 }
@@ -162,12 +163,12 @@ pub(crate) async fn campus_code_fetch_qrcode(
 pub(crate) async fn campus_code_fetch_order_status(
     state: State<'_, AppState>,
     payload: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CampusCodeCommandError> {
     let mut client = state.client.write().await;
     let result = client
         .query_campus_code_order_status(payload)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(CampusCodeCommandError::from)?;
     persist_electricity_tokens(&client);
     Ok(result)
 }

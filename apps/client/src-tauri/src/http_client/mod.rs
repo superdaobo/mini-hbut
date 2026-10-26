@@ -88,6 +88,9 @@ pub(super) type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
+
+// 校园码命令结构化错误（#1113）：重导出供 transport::tauri::electricity 使用
+pub(crate) use electricity::CampusCodeCommandError;
 /// 教务 CAS service：**必须**用 `/admin/caslogin`，不能用 `/admin/?loginType=1`。
 ///
 /// 依据 #984 实测（`data/issue-984-link-map.md` 路径 A/C 对照实验）：
