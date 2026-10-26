@@ -251,11 +251,11 @@ const applyQrFailure = () => {
 
 const startChain = () => {
   stopChain()
-  // 在线 = 周期自动刷新（refreshSecond）；离线（高能）= 一次性语义（周期为 null）
-  const intervalMs = isOfflineMode.value ? null : refreshSecond.value * 1000
+  // 在线 = 周期自动刷新（refreshSecond）；离线（高能）= 一次性语义（周期为 null）。
+  // 用 getter 而不是启动时快照，config 晚到/刷新周期变化后也能采用最新值。
   chainRef = createCampusCodeRefreshChain({
     request: runQrRequest,
-    getIntervalMs: () => intervalMs,
+    getIntervalMs: () => (isOfflineMode.value ? null : refreshSecond.value * 1000),
     onState: applyChainState,
     onSuccess: applyQrPayload,
     onFailure: applyQrFailure
