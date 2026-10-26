@@ -1284,6 +1284,8 @@ export const messages: Record<string, string> = {
   'grade.dist.stat.median': '中央値',
   'grade.dist.stat.min': '最低スコア',
   'grade.dist.stat.samples': 'サンプル数',
+  // #1110：給分記録独立ページタイトル
+  'grade.dist.title': '得点記録',
   'grade.empty': '一致する結果が見つかりませんでした',
   'grade.estimated': '見積もり',
   'grade.filter.all': '全て',
@@ -1431,6 +1433,9 @@ export const messages: Record<string, string> = {
   'home.module.exams.desc': '試験時間と場所を確認する',
   'home.module.grades': 'スコア照会',
   'home.module.grades.desc': 'すべての学期の成績を表示',
+  // #1110：給点記録独立ホームモジュール
+  'home.module.grade_distribution': '得点記録',
+  'home.module.grade_distribution.desc': '授業の得点分布とサンプル統計を表示',
   'home.module.library': '本の検索',
   'home.module.library.desc': 'コレクションの検索と場所',
   'home.module.library_reserve': '図書館予約',

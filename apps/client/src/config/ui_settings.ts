@@ -10,6 +10,8 @@ export type ScheduleViewMode = 'all' | 'courses' | 'events'
 export type HomeWidgetKey = 'module_grid' | 'today_panel'
 export type HomeModuleKey =
   | 'grades'
+  // #1110：给分记录独立首页模块，默认紧跟「成绩查询」
+  | 'grade_distribution'
   | 'classroom'
   | 'electricity'
   | 'transactions'
@@ -88,6 +90,8 @@ export interface UiSettingsProfile {
 export const HOME_WIDGET_ORDER_DEFAULT = ['module_grid', 'today_panel'] as const satisfies readonly HomeWidgetKey[]
 export const HOME_MODULE_ORDER_DEFAULT = [
   'grades',
+  // #1110：给分记录独立首页模块，新装默认紧跟「成绩查询」
+  'grade_distribution',
   'classroom',
   'electricity',
   'transactions',

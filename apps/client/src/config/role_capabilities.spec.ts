@@ -14,6 +14,8 @@ import {
 /** 首页真实模块清单（与 Dashboard.vue 的 baseModules id 对齐）。 */
 const ALL_MODULE_IDS = [
   'grades',
+  // #1110：给分记录独立首页模块（学生专属）
+  'grade_distribution',
   'classroom',
   'electricity',
   'transactions',
@@ -55,6 +57,7 @@ describe('role_capabilities（身份能力表）', () => {
   it('教师身份隐藏全部学生专属功能（成绩 / 考试 / 学习通等）', () => {
     const studentOnly = [
       'grades',
+      'grade_distribution',
       'exams',
       'ranking',
       'academic',

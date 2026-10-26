@@ -133,6 +133,8 @@ const {
 const {
   home: Dashboard,
   grades: GradeView,
+  // #1110：给分记录独立页面（首页模块入口）
+  grade_distribution: GradeDistributionPage,
   electricity: ElectricityView,
   classroom: ClassroomView,
   schedule: ScheduleView,
@@ -401,6 +403,12 @@ const {
         @back="handleBackToDashboard"
         @logout="handleLogout"
         @refresh="handleRefreshGrades"
+      />
+
+      <!-- 给分记录独立页（#1110）：复用 GradeDistributionView，不依赖成绩查询的刷新/滚动状态 -->
+      <GradeDistributionPage
+        v-else-if="currentView === 'grade_distribution'"
+        @back="handleBackToDashboard"
       />
 
       <!-- 电费查询 -->

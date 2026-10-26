@@ -40,6 +40,8 @@ export interface QuickEntryMeta {
 /** 首页模块清单（顺序即默认展示顺序；`role_capabilities.spec.ts` 的 ALL_MODULE_IDS 与此对齐）。 */
 export const BASE_MODULES: DashboardModule[] = [
   { id: 'grades', name: 'home.module.grades', iconKey: 'grades', color: '#667eea', desc: 'home.module.grades.desc', available: true, requiresLogin: true },
+  // #1110：给分记录独立首页模块，紧跟「成绩查询」，与成绩 Tab 内旧入口共用 GradeDistributionView
+  { id: 'grade_distribution', name: 'home.module.grade_distribution', iconKey: 'grade_distribution', color: '#3b82f6', desc: 'home.module.grade_distribution.desc', available: true, requiresLogin: true },
   { id: 'classroom', name: 'home.module.classroom', iconKey: 'classroom', color: '#ed8936', desc: 'home.module.classroom.desc', available: true, requiresLogin: true },
   { id: 'electricity', name: 'home.module.electricity', iconKey: 'electricity', color: '#e53e3e', desc: 'home.module.electricity.desc', available: true, requiresLogin: true },
   { id: 'transactions', name: 'home.module.transactions', iconKey: 'transactions', color: '#F56C6C', desc: 'home.module.transactions.desc', available: true, requiresLogin: true },
@@ -76,6 +78,8 @@ export const MODULE_CATEGORY_DEFS: ModuleCategoryDef[] = [
     title: 'home.cat.academic',
     ids: [
       'grades',
+      // #1110：给分记录归入「教务服务」，紧跟「成绩查询」
+      'grade_distribution',
       'exams',
       'ranking',
       'academic',
@@ -120,6 +124,8 @@ export const buildModuleCategories = <T extends { id?: string }>(
 /** 快捷入口的图标/颜色映射（含 schedule）；name 仅存 i18n key，渲染时取词。 */
 export const QUICK_ENTRY_META: Record<string, QuickEntryMeta> = {
   grades: { name: 'home.module.grades', icon: 'fa-award', color: 'bg-blue-50', iconColor: 'text-blue-500' },
+  // #1110：给分记录独立模块（快捷入口可选）
+  grade_distribution: { name: 'home.module.grade_distribution', icon: 'fa-chart-simple', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
   schedule: { name: 'home.module.schedule', icon: 'fa-calendar-check', color: 'bg-orange-50', iconColor: 'text-orange-500' },
   classroom: { name: 'home.module.classroom', icon: 'fa-door-open', color: 'bg-green-50', iconColor: 'text-green-500' },
   electricity: { name: 'home.module.electricity', icon: 'fa-bolt', color: 'bg-red-50', iconColor: 'text-red-500' },
@@ -150,6 +156,7 @@ export const QUICK_ENTRY_META: Record<string, QuickEntryMeta> = {
 /** 「所有功能」宫格图标底色（键为模块 id）。 */
 export const FEATURE_ICON_COLORS: Record<string, string> = {
   grades: 'bg-blue-500', classroom: 'bg-orange-400', exams: 'bg-teal-500',
+  grade_distribution: 'bg-indigo-500',
   ranking: 'bg-yellow-500', calendar: 'bg-blue-500', school_inbox: 'bg-indigo-500', academic: 'bg-green-500',
   qxzkb: 'bg-indigo-500', course_selection: 'bg-orange-500', training: 'bg-sky-400', teaching_eval: 'bg-purple-500',
   campus_code: 'bg-teal-600', electricity: 'bg-red-500', transactions: 'bg-pink-500',
@@ -164,6 +171,7 @@ export const FEATURE_ICON_COLORS: Record<string, string> = {
 /** 「所有功能」宫格 FontAwesome 图标（键为模块 id）。 */
 export const FEATURE_ICONS: Record<string, string> = {
   grades: 'fa-graduation-cap', classroom: 'fa-door-open', exams: 'fa-calendar-check',
+  grade_distribution: 'fa-chart-simple',
   ranking: 'fa-chart-bar', calendar: 'fa-calendar-alt', school_inbox: 'fa-envelope', academic: 'fa-chart-line',
   qxzkb: 'fa-table', course_selection: 'fa-tasks', training: 'fa-sitemap', teaching_eval: 'fa-star',
   campus_code: 'fa-qrcode', electricity: 'fa-bolt', transactions: 'fa-wallet',

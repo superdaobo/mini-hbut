@@ -1285,6 +1285,8 @@ export const messages: Record<string, string> = {
   'grade.dist.stat.median': 'Median',
   'grade.dist.stat.min': 'Min',
   'grade.dist.stat.samples': 'Samples',
+  // #1110: standalone grade distribution page title
+  'grade.dist.title': 'Grade Records',
   'grade.empty': 'No grades match the filters',
   'grade.estimated': 'Est.',
   'grade.filter.all': 'All',
@@ -1432,6 +1434,9 @@ export const messages: Record<string, string> = {
   'home.module.exams.desc': 'Exam dates and venues',
   'home.module.grades': 'Grades',
   'home.module.grades.desc': 'View grades for all semesters',
+  // #1110: standalone grade distribution home module
+  'home.module.grade_distribution': 'Grade Records',
+  'home.module.grade_distribution.desc': 'View course score distribution and sample statistics',
   'home.module.library': 'Library Search',
   'home.module.library.desc': 'Search and locate library holdings',
   'home.module.library_reserve': 'Library Booking',
