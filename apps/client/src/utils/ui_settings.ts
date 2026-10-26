@@ -24,6 +24,8 @@ const ICON_STYLES = ['duotone', 'line', 'mono']
 const DECOR_STYLES = ['mesh', 'grain', 'none']
 const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional', 'class']
 const SCHEDULE_VIEW_MODES = ['all', 'courses', 'events']
+// #1116：冲突显示方式只接受两个稳定值，缺失/旧配置/非法值一律回退 merged
+const SCHEDULE_CONFLICT_DISPLAY_MODES = ['merged', 'side-by-side']
 const STARTUP_PAGES = ['home', 'schedule']
 
 type UiSettingsState = typeof SYSTEM_UI_SETTINGS
@@ -170,6 +172,11 @@ const normalizeSettings = (raw: unknown): UiSettingsState => {
   merged.scheduleViewMode = SCHEDULE_VIEW_MODES.includes(merged.scheduleViewMode)
     ? merged.scheduleViewMode
     : base.scheduleViewMode
+  merged.scheduleConflictDisplayMode = SCHEDULE_CONFLICT_DISPLAY_MODES.includes(
+    merged.scheduleConflictDisplayMode
+  )
+    ? merged.scheduleConflictDisplayMode
+    : base.scheduleConflictDisplayMode
   merged.startupPage = STARTUP_PAGES.includes(merged.startupPage)
     ? merged.startupPage
     : base.startupPage
