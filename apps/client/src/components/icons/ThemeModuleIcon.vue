@@ -11,6 +11,8 @@ const props = defineProps({
 
 const iconMap = {
   grades: 'school',
+  // #1110：给分记录独立模块（柱状图语义，字形已在 glyph-manifest 中）
+  grade_distribution: 'bar_chart',
   classroom: 'meeting_room',
   electricity: 'bolt',
   transactions: 'receipt_long',
