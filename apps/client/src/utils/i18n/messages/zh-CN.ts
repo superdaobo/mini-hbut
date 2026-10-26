@@ -398,6 +398,7 @@ export const messages: Record<string, string> = {
   // 网格
   'schedule.grid.monthSuffix': '月',
   'schedule.grid.conflictHint': '点击查看冲突课程详情',
+  'schedule.grid.conflictOverflowTitle': '课程冲突（{n}门）',
   'schedule.grid.noTeacher': '未标注教师',
   // 抽屉（菜单）
   'schedule.drawer.title': '课表工具',

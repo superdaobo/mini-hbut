@@ -397,6 +397,7 @@ export const messages: Record<string, string> = {
   // 网格
   'schedule.grid.monthSuffix': '月',
   'schedule.grid.conflictHint': 'タップして重複する授業の詳細を表示',
+  'schedule.grid.conflictOverflowTitle': '授業の衝突（{n}件）',
   'schedule.grid.noTeacher': '教師はマークされていません',
   // 抽屉（菜单）
   'schedule.drawer.title': 'タイムテーブルツール',

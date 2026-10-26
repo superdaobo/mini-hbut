@@ -397,6 +397,7 @@ export const messages: Record<string, string> = {
   // Grid
   'schedule.grid.monthSuffix': '',
   'schedule.grid.conflictHint': 'Tap to view conflicting courses',
+  'schedule.grid.conflictOverflowTitle': 'Course conflicts ({n})',
   'schedule.grid.noTeacher': 'No teacher listed',
   // Drawer (menu)
   'schedule.drawer.title': 'Schedule Tools',
