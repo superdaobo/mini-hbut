@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- #1029：考试卡片（毛玻璃 + 试卷图标标题） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_exam_root"
     android:layout_width="match_parent"
@@ -16,10 +17,19 @@
         android:paddingBottom="6dp">
 
         <TextView
+            android:id="@+id/widget_exam_title_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📄"
+            android:textSize="15sp"
+            android:includeFontPadding="false" />
+
+        <TextView
             android:id="@+id/widget_exam_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="8dp"
             android:text="即将考试"
             android:textColor="@color/widget_text_primary"
             android:textSize="14sp"

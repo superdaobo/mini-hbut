@@ -69,6 +69,41 @@ object WidgetRenderer {
             views.setTextViewText(titleId, titleText)
         }
 
+        // #1029：周几徽章（毛玻璃头部的胶囊标签）。
+        val weekBadgeId = context.resources.getIdentifier("widget_week_badge", "id", packageName)
+        if (weekBadgeId != 0) {
+            val weekday = snapshot?.optInt("weekday", 0) ?: 0
+            val weekdayText = when (weekday) {
+                1 -> "周一"; 2 -> "周二"; 3 -> "周三"; 4 -> "周四"
+                5 -> "周五"; 6 -> "周六"; 7 -> "周日"
+                else -> ""
+            }
+            if (weekdayText.isNotEmpty() && !outdated) {
+                views.setTextViewText(weekBadgeId, weekdayText)
+                views.setViewVisibility(weekBadgeId, View.VISIBLE)
+            } else {
+                views.setViewVisibility(weekBadgeId, View.GONE)
+            }
+        }
+
+        // #1029：脚注——「更新于 HH:mm · N 节课」，让桌面直接看到数据新鲜度。
+        // 陈旧/过期时交给 overflow 标签提示，避免同屏出现两条时效文案。
+        val footerId = context.resources.getIdentifier("widget_footer", "id", packageName)
+        if (footerId != 0) {
+            val updated = formatUpdatedAt(snapshot?.optString("generated_at").orEmpty())
+            val footerText = when {
+                updated.isNotEmpty() && courseCount > 0 -> "$updated · ${courseCount} 节课"
+                updated.isNotEmpty() -> updated
+                else -> ""
+            }
+            if (footerText.isNotEmpty() && !stale) {
+                views.setTextViewText(footerId, footerText)
+                views.setViewVisibility(footerId, View.VISIBLE)
+            } else {
+                views.setViewVisibility(footerId, View.GONE)
+            }
+        }
+
         if (overflowId != 0) {
             val capacity = WidgetLayoutHelper.listCapacity(layoutName)
             if (courseCount > capacity) {
@@ -136,11 +171,13 @@ object WidgetRenderer {
         val nameId = context.resources.getIdentifier("widget_next_course_name", "id", packageName)
         val timeId = context.resources.getIdentifier("widget_next_course_time", "id", packageName)
         val locationId = context.resources.getIdentifier("widget_next_course_location", "id", packageName)
+        val locIconId = context.resources.getIdentifier("widget_next_loc_icon", "id", packageName)
 
         if (courses == null || courses.length() == 0) {
             if (nameId != 0) views.setTextViewText(nameId, "")
             if (timeId != 0) views.setTextViewText(timeId, "")
             if (locationId != 0) views.setViewVisibility(locationId, View.GONE)
+            if (locIconId != 0) views.setViewVisibility(locIconId, View.GONE)
             return
         }
 
@@ -165,6 +202,13 @@ object WidgetRenderer {
             } else {
                 views.setViewVisibility(locationId, View.GONE)
             }
+        }
+        // #1029：地点为空时连图标一起隐藏，避免只剩一个孤零零的定位图标。
+        if (locIconId != 0) {
+            views.setViewVisibility(
+                locIconId,
+                if (location.isNotEmpty()) View.VISIBLE else View.GONE
+            )
         }
         // #758：强制模式下覆盖中性文字色（时间行沿用品牌主题色）
         WidgetThemeMode.bindTextColor(context, themeMode, views, nameId, "widget_text_primary")
@@ -199,6 +243,23 @@ object WidgetRenderer {
                 views.setTextViewText(emptyId, emptyMessage.ifEmpty { "今日无课" })
                 views.setViewVisibility(emptyId, View.VISIBLE)
             }
+        }
+    }
+
+    /**
+     * #1029：把快照 generated_at（ISO-8601 UTC）转成北京时间「更新于 HH:mm」。
+     * 解析失败返回空串（不展示误导性的时间）。
+     */
+    private fun formatUpdatedAt(raw: String): String {
+        if (raw.isBlank()) return ""
+        return try {
+            val instant = java.time.Instant.parse(raw)
+            val formatter = java.time.format.DateTimeFormatter
+                .ofPattern("HH:mm", java.util.Locale.CHINA)
+                .withZone(java.time.ZoneId.of("Asia/Shanghai"))
+            "更新于 " + formatter.format(instant)
+        } catch (_: Exception) {
+            ""
         }
     }
 

@@ -104,6 +104,13 @@ def copy_widget_resources():
         "res/drawable/widget_capsule_period.xml",
         "res/drawable/widget_capsule_location.xml",
         "res/drawable/ic_stat_mini_hbut.xml",
+        # #1029：毛玻璃 UI 图标（日历 / 时间 / 地点 / 电费 / 考试 / 日程）
+        "res/drawable/ic_widget_calendar.xml",
+        "res/drawable/ic_widget_clock.xml",
+        "res/drawable/ic_widget_location.xml",
+        "res/drawable/ic_widget_bolt.xml",
+        "res/drawable/ic_widget_exam.xml",
+        "res/drawable/ic_widget_event.xml",
     ]
 
     count = 0

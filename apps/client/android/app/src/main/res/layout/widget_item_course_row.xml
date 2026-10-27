@@ -1,58 +1,83 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- #1029：课程行——左侧节次徽章，中间课程名 + 地点（带定位图标），右侧时间段 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_item_row_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingTop="5dp"
-    android:paddingBottom="5dp">
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
 
-    <!-- 节次 -->
+    <!-- 节次徽章（合并后显示范围，如 "3-4节"） -->
     <TextView
         android:id="@+id/widget_item_period"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:background="@drawable/widget_period_badge"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
-        android:paddingTop="2dp"
-        android:paddingBottom="2dp"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:gravity="center"
         android:textColor="@color/widget_period_text"
-        android:textSize="12sp"
+        android:textSize="11sp"
         android:textStyle="bold"
-        android:minWidth="40dp" />
+        android:minWidth="42dp" />
 
-    <!-- 课程名 -->
-    <TextView
-        android:id="@+id/widget_item_name"
+    <!-- 课程主体：课程名 + 地点 -->
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:textColor="@color/widget_text_primary"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:paddingEnd="6dp" />
+        android:orientation="vertical"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="6dp">
 
-    <!-- 时间 -->
+        <TextView
+            android:id="@+id/widget_item_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_primary"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="1dp">
+
+            <TextView
+                android:id="@+id/widget_item_loc_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📍"
+                android:textSize="9sp"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/widget_item_location"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="3dp"
+                android:textColor="@color/widget_location_text"
+                android:textSize="10sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 时间段 -->
     <TextView
         android:id="@+id/widget_item_time"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textColor="@color/widget_text_secondary"
-        android:textSize="11sp"
-        android:paddingEnd="6dp" />
-
-    <!-- 教室 -->
-    <TextView
-        android:id="@+id/widget_item_location"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textColor="@color/widget_location_text"
-        android:textSize="11sp"
-        android:maxLines="1"
-        android:ellipsize="end" />
+        android:textSize="10sp" />
 
 </LinearLayout>
