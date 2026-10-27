@@ -7,6 +7,7 @@ import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Widget 渲染器 — 构建 RemoteViews 并推送到 AppWidgetManager。
@@ -33,20 +34,22 @@ object WidgetRenderer {
         val snapshot = WidgetScheduleResolver.resolveToday(snapshotJson)
         val date = snapshot?.optString("date", "") ?: ""
         val weekIndex = snapshot?.optInt("week_index", 0) ?: 0
-        val studentId = snapshot?.optString("student_id", "") ?: ""
-        val courses = snapshot?.optJSONArray("courses")
-        val courseCount = courses?.length() ?: 0
-        val emptyMessage = WidgetLayoutHelper.emptyStateMessage(context, snapshot)
-        // #759：快照 date 早于今天 = 跨天重写失败（WebView 冻结/进程被杀后前端定时器失效）。
-        // 兜底策略：标题日期显示今天 + 溢出位显示「数据更新于 X月X日」陈旧标记，
-        // 深链同样携带今天，避免点击后前端高亮到昨天。快照内容仍由前端主修路径重写。
+        // 没有 schedule_index 时，旧日期快照绝不能当作今天的真实课程。
         val snapshotDate = try { java.time.LocalDate.parse(date) } catch (_: Exception) { null }
         val today = try {
             java.time.LocalDate.parse(WidgetScheduleResolver.todayDateString())
         } catch (_: Exception) {
             java.time.LocalDate.now()
         }
-        val outdated = snapshotDate != null && snapshotDate.isBefore(today)
+        val outdated = snapshot != null && snapshotDate != today
+        val courses = if (outdated) JSONArray() else snapshot?.optJSONArray("courses")
+        val courseCount = courses?.length() ?: 0
+        val emptyMessage = when {
+            outdated -> "课程数据已过期，请打开应用刷新"
+            snapshot != null && WidgetLayoutHelper.isStale(snapshot) && courseCount == 0 ->
+                "课表可能已变化，请打开应用更新"
+            else -> WidgetLayoutHelper.emptyStateMessage(context, snapshot)
+        }
         val stale = (snapshot != null && WidgetLayoutHelper.isStale(snapshot)) || outdated
 
         val titleId = context.resources.getIdentifier("widget_title", "id", packageName)
@@ -65,6 +68,69 @@ object WidgetRenderer {
                 else -> "今日课程"
             }
             views.setTextViewText(titleId, titleText)
+        }
+
+        // #1029：周几徽章（毛玻璃头部的胶囊标签）。
+        val weekBadgeId = context.resources.getIdentifier("widget_week_badge", "id", packageName)
+        if (weekBadgeId != 0) {
+            val weekday = snapshot?.optInt("weekday", 0) ?: 0
+            val weekdayText = when (weekday) {
+                1 -> "周一"; 2 -> "周二"; 3 -> "周三"; 4 -> "周四"
+                5 -> "周五"; 6 -> "周六"; 7 -> "周日"
+                else -> ""
+            }
+            if (weekdayText.isNotEmpty() && !outdated) {
+                views.setTextViewText(weekBadgeId, weekdayText)
+                views.setViewVisibility(weekBadgeId, View.VISIBLE)
+            } else {
+                views.setViewVisibility(weekBadgeId, View.GONE)
+            }
+        }
+
+        // #1029：脚注——「更新于 HH:mm · N 节课」，让桌面直接看到数据新鲜度。
+        // 陈旧/过期时交给 overflow 标签提示，避免同屏出现两条时效文案。
+        val footerId = context.resources.getIdentifier("widget_footer", "id", packageName)
+        if (footerId != 0) {
+            val updated = formatUpdatedAt(snapshot?.optString("generated_at").orEmpty())
+            val footerText = when {
+                updated.isNotEmpty() && courseCount > 0 -> "$updated · ${courseCount} 节课"
+                updated.isNotEmpty() -> updated
+                else -> ""
+            }
+            if (footerText.isNotEmpty() && !stale) {
+                views.setTextViewText(footerId, footerText)
+                views.setViewVisibility(footerId, View.VISIBLE)
+            } else {
+                views.setViewVisibility(footerId, View.GONE)
+            }
+        }
+
+        // #1029：今日日程（独立存储，按今天过滤后最多展示 2 条）。
+        val eventsContainerId =
+            context.resources.getIdentifier("widget_events_container", "id", packageName)
+        if (eventsContainerId != 0) {
+            val todayKey = if (outdated) {
+                WidgetScheduleResolver.todayDateString()
+            } else {
+                date.ifEmpty { WidgetScheduleResolver.todayDateString() }
+            }
+            val todayEvents = readTodayEvents(context, todayKey)
+            if (todayEvents.isNotEmpty()) {
+                val line1Id = context.resources.getIdentifier("widget_event_line_1", "id", packageName)
+                val line2Id = context.resources.getIdentifier("widget_event_line_2", "id", packageName)
+                if (line1Id != 0) views.setTextViewText(line1Id, formatEventLine(todayEvents[0]))
+                if (line2Id != 0) {
+                    if (todayEvents.size > 1) {
+                        views.setTextViewText(line2Id, formatEventLine(todayEvents[1]))
+                        views.setViewVisibility(line2Id, View.VISIBLE)
+                    } else {
+                        views.setViewVisibility(line2Id, View.GONE)
+                    }
+                }
+                views.setViewVisibility(eventsContainerId, View.VISIBLE)
+            } else {
+                views.setViewVisibility(eventsContainerId, View.GONE)
+            }
         }
 
         if (overflowId != 0) {
@@ -134,11 +200,13 @@ object WidgetRenderer {
         val nameId = context.resources.getIdentifier("widget_next_course_name", "id", packageName)
         val timeId = context.resources.getIdentifier("widget_next_course_time", "id", packageName)
         val locationId = context.resources.getIdentifier("widget_next_course_location", "id", packageName)
+        val locIconId = context.resources.getIdentifier("widget_next_loc_icon", "id", packageName)
 
         if (courses == null || courses.length() == 0) {
             if (nameId != 0) views.setTextViewText(nameId, "")
             if (timeId != 0) views.setTextViewText(timeId, "")
             if (locationId != 0) views.setViewVisibility(locationId, View.GONE)
+            if (locIconId != 0) views.setViewVisibility(locIconId, View.GONE)
             return
         }
 
@@ -163,6 +231,13 @@ object WidgetRenderer {
             } else {
                 views.setViewVisibility(locationId, View.GONE)
             }
+        }
+        // #1029：地点为空时连图标一起隐藏，避免只剩一个孤零零的定位图标。
+        if (locIconId != 0) {
+            views.setViewVisibility(
+                locIconId,
+                if (location.isNotEmpty()) View.VISIBLE else View.GONE
+            )
         }
         // #758：强制模式下覆盖中性文字色（时间行沿用品牌主题色）
         WidgetThemeMode.bindTextColor(context, themeMode, views, nameId, "widget_text_primary")
@@ -198,6 +273,54 @@ object WidgetRenderer {
                 views.setViewVisibility(emptyId, View.VISIBLE)
             }
         }
+    }
+
+    /**
+     * #1029：把快照 generated_at（ISO-8601 UTC）转成北京时间「更新于 HH:mm」。
+     * 解析失败返回空串（不展示误导性的时间）。
+     */
+    private fun formatUpdatedAt(raw: String): String {
+        if (raw.isBlank()) return ""
+        return try {
+            val instant = java.time.Instant.parse(raw)
+            val formatter = java.time.format.DateTimeFormatter
+                .ofPattern("HH:mm", java.util.Locale.CHINA)
+                .withZone(java.time.ZoneId.of("Asia/Shanghai"))
+            "更新于 " + formatter.format(instant)
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    /**
+     * #1029：读取「今天」的日程（按 date 字段过滤，按开始时间排序，最多 2 条）。
+     * 数据来自前端 write_widget_events 写入的独立 JSON；解析失败视为无日程。
+     */
+    private fun readTodayEvents(context: Context, today: String): List<JSONObject> {
+        val raw = WidgetDataStore(context).readEvents()
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length())
+                .mapNotNull { index -> arr.optJSONObject(index) }
+                .filter { it.optString("date") == today }
+                .sortedBy { it.optString("start") }
+                .take(2)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** 单条日程行文案：「📌 14:30-15:30 组会」。 */
+    private fun formatEventLine(event: JSONObject): String {
+        val start = event.optString("start")
+        val end = event.optString("end")
+        val time = when {
+            start.isNotEmpty() && end.isNotEmpty() -> "$start-$end "
+            start.isNotEmpty() -> "$start "
+            else -> ""
+        }
+        return "📌 $time${event.optString("title")}"
     }
 
     private fun formatDateChinese(date: String): String {

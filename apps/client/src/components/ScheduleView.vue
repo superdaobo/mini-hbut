@@ -35,6 +35,9 @@ import { useScheduleTermStart } from '../features/schedule/composables/useSchedu
 // #833 Wave2：个人日程（数据层 + 统一「添加安排」编辑器）
 import { useScheduleEventData } from '../features/schedule/composables/useScheduleEventData'
 import { useScheduleEvents } from '../features/schedule/composables/useScheduleEvents'
+// #1029：日程 CRUD 后把「今日日程」同步到桌面小组件
+import { writeTodayEventsToWidget } from '../utils/widget_bridge'
+import { formatLocalDate } from '../utils/widget_snapshot'
 // #838：日程详情 / 编辑 / 删除交互闭环
 import { useScheduleEventDetail } from '../features/schedule/composables/useScheduleEventDetail'
 import { useI18n } from '../utils/app_i18n'
@@ -89,8 +92,27 @@ const events = useScheduleEvents({
   semester: semesterApi,
   data,
   confirmDialog,
-  onChanged: () => eventData.refreshWeekEvents()
+  onChanged: () => {
+    // #1029：日程增删改后重拉当前周日程，并把「今日日程」同步到桌面小组件。
+    void eventData.refreshWeekEvents().then(() => {
+      const today = formatLocalDate(new Date())
+      void writeTodayEventsToWidget(
+        (eventData.weekEvents.value || []).filter((event) => event.date === today)
+      )
+    })
+  }
 })
+
+// #1029：日程数据加载/切周后也同步一次，覆盖「日程是旧版本添加的、没有走 CRUD 回调」
+// 的场景，保证打开 App 后桌面就能看到当天日程。
+watch(
+  () => eventData.weekEvents.value,
+  (list) => {
+    const today = formatLocalDate(new Date())
+    void writeTodayEventsToWidget((list || []).filter((event) => event.date === today))
+  },
+  { deep: false }
+)
 
 /**
  * 当前周全部课程（教务 + 自定义），扁平化后供日程冲突提示与详情共用。

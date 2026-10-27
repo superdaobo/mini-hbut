@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- #758：应用强制 dark 模式时的小组件背景（恒定深色 85% 不透明） -->
+<!-- #758/#1029：应用强制 dark 模式时的毛玻璃背景（深灰半透明 + 高光边框） -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/widget_bg_forced_dark" />
-    <corners android:radius="20dp" />
+    <gradient
+        android:angle="270"
+        android:startColor="#E61C1C1E"
+        android:endColor="#CC101014" />
+    <corners android:radius="24dp" />
+    <stroke
+        android:width="1dp"
+        android:color="#33FFFFFF" />
 </shape>

@@ -288,6 +288,43 @@ export function buildWidgetScheduleIndex(params: {
 }
 
 /**
+ * #1029：仅预计算“本周 + 下周”，供 Android 在进程死亡或跨午夜后自行换日。
+ * 之前 #881 展开 25 周 × 7 天，导致启动阶段快照过大；这里严格最多 14 天，
+ * 不复制整个学期，也不在原生端重复一套复杂的教务课程过滤规则。
+ * 后台联网更新仍依赖 App；若缓存久未更新，原生端必须展示陈旧提示。
+ */
+export function buildRollingWidgetScheduleIndex(params: {
+  cache: unknown[]
+  baseWeekIndex: number
+  startDate?: string
+  totalWeeks?: number
+  now?: Date
+}): WidgetScheduleIndex {
+  const now = params.now ?? new Date()
+  const baseWeekIndex = Math.min(Math.max(Math.floor(params.baseWeekIndex) || 1, 1), 60)
+  const totalWeeks = Math.min(Math.max(Math.floor(params.totalWeeks ?? 25) || 25, baseWeekIndex, 1), 60)
+  const days: WidgetScheduleIndex['days'] = []
+
+  for (let week = baseWeekIndex; week <= Math.min(baseWeekIndex + 1, totalWeeks); week += 1) {
+    for (let weekday = 1; weekday <= 7; weekday += 1) {
+      const courses = extractCoursesOfDay(params.cache, week, weekday)
+      if (courses.length) days.push({ week_index: week, weekday, courses })
+    }
+  }
+
+  const index: WidgetScheduleIndex = {
+    version: 1,
+    base_date: formatLocalDate(now),
+    base_week_index: baseWeekIndex,
+    total_weeks: totalWeeks,
+    days,
+  }
+  const startDate = toSafeString(params.startDate)
+  if (parseUtcMidnightMs(startDate) != null) index.start_date = startDate
+  return index
+}
+
+/**
  * 无开学日期时，以“某天属于第几周”为回退锚点计算教学周。
  * 以周一为周边界，确保周日→周一会准确 +1。
  */

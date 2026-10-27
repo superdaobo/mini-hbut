@@ -1,23 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- #1029：今日课程 2x2（毛玻璃 + 日历图标 + 地点图标） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/widget_background"
-    android:padding="12dp"
-    android:gravity="center_vertical">
+    android:padding="14dp"
+    android:gravity="center_vertical"
+    android:clipToOutline="true">
 
-    <TextView
-        android:id="@+id/widget_title"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="今日课程"
-        android:textColor="@color/widget_text_primary"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:maxLines="1"
-        android:paddingBottom="6dp" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/widget_title_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📅"
+            android:textSize="13sp"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:text="今日课程"
+            android:textColor="@color/widget_text_primary"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="1" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/widget_next_course_name"
@@ -25,6 +44,7 @@
         android:layout_height="wrap_content"
         android:textColor="@color/widget_text_primary"
         android:textSize="14sp"
+        android:textStyle="bold"
         android:maxLines="1"
         android:ellipsize="end" />
 
@@ -37,13 +57,31 @@
         android:maxLines="1"
         android:paddingTop="2dp" />
 
-    <TextView
-        android:id="@+id/widget_next_course_location"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="@color/widget_location_text"
-        android:textSize="12sp"
-        android:maxLines="1"
-        android:paddingTop="2dp" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="3dp">
+
+        <TextView
+            android:id="@+id/widget_next_loc_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📍"
+            android:textSize="9sp"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/widget_next_course_location"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="3dp"
+            android:textColor="@color/widget_location_text"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
 
 </LinearLayout>
