@@ -318,6 +318,52 @@ def patch_gradle_dependencies():
     return patched
 
 
+def patch_main_activity_ndk_context() -> bool:
+    """#1029：把 ndk_context 初始化调用注入 MainActivity.onCreate。
+
+    tauri 2.x 依赖栈（tauri 2.11 / wry 0.55）不再调用
+    `ndk_context::initialize_android_context`，而 Widget 原生桥（lib.rs 的
+    `Java_com_hbut_mini_MainActivity_initNdkContext`）需要它；未初始化时
+    `android_context()` 会 panic，release panic=abort 即启动闪退。
+
+    幂等：已注入时直接跳过。
+    """
+    activity_path = TAURI_ANDROID / "java" / "com" / "hbut" / "mini" / "MainActivity.kt"
+    if not activity_path.exists():
+        print(f"[WARN] MainActivity.kt not found: {activity_path}")
+        return False
+
+    text = activity_path.read_text(encoding="utf-8")
+    if "initNdkContext" in text:
+        print("[OK] MainActivity already initializes ndk_context")
+        return True
+
+    class_marker = "class MainActivity : TauriActivity() {"
+    super_marker = "super.onCreate(savedInstanceState)"
+    if class_marker not in text or super_marker not in text:
+        print("[WARN] MainActivity structure changed; skip ndk_context injection")
+        return False
+
+    text = text.replace(
+        class_marker,
+        class_marker
+        + "\n  // #1029：把 ApplicationContext 交给 Rust 侧 ndk_context（见 lib.rs 同名 JNI 函数）。\n"
+        + "  private external fun initNdkContext(activity: android.app.Activity)\n",
+        1,
+    )
+    text = text.replace(
+        super_marker,
+        super_marker
+        + "\n\n    // #1029：TauriActivity 完成 attach 后注入 JNI 上下文；\n"
+        + "    // 失败只让 Widget 桥返回可诊断错误，不影响 App 启动。\n"
+        + "    initNdkContext(this)",
+        1,
+    )
+    activity_path.write_text(text, encoding="utf-8")
+    print("[OK] Patched MainActivity.kt to initialize ndk_context (#1029)")
+    return True
+
+
 def main() -> int:
     print("=" * 60)
     print("Patch Tauri Android project with Widget support")
@@ -338,6 +384,7 @@ def main() -> int:
     ok = copy_widget_resources() and ok
     ok = patch_manifest() and ok
     ok = patch_gradle_dependencies() and ok
+    ok = patch_main_activity_ndk_context() and ok
 
     if ok:
         print("\n[OK] All widget patches applied successfully.")

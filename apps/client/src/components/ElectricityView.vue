@@ -383,9 +383,17 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
       const widgetQuantity = Number(lightResult.data?.quantity)
       if (Number.isFinite(widgetQuantity) && widgetQuantity >= 0 && lightResult.data?.offline !== true) {
         const sourceTimestamp = Number(lightResult.timestamp)
+        // #1029：桌面小组件要展示人类可读的房间名（校区/楼栋/楼层/房间），
+        // 不能把 selectedPath 的内部 ID 直接拼进快照（101 / merged_1_254_ / …）。
+        const widgetRoomLabel = [
+          currentArea.value?.label || '',
+          currentBuilding.value?.label || '',
+          currentLevel.value?.label || '',
+          currentLevel.value?.children?.find(r => r.value === selectedPath.value[3])?.label || ''
+        ].map(label => String(label).trim()).filter(Boolean).join(' / ')
         writeElectricityToWidget({
           quantity: widgetQuantity,
-          room: selectedPath.value.join(' / ') || '',
+          room: widgetRoomLabel,
           isLow: widgetQuantity < 10,
           updated_at: Number.isFinite(sourceTimestamp) && sourceTimestamp > 0
             ? new Date(sourceTimestamp).toISOString()

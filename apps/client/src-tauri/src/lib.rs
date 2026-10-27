@@ -91,6 +91,54 @@ pub(crate) const DB_FILENAME: &str = "grades.db";
 const GRADE_TEACHER_CACHE_TABLE: &str = "grade_teacher_cache";
 
 // 应用状态见 app_state.rs；Tauri Command 见 transport/tauri/ 各领域模块
+/// #1029：为 Rust 侧 Widget 桥初始化 Android JNI 上下文。
+///
+/// tauri 2.11 / wry 0.55 不再调用 `ndk_context::initialize_android_context`，
+/// 而 `ndk_context::android_context()` 在未初始化时会 panic；release 使用
+/// `panic = abort`，直接表现为启动闪退（与 #894 beta.507 同类）。
+///
+/// 由 `MainActivity.onCreate` 通过 JNI 传入 Activity：这里只取
+/// `getApplicationContext()`，把 Application Context 以永久 GlobalRef 交给
+/// `ndk_context`，避免异步命令 / WorkManager 复用已销毁的 Activity 引用。
+/// JNI 出口一律 catch_unwind，任何初始化失败都只降级为「Widget 不可用」。
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_hbut_mini_MainActivity_initNdkContext(
+    mut env: jni::JNIEnv<'_>,
+    _this: jni::objects::JObject<'_>,
+    activity: jni::objects::JObject<'_>,
+) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let app_context = match env.call_method(
+            &activity,
+            "getApplicationContext",
+            "()Landroid/content/Context;",
+            &[],
+        ) {
+            Ok(value) => match value.l() {
+                Ok(context) if !context.is_null() => context,
+                _ => return,
+            },
+            Err(_) => return,
+        };
+        let global = match env.new_global_ref(app_context) {
+            Ok(global) => global,
+            Err(_) => return,
+        };
+        let vm = match env.get_java_vm() {
+            Ok(vm) => vm,
+            Err(_) => return,
+        };
+        let vm_ptr = vm.get_java_vm_pointer().cast::<std::ffi::c_void>();
+        let context_ptr = global.as_obj().as_raw().cast::<std::ffi::c_void>();
+        // GlobalRef 必须一直存活，所有权交给 ndk_context。
+        std::mem::forget(global);
+        unsafe {
+            ndk_context::initialize_android_context(vm_ptr, context_ptr);
+        }
+    }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // #991：进程启动时刻必须在这里**最先**记录。`runtime_log` 的 `uptime_ms` 原本是惰性的
