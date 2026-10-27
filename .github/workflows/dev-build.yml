@@ -862,9 +862,13 @@ jobs:
         run: tar -xzf source.tar.gz
 
       - name: Install Linux dependencies
+        env:
+          # 防止 debconf 交互（tzdata / keyboard-configuration 等）在 runner 上挂起，
+          # 10-27 两次 dev 构建都卡在这一步（apt 交互等待）。
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo -E apt-get update
+          sudo -E apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
