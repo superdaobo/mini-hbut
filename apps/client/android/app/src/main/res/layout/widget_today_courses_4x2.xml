@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- #1029：今日课程 4x2（毛玻璃 + 图标 + 周几徽章 + 更新时间脚注） -->
+<!-- #1029：今日课程 4x2（毛玻璃 + 图标 + 周几徽章 + 今日日程 + 更新时间脚注） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -63,6 +63,36 @@
         android:background="@color/widget_divider"
         android:layout_marginBottom="4dp" />
 
+    <!-- #1029：今日日程（紧贴标题下方，最多 2 条，无日程时整体隐藏） -->
+    <LinearLayout
+        android:id="@+id/widget_events_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widget_event_line_1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_event_line_2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone" />
+    </LinearLayout>
+
     <!-- 空态提示（4x2 无课程时显示） -->
     <TextView
         android:id="@+id/widget_empty"
@@ -95,35 +125,6 @@
         android:textStyle="bold"
         android:visibility="gone"
         android:paddingTop="2dp" />
-
-    <!-- #1029：今日日程（最多 2 条，无日程时整体隐藏） -->
-    <LinearLayout
-        android:id="@+id/widget_events_container"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingTop="2dp"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/widget_event_line_1"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/widget_text_secondary"
-            android:textSize="10sp"
-            android:maxLines="1"
-            android:ellipsize="end" />
-
-        <TextView
-            android:id="@+id/widget_event_line_2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/widget_text_secondary"
-            android:textSize="10sp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:visibility="gone" />
-    </LinearLayout>
 
     <!-- 脚注：更新时间 / 课程数 -->
     <TextView

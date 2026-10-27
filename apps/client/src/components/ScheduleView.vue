@@ -97,6 +97,17 @@ const events = useScheduleEvents({
   }
 })
 
+// #1029：日程数据加载/切周后也同步一次，覆盖「日程是旧版本添加的、没有走 CRUD 回调」
+// 的场景，保证打开 App 后桌面就能看到当天日程。
+watch(
+  () => eventData.weekEvents.value,
+  (list) => {
+    const today = formatLocalDate(new Date())
+    void writeTodayEventsToWidget((list || []).filter((event) => event.date === today))
+  },
+  { deep: false }
+)
+
 /**
  * 当前周全部课程（教务 + 自定义），扁平化后供日程冲突提示与详情共用。
  * 逐日取网格数据再补回 weekday，避免合并结果丢失星期字段导致漏判。
