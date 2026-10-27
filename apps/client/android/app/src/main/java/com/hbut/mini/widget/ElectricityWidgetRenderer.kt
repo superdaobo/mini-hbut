@@ -36,6 +36,18 @@ object ElectricityWidgetRenderer {
             val quantity = data.optDouble("quantity", -1.0)
             val room = data.optString("room", "")
             val isLow = quantity in 0.0..10.0
+            // 过期取源数据查询时间，不能用 WorkManager 的重绘时间替代。
+            val sourceTime = try {
+                java.time.Instant.parse(data.optString("updated_at", ""))
+            } catch (_: Exception) {
+                null
+            }
+            val stale = sourceTime == null || java.time.Duration.between(
+                sourceTime, java.time.Instant.now()
+            ).toHours() >= 24
+            val syncedLabel = sourceTime?.atZone(java.time.ZoneId.of("Asia/Shanghai"))?.let {
+                "${it.monthValue}月${it.dayOfMonth}日"
+            } ?: "未知时间"
 
             if (quantityId != 0) {
                 val text = if (quantity >= 0) String.format("%.1f 度", quantity) else "--"
@@ -46,7 +58,11 @@ object ElectricityWidgetRenderer {
                 views.setViewVisibility(roomId, View.VISIBLE)
             }
             if (statusId != 0) {
-                views.setTextViewText(statusId, if (isLow) "电量不足" else "余量正常")
+                views.setTextViewText(statusId, when {
+                    stale -> "数据已过期 · 请打开 App 更新"
+                    isLow -> "电量不足 · ${syncedLabel}更新"
+                    else -> "余量正常 · ${syncedLabel}更新"
+                })
                 views.setViewVisibility(statusId, View.VISIBLE)
             }
         } else {

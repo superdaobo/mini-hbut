@@ -1,20 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- #1029：今日课程 4x1（毛玻璃 + 日历图标 + 地点图标，单行紧凑） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="horizontal"
     android:background="@drawable/widget_background"
-    android:padding="8dp"
-    android:gravity="center_vertical">
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:gravity="center_vertical"
+    android:clipToOutline="true">
+
+    <TextView
+        android:id="@+id/widget_title_icon"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="📅"
+        android:textSize="12sp"
+        android:includeFontPadding="false" />
 
     <TextView
         android:id="@+id/widget_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
         android:text="今日课程"
         android:textColor="@color/widget_text_primary"
-        android:textSize="13sp"
+        android:textSize="12sp"
         android:textStyle="bold"
         android:paddingEnd="8dp" />
 
@@ -23,7 +37,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textColor="@color/widget_text_secondary"
-        android:textSize="12sp"
+        android:textSize="11sp"
         android:maxLines="1"
         android:paddingEnd="8dp" />
 
@@ -33,17 +47,27 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:textColor="@color/widget_text_primary"
-        android:textSize="13sp"
+        android:textSize="12sp"
+        android:textStyle="bold"
         android:maxLines="1"
         android:ellipsize="end"
         android:paddingEnd="8dp" />
 
     <TextView
+        android:id="@+id/widget_next_loc_icon"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="📍"
+        android:textSize="9sp"
+        android:includeFontPadding="false" />
+
+    <TextView
         android:id="@+id/widget_next_course_location"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="3dp"
         android:textColor="@color/widget_location_text"
-        android:textSize="11sp"
+        android:textSize="10sp"
         android:maxLines="1" />
 
 </LinearLayout>

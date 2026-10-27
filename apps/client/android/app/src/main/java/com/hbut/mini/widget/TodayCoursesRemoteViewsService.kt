@@ -95,15 +95,22 @@ class TodayCoursesRemoteViewsFactory(
         views.setTextViewText(periodId, periodText)
         views.setTextColor(periodId, themeColor)
 
-        // 时间
+        // 时间（#1029：毛玻璃行布局右侧只保留开始时间，节次范围已由左侧徽章表达）
         val timeId = context.resources.getIdentifier("widget_item_time", "id", packageName)
-        views.setTextViewText(timeId, "${row.timeStart}-${row.timeEnd}")
+        views.setTextViewText(timeId, row.timeStart)
         // 课程名
         val nameId = context.resources.getIdentifier("widget_item_name", "id", packageName)
         views.setTextViewText(nameId, row.name)
-        // 教室
+        // 教室（#1029：带定位图标；空地点时图标与文字一起隐藏）
         val locationId = context.resources.getIdentifier("widget_item_location", "id", packageName)
         views.setTextViewText(locationId, row.location)
+        val locIconId = context.resources.getIdentifier("widget_item_loc_icon", "id", packageName)
+        if (locIconId != 0) {
+            views.setViewVisibility(
+                locIconId,
+                if (row.location.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+            )
+        }
 
         // #758：强制模式下覆盖中性文字色（节次徽标沿用品牌主题色）
         WidgetThemeMode.bindTextColor(context, themeMode, views, nameId, "widget_text_primary")

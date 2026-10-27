@@ -32,8 +32,13 @@ vi.mock('./debug_logger', () => ({
   pushDebugLog: vi.fn()
 }))
 
-import { afterScheduleRefresh, tryWriteSnapshotFromCache, writeWidgetThemeMode } from './widget_bridge'
-import { writeSnapshotWithRetry, writeThemeMode } from '@/platform/capacitor/widget'
+import {
+  afterScheduleRefresh, tryWriteSnapshotFromCache, writeWidgetThemeMode,
+  writeElectricityToWidget, writeExamToWidget
+} from './widget_bridge'
+import {
+  writeSnapshotWithRetry, writeThemeMode, writeElectricitySnapshot, writeExamSnapshot
+} from '@/platform/capacitor/widget'
 import { getCacheKey } from './api.js'
 import { removeOfficialCourseFromSchedule, restoreOfficialCourseToSchedule } from './schedule_visibility'
 
@@ -89,6 +94,31 @@ beforeEach(() => {
   storageMap.clear()
   mockWrite.mockClear()
   mockWriteThemeMode.mockClear()
+})
+
+describe('#1029 Widget 电费与考试数据边界', () => {
+  it('电费缺失/非法/负值不向 Android 写入伪 0 度', async () => {
+    const write = vi.mocked(writeElectricitySnapshot)
+    write.mockClear()
+    await writeElectricityToWidget({ quantity: NaN })
+    await writeElectricityToWidget({ quantity: -1 })
+    expect(write).not.toHaveBeenCalled()
+    await writeElectricityToWidget({ quantity: 108.6, updated_at: '2026-10-09T02:00:00.000Z' })
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({ quantity: 108.6 }))
+  })
+
+  it('无未来考试时依然向原生层写入空数组以清除旧学期记录', async () => {
+    const write = vi.mocked(writeExamSnapshot)
+    write.mockClear()
+    await writeExamToWidget({ exams: [], days_left: -1 })
+    expect(write).toHaveBeenCalledWith({ exams: [], days_left: -1 })
+  })
+
+  it('原生电费写入失败向上传递，不能静默伪装同步成功', async () => {
+    const write = vi.mocked(writeElectricitySnapshot)
+    write.mockRejectedValueOnce(new Error('JNI failed'))
+    await expect(writeElectricityToWidget({ quantity: 100 })).rejects.toThrow('JNI failed')
+  })
 })
 
 describe('#758 writeWidgetThemeMode 主题模式通路', () => {

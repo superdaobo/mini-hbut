@@ -21,14 +21,10 @@ import { isTauriRuntime, isCapacitorRuntime, invokeNative } from '@/platform/nat
 const MAX_SNAPSHOT_BYTES = 512 * 1024
 
 /**
- * #894 诊断熔断：
- * beta.507 在关闭 schedule_index 后仍于主页显示后立即闪退。
- * 为了强二分 #880 的 Tauri Android Widget 原生桥，本测试版在
- * Tauri Android 下完全禁止 Widget JS -> Rust/JNI 调用。
- *
- * 这是临时诊断开关，不是最终产品方案。
+ * #1029: 修复 Tauri Android 小组件数据写入。
+ * 旧 #894 熔断只能用于诊断，长期 no-op 会把数据刷新伪装成成功。
+ * 恢复经过 Android SharedPreferences API 的原生桥，失败时真实抛错。
  */
-const TAURI_ANDROID_WIDGET_NATIVE_BRIDGE_DISABLED = true
 
 /**
  * #758：应用内主题模式（与线A #757 三态对应）。
@@ -131,16 +127,10 @@ export function getWidgetBridge(): MiniHbutWidgetPlugin {
   // 1. Tauri Android：通过 invokeNative 写入 SharedPreferences
   if (isTauriAndroid()) {
     if (!_debugLogged) {
-      console.debug(
-        TAURI_ANDROID_WIDGET_NATIVE_BRIDGE_DISABLED
-          ? '[widget] Tauri Android widget native bridge disabled for crash diagnosis (#894)'
-          : '[widget] Tauri Android detected, using native SharedPreferences bridge'
-      )
+      console.debug('[widget] Tauri Android detected, using SharedPreferences JNI bridge (#1029)')
       _debugLogged = true
     }
-    _bridge = TAURI_ANDROID_WIDGET_NATIVE_BRIDGE_DISABLED
-      ? createNoOpProxy()
-      : createTauriAndroidBridge()
+    _bridge = createTauriAndroidBridge()
     return _bridge
   }
 

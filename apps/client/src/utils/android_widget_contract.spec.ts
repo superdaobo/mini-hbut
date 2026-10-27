@@ -7,12 +7,14 @@ const readText = (path: string) =>
   readFileSync(resolve(process.cwd(), path), 'utf8')
 
 describe('android widget contract', () => {
-  it('disables the Tauri Android native widget bridge for #894 crash diagnosis', () => {
+  it('restores Tauri Android SharedPreferences native writes after #894 diagnosis', () => {
     const widget = readText('src/platform/capacitor/widget.ts')
-    expect(widget).toContain('TAURI_ANDROID_WIDGET_NATIVE_BRIDGE_DISABLED = true')
-    expect(widget).toMatch(
-      /TAURI_ANDROID_WIDGET_NATIVE_BRIDGE_DISABLED[\s\S]*\?[\s\S]*createNoOpProxy\(\)[\s\S]*:[\s\S]*createTauriAndroidBridge\(\)/
-    )
+    const rust = readText('src-tauri/src/transport/tauri/widget.rs')
+    expect(widget).not.toContain('TAURI_ANDROID_WIDGET_NATIVE_BRIDGE_DISABLED')
+    expect(widget).toContain('_bridge = createTauriAndroidBridge()')
+    expect(rust).toContain('getSharedPreferences')
+    expect(rust).toContain('ManuallyDrop')
+    expect(rust).not.toContain('atomic_write_file')
   })
 
   it('requests refresh exactly once inside platform snapshot writes', () => {
@@ -79,7 +81,7 @@ describe('android widget contract', () => {
     expect(lib).toContain('transport::tauri::widget::request_widget_refresh')
     expect(tauriWidget).toContain('pub(crate) async fn write_widget_theme_mode')
     expect(tauriWidget).toContain('pub(crate) async fn request_widget_refresh')
-    expect(tauriWidget).toContain('name="theme_mode"')
+    expect(tauriWidget).toContain('"theme_mode"')
     expect(store).toContain('fun writeThemeMode(mode: String)')
     expect(themeMode).toContain('widget_background_light')
     expect(themeMode).toContain('widget_background_dark')
@@ -96,7 +98,7 @@ describe('android widget contract', () => {
     }
   })
 
-  it('keeps native semester-index support but disables schedule_index on the app boot path', () => {
+  it('supports native cross-day rendering with bounded rolling index (not full-semester expansion)', () => {
     const resolver = readText('android/app/src/main/java/com/hbut/mini/widget/WidgetScheduleResolver.kt')
     const renderer = readText('android/app/src/main/java/com/hbut/mini/widget/WidgetRenderer.kt')
     const service = readText('android/app/src/main/java/com/hbut/mini/widget/TodayCoursesRemoteViewsService.kt')
@@ -112,7 +114,7 @@ describe('android widget contract', () => {
     expect(renderer).toContain('WidgetScheduleResolver.resolveToday')
     expect(service).toContain('WidgetScheduleResolver.resolveToday')
     expect(bridge).not.toContain('buildWidgetScheduleIndex')
-    expect(bridge).not.toContain('snapshot.schedule_index')
+    expect(bridge).toContain('snapshot.schedule_index = buildRollingWidgetScheduleIndex')
     expect(provider).toContain('Intent.ACTION_DATE_CHANGED')
     expect(provider).toContain('Intent.ACTION_TIME_CHANGED')
     expect(provider).toContain('Intent.ACTION_TIMEZONE_CHANGED')
@@ -126,12 +128,14 @@ describe('android widget contract', () => {
     }
   })
 
-  it('serializes Tauri widget preference writes and uses unique temp files', () => {
+  it('writes independent native widget fields via Android official SharedPreferences editor', () => {
     const tauriWidget = readText('src-tauri/src/transport/tauri/widget.rs')
-    expect(tauriWidget).toContain('WIDGET_PREFS_WRITE_LOCK')
-    expect(tauriWidget).toContain('WIDGET_PREFS_WRITE_LOCK.lock().await')
-    expect(tauriWidget).toContain('WIDGET_TMP_COUNTER.fetch_add')
-    expect(tauriWidget).toContain('"{}.{}.{}.tmp"')
-    expect(tauriWidget).not.toContain('"{}.{}.tmp"')
+    expect(tauriWidget).toContain('"putString"')
+    expect(tauriWidget).toContain('"commit"')
+    expect(tauriWidget).toContain('"snapshot_json"')
+    expect(tauriWidget).toContain('"electricity_json"')
+    expect(tauriWidget).toContain('"exam_json"')
+    expect(tauriWidget).toContain('spawn_blocking')
+    expect(tauriWidget).not.toContain('shared_prefs/')
   })
 })

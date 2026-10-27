@@ -28,6 +28,7 @@ class WidgetDataStore(context: Context) {
             .putString(KEY_SNAPSHOT_JSON, "")
             .putString(KEY_ELECTRICITY_JSON, "")
             .putString(KEY_EXAM_JSON, "")
+            .putString(KEY_EVENTS_JSON, "")
             .putInt(KEY_SNAPSHOT_VERSION, 1)
             .putLong(KEY_LAST_WRITE_TS, System.currentTimeMillis())
             .commit()
@@ -86,12 +87,23 @@ class WidgetDataStore(context: Context) {
             .commit()
     }
 
+    /** #1029：今日日程 JSON（[{title,date,start,end,location}]，原生渲染时按今天过滤）。 */
+    fun readEvents(): String? = prefs.getString(KEY_EVENTS_JSON, null)
+
+    fun writeEvents(json: String): Boolean {
+        return prefs.edit()
+            .putString(KEY_EVENTS_JSON, json)
+            .putLong(KEY_LAST_WRITE_TS, System.currentTimeMillis())
+            .commit()
+    }
+
     companion object {
         private const val KEY_SNAPSHOT_JSON = "snapshot_json"
         private const val KEY_SNAPSHOT_VERSION = "snapshot_version"
         private const val KEY_LAST_WRITE_TS = "last_write_ts"
         private const val KEY_ELECTRICITY_JSON = "electricity_json"
         private const val KEY_EXAM_JSON = "exam_json"
+        private const val KEY_EVENTS_JSON = "events_json"
         private const val KEY_THEME_COLOR = "theme_color"
         /** #758：应用内主题模式（system/light/dark），由前端经桥接写入 */
         private const val KEY_THEME_MODE = "theme_mode"

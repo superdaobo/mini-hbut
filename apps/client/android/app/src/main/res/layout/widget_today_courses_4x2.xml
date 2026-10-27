@@ -1,25 +1,97 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- #1029：今日课程 4x2（毛玻璃 + 图标 + 周几徽章 + 今日日程 + 更新时间脚注） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/widget_background"
-    android:padding="14dp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="10dp"
     android:clipToOutline="true">
 
-    <!-- 标题 -->
-    <TextView
-        android:id="@+id/widget_title"
+    <!-- 标题栏：日历图标（emoji 跨设备稳定）+ 标题 + 周几徽章 -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="今日课程"
-        android:textColor="@color/widget_text_primary"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:paddingBottom="6dp" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/widget_title_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📅"
+            android:textSize="15sp"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="今日课程"
+            android:textColor="@color/widget_text_primary"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_week_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/widget_capsule_accent"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:textColor="@color/widget_title_accent"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 分隔线（RemoteViews 不支持原生 View，用 1dp 高 TextView 代替） -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/widget_divider"
+        android:layout_marginBottom="4dp" />
+
+    <!-- #1029：今日日程（紧贴标题下方，最多 2 条，无日程时整体隐藏） -->
+    <LinearLayout
+        android:id="@+id/widget_events_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widget_event_line_1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_event_line_2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <!-- 空态提示（4x2 无课程时显示） -->
     <TextView
@@ -52,6 +124,17 @@
         android:textSize="11sp"
         android:textStyle="bold"
         android:visibility="gone"
-        android:paddingTop="4dp" />
+        android:paddingTop="2dp" />
+
+    <!-- 脚注：更新时间 / 课程数 -->
+    <TextView
+        android:id="@+id/widget_footer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="end"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="10sp"
+        android:paddingTop="2dp"
+        android:visibility="gone" />
 
 </LinearLayout>

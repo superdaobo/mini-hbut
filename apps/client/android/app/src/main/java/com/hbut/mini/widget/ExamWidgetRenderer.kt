@@ -32,18 +32,37 @@ object ExamWidgetRenderer {
         val locationId = context.resources.getIdentifier("widget_exam_location", "id", packageName)
         val countdownId = context.resources.getIdentifier("widget_exam_countdown", "id", packageName)
 
-        if (titleId != 0) views.setTextViewText(titleId, "即将考试")
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
+        val sourceTime = try {
+            java.time.Instant.parse(data?.optString("updated_at", "") ?: "")
+        } catch (_: Exception) {
+            null
+        }
+        val stale = sourceTime == null || java.time.Duration.between(
+            sourceTime, java.time.Instant.now()
+        ).toHours() >= 24
+        if (titleId != 0) {
+            views.setTextViewText(titleId, if (data != null && stale) "即将考试 · 数据待更新" else "即将考试")
+        }
 
         if (data != null) {
+            // 不相信历史快照的第一项和 days_left；每次 RemoteViews 重绘按上海日期重新挑选。
             val exams = data.optJSONArray("exams") ?: JSONArray()
-            if (exams.length() > 0) {
-                val next = exams.getJSONObject(0)
+            val upcoming = (0 until exams.length())
+                .mapNotNull { exams.optJSONObject(it) }
+                .mapNotNull { exam ->
+                    val day = parseExamDay(exam.optString("exam_date", ""))
+                    if (day != null && !day.isBefore(today)) day to exam else null
+                }
+                .minByOrNull { it.first }
+            val next = upcoming?.second
+            if (next != null) {
                 val courseName = next.optString("course_name", "")
                 val examDate = next.optString("exam_date", "")
                 val examTime = next.optString("exam_time", "")
                 val location = next.optString("location", "")
                 val seatNo = next.optString("seat_no", "")
-                val daysLeft = data.optInt("days_left", -1)
+                val daysLeft = upcoming?.first?.toEpochDay()?.minus(today.toEpochDay())?.toInt() ?: -1
 
                 if (courseId != 0) views.setTextViewText(courseId, courseName)
                 if (dateId != 0) {
@@ -105,6 +124,15 @@ object ExamWidgetRenderer {
         WidgetThemeMode.bindTextColor(context, themeMode, views, locationId, "widget_location_text")
 
         appWidgetManager.updateAppWidget(appWidgetId, views)
+    }
+
+    private fun parseExamDay(dateStr: String): java.time.LocalDate? {
+        val date = Regex("\\d{4}-\\d{2}-\\d{2}").find(dateStr)?.value ?: return null
+        return try {
+            java.time.LocalDate.parse(date)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun extractTimeOnly(timeStr: String): String {

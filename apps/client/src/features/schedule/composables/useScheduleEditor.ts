@@ -350,6 +350,9 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
         throw new Error(res.data?.error || t('schedule.editor.submitFailed').replace('{action}', actionWord))
       }
       await refreshCustomCourseViews(sem)
+      // #1029：自定义课程保存后立即重建 Widget 快照（原实现只刷新页面视图，
+      // 桌面小组件要等下次进课表页/重启 App 才能看到新课程）。
+      void tryWriteSnapshotFromCache(sid)
       showAddCourse.value = false
       showWeekPicker.value = false
       if (isEditing && returnToManageAfterCourseSubmit.value) {
@@ -409,6 +412,8 @@ export const useScheduleEditor = (options: ScheduleEditorOptions) => {
         throw new Error(res.data?.error || t('schedule.editor.deleteFailed'))
       }
       await refreshCustomCourseViews(sem)
+      // #1029：删除自定义课程同样要立刻重建 Widget 快照，避免桌面残留已删课程。
+      void tryWriteSnapshotFromCache(sid)
       if (recordOptions.reopenDetail && !isCurrentWeek) {
         detail.syncSelectedCustomCourse(courseId, sem)
         detail.showDetail.value = !!detail.selectedCourse.value
