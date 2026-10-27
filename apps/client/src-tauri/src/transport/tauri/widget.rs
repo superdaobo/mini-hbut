@@ -231,6 +231,16 @@ pub(crate) async fn write_exam_snapshot(
     persist_fields(vec![("exam_json", json)]).await
 }
 
+/// #1029：把「今日日程」写进 Widget 独立存储（与课程快照解耦）。
+/// 前端在日程增删改后调用；原生端渲染时按快照日期过滤，跨天自动只显示当天日程。
+#[tauri::command]
+pub(crate) async fn write_widget_events(
+    _app: tauri::AppHandle,
+    events_json: String,
+) -> Result<(), String> {
+    persist_fields(vec![("events_json", events_json)]).await
+}
+
 #[tauri::command]
 pub(crate) async fn write_widget_theme_color(
     _app: tauri::AppHandle,
@@ -263,6 +273,7 @@ pub(crate) async fn clear_widget_snapshot(_app: tauri::AppHandle) -> Result<(), 
         ("snapshot_json", String::new()),
         ("electricity_json", String::new()),
         ("exam_json", String::new()),
+        ("events_json", String::new()),
     ])
     .await
 }

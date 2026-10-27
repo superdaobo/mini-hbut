@@ -96,6 +96,35 @@
         android:visibility="gone"
         android:paddingTop="2dp" />
 
+    <!-- #1029：今日日程（最多 2 条，无日程时整体隐藏） -->
+    <LinearLayout
+        android:id="@+id/widget_events_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="2dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widget_event_line_1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="10sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_event_line_2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="10sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone" />
+    </LinearLayout>
+
     <!-- 脚注：更新时间 / 课程数 -->
     <TextView
         android:id="@+id/widget_footer"

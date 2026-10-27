@@ -7,6 +7,7 @@ import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Widget 渲染器 — 构建 RemoteViews 并推送到 AppWidgetManager。
@@ -101,6 +102,34 @@ object WidgetRenderer {
                 views.setViewVisibility(footerId, View.VISIBLE)
             } else {
                 views.setViewVisibility(footerId, View.GONE)
+            }
+        }
+
+        // #1029：今日日程（独立存储，按今天过滤后最多展示 2 条）。
+        val eventsContainerId =
+            context.resources.getIdentifier("widget_events_container", "id", packageName)
+        if (eventsContainerId != 0) {
+            val todayKey = if (outdated) {
+                WidgetScheduleResolver.todayDateString()
+            } else {
+                date.ifEmpty { WidgetScheduleResolver.todayDateString() }
+            }
+            val todayEvents = readTodayEvents(context, todayKey)
+            if (todayEvents.isNotEmpty()) {
+                val line1Id = context.resources.getIdentifier("widget_event_line_1", "id", packageName)
+                val line2Id = context.resources.getIdentifier("widget_event_line_2", "id", packageName)
+                if (line1Id != 0) views.setTextViewText(line1Id, formatEventLine(todayEvents[0]))
+                if (line2Id != 0) {
+                    if (todayEvents.size > 1) {
+                        views.setTextViewText(line2Id, formatEventLine(todayEvents[1]))
+                        views.setViewVisibility(line2Id, View.VISIBLE)
+                    } else {
+                        views.setViewVisibility(line2Id, View.GONE)
+                    }
+                }
+                views.setViewVisibility(eventsContainerId, View.VISIBLE)
+            } else {
+                views.setViewVisibility(eventsContainerId, View.GONE)
             }
         }
 
@@ -261,6 +290,37 @@ object WidgetRenderer {
         } catch (_: Exception) {
             ""
         }
+    }
+
+    /**
+     * #1029：读取「今天」的日程（按 date 字段过滤，按开始时间排序，最多 2 条）。
+     * 数据来自前端 write_widget_events 写入的独立 JSON；解析失败视为无日程。
+     */
+    private fun readTodayEvents(context: Context, today: String): List<JSONObject> {
+        val raw = WidgetDataStore(context).readEvents()
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length())
+                .mapNotNull { index -> arr.optJSONObject(index) }
+                .filter { it.optString("date") == today }
+                .sortedBy { it.optString("start") }
+                .take(2)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** 单条日程行文案：「📌 14:30-15:30 组会」。 */
+    private fun formatEventLine(event: JSONObject): String {
+        val start = event.optString("start")
+        val end = event.optString("end")
+        val time = when {
+            start.isNotEmpty() && end.isNotEmpty() -> "$start-$end "
+            start.isNotEmpty() -> "$start "
+            else -> ""
+        }
+        return "📌 $time${event.optString("title")}"
     }
 
     private fun formatDateChinese(date: String): String {

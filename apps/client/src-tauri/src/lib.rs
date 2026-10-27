@@ -695,6 +695,7 @@ pub fn run() {
             transport::tauri::widget::request_widget_refresh,
             transport::tauri::widget::write_electricity_snapshot,
             transport::tauri::widget::write_exam_snapshot,
+            transport::tauri::widget::write_widget_events,
             transport::tauri::widget::debug_widget_paths,
             transport::tauri::system::backup_database_now,
             chaoxing_checkin_cmd::chaoxing_checkin_list,

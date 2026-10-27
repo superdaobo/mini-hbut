@@ -359,6 +359,39 @@ export async function writeExamToWidget(data: {
 }
 
 /**
+ * #1029：把「今日日程」同步到桌面小组件（独立于课程快照存储）。
+ * - 只发日期字段，原生端渲染时按今天过滤，跨天自动不再显示昨天日程；
+ * - 非 Tauri 运行时直接跳过；写入失败只降级为「无日程」。
+ */
+export async function writeTodayEventsToWidget(
+  events: Array<{
+    title?: string
+    date?: string
+    startTime?: string
+    endTime?: string
+    location?: string
+  }>
+): Promise<void> {
+  if (!isTauriRuntime()) return
+  try {
+    const payload = (Array.isArray(events) ? events : [])
+      .map((event) => ({
+        title: String(event?.title || '').slice(0, 40),
+        date: String(event?.date || ''),
+        start: String(event?.startTime || ''),
+        end: String(event?.endTime || ''),
+        location: String(event?.location || '').slice(0, 40)
+      }))
+      .filter((event) => event.title.length > 0 && event.date.length > 0)
+      .slice(0, 8)
+    await invokeNative('write_widget_events', { eventsJson: JSON.stringify(payload) })
+  } catch (err: unknown) {
+    console.warn('[widget] writeTodayEventsToWidget failed:', err)
+    pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeTodayEventsToWidget' })
+  }
+}
+
+/**
  * 将当前主题色写入小组件 SharedPreferences
  * 在主题切换时调用
  */

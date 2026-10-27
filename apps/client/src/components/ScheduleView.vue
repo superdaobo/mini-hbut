@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
  * 课表页面入口（编排层）。
  * 原巨型单文件（约 4900 行）已按职责拆分至 src/features/schedule/**：
@@ -35,6 +35,9 @@ import { useScheduleTermStart } from '../features/schedule/composables/useSchedu
 // #833 Wave2：个人日程（数据层 + 统一「添加安排」编辑器）
 import { useScheduleEventData } from '../features/schedule/composables/useScheduleEventData'
 import { useScheduleEvents } from '../features/schedule/composables/useScheduleEvents'
+// #1029：日程 CRUD 后把「今日日程」同步到桌面小组件
+import { writeTodayEventsToWidget } from '../utils/widget_bridge'
+import { formatLocalDate } from '../utils/widget_snapshot'
 // #838：日程详情 / 编辑 / 删除交互闭环
 import { useScheduleEventDetail } from '../features/schedule/composables/useScheduleEventDetail'
 import { useI18n } from '../utils/app_i18n'
@@ -83,7 +86,15 @@ const events = useScheduleEvents({
   semester: semesterApi,
   data,
   confirmDialog,
-  onChanged: () => eventData.refreshWeekEvents()
+  onChanged: () => {
+    // #1029：日程增删改后重拉当前周日程，并把「今日日程」同步到桌面小组件。
+    void eventData.refreshWeekEvents().then(() => {
+      const today = formatLocalDate(new Date())
+      void writeTodayEventsToWidget(
+        (eventData.weekEvents.value || []).filter((event) => event.date === today)
+      )
+    })
+  }
 })
 
 /**

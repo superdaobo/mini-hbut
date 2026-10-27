@@ -39,6 +39,7 @@ const SILENT_NATIVE_COMMANDS = new Set([
   'write_widget_snapshot',
   'write_electricity_snapshot',
   'write_exam_snapshot',
+  'write_widget_events',
   'clear_widget_snapshot',
   'write_widget_theme_color',
   'write_widget_theme_mode',
