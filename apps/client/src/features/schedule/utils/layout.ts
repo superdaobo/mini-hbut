@@ -12,6 +12,14 @@ import {
 import { hashText, pickBestThemeCandidate } from './colors'
 
 /**
+ * 冲突课程显示方式（issue #1115）：
+ * - `merged`（默认，旧版）：冲突区间只显示一张「课程冲突」汇总卡，真实课程按
+ *   非冲突节次切片显示，避免汇总卡与真实课程同时抢 lane；
+ * - `side-by-side`（新版）：只显示真实冲突课程，由 lane 布局并排；不生成汇总卡。
+ */
+export type ScheduleConflictDisplayMode = 'merged' | 'side-by-side'
+
+/**
  * 数据预处理：按星期、节次排序后原样返回（渲染级合并由 mergeDailyCourses 完成）。
  * 与原始 processScheduleData 完全一致。
  */
@@ -125,15 +133,22 @@ export const mergeDailyCourses = (dailyCourses: any[]): any[] => {
   return merged
 }
 
-/**
- * 构建冲突块：将同一节次上多门课折叠为一张「课程冲突」卡片。
- * 与原 buildConflictBlocks 一致；fallbackSemester 用于补全冲突课程的学期字段。
- */
-export const buildConflictBlocks = (day: number, mergedCourses: any[], weekNumber: number, fallbackSemester = ''): any[] => {
-  if (!Array.isArray(mergedCourses) || mergedCourses.length < 2) return []
-  const periodConflicts: any[] = []
+/** 单个节次上的冲突集合（period → 同时活跃的课程）。 */
+export interface PeriodConflict {
+  period: number
+  key: string
+  active: any[]
+}
 
-  for (let period = 1; period <= 11; period += 1) {
+/**
+ * 收集每天每个节次上「同时活跃 ≥2 门课程」的冲突集合。
+ * 从原 `buildConflictBlocks` 内联逻辑抽出，供汇总卡与真实课程切片共用同一数据源。
+ */
+export const collectPeriodConflicts = (mergedCourses: any[]): PeriodConflict[] => {
+  if (!Array.isArray(mergedCourses) || mergedCourses.length < 2) return []
+  const periodConflicts: PeriodConflict[] = []
+
+  for (let period = 1; period <= MAX_PERIOD; period += 1) {
     const activeRaw = mergedCourses.filter((course) => {
       const start = Number(course._start || course.period || 1)
       const span = Math.max(1, Number(course.djs || 1))
@@ -159,6 +174,17 @@ export const buildConflictBlocks = (day: number, mergedCourses: any[], weekNumbe
       })
     }
   }
+
+  return periodConflicts
+}
+
+/**
+ * 构建冲突块：将同一节次上多门课折叠为一张「课程冲突」卡片。
+ * fallbackSemester 用于补全冲突课程的学期字段。
+ */
+export const buildConflictBlocks = (day: number, mergedCourses: any[], weekNumber: number, fallbackSemester = ''): any[] => {
+  if (!Array.isArray(mergedCourses) || mergedCourses.length < 2) return []
+  const periodConflicts = collectPeriodConflicts(mergedCourses)
 
   if (!periodConflicts.length) return []
 
@@ -219,14 +245,162 @@ export const buildConflictBlocks = (day: number, mergedCourses: any[], weekNumbe
 }
 
 /**
+ * 把课程按「被冲突覆盖的节次」切分为可见段（#1115 合并显示）。
+ *
+ * - 完全不冲突 → 原对象；
+ * - 部分冲突 → 每个非冲突连续区间生成一个显示副本，保留原 `period/djs`
+ *   （详情/编辑/导出仍使用完整课程），仅用 `_displayStart/_displaySpan` 控制网格位置；
+ * - 完全被冲突覆盖 → 不生成真实课程卡（由汇总卡承载）。
+ */
+export const buildVisibleMergedCourses = (
+  mergedCourses: any[],
+  periodConflicts: PeriodConflict[]
+): any[] => {
+  if (!Array.isArray(mergedCourses) || mergedCourses.length === 0) return []
+  if (!Array.isArray(periodConflicts) || periodConflicts.length === 0) return mergedCourses
+
+  const coveredByCourse = new Map<any, Set<number>>()
+  periodConflicts.forEach((conflict) => {
+    conflict.active.forEach((course) => {
+      if (!coveredByCourse.has(course)) coveredByCourse.set(course, new Set())
+      coveredByCourse.get(course)!.add(conflict.period)
+    })
+  })
+
+  const visible: any[] = []
+  for (const course of mergedCourses) {
+    const covered = coveredByCourse.get(course)
+    if (!covered || covered.size === 0) {
+      visible.push(course)
+      continue
+    }
+
+    const fullStart = Number(course._start ?? course.period ?? 1)
+    const fullSpan = Math.max(
+      1,
+      Math.min(MAX_PERIOD - fullStart + 1, Number(course.djs) || 1)
+    )
+    const fullEnd = Math.min(MAX_PERIOD, fullStart + fullSpan - 1)
+    const runs: Array<{ start: number; span: number }> = []
+    let runStart: number | null = null
+
+    for (let period = fullStart; period <= fullEnd; period += 1) {
+      if (covered.has(period)) {
+        if (runStart !== null) {
+          runs.push({ start: runStart, span: period - runStart })
+          runStart = null
+        }
+      } else if (runStart === null) {
+        runStart = period
+      }
+    }
+    if (runStart !== null) {
+      runs.push({ start: runStart, span: fullEnd - runStart + 1 })
+    }
+
+    const isUnchanged =
+      runs.length === 1 && runs[0].start === fullStart && runs[0].span === fullSpan
+    if (isUnchanged) {
+      visible.push(course)
+      continue
+    }
+
+    runs.forEach((run) => {
+      visible.push({
+        ...course,
+        _displayStart: run.start,
+        _displaySpan: run.span,
+        _segmentOf: course._uid ?? course.id ?? '',
+        _uid: `${course._uid ?? course.id ?? course.name}#seg-${run.start}-${run.start + run.span - 1}`
+      })
+    })
+  }
+
+  return visible
+}
+
+/**
+ * 为 lane 溢出的隐藏课程生成一张合成「课程冲突」详情对象（#1115 side-by-side）。
+ * 仅当隐藏项里含真实课程时返回；纯日程溢出由调用方沿用 #837 的打开首条日程行为。
+ */
+export const buildOverflowConflictCourse = (
+  group: { dayIndex?: number; items?: any[] } | null | undefined,
+  title: string,
+  roomHint: string,
+  weekNumber = 0
+): any | null => {
+  const items = Array.isArray(group?.items) ? group!.items : []
+  const courseItems = items.filter((item) => item?.kind === 'course' && item.raw)
+  if (courseItems.length === 0) return null
+
+  const courses = courseItems.map((item) => item.raw)
+  const starts = courses.map((item) => Number(item._displayStart ?? item.period) || 1)
+  const ends = courses.map((item) => {
+    const start = Number(item._displayStart ?? item.period) || 1
+    const span = Math.max(1, Number(item._displaySpan ?? item.djs) || 1)
+    return start + span - 1
+  })
+  const start = Math.min(...starts)
+  const end = Math.max(...ends)
+
+  return {
+    id: `conflict-overflow:${group?.dayIndex || 0}:${start}:${end}`,
+    name: title,
+    teacher: '',
+    room: roomHint,
+    room_code: `${courses.length}`,
+    building: '',
+    weekday: Number(group?.dayIndex) || 1,
+    period: start,
+    djs: end - start + 1,
+    weeks: [weekNumber],
+    weeks_text: String(weekNumber),
+    credit: '',
+    class_name: '',
+    is_conflict: true,
+    conflict_courses: courses.map((item) => ({
+      id: item.id,
+      source_id: item.source_id || item.id,
+      name: item.name,
+      teacher: item.teacher,
+      room: item.room,
+      room_code: item.room_code,
+      building: item.building,
+      weekday: item.weekday,
+      period: item.period,
+      djs: item.djs,
+      weeks: Array.isArray(item.weeks) ? [...item.weeks] : [],
+      weeks_text: item.weeks_text,
+      credit: item.credit,
+      class_name: item.class_name,
+      semester: item.semester || '',
+      is_custom: !!item.is_custom
+    }))
+  }
+}
+
+/**
  * 构建某一周所有天的课程（含合并与冲突块），并完成整周配色分配。
- * 与原 buildWeekCoursesWithColors 一致。
+ *
+ * `conflictDisplay`（#1115）：
+ * - `merged`（默认）：汇总卡 + 真实课程非冲突切片；
+ * - `side-by-side`：只显示真实课程，不生成汇总卡（由 lane 并排）。
  */
 export const buildWeekCoursesWithColors = (
   weekNumber: number,
-  options: { scheduleData: any[]; fallbackSemester?: string }
+  options: {
+    scheduleData: any[]
+    fallbackSemester?: string
+    conflictDisplay?: ScheduleConflictDisplayMode
+  }
 ): Record<number, any[]> => {
-  const { scheduleData, fallbackSemester = '' } = options || {}
+  const {
+    scheduleData,
+    fallbackSemester = '',
+    conflictDisplay = 'merged'
+  } = options || {}
+  const mode: ScheduleConflictDisplayMode =
+    conflictDisplay === 'side-by-side' ? 'side-by-side' : 'merged'
   const source = Array.isArray(scheduleData) ? scheduleData : []
   const byDay: Record<number, any[]> = {}
   const nodes: any[] = []
@@ -250,8 +424,14 @@ export const buildWeekCoursesWithColors = (
       }
     })
 
-    const conflicts = buildConflictBlocks(day, merged, weekNumber, fallbackSemester)
-    byDay[day] = [...merged, ...conflicts]
+    const periodConflicts = mode === 'merged' ? collectPeriodConflicts(merged) : []
+    const conflicts =
+      mode === 'merged'
+        ? buildConflictBlocks(day, merged, weekNumber, fallbackSemester)
+        : []
+    const visibleMerged =
+      mode === 'merged' ? buildVisibleMergedCourses(merged, periodConflicts) : merged
+    byDay[day] = [...visibleMerged, ...conflicts]
     merged.forEach((node) => {
       nodes.push(node)
       const nameKey = String(node.name || '')
@@ -344,8 +524,13 @@ export const buildWeekCoursesWithColors = (
  */
 export const getCourseStyle = (course: any, cardStyle: string): Record<string, any> => {
   if (!course) return {}
-  const start = Number(course.period) || 1
-  const span = Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course.djs) || 1))
+  // #1115：合并显示模式下真实课程可能只显示冲突区间之外的切片；
+  // 只影响网格定位，`period/djs` 保持完整课程语义供详情/编辑/导出使用。
+  const start = Number(course._displayStart ?? course.period) || 1
+  const span = Math.max(
+    1,
+    Math.min(MAX_PERIOD - start + 1, Number(course._displaySpan ?? course.djs) || 1)
+  )
   const isTraditionalCard = cardStyle === 'traditional'
   const isClassCard = cardStyle === 'class'
   const modernRadius = '14px'

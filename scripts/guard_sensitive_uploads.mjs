@@ -303,7 +303,17 @@ function scanExplicitFiles(files) {
   return findings
 }
 
-function main() {
+// CI spawnSync 会把输入送到非阻塞 pipe；对 fd=0 做同步 readFileSync
+// 偶发抛 EAGAIN（#1094），从而误判安全门禁为执行失败。
+// 改为消费 Node stdin 异步流，始终读到 EOF，再交给原有 fail-closed 扫描逻辑。
+async function readStdinText() {
+  process.stdin.setEncoding('utf8')
+  let content = ''
+  for await (const chunk of process.stdin) content += chunk
+  return content
+}
+
+async function main() {
   const mode = process.argv[2]
   if (mode === 'self-test') {
     runSelfTest()
@@ -314,7 +324,7 @@ function main() {
     return
   }
   if (mode === 'pre-push') {
-    const stdinText = readFileSync(0, 'utf8')
+    const stdinText = await readStdinText()
     printFindingsAndExit(scanPush(stdinText))
     return
   }
@@ -341,7 +351,7 @@ function main() {
     // 支持 check_all 全量已跟踪文件等大集合（避免命令行参数超长）。
     let files = args.length === 1 && args[0] === '-' ? [] : args
     if (args.length === 0 || (args.length === 1 && args[0] === '-')) {
-      files = readFileSync(0, 'utf8')
+      files = (await readStdinText())
         .split(/\r?\n/)
         .map(normalizePath)
         .filter(Boolean)
@@ -430,5 +440,8 @@ function runSelfTest() {
 // 被单测 import 时不执行 CLI 主流程
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (isMain) {
-  main()
+  main().catch((err) => {
+    console.error(`[SecretGuard] stdin/扫描流程异常，阻止放行: ${err.message}`)
+    process.exitCode = 1
+  })
 }

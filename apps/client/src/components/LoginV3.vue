@@ -29,6 +29,8 @@ import {
   NON_OFFICIAL_DISCLAIMER_ZH
 } from '../config/app_store_policy'
 import { saveRememberedUsername } from '../utils/remembered_username.js'
+import { normalizePortalAccountId } from '../utils/portal_account.js'
+import { normalizeLoginRole, readLoginFormAccount, readLoginRole, writeLoginFormAccount, writeLoginRole } from '../utils/login_role.js'
 import { isValidStudentId as isLikelyStudentId } from '../utils/student_id.js'
 import {
   isLoginInFlight,
@@ -37,7 +39,7 @@ import {
   runExclusiveLogin,
   waitForInFlightLogin
 } from '../app/coordinators/sessionGate'
-import { noteLoginSuccess } from '../app/coordinators/loginCooldown'
+import { noteLoginSuccess, noteLoginCooldownFromError, loginCooldownRemainingMs } from '../app/coordinators/loginCooldown'
 import {
   LOGIN_METHOD_CHAOXING_PASSWORD,
   LOGIN_METHOD_CHAOXING_QR,
@@ -98,6 +100,47 @@ const LOGIN_MODES = [
   }
 ]
 
+/**
+ * 登录身份：学生端 / 教师端。
+ *
+ * 教师与学生**共用同一套门户 CAS 登录**（门户登录框本身即「请输入学号/工号」），
+ * 所以这里的入口选择**不决定身份**，只决定 UI 形态：
+ * - 教师端不提供「学习通」入口（教师不使用学习通）；
+ * - 登录成功后一律以教务系统返回的身份为准（见 `applyPortalLoginResult`），
+ *   用户选错入口也不会导致功能可见性错误。
+ */
+const IDENTITY_ROLES = [
+  { key: 'student', labelKey: 'login.role.student' },
+  { key: 'teacher', labelKey: 'login.role.teacher' }
+]
+
+const loginRole = ref(readLoginRole())
+const isTeacherRole = computed(() => loginRole.value === 'teacher')
+
+/**
+ * 登录表单「上次使用的账号」按身份分开记忆（实现见 `utils/login_role.js`）。
+ *
+ * 学生与教师共用同一个门户登录接口，但**账号体系不同**（学号 / 工号）：
+ * 若共用一个键，学生保存的账号密码会出现在教师端输入框里（反之亦然）。
+ * 注意：凭据本身（`hbut:<账号>`）本来就按账号存储、天然隔离，
+ * 这里修的只是**表单预填**这一个入口。
+ */
+const switchRole = (role) => {
+  const next = IDENTITY_ROLES.some((item) => item.key === role) ? role : 'student'
+  if (next === loginRole.value) return
+  loginRole.value = next
+  writeLoginRole(next)
+  statusMsg.value = ''
+  clearDebugLogs()
+  // 教师端只支持门户账号密码；从教师端切回学生端时保留用户原先选择的模式
+  if (next === 'teacher') {
+    switchMode('portal')
+  }
+  // 切换身份后必须按新身份重新预填：两个身份的账号体系不同，
+  // 不能把上一个身份的账号密码留在输入框里
+  void hydrateRememberedCredentials(next)
+}
+
 const normalizeModeKey = (mode) => {
   const raw = String(mode || '').trim()
   if (!raw) return ''
@@ -108,6 +151,8 @@ const normalizeModeKey = (mode) => {
 
 const isKnownMode = (mode) => LOGIN_MODES.some((item) => item.key === mode)
 const resolveInitialMode = () => {
+  // 教师端只提供门户账号密码（教师不使用学习通）
+  if (isTeacherRole.value) return 'portal'
   const fromProp = normalizeModeKey(props.loginMode)
   if (isKnownMode(fromProp)) return fromProp
   const fromStorage = normalizeModeKey(localStorage.getItem(LOGIN_MODE_PREF_KEY))
@@ -133,6 +178,21 @@ const rememberMe = ref(true)
 const agreePolicy = ref(true)
 // #932：登录期间切走再切回时，沿用模块级单飞门的在飞状态，避免丢失「登录中」
 const loading = ref(isLoginInFlight())
+const cooldownSeconds = ref(0)
+let cooldownTimer = null
+
+/** 前台也遵守 Rust 返回的登录冷却时间；已发送的请求不因计时器消失而重发。 */
+const refreshLoginCooldown = () => {
+  if (cooldownTimer !== null) {
+    window.clearTimeout(cooldownTimer)
+    cooldownTimer = null
+  }
+  cooldownSeconds.value = Math.ceil(loginCooldownRemainingMs() / 1000)
+  if (cooldownSeconds.value > 0) {
+    cooldownTimer = window.setTimeout(refreshLoginCooldown, 1000)
+  }
+}
+
 const statusMsg = ref('')
 const ocrConfigMode = ref(t('login.ocr.local'))
 const debugLogs = ref([])
@@ -180,7 +240,7 @@ const isChaoxingMode = computed(() => activeMode.value === 'chaoxing')
 const canSubmitPasswordLogin = computed(() => {
   // 仅提交中禁用；账号/密码/协议未满足时保持可点击，由 handlePasswordLogin
   // 给出明确提示（否则按钮灰置时用户看不到任何原因说明）。
-  return !loading.value
+  return !loading.value && cooldownSeconds.value === 0
 })
 const canSubmitChaoxingPasswordLogin = computed(() => {
   return !loading.value
@@ -517,38 +577,52 @@ const scheduleCxQrPoll = () => {
  */
 const applyPortalLoginResult = async (result, { method = LOGIN_METHOD_PORTAL_PASSWORD } = {}) => {
   if (!result?.success) {
-    statusMsg.value = `❌ ${friendlyLoginError(result?.error || '')}`
+    const error = result?.error || ''
+    if (noteLoginCooldownFromError(error) > 0) refreshLoginCooldown()
+    statusMsg.value = `❌ ${friendlyLoginError(error)}`
     return false
   }
 
-  const sid = String(
-    result?.data?.student_id || result?.data?.studentId || username.value || ''
-  ).trim()
-  if (sid) {
-    saveRememberedUsername(sid)
+  // 后端返回的工号与角色是唯一可信来源；不能把教师入口偏好当成认证角色。
+  const role = normalizeLoginRole(result?.data?.role)
+  const sid = normalizePortalAccountId(
+    result?.data?.student_id ?? result?.data?.studentId, role
+  )
+  if (!sid) {
+    statusMsg.value = '❌ 登录结果缺少有效账号，请重新登录'
+    return false
   }
-  await syncPortalRememberCredential({
-    username: username.value,
-    studentId: sid,
-    password: password.value,
-    remember: rememberMe.value
-  })
-  if (rememberMe.value) {
-    localStorage.setItem('hbu_remember', 'true')
-  }
+
+  // 密钥环可能响应较慢：捕获本次凭据快照，不让本地写入阻塞已确认的 CAS 登录。
+  const credentials = { account: username.value, secret: password.value, remember: rememberMe.value }
+
+  // 先一次性确认前端的身份/在线会话，再投递成功通知；本地存储异常也不阻断。
+  authStore.establishSession({ studentId: sid, role })
+  saveRememberedUsername(sid, role)
+  loginRole.value = writeLoginRole(role)
+  writeLoginFormAccount(role, sid)
   applyLoginMethodStorage(method)
   localStorage.removeItem(LOGOUT_REASON_KEY)
   markLoginOnline()
-  // 只有门户密码登录会进入 Rust 的 60s 冷却门（其余登录命令不经过 client.login），
-  // 登记冷却供自动恢复链在窗口内让路（#931）
   if (triggersLoginCooldown(method)) {
     noteLoginSuccess()
   }
   statusMsg.value = t('login.status.signInSuccessSyncing')
-  // #928：成绩同步不再阻塞登录完成（原先要多转约 10s）。
-  // #932：结果走应用级通道 —— 登录期间被切走时本实例可能已卸载，Vue 会丢弃
-  // 已卸载实例的 emit，全局事件才能保证结果仍被应用层接收。
   publishPortalLoginSucceeded({ studentId: sid, method })
+  // 本地凭据保存不影响会话成功反馈；即使用户切页，快照仍独立完成。
+  void (async () => {
+    try {
+      await savePortalCredentials(credentials)
+      await syncPortalRememberCredential({
+        username: credentials.account,
+        studentId: sid,
+        password: credentials.secret,
+        remember: credentials.remember
+      })
+    } catch {
+      pushDebugLog('Login', '登录成功，但保存本地凭据失败', 'warn')
+    }
+  })()
   return true
 }
 
@@ -586,19 +660,15 @@ const resumeInFlightLogin = async () => {
   }
 }
 
-const savePortalCredentials = async () => {
-  if (rememberMe.value) {
-    saveRememberedUsername(username.value)
+const savePortalCredentials = async ({ account, secret, remember }) => {
+  if (remember) {
     localStorage.setItem('hbu_remember', 'true')
-    await saveRememberedCredential(
-      buildHbutAccountKey(username.value),
-      password.value
-    )
+    await saveRememberedCredential(buildHbutAccountKey(account), secret)
     localStorage.removeItem('hbu_credentials')
   } else {
     localStorage.removeItem('hbu_credentials')
     localStorage.setItem('hbu_remember', 'false')
-    await saveRememberedCredential(buildHbutAccountKey(username.value), '')
+    await saveRememberedCredential(buildHbutAccountKey(account), '')
   }
 }
 
@@ -624,6 +694,7 @@ const handleTestAccountLogin = async () => {
   try {
     markTestAccountSession()
     username.value = TEST_ACCOUNT.studentId
+    authStore.establishSession({ studentId: TEST_ACCOUNT.studentId, role: 'student' })
     saveRememberedUsername(TEST_ACCOUNT.studentId)
     localStorage.setItem('hbu_remember', 'false')
     localStorage.setItem('hbu_login_entry_mode', 'portal')
@@ -640,6 +711,16 @@ const handleTestAccountLogin = async () => {
 }
 
 const handlePasswordLogin = async () => {
+  if (loading.value) return
+  if (loginCooldownRemainingMs() > 0) {
+    refreshLoginCooldown()
+    statusMsg.value = friendlyLoginError(`⚠️ 登录冷却中，请 ${cooldownSeconds.value} 秒后再试`)
+    return
+  }
+  if (isLoginInFlight()) {
+    void resumeInFlightLogin()
+    return
+  }
   if (!username.value || !password.value) {
     statusMsg.value = t('login.error.enterCredentials')
     return
@@ -659,8 +740,6 @@ const handlePasswordLogin = async () => {
   void ensureOcrEndpointReady().catch((e) => {
     pushDebugLog('Login', '登录前 OCR 配置刷新失败（已忽略）', 'warn', e)
   })
-  await savePortalCredentials()
-
   try {
     // #929：提交带超时兜底 —— 单飞门复用（后台重登在飞）或原生侧失联时，
     // 界面也能在有限时间内恢复可交互，而不是永久转圈且无任何提示。
@@ -678,6 +757,7 @@ const handlePasswordLogin = async () => {
     await applyPortalLoginResult(res.data)
   } catch (e) {
     const errMsg = e.response?.data?.error || e.message || t('login.error.unknown')
+    if (noteLoginCooldownFromError(errMsg) > 0) refreshLoginCooldown()
     statusMsg.value = `⚠️ ${friendlyLoginError(errMsg)}`
     // #929：超时/失败后，若门内请求已超过失联阈值则立即清理，
     // 让用户的下一次点击能发起真实登录，而不是继续复用同一个死 promise。
@@ -814,13 +894,17 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
         }),
       { method: LOGIN_METHOD_PORTAL_QR }
     )
-    const sid = String(userInfo?.student_id || '').trim()
+    const role = normalizeLoginRole(userInfo?.role)
+    const sid = normalizePortalAccountId(userInfo?.student_id, role)
     if (!sid) {
       throw new Error(t('login.qr.noStudentId'))
     }
 
     username.value = sid
-    saveRememberedUsername(sid)
+    authStore.establishSession({ studentId: sid, role })
+    saveRememberedUsername(sid, role)
+    loginRole.value = writeLoginRole(role)
+    writeLoginFormAccount(role, sid)
     applyLoginMethodStorage('portal_qr_temp')
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
@@ -852,6 +936,7 @@ const handleChaoxingLoginSuccess = async (payload, modeKey) => {
     throw new Error(t('login.error.cx.noStudentId'))
   }
   username.value = sid
+  authStore.establishSession({ studentId: sid, role: 'student' })
   saveRememberedUsername(sid)
   await saveChaoxingCredentials()
   applyLoginMethodStorage(modeKey)
@@ -1055,6 +1140,8 @@ const confirmChaoxingQrLogin = async () => {
 
 const switchMode = (mode) => {
   if (!isKnownMode(mode) || activeMode.value === mode) return
+  // 教师端不提供学习通入口，防止绕过 UI 直接切过去
+  if (isTeacherRole.value && mode !== 'portal') return
   activeMode.value = mode
   statusMsg.value = ''
   clearDebugLogs()
@@ -1082,6 +1169,7 @@ const handleKeyPress = (event) => {
 watch(
   () => props.loginMode,
   (mode) => {
+    if (isTeacherRole.value) return
     const nextMode = normalizeModeKey(mode)
     if (isKnownMode(nextMode) && nextMode !== activeMode.value) {
       activeMode.value = nextMode
@@ -1094,13 +1182,17 @@ watch(activeMode, (mode) => {
   emit('switchMode', mode)
 })
 
-const hydrateRememberedCredentials = async () => {
-  const savedUsername = localStorage.getItem('hbu_username')
+const hydrateRememberedCredentials = async (role = loginRole.value) => {
+  const savedUsername = readLoginFormAccount(role)
   const savedRemember = localStorage.getItem('hbu_remember')
   if (savedRemember !== 'false' && savedUsername) {
     username.value = savedUsername
     password.value = await loadPortalRememberedPassword(savedUsername)
     rememberMe.value = true
+  } else {
+    // 该身份没有保存过账号：必须清空，否则会残留上一个身份的账号密码
+    username.value = ''
+    password.value = ''
   }
 
   const savedCxRemember = localStorage.getItem(CHAOXING_REMEMBER_KEY)
@@ -1125,6 +1217,7 @@ onMounted(async () => {
   }
 
   await hydrateRememberedCredentials()
+  refreshLoginCooldown()
 
   void ensureOcrEndpointReady().catch((e) => {
     console.warn('[Login] OCR 初始化失败（后台重试）:', e)
@@ -1135,6 +1228,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (cooldownTimer !== null) window.clearTimeout(cooldownTimer)
   clearQrTimer()
   clearCxQrTimer()
   window.removeEventListener('hbu-ocr-config-updated', handleOcrConfigUpdated)
@@ -1149,7 +1243,19 @@ onBeforeUnmount(() => {
     <h2>{{ t('login.title') }}</h2>
     <p class="subtitle">{{ t('login.subtitle') }}</p>
 
-    <div class="entry-switch" role="tablist" :aria-label="t('login.entry.switchAria')">
+    <div class="entry-switch role-switch" role="tablist" :aria-label="t('login.role.switchAria')">
+      <span class="entry-slider" :class="{ 'is-teacher': isTeacherRole }"></span>
+      <button
+        v-for="roleOption in IDENTITY_ROLES"
+        :key="roleOption.key"
+        class="entry-btn"
+        :class="{ active: loginRole === roleOption.key }"
+        @click="switchRole(roleOption.key)"
+      >
+        {{ t(roleOption.labelKey) }}
+      </button>
+    </div>
+    <div v-if="!isTeacherRole" class="entry-switch" role="tablist" :aria-label="t('login.entry.switchAria')">
       <span class="entry-slider" :class="{ 'is-chaoxing': isChaoxingMode }"></span>
       <button
         class="entry-btn"
@@ -1166,7 +1272,7 @@ onBeforeUnmount(() => {
         {{ t('login.mode.chaoxing') }}
       </button>
     </div>
-    <p class="mode-capsule">{{ currentModeMeta.title }}</p>
+    <p class="mode-capsule">{{ isTeacherRole ? t('login.role.teacherCapsule') : currentModeMeta.title }}</p>
 
     <div v-if="loading" class="progress-container">
       <div class="loading-spinner">
@@ -1178,11 +1284,11 @@ onBeforeUnmount(() => {
     <div v-else class="form-container">
       <template v-if="isPortalMode">
         <div class="input-group">
-          <label>{{ t('login.label.studentId') }}</label>
+          <label>{{ isTeacherRole ? t('login.label.teacherId') : t('login.label.studentId') }}</label>
           <input
             v-model="username"
             type="text"
-            :placeholder="t('login.placeholder.studentId')"
+            :placeholder="isTeacherRole ? t('login.placeholder.teacherId') : t('login.placeholder.studentId')"
             maxlength="10"
             @keypress="handleKeyPress"
           />

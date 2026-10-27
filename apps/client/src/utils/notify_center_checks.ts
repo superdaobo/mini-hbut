@@ -22,8 +22,13 @@ import {
 import { hasUnconsumedPresentedEvent } from './background_notification'
 import { t, tf } from './app_i18n'
 import { filterVisibleOfficialCourses } from './schedule_visibility'
-import { checkElectricity } from './notify_center_electricity.js'
 export type { ElectricityCheckResult } from './notify_center_electricity.js'
+// E3 #1023：教师身份隔离（学生通知检测的教师安全分支）。
+import {
+  checkElectricityTeacherSafe,
+  isTeacherNotificationContext,
+  TEACHER_SCOPE_SKIPPED
+} from './notify_teacher_scope.js'
 import {
   DEFAULT_CHANNEL_ID,
   NotifySettingsFull,
@@ -38,6 +43,8 @@ import {
   getSchedulePayloadForReminder,
   getTodayWeekday,
   gradeSigKeyFor,
+  mergeInboxDedupeIds,
+  normalizeInboxDedupeState,
   nowIso,
   pickGradePreview,
   pickUpcomingExams,
@@ -49,6 +56,7 @@ import {
   toDayKey,
   toPositiveInt,
   toSafeText,
+  UNTRUSTED_DOWNGRADE_THRESHOLD,
   writeJSON
 } from './notify_center_util.js'
 
@@ -81,26 +89,153 @@ const isSchoolInboxItemRead = (item: unknown): boolean => {
   return !!(raw?.is_read ?? raw?.isRead)
 }
 
+// #1106：读取旧版/缺失快照时统一走 schema v2 归一化
+// （initialized 缺失 → false、ids 非数组 → 空数组、streak 缺失 → 0）。
+/** 收件箱去重快照的内部形态（含 #1106 的「连续不可信抓取」计数）。 */
+interface InboxDedupeSnapshot {
+  initialized: boolean
+  ids: string[]
+  untrustedStreak: number
+}
+
+const readInboxSnapshotByKey = (
+  keyFor: (studentId: string) => string,
+  studentId: string
+): InboxDedupeSnapshot => {
+  const state = normalizeInboxDedupeState(readJSON<unknown>(keyFor(studentId), null))
+  return {
+    initialized: state?.initialized ?? false,
+    ids: state?.ids ?? [],
+    untrustedStreak: state?.untrustedStreak ?? 0
+  }
+}
+
+/** 对外保持旧形状：notify_center.markSchoolInboxNotified 只关心 initialized / ids。 */
 const readInboxStateByKey = (
   keyFor: (studentId: string) => string,
   studentId: string
 ): { initialized: boolean; ids: string[] } => {
-  const state = readJSON<{ initialized?: boolean; ids?: unknown[] }>(keyFor(studentId), null)
-  const ids = Array.isArray(state?.ids)
-    ? state.ids.map((item) => toSafeText(item)).filter(Boolean)
-    : []
-  return {
-    initialized: state?.initialized === true,
-    ids
-  }
+  const { initialized, ids } = readInboxSnapshotByKey(keyFor, studentId)
+  return { initialized, ids }
 }
 
 export const readSchoolInboxState = (studentId: string): { initialized: boolean; ids: string[] } =>
   readInboxStateByKey(schoolInboxStateKeyFor, studentId)
 
+const readSchoolInboxSnapshot = (studentId: string): InboxDedupeSnapshot =>
+  readInboxSnapshotByKey(schoolInboxStateKeyFor, studentId)
+
 // #715：学习通通知独立去重快照（与学校消息互不串扰）
-const readChaoxingInboxState = (studentId: string): { initialized: boolean; ids: string[] } =>
-  readInboxStateByKey(chaoxingInboxStateKeyFor, studentId)
+const readChaoxingInboxSnapshot = (studentId: string): InboxDedupeSnapshot =>
+  readInboxSnapshotByKey(chaoxingInboxStateKeyFor, studentId)
+
+// ============================================================
+// #1106：收件箱去重「基线规划」
+// ------------------------------------------------------------
+// 一次检查只回答三件事：本轮推不推、推哪些、快照写成什么。
+// 关键约束（issue #1101 的根因）：
+//   · ids 只增不减 —— 一次变短的抓取不得抹掉已知 id。旧实现用「本次抓到的
+//     id」整体覆盖快照，学习通翻页中断 / 浅抓深抓切换 / 空结果都会把基线洗短，
+//     下一次完整抓取便把短缺那段整段判成「新消息」→ 重登即爆炸式重发；
+//   · 只有「可信完整抓取」才把 initialized 置 true（旧实现是只要抓成功就置位，
+//     连空结果也置位 → 首次基线被永久点亮）；
+//   · 连续 UNTRUSTED_DOWNGRADE_THRESHOLD 次不可信时一次性降级为「已初始化」，
+//     避免某类账号永远拿不到完整抓取而彻底收不到通知；
+//   · 只在「列表头部窗口」内判新 —— 新消息总在列表最前面，深抓补回来的历史
+//     只会追加在尾部；对整个列表判新会让一次深抓（最多 1000 条）把历史全量
+//     当成新消息（issue #1101 的另一条爆发路径）。
+// ============================================================
+
+/** #1106：单轮「新消息」判定只看列表前 N 条（新消息总在头部；尾部是历史回填）。 */
+const MAX_NEW_INBOX_CANDIDATES = 50
+
+interface InboxPlan {
+  /** 本轮候选入队条目（已知 id / 已读已排除；ledger 去重由调用方完成）。 */
+  candidates: unknown[]
+  /** 需要写回的快照。 */
+  nextState: InboxDedupeSnapshot
+  /** 本轮是否为首次同步（只建基线、不推送）。 */
+  baseline: boolean
+  /** 是否触发了「连续不可信」降级。 */
+  downgraded: boolean
+}
+
+/** #1106：抓取可信度。`complete` 缺失（旧 Rust / 门户旧语义）按可信处理，避免永不推送。 */
+const isInboxFetchTrusted = (response: { complete?: unknown } | null | undefined): boolean => {
+  const flag = response?.complete
+  if (flag === undefined || flag === null) return true
+  return !(flag === false || flag === 'false')
+}
+
+const planInboxSnapshot = (input: {
+  items: unknown[]
+  state: InboxDedupeSnapshot
+  trusted: boolean
+}): InboxPlan => {
+  const { items, state, trusted } = input
+  const allIds = items
+    .map((item) => {
+      const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+      return toSafeText(raw?.id)
+    })
+    .filter(Boolean)
+  // ids 只增：新 ∪ 旧（上限 INBOX_DEDUPE_ID_CAP，超出淘汰最旧）
+  const mergedIds = mergeInboxDedupeIds(allIds, state.ids)
+
+  if (!trusted) {
+    const streak = state.untrustedStreak + 1
+    if (streak < UNTRUSTED_DOWNGRADE_THRESHOLD) {
+      // 不可信：不推进 initialized、不推送，**也不推进已知 id**。
+      // 若在这里把本次抓到的 id 并入基线，抓到的新消息会被永久标成"已知"
+      // 而再也没机会通知（静默丢通知）；下次可信抓取再来判新即可。
+      return {
+        candidates: [],
+        nextState: { initialized: state.initialized, ids: state.ids, untrustedStreak: streak },
+        baseline: state.initialized,
+        downgraded: false
+      }
+    }
+    // 降级护栏：连续多次不可信 → 把当前并集设为基线，恢复后续通知能力（本轮不推）
+    return {
+      candidates: [],
+      nextState: { initialized: true, ids: mergedIds, untrustedStreak: 0 },
+      baseline: true,
+      downgraded: true
+    }
+  }
+
+  const isFirstSync = !state.initialized
+  const knownSet = new Set(state.ids)
+  const candidates = isFirstSync
+    ? []
+    : items.slice(0, MAX_NEW_INBOX_CANDIDATES).filter((item) => {
+        const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+        const id = toSafeText(raw?.id)
+        if (!id || knownSet.has(id)) return false
+        return !isSchoolInboxItemRead(item)
+      })
+  return {
+    candidates,
+    nextState: { initialized: true, ids: mergedIds, untrustedStreak: 0 },
+    baseline: isFirstSync,
+    downgraded: false
+  }
+}
+
+/** 写回快照（schema v2）；与读取端的 normalizeInboxDedupeState 字段名保持一致。 */
+const persistInboxSnapshot = (
+  keyFor: (studentId: string) => string,
+  studentId: string,
+  next: InboxDedupeSnapshot
+): void => {
+  writeJSON(keyFor(studentId), {
+    schema: 2,
+    initialized: next.initialized,
+    ids: next.ids,
+    untrustedStreak: next.untrustedStreak,
+    updated_at: nowIso()
+  })
+}
 
 // #616：旧 Capacitor Headless 专用的 hbu_bg_* 后台预写函数已随 Headless 退役
 // 整体删除；前台去重快照（schoolInboxStateKeyFor）继续生效。
@@ -256,6 +391,47 @@ const buildGradeLedgerEventKey = async (grades: unknown): Promise<string> => {
   return signature ? buildLedgerEventKey('grades', signature) : ''
 }
 
+// #1106（#1104 的发送侧）：收件箱类通知单轮最多真实发送条数，其余合并为 1 条摘要。
+// 旧实现逐条发送、无上限：一次差异 50 条就弹 50 个系统通知（刷屏观感的主因之一）。
+const MAX_INBOX_NOTIFY_PER_ROUND = 3
+/** 参与「收件箱节流」的业务域；成绩/考试/上课提醒等时效性通知不受影响。 */
+const INBOX_NOTICE_DOMAINS = new Set(['school-message', 'chaoxing-inbox'])
+
+const isInboxNotice = (notice: NoticeItem): boolean =>
+  INBOX_NOTICE_DOMAINS.has(toSafeText(notice?.domain))
+
+/** 发送单条本地通知；成功且提供 eventKey 时写「已通知」账本。 */
+const sendNoticeItem = async (
+  notice: NoticeItem,
+  index: number,
+  studentId: string
+): Promise<boolean> => {
+  if (!notice?.title) return false
+  try {
+    const ok = await platformBridge.sendLocalNotification({
+      channelId: DEFAULT_CHANNEL_ID,
+      title: String(notice.title),
+      body: String(notice.body || ''),
+      id: Math.floor(Date.now() / 1000) + index,
+      targetView: String(notice.targetView || 'notifications')
+    })
+    if (!ok) return false
+    // #614：发送成功后记录「已通知」账本（跨后台/前台去重共享语义；
+    // 发送失败不记录——下次检查仍有机会补通知）
+    if (studentId && notice.eventKey) {
+      recordLedgerEntry(
+        toSafeText(studentId),
+        toSafeText(notice.eventKey),
+        toSafeText(notice.domain) || 'unknown'
+      )
+    }
+    return true
+  } catch {
+    // ignore single notification error
+    return false
+  }
+}
+
 const sendQueuedNotifications = async (
   queue: NoticeItem[],
   allowPrompt = false,
@@ -266,32 +442,33 @@ const sendQueuedNotifications = async (
   if (!canNotify) return []
 
   const sent: NoticeItem[] = []
-  for (let i = 0; i < queue.length; i += 1) {
-    const notice = queue[i]
-    if (!notice?.title) continue
-    try {
-      const ok = await platformBridge.sendLocalNotification({
-        channelId: DEFAULT_CHANNEL_ID,
-        title: String(notice.title),
-        body: String(notice.body || ''),
-        id: Math.floor(Date.now() / 1000) + i,
-        targetView: String(notice.targetView || 'notifications')
-      })
-      if (ok) {
-        sent.push(notice)
-        // #614：发送成功后记录「已通知」账本（跨后台/前台去重共享语义；
-        // 发送失败不记录——下次检查仍有机会补通知）
-        if (studentId && notice.eventKey) {
-          recordLedgerEntry(
-            toSafeText(studentId),
-            toSafeText(notice.eventKey),
-            toSafeText(notice.domain) || 'unknown'
-          )
-        }
-      }
-    } catch {
-      // ignore single notification error
+  let index = 0
+
+  // 非收件箱类（成绩/考试/上课提醒/电费）保持原有逐条发送语义 ——
+  // 这些是时效性提醒，不能被收件箱的突发量挤进摘要。
+  for (const notice of queue) {
+    if (isInboxNotice(notice)) continue
+    if (await sendNoticeItem(notice, index, studentId)) sent.push(notice)
+    index += 1
+  }
+
+  // 收件箱类：最多 MAX_INBOX_NOTIFY_PER_ROUND 条，其余合并为 1 条摘要。
+  // 摘要刻意不带 eventKey：这些 id 已在检查阶段并入去重快照，不会被再次判新，
+  // 写 ledger 只会白占容量。
+  const inboxNotices = queue.filter(isInboxNotice)
+  for (const notice of inboxNotices.slice(0, MAX_INBOX_NOTIFY_PER_ROUND)) {
+    if (await sendNoticeItem(notice, index, studentId)) sent.push(notice)
+    index += 1
+  }
+  const restCount = inboxNotices.length - MAX_INBOX_NOTIFY_PER_ROUND
+  if (restCount > 0) {
+    const digest: NoticeItem = {
+      title: t('notify.notice.inboxDigestTitle'),
+      body: tf('notify.notice.inboxDigestBody', { n: restCount }),
+      targetView: 'notifications',
+      domain: 'inbox-digest'
     }
+    if (await sendNoticeItem(digest, index, '')) sent.push(digest)
   }
   return sent
 }
@@ -306,6 +483,10 @@ export interface ScheduleRefreshResult extends CheckResult {
 }
 
 const refreshScheduleSilently = async (studentId: string): Promise<ScheduleRefreshResult> => {
+  // E3 #1023：教师身份不刷新学生课表（教师课表走教师只读链路）。
+  if (isTeacherNotificationContext()) {
+    return { success: false, error: TEACHER_SCOPE_SKIPPED }
+  }
   const timeoutMs = getRequestTimeoutMs()
   try {
     const res = await axios.post(
@@ -386,6 +567,10 @@ const checkGrades = async (
   queue: NoticeItem[]
 ): Promise<GradesCheckResult> => {
   const sid = toSafeText(studentId)
+  // E3 #1023：教师身份绝不请求学生成绩（不走 /v2/quick_fetch 学生分支）。
+  if (isTeacherNotificationContext()) {
+    return { success: false, total: 0, changed: false, latestItems: [], error: TEACHER_SCOPE_SKIPPED }
+  }
   const timeoutMs = getRequestTimeoutMs()
   try {
     const res = await axios.post(
@@ -463,6 +648,10 @@ const checkExams = async (
 ): Promise<ExamsCheckResult> => {
   const timeoutMs = getRequestTimeoutMs()
   const sid = toSafeText(studentId)
+  // E3 #1023：教师身份不请求学生考试（监考提醒由 E6 数据源接入后另行处理）。
+  if (isTeacherNotificationContext()) {
+    return { success: false, total: 0, upcoming: [], tomorrowCount: 0, error: TEACHER_SCOPE_SKIPPED }
+  }
   try {
     const res = await axios.post(
       toApiUrl('/v2/exams'),
@@ -592,6 +781,10 @@ const checkClassReminder = async (
   scheduleResult: ScheduleRefreshResult | null
 ): Promise<ClassReminderResult> => {
   const sid = toSafeText(studentId)
+  // E3 #1023：教师课前提醒走 local_reminder_scheduler 的教师分支，不消费学生课表。
+  if (isTeacherNotificationContext()) {
+    return { success: true, enabled: false, totalToday: 0, triggered: 0, reason: 'teacher-scope' }
+  }
   if (!sid) {
     return {
       success: false,
@@ -740,6 +933,10 @@ const checkSchoolInbox = async (
   queue: NoticeItem[]
 ): Promise<SchoolInboxResult> => {
   const sid = toSafeText(studentId)
+  // E3 #1023：教师通知由只读视图直接消费，不写入学生域去重快照 / ledger。
+  if (isTeacherNotificationContext()) {
+    return { success: true, enabled: false, total: 0, triggered: 0, reason: 'teacher-scope' }
+  }
   if (!sid) {
     return { success: false, enabled: false, total: 0, triggered: 0, reason: 'missing-student-id' }
   }
@@ -756,35 +953,46 @@ const checkSchoolInbox = async (
     }
   }
 
+  // #1103：学习通登录方式下，学习通列表由「学习通通知」渠道独占。
+  // 旧实现两个渠道各拉同一份列表、各用自己的快照与 ledger domain 判定，
+  // 同一条新消息会被弹两次（且去重状态互不相干，关掉一个开关也挡不住另一个）。
+  //
+  // 只在「学习通渠道确实在跑」时让位：若用户关掉了学习通通知开关，学校消息
+  // 渠道必须接回这份来源，否则该账号会一条收件箱通知都收不到（静默漏推）。
+  // 任一时刻只有一个渠道处理同一来源，所以不会重新引入双发。
+  const loginMode = resolveLoginMode()
+  const chaoxingChannelActive = !!settings.enableChaoxingInbox
+  if (loginMode.toLowerCase().startsWith('chaoxing') && chaoxingChannelActive) {
+    pushDebugLog('Notify', 'school inbox skipped: chaoxing source owned by chaoxing channel', 'debug', {
+      loginMode
+    })
+    return {
+      success: true,
+      enabled: false,
+      total: 0,
+      triggered: 0,
+      reason: 'chaoxing-source-owned-by-chaoxing-channel'
+    }
+  }
+
   try {
-    const loginMode = resolveLoginMode()
     const response = (await invokeNative('school_inbox_fetch', { loginMode })) as {
       items?: unknown[]
       source?: unknown
       fetchedAt?: unknown
+      complete?: unknown
     } | null
     const items = Array.isArray(response?.items) ? response.items : []
-    const stateKey = schoolInboxStateKeyFor(sid)
-    const state = readSchoolInboxState(sid)
-    const isFirstSync = !state.initialized
-    const knownSet = new Set(state.ids)
-    const allIds = items.map((item) => {
-      const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
-      return toSafeText(raw?.id)
-    }).filter(Boolean)
-    const toNotify = isFirstSync
-      ? []
-      : items.filter((item) => {
-          const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
-          const id = toSafeText(raw?.id)
-          if (!id || knownSet.has(id)) return false
-          return !isSchoolInboxItemRead(item)
-        })
+    const state = readSchoolInboxSnapshot(sid)
+    // #1106：抓取是否可信 —— 旧实现不看完整性，任何「成功但变短」的抓取都会
+    // 覆盖掉已知 id，下一次完整抓取便把短缺那段整段当成新消息。
+    const trusted = isInboxFetchTrusted(response)
+    const plan = planInboxSnapshot({ items, state, trusted })
 
     // #615：按 provider + message ID 生成稳定 eventKey 进统一 ledger 去重——
     // 后台（native school_message 事件）已通知过的消息，前台不再重复弹（#614 联动）。
     const notYetNotified = []
-    for (const item of toNotify) {
+    for (const item of plan.candidates) {
       const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
       const id = toSafeText(raw?.id)
       const eventKey = id ? buildLedgerEventKey('school-message', id) : ''
@@ -803,16 +1011,12 @@ const checkSchoolInbox = async (
       })
     }
 
-    writeJSON(stateKey, {
-      initialized: true,
-      ids: allIds.slice(0, 500),
-      updated_at: nowIso()
-    })
+    persistInboxSnapshot(schoolInboxStateKeyFor, sid, plan.nextState)
     await snapshotChaoxingNoticeCookie(loginMode)
 
     pushDebugLog(
       'Notify',
-      `school inbox check done total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
+      `school inbox check done total=${items.length} trigger=${notYetNotified.length} first=${plan.baseline ? '1' : '0'} trusted=${trusted ? '1' : '0'} union=${plan.nextState.ids.length} downgraded=${plan.downgraded ? '1' : '0'}`,
       'info',
       { source: toSafeText(response?.source), loginMode }
     )
@@ -824,7 +1028,7 @@ const checkSchoolInbox = async (
       triggered: notYetNotified.length,
       source: toSafeText(response?.source),
       checkedAt: toSafeText(response?.fetchedAt),
-      baseline: isFirstSync
+      baseline: plan.baseline
     }
   } catch (error) {
     const message = toSafeText((error as Error | undefined)?.message || error)
@@ -848,6 +1052,10 @@ export const checkChaoxingInbox = async (
   queue: NoticeItem[]
 ): Promise<SchoolInboxResult> => {
   const sid = toSafeText(studentId)
+  // E3 #1023：教师身份不使用学习通渠道（教师端不提供学习通入口）。
+  if (isTeacherNotificationContext()) {
+    return { success: true, enabled: false, total: 0, triggered: 0, reason: 'teacher-scope' }
+  }
   if (!sid) {
     return { success: false, enabled: false, total: 0, triggered: 0, reason: 'missing-student-id' }
   }
@@ -871,32 +1079,18 @@ export const checkChaoxingInbox = async (
       items?: unknown[]
       source?: unknown
       fetchedAt?: unknown
+      complete?: unknown
     } | null
     const items = Array.isArray(response?.items) ? response.items : []
-    const stateKey = chaoxingInboxStateKeyFor(sid)
-    const state = readChaoxingInboxState(sid)
-    const isFirstSync = !state.initialized
-    const knownSet = new Set(state.ids)
-    const allIds = items
-      .map((item) => {
-        const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
-        return toSafeText(raw?.id)
-      })
-      .filter(Boolean)
-    // 仅通知未读的新消息；首次同步只建立基线，不推历史
-    const toNotify =
-      isFirstSync
-        ? []
-        : items.filter((item) => {
-            const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
-            const id = toSafeText(raw?.id)
-            if (!id || knownSet.has(id)) return false
-            return !isSchoolInboxItemRead(item)
-          })
+    const state = readChaoxingInboxSnapshot(sid)
+    // #1106：与「学校消息」同构 —— 只有可信完整抓取才推进 initialized；
+    // 学习通翻页中断（complete=false）不再把部分列表当成完整基线。
+    const trusted = isInboxFetchTrusted(response)
+    const plan = planInboxSnapshot({ items, state, trusted })
 
-    // ledger 去重：后台未来接入 chaoxing 事件时共享同一 domain，不与学校消息串扰
+    // ledger 去重：与「学校消息」的 domain 隔离（chaoxing-inbox），互不串扰
     const notYetNotified = []
-    for (const item of toNotify) {
+    for (const item of plan.candidates) {
       const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
       const id = toSafeText(raw?.id)
       const eventKey = id ? buildLedgerEventKey('chaoxing-inbox', id) : ''
@@ -915,16 +1109,12 @@ export const checkChaoxingInbox = async (
       })
     }
 
-    writeJSON(stateKey, {
-      initialized: true,
-      ids: allIds.slice(0, 500),
-      updated_at: nowIso()
-    })
+    persistInboxSnapshot(chaoxingInboxStateKeyFor, sid, plan.nextState)
     await snapshotChaoxingNoticeCookie('chaoxing')
 
     pushDebugLog(
       'Notify',
-      `chaoxing inbox check done total=${items.length} trigger=${notYetNotified.length} first=${isFirstSync ? '1' : '0'}`,
+      `chaoxing inbox check done total=${items.length} trigger=${notYetNotified.length} first=${plan.baseline ? '1' : '0'} trusted=${trusted ? '1' : '0'} union=${plan.nextState.ids.length} downgraded=${plan.downgraded ? '1' : '0'}`,
       'info'
     )
 
@@ -935,7 +1125,7 @@ export const checkChaoxingInbox = async (
       triggered: notYetNotified.length,
       source: toSafeText(response?.source) || 'chaoxing',
       checkedAt: toSafeText(response?.fetchedAt),
-      baseline: isFirstSync
+      baseline: plan.baseline
     }
   } catch (error) {
     const message = toSafeText((error as Error | undefined)?.message || error)
@@ -956,7 +1146,7 @@ export {
   refreshScheduleSilently,
   checkGrades,
   checkExams,
-  checkElectricity,
+  checkElectricityTeacherSafe as checkElectricity,
   checkClassReminder,
   checkSchoolInbox,
   sendQueuedNotifications

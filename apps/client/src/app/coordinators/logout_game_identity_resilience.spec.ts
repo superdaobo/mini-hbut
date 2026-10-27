@@ -89,9 +89,12 @@ const createRestrictedStorage = () => ({
 })
 
 const makeRuntime = () => {
+  const role = ref<'student' | 'teacher'>('student')
   const state = {
     studentId: ref(CURRENT_SID),
     userUuid: ref('uuid-a'),
+    role,
+    setIdentityRole: (value: unknown) => { role.value = value === 'teacher' ? 'teacher' : 'student' },
     // 契约 D / P2-2：登出必须把在线会话态一并重置为未确认（复用认证状态层同一 ref）
     onlineSessionState: ref<'unknown' | 'cached_offline' | 'recovering' | 'online' | 'needs_login'>('online'),
     gradeData: ref<unknown[]>([{ id: 1 }]),
@@ -106,7 +109,9 @@ const makeRuntime = () => {
       stopSessionKeepAlive: vi.fn(),
       stopElectricityKeepAlive: vi.fn(),
       stopJwxtRecoveryPolling: vi.fn(),
+      startJwxtRecoveryPolling: vi.fn(),
       clearJwxtMaintenance: vi.fn(),
+      markJwxtMaintenance: vi.fn(),
       persistSessionCookies: vi.fn(async () => {}),
       startSessionKeepAlive: vi.fn(),
       startElectricityKeepAlive: vi.fn(),
@@ -164,8 +169,106 @@ describe('F2：限制存储下游戏身份清理失败不得阻断登出 / 换�
     const auth = createAuthCoordinator(runtime)
 
     expect(() => clearGameIdentityCaches(CURRENT_SID)).toThrow(/denied/)
-    expect(() => auth.handleAccountSwitch(NEXT_SID)).not.toThrow()
+    expect(() => auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student' })).not.toThrow()
     expect(state.studentId.value).toBe(NEXT_SID)
+  })
+
+  it('学生切教师时工号与角色同时落地，在线确认前保持 recovering', async () => {
+    storageMap.set('hbu_session_cookies', 'previous-student-cookie')
+    storageMap.set('hbu_session_cookie_time', '1234')
+    storageMap.set('hbu_training_options', '{"student":"old"}')
+    const { runtime, state } = makeRuntime()
+    const auth = createAuthCoordinator(runtime)
+    // #1061：在线验证结果由 Rust 在线切号命令给出，经 account-switched 负载交付。
+    expect(() =>
+      auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher', onlineReady: true })
+    ).not.toThrow()
+    expect(state.studentId.value).toBe('20000000')
+    expect(state.role.value).toBe('teacher')
+    expect(state.onlineSessionState.value).toBe('recovering')
+    expect(storageMap.get('hbu_username')).toBe('20000000')
+    expect(storageMap.get('hbu_username_role')).toBe('teacher')
+    expect(storageMap.get('hbu_session_cookies')).toBeUndefined()
+    expect(storageMap.get('hbu_session_cookie_time')).toBeUndefined()
+    expect(storageMap.get('hbu_training_options')).toBeUndefined()
+    await vi.waitFor(() => {
+      expect(runtime.session.notifySessionOnline).toHaveBeenCalledWith('account-switch')
+    })
+    expect(runtime.grade.handleRefreshGrades).not.toHaveBeenCalled()
+    expect(runtime.session.startElectricityKeepAlive).not.toHaveBeenCalled()
+  })
+
+  it('教师切学生时恢复学生角色与学号，在线确认后才刷新学生成绩', async () => {
+    const { runtime, state } = makeRuntime()
+    state.studentId.value = '20000000'
+    state.setIdentityRole('teacher')
+    const auth = createAuthCoordinator(runtime)
+    auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student', onlineReady: true })
+    expect(state.studentId.value).toBe(NEXT_SID)
+    expect(state.role.value).toBe('student')
+    expect(state.onlineSessionState.value).toBe('recovering')
+    await vi.waitFor(() => {
+      expect(runtime.session.notifySessionOnline).toHaveBeenCalledWith('account-switch')
+      expect(runtime.grade.handleRefreshGrades).toHaveBeenCalled()
+    })
+  })
+
+  it('在线验证未通过时不得标记在线，转缓存离线并启动恢复轮询', async () => {
+    const { runtime, state } = makeRuntime()
+    const auth = createAuthCoordinator(runtime)
+    auth.handleAccountSwitch({
+      studentId: '20000000',
+      role: 'teacher',
+      onlineReady: false,
+      needsLogin: false,
+      failureReason: '网络异常'
+    })
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+    expect(runtime.session.startJwxtRecoveryPolling).toHaveBeenCalled()
+    expect(runtime.session.notifySessionOnline).not.toHaveBeenCalled()
+    expect(runtime.grade.handleRefreshGrades).not.toHaveBeenCalled()
+  })
+
+  it('目标账号需要重新登录时标记 needs_login 且不启动自动恢复轮询', async () => {
+    const { runtime, state } = makeRuntime()
+    const auth = createAuthCoordinator(runtime)
+    auth.handleAccountSwitch({
+      studentId: '20000000',
+      role: 'teacher',
+      onlineReady: false,
+      needsLogin: true,
+      failureReason: '目标账号需要重新登录'
+    })
+    expect(state.onlineSessionState.value).toBe('needs_login')
+    expect(runtime.session.markJwxtMaintenance).toHaveBeenCalledWith(
+      expect.stringContaining('重新登录'),
+      expect.objectContaining({ phase: 'need_login' })
+    )
+    expect(runtime.session.startJwxtRecoveryPolling).not.toHaveBeenCalled()
+    expect(runtime.session.notifySessionOnline).not.toHaveBeenCalled()
+  })
+
+  it('账号连续切换后，迟到的旧账号在线初始化不得覆盖新账号状态', async () => {
+    const { runtime, state } = makeRuntime()
+    let releaseFirst: () => void = () => {}
+    runtime.session.persistSessionCookies = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { releaseFirst = resolve }))
+      .mockResolvedValue(undefined)
+    const auth = createAuthCoordinator(runtime)
+    auth.handleAccountSwitch({ studentId: '20000000', role: 'teacher', onlineReady: true })
+    auth.handleAccountSwitch({ studentId: NEXT_SID, role: 'student', onlineReady: true })
+    // 第二个（新账号）切换先完成初始化并确认在线
+    await vi.waitFor(() => {
+      expect(runtime.session.notifySessionOnline).toHaveBeenCalledTimes(1)
+    })
+    // 第一个（旧账号）迟到的持久化完成后，不得再次确认在线或改写身份
+    releaseFirst()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(state.studentId.value).toBe(NEXT_SID)
+    expect(state.role.value).toBe('student')
+    expect(runtime.session.notifySessionOnline).toHaveBeenCalledTimes(1)
   })
 
   it('手动登出（manual:true）同样收口：清缓存失败不阻断学号置空与回首页', async () => {

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { fetchGradeDistribution } from '../utils/grade_distribution.js'
+import { buildGradeDistributionQuery, isGradeSearchActive } from '../utils/grade_distribution_query'
 import { t, useLocale } from '../utils/app_i18n'
 
 // i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
@@ -8,12 +9,22 @@ const { locale } = useLocale()
 
 const loading = ref(false)
 const error = ref('')
+// 搜索模式：按教师查询（默认）/ 按科目查询（issue #1111 双模式）
+const searchMode = ref('teacher')
 const searchQuery = ref('')
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 50
 const selectedItem = ref(null)
+
+// 请求序号：每次发起 / 作废请求时递增；await 返回后序号不一致则判定为
+// 过期请求（模式已切换、输入已清空、或更新的请求已在途），丢弃其结果，
+// 避免慢请求乱序把旧模式 / 旧关键词的结果覆盖到当前界面。
+let requestSeq = 0
+
+// 搜索防抖定时器（切换模式 / 输入处理共用，需在 switchMode 前声明以便作废）
+let searchTimer = null
 
 const SEGMENT_KEYS = ['90-100', '80-89', '70-79', '60-69', '<60']
 const SEGMENT_COLORS = {
@@ -26,49 +37,83 @@ const SEGMENT_COLORS = {
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
-// 加载数据
+// 是否已输入搜索关键词（trim 后非空才构成查询）
+const hasQuery = computed(() => isGradeSearchActive(searchQuery.value))
+
+// 清空列表 / 总数 / 错误 / 详情（保留输入与页码由调用方决定）
+const resetResults = () => {
+  items.value = []
+  total.value = 0
+  error.value = ''
+  selectedItem.value = null
+}
+
+// 加载数据（请求体由 helper 按当前模式构造：teacher 只传 teacher_name，
+// course 只传 course_name，另一字段恒为 null）
 const loadData = async () => {
+  if (!hasQuery.value) return
+  const query = buildGradeDistributionQuery(searchMode.value, searchQuery.value, page.value, pageSize)
+  const seq = ++requestSeq
   loading.value = true
   error.value = ''
   try {
-    const q = searchQuery.value.trim()
-    const result = await fetchGradeDistribution({
-      teacher_name: q || null,
-      page: page.value,
-      page_size: pageSize,
-    })
+    const result = await fetchGradeDistribution(query)
+    // 竞态保护：期间模式已切换 / 输入已清空 / 有更新的请求 → 丢弃本次过期结果
+    if (seq !== requestSeq) return
     items.value = [...result.items].sort((a, b) => (b.sample_count || 0) - (a.sample_count || 0))
     total.value = result.total
   } catch (e) {
-    error.value = `${t('grade.dist.errorPrefix')}${e.message}`
+    if (seq !== requestSeq) return
+    error.value = `${t('grade.dist.errorPrefix')}${e?.message || String(e)}`
     items.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    // 只有最新请求有权结束 loading（过期请求的 finally 不得清掉新请求的 loading）
+    if (seq === requestSeq) loading.value = false
   }
 }
 
-// 失败后重新发起当前搜索（超时/网络错误时使用）
+// 切换搜索模式（issue #1111）：作废在途请求，页码回 1，清空关键词 / 结果 /
+// 详情 / 错误，保证旧模式结果不串入新模式
+// @param {string} mode 'teacher' | 'course'
+const switchMode = (mode) => {
+  if (mode === searchMode.value) return
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  requestSeq += 1
+  searchMode.value = mode
+  searchQuery.value = ''
+  page.value = 1
+  loading.value = false
+  resetResults()
+}
+
+// 失败后重新发起当前搜索（按当前模式 / 关键词 / 页码）
 const retrySearch = () => {
   if (hasQuery.value) {
     loadData()
   }
 }
 
-// 是否已输入搜索关键词
-const hasQuery = computed(() => searchQuery.value.trim().length > 0)
-
 // 搜索防抖
-let searchTimer = null
 const onSearchInput = () => {
-  clearTimeout(searchTimer)
+  if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
-    page.value = 1
+    searchTimer = null
     if (hasQuery.value) {
-      loadData()
+      // 页码从 >1 回到 1 时由 watch(page) 统一加载，避免本处与 watcher 重复请求
+      const pageChanged = page.value !== 1
+      page.value = 1
+      if (!pageChanged) loadData()
     } else {
-      items.value = []
-      total.value = 0
+      // 清空文本 / 空输入：作废在途请求并重置列表 / 错误 / 详情，
+      // 不触发全库查询
+      requestSeq += 1
+      loading.value = false
+      page.value = 1
+      resetResults()
     }
   }, 400)
 }
@@ -186,12 +231,31 @@ watch(page, () => {
       <div v-else key="list" class="gd-list-page">
         <!-- 搜索栏 -->
         <div class="gd-filters">
+          <!-- 搜索模式分段控件：按教师（默认）/ 按科目，aria-pressed 表达选中态 -->
+          <div class="gd-mode-switch" role="group" :aria-label="t('grade.dist.mode.label')">
+            <button
+              type="button"
+              class="gd-mode-btn"
+              :class="{ active: searchMode === 'teacher' }"
+              :aria-pressed="searchMode === 'teacher'"
+              @click="switchMode('teacher')"
+            >{{ t('grade.dist.mode.teacher') }}</button>
+            <button
+              type="button"
+              class="gd-mode-btn"
+              :class="{ active: searchMode === 'course' }"
+              :aria-pressed="searchMode === 'course'"
+              @click="switchMode('course')"
+            >{{ t('grade.dist.mode.course') }}</button>
+          </div>
           <div class="gd-search">
             <span class="gd-search-icon">🔍</span>
             <input
               v-model="searchQuery"
               type="text"
-              :placeholder="t('grade.dist.search.placeholder')"
+              :placeholder="searchMode === 'teacher'
+                ? t('grade.dist.search.teacherPlaceholder')
+                : t('grade.dist.search.coursePlaceholder')"
               class="gd-search-input"
               @input="onSearchInput"
             />
@@ -210,10 +274,12 @@ watch(page, () => {
           <span>{{ t('grade.dist.loading') }}</span>
         </div>
 
-        <!-- 未搜索提示 -->
+        <!-- 未搜索提示（按当前模式给出对应输入提示） -->
         <div v-else-if="!hasQuery" class="gd-empty">
           <span class="gd-empty-icon">🔍</span>
-          <p>{{ t('grade.dist.empty.searchHint') }}</p>
+          <p>{{ searchMode === 'teacher'
+            ? t('grade.dist.empty.searchHintTeacher')
+            : t('grade.dist.empty.searchHintCourse') }}</p>
         </div>
 
         <!-- 空状态 -->
@@ -270,11 +336,50 @@ watch(page, () => {
 /* ── 搜索栏 ── */
 .gd-filters {
   display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
   box-sizing: border-box;
 }
+/* 搜索模式分段控件（按教师 / 按科目）：浅凹槽容器 + 选中态浮起，
+   触摸目标与输入框同高（≈38px），深色/浅色走全局 CSS 变量 */
+.gd-mode-switch {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--color-bg-secondary, #f1f5f9);
+  flex-shrink: 0;
+}
+.gd-mode-btn {
+  border: none;
+  margin: 0;
+  padding: 6px 12px;
+  min-height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted, #64748b);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.gd-mode-btn:focus-visible {
+  outline: 2px solid var(--color-primary, #6366f1);
+  outline-offset: -2px;
+}
+.gd-mode-btn.active {
+  background: var(--color-bg-card, #fff);
+  color: var(--color-text, #334155);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
 .gd-search {
   flex: 1;
+  min-width: 0;
   position: relative;
 }
 .gd-search-icon {

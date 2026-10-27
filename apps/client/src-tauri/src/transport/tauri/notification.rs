@@ -3,24 +3,39 @@
 #[cfg(not(target_os = "windows"))]
 use tauri_plugin_notification::NotificationExt;
 
+/// #1039: iOS 移动端通知插件的同步调用会等待 Swift 回调。
+/// 这些工作不能占用 WKWebView 的 UI 主线程，否则可能触发 scene-update watchdog。
+async fn run_notification_blocking<T, F>(action: &'static str, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("{action} worker join failed: {e}"))?
+}
+
 #[tauri::command]
-pub(crate) fn send_test_notification_native(
+pub(crate) async fn send_test_notification_native(
     app: tauri::AppHandle,
     title: Option<String>,
     body: Option<String>,
 ) -> Result<(), String> {
-    send_native_notification(
-        app,
-        None,
-        None,
-        title,
-        body,
-        Some("notifications".to_string()),
-    )
+    run_notification_blocking("send test notification", move || {
+        send_native_notification(
+            app,
+            None,
+            None,
+            title,
+            body,
+            Some("notifications".to_string()),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn send_local_notification_native(
+pub(crate) async fn send_local_notification_native(
     app: tauri::AppHandle,
     id: Option<i32>,
     channel_id: Option<String>,
@@ -28,7 +43,10 @@ pub(crate) fn send_local_notification_native(
     body: Option<String>,
     target_view: Option<String>,
 ) -> Result<(), String> {
-    send_native_notification(app, id, channel_id, title, body, target_view)
+    run_notification_blocking("send local notification", move || {
+        send_native_notification(app, id, channel_id, title, body, target_view)
+    })
+    .await
 }
 
 /// 系统预调度本地通知（#610）：把未来某个时刻的课程/考试提醒登记给操作系统。
@@ -44,7 +62,7 @@ pub(crate) fn send_local_notification_native(
 ///
 /// 参数 at_epoch_secs 为 UTC epoch 秒（绝对时刻，不受设备时区影响）。
 #[tauri::command]
-pub(crate) fn schedule_local_notification_native(
+pub(crate) async fn schedule_local_notification_native(
     app: tauri::AppHandle,
     id: i32,
     channel_id: Option<String>,
@@ -53,122 +71,133 @@ pub(crate) fn schedule_local_notification_native(
     target_view: Option<String>,
     at_epoch_secs: i64,
 ) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        // Windows toast（notify-rust）不支持系统预调度，明确拒绝而非假装成功。
-        let _ = (app, id, channel_id, title, body, target_view, at_epoch_secs);
-        return Err("Windows 桌面端不支持系统预调度本地通知".to_string());
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let real_title = title
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "Mini-HBUT".to_string());
-        let real_body = body
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "这是一条课程/考试提醒。".to_string());
-        let real_target_view = target_view
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "notifications".to_string());
-
-        // 用 chrono 把 epoch 秒格式化为移动端可解析的 ISO 字符串（毫秒 + 字面 Z），
-        // 再经 serde_json 反序列化成插件的 Schedule（避开对 time crate 的直接依赖）。
-        let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(at_epoch_secs, 0)
-            .ok_or_else(|| format!("invalid schedule timestamp: {at_epoch_secs}"))?;
-        let iso = datetime.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let schedule: tauri_plugin_notification::Schedule =
-            serde_json::from_value(serde_json::json!({
-                "at": {
-                    "date": iso,
-                    "repeating": false,
-                    "allowWhileIdle": true
-                }
-            }))
-            .map_err(|e| format!("build schedule payload failed: {e}"))?;
-
-        let mut builder = app
-            .notification()
-            .builder()
-            .id(id)
-            .title(real_title)
-            .body(real_body)
-            .extra("view", real_target_view)
-            .auto_cancel()
-            .schedule(schedule);
-
-        if let Some(channel_id) = channel_id
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
+    run_notification_blocking("schedule local notification", move || {
+        #[cfg(target_os = "windows")]
         {
-            builder = builder.channel_id(channel_id);
+            // Windows toast（notify-rust）不支持系统预调度，明确拒绝而非假装成功。
+            let _ = (app, id, channel_id, title, body, target_view, at_epoch_secs);
+            return Err("Windows 桌面端不支持系统预调度本地通知".to_string());
         }
 
-        builder
-            .show()
-            .map_err(|e| format!("schedule native notification failed: {e}"))
-    }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let real_title = title
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "Mini-HBUT".to_string());
+            let real_body = body
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "这是一条课程/考试提醒。".to_string());
+            let real_target_view = target_view
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "notifications".to_string());
+
+            // 用 chrono 把 epoch 秒格式化为移动端可解析的 ISO 字符串（毫秒 + 字面 Z），
+            // 再经 serde_json 反序列化成插件的 Schedule（避开对 time crate 的直接依赖）。
+            let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(at_epoch_secs, 0)
+                .ok_or_else(|| format!("invalid schedule timestamp: {at_epoch_secs}"))?;
+            let iso = datetime.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            let schedule: tauri_plugin_notification::Schedule =
+                serde_json::from_value(serde_json::json!({
+                    "at": {
+                        "date": iso,
+                        "repeating": false,
+                        "allowWhileIdle": true
+                    }
+                }))
+                .map_err(|e| format!("build schedule payload failed: {e}"))?;
+
+            let mut builder = app
+                .notification()
+                .builder()
+                .id(id)
+                .title(real_title)
+                .body(real_body)
+                .extra("view", real_target_view)
+                .auto_cancel()
+                .schedule(schedule);
+
+            if let Some(channel_id) = channel_id
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+            {
+                builder = builder.channel_id(channel_id);
+            }
+
+            builder
+                .show()
+                .map_err(|e| format!("schedule native notification failed: {e}"))
+        }
+    })
+    .await
 }
 
 /// 查询 Mini-HBUT 自己登记的系统 pending 提醒（含 id 与触发时刻）。
 #[tauri::command]
-pub(crate) fn get_pending_local_notifications_native(
+pub(crate) async fn get_pending_local_notifications_native(
     app: tauri::AppHandle,
 ) -> Result<Vec<serde_json::Value>, String> {
-    // tauri-plugin-notification 2.3.3 仅在移动端实现提供 Notification::pending()
-    // （desktop.rs 无此方法，Linux/macOS 桌面编译会 E0599）。
-    // 桌面端（Windows/macOS/Linux）统一返回空列表，与 Windows 分支行为一致。
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    {
-        let pending = app
-            .notification()
-            .pending()
-            .map_err(|e| format!("query pending notifications failed: {e}"))?;
-        let mut items = Vec::with_capacity(pending.len());
-        for item in pending {
-            let at_epoch_secs = match item.schedule() {
-                tauri_plugin_notification::Schedule::At { date, .. } => Some(date.unix_timestamp()),
-                _ => None,
-            };
-            items.push(serde_json::json!({
-                "id": item.id(),
-                "title": item.title(),
-                "body": item.body(),
-                "at_epoch_secs": at_epoch_secs,
-            }));
+    run_notification_blocking("query pending notifications", move || {
+        // tauri-plugin-notification 2.3.3 仅在移动端实现提供 Notification::pending()
+        // （desktop.rs 无此方法，Linux/macOS 桌面编译会 E0599）。
+        // 桌面端（Windows/macOS/Linux）统一返回空列表，与 Windows 分支行为一致。
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let pending = app
+                .notification()
+                .pending()
+                .map_err(|e| format!("query pending notifications failed: {e}"))?;
+            let mut items = Vec::with_capacity(pending.len());
+            for item in pending {
+                let at_epoch_secs = match item.schedule() {
+                    tauri_plugin_notification::Schedule::At { date, .. } => {
+                        Some(date.unix_timestamp())
+                    }
+                    _ => None,
+                };
+                items.push(serde_json::json!({
+                    "id": item.id(),
+                    "title": item.title(),
+                    "body": item.body(),
+                    "at_epoch_secs": at_epoch_secs,
+                }));
+            }
+            Ok(items)
         }
-        Ok(items)
-    }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        let _ = app;
-        Ok(Vec::new())
-    }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let _ = app;
+            Ok(Vec::new())
+        }
+    })
+    .await
 }
 
 /// 取消指定的系统 pending 提醒（只允许取消 Mini-HBUT 自己登记过的 id）。
 #[tauri::command]
-pub(crate) fn cancel_local_notifications_native(
+pub(crate) async fn cancel_local_notifications_native(
     app: tauri::AppHandle,
     ids: Vec<i32>,
 ) -> Result<(), String> {
-    // 同 get_pending：Notification::cancel() 仅移动端实现提供，桌面端直接返回成功。
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    {
-        app.notification()
-            .cancel(ids)
-            .map_err(|e| format!("cancel pending notifications failed: {e}"))
-    }
+    run_notification_blocking("cancel pending notifications", move || {
+        // 同 get_pending：Notification::cancel() 仅移动端实现提供，桌面端直接返回成功。
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            app.notification()
+                .cancel(ids)
+                .map_err(|e| format!("cancel pending notifications failed: {e}"))
+        }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        let _ = (app, ids);
-        Ok(())
-    }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let _ = (app, ids);
+            Ok(())
+        }
+    })
+    .await
 }
 
 fn send_native_notification(
@@ -303,33 +332,65 @@ mod schedule_format_tests {
 }
 
 #[tauri::command]
-pub(crate) fn get_notification_permission_native(app: tauri::AppHandle) -> Result<String, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = app;
-        return Ok("granted".to_string());
-    }
+pub(crate) async fn get_notification_permission_native(
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    run_notification_blocking("get notification permission", move || {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = app;
+            return Ok("granted".to_string());
+        }
 
-    #[cfg(not(target_os = "windows"))]
-    app.notification()
-        .permission_state()
-        .map(map_notification_permission_state)
-        .map_err(|e| format!("get native notification permission failed: {}", e))
+        #[cfg(not(target_os = "windows"))]
+        app.notification()
+            .permission_state()
+            .map(map_notification_permission_state)
+            .map_err(|e| format!("get native notification permission failed: {}", e))
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn request_notification_permission_native(
+pub(crate) async fn request_notification_permission_native(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = app;
-        return Ok("granted".to_string());
+    run_notification_blocking("request notification permission", move || {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = app;
+            return Ok("granted".to_string());
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        app.notification()
+            .request_permission()
+            .map(map_notification_permission_state)
+            .map_err(|e| format!("request native notification permission failed: {}", e))
+    })
+    .await
+}
+
+#[cfg(test)]
+mod thread_dispatch_tests {
+    #[tokio::test]
+    async fn notification_work_runs_off_command_thread_and_returns_value() {
+        let caller = std::thread::current().id();
+        let worker = super::run_notification_blocking("test", move || {
+            Ok::<_, String>(std::thread::current().id())
+        })
+        .await
+        .expect("worker should succeed");
+        assert_ne!(
+            worker, caller,
+            "native notification work must not run on command thread"
+        );
     }
 
-    #[cfg(not(target_os = "windows"))]
-    app.notification()
-        .request_permission()
-        .map(map_notification_permission_state)
-        .map_err(|e| format!("request native notification permission failed: {}", e))
+    #[tokio::test]
+    async fn notification_work_propagates_errors() {
+        let result =
+            super::run_notification_blocking("test", || Err::<(), _>("denied".into())).await;
+        assert_eq!(result.unwrap_err(), "denied");
+    }
 }

@@ -24,6 +24,8 @@ const ICON_STYLES = ['duotone', 'line', 'mono']
 const DECOR_STYLES = ['mesh', 'grain', 'none']
 const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional', 'class']
 const SCHEDULE_VIEW_MODES = ['all', 'courses', 'events']
+// #1116：冲突显示方式只接受两个稳定值，缺失/旧配置/非法值一律回退 merged
+const SCHEDULE_CONFLICT_DISPLAY_MODES = ['merged', 'side-by-side']
 const STARTUP_PAGES = ['home', 'schedule']
 
 type UiSettingsState = typeof SYSTEM_UI_SETTINGS
@@ -92,6 +94,23 @@ const normalizeOrderedKeys = <T extends string>(rawList: unknown, defaults: read
   return output
 }
 
+/**
+ * #1110 布局迁移：给分记录独立模块（grade_distribution）上线前，老版本保存的
+ * `moduleOrder` 里没有该 id。若保存值是数组且缺失该 id：
+ * - 含 `grades`：插入到 `grades` 之后（用户自定义顺序语义不变）；
+ * - 不含 `grades`：不做插入，交给默认合并（缺省顺序补全）兜底。
+ * 已含该 id（新版本已保存）或非数组（新装 / 无布局）时原样返回，迁移幂等。
+ */
+const migrateModuleOrderForGradeDistribution = (rawModuleOrder: unknown): unknown => {
+  if (!Array.isArray(rawModuleOrder)) return rawModuleOrder
+  if (rawModuleOrder.includes('grade_distribution')) return rawModuleOrder
+  const gradesIndex = rawModuleOrder.indexOf('grades')
+  if (gradesIndex === -1) return rawModuleOrder
+  const next = [...rawModuleOrder]
+  next.splice(gradesIndex + 1, 0, 'grade_distribution')
+  return next
+}
+
 const normalizeWorkspaceLayout = (raw: unknown): WorkspaceLayout => {
   const base = buildDefaultWorkspaceLayout()
   if (!isRecord(raw)) return base
@@ -106,7 +125,7 @@ const normalizeWorkspaceLayout = (raw: unknown): WorkspaceLayout => {
         [...HOME_WIDGET_ORDER_DEFAULT]
       ),
       moduleOrder: normalizeOrderedKeys(
-        homeRaw.moduleOrder,
+        migrateModuleOrderForGradeDistribution(homeRaw.moduleOrder),
         [...HOME_MODULE_ORDER_DEFAULT]
       )
     },
@@ -153,6 +172,11 @@ const normalizeSettings = (raw: unknown): UiSettingsState => {
   merged.scheduleViewMode = SCHEDULE_VIEW_MODES.includes(merged.scheduleViewMode)
     ? merged.scheduleViewMode
     : base.scheduleViewMode
+  merged.scheduleConflictDisplayMode = SCHEDULE_CONFLICT_DISPLAY_MODES.includes(
+    merged.scheduleConflictDisplayMode
+  )
+    ? merged.scheduleConflictDisplayMode
+    : base.scheduleConflictDisplayMode
   merged.startupPage = STARTUP_PAGES.includes(merged.startupPage)
     ? merged.startupPage
     : base.startupPage

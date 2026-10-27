@@ -6,7 +6,6 @@
 
 // 模块化设计 - 与 Python backend/modules 对应
 pub mod ai;
-pub mod calendar;
 pub mod campus_network;
 // #719：冷启动校内 HTTPS 证书探测（独立严格校验客户端，不复用业务共享客户端）
 pub mod cert_probe;
@@ -17,6 +16,16 @@ pub mod classroom;
 pub mod course_selection;
 pub mod electricity;
 pub mod exam;
+// #1052：图书馆预约（超星 reserve）基础链路：mAppId → 真实系统入口 + 凭证
+pub mod library_reserve;
+// #1053：图书馆预约 · 静音仓 / 研讨室业务接口（PC 版 reservepc 接口体系）
+pub mod library_reserve_pc;
+// #1054：图书馆预约 · 座位预约只读查询（seatengine 接口体系；写接口契约未抓到，暂不实现）
+pub mod library_reserve_seat;
+// 2026-10-19：图书馆预约 · 官方页面内嵌子 WebView（座位提交需 cxCaptcha 人工验证，纯接口不可行）
+pub mod library_reserve_embed;
+// #1081：图书馆预约 · 官方页 Bridge 反向代理（iOS 无 add_child，改走「代理 + iframe」）
+pub mod library_reserve_proxy;
 pub mod module_bundle;
 pub mod notification;
 pub mod one_code;

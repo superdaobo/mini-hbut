@@ -70,7 +70,9 @@ use rand::Rng;
 
 use crate::{parser, CalendarEvent, Exam, Grade, LoginPageInfo, ScheduleCourse, UserInfo};
 
-mod academic;
+// Teacher Portal V2（#1019）：academic 需对 crate 可见，供 application::TeacherService
+// 复用教师只读路径 allowlist（http_client::academic::teacher::readonly）。
+pub(crate) mod academic;
 mod ai;
 mod auth;
 mod electricity;
@@ -86,6 +88,9 @@ pub(super) type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
+
+// 校园码命令结构化错误（#1113）：重导出供 transport::tauri::electricity 使用
+pub(crate) use electricity::CampusCodeCommandError;
 /// 教务 CAS service：**必须**用 `/admin/caslogin`，不能用 `/admin/?loginType=1`。
 ///
 /// 依据 #984 实测（`data/issue-984-link-map.md` 路径 A/C 对照实验）：
@@ -471,11 +476,12 @@ pub struct HbutClient {
     /// #984 新增。此前只有 `test_finalize`，它整体替换 `finalize_jwxt_user_session()`，
     /// 导致 `/admin/caslogin` 这一跳在测试中**从未被真实执行过** —— 这正是 T4/T5
     /// （CAS 成功但教务落地失败 / 回到 CAS 登录页）此前写不出来的原因。
-    /// 返回 `(final_url, status, html)`，与 `test_cas_post` 形状一致。
+    /// 返回 `(status, final_url, html)`，与 `request_caslogin` 的返回顺序一致；
+    /// `html` 供身份识别（`#roleId`）复用，注入时传空串即回落到显式取教务首页。
     #[cfg(test)]
     pub(super) test_caslogin: Option<
         std::sync::Arc<
-            dyn Fn() -> Result<(String, u16, String), Box<dyn std::error::Error + Send + Sync>>
+            dyn Fn() -> Result<(u16, String, String), Box<dyn std::error::Error + Send + Sync>>
                 + Send
                 + Sync,
         >,

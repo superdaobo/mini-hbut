@@ -3,6 +3,7 @@ import {
   applyOcrRuntimeConfig,
   fetchRemoteConfig,
   getStoredOcrConfig,
+  readRemoteConfigSnapshot,
   isRemoteConfigEnabled
 } from '../../utils/remote_config.js'
 import { getCurrentVersion } from '../../utils/updater.js'
@@ -94,6 +95,7 @@ export const createRemoteConfigCoordinator = (runtime: AppRuntime): RemoteConfig
     const announcement = item && typeof item === 'object' ? item as Record<string, any> : null
     if (!announcement) return
     state.activeAnnouncement.value = announcement
+    state.activeAnnouncementHtml.value = ''
     state.showAnnouncementModal.value = true
     const token = ++state.mutable.activeAnnouncementRenderToken
     void renderMarkdown(announcement.content || announcement.body || '').then((html) => {
@@ -102,6 +104,8 @@ export const createRemoteConfigCoordinator = (runtime: AppRuntime): RemoteConfig
   }
 
   const closeAnnouncement = () => {
+    // 旧公告尚未完成的异步 Markdown 渲染不可回填到下一次阅读。
+    state.mutable.activeAnnouncementRenderToken += 1
     state.showAnnouncementModal.value = false
     state.activeAnnouncement.value = null
     state.activeAnnouncementHtml.value = ''
@@ -179,12 +183,13 @@ export const createRemoteConfigCoordinator = (runtime: AppRuntime): RemoteConfig
       const config = await fetchRemoteConfig()
       state.remoteConfig.value = config
       const announcements = normalizeAnnouncements(config.announcements)
-      if (hasAnnouncementContent(announcements)) {
+      // 远程配置快照已有权威空公告时应立即清空，不能复活撤回的公告。
+      // 只有首次离线且无完整配置快照时，才尝试兼容旧版独立公告缓存。
+      if (hasAnnouncementContent(announcements) || readRemoteConfigSnapshot()) {
         state.announcementData.value = announcements
         persistAnnouncementSnapshot(announcements)
       } else {
-        const snapshot = restoreAnnouncementSnapshot()
-        if (snapshot) state.announcementData.value = snapshot
+        state.announcementData.value = restoreAnnouncementSnapshot() || announcements
       }
       await applyOcrRuntimeConfig(config)
       window.dispatchEvent(new CustomEvent('hbu-ocr-config-updated'))

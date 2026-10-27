@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { useAuthStore } from '../stores/auth'
 import {
   allowsInAppGithubUpdater,
   filterAllowedModules,
@@ -14,6 +16,7 @@ import {
   isViewAllowed,
   setAppStoreBuildOverrideForTests,
   setAppStoreSessionOverrideForTests,
+  setAppStoreSessionVerifier,
   shouldApplyAppStoreRestrictions
 } from './app_store_policy'
 
@@ -21,6 +24,9 @@ describe('app_store_policy', () => {
   afterEach(() => {
     setAppStoreBuildOverrideForTests(null)
     setAppStoreSessionOverrideForTests(null)
+    setAppStoreSessionVerifier(null)
+    vi.unstubAllGlobals()
+    setActivePinia(undefined)
   })
 
   it('update path: github allowed only when not app-store build (even if logged in)', () => {
@@ -34,6 +40,30 @@ describe('app_store_policy', () => {
     expect(shouldApplyAppStoreRestrictions()).toBe(false)
     expect(allowsInAppGithubUpdater()).toBe(false)
     expect(getUpdateCheckMode()).toBe('apple_storefront')
+  })
+
+  it('iOS：缓存教师工号不能解锁模块；后端确认会话后可打开教师功能', () => {
+    setAppStoreBuildOverrideForTests(true)
+    const values = new Map([['hbu_username', '20000000'], ['hbu_username_role', 'teacher']])
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => void values.delete(key),
+      setItem: (key: string, value: string) => void values.set(key, value)
+    })
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    setAppStoreSessionVerifier(() => Boolean(auth.studentId && auth.sessionVerified))
+    auth.hydrate({ studentId: '20000000', role: 'teacher' })
+    auth.onlineSessionState = 'cached_offline'
+    expect(isViewAllowed('teacherteaching')).toBe(false)
+    expect(isViewAllowed('teacherexams')).toBe(false)
+    expect(isViewAllowed('qxzkb')).toBe(false)
+
+    auth.onlineSessionState = 'online'
+    expect(isViewAllowed('teacherteaching')).toBe(true)
+    expect(isViewAllowed('teacherexams')).toBe(true)
+    expect(isViewAllowed('qxzkb')).toBe(true)
+    expect(isModuleAllowed('teacherteaching')).toBe(true)
   })
 
   it('flag off: allows representative high-risk modules and views', () => {

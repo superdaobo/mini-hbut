@@ -41,5 +41,6 @@ graph TD
 
 由于每次携带的 `building` 不同、`min_seats` 限制不同，不可能共用同一个 Axios Cache 控制接口。
 因此，使用了自构建的微型哈希指纹：
-`classroom:student_id:w{周次}:d{星期}:p{1,2,3节}:b{第一教学楼}:s{30}-{50}`。
+`classroom:{accountId}:{role}:w{周次}:d{星期}:p{1,2,3节}:b{第一教学楼}:s{30}-{50}`
+（`role` 为 `teacher` / `student`，师生空教室数据源不同必须隔离；`accountId` 紧跟前缀以便登出按账号前缀清理）。
 一旦该指纹在十分钟内重复产生，直接从 `fetchWithCache` 命中内存而无需去教务服务器排队，做到了流量分流优化。

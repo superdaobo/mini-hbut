@@ -7,7 +7,8 @@ const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8')
 
 describe('teaching eval (#439) contract', () => {
   it('Dashboard 教务分组含 teaching_eval 入口', () => {
-    const dash = read('src/components/Dashboard.vue')
+    // #1021：模块表/分类表已抽到 config/dashboard_modules.ts，首页契约随之覆盖该文件
+    const dash = read('src/components/Dashboard.vue') + '\n' + read('src/config/dashboard_modules.ts')
     expect(dash).toMatch(/id:\s*['"]teaching_eval['"]/)
     // i18n 迁移（#786）：模块名存 i18n key home.module.teaching_eval
     expect(dash).toMatch(/home\.module\.teaching_eval/)

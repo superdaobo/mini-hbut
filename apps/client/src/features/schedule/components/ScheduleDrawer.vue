@@ -16,8 +16,11 @@ const props = defineProps({
   semesterError: { type: String, default: '' },
   scheduleCourseCardStyle: { type: String, default: 'modern' },
   scheduleViewMode: { type: String, default: 'all' },
+  // #1116：冲突显示方式（merged / side-by-side），与课程卡片外观独立
+  scheduleConflictDisplayMode: { type: String, default: 'merged' },
   viewModeOptions: { type: Array, default: () => [] },
   styleOptions: { type: Array, default: () => [] },
+  conflictDisplayOptions: { type: Array, default: () => [] },
   addingCourse: { type: Boolean, default: false },
   loadingManageCourses: { type: Boolean, default: false },
   syncUploading: { type: Boolean, default: false },
@@ -40,6 +43,7 @@ const emit = defineEmits([
   'semester-change',
   'set-view-mode',
   'set-style',
+  'set-conflict-display',
   'open-add-arrangement',
   'open-manage-courses',
   'open-ai-import',
@@ -55,6 +59,12 @@ const emit = defineEmits([
 const semesterDraftModel = computed({
   get: () => props.semesterDraft,
   set: (value) => emit('update:semesterDraft', value),
+})
+
+// #1116：切换器下方只展示当前选中项的说明，避免两段说明挤在按钮里
+const activeConflictDesc = computed(() => {
+  const options = Array.isArray(props.conflictDisplayOptions) ? props.conflictDisplayOptions : []
+  return options.find((item) => item?.key === props.scheduleConflictDisplayMode)?.desc || ''
 })
 
 // 响应式 t：语言切换后抽屉文案即时生效
@@ -123,6 +133,29 @@ const { t } = useI18n()
             <strong>{{ item.label }}</strong>
           </button>
         </div>
+      </div>
+
+      <!-- #1116：冲突显示方式是独立偏好，采用与「视图/样式」一致的左右分段切换 -->
+      <div class="drawer-section">
+        <div class="drawer-subtitle">{{ t('schedule.conflictDisplay.title') }}</div>
+        <div
+          class="drawer-conflict-switch"
+          role="group"
+          :aria-label="t('schedule.conflictDisplay.aria')"
+        >
+          <button
+            v-for="item in conflictDisplayOptions"
+            :key="item.key"
+            type="button"
+            class="drawer-conflict-chip"
+            :class="{ active: scheduleConflictDisplayMode === item.key }"
+            :aria-pressed="scheduleConflictDisplayMode === item.key"
+            @click.stop="emit('set-conflict-display', item.key)"
+          >
+            <strong>{{ item.label }}</strong>
+          </button>
+        </div>
+        <p v-if="activeConflictDesc" class="drawer-conflict-hint">{{ activeConflictDesc }}</p>
       </div>
 
       <div class="drawer-actions">
@@ -400,6 +433,76 @@ const { t } = useI18n()
   background: var(--ui-primary, #2563eb);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
   font-weight: 600;
+}
+
+/* #1116：冲突显示方式采用与「视图/样式」一致的左右分段切换；
+   选中态主色实底，说明改为切换器下方单行提示，避免两张高卡抢视觉重点。 */
+.drawer-conflict-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  gap: 0;
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid #f0f0f0;
+  background: #f9fafb;
+}
+
+.drawer-conflict-chip {
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  border-radius: 12px;
+  min-height: 44px;
+  padding: 6px 10px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  white-space: normal;
+  line-height: 1.25;
+  font-size: 13px;
+  font-weight: 500;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.drawer-conflict-chip strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.drawer-conflict-chip.active {
+  color: #ffffff;
+  background: var(--ui-primary, #2563eb);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
+  font-weight: 600;
+}
+
+.drawer-conflict-hint {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+:global(html.dark) .drawer-conflict-switch {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+:global(html.dark) .drawer-conflict-chip {
+  color: #94a3b8;
+}
+
+:global(html.dark) .drawer-conflict-chip.active {
+  color: #ffffff;
+  background: var(--ui-primary, #3b82f6);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #3b82f6) 38%, transparent 62%);
+}
+
+:global(html.dark) .drawer-conflict-hint {
+  color: #94a3b8;
 }
 
 :global(html.dark) .drawer-view-switch {

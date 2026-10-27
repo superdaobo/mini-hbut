@@ -189,6 +189,10 @@ pub(crate) fn is_allowed_cache_table(table: &str) -> bool {
 pub(crate) enum BridgeRoutePolicy {
     PublicHealth,
     PublicEmbed,
+    /// `/reserve-embed*`（#1081）：iframe 顶层导航 + 官方页自己的写请求。
+    /// GET/HEAD 无条件放行（导航请求可能没有 Origin）；其余方法要求可信桥上下文
+    /// （iframe 内的 `Origin` 恒为 `http://127.0.0.1:4399`）。
+    PublicEmbedWrite,
     Protected,
     /// `/local/*` 只读数据端点族（#698）：传输层仅拦不可信 Origin，
     /// 真正鉴权由 handler 内 `ensure_local_data_auth` 校验本机 Agent 令牌。
@@ -202,6 +206,9 @@ pub(crate) fn bridge_route_policy(path: &str) -> BridgeRoutePolicy {
     } else if path.starts_with("/local/") {
         // #698：本机只读学业数据端点族，独立于 WebView/Bridge 令牌体系
         BridgeRoutePolicy::LocalData
+    } else if path.starts_with("/reserve-embed") {
+        // #1081：图书馆预约官方页代理（GET/HEAD 放行 + 写方法需可信上下文）
+        BridgeRoutePolicy::PublicEmbedWrite
     } else if path.starts_with("/exports/")
         || path.starts_with("/module_bundle/content/")
         || path == "/school-website"
@@ -420,6 +427,15 @@ pub(crate) fn decide_bridge_access(
     }
 
     if policy == BridgeRoutePolicy::PublicEmbed && matches!(*method, Method::GET | Method::HEAD) {
+        return BridgeAccessDecision::Allow;
+    }
+
+    // #1081：预约页代理的 GET/HEAD（iframe 顶层导航 + 静态资源）无需桥上下文；
+    // 其余方法（官方提交 `POST data/apps/seatengine/submit`）必须来自可信桥上下文
+    // —— iframe 内的 `Origin` 恒为 `http://127.0.0.1:4399`，外部站点伪造不出。
+    if policy == BridgeRoutePolicy::PublicEmbedWrite
+        && matches!(*method, Method::GET | Method::HEAD)
+    {
         return BridgeAccessDecision::Allow;
     }
 

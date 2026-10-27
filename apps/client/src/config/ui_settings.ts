@@ -7,9 +7,17 @@ export type IconStyle = 'duotone' | 'line' | 'mono'
 export type DecorStyle = 'mesh' | 'grain' | 'none'
 export type ScheduleCourseCardStyle = 'modern' | 'traditional' | 'class'
 export type ScheduleViewMode = 'all' | 'courses' | 'events'
+/**
+ * #1116：冲突课程显示方式（独立于课程卡片外观/视图过滤）。
+ * - merged：旧版合并，冲突区间一张汇总卡；
+ * - side-by-side：新版并排，只显示真实冲突课程。
+ */
+export type ScheduleConflictDisplayMode = 'merged' | 'side-by-side'
 export type HomeWidgetKey = 'module_grid' | 'today_panel'
 export type HomeModuleKey =
   | 'grades'
+  // #1110：给分记录独立首页模块，默认紧跟「成绩查询」
+  | 'grade_distribution'
   | 'classroom'
   | 'electricity'
   | 'transactions'
@@ -24,6 +32,8 @@ export type HomeModuleKey =
   | 'training'
   | 'teaching_eval'
   | 'library'
+  | 'library_reserve'
+  | 'chaoxing_reserve'
   | 'campus_map'
   | 'resource_share'
   | 'chaoxing_class'
@@ -86,6 +96,8 @@ export interface UiSettingsProfile {
 export const HOME_WIDGET_ORDER_DEFAULT = ['module_grid', 'today_panel'] as const satisfies readonly HomeWidgetKey[]
 export const HOME_MODULE_ORDER_DEFAULT = [
   'grades',
+  // #1110：给分记录独立首页模块，新装默认紧跟「成绩查询」
+  'grade_distribution',
   'classroom',
   'electricity',
   'transactions',
@@ -105,6 +117,10 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   'broadband',
   'sports_venue',
   'library',
+  // #1055：图书馆预约（座位 / 静音仓 / 研讨室），与馆藏检索 library 并列登记
+  'library_reserve',
+  // A15：预约（内嵌超星官方预约页），与原生模块 library_reserve 并列登记
+  'chaoxing_reserve',
   'campus_map',
   'resource_share',
   'towergo',
@@ -238,6 +254,8 @@ export const SYSTEM_UI_SETTINGS = {
   success: '#10b981',
   scheduleCourseCardStyle: 'modern' as ScheduleCourseCardStyle,
   scheduleViewMode: 'all' as ScheduleViewMode,
+  // #1116：无用户偏好时默认合并显示（兼容旧版可读性）
+  scheduleConflictDisplayMode: 'merged' as ScheduleConflictDisplayMode,
   startupPage: 'home' as 'home' | 'schedule',
   splashEnabled: true,
   workspaceLayout: buildDefaultWorkspaceLayout(),

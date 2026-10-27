@@ -279,7 +279,11 @@ describe('notification delivery contract', () => {
   })
 
   it('registers school inbox browse module on home dashboard and app routing', () => {
-    const dashboard = readVueContractSource('src/components/Dashboard.vue')
+    // #1021：模块表/分类表已抽到 config/dashboard_modules.ts，首页契约随之覆盖该文件
+    const dashboard =
+      readVueContractSource('src/components/Dashboard.vue') +
+      '\n' +
+      readText('src/config/dashboard_modules.ts')
     const appSource = appSources()
     const uiSettings = readText('src/config/ui_settings.ts')
     const inboxView = readText('src/components/SchoolInboxView.vue')

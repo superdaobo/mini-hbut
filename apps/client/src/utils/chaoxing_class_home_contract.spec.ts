@@ -24,7 +24,9 @@ const readTree = (relativePath: string, extensionPattern: RegExp) => {
 
 describe('chaoxing_class home integration contract', () => {
   it('registers 资料分享 (chaoxing_class) module in layout, dashboard, app and icon map', () => {
-    const dashboard = readVueContractSource('src/components/Dashboard.vue')
+    // #1021：首页模块表 / 分类表已抽到 config/dashboard_modules.ts，首页契约随之覆盖该文件
+    const dashboard =
+      readVueContractSource('src/components/Dashboard.vue') + '\n' + read('src/config/dashboard_modules.ts')
     const app = readAppContractSources() + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
     const icon = read('src/components/icons/ThemeModuleIcon.vue')
     const view =

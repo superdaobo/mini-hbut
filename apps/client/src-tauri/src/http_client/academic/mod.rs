@@ -12,6 +12,8 @@
 //! - `ranking`：排名
 //! - `student_info`：学籍与个人登录/访问记录
 //! - `schedule`：课表与空教室、学期列表
+//! - `classroom_teacher`：教师空教室的**纯函数**解析/五态判定层（#1063，无 I/O，可脱敏 fixture 单测）
+//! - `teacher`：教师端身份识别与教师课表（与学生链路语义不同，独立成模块）
 //! - `training_plan`：培养方案
 //! - `calendar`：校历数据
 //! - `academic_progress`：学业进度
@@ -22,6 +24,7 @@
 
 mod academic_progress;
 mod calendar;
+pub(crate) mod classroom_teacher;
 mod common;
 mod exams;
 mod grades;
@@ -29,4 +32,5 @@ mod ranking;
 mod schedule;
 mod semester;
 mod student_info;
+pub(crate) mod teacher;
 mod training_plan;

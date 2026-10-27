@@ -2,22 +2,26 @@
 
 pub const QXZKB_QUERY_FIELDS: &str = "xnxq,dataXnxq,kcmc,kcxz,ksxs,kclb,ksfs,type,xz,xqmc,kkyxmc,kkjysmc,jxbmc,jxbzc,bjrs,source,skjs,sksjdd,schooltime,zdskrnrs,skdd,zongxs,llxs,syxs,shangjxs,shijianxs,jxbid,kcid,tid,zymc,rxnf,dataAuth,kkyxAuth,currentUserName,currentDepartmentId,";
 
-pub fn qxzkb_options() -> serde_json::Value {
+/// 全校课表筛选项。
+///
+/// `current_semester` 由调用方传入已解析的课表上下文学期；为空时按当前日期推算。
+/// 学期列表按日期推导生成（`semester_catalog`），不再硬编码，避免随学年推进过期（issue #1044）。
+pub fn qxzkb_options(current_semester: &str) -> serde_json::Value {
+    let current = current_semester.trim();
+    let current = if current.is_empty() {
+        crate::semester_catalog::current_semester_by_date()
+    } else {
+        current.to_string()
+    };
+    let xnxq: Vec<serde_json::Value> = crate::semester_catalog::build_recent_semesters(&current)
+        .into_iter()
+        .map(|semester| json!({ "value": semester, "label": semester }))
+        .collect();
+
     json!({
         "success": true,
         "options": {
-            "xnxq": [
-                {"value": "2025-2026-2", "label": "当前学期"},
-                {"value": "2025-2026-1", "label": "2025-2026-1"},
-                {"value": "2024-2025-2", "label": "2024-2025-2"},
-                {"value": "2024-2025-1", "label": "2024-2025-1"},
-                {"value": "2023-2024-2", "label": "2023-2024-2"},
-                {"value": "2023-2024-1", "label": "2023-2024-1"},
-                {"value": "2022-2023-2", "label": "2022-2023-2"},
-                {"value": "2022-2023-1", "label": "2022-2023-1"},
-                {"value": "2021-2022-2", "label": "2021-2022-2"},
-                {"value": "2021-2022-1", "label": "2021-2022-1"}
-            ],
+            "xnxq": xnxq,
             "xqid": [
                 {"value": "", "label": "请选择"},
                 {"value": "1", "label": "本部"}
@@ -270,9 +274,26 @@ pub fn qxzkb_options() -> serde_json::Value {
             ]
         },
         "defaults": {
-            "xnxq": "2025-2026-2",
+            "xnxq": current,
             "xsqbkb": "0",
             "kklx": ["1", "18", "2", "3", "5", "22"]
         }
     })
+}
+
+/// 从课表上下文生成筛选项，并把上下文回填进 payload。
+///
+/// 供 Tauri 命令与本地 bridge 两条取数路径共用，避免「解析学期 + 拼装 payload」逻辑重复。
+pub fn qxzkb_options_for_context(context: &serde_json::Value) -> serde_json::Value {
+    let current_semester = context
+        .get("semester")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default();
+    let mut payload = qxzkb_options(current_semester);
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("context".to_string(), context.clone());
+    }
+    payload
 }

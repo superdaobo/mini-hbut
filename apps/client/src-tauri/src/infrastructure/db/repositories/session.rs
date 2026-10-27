@@ -21,6 +21,8 @@ pub struct UserSessionData {
     pub one_code_token: String,
     pub refresh_token: String,
     pub token_expires_at: String,
+    /// 该账号的身份类型（`student` / `teacher`）；历史行为空串，按学生处理。
+    pub role: String,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +33,8 @@ pub struct LatestUserSessionData {
     pub one_code_token: String,
     pub refresh_token: String,
     pub token_expires_at: String,
+    /// 该账号的身份类型（`student` / `teacher`）；历史行为空串，按学生处理。
+    pub role: String,
 }
 
 /// user_sessions 业务列统一 NULL 契约（#659 根因 1）。
@@ -46,6 +50,7 @@ struct UserSessionRow {
     one_code_token: String,
     electricity_refresh_token: String,
     electricity_token_expires_at: String,
+    role: String,
 }
 
 fn text_or_empty(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<String> {
@@ -65,6 +70,7 @@ fn map_user_session_row(
         one_code_token: text_or_empty(row, offset + 2)?,
         electricity_refresh_token: text_or_empty(row, offset + 3)?,
         electricity_token_expires_at: text_or_empty(row, offset + 4)?,
+        role: text_or_empty(row, offset + 5)?,
     })
 }
 
@@ -83,6 +89,8 @@ pub struct SavedAccountRow {
     pub display_name: String,
     /// 最近登录时间（SQLite 文本，排序展示用）
     pub last_login_at: String,
+    /// 该账号的身份类型（`student` / `teacher`）；历史行为空串，按学生处理。
+    pub role: String,
 }
 
 /// 列出本机全部已保存账号（按 last_login DESC，与 get_latest_user_session 同序）。
@@ -94,7 +102,7 @@ pub fn list_user_sessions<P: AsRef<Path>>(path: P) -> Result<Vec<SavedAccountRow
     ensure_user_session_columns(&conn)?;
 
     let mut stmt = conn.prepare(
-        "SELECT student_id, cookies, encrypted_password, one_code_token, last_login
+        "SELECT student_id, cookies, encrypted_password, one_code_token, last_login, role
          FROM user_sessions ORDER BY last_login DESC",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -104,12 +112,13 @@ pub fn list_user_sessions<P: AsRef<Path>>(path: P) -> Result<Vec<SavedAccountRow
             row.get::<_, Option<String>>(2)?.unwrap_or_default(),
             row.get::<_, Option<String>>(3)?.unwrap_or_default(),
             row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            row.get::<_, Option<String>>(5)?.unwrap_or_default(),
         ))
     })?;
 
     let mut result = Vec::new();
     for row in rows {
-        let (sid, cookies_raw, password_raw, token_raw, last_login_at) = match row {
+        let (sid, cookies_raw, password_raw, token_raw, last_login_at, role) = match row {
             Ok(value) => value,
             Err(error) => {
                 eprintln!("[db] list_user_sessions 行读取失败（跳过该行）: {error}");
@@ -129,6 +138,7 @@ pub fn list_user_sessions<P: AsRef<Path>>(path: P) -> Result<Vec<SavedAccountRow
             has_credentials: !password_raw.trim().is_empty() || !token_raw.trim().is_empty(),
             student_id: sid,
             last_login_at,
+            role,
         });
     }
     Ok(result)
@@ -266,6 +276,21 @@ pub fn save_user_session<P: AsRef<Path>>(
     Ok(())
 }
 
+/// 仅更新会话行的身份类型（`student` / `teacher`）。
+///
+/// 单独成函数而不是改 `save_user_session` 的签名：登录之外的调用点
+/// （电费 token 刷新、一码通续期等）不关心身份，保持既有签名不动可避免
+/// 大面积改动；写入失败也不影响登录本身（角色缺失时按学生兜底）。
+pub fn save_user_session_role<P: AsRef<Path>>(path: P, student_id: &str, role: &str) -> Result<()> {
+    let conn = open_connection(path)?;
+    ensure_user_session_columns(&conn)?;
+    conn.execute(
+        "UPDATE user_sessions SET role = ?1 WHERE student_id = ?2",
+        params![role, student_id],
+    )?;
+    Ok(())
+}
+
 // 获取用户会话
 pub fn get_user_session<P: AsRef<Path>>(
     path: P,
@@ -275,7 +300,7 @@ pub fn get_user_session<P: AsRef<Path>>(
     ensure_user_session_columns(&conn)?;
 
     let mut stmt = conn.prepare(
-        "SELECT cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at
+        "SELECT cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at, role
          FROM user_sessions WHERE student_id = ?1"
     )?;
     let mut rows = stmt.query(params![student_id])?;
@@ -298,6 +323,7 @@ pub fn get_user_session<P: AsRef<Path>>(
                 "electricity_refresh_token",
             ),
             token_expires_at: row.electricity_token_expires_at,
+            role: row.role,
         }))
     } else {
         Ok(None)
@@ -310,7 +336,7 @@ pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<LatestU
     ensure_user_session_columns(&conn)?;
 
     let mut stmt = conn.prepare(
-        "SELECT student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at
+        "SELECT student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at, role
          FROM user_sessions ORDER BY last_login DESC LIMIT 1"
     )?;
     let mut rows = stmt.query([])?;
@@ -335,6 +361,7 @@ pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<LatestU
             ),
             student_id,
             token_expires_at: row.electricity_token_expires_at,
+            role: row.role,
         }))
     } else {
         Ok(None)

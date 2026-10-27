@@ -16,6 +16,8 @@ import {
 } from '../../navigation/app_navigation'
 import { resolvePolicySafeSnapshotView, resolvePolicySafeView } from '../../config/accessible_view'
 import { isViewAllowed } from '../../config/app_store_policy'
+// Teacher Portal V2（#1019）：路由级角色门禁（教师身份默认拒绝未授权视图）
+import { isViewAllowedForRole } from '../../config/role_capabilities.js'
 import { canOpenModule } from '../../utils/moduleAccess'
 import { showToast } from '../../utils/toast'
 import { saveRememberedUsername } from '../../utils/remembered_username'
@@ -325,7 +327,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       }
     }
     const hash = window.location.hash || '#/'
-    const match = hash.match(/^#\/(\d{9,10})(?:\/(\w+))?$/)
+    const match = hash.match(/^#\/(\d{8,10})(?:\/(\w+))?$/)
     if (!match) return null
     return {
       sid: match[1],
@@ -340,6 +342,29 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
     if (!normalized || normalized === 'home') return 'home'
     if (isProtectedView(normalized)) return 'home'
     return normalized
+  }
+
+  /**
+   * 读取当前身份（#1019）。
+   *
+   * 容忍测试桩 / 引导早期 `state` 尚未挂载 `role` 的情况：缺失时按「非教师」处理，
+   * 角色门禁放行 —— 保证学生端与既有行为零回归。
+   */
+  const readCurrentRole = (): unknown =>
+    (state as { role?: { value?: unknown } }).role?.value
+
+  /**
+   * 角色能力门禁（#1019）：把 view 收敛为当前身份允许的视图。
+   *
+   * 非教师身份原样返回（学生端零回归）；教师身份若目标未登记在
+   * TEACHER_ALLOWED_VIEW_IDS，则回落到 fallback（默认 home）。
+   * 用于深链（syncFromHash）、启动快照（readStartupSnapshot）、恢复（restoreViewFromSnapshot）。
+   */
+  const resolveRoleSafeView = (view: string, fallback = 'home') => {
+    const normalized = normalizeViewName(view)
+    if (isViewAllowedForRole(normalized, readCurrentRole())) return normalized
+    const safeFallback = normalizeViewName(fallback)
+    return isViewAllowedForRole(safeFallback, readCurrentRole()) ? safeFallback : 'home'
   }
 
   const queueProtectedViewPrompt = (view: string, { push = true } = {}) => {
@@ -411,6 +436,14 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       }
       return false
     }
+    // #1019：角色能力门禁（教师身份访问未授权视图必须被拦，含直达/深链）
+    if (!isViewAllowedForRole(normalized, readCurrentRole())) {
+      showToast('当前身份不可访问该功能')
+      if (normalized !== 'home' && isViewAllowed('home')) {
+        goToViewInternal('home', { push: false, restoreScroll: true })
+      }
+      return false
+    }
     const access = canOpenModule(
       { id: normalized, requiresLogin: false },
       { isLoggedIn: state.isLoggedIn.value }
@@ -461,7 +494,7 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
   // （startupPage）优先，避免 WebView 会话残留的 history 快照覆盖用户启动页选择。
   const readStartupHashDeepLink = (): { sid: string; view: string } | null => {
     if (typeof window === 'undefined') return null
-    const match = String(window.location.hash || '').match(/^#\/(\d{9,10})\/(\w+)$/)
+    const match = String(window.location.hash || '').match(/^#\/(\d{8,10})\/(\w+)$/)
     if (!match) return null
     return { sid: match[1], view: normalizeViewName(match[2]) }
   }
@@ -475,8 +508,9 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       return
     }
     state.studentId.value = route.sid
-    saveRememberedUsername(route.sid)
-    const safeView = resolvePolicySafeView(route.view, 'home')
+    saveRememberedUsername(route.sid, readCurrentRole())
+    // #1019：深链目标先经策略收敛，再经角色门禁（教师不可直达学生专属视图）
+    const safeView = resolveRoleSafeView(resolvePolicySafeView(route.view, 'home'), 'home')
     if (!ensureProtectedViewAccess(safeView, {
       push: false,
       redirectToFallback: true,
@@ -548,7 +582,18 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
   const handleOpenConfig = () => goToView('config')
   const handleOpenSettings = () => goToView('settings')
 
+  // #1089：系统返回键优先交给当前公告详情/首页通知浮层，不触发主页离开或退出确认。
+  const consumeOverlayBack = (): boolean => {
+    const event = new Event('hbu-overlay-back', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+
   const handlePopState = async () => {
+    if (consumeOverlayBack()) {
+      replaceHistorySnapshot(state.currentView.value)
+      return
+    }
     if (!isDesktopLike) {
       const fromView = state.currentView.value
       const handled = goToParentView()
@@ -587,6 +632,10 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       if (!appWindow) return
       state.mutable.unlistenCloseRequested = await appWindow.onCloseRequested(async (event: { preventDefault: () => void }) => {
         if (state.mutable.isClosingByUser) return
+        if (consumeOverlayBack()) {
+          event.preventDefault()
+          return
+        }
         if (state.currentView.value !== 'home') {
           event.preventDefault()
           if ((window.history.length > 1) && (window.location.hash || '#/') !== '#/') {
@@ -688,10 +737,12 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
         ? resolvePolicySafeView('more', 'home')
         : targetViewRaw
     targetView = resolvePolicySafeView(targetView, 'home')
+    // #1019：恢复快照同样过角色门禁（避免教师身份恢复到学生专属视图）
+    targetView = resolveRoleSafeView(targetView, 'home')
     if (resolved?.sid) {
       state.studentId.value = String(resolved.sid || '').trim()
       try {
-        saveRememberedUsername(state.studentId.value)
+        saveRememberedUsername(state.studentId.value, readCurrentRole())
       } catch {
         // ignore storage failure on resume
       }
@@ -785,7 +836,10 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       const startupPageSetting = useUiSettings().startupPage || 'home'
       // #761：冷启动时启动页设置优先（残留 history 快照的 view/tab/module 不再覆盖）；
       // 带显式视图的 hash 深链（#/学号/视图）时深链优先，保证外部跳转行为不受破坏。
-      const startupView = resolvePolicySafeView(deepLink?.view || startupPageSetting, 'home')
+      const startupView = resolveRoleSafeView(
+        resolvePolicySafeView(deepLink?.view || startupPageSetting, 'home'),
+        'home'
+      )
       const initialView = isProtectedView(startupView) && !hasDailyAccessGrant() ? 'home' : startupView
       const tabFallback = (MAIN_TABS as readonly string[]).includes(initialView)
         ? initialView

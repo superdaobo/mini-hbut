@@ -14,6 +14,8 @@ import { ref } from 'vue'
 import { resetLoginGate } from './sessionGate'
 import { createSessionCoordinator } from './SessionCoordinator'
 import { invokeNative } from '../../platform/native'
+import { startNotificationMonitor } from '../../utils/notify_center.js'
+import { runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { loadChaoxingStoredPassword, loadPortalStoredPassword } from '../../composables/useSessionCredentials.js'
 import type { OnlineSessionState } from '../../stores/auth'
 
@@ -67,6 +69,7 @@ const stubStorage = {
 let gradeCacheCleared = false
 
 const makeState = () => ({
+  role: ref<'student' | 'teacher'>('student'),
   studentId: ref(''),
   userUuid: ref(''),
   gradeData: ref<unknown[]>([]),
@@ -90,7 +93,9 @@ const makeState = () => ({
 const makeCoordinator = () => {
   const state = makeState()
   const runtime = {
-    state,
+    state: { ...state, setIdentityRole: (value: unknown) => {
+      state.role.value = value === 'teacher' ? 'teacher' : 'student'
+    } },
     auth: { handleLogout: vi.fn() },
     navigation: {}
   } as unknown as Parameters<typeof createSessionCoordinator>[0]
@@ -175,9 +180,103 @@ describe('#659 缓存身份恢复（cached_offline）', () => {
   })
 })
 
+describe('#1043 扫码临时会话的网络异常不应被误判为登出', () => {
+  const primeTempIdentity = async (cookies = true) => {
+    storageMap.set('hbu_username', '2023000001')
+    storageMap.set('hbu_login_method', 'portal_qr_temp')
+    storageMap.set('hbu_login_temporary', '1')
+    if (cookies) storageMap.set('hbu_session_cookies', 'cookie=1')
+    const ctx = makeCoordinator()
+    await ctx.coordinator.restoreCachedIdentityFromLocal()
+    return ctx
+  }
+
+  it('离线冷启动且无 cookie：保留本地身份、不自动退出', async () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    const { coordinator, runtime, state } = await primeTempIdentity(false)
+    expect(await coordinator.tryRestoreSession()).toBe(false)
+    expect(state.studentId.value).toBe('2023000001')
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+    expect(runtime.auth.handleLogout).not.toHaveBeenCalled()
+  })
+
+  it('扫码会话恢复遇到网络超时：不触发自动登出', async () => {
+    const { coordinator, runtime, state } = await primeTempIdentity()
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'restore_session') throw new Error('network timeout')
+      if (command === 'set_offline_user_context') return null
+      throw new Error('unexpected command')
+    })
+    expect(await coordinator.tryRestoreSession()).toBe(false)
+    expect(runtime.auth.handleLogout).not.toHaveBeenCalled()
+    expect(state.studentId.value).toBe('2023000001')
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+  })
+
+  it('扫码会话恢复明确 401：仍按临时会话失效登出', async () => {
+    const { coordinator, runtime } = await primeTempIdentity()
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'restore_session') throw new Error('401 session expired')
+      return null
+    })
+    expect(await coordinator.tryRestoreSession()).toBe(false)
+    expect(runtime.auth.handleLogout).toHaveBeenCalledWith(expect.objectContaining({
+      manual: false
+    }))
+  })
+
+  it('扫码会话保活断网：降为缓存离线并等待恢复，不踢用户', async () => {
+    const { coordinator, runtime, state } = await primeTempIdentity()
+    state.onlineSessionState.value = 'online'
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'refresh_session') throw new Error('failed to fetch: network unavailable')
+      return null
+    })
+    await coordinator.refreshSessionSilently()
+    expect(runtime.auth.handleLogout).not.toHaveBeenCalled()
+    expect(state.onlineSessionState.value).toBe('cached_offline')
+    expect(state.studentId.value).toBe('2023000001')
+  })
+
+  it('扫码会话保活明确认证过期：维持原有安全收口', async () => {
+    const { coordinator, runtime } = await primeTempIdentity()
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'refresh_session') throw new Error('401 Unauthorized: session expired')
+      return null
+    })
+    await coordinator.refreshSessionSilently()
+    expect(runtime.auth.handleLogout).toHaveBeenCalledWith(expect.objectContaining({
+      manual: false
+    }))
+  })
+})
+
 // ─── 2. 状态流转：cached_offline → recovering → online / cached_offline ─────
 
 describe('#659 状态流转', () => {
+  it('教师工号恢复成功不启动学生电费定时器、通知或云同步', async () => {
+    const { coordinator, state } = makeCoordinator()
+    storageMap.set('hbu_username', '20000000')
+    storageMap.set('hbu_login_role', 'teacher')
+    storageMap.set('hbu_login_method', 'portal_password')
+    storageMap.set('hbu_session_cookies', 'teacher-cookie=1')
+    vi.mocked(invokeNative).mockImplementation(async (command: string) => {
+      if (command === 'restore_session') return { student_id: '20000000', role: 'teacher' }
+      if (command === 'get_cookies') return 'teacher-cookie=1'
+      if (command === 'set_offline_user_context') return null
+      throw new Error(`unexpected teacher command: ${command}`)
+    })
+    await coordinator.restoreCachedIdentityFromLocal()
+    expect(await coordinator.attemptOnlineRecovery({ silent: true })).toBe(true)
+    expect(state.studentId.value).toBe('20000000')
+    expect(state.role.value).toBe('teacher')
+    expect(state.onlineSessionState.value).toBe('online')
+    expect(state.mutable.electricityKeepAliveTimer).toBeNull()
+    expect(startNotificationMonitor).not.toHaveBeenCalled()
+    expect(runAutoCloudSyncAfterLogin).not.toHaveBeenCalled()
+    expect(invokeNative).not.toHaveBeenCalledWith('refresh_electricity_token')
+  })
+
   it('恢复进行中 → recovering；恢复成功 → online；恢复失败 → cached_offline', async () => {
     const { coordinator, state } = makeCoordinator()
     storageMap.set('hbu_username', '2023000001')

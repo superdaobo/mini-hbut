@@ -16,6 +16,8 @@ import { showToast } from '../utils/toast'
 import { invokeNative } from '../platform/native'
 import { useCertProbeBanner } from '../composables/certProbe'
 import { useAuthStore } from '../stores'
+import { normalizeLoginRole } from '../utils/login_role.js'
+import { normalizePortalAccountId } from '../utils/portal_account.js'
 import { useI18n, tf } from '../utils/app_i18n'
 
 const props = defineProps({
@@ -158,7 +160,8 @@ watch(showSponsorEntry, (allowed) => {
 })
 
 const handleLogout = () => emit('logout')
-const goStudentInfo = () => emit('navigate', 'studentinfo')
+// E2（#1022）：个人信息入口按真实身份分流 —— 教师进教师资料页，学生保持原学生资料页。
+const goStudentInfo = () => emit('navigate', authStore.isTeacher ? 'teacherprofile' : 'studentinfo')
 const handleCheckUpdate = () => emit('checkUpdate')
 const handleOpenOfficial = () => emit('openOfficial')
 const handleOpenConfig = () => emit('openConfig')
@@ -174,7 +177,7 @@ const handleOpenAuthHistory = () => emit('navigate', 'identity_auth_history')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
 const policySession = () => ({
-  isLoggedIn: props.isLoggedIn,
+  isLoggedIn: props.isLoggedIn && authStore.sessionVerified,
   isDemoSession: isDemoSession.value
 })
 
@@ -268,30 +271,54 @@ const openAccountSwitch = async () => {
   }
 }
 
+const canSwitchSavedAccount = (acc) =>
+  Boolean(acc?.has_cookies && normalizePortalAccountId(acc.student_id, normalizeLoginRole(acc.role)))
+
 const switchToAccount = async (acc) => {
   if (switchingAccount.value) return
   if (acc.is_current) {
     showAccountSwitchModal.value = false
     return
   }
-  if (!acc.has_cookies) {
+  // 旧记录缺少教师 role 时，8 位工号不能作为学生标识交给 Rust 执行切号。
+  if (!canSwitchSavedAccount(acc)) {
     showToast(t('me.toast.sessionInvalid'), 'warning')
     return
   }
+  const requestedRole = normalizeLoginRole(acc.role)
+  const requestedSid = normalizePortalAccountId(acc.student_id, requestedRole)
   switchingAccount.value = acc.student_id
   try {
-    const info = await invokeNative('switch_active_account', {
+    // #1061：在线切号 —— Rust 完成本地注入后立即在线验证目标身份，必要时用
+    // 该账号自身凭据真实重登并复验；只有 online_ready 才代表在线可用。
+    const info = await invokeNative('switch_active_account_online', {
       studentId: acc.student_id,
       student_id: acc.student_id
     })
-    const sid = String(info?.student_id || acc.student_id || '').trim()
-    showAccountSwitchModal.value = false
-    if (sid) {
-      // 交给 App.vue 统一收尾：更新 hbu_username 标记 + 派发全量刷新
-      emit('account-switched', sid)
-      showToast(tf('me.toast.switched', { name: acc.masked_id || sid }), 'success')
-    } else {
+    // 工号与学号都由 Rust 返回的已保存会话身份决定，不能用列表里的本地角色代替。
+    const role = normalizeLoginRole(info?.role)
+    const sid = normalizePortalAccountId(info?.student_id, role)
+    if (!info?.local_activated || !sid || sid !== requestedSid) {
       showToast(t('me.toast.switchFailedNoId'), 'error')
+      return
+    }
+    showAccountSwitchModal.value = false
+    const onlineReady = info?.online_ready === true
+    const needsLogin = info?.needs_login === true
+    emit('account-switched', {
+      studentId: sid,
+      role,
+      onlineReady,
+      needsLogin,
+      failureReason: String(info?.failure_reason || '')
+    })
+    // 未在线就绪时绝不虚报「切换成功且全部在线」：按原因给出可操作提示。
+    if (onlineReady) {
+      showToast(tf('me.toast.switched', { name: acc.masked_id || sid }), 'success')
+    } else if (needsLogin) {
+      showToast(tf('me.toast.switchNeedsLogin', { name: acc.masked_id || sid }), 'warning')
+    } else {
+      showToast(tf('me.toast.switchOffline', { name: acc.masked_id || sid }), 'info')
     }
   } catch (e) {
     showToast(String(e?.message || e || t('me.toast.switchFailed')), 'error')
@@ -343,7 +370,7 @@ const removeAccount = async (acc) => {
         <span class="material-symbols-outlined avatar-icon">person</span>
       </div>
       <h2 class="profile-student-id">{{ studentId }}</h2>
-      <p class="profile-school">{{ isDemoSession ? t('me.profile.demoSession') : t('me.profile.studentTool') }}</p>
+      <p class="profile-school">{{ isDemoSession ? t('me.profile.demoSession') : authStore.isTeacher ? t('me.profile.teacherTool') : t('me.profile.studentTool') }}</p>
       <div class="profile-actions">
         <button class="btn-info" @click="goStudentInfo">{{ t('me.profile.studentInfo') }}</button>
         <!-- #755：一键切换账号（多账号并存；演示会话无真实本地会话，不展示） -->
@@ -657,16 +684,21 @@ const removeAccount = async (acc) => {
               class="account-item"
               :class="{ 'account-item--busy': switchingAccount === acc.student_id }"
             >
-              <div class="account-main" @click="switchToAccount(acc)">
-                <div class="account-info">
+              <button class="account-main" type="button" :disabled="!!switchingAccount || acc.is_current || !canSwitchSavedAccount(acc)" @click="switchToAccount(acc)">
+                <span class="account-info">
                   <span class="account-label">{{ acc.display_name || acc.masked_id }}</span>
-                  <span class="account-id">{{ acc.masked_id }}</span>
-                </div>
+                  <span class="account-id">
+                    {{ acc.role === 'teacher' ? t('me.account.teacherId') : acc.role === 'student' ? t('me.account.studentId') : t('me.account.accountId') }}：{{ acc.masked_id }}
+                  </span>
+                  <span class="account-role" :class="{ 'account-role--teacher': acc.role === 'teacher' }">
+                    {{ acc.role === 'teacher' ? t('me.account.roleTeacher') : acc.role === 'student' ? t('me.account.roleStudent') : t('me.account.roleUnknown') }}
+                  </span>
+                </span>
                 <span v-if="acc.is_current" class="account-badge account-badge--current">{{ t('me.account.current') }}</span>
                 <span v-else-if="switchingAccount === acc.student_id" class="account-badge account-badge--busy">{{ t('me.account.switching') }}</span>
-                <span v-else-if="!acc.has_cookies" class="account-badge account-badge--warn">{{ t('me.account.needRelogin') }}</span>
+                <span v-else-if="!canSwitchSavedAccount(acc)" class="account-badge account-badge--warn">{{ t('me.account.needRelogin') }}</span>
                 <span v-else class="account-badge account-badge--ready">{{ t('me.account.ready') }}</span>
-              </div>
+              </button>
               <!-- 当前账号不可从弹层删除：需先退出登录（避免误删正在使用的会话） -->
               <button
                 v-if="!acc.is_current"
@@ -687,781 +719,4 @@ const removeAccount = async (acc) => {
   </div>
 </template>
 
-<style scoped>
-.me-view {
-  min-height: 100vh;
-  background: #f9f9ff;
-  padding: 18px 16px 120px;
-  max-width: 600px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-/* Header */
-.dashboard-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.logo-img {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-  border-radius: 50%;
-}
-
-.header-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #1f2937;
-}
-
-.header-pill {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ui-primary, #2563eb);
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
-  padding: 6px 16px;
-  border-radius: 9999px;
-}
-
-/* Profile Card */
-.profile-card {
-  background: #ffffff;
-  border-radius: 24px;
-  padding: 32px 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-/* 登录表单需占满卡片宽度，避免 flex 居中 + 内容收缩导致右偏 */
-.profile-card--login {
-  align-items: stretch;
-  padding-top: 24px;
-  padding-bottom: 24px;
-  overflow-x: clip;
-}
-
-.profile-card--login :deep(.login-container) {
-  margin: 0;
-  max-width: none;
-}
-
-.profile-avatar {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 14px;
-}
-
-.avatar-icon {
-  font-size: 40px;
-  color: var(--ui-primary, #2563eb);
-}
-
-.profile-student-id {
-  margin: 0 0 4px;
-  font-size: 24px;
-  font-weight: 700;
-  color: #1f2937;
-}
-
-.profile-school {
-  margin: 0 0 20px;
-  font-size: 14px;
-  color: #6b7280;
-}
-
-.profile-actions {
-  display: flex;
-  gap: 12px;
-  width: 100%;
-  max-width: 340px;
-}
-
-.btn-info {
-  flex: 1;
-  padding: 10px 18px;
-  border: none;
-  border-radius: 16px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  background: var(--ui-primary, #2563eb);
-  color: #ffffff;
-  transition: opacity 0.2s;
-}
-
-.btn-info:active {
-  opacity: 0.85;
-}
-
-/* #755：切换账号按钮 —— 中性蓝灰，避免与主操作/危险操作混淆 */
-.btn-switch {
-  flex: 1;
-  padding: 10px 18px;
-  border: none;
-  border-radius: 16px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  background: #e8eaf6;
-  color: #3949ab;
-  transition: opacity 0.2s;
-}
-
-.btn-switch:active {
-  opacity: 0.85;
-}
-
-.btn-logout {
-  flex: 1;
-  padding: 10px 18px;
-  border: none;
-  border-radius: 16px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  background: #fce8e6;
-  color: #d93025;
-  transition: opacity 0.2s;
-}
-
-.btn-logout:active {
-  opacity: 0.85;
-}
-
-/* Login Status Card */
-.status-card {
-  background: #ffffff;
-  border-radius: 24px;
-  padding: 18px 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.status-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.status-icon-box {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, #ffffff 90%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.status-icon {
-  font-size: 24px;
-  color: var(--ui-primary, #2563eb);
-}
-
-.status-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.status-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1f2937;
-}
-
-.status-subtitle {
-  font-size: 13px;
-  color: #6b7280;
-}
-
-/* #719 校内证书异常黄色小字提示：
-   亮色用 amber-700（白底可读），暗色经 html.dark 提亮为 amber-400 */
-.cert-probe-warning {
-  font-size: 12px;
-  line-height: 1.5;
-  color: #b45309;
-}
-
-:global(html.dark) .cert-probe-warning {
-  color: #fbbf24;
-}
-
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
-}
-
-/* #1001：连接异常红点。取色刻意与首页 .session-status-dot.is-red 一致
-   （styles/views/Dashboard.scoped.css 的 #ef4444），同一语义不在两处用两种红。 */
-.status-dot.is-red {
-  background: #ef4444;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
-}
-
-/* #1001：连接异常提示文案（与圆点同源，红字）；
-   亮色 red-700，暗色经 html.dark 提亮为 red-400。 */
-.connection-warning {
-  font-size: 12px;
-  line-height: 1.5;
-  color: #b91c1c;
-}
-
-:global(html.dark) .connection-warning {
-  color: #f87171;
-}
-
-/* Functional Grid */
-.func-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.grid-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 8px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  border-radius: 20px;
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-
-.grid-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-}
-
-.grid-item:active {
-  transform: scale(0.96);
-}
-
-.grid-icon-box {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.grid-icon-box .material-symbols-outlined {
-  font-size: 26px;
-}
-
-.grid-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #374151;
-  text-align: center;
-  line-height: 1.3;
-}
-
-/* Legal Section — token-aligned with GradeView / surface system */
-.legal-card {
-  background: var(--ui-surface, #ffffff);
-  border: 1px solid var(--ui-surface-border, rgba(148, 163, 184, 0.22));
-  border-radius: 24px;
-  padding: 24px 20px;
-  box-shadow: var(--ui-shadow-soft, 0 2px 12px rgba(0, 0, 0, 0.06));
-  margin-bottom: 16px;
-}
-
-.legal-title {
-  margin: 0 0 14px;
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--ui-text, #1f2937);
-}
-
-.legal-tabs {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.legal-tab {
-  padding: 8px 18px;
-  border: none;
-  border-radius: 9999px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  background: color-mix(in oklab, var(--ui-primary-soft, #eff6ff) 70%, var(--ui-surface, #fff) 30%);
-  color: var(--ui-muted, #6b7280);
-  transition: background 0.2s ease, color 0.2s ease, transform 0.16s ease;
-}
-
-.legal-tab.active {
-  background: var(--ui-primary, #2563eb);
-  color: #ffffff;
-}
-
-.legal-content {
-  color: var(--ui-muted, #4b5563);
-  line-height: 1.7;
-  font-size: 14px;
-}
-
-.legal-content p {
-  margin: 0 0 10px;
-  color: inherit;
-}
-
-.legal-content .muted-en {
-  color: var(--ui-muted, #64748b);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.legal-content ul {
-  margin: 8px 0 0 18px;
-  padding: 0;
-}
-
-.legal-content li {
-  margin: 6px 0;
-}
-
-/* 关于 Mini-HBUT：品牌化隐私政策入口 */
-.privacy-policy-entry {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  margin-top: 6px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid var(--ui-surface-border, rgba(148, 163, 184, 0.28));
-  background: color-mix(in oklab, var(--ui-primary-soft, #eff6ff) 55%, var(--ui-surface, #fff) 45%);
-  color: var(--ui-text, #1f2937);
-  cursor: pointer;
-  text-align: left;
-  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.privacy-policy-entry:active {
-  transform: scale(0.985);
-}
-
-.privacy-policy-entry:hover {
-  border-color: color-mix(in oklab, var(--ui-primary, #2563eb) 30%, transparent);
-  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary, #2563eb) 12%, transparent);
-}
-
-.privacy-policy-entry__icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: color-mix(in oklab, var(--ui-primary, #2563eb) 16%, var(--ui-surface, #fff) 84%);
-  color: var(--ui-primary, #2563eb);
-}
-
-.privacy-policy-entry__icon .material-symbols-outlined {
-  font-size: 22px;
-  line-height: 1;
-}
-
-.privacy-policy-entry__body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.privacy-policy-entry__title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ui-text, #1f2937);
-}
-
-.privacy-policy-entry__desc {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ui-muted, #64748b);
-}
-
-.privacy-policy-entry__chev {
-  font-size: 18px;
-  line-height: 1;
-  color: var(--ui-muted, #94a3b8);
-  flex-shrink: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .privacy-policy-entry,
-  .legal-tab {
-    transition: none;
-  }
-}
-
-/* ICP 备案号 — 页底次要公示 */
-.icp-beian-footer {
-  display: flex;
-  justify-content: center;
-  padding: 8px 12px 4px;
-  margin-bottom: 8px;
-}
-
-.icp-beian-link {
-  border: none;
-  background: transparent;
-  padding: 6px 10px;
-  font-size: 12px;
-  line-height: 1.4;
-  font-weight: 500;
-  color: #9ca3af;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.icp-beian-link:active {
-  color: #6b7280;
-}
-
-/* Modal */
-.modal-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-}
-
-.modal-card {
-  background: #ffffff;
-  width: 85%;
-  max-width: 340px;
-  padding: 24px;
-  border-radius: 20px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-}
-
-.modal-card h3 {
-  margin: 0 0 16px;
-  font-size: 18px;
-  font-weight: 700;
-  color: #1f2937;
-}
-
-.opensource-title-icon {
-  font-size: 20px;
-  vertical-align: -4px;
-  margin-right: 6px;
-  color: var(--ui-primary, #2563eb);
-}
-
-.modal-card .intro {
-  margin-bottom: 20px;
-  color: #374151;
-  line-height: 1.6;
-  font-size: 14px;
-}
-
-.modal-card .section {
-  margin-bottom: 16px;
-}
-
-.modal-card .label {
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.github-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  background: #f9fafb;
-  border-radius: 12px;
-  color: var(--ui-primary, #2563eb);
-  text-decoration: none;
-  font-size: 14px;
-  word-break: break-all;
-  cursor: pointer;
-}
-
-.github-link .icon {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
-.modal-card .tag {
-  display: inline-block;
-  padding: 2px 8px;
-  background: var(--ui-primary, #2563eb);
-  color: white;
-  border-radius: 6px;
-  font-size: 11px;
-  margin-right: 8px;
-}
-
-.modal-card .thanks {
-  padding: 12px;
-  background: #f9fafb;
-  border-radius: 12px;
-  border-left: 3px solid var(--ui-primary, #2563eb);
-}
-
-.modal-card .thanks p {
-  margin: 0 0 8px 0;
-  font-size: 13px;
-  color: #6b7280;
-  line-height: 1.5;
-}
-
-.modal-card .thanks p:last-child {
-  margin-bottom: 0;
-}
-
-.modal-card .thanks .highlight {
-  color: var(--ui-primary, #2563eb);
-  font-weight: 600;
-  text-align: center;
-  padding-top: 8px;
-  border-top: 1px dashed #e5e7eb;
-}
-
-.opensource-list {
-  margin: 0;
-  padding-left: 20px;
-  font-size: 14px;
-  color: #6b7280;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.btn-primary {
-  background: var(--ui-primary, #2563eb);
-  color: white;
-  border: none;
-  padding: 10px 22px;
-  border-radius: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.btn-primary:active {
-  opacity: 0.85;
-}
-
-/* Sponsor Modal */
-.sponsor-modal {
-  max-width: 340px;
-  text-align: center;
-}
-
-.sponsor-qr-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 200px;
-  margin: 16px 0;
-}
-
-.sponsor-qr-image {
-  max-width: 240px;
-  max-height: 300px;
-  border-radius: 16px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-}
-
-.sponsor-loading {
-  color: #6b7280;
-  font-size: 14px;
-}
-
-.sponsor-hint {
-  font-size: 12px;
-  color: #6b7280;
-  margin: 8px 0 16px;
-}
-
-/* #755 切换账号弹层：账号列表 */
-.account-switch-modal {
-  max-width: 360px;
-}
-
-.account-switch-title-icon {
-  font-size: 20px;
-  vertical-align: -4px;
-  margin-right: 6px;
-  color: var(--ui-primary, #2563eb);
-}
-
-.account-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.account-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 16px;
-  padding: 10px 12px;
-  background: #fbfcfe;
-  transition: border-color 0.16s ease, background 0.16s ease;
-}
-
-.account-item--busy {
-  opacity: 0.7;
-}
-
-.account-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  cursor: pointer;
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 0;
-}
-
-.account-info {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.account-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1f2937;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.account-id {
-  font-size: 12px;
-  color: #6b7280;
-  font-variant-numeric: tabular-nums;
-}
-
-.account-badge {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 9999px;
-}
-
-.account-badge--current {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.account-badge--ready {
-  background: #e0f2fe;
-  color: #0369a1;
-}
-
-.account-badge--warn {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.account-badge--busy {
-  background: #e5e7eb;
-  color: #6b7280;
-}
-
-.account-delete {
-  flex-shrink: 0;
-  border: none;
-  border-radius: 10px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  background: #fce8e6;
-  color: #d93025;
-  transition: opacity 0.2s;
-}
-
-.account-delete:active {
-  opacity: 0.8;
-}
-
-.account-delete:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.empty-hint {
-  margin: 0;
-  padding: 10px 0 4px;
-  font-size: 13px;
-  color: #6b7280;
-  text-align: center;
-}
-
-/* Responsive: 小屏幕 grid 变 3 列 */
-@media (max-width: 380px) {
-  .func-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-</style>
+<style scoped src="./MeView.scoped.css"></style>

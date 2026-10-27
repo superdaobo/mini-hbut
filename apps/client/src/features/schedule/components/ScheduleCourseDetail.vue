@@ -94,6 +94,14 @@ const canRemoveCurrentWeek = computed(() => {
             <span class="label">{{ t('schedule.detail.classGroup') }}</span>
             <span class="value">{{ selectedCourse?.class_name }}</span>
           </div>
+          <div v-if="selectedCourse?.class_size" class="info-row">
+            <span class="label">{{ t('schedule.detail.classSize') }}</span>
+            <span class="value">{{ selectedCourse?.class_size }}</span>
+          </div>
+          <div v-if="selectedCourse?.teach_type" class="info-row">
+            <span class="label">{{ t('schedule.detail.teachType') }}</span>
+            <span class="value">{{ selectedCourse?.teach_type }}</span>
+          </div>
           <div v-if="selectedCourse?.is_custom" class="custom-course-actions">
             <button class="custom-delete-btn edit" @click="emit('open-edit-course', selectedCourse, { reopenDetail: true })">{{ t('schedule.detail.editCourse') }}</button>
             <button class="custom-delete-btn week" @click="emit('delete-custom-course', 'current_week')">{{ t('schedule.detail.deleteCurrentWeek') }}</button>

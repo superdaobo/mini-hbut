@@ -5,6 +5,10 @@ import { openExternal } from '../utils/external_link'
 import { formatRelativeTime } from '../utils/time.js'
 import { buildSchoolInboxDetailHtml } from '../utils/school_inbox_content.js'
 import { markSchoolInboxNotified } from '../utils/notify_center.js'
+// E3 #1023：教师身份只读红线——教师点「标记已读」只改本地，绝不调用
+// school_inbox_mark_read（该命令在学生路径会 POST /admin/system/tzsjx/updateState）。
+import { readLoginRole } from '../utils/login_role.js'
+import { shouldSendRemoteMarkRead } from '../features/teacher/composables/useTeacherNotifications'
 import { t as tf, useI18n } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 
@@ -20,7 +24,9 @@ const resolveInboxLoginMode = () =>
   String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim() || 'portal'
 
 const props = defineProps({
-  studentId: { type: String, required: true }
+  studentId: { type: String, required: true },
+  // E3 #1023：教师只读模式（父级显式开启；教师身份也会自动生效）。
+  readOnly: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['back', 'logout'])
@@ -37,6 +43,11 @@ const source = ref('')
 const selectedItem = ref(null)
 
 const isInitialLoading = computed(() => loading.value && items.value.length === 0)
+// E3 #1023：教师身份 / 显式只读时，已读仅本地记录，绝不下发写请求。
+// 写请求开关收敛到 shouldSendRemoteMarkRead（教师恒为 false）。
+const isTeacherLocalOnly = computed(
+  () => !shouldSendRemoteMarkRead(readLoginRole(), props.readOnly === true)
+)
 const unreadCount = computed(() => items.value.filter((item) => !item.isRead).length)
 const sourceLabel = computed(() => {
   if (source.value === 'chaoxing') return tLocale('notify.source.chaoxing')
@@ -221,11 +232,20 @@ const handleDetailClick = async (event) => {
 
 const markSelectedAsRead = async () => {
   if (!selectedItem.value || selectedItem.value.isRead || markingRead.value) return
+
+  const itemId = selectedItem.value.id
+
+  // 教师只读分支：仅本地记录已读 + 明确提示，**绝不**调用 school_inbox_mark_read。
+  if (isTeacherLocalOnly.value) {
+    syncItemReadState(itemId, true)
+    markReadHint.value = tLocale('notify.inbox.teacherLocalOnly')
+    return
+  }
+
   if (!isTauriRuntime()) return
 
   const loginMode = resolveInboxLoginMode()
 
-  const itemId = selectedItem.value.id
   markingRead.value = true
   markReadHint.value = ''
   syncItemReadState(itemId, true)
@@ -315,6 +335,9 @@ onMounted(() => {
             v-html="selectedDetailHtml"
           />
 
+          <p v-if="isTeacherLocalOnly" class="mt-3 text-xs text-on-surface-variant">
+            {{ tLocale('notify.inbox.teacherLocalOnly') }}
+          </p>
           <p v-if="markReadHint" class="mt-3 text-xs text-on-surface-variant">{{ markReadHint }}</p>
         </article>
       </main>

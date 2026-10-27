@@ -219,3 +219,152 @@
   align-content: start;
   box-sizing: border-box;
 }
+
+
+/* #1089：首页绿点通知中心。一级面板固定位置并内部滚动，不挤压今日安排。 */
+.home-notice-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  touch-action: auto;
+}
+.home-notice-panel {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 22px;
+  background: var(--ui-modal-surface, #fff);
+  color: var(--ui-text, #0f172a);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.26);
+  border: 1px solid var(--ui-modal-surface-border, rgba(148, 163, 184, 0.24));
+  overflow: hidden;
+  touch-action: auto;
+}
+.home-notice-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+.home-notice-heading { min-width: 0; }
+.home-notice-title {
+  font-size: 17px;
+  font-weight: 750;
+  color: var(--ui-text, #0f172a);
+}
+.home-notice-title i { color: var(--ui-primary, #3b82f6); margin-right: 6px; }
+.home-notice-online {
+  color: #16a34a;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+.home-notice-online-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #22c55e;
+}
+.home-notice-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ui-primary-soft, #f1f5f9);
+  color: var(--ui-text, #475569);
+}
+.home-notice-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+.home-notice-item {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 14px 38px 15px 18px;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: transparent;
+  color: var(--ui-text, #0f172a);
+}
+.home-notice-item:hover,
+.home-notice-item:focus-visible { background: var(--ui-primary-soft, rgba(59, 130, 246, 0.06)); }
+.home-notice-item-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 5px; }
+.home-notice-kind {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 650;
+  color: #475569;
+  background: rgba(148, 163, 184, 0.16);
+}
+.home-notice-kind--confirm { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+.home-notice-kind--pinned { background: rgba(234, 179, 8, 0.13); color: #b45309; }
+.home-notice-date { font-size: 10px; color: var(--ui-muted, #94a3b8); white-space: nowrap; }
+.home-notice-item-title {
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 650;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.home-notice-item-summary {
+  margin-top: 4px;
+  color: var(--ui-muted, #64748b);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.home-notice-arrow {
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ui-muted, #94a3b8);
+  font-size: 11px;
+}
+.home-notice-empty {
+  min-height: 145px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--ui-muted, #94a3b8);
+  font-size: 13px;
+}
+.home-notice-empty i { font-size: 25px; }
+.home-notice-fade-enter-active,
+.home-notice-fade-leave-active { transition: opacity 0.2s ease; }
+.home-notice-fade-enter-from,
+.home-notice-fade-leave-to { opacity: 0; }
+:global(html.dark) .home-notice-panel,
+:global(html[data-theme='graphite_night']) .home-notice-panel {
+  background: var(--ui-modal-surface, #1e293b);
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-notice-fade-enter-active,
+  .home-notice-fade-leave-active { transition: none; }
+}

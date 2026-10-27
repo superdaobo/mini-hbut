@@ -32,6 +32,12 @@ pub struct ScheduleCourse {
     pub weeks_text: String,
     pub credit: String,
     pub class_name: String,
+    /// 教师端专属：教学班人数（学生端为空）。
+    #[serde(default)]
+    pub class_size: Option<String>,
+    /// 教师端专属：教学类型，如「多媒体」（学生端为空）。
+    #[serde(default)]
+    pub teach_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

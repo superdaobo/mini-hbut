@@ -380,6 +380,7 @@
       /** 原生响应探测间隔与阈值（见下方 native-stall 说明） */
       var NATIVE_PROBE_MS = 5000
       var NATIVE_STALL_MS = 1000
+      var NATIVE_PROBE_TIMEOUT_MS = 3000
       // 主线程心跳间隔与「冻结」判定阈值：正常定时器抖动远小于 700ms
       var HEARTBEAT_MS = 250
       var STALL_THRESHOLD_MS = 700
@@ -473,7 +474,7 @@
         entries: [],
         stalls: [],
         finished: false,
-        // 正常退出标记（pagehide / beforeunload 置 true）；未置位 = 进程非正常结束
+        // 页面离开标记（pagehide / beforeunload）；iOS 后台挂起或被系统终止不一定触发
         cleanExit: false,
         history: history,
         meta: {
@@ -511,12 +512,12 @@
       } catch (e) { /* ignore */ }
 
       /**
-       * 首帧指标（FCP / LCP）——**直接度量「用户看到白屏多久」**。
+       * 首帧指标（FCP / LCP）——只反映 WebContent 的绘制时间点，不保证原生窗口已呈现。
        *
        * 为什么必须有它：主线程心跳只能发现「定时器停摆」（JS 被阻塞）。若 JS 一直健康
        * 但屏幕仍长时间空白（例如异步视图 chunk 迟迟没到、绘制被推迟），心跳会显示
        * 0 次冻结，报告看起来一切正常 —— 真机上「白屏 10 秒但 JS 启动 33ms」就是这种形态。
-       * FCP 很晚 + 0 次冻结 ⇒ 问题不在主线程，而在「内容什么时候被画出来」。
+       * FCP 很晚 + 0 次冻结只能提示继续排查 WebContent 的资源与渲染链路。
        */
       function recordPaintMetrics() {
         try {
@@ -686,6 +687,7 @@
           clearInterval(livenessTimer)
           livenessTimer = null
         }
+        stopNativeProbe()
       }
 
       function startLiveness() {
@@ -700,45 +702,107 @@
       }
 
       /**
-       * 原生响应探测 —— **唯一能测出「JS 还活着但原生主线程被卡」的手段**。
-       *
-       * 为什么必需：JS 跑在 WebContent 进程里，主线程心跳（`main-thread-stall`）只能发现
-       * **JS** 被阻塞。若被卡住的是**原生 UI 进程**（Rust/Swift 主线程），JS 定时器照常跑、
-       * 心跳显示 0 次冻结，但 WebView 无法合成/呈现 → 用户看到白屏；随后 iOS 看门狗
-       * （约 10 秒无响应）会杀掉整个应用。真机上「白屏 10 秒后崩溃、报告里 0 次冻结」
-       * 正是这个形态。
-       *
-       * 做法：定时取一个同源静态资源并计时。iOS 上自定义协议（`tauri://`）由原生主线程
-       * 派发，因此原生主线程被卡住时这个请求会**迟迟拿不到响应**，而 JS 侧计时照常走。
+       * #1039 同源静态资源探针：仅测量 WebView 自定义 scheme 的资源请求耗时。
+       * 请求未返回可能由 UI 线程、scheme handler、资源加载等造成；不据此推断 watchdog。
+       * 同时最多一条在途，超时立即 abort；若底层迟迟不结算，则保持 single-flight 锁，
+       * 避免每 5 秒继续堆积新的 scheme 请求，加重主线程被卡住时的负担。
        */
+      var nativeProbePending = false
+      var nativeProbeController = null
+      var nativeProbeTimeoutId = null
+      var nativeProbeStopped = false
+      var nativeProbeConsecutiveFailures = 0
+
+      function stopNativeProbe() {
+        nativeProbeStopped = true
+        if (nativeProbeTimeoutId !== null) {
+          clearTimeout(nativeProbeTimeoutId)
+          nativeProbeTimeoutId = null
+        }
+        if (nativeProbeController) {
+          try { nativeProbeController.abort() } catch (e) { /* ignore */ }
+          nativeProbeController = null
+        }
+      }
+
       function probeNativeResponsiveness() {
-        if (typeof fetch !== 'function') return
+        if (nativeProbeStopped || nativeProbePending || typeof fetch !== 'function') return
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+
+        nativeProbePending = true
+        state.meta.native_probe_requests = (state.meta.native_probe_requests || 0) + 1
         var startedAt = nowFn()
-        var done = false
+        var controller = typeof AbortController === 'function' ? new AbortController() : null
+        var timedOut = false
+        var settled = false
+        nativeProbeController = controller
+
+        function settle() {
+          if (settled) return
+          settled = true
+          if (nativeProbeTimeoutId !== null) {
+            clearTimeout(nativeProbeTimeoutId)
+            nativeProbeTimeoutId = null
+          }
+          nativeProbeController = null
+          nativeProbePending = false
+        }
+
+        nativeProbeTimeoutId = setTimeout(function () {
+          if (settled || nativeProbeStopped) return
+          timedOut = true
+          nativeProbeConsecutiveFailures += 1
+          state.meta.native_probe_timeouts = (state.meta.native_probe_timeouts || 0) + 1
+          state.meta.native_probe_consecutive_timeouts = nativeProbeConsecutiveFailures
+          var cost = Math.round(nowFn() - startedAt)
+          // 首次、第三次与后续每五次留存明细，其余只更新计数；避免日志刷屏。
+          if (nativeProbeConsecutiveFailures === 1 || nativeProbeConsecutiveFailures === 3 ||
+              nativeProbeConsecutiveFailures % 5 === 0) {
+            push('native-stall', {
+              cost_ms: cost, ok: false, timed_out: true,
+              consecutive: nativeProbeConsecutiveFailures, probe: 'scheme-static-fetch', at: rel(nowFn())
+            }, true)
+          }
+          flush()
+          if (controller) {
+            try { controller.abort() } catch (e) { /* ignore */ }
+          }
+          // 不在这里释放 nativeProbePending；abort 后若底层未结算，必须保持 single-flight。
+        }, NATIVE_PROBE_TIMEOUT_MS)
+
         try {
-          fetch('/favicon.svg?_probe=' + Math.round(startedAt), { cache: 'no-store' })
+          var opts = { cache: 'no-store' }
+          if (controller) opts.signal = controller.signal
+          Promise.resolve(fetch('/favicon.svg?_probe=' + Math.round(startedAt), opts))
             .then(function (res) {
-              done = true
+              if (nativeProbeStopped || timedOut) return
+              // 收到任意 HTTP 响应说明本轮没有超时；状态码另行统计。
+              nativeProbeConsecutiveFailures = 0
+              state.meta.native_probe_consecutive_timeouts = 0
               var cost = Math.round(nowFn() - startedAt)
-              if (res && res.ok) state.meta.native_probe_ms = cost
-              if (cost >= NATIVE_STALL_MS) {
-                push('native-stall', { cost_ms: cost, ok: !!(res && res.ok), at: rel(nowFn()) }, true)
-                flush()
+              if (res && res.ok) {
+                state.meta.native_probe_ms = cost
+                nativeProbeConsecutiveFailures = 0
+                state.meta.native_probe_consecutive_timeouts = 0
+                if (cost >= NATIVE_STALL_MS) {
+                  push('native-stall', { cost_ms: cost, ok: true, timed_out: false, probe: 'scheme-static-fetch' }, true)
+                  flush()
+                }
+              } else {
+                state.meta.native_probe_http_errors = (state.meta.native_probe_http_errors || 0) + 1
               }
             })
             .catch(function () {
-              done = true
+              if (nativeProbeStopped || timedOut || (controller && controller.signal.aborted)) return
+              nativeProbeConsecutiveFailures = 0
+              state.meta.native_probe_consecutive_timeouts = 0
+              state.meta.native_probe_fetch_errors = (state.meta.native_probe_fetch_errors || 0) + 1
             })
-        } catch (e) { /* ignore */ }
-        // 兜底：请求本身一直没回（原生侧完全无响应）也要留痕
-        setTimeout(function () {
-          if (done) return
-          var cost = Math.round(nowFn() - startedAt)
-          if (cost >= NATIVE_STALL_MS) {
-            push('native-stall', { cost_ms: cost, ok: false, timed_out: true, at: rel(nowFn()) }, true)
-            flush()
-          }
-        }, NATIVE_STALL_MS * 3)
+            .then(settle, settle)
+        } catch (e) {
+          state.meta.native_probe_fetch_errors = (state.meta.native_probe_fetch_errors || 0) + 1
+          settle()
+        }
       }
 
       // 安全网：即便启动始终未完成（正是要抓的场景），也不让高频心跳无限期运行
@@ -806,16 +870,21 @@
       })
       document.addEventListener('visibilitychange', function () {
         push('visibilitychange', { state: document.visibilityState })
+        // 隐藏时取消当前探针；仍在途时保持 single-flight，避免后台资源请求堆积。
+        if (document.visibilityState === 'hidden' && nativeProbeController) {
+          try { nativeProbeController.abort() } catch (e) { /* ignore */ }
+        }
         scheduleFlush()
       })
-      // 正常退出留痕：下一轮启动若看不到 cleanExit，说明上一轮进程未正常结束
-      // （崩溃，或被用户手动划掉 —— 二者在 iOS 上都无法完全区分，报告里会如实标注）。
+      // 页面离开留痕：未记录 pagehide/beforeunload 不等于 crash，iOS 可直接挂起或终止进程。
       window.addEventListener('pagehide', function (e) {
+        stopLiveness()
         state.cleanExit = true
         push('pagehide', { persisted: !!(e && e.persisted) }, true)
         flush()
       })
       window.addEventListener('beforeunload', function () {
+        stopLiveness()
         state.cleanExit = true
         push('beforeunload', {}, true)
         flush()

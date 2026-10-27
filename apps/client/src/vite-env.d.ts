@@ -5,6 +5,9 @@ interface ImportMetaEnv {
   readonly VITE_BUILD_PROFILE?: string
   /** `'1'` only for iOS TestFlight App Store compliance builds */
   readonly VITE_APP_STORE_BUILD?: string
+  /** iOS TestFlight 工作流构建时注入，与原生 Bundle 一同取自 ASC resolver */
+  readonly VITE_IOS_MARKETING_VERSION?: string
+  readonly VITE_IOS_BUILD_NUMBER?: string
   /** App Store numeric id (optional), e.g. 1234567890 */
   readonly VITE_APPLE_APP_ID?: string
   readonly VITE_API_BASE?: string

@@ -135,13 +135,32 @@ export interface SessionCoordinator {
   formatSessionError(err: unknown): string
 }
 
+/**
+ * #1061：在线切号结果契约（身份真值来自 Rust `switch_active_account_online`）。
+ *
+ * 四态语义：本地账号激活（Cookie 注入）→ 目标角色与账号在线验证 → 目标账号专属
+ * 自动恢复 → 在线就绪。`onlineReady` 之前不得开放在线业务，也不得虚报成功。
+ */
+export interface AccountSwitchOutcome {
+  /** Rust 确认的目标账号（学号 / 8 位工号） */
+  studentId: string
+  /** Rust 确认的目标角色（`student` / `teacher`） */
+  role: string
+  /** 目标身份已由服务端在线确认（含必要时用该账号凭据真实重登并复验） */
+  onlineReady?: boolean
+  /** 目标账号需要用户重新登录（凭据缺失 / 失效 / 身份不一致） */
+  needsLogin?: boolean
+  /** 脱敏失败原因（不含凭据），供 UI 提示 */
+  failureReason?: string
+}
+
 export interface AuthCoordinator {
   handleLoginSuccess(data: unknown): void
   handleLogout(options?: Record<string, unknown>): Promise<void>
   handleSwitchLoginMode(mode: string): void
   handleRequireLogin(): void
-  /** #755：账号切换成功收尾（更新本地账号标记 + 派发 hbu-session-online 全量刷新） */
-  handleAccountSwitch(studentId: string): void
+  /** #1048 / #1061：按 Rust 在线切号四态结果切换身份，仅在线确认后派发在线刷新。 */
+  handleAccountSwitch(account: AccountSwitchOutcome): void
 }
 
 export interface LifecycleCoordinator {
@@ -255,8 +274,8 @@ export interface AppHandlers {
   handleRetrySessionRecovery: () => Promise<void>
   handleLoginSuccess: (data: unknown) => void
   handleSwitchLoginMode: (mode: string) => void
-  /** #755：一键切换账号成功后的统一收尾（供 MeView 弹层回调） */
-  handleAccountSwitch: (studentId: string) => void
+  /** #1048 / #1061：按 Rust 在线切号四态结果切号，未在线确认保持缓存离线/需重登态。 */
+  handleAccountSwitch: (account: AccountSwitchOutcome) => void
   handleCheckUpdate: () => void
   handleOpenOfficial: () => void
   handleOpenFeedback: () => void

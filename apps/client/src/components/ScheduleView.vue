@@ -75,7 +75,13 @@ const semesterApi = useScheduleSemester({
   isAnyOverlayOpen: () => anyOverlayOpen.value,
 })
 const data = useScheduleData(props, emit, { semester: semesterApi })
-const grid = useScheduleGrid({ data, semester: semesterApi, menu })
+const grid = useScheduleGrid({
+  data,
+  semester: semesterApi,
+  menu,
+  // #1116：冲突显示偏好变化时，computed 依赖该 getter 即时重算
+  conflictDisplay: () => menu.scheduleConflictDisplayMode.value,
+})
 const detail = useScheduleDetail({ data, semester: semesterApi })
 const editor = useScheduleEditor({ props, data, semester: semesterApi, detail, menu, confirmDialog })
 // #833 Wave2：当前周个人日程数据层（按 weekDates 区间拉取；含切周竞态令牌与失败降级）
@@ -210,12 +216,15 @@ const {
   showMenu,
   scheduleCourseCardStyle,
   scheduleViewMode,
+  scheduleConflictDisplayMode,
   courseCardRefreshNonce,
   styleOptions,
   viewModeOptions,
+  conflictDisplayOptions,
   toggleMenu,
   setScheduleCourseCardStyle,
   setScheduleViewMode,
+  setScheduleConflictDisplayMode,
 } = menu
 // 数据
 const {
@@ -364,15 +373,43 @@ const closeArrangement = () => {
   showArrangement.value = false
   events.editingEventId.value = ''
   if (editor.showAddCourse.value) editor.closeAddCourseDialog()
+  // arrangementMode / arrangementInitialTab 不在此复位：它们由各打开路径（openAddArrangement /
+  // openCourseEditor / 日程编辑）在打开前显式设置，关闭时复位反而会让重开路径读到过期状态。
 }
 
-const handleEditManagedCourse = async (course: any) => {
-  editor.openEditCourseDialog(course, { reopenManage: true })
-  // openEditCourseDialog 内部经 nextTick 才把 showAddCourse 置真，等一拍再同步可见性
-  await nextTick()
+/**
+ * 统一「编辑课程」入口（课程详情 / 管理课程共用）。
+ *
+ * 可见性只认 showArrangement，而 useScheduleEditor 只翻内部标志 showAddCourse：
+ * - openEditCourseDialog 会先关掉课程详情，再经 nextTick 把 showAddCourse 置真；
+ * 因此必须等一拍后把标志同步给 showArrangement，否则用户看到「详情没了、编辑也没开」。
+ * - showAddCourse 还参与 anyOverlayOpen 门控，漏同步会把周次滑动/键盘切换一起锁死。
+ */
+const openCourseEditor = async (
+  course: any,
+  dialogOptions: { reopenDetail?: boolean; reopenManage?: boolean } = {}
+) => {
+  if (!editor.hasValidLoginSession()) {
+    await editor.promptLoginRequired()
+    return
+  }
+  // 编辑态类型锁定：弹窗标题、提交按钮、冲突提示都依赖它，必须先于弹窗打开
   arrangementMode.value = 'editCourse'
+  arrangementInitialTab.value = 'course'
+  editor.openEditCourseDialog(course, dialogOptions)
+  await nextTick()
   showArrangement.value = editor.showAddCourse.value
+  if (!showArrangement.value) {
+    // 归一化失败 / 非自定义课程会让 composable 静默早退：复位编辑态，避免残留 mode 影响下次打开
+    arrangementMode.value = 'add'
+    pushDebugLog('Schedule', '#1086 openCourseEditor failed to open editor', 'warn', {
+      courseId: String(course?.id || course?.source_id || '')
+    })
+  }
 }
+
+/** 管理课程弹窗 → 修改：走同一入口，提交后回到管理列表 */
+const handleEditManagedCourse = (course: any) => openCourseEditor(course, { reopenManage: true })
 
 /** #857：同一虚线时间块二次确认后，进入统一「添加安排」。 */
 const handleConfirmBlankSelection = (selection: any) => {
@@ -675,8 +712,10 @@ onBeforeUnmount(() => {
       :semester-error="semesterError"
       :schedule-course-card-style="scheduleCourseCardStyle"
       :schedule-view-mode="scheduleViewMode"
+      :schedule-conflict-display-mode="scheduleConflictDisplayMode"
       :view-mode-options="viewModeOptions"
       :style-options="styleOptions"
+      :conflict-display-options="conflictDisplayOptions"
       :adding-course="addingCourse"
       :loading-manage-courses="loadingManageCourses"
       :sync-uploading="syncUploading"
@@ -697,6 +736,7 @@ onBeforeUnmount(() => {
       @semester-change="handleSemesterChange"
       @set-view-mode="setScheduleViewMode"
       @set-style="setScheduleCourseCardStyle"
+      @set-conflict-display="setScheduleConflictDisplayMode"
       @open-add-arrangement="openAddArrangement"
       @open-manage-courses="editor.openManageCoursesDialog"
       @open-ai-import="importApi.openImportDialog"
@@ -750,7 +790,7 @@ onBeforeUnmount(() => {
       :detail-action-error="detailActionError"
       @close="showDetail = false"
       @open-conflict-course-detail="detail.openConflictCourseDetail"
-      @open-edit-course="editor.openEditCourseDialog"
+      @open-edit-course="openCourseEditor"
       @delete-custom-course="editor.deleteCustomCourse"
       @remove-official-course="editor.removeOfficialCourse"
       @copy-detail="detail.copySelectedCourseDetail"

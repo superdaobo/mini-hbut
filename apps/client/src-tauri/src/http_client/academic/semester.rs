@@ -3,8 +3,8 @@
 //! 负责学期字符串推导（按日期/索引）、校历数据拉取与周次摘要、
 //! 自动/手动课表上下文（`resolve_schedule_context`）解析，以及
 //! `get_current_semester` / `is_no_schedule_error_message` 等对外入口。
-//! 内部辅助（`semester_by_date`、`build_calendar_summary` 等）以
-//! `pub(super)` 供课表/教室/培养方案/校历等子模块复用。
+//! 内部辅助（`build_calendar_summary` 等）以 `pub(super)` 供课表/教室/培养方案/校历等
+//! 子模块复用；学期键与序号互转、按日期推算等纯函数已收敛到 `crate::semester_catalog`。
 
 use super::super::*;
 use chrono::{Datelike, Duration, Local, NaiveDate, Weekday};
@@ -82,49 +82,12 @@ impl HbutClient {
         &self,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let today = Local::now().date_naive();
-        let semester = Self::semester_by_date(today);
+        let semester = crate::semester_catalog::semester_by_date(today);
         println!(
             "[DEBUG] Calculated semester by date: {} (today={})",
             semester, today
         );
         Ok(semester)
-    }
-
-    pub(super) fn semester_by_date(today: NaiveDate) -> String {
-        let year = today.year();
-        let month = today.month();
-        let day = today.day();
-
-        let (academic_year_start, term) = if month >= 9 {
-            (year, 1)
-        } else if month >= 3 {
-            (year - 1, 2)
-        } else if month == 2 && day >= 15 {
-            (year - 1, 2)
-        } else {
-            (year - 1, 1)
-        };
-
-        format!(
-            "{}-{}-{}",
-            academic_year_start,
-            academic_year_start + 1,
-            term
-        )
-    }
-
-    fn semester_index(semester: &str) -> Option<i32> {
-        let parts: Vec<&str> = semester.split('-').collect();
-        if parts.len() != 3 {
-            return None;
-        }
-        let start_year = parts[0].parse::<i32>().ok()?;
-        let end_year = parts[1].parse::<i32>().ok()?;
-        let term = parts[2].parse::<i32>().ok()?;
-        if end_year != start_year + 1 || !(term == 1 || term == 2) {
-            return None;
-        }
-        Some(start_year * 2 + (term - 1))
     }
 
     fn semester_from_index(index: i32) -> String {
@@ -136,7 +99,7 @@ impl HbutClient {
     fn build_candidate_semesters(base: &str, radius: i32) -> Vec<String> {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
-        if let Some(base_idx) = Self::semester_index(base) {
+        if let Some(base_idx) = crate::semester_catalog::semester_index(base) {
             for offset in -radius..=radius {
                 let sem = Self::semester_from_index(base_idx + offset);
                 if seen.insert(sem.clone()) {
@@ -440,7 +403,7 @@ impl HbutClient {
         days_to_next_start: Option<i64>,
         today: NaiveDate,
     ) -> serde_json::Value {
-        let _expected_semester = Self::semester_by_date(today);
+        let _expected_semester = crate::semester_catalog::semester_by_date(today);
         let mut total_weeks = summary.map(|s| s.total_weeks).unwrap_or(25).max(1);
         let mut current_week = summary
             .map(|s| s.current_week.clamp(1, s.total_weeks.max(1)))
@@ -501,7 +464,7 @@ impl HbutClient {
         let fallback_semester = self
             .get_current_semester()
             .await
-            .unwrap_or_else(|_| Self::semester_by_date(today));
+            .unwrap_or_else(|_| crate::semester_catalog::semester_by_date(today));
         let candidate_semesters = Self::build_candidate_semesters(&fallback_semester, 3);
 
         let mut summaries = Vec::new();
@@ -525,7 +488,7 @@ impl HbutClient {
             );
         }
 
-        let expected_semester = Self::semester_by_date(today);
+        let expected_semester = crate::semester_catalog::semester_by_date(today);
         let expected_summary = summaries
             .iter()
             .find(|s| s.semester == expected_semester)
@@ -552,7 +515,7 @@ impl HbutClient {
                     (
                         if s.start_date <= today { 1 } else { 0 },
                         s.start_date,
-                        Self::semester_index(&s.semester).unwrap_or(i32::MIN),
+                        crate::semester_catalog::semester_index(&s.semester).unwrap_or(i32::MIN),
                     )
                 });
                 in_semester.pop()

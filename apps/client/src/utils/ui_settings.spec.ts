@@ -100,4 +100,50 @@ describe('applyUiSettings night mode isolation', () => {
     expect(normalizeSettings({ scheduleViewMode: 'hidden' }).scheduleViewMode).toBe('all')
     expect(normalizeSettings({}).scheduleViewMode).toBe('all')
   })
+
+  it('#1116 scheduleConflictDisplayMode 默认 merged，非法/旧配置回退 merged', () => {
+    expect(normalizeSettings({}).scheduleConflictDisplayMode).toBe('merged')
+    expect(
+      normalizeSettings({ scheduleConflictDisplayMode: 'merged' }).scheduleConflictDisplayMode
+    ).toBe('merged')
+    expect(
+      normalizeSettings({ scheduleConflictDisplayMode: 'side-by-side' })
+        .scheduleConflictDisplayMode
+    ).toBe('side-by-side')
+    for (const invalid of ['side_by_side', 'both', '', 'MERGED', null, 0, {}]) {
+      expect(
+        normalizeSettings({ scheduleConflictDisplayMode: invalid as any })
+          .scheduleConflictDisplayMode,
+        String(invalid)
+      ).toBe('merged')
+    }
+  })
+
+  it('#1116 冲突显示偏好归一化不影响其它已有设置', () => {
+    const normalized = normalizeSettings({
+      scheduleCourseCardStyle: 'class',
+      scheduleViewMode: 'events',
+      scheduleConflictDisplayMode: 'side-by-side',
+      preset: 'forest_mint'
+    })
+    expect(normalized.scheduleCourseCardStyle).toBe('class')
+    expect(normalized.scheduleViewMode).toBe('events')
+    expect(normalized.scheduleConflictDisplayMode).toBe('side-by-side')
+    expect(normalized.preset).toBe('forest_mint')
+  })
+
+  it('#1116 菜单 setter 切换后立即持久化（重启可恢复）', async () => {
+    const { useScheduleMenu } = await import('../features/schedule/composables/useScheduleMenu')
+    const menu = useScheduleMenu()
+
+    menu.setScheduleConflictDisplayMode('side-by-side')
+    expect(menu.scheduleConflictDisplayMode.value).toBe('side-by-side')
+    let storedRaw = JSON.parse(stored.hbu_ui_settings_v2)
+    expect(storedRaw.scheduleConflictDisplayMode).toBe('side-by-side')
+
+    menu.setScheduleConflictDisplayMode('merged')
+    expect(menu.scheduleConflictDisplayMode.value).toBe('merged')
+    storedRaw = JSON.parse(stored.hbu_ui_settings_v2)
+    expect(storedRaw.scheduleConflictDisplayMode).toBe('merged')
+  })
 })

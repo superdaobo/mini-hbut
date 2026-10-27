@@ -12,6 +12,7 @@ const readText = (relativePath: string) => {
 describe('privacy & about Mini-HBUT UI contract (#464)', () => {
   const privacyPath = 'src/components/PrivacyDataView.vue'
   const mePath = 'src/components/MeView.vue'
+  const meStylePath = 'src/components/MeView.scoped.css'
   const darkPath = 'src/styles/dark-mode.css'
 
   it('exists and uses unified page header + surface tokens on Privacy & Data', () => {
@@ -70,17 +71,22 @@ describe('privacy & about Mini-HBUT UI contract (#464)', () => {
 
   it('brands MeView about Mini-HBUT privacy entry with icon + tokens', () => {
     const source = readText(mePath)
+    const style = readText(meStylePath)
     expect(existsSync(resolve(repoRoot, mePath))).toBe(true)
+    // Large-component cleanup moved scoped styles into an external file.
+    // Validate the SFC's real binding AND the CSS tokens, not only comments.
+    expect(source).toContain('<style scoped src="./MeView.scoped.css"></style>')
+    expect(existsSync(resolve(repoRoot, meStylePath))).toBe(true)
 
-    expect(source).toContain('关于 Mini-HBUT')
+    expect(style).toContain('关于 Mini-HBUT')
     expect(source).toContain('privacy-policy-entry')
     expect(source).toContain('PRIVACY_POLICY_URL')
     expect(source).toContain('openExternal(PRIVACY_POLICY_URL)')
     expect(source).toMatch(/privacy-policy-entry[\s\S]*shield|material-symbols-outlined[\s\S]*shield/)
-    expect(source).toContain('--ui-surface')
-    expect(source).toContain('--ui-text')
-    expect(source).toContain('--ui-muted')
-    expect(source).toContain('prefers-reduced-motion')
+    expect(style).toContain('--ui-surface')
+    expect(style).toContain('--ui-text')
+    expect(style).toContain('--ui-muted')
+    expect(style).toContain('prefers-reduced-motion')
   })
 
   it('registers dark-mode readability for privacy page and about privacy entry', () => {

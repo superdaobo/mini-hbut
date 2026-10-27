@@ -209,6 +209,9 @@ jobs:
           IOS_PROVISION_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
           BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          #1039：与实际 iOS Bundle 版本号使用同一来源，便于启动报告识别 TestFlight 构建。
+          VITE_IOS_MARKETING_VERSION: ${{ steps.version.outputs.version_name }}
+          VITE_IOS_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
           KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain_path }}
         run: |
           set -euo pipefail

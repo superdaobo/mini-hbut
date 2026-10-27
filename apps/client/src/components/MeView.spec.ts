@@ -22,13 +22,20 @@ describe('MeView account switch contract (#755)', () => {
     expect(vue).toContain('savedAccounts.value = Array.isArray(list) ? list : []')
   })
 
-  it('switches accounts locally (no network login) and emits account-switched', () => {
+  it('switches accounts online (#1061) and emits account-switched with four-state result', () => {
     const vue = source()
 
-    expect(vue).toContain("invokeNative('switch_active_account', {")
-    expect(vue).toContain("emit('account-switched', sid)")
+    expect(vue).toContain("invokeNative('switch_active_account_online', {")
+    expect(vue).toContain("emit('account-switched', {")
+    expect(vue).toContain("normalizePortalAccountId(info?.student_id, role)")
+    expect(vue).toContain("t('me.account.roleTeacher')")
+    expect(vue).toContain("t('me.account.teacherId')")
     // 会话失效的账号禁止秒切，给出可读提示（#794 文案 t() 化后锚点同步更新）
     expect(vue).toContain("t('me.toast.sessionInvalid')")
+    // #1061：只有在线就绪才提示成功，否则按原因提示需重登 / 缓存离线
+    expect(vue).toContain("const onlineReady = info?.online_ready === true")
+    expect(vue).toContain("tf('me.toast.switchNeedsLogin'")
+    expect(vue).toContain("tf('me.toast.switchOffline'")
   })
 
   it('offers per-account delete but never for the current account', () => {

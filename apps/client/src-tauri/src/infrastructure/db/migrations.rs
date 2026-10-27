@@ -62,6 +62,14 @@ pub(crate) fn ensure_user_session_columns(conn: &Connection) -> Result<()> {
         "electricity_token_expires_at",
         "ALTER TABLE user_sessions ADD COLUMN electricity_token_expires_at TEXT",
     )?;
+    // 身份类型（`student` / `teacher`）。旧库无此列时按学生兜底，
+    // 因此补列后不需要回填历史行。
+    ensure_column(
+        conn,
+        "user_sessions",
+        "role",
+        "ALTER TABLE user_sessions ADD COLUMN role TEXT",
+    )?;
     Ok(())
 }
 
@@ -429,6 +437,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
             one_code_token TEXT,
             electricity_refresh_token TEXT,
             electricity_token_expires_at TEXT,
+            role TEXT,
             last_login TIMESTAMP,
             expires_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

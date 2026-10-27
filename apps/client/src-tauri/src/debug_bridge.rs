@@ -684,9 +684,7 @@ fn encode_rgba_to_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, S
 }
 
 #[cfg(windows)]
-fn capture_window_client_rgba(
-    window: &tauri::WebviewWindow,
-) -> Result<(Vec<u8>, u32, u32), String> {
+fn capture_window_client_rgba(window: &tauri::Window) -> Result<(Vec<u8>, u32, u32), String> {
     let hwnd = window
         .hwnd()
         .map_err(|e| format!("获取窗口句柄失败: {}", e))?;
@@ -771,9 +769,13 @@ pub fn capture_native_debug_screenshot(
     app: &AppHandle,
     req: DebugScreenshotRequest,
 ) -> Result<NativeDebugScreenshotResponse, String> {
+    // ⚠️ 用 `get_window` 而不是 `get_webview_window`：存在**子 WebView** 时
+    // （学校官网内嵌 / 图书馆预约内嵌），`get_webview_window("main")` 会返回 None，
+    // 导致截图与 `/debug/frontend-eval` 全部失效（实测 2026-10-19）。
+    // 截图只需要窗口 HWND，用 `Window` 即可，且子 WebView 区域也会被一并截到。
     let window = app
-        .get_webview_window("main")
-        .or_else(|| app.webview_windows().into_values().next())
+        .get_window("main")
+        .or_else(|| app.windows().into_values().next())
         .ok_or_else(|| "未找到可截图的 Tauri 主窗口".to_string())?;
     let (rgba, width, height) = capture_window_client_rgba(&window)?;
     let png_bytes = encode_rgba_to_png(&rgba, width, height)?;

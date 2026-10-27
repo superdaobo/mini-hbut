@@ -47,10 +47,24 @@ impl ScheduleService {
             .or_else(|| requested_semester.clone())
             .unwrap_or_else(|| "2024-2025-1".to_string());
 
-        match client
-            .fetch_schedule(Some(semester_to_query.as_str()))
-            .await
-        {
+        // 教师与学生走两套完全不同的课表接口（学生 `xsd/…/sdpkkbList` 对教师
+        // 直接返回「功能暂时停用」），按当前身份分派；其余缓存/降级语义完全一致。
+        let is_teacher = client
+            .user_info
+            .as_ref()
+            .map(|user| user.role.is_teacher())
+            .unwrap_or(false);
+        let fetch_result = if is_teacher {
+            client
+                .fetch_teacher_schedule(Some(semester_to_query.as_str()))
+                .await
+        } else {
+            client
+                .fetch_schedule(Some(semester_to_query.as_str()))
+                .await
+        };
+
+        match fetch_result {
             Ok((course_list, _now_week)) => {
                 let mut meta = schedule_context;
                 if let Some(map) = meta.as_object_mut() {

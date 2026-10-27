@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   sensitivePatterns,
   scanContent,
@@ -21,6 +22,31 @@ import {
 } from './guard_sensitive_uploads.mjs'
 
 const scan = (text) => scanContent('fixtures.txt', text, 'test')
+
+// #1094：Linux CI 的 child-process stdin 是非阻塞 pipe，不能用
+// readFileSync(0) 在 Node 中同步读取，否则可能 EAGAIN 导致安全门禁误失败。
+const guardScriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'guard_sensitive_uploads.mjs')
+const guardRepoRoot = path.resolve(path.dirname(guardScriptPath), '..')
+
+test('scan-files 从异步 stdin 读取较大文件列表并执行实际敏感扫描', () => {
+  const files = Array.from({ length: 180 }, () => 'apps/client/package.json').join('\n') + '\n'
+  const result = spawnSync(process.execPath, [guardScriptPath, 'scan-files', '-'], {
+    cwd: guardRepoRoot,
+    input: files,
+    encoding: 'utf8'
+  })
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  assert.match(result.stdout, /未发现敏感内容/)
+})
+
+test('scan-files stdin 为空时拒绝放行', () => {
+  const result = spawnSync(process.execPath, [guardScriptPath, 'scan-files', '-'], {
+    cwd: guardRepoRoot,
+    input: '',
+    encoding: 'utf8'
+  })
+  assert.equal(result.status, 2, result.stderr || result.stdout)
+})
 
 test('sensitivePatterns 覆盖 #618/#626 要求的新类别', () => {
   const names = sensitivePatterns.map((p) => p.name)

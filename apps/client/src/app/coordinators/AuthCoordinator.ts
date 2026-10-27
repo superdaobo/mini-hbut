@@ -6,7 +6,7 @@
  * 通过 state 读写，模板变量名保持不变。
  */
 import axios from 'axios'
-import type { AppRuntime, AuthCoordinator } from '../contracts/runtime'
+import type { AccountSwitchOutcome, AppRuntime, AuthCoordinator } from '../contracts/runtime'
 import { API_BASE, LOGIN_METHOD_VIEW_KEY, LOGIN_METHOD_KEY, LOGIN_TEMP_FLAG_KEY, LOGOUT_REASON_KEY, SESSION_COOKIE_KEY, SESSION_COOKIE_TIME_KEY, LOGIN_SESSION_TOKEN_KEY } from '../state/constants'
 import {
   clearScheduleRenderSnapshot,
@@ -36,7 +36,12 @@ import {
 import { scheduleUsageUpload } from '../../utils/usage_uploader.js'
 import { reconcileLocalReminders, clearRemindersForLogout } from '../../utils/local_reminder_scheduler'
 import { subscribePortalLoginSucceeded } from './loginOutcome'
-import { saveRememberedUsername } from '../../utils/remembered_username'
+import { saveRememberedUsername, getRememberedUsername } from '../../utils/remembered_username'
+import { isTeacherRoleValue, normalizeLoginRole, writeLoginFormAccount } from '../../utils/login_role'
+// #1061/#1065：登出 / 切号时必须丢弃教师只读快照与在途请求，避免跨账号残留
+import { clearTeacherSnapshotScope } from '../../features/teacher/cache/teacherSnapshotStore'
+import { clearTeacherFetchInFlight } from '../../features/teacher/api/teacherApi'
+import { normalizePortalAccountId } from '../../utils/portal_account.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 
 /** 登录后成绩补拉的等待上限：超时以空快照兜底继续云同步，不无限等待 */
@@ -65,6 +70,8 @@ const waitPromiseWithTimeout = <T>(
 export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   const { state } = runtime
   const hasTauri = isTauriRuntime()
+  // 旧账号的异步网络验证可能晚于新账号切换/登出返回；以递增序号阻止迟到结果升级在线态。
+  let accountSwitchEpoch = 0
 
   const clearTestAccountRuntimeCaches = () => {
     clearCacheByPrefix(`grades:${TEST_ACCOUNT.studentId}`)
@@ -114,6 +121,13 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
    * 当前账号的成绩态，也不触发以当前账号为目标的云同步（防跨账号数据污染）。
    */
   const loadGradesThenSyncAfterLogin = async (sid: string) => {
+    // 教师身份不参与学生成绩链路：`/v2/quick_fetch` 是**学生**成绩接口
+    // （Epic #1018 明确要求「教师端不请求学生成绩查询」），教师会话调用会被服务端
+    // 拒绝，且会以工号写学生域本地台账。这里直接跳过补拉及学生域云同步。
+    if (isTeacherRoleValue(state.role.value)) {
+      // 教师账号不进入学生成绩与学生云同步链路。
+      return
+    }
     let grades: unknown[] = []
     try {
       const res = await waitPromiseWithTimeout(
@@ -134,8 +148,18 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
 
   // 处理登录成功
   const handleLoginSuccess = (data: unknown) => {
-    state.gradeData.value = data as unknown[]
-    state.studentId.value = localStorage.getItem('hbu_username') || ''
+    accountSwitchEpoch += 1
+    // 登录成功事件中携带后端账号；禁止反读可能尚未落盘的 localStorage 作为唯一依据。
+    const incomingId = data && typeof data === 'object' && !Array.isArray(data)
+      ? String((data as { studentId?: unknown }).studentId || '')
+      : ''
+    const sid = String(incomingId || getRememberedUsername() || state.studentId.value || '').trim()
+    if (!sid) {
+      console.warn('[Auth] 登录结果无有效账号，已拒绝跳转首页')
+      return
+    }
+    state.gradeData.value = Array.isArray(data) ? data : []
+    state.studentId.value = sid
     state.gradeTeacherCache.value = null
     state.gradeTeacherCacheSid.value = state.studentId.value
     // #623：Identity 授权登录恢复 hook —— 登录成功后通知 IdentityCoordinator
@@ -153,9 +177,9 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     runtime.navigation.applyViewState('home')
     runtime.navigation.replaceHistorySnapshot('home')
 
-    // 预取培养方案默认数据并落地缓存
-    if (state.studentId.value) {
-      runtime.session.markLoginSessionToken()
+    if (state.studentId.value) runtime.session.markLoginSessionToken()
+    // 只允许学生预取学生培养方案；教师工号不应请求学生专属接口。
+    if (state.studentId.value && !isTeacherRoleValue(state.role.value)) {
       if (isTestAccountSession()) {
         seedTestAccountCaches(setCachedData, state.studentId.value)
         state.gradeData.value = getTestAccountGrades()
@@ -180,33 +204,38 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     if (!isTestAccountSession()) {
       void runtime.session.persistSessionCookies()
       runtime.session.startSessionKeepAlive()
-      runtime.session.startElectricityKeepAlive()
+      if (!isTeacherRoleValue(state.role.value)) runtime.session.startElectricityKeepAlive()
       if (state.studentId.value) {
         void ensureRememberedPasswordCached(state.studentId.value).catch((e) => {
           console.warn('[Session] 登录后缓存记住密码失败:', e)
         })
-        startNotificationMonitor({ studentId: state.studentId.value }).catch((e) => {
-          console.warn('[Notify] 启动通知监控失败:', e)
-        })
-        // #610：登录/本地身份恢复后触发系统预调度 reconcile（补建窗口内提醒）
-        void reconcileLocalReminders({
-          studentId: state.studentId.value,
-          reason: 'login'
-        }).catch((e) => {
-          console.warn('[Reminder] 登录后预调度 reconcile 失败:', e)
-        })
-        resetCloudSyncCooldownForSession(state.studentId.value)
-        // #928：登录事件不再携带成绩（登录组件已先放行界面）——有成绩直接同步，
-        // 否则后台补拉成绩后再同步，保证学业快照的输入不被空数组顶替。
-        const gradesSnapshot = Array.isArray(data) ? (data as unknown[]) : []
-        if (gradesSnapshot.length > 0) {
-          syncAfterLogin(state.studentId.value, gradesSnapshot)
+        if (!isTeacherRoleValue(state.role.value)) {
+          startNotificationMonitor({ studentId: state.studentId.value }).catch((e) => {
+            console.warn('[Notify] 启动通知监控失败:', e)
+          })
+          // #610：登录/本地身份恢复后触发系统预调度 reconcile（补建窗口内提醒）
+          void reconcileLocalReminders({
+            studentId: state.studentId.value,
+            reason: 'login'
+          }).catch((e) => {
+            console.warn('[Reminder] 登录后预调度 reconcile 失败:', e)
+          })
+          resetCloudSyncCooldownForSession(state.studentId.value)
+          // #928：登录事件不再携带成绩（登录组件已先放行界面）——有成绩直接同步，
+          // 否则后台补拉成绩后再同步，保证学业快照的输入不被空数组顶替。
+          const gradesSnapshot = Array.isArray(data) ? (data as unknown[]) : []
+          if (gradesSnapshot.length > 0) {
+            syncAfterLogin(state.studentId.value, gradesSnapshot)
+          } else {
+            void loadGradesThenSyncAfterLogin(state.studentId.value)
+          }
+          setUsageTrackingStudentId(state.studentId.value)
+          initUsageTracker({ studentId: state.studentId.value })
+          scheduleUsageUpload({ studentId: state.studentId.value, reason: 'login', force: true })
         } else {
-          void loadGradesThenSyncAfterLogin(state.studentId.value)
+          // 教师不复用学生的通知、提醒、成绩、用量追踪任务。
+          setUsageTrackingStudentId('')
         }
-        setUsageTrackingStudentId(state.studentId.value)
-        initUsageTracker({ studentId: state.studentId.value })
-        scheduleUsageUpload({ studentId: state.studentId.value, reason: 'login', force: true })
       }
     }
     // #962：清理函数不再改动 onlineSessionState —— 手动登录的 online 已由
@@ -243,12 +272,13 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       }
       lastHandledKey = key
       lastHandledAt = now
-      handleLoginSuccess([])
+      handleLoginSuccess({ studentId: detail?.studentId })
     })
   }
 
   // 处理登出
   const handleLogout = async (options: Record<string, unknown> = {}) => {
+    accountSwitchEpoch += 1
     const payload = options && typeof options === 'object' ? options : {}
     const manual = payload.manual !== false
     const reason = String(payload.reason || '').trim()
@@ -286,12 +316,23 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     // 尽力而为（F2）：限制存储环境下清理抛错不得打断登出流程，必须在 state 重置之前就被吞掉。
     runLogoutCleanupSafely('游戏落盘身份清理', () => clearGameIdentityCaches(logoutSid))
 
+    // #1065/#1061：教师只读业务快照（课程名 / 教学班 / 监考考试安排 / 通知正文）按
+    // `teacher:{工号}:{学期}:*` 持久化在 localStorage，登出后仍可读。与游戏身份同理，
+    // 必须在**每次**登出（手动 + 会话失效自动）按账号清理，并丢弃在途的教师请求，
+    // 否则设备共享时下一位用户会看到上一位教师的只读数据。尽力而为，不得打断登出。
+    runLogoutCleanupSafely('教师快照清理', () => {
+      clearTeacherFetchInFlight()
+      clearTeacherSnapshotScope(logoutSid)
+    })
+
     runtime.navigation.applyViewState('home')
     state.gradeData.value = []
     state.gradeTeacherCache.value = null
     state.gradeTeacherCacheSid.value = ''
     state.studentId.value = ''
     state.userUuid.value = ''
+    // 退出后解除教师身份（本地教师入口偏好不能继续驱动教师首页）。
+    if (typeof state.setIdentityRole === 'function') state.setIdentityRole('student')
     // 契约 D：登出必须把在线会话态一并重置为未确认（`unknown`）。只清学号会留下
     // 「sessionVerified=true 但身份为空」的不一致态 —— 当前虽无身份可注入，但任何
     // studentId 回填（缓存/恢复链）都会立刻被当作「已确认会话」放行游戏身份。
@@ -347,50 +388,113 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     localStorage.setItem(LOGIN_METHOD_VIEW_KEY, mode)
   }
 
-  // #755：一键切换账号成功后的统一收尾。
-  // 切换为纯本地操作（Rust 侧已注入指定学号会话），这里只需：
-  // 1. 更新本地账号标记（hbu_username 等，与 Rust 返回账号保持一致）
-  // 2. 让状态源指向新账号（studentId / 成绩缓存键）
-  // 3. 派发 hbu-session-online 触发各模块全量刷新（课表等现有链路），
-  //    并主动走一遍成绩刷新链路；keep-alive / 通知监控 / 云同步切到新账号
-  const handleAccountSwitch = (studentId: string) => {
-    const previousSid = String(state.studentId.value || '').trim()
-    const sid = saveRememberedUsername(studentId)
+  // #1048 / #1061：切号结果来自 Rust 已恢复并在线的目标账号，角色与工号必须一起交付。
+  // 本地 Cookie 注入（local_activated）不等于在线可用：只有 Rust 在线确认
+  // （online_ready）才开放在线业务，否则明确提示「目标账号需要重新登录」或
+  // 以缓存离线态自动重试；绝不静默换回旧账号、绝不虚报在线成功。
+  const handleAccountSwitch = (account: AccountSwitchOutcome) => {
+    const role = normalizeLoginRole(account?.role)
+    const sid = normalizePortalAccountId(account?.studentId, role)
     if (!sid) return
-    // P0：换号属于「上一用户身份归零」的另一条路径 —— 旧账号的昵称/班级快照仍留存在
-    // 设备级游戏上下文 `<gameId>_rank_context_v1` 与旧档案键里，会被新账号的游乐场摘要
-    // 与游戏模块回落读取。这里立即清理（只清游戏身份，不动任何教务缓存）；
-    // 同样尽力而为（F2）：限制存储环境下抛错不得阻断换号主流程。
+    const epoch = ++accountSwitchEpoch
+    const isCurrent = () => accountSwitchEpoch === epoch
+      && state.studentId.value === sid && state.role.value === role
+    const previousSid = String(state.studentId.value || '').trim()
+
+    // 先停止旧账号后台任务，避免其迟到的学生通知/电费刷新污染教师新会话。
+    stopNotificationMonitor()
+    runtime.session.stopSessionKeepAlive()
+    runtime.session.stopElectricityKeepAlive()
+    runtime.session.stopJwxtRecoveryPolling()
     if (previousSid !== sid) {
       runLogoutCleanupSafely('游戏落盘身份清理', () => clearGameIdentityCaches(previousSid))
+      clearScheduleRenderSnapshot()
+      // #1061/#1065：切到别的账号时丢弃上一账号在途的教师只读请求，避免其迟到结果
+      // 被目标账号的 singleflight 复用/覆盖（快照本身按 `teacher:{工号}:...` 键隔离，
+      // 故这里只清在途表，不清目标账号自己的快照）。
+      clearTeacherFetchInFlight()
     }
     state.studentId.value = sid
+    state.setIdentityRole(role)
+    state.onlineSessionState.value = 'recovering'
+    state.userUuid.value = ''
     state.gradeData.value = []
     state.gradeTeacherCache.value = null
     state.gradeTeacherCacheSid.value = sid
-    // 主动切换不是登出：清除手动登出标记，保证会话恢复链路可用
+    saveRememberedUsername(sid, role)
+    writeLoginFormAccount(role, sid)
+    // 前端旧账号的设备级快照不是目标账号的 cookie。验证失败时后台恢复会
+    // 优先读取此键，必须先清掉，否则可能用旧账号 Cookie 悄悄恢复错号。
+    // Rust DB 中各账号的加密会话不受影响；目标账号确认在线后会重新写入。
+    localStorage.removeItem(SESSION_COOKIE_KEY)
+    localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
+    localStorage.removeItem('hbu_training_options')
+    setUsageTrackingStudentId('')
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
-    runtime.session.markLoginSessionToken()
-    if (isTestAccountSession()) return
-    void runtime.session.persistSessionCookies()
-    runtime.session.startSessionKeepAlive()
-    runtime.session.startElectricityKeepAlive()
-    // 会话在线通知：驱动已挂载的模块走现有 hbu-session-online 刷新链路
-    runtime.session.notifySessionOnline('account-switch')
-    // 成绩全量刷新（现有刷新链路）
-    void runtime.grade.handleRefreshGrades()
-    startNotificationMonitor({ studentId: sid }).catch((e) => {
-      console.warn('[Notify] 切换账号后启动通知监控失败:', e)
-    })
-    void reconcileLocalReminders({ studentId: sid, reason: 'account-switch' }).catch((e) => {
-      console.warn('[Reminder] 切换账号后预调度 reconcile 失败:', e)
-    })
-    resetCloudSyncCooldownForSession(sid)
-    runAutoCloudSyncAfterLogin({ studentId: sid, latestGrades: [] }).catch((e) => {
-      console.warn('[CloudSync] 切换账号后自动同步失败:', e)
-    })
-    setUsageTrackingStudentId(sid)
+    runtime.navigation.applyViewState('home')
+    runtime.navigation.replaceHistorySnapshot('home')
+    if (isTestAccountSession()) {
+      state.onlineSessionState.value = 'online'
+      return
+    }
+
+    const onlineReady = account?.onlineReady === true
+    const needsLogin = account?.needsLogin === true
+    const failureReason = String(account?.failureReason || '').trim()
+
+    // 未在线就绪：目标身份已切换，但在线业务保持关闭（渐进开放）。
+    if (!onlineReady) {
+      if (needsLogin) {
+        // 目标账号凭据缺失/失效：明确要求重新登录，且不启动自动恢复轮询
+        //（避免用其他账号凭据或反复无效重试掩盖问题）。
+        state.onlineSessionState.value = 'needs_login'
+        runtime.session.markJwxtMaintenance(
+          `已切换到 ${sid}，该账号需要重新登录后才能使用在线功能。`,
+          { phase: 'need_login', detail: failureReason || '目标账号需要重新登录' }
+        )
+      } else {
+        // 网络/维护故障：可重试，保留缓存身份并后台恢复，不诱导用户重新登录。
+        state.onlineSessionState.value = 'cached_offline'
+        runtime.session.markJwxtMaintenance(
+          '已切换账号，在线验证暂不可用，当前展示缓存数据，将自动重试。',
+          { phase: 'failed', detail: failureReason || '在线验证未完成' }
+        )
+        runtime.session.startJwxtRecoveryPolling()
+      }
+      return
+    }
+
+    // 在线就绪：开放在线业务；教师身份不复用学生的电费/通知/成绩任务。
+    void (async () => {
+      try {
+        if (!isCurrent()) return
+        await runtime.session.persistSessionCookies()
+        if (!isCurrent()) return
+        runtime.session.startSessionKeepAlive()
+        runtime.session.notifySessionOnline('account-switch')
+        if (isTeacherRoleValue(role)) {
+          setUsageTrackingStudentId('')
+          return
+        }
+        runtime.session.startElectricityKeepAlive()
+        void runtime.grade.handleRefreshGrades()
+        startNotificationMonitor({ studentId: sid }).catch((e) => {
+          console.warn('[Notify] 切换账号后启动通知监控失败:', e)
+        })
+        void reconcileLocalReminders({ studentId: sid, reason: 'account-switch' }).catch((e) => {
+          console.warn('[Reminder] 切换账号后预调度 reconcile 失败:', e)
+        })
+        resetCloudSyncCooldownForSession(sid)
+        runAutoCloudSyncAfterLogin({ studentId: sid, latestGrades: [] }).catch((e) => {
+          console.warn('[CloudSync] 切换账号后自动同步失败:', e)
+        })
+        setUsageTrackingStudentId(sid)
+      } catch (e) {
+        // 在线已确认，后续初始化失败不得回退为「未在线」；仅记录日志。
+        console.warn('[Session] 切换账号后初始化在线业务失败:', e)
+      }
+    })()
   }
 
   const handleRequireLogin = () => {

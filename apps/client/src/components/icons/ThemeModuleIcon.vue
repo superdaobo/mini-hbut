@@ -11,6 +11,8 @@ const props = defineProps({
 
 const iconMap = {
   grades: 'school',
+  // #1110：给分记录独立模块（柱状图语义，字形已在 glyph-manifest 中）
+  grade_distribution: 'bar_chart',
   classroom: 'meeting_room',
   electricity: 'bolt',
   transactions: 'receipt_long',
@@ -24,6 +26,9 @@ const iconMap = {
   course_selection: 'playlist_add_check',
   training: 'account_tree',
   library: 'local_library',
+  library_reserve: 'event_seat',
+  // A15：预约（内嵌官方页）用 web_asset 表示「内嵌网页」
+  chaoxing_reserve: 'web_asset',
   campus_map: 'map',
   resource_share: 'cloud',
   chaoxing_class: 'menu_book',

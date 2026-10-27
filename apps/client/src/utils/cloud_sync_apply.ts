@@ -21,6 +21,7 @@ import {
   toSafeText
 } from './cloud_sync_storage.js'
 import { asRecord } from './cloud_sync_transport.js'
+import { isTeacherRoleValue, readLoginRole } from './login_role.js'
 import { applyFontSettingsSnapshot } from './font_settings'
 import { normalizeSemesterList } from './semester.js'
 import { applyUiSettingsSnapshot } from './ui_settings'
@@ -168,6 +169,29 @@ export interface AcademicApplyResult {
   scheduleSemesters: string[]
 }
 
+/** 云端学业快照里属于「学生专属」的字段；教师端同步时必须摘除。 */
+const STUDENT_ACADEMIC_KEYS = [
+  'grades',
+  'grades_all',
+  'grades_by_semester',
+  'ranking',
+  'ranking_all',
+  'ranking_by_semester',
+  'personal_info',
+  'profile'
+]
+
+/** 摘除学生专属学业字段（返回浅拷贝，不修改入参）。 */
+const omitStudentAcademicKeys = (
+  data: Record<string, unknown>
+): Record<string, unknown> => {
+  const copy: Record<string, unknown> = { ...data }
+  for (const key of STUDENT_ACADEMIC_KEYS) {
+    delete copy[key]
+  }
+  return copy
+}
+
 export const applyAcademicFromCloud = (
   studentId: unknown,
   academic: unknown
@@ -184,7 +208,14 @@ export const applyAcademicFromCloud = (
   if (!sid || !academic || typeof academic !== 'object') {
     return empty
   }
-  const data = academic as Record<string, unknown>
+  const rawData = academic as Record<string, unknown>
+  // 教师端不同步学业数据（成绩 / 排名 / 学籍）：这些是学生专属数据，教师账号既取不到
+  // 也没有意义（契约见 config/role_capabilities.js）。课表元信息与课表缓存仍然同步
+  // —— 教师课表同样需要它们。做法是在进入既有逻辑前把学生专属字段摘掉，
+  // 让下方的 `if` 守卫自然跳过，不改动任何既有分支。
+  const data = isTeacherRoleValue(readLoginRole())
+    ? omitStudentAcademicKeys(rawData)
+    : rawData
 
   let gradesCached = false
   let rankingCached = false

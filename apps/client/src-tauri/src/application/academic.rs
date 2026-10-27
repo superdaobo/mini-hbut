@@ -224,10 +224,16 @@ impl AcademicReadService {
         building: Option<String>,
     ) -> Result<Value, ApplicationError> {
         let mut client = self.context.client_snapshot().await;
-        let uid = client
-            .user_info
-            .as_ref()
-            .map(|user| user.student_id.clone());
+        // #1062/#1063：缓存键必须同时含「账号 + 角色 + 筛选条件」，
+        // 避免师生链路或不同账号之间互相命中（教师与学生走完全不同的空教室数据源）。
+        let identity = client.user_info.as_ref().map(|user| {
+            let role = if user.role.is_teacher() {
+                "teacher"
+            } else {
+                "student"
+            };
+            format!("{role}:{}", user.student_id)
+        });
         let periods_key = periods
             .as_ref()
             .map(|p| {
@@ -238,7 +244,7 @@ impl AcademicReadService {
             })
             .unwrap_or_default();
         let building_key = building.clone().unwrap_or_default();
-        let cache_key = uid.map(|u| {
+        let cache_key = identity.map(|u| {
             format!(
                 "{u}:classroom:{}:{}:{}:{}",
                 week.unwrap_or_default(),

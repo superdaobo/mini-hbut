@@ -24,8 +24,10 @@ import {
   ELECTRICITY_REFRESH_INTERVAL,
   JWXT_RECOVERY_INTERVAL
 } from '../state/constants'
-import { saveRememberedUsername, clearRememberedUsername } from '../../utils/remembered_username'
+import { saveRememberedUsername, getRememberedUsername } from '../../utils/remembered_username'
 import { isValidStudentId } from '../../utils/student_id.js'
+import { isTeacherRoleValue, normalizeLoginRole } from '../../utils/login_role.js'
+import { normalizePortalAccountId } from '../../utils/portal_account.js'
 import {
   TEST_ACCOUNT,
   isTestAccountSession
@@ -37,6 +39,7 @@ import { startNotificationMonitor } from '../../utils/notify_center.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
+import { createSessionBridge } from './sessionBridge'
 import {
   LOGIN_METHOD_CHAOXING_PASSWORD,
   LOGIN_METHOD_PORTAL_PASSWORD
@@ -55,31 +58,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     invokeNative<T>(command, args)
 
   // ── 桥接 / Cookie ────────────────────────────────────────────────────
-  const bridgePost = async (path: string, payload: Record<string, unknown> = {}) => {
-    const bridgeBase = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
-    const res = await fetch(`${bridgeBase}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {})
-    })
-    return res.json()
-  }
-
-  const restoreSessionViaBridge = async (cookies: string) => {
-    const res = await bridgePost('/restore_session', { cookies })
-    if (res?.success && res?.data?.student_id) {
-      return res.data
-    }
-    throw new Error(res?.error?.message || '恢复会话失败')
-  }
-
-  const importCookiesViaBridge = async (snapshot: Record<string, unknown>) => {
-    const res = await bridgePost('/import_cookies', snapshot || {})
-    if (res?.success && res?.data?.user?.student_id) {
-      return res.data.user
-    }
-    throw new Error(res?.error?.message || '导入 cookies 失败')
-  }
+  const { restoreSessionViaBridge, importCookiesViaBridge } = createSessionBridge(hasTauri)
 
   const persistSessionCookies = async () => {
     if (isTestAccountSession()) return
@@ -96,6 +75,40 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   }
 
   // ── 会话状态判定 ─────────────────────────────────────────────────────
+  /**
+   * 会话恢复/自动重登链的**统一收口**：写入学号与登录身份。
+   *
+   * 身份以教务系统返回为准（后端 `UserInfo.role`）；旧缓存/旧后端没有该字段时
+   * 保持当前值不变（默认学生），避免把已识别的教师身份重置掉。
+   */
+  const applyRestoredIdentity = (userInfo: Record<string, unknown> | null | undefined) => {
+    const role = String(userInfo?.role || 'student').trim()
+    const sid = saveRememberedUsername(userInfo?.student_id ?? userInfo?.studentId, role)
+    if (!sid) return false
+    // 前端入口选择不参与认证；只使用已恢复的后端角色更新 Pinia。
+    state.studentId.value = sid
+    // 旧版 Coordinator 测试桩可能未提供角色 setter；生产 AppState 始终会提供。
+    if (typeof state.setIdentityRole === 'function') state.setIdentityRole(role)
+    return true
+  }
+
+  /**
+   * #1061：恢复 / 自动重登的结果必须与**当前目标账号**一致，否则拒绝采纳。
+   *
+   * 防止旧账号凭据（全局记住密码 / 学习通凭据 / 最近会话）在切号后被用于
+   * 恢复出错误的账号身份（串号）。目标账号为空（冷启动尚未恢复身份）时不设限。
+   */
+  const matchesCurrentTarget = (userInfo: Record<string, unknown> | null | undefined) => {
+    const expected = String(state.studentId.value || '').trim()
+    if (!expected) return true
+    const role = normalizeLoginRole(userInfo?.role)
+    const actual = normalizePortalAccountId(
+      (userInfo?.student_id ?? userInfo?.studentId) as string | number | null | undefined,
+      role
+    )
+    return actual !== '' && actual === expected
+  }
+
   const markLoginSessionToken = () => {
     try {
       localStorage.setItem(LOGIN_SESSION_TOKEN_KEY, `${Date.now()}`)
@@ -111,6 +124,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   }
 
   const isManualLogout = () => localStorage.getItem('hbu_manual_logout') === 'true'
+  const isDeviceOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false
 
   // ── 测试账号 ─────────────────────────────────────────────────────────
   const restoreTestAccountSession = () => {
@@ -135,12 +149,9 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   // ── 本地身份恢复 ─────────────────────────────────────────────────────
   const restoreCachedIdentityFromLocal = async () => {
     if (isManualLogout()) return false
-    const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
+    // 先按成功登录时保存的角色校验，允许 8 位教师工号，但不改变学生学号规则。
+    const cachedSid = getRememberedUsername()
     if (!cachedSid) return false
-    if (!isValidStudentId(cachedSid)) {
-      clearRememberedUsername()
-      return false
-    }
     if (isTestAccountSession() && cachedSid === TEST_ACCOUNT.studentId) {
       return restoreTestAccountSession()
     }
@@ -171,9 +182,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         const snapshot = JSON.parse(snapshotRaw)
         const info = await importCookiesViaBridge(snapshot)
         if (info?.student_id) {
-          state.studentId.value = info.student_id
-          saveRememberedUsername(info.student_id)
-          return true
+          return applyRestoredIdentity(info)
         }
       } catch (e) {
         console.warn('[Session] 导入 cookies 失败:', e)
@@ -181,7 +190,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       return false
     }
     if (!cookies) {
-      if (isTemporaryLoginSession()) {
+      // 设备明确断网且本地无 cookie 时，不能把“无法联网验证”判成临时凭据过期。
+      if (isTemporaryLoginSession() && !isDeviceOffline()) {
         void runtime.auth.handleLogout({
           manual: false,
           reason: TEMP_SESSION_EXPIRED_REASON,
@@ -196,13 +206,14 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         ? await invoke('restore_session', { cookies })
         : await restoreSessionViaBridge(cookies)
       if (userInfo?.student_id) {
-        state.studentId.value = userInfo.student_id
-        saveRememberedUsername(userInfo.student_id)
+        applyRestoredIdentity(userInfo)
         return true
       }
     } catch (e) {
-      if (isTemporaryLoginSession()) {
-        console.warn('[Session] 临时登录恢复失败，自动退出:', e)
+      // 临时扫码会话只有在服务端明确否定认证时才能自动登出。
+      // 断网、超时和未知 IO 错误均不具有“凭据过期”的证明力。
+      if (isTemporaryLoginSession() && classifySessionError(e) === 'auth') {
+        console.warn('[Session] 临时登录会话被明确拒绝，自动退出:', e)
         void runtime.auth.handleLogout({
           manual: false,
           reason: TEMP_SESSION_EXPIRED_REASON,
@@ -229,11 +240,14 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     }
     try {
       const userInfo = await invoke('restore_latest_session')
-      if (userInfo?.student_id) {
-        state.studentId.value = userInfo.student_id
-        saveRememberedUsername(userInfo.student_id)
+      if (userInfo?.student_id && matchesCurrentTarget(userInfo as Record<string, unknown>)) {
+        applyRestoredIdentity(userInfo)
         await persistSessionCookies()
         return true
+      }
+      // #1061：最近会话属于别的账号时不得采纳（防串号）。
+      if (userInfo?.student_id) {
+        console.warn('[Session] 最近会话与目标账号不一致，已拒绝采纳')
       }
     } catch (e) {
       console.warn('[Session] 自动恢复历史会话失败:', e)
@@ -262,6 +276,65 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       console.warn('[Session] 自动重登学号解析失败:', e)
     }
     return ''
+  }
+
+  /**
+   * #1061：目标账号专属自动恢复。
+   *
+   * 只使用**该账号自身**的凭据来源，按优先级尝试：
+   * 1. Rust 侧该账号的存储凭据（`has_restorable_credentials` + `auto_relogin_from_stored`）；
+   * 2. 前端本地记住密码，但账号必须与目标账号一致。
+   *
+   * 任一来源返回的身份与目标账号不一致即拒绝采纳（绝不串号）；无匹配凭据时
+   * 直接判定「需要重新登录」，不回退到其他账号的凭据。
+   */
+  const tryTargetScopedRelogin = async (targetSid: string): Promise<boolean> => {
+    const restorable = await invoke<boolean>('has_restorable_credentials', {
+      studentId: targetSid,
+      student_id: targetSid
+    }).catch(() => false)
+
+    const attempts: Array<() => Promise<unknown>> = []
+    if (restorable) {
+      attempts.push(() =>
+        invoke('auto_relogin_from_stored', { studentId: targetSid, student_id: targetSid })
+      )
+    }
+    const localCreds = await getStoredPassword().catch(() => null)
+    if (localCreds && String(localCreds.username || '').trim() === targetSid) {
+      attempts.push(() =>
+        invoke('login', {
+          username: targetSid,
+          password: localCreds.password,
+          captcha: '',
+          lt: '',
+          execution: ''
+        })
+      )
+    }
+    if (attempts.length === 0) {
+      state.jwxtSessionLastError.value = '目标账号未保存可用登录凭据，需要重新登录'
+      return false
+    }
+
+    for (const attempt of attempts) {
+      try {
+        const userInfo = await runExclusiveLogin(attempt, { method: LOGIN_METHOD_PORTAL_PASSWORD })
+        if (!matchesCurrentTarget(userInfo as Record<string, unknown>)) {
+          state.jwxtSessionLastError.value = '自动重登返回的账号与目标账号不一致，已拒绝采纳'
+          console.warn('[Session] 目标账号专属自动重登身份不一致，已拒绝')
+          return false
+        }
+        await persistSessionCookies()
+        applyRestoredIdentity({ ...(userInfo as Record<string, unknown>), student_id: targetSid })
+        noteLoginSuccess()
+        return true
+      } catch (e) {
+        state.jwxtSessionLastError.value = formatSessionError(e)
+        console.warn('[Session] 目标账号专属自动重登失败:', e)
+      }
+    }
+    return false
   }
 
   // #931：冷却窗口内让路后，在冷却结束时刻补一次静默恢复。
@@ -304,6 +377,12 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     if (method.startsWith('chaoxing_')) {
       const chaoxingCreds = await getStoredChaoxingPassword()
       if (!chaoxingCreds) return false
+      const targetSid = String(state.studentId.value || '').trim()
+      // #1061：学习通凭据必须属于目标账号，禁止用其他账号凭据重登（防串号）。
+      if (targetSid && String(chaoxingCreds.account || '').trim() !== targetSid) {
+        state.jwxtSessionLastError.value = '本地学习通凭据与目标账号不一致，已跳过自动重登'
+        return false
+      }
       try {
         // #659：自动重登与手动登录互斥单飞 —— 已有登录在飞时复用同一请求
         const payload = await runExclusiveLogin(
@@ -315,12 +394,14 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
           { method: LOGIN_METHOD_CHAOXING_PASSWORD }
         )
         const sid = await resolveAutoLoginStudentId(payload as Record<string, unknown>)
-        if (sid) {
-          state.studentId.value = sid
-          saveRememberedUsername(sid)
-        } else {
+        if (!sid) {
           throw new Error('学习通自动登录未解析到有效学号')
         }
+        if (targetSid && sid !== targetSid) {
+          throw new Error('学习通自动登录返回的账号与目标账号不一致，已拒绝采纳')
+        }
+        state.studentId.value = sid
+        saveRememberedUsername(sid)
         await persistSessionCookies()
         return true
       } catch (e) {
@@ -328,6 +409,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         console.warn('[Session] 学习通自动登录失败:', e)
         return false
       }
+    }
+
+    // #1061：存在明确目标账号时，只允许用**该账号自身**在本机存储的凭据重登；
+    // 绝不回退到全局记住密码（可能是上一个账号的凭据）——这是禁止串号的关键。
+    const targetSid = String(state.studentId.value || '').trim()
+    if (targetSid) {
+      return tryTargetScopedRelogin(targetSid)
     }
 
     const creds = await getStoredPassword()
@@ -352,8 +440,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
           userInfo?.student_id || userInfo?.studentId || creds.username || ''
         ).trim()
         if (sid) {
-          state.studentId.value = sid
-          saveRememberedUsername(sid)
+          applyRestoredIdentity({ ...userInfo, student_id: sid })
         }
         // #931：后端凭据走完整 CAS 登录，同样进入 Rust 冷却窗口
         noteLoginSuccess()
@@ -380,8 +467,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
           await persistSessionCookies()
           const sid = String(userInfo?.student_id || creds.username || '').trim()
           if (sid) {
-            state.studentId.value = sid
-            saveRememberedUsername(sid)
+            applyRestoredIdentity({ ...userInfo, student_id: sid })
           }
           return userInfo
         },
@@ -429,11 +515,11 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   const classifySessionError = (err: unknown): 'network' | 'auth' | 'unknown' => {
     const raw = String((err as Error)?.message || err || '').toLowerCase()
     if (
-      /error sending request|timed? ?out|timeout|connection|connect |network|econnrefused|econnreset|dns |resolve|socket|eof|broken pipe/i.test(raw)
+      /error sending request|timed? ?out|timeout|connection|connect |network|econnrefused|econnreset|dns |resolve|socket|eof|broken pipe|failed to fetch|fetch failed|offline|网络|无法连接|断开连接|无网络/i.test(raw)
     ) {
       return 'network'
     }
-    if (/login|401|403|unauthorized|session|expired|cookie|not logged/i.test(raw)) {
+    if (/login|401|403|unauthorized|session|expired|cookie|not logged|会话.{0,4}(失效|过期)|登录.{0,4}(失效|过期)|请重新登录|未登录|身份验证失败/i.test(raw)) {
       return 'auth'
     }
     return 'unknown'
@@ -476,8 +562,11 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       await invoke('refresh_session')
       await persistSessionCookies()
     } catch (e) {
-      if (isTemporaryLoginSession()) {
-        console.warn('[Session] 临时登录会话已失效，自动退出:', e)
+      state.jwxtSessionLastError.value = formatSessionError(e)
+      const kind = classifySessionError(e)
+      const temporary = isTemporaryLoginSession()
+      if (temporary && kind === 'auth') {
+        console.warn('[Session] 临时登录会话被明确拒绝，自动退出:', e)
         void runtime.auth.handleLogout({
           manual: false,
           reason: TEMP_SESSION_EXPIRED_REASON,
@@ -485,11 +574,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         })
         return
       }
-      state.jwxtSessionLastError.value = formatSessionError(e)
-      const kind = classifySessionError(e)
-      if (kind === 'network') {
-        // 网络异常 ≠ 会话过期：静默记录，由 keep-alive 下轮重试，不弹「会话失效」横幅
-        console.warn('[Session] 会话刷新网络异常，稍后自动重试:', e)
+      if (kind === 'network' || (temporary && kind === 'unknown')) {
+        // 临时会话遇到网络/未知故障时先撤销在线权限，保留本地身份并等待恢复。
+        if (temporary) {
+          state.onlineSessionState.value = state.studentId.value ? 'cached_offline' : 'unknown'
+          startJwxtRecoveryPolling()
+        }
+        console.warn('[Session] 会话刷新暂不可用，稍后重试:', e)
         return
       }
       if (options.quiet) {
@@ -499,7 +590,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         if (relogged) {
           clearJwxtMaintenance()
           startSessionKeepAlive()
-          startElectricityKeepAlive()
+          // #1061：教师身份不得启动学生专属电费保活。
+          if (!isTeacherRoleValue(state.role.value)) startElectricityKeepAlive()
           await persistSessionCookies()
           notifySessionOnline('auto-relogin')
         }
@@ -525,7 +617,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         // 无验证推导。
         clearJwxtMaintenance({ confirmOnline: true })
         // 后台重登录成功后自动上传成绩和设置到云端（不含自定义课程）
-        if (state.studentId.value) {
+        if (state.studentId.value && !isTeacherRoleValue(state.role.value)) {
           resetCloudSyncCooldownForSession(state.studentId.value)
           runAutoCloudSyncAfterLogin({
             studentId: state.studentId.value,
@@ -553,6 +645,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
 
   const startElectricityKeepAlive = () => {
     stopElectricityKeepAlive()
+    // 教师工号没有学生电费授权，不得启动学生专属定时任务。
+    if (isTeacherRoleValue(state.role.value)) return
     state.mutable.electricityKeepAliveTimer = window.setInterval(async () => {
       try {
         await invoke('refresh_electricity_token')
@@ -604,8 +698,9 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       if (success) {
         clearJwxtMaintenance()
         startSessionKeepAlive()
-        startElectricityKeepAlive()
-        if (state.studentId.value) {
+        // #1061：教师身份不得启动学生专属电费保活（恢复后按目标身份隔离）。
+        if (!isTeacherRoleValue(state.role.value)) startElectricityKeepAlive()
+        if (state.studentId.value && !isTeacherRoleValue(state.role.value)) {
           startNotificationMonitor({ studentId: state.studentId.value }).catch((e) => {
             console.warn('[Notify] 恢复后启动通知监控失败:', e)
           })
@@ -614,7 +709,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         stopJwxtRecoveryPolling()
         notifySessionOnline(relogged ? 'auto-relogin' : 'session-restore')
         // 后台恢复/重登录成功后自动上传成绩和设置到云端（不含自定义课程）
-        if (relogged && state.studentId.value) {
+        if (relogged && state.studentId.value && !isTeacherRoleValue(state.role.value)) {
           resetCloudSyncCooldownForSession(state.studentId.value)
           runAutoCloudSyncAfterLogin({
             studentId: state.studentId.value,

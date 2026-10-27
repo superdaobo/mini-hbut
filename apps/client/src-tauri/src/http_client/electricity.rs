@@ -24,3 +24,6 @@ mod query;
 
 #[allow(unused_imports)]
 pub use auth_session::ElectricityTokenBundle;
+
+/// 校园码 Tauri 命令的结构化错误（`{ kind, message }`），供 transport 层复用（#1113）。
+pub(crate) use campus_code::CampusCodeCommandError;

@@ -97,7 +97,7 @@ export interface BootDiagSnapshot {
    * 是否记录到正常退出（`pagehide` / `beforeunload`）。
    *
    * iOS 上崩溃与被用户手动划掉都不会触发这两个事件，因此 `false` 的含义是
-   * 「进程未正常结束（崩溃，或被划掉）」—— 报告里如实标注二者不可区分。
+   * 「未观察到页面离开事件」；后台挂起/系统终止/被划掉均可能不触发。
    */
   cleanExit?: boolean
   /** 最近若干次启动的摘要（新→旧由报告侧决定） */
@@ -247,9 +247,8 @@ export const readBootDiagnostics = (): {
 /**
  * 判定一次启动的「结局」，用于报告与回放时给出可读结论。
  *
- * - `abnormal-exit`：走完了启动，但没记录到正常退出 → 启动完成后进程突然消失
- *   （崩溃 / 被系统终止 / 被手动划掉，iOS 上无法进一步区分）。
- * - `incomplete-boot`：连启动都没走完 → 启动期就没了（此前那种「卡死后崩溃」）。
+ * - `abnormal-exit`：走完启动但没记录页面离开事件；不能据此判定进程崩溃。
+ * - `incomplete-boot`：未记录启动完成，可能是启动被挂起、卡住、被终止等。
  * - `clean`：走完启动且记录到正常退出。
  */
 export type BootOutcome = 'clean' | 'abnormal-exit' | 'incomplete-boot'
@@ -301,9 +300,9 @@ export const resolveProcessAgeAtBootMs = (snapshot: BootDiagSnapshot | null): nu
 export const hasLiveBootSnapshot = (): boolean => !!getDiagWindow()?.__HBU_BOOT_DIAG__
 
 const OUTCOME_LABEL: Record<BootOutcome, string> = {
-  clean: '正常结束',
-  'abnormal-exit': '启动完成后进程未正常结束（崩溃 / 被系统终止 / 被手动划掉）',
-  'incomplete-boot': '启动未走完（疑似启动期被系统终止）'
+  clean: '已记录页面离开事件',
+  'abnormal-exit': '启动完成，但未记录页面离开（后台挂起 / 系统终止 / 手动结束均可能）',
+  'incomplete-boot': '未记录启动完成（可能卡住、被挂起或被系统终止）'
 }
 
 /**
@@ -332,7 +331,7 @@ export const replayBootDiagnostics = (): number => {
     if (outcome !== 'clean') {
       push(
         'warn',
-        `上次启动结局：${OUTCOME_LABEL[outcome]}（boot=${previous.bootId}，时间线 ${previous.entries.length} 条）`,
+        `上次启动状态：${OUTCOME_LABEL[outcome]}（boot=${previous.bootId}，时间线 ${previous.entries.length} 条）`,
         {
           boot_id: previous.bootId,
           outcome,
@@ -358,7 +357,7 @@ export const replayBootDiagnostics = (): number => {
       push(level, `+${entry.t}ms ${entry.name}${detailText}`)
     }
     for (const stall of current.stalls) {
-      push('warn', `主线程冻结 ${stall.gap}ms（${stall.from}ms → ${stall.to}ms）`, stall)
+      push('warn', `JS 定时器长间隔 ${stall.gap}ms（${stall.from}ms → ${stall.to}ms；后台挂起也可能触发）`, stall)
     }
   }
 
@@ -397,8 +396,8 @@ const formatBootSection = (
     `启动墙钟: ${new Date(snapshot.startedAtWall).toLocaleString()}`,
     `结局: ${outcomeText}`,
     `是否走完启动: ${snapshot.finished ? `是（${snapshot.finishedAt ?? 0}ms）` : '否'}`,
-    `是否记录到正常退出: ${snapshot.cleanExit === true ? '是' : '否'}`,
-    `时间线条目: ${snapshot.entries.length}，长阻塞记录: ${snapshot.stalls.length}`
+    `是否记录到页面离开: ${snapshot.cleanExit === true ? '是' : '否（不代表崩溃）'}`,
+    `时间线条目: ${snapshot.entries.length}，JS 计时器长间隔记录: ${snapshot.stalls.length}`
   ]
   const nativePre = resolveNativePreMs(snapshot)
   if (nativePre !== null) {
@@ -421,10 +420,14 @@ const formatBootSection = (
   const nativeStalls = snapshot.entries.filter((entry) => entry.name === 'native-stall')
   if (nativeStalls.length) {
     const costs = nativeStalls.map((entry) => formatDuration(Number(entry.detail?.cost_ms) || 0)).join(' / ')
-    lines.push(`原生无响应: ${nativeStalls.length} 次（${costs}）`)
+    lines.push(`WebView 同源资源探针延迟/超时: ${nativeStalls.length} 条记录（${costs}）`)
     lines.push(
-      '  ⚠️ JS 未冻结但原生请求无响应 ⇒ 卡在**原生主线程**：WebView 无法呈现（白屏），随后 iOS 看门狗约 10s 杀掉进程'
+      '  ⚠️ 只确认静态资源请求耗时异常；可能是原生 UI 线程、WebKit scheme handler 或资源链路。不能仅凭此记录确认原生主线程死锁、白屏或 iOS 看门狗终止；需对照 .ips / Xcode 崩溃日志。'
     )
+    const timeouts = Number(snapshot.meta?.native_probe_timeouts)
+    if (Number.isFinite(timeouts) && timeouts > 0) {
+      lines.push(`  探针累计超时: ${timeouts} 次（明细经限流，并非每次超时都单独记录）`)
+    }
   }
   const navMs = Number(snapshot.meta?.nav_ms)
   if (Number.isFinite(navMs)) {
@@ -436,10 +439,10 @@ const formatBootSection = (
     lines.push(
       `首帧 FCP: ${formatDuration(fcp)}${Number.isFinite(lcp) ? `，最大内容 LCP: ${formatDuration(lcp)}` : ''}`
     )
-    // 这是「白屏多久」的直接答案，也是「是不是主线程被卡」的判别器
+    // FCP 反映 WebContent 侧绘制时间，不代表 iOS 原生视图已成功呈现在屏幕上。
     if (fcp >= 2000 && snapshot.stalls.length === 0) {
       lines.push(
-        '  ⚠️ 首帧很晚但主线程未冻结 ⇒ 瓶颈不在 JS 主线程，而在「内容何时被画出」（异步视图 chunk 未就绪 / 绘制被推迟）'
+        '  ⚠️ WebContent 首次内容绘制较晚，但尚未检测到 JS 定时器长间隔；还需排查资源加载与绘制，不能排除原生渲染问题。'
       )
     }
   }
@@ -447,10 +450,10 @@ const formatBootSection = (
     lines.push(`启动页可见时长: ${formatDuration(splashElapsed)}（移除原因 ${sanitizeText(splashRemoved?.detail?.reason ?? '')}）`)
   }
   if (snapshot.meta?.alive_ms !== undefined) {
-    lines.push(`进程最后存活: ${formatDuration(Number(snapshot.meta.alive_ms) || 0)}（此后无落盘 → 进程在此前后消失）`)
+    lines.push(`最后一次记录的 JS 心跳: +${formatDuration(Number(snapshot.meta.alive_ms) || 0)}（后续无记录不代表进程在此刻退出；后台挂起、定时器停摆等也可能）`)
   }
   for (const stall of snapshot.stalls) {
-    lines.push(`  [主线程冻结] ${formatDuration(stall.from)} → ${formatDuration(stall.to)}（间隔 ${formatDuration(stall.gap)}）`)
+    lines.push(`  [JS 定时器长间隔] ${formatDuration(stall.from)} → ${formatDuration(stall.to)}（间隔 ${formatDuration(stall.gap)}；不等于确认原生主线程冻结）`)
   }
   for (const entry of snapshot.entries) {
     const detailText = entry.detail ? ` ${sanitizeText(entry.detail)}` : ''
@@ -469,8 +472,7 @@ const formatBootSection = (
 /**
  * 最近启动历史（新 → 旧）。
  *
- * 关键判读：相邻两次间隔 < 5s 说明**不是用户在重新打开应用**，而是同一会话内页面被重载
- * （WebContent 被杀后 WKWebView 重载是最常见的一种）；`启动未走完` 说明那一轮连 JS 都没跑完。
+ * 关键判读：相邻启动间隔 < 5s 只能提示可能连续重载或快速重开，不能单凭间隔认定崩溃循环。
  */
 const formatBootHistory = (snapshot: BootDiagSnapshot | null): string[] => {
   const lines: string[] = ['--- 最近启动历史（新 → 旧） ---']
@@ -490,11 +492,11 @@ const formatBootHistory = (snapshot: BootDiagSnapshot | null): string[] => {
     ]
     if (Number.isFinite(gap)) {
       flags.push(`距上一次 ${Math.round(gap / 1000)}s`)
-      if (gap > 0 && gap < 5000) flags.push('⚠️ 间隔 <5s（疑似页面重载 / 崩溃循环）')
+      if (gap > 0 && gap < 5000) flags.push('⚠️ 间隔 <5s（可能页面重载 / 快速重开，不能单独判定崩溃）')
     } else {
       flags.push('（最早一条）')
     }
-    if (item.aliveMs) flags.push(`存活 ${Math.round(Number(item.aliveMs) / 1000)}s`)
+    if (item.aliveMs) flags.push(`最近心跳 +${Math.round(Number(item.aliveMs) / 1000)}s`)
     lines.push(`  ${new Date(Number(item.at)).toLocaleTimeString()} ${flags.join(' | ')}`)
   }
   return lines
@@ -511,7 +513,10 @@ export const formatBootDiagnosticsReport = (): string => {
   const lines: string[] = [
     '=== Mini-HBUT 启动诊断报告 ===',
     `生成时间: ${new Date().toLocaleString()}`,
-    `构建版本: ${sanitizeText(env.VITE_APP_VERSION || '(未知)')}`,
+    `前端源码版本（Vite）: ${sanitizeText(env.VITE_APP_VERSION || '(未知)')}`,
+    // iOS CI 使用同一版本/构建号配置原生 Bundle；此处只表示 CI 注入值，不伪称实时读取 Info.plist。
+    `iOS 包版本（CI 注入）: ${sanitizeText(env.VITE_IOS_MARKETING_VERSION || '(未注入)')}`,
+    `iOS 构建号（CI 注入）: ${sanitizeText(env.VITE_IOS_BUILD_NUMBER || '(未注入)')}`,
     `构建档位: ${sanitizeText(env.VITE_BUILD_PROFILE || '(未知)')}`,
     // #999：后端环境必须出现在报告里。dev / beta 档位会被环境隔离强制指向测试域，
     // 而「测试域不可用」在界面上只表现为泛化的「无效响应」——没有这一行就无法一眼定位。
@@ -523,11 +528,11 @@ export const formatBootDiagnosticsReport = (): string => {
     ''
   ]
 
-  // 结论置顶：上一轮是否异常结束，是本次取证最想回答的问题
+  // 状态置顶：上一轮是否记录退出事件，而非是否发生系统级 crash
   if (previous) {
-    lines.push(`上次启动结局: ${OUTCOME_LABEL[resolveBootOutcome(previous)]}`)
+    lines.push(`上次启动状态: ${OUTCOME_LABEL[resolveBootOutcome(previous)]}`)
   } else {
-    lines.push('上次启动结局: （无记录 —— 这是本次诊断上线后的第一次启动）')
+    lines.push('上次启动状态: （无记录 —— 这是本次诊断上线后的第一次启动）')
   }
   lines.push('')
 

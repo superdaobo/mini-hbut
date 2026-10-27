@@ -19,6 +19,9 @@ export const ME_SUB_VIEWS = [
   'more',
   'more_module_host',
   'more_chaoxing_checkin',
+  // Teacher Portal V2（#1019）：教师个人资料 / 工作流是「我的」子页
+  'teacherprofile',
+  'teacherworkflow',
   // #905 湖工游乐场（Game Center）：更多页的一级子视图
   'game_center'
 ] as const
@@ -33,6 +36,8 @@ export const isLoginRequiredView = (view: unknown): boolean => {
 
 export const HIERARCHICAL_PARENT_VIEW_MAP: Readonly<Record<string, string>> = Object.freeze({
   schedule: 'home',
+  // #1110：给分记录独立页面，返回回首页
+  grade_distribution: 'home',
   forum: 'home',
   notifications: 'home',
   me: 'home',
@@ -50,6 +55,12 @@ export const HIERARCHICAL_PARENT_VIEW_MAP: Readonly<Record<string, string>> = Ob
   more: 'me',
   more_module_host: 'more',
   more_chaoxing_checkin: 'more',
+  // Teacher Portal V2（#1019）：教师视图返回层级
+  teacherprofile: 'me',
+  teacherworkflow: 'me',
+  teacherteaching: 'home',
+  teacherexams: 'home',
+  teachernotifications: 'home',
   // #905：游乐场返回回到「更多」页（与其入口层级一致）
   game_center: 'more',
   smart_orientation: 'home'

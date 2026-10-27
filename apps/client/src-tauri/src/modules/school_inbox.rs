@@ -69,6 +69,22 @@ pub struct SchoolInboxResponse {
     pub source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    // ---- #1105（Epic #1106 共享契约 §6）：抓取完整性信号，前端据此判断去重基线是否可信 ----
+    /// 本次抓取是否完整（`false` = 中途失败/只拿到部分页）；旧版本响应无此字段
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complete: Option<bool>,
+    /// 实际抓取页数（门户为 1）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pages_fetched: Option<u32>,
+    /// 是否因页数上限被截断（还有更多历史未取）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
+    /// 是否命中 180s 内存缓存
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_cache: Option<bool>,
+    /// 本次返回条数（便于日志/诊断）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetched_item_count: Option<u32>,
 }
 
 fn looks_like_login_redirect(url: &str) -> bool {
@@ -328,11 +344,128 @@ async fn fetch_portal_inbox(client: &HbutClient) -> Result<Vec<SchoolInboxItem>,
     Ok(parse_portal_tzsjx_payload(&payload))
 }
 
+/// 学习通分页抓取中「单页 API 数据层结果」（#1105：抽出为枚举，完整性标记才能写成可单测的纯函数）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChaoxingPageResult {
+    /// API 正常返回数据（该页列表非空）
+    OkPage {
+        /// 去重后是否仍有新记录（全量重复 = 游标实际没有前进）
+        has_new_items: bool,
+        /// API 给出了可用的下一页游标（非空且与已用游标不同）
+        next_cursor: bool,
+        /// API 返回了重复游标（lastGetId 未前进）
+        cursor_repeated: bool,
+    },
+    /// API 返回失败（result != "1"）
+    Failed,
+    /// API 返回空页（result="1" 但列表为空）
+    Empty,
+}
+
+/// 分页完整性标记（#1105 共享契约 §6：前端用 `complete` 判断去重基线是否可信）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChaoxingPagingAssessment {
+    /// 抓取是否完整（false = 中途中断/只拿到部分页）
+    complete: bool,
+    /// 实际返回数据的页数（API 空页/失败页不计入）
+    pages_fetched: u32,
+    /// 到达页数上限但仍有下一页游标（结果可用，只是还有未取的历史）
+    truncated: bool,
+}
+
+/// 由逐页结果序列标记完整性/页数/截断（纯函数，单测无需真实 HTTP）。
+///
+/// 规则（与共享契约 §6 一致）：
+/// - 首页 `Failed`：调用方此时已按错误处理返回，这里防御性地标记不完整；
+/// - 第 2 页起 `Failed` → `complete = false`（不再把部分结果冒充完整）；
+/// - `Empty`（首页或后续页）= 分页自然耗尽 → `complete = true`；
+///   首页空页即「空收件箱」（`pages_fetched = 0`）。刻意不把后续空页判成中断：
+///   API 究竟用「空页」还是「无游标」宣告结束，客户端无从区分，而误判为不完整
+///   会让该账号每次检查都不可信 → 彻底收不到通知（比少推一批历史更糟）；
+/// - `lastGetId` 重复（整页全重复或游标不前进）→ `complete = false`；
+/// - 翻到「无下一页」（无游标）→ `complete = true`；
+/// - 到达 `max_pages` 且最后一页仍有可用游标 → `truncated = true`（`complete` 保持 `true`）。
+fn assess_chaoxing_paging(
+    page_results: &[ChaoxingPageResult],
+    max_pages: usize,
+) -> ChaoxingPagingAssessment {
+    let mut complete = true;
+    let mut pages_fetched: u32 = 0;
+    let mut truncated = false;
+    let mut broke = false;
+
+    for (idx, page) in page_results.iter().copied().enumerate() {
+        let page_no = idx + 1;
+        match page {
+            ChaoxingPageResult::Failed => {
+                complete = false;
+                broke = true;
+                break;
+            }
+            ChaoxingPageResult::Empty => {
+                // 空页 = 分页自然耗尽（首页空页即空收件箱）。
+                // 不判为中断：见函数头注释 —— 误判会让该账号永久静默。
+                broke = true;
+                break;
+            }
+            ChaoxingPageResult::OkPage {
+                has_new_items,
+                next_cursor,
+                cursor_repeated,
+            } => {
+                pages_fetched = page_no as u32;
+                if !has_new_items || cursor_repeated {
+                    // 整页全重复或 lastGetId 不前进：无法继续翻页，按中途中断处理
+                    complete = false;
+                    broke = true;
+                    break;
+                }
+                if !next_cursor {
+                    // API 表示无更多数据：自然结束
+                    broke = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 循环耗尽页数（到达上限）且最后一页仍有可用游标 → truncated
+    if !broke && page_results.len() >= max_pages {
+        truncated = matches!(
+            page_results.last(),
+            Some(ChaoxingPageResult::OkPage {
+                has_new_items: true,
+                next_cursor: true,
+                ..
+            })
+        );
+    }
+
+    ChaoxingPagingAssessment {
+        complete,
+        pages_fetched,
+        truncated,
+    }
+}
+
+/// 一次学习通分页抓取的结果：条目 + 完整性标记（#1105 共享契约 §6）。
+/// 标记在 `fetch_chaoxing_inbox` 内单点产生，调用方不允许自行猜测。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChaoxingInboxOutcome {
+    items: Vec<SchoolInboxItem>,
+    /// 抓取是否完整（false = 中途中断/只拿到部分页）
+    complete: bool,
+    /// 实际返回数据的页数
+    pages_fetched: u32,
+    /// 到达页数上限但仍有下一页游标
+    truncated: bool,
+}
+
 async fn fetch_chaoxing_inbox(
     client: &mut HbutClient,
     student_id: &str,
     max_pages: usize,
-) -> Result<Vec<SchoolInboxItem>, String> {
+) -> Result<ChaoxingInboxOutcome, String> {
     let timer = crate::runtime_log::ScopedTimer::start("ChaoxingInbox", "fetch_list");
     crate::hbut_session_log!(
         "ChaoxingInbox",
@@ -350,6 +483,8 @@ async fn fetch_chaoxing_inbox(
     let mut seen_ids = std::collections::HashSet::new();
     let mut last_get_id: Option<String> = None;
     let pages = max_pages.clamp(1, CHAOXING_NOTICE_MAX_PAGES);
+    // 逐页「数据层结果」：循环结束后交给 assess_chaoxing_paging 统一标记
+    let mut page_results: Vec<ChaoxingPageResult> = Vec::new();
 
     for page in 0..pages {
         let url = match &last_get_id {
@@ -390,7 +525,7 @@ async fn fetch_chaoxing_inbox(
         let result = json_string(payload.get("result"));
         if result != "1" {
             let msg = json_string(payload.get("msg"));
-            // 第一页失败才算错；后续页失败则返回已抓到的历史
+            // 第一页失败才算错；后续页失败则保留已抓到的部分结果并标记为不完整（#1105）
             if all.is_empty() {
                 timer.fail(if msg.is_empty() {
                     "学习通通知接口返回失败".into()
@@ -403,6 +538,7 @@ async fn fetch_chaoxing_inbox(
                     msg
                 });
             }
+            page_results.push(ChaoxingPageResult::Failed);
             break;
         }
 
@@ -414,6 +550,8 @@ async fn fetch_chaoxing_inbox(
             page_items.len()
         );
         if page_items.is_empty() {
+            // #1105：空页也记录数据层结果——首页空页（合法空收件箱）与后续空页（中途中断）由标记函数按页号区分
+            page_results.push(ChaoxingPageResult::Empty);
             break;
         }
 
@@ -424,23 +562,46 @@ async fn fetch_chaoxing_inbox(
                 new_count += 1;
             }
         }
-        if new_count == 0 {
-            break;
-        }
 
-        // 官方分页游标
+        // 官方分页游标：区分「无更多数据」与「游标重复」两种停止原因
         let next = json_string(payload.pointer("/data/notices/lastGetId"));
-        if next.is_empty() || last_get_id.as_ref() == Some(&next) {
+        let cursor_repeated = !next.is_empty() && last_get_id.as_ref() == Some(&next);
+        let next_cursor = !next.is_empty() && !cursor_repeated;
+
+        page_results.push(ChaoxingPageResult::OkPage {
+            has_new_items: new_count > 0,
+            next_cursor,
+            cursor_repeated,
+        });
+        if new_count == 0 || cursor_repeated || next.is_empty() {
+            // 整页全重复 / lastGetId 不前进 / 无下一页游标：停止翻页
             break;
         }
         last_get_id = Some(next);
     }
 
+    // #1105：完整性标记在函数内单点产生，调用方不再根据条数猜测
+    let assessment = assess_chaoxing_paging(&page_results, pages);
     timer.finish(Some(serde_json::json!({
         "count": all.len(),
-        "pages": pages
+        "pages": pages,
+        "complete": assessment.complete,
+        "truncated": assessment.truncated
     })));
-    Ok(all)
+    crate::hbut_session_log!(
+        "ChaoxingInbox",
+        "抓取完成 count={} pages_fetched={} complete={} truncated={}",
+        all.len(),
+        assessment.pages_fetched,
+        assessment.complete,
+        assessment.truncated
+    );
+    Ok(ChaoxingInboxOutcome {
+        items: all,
+        complete: assessment.complete,
+        pages_fetched: assessment.pages_fetched,
+        truncated: assessment.truncated,
+    })
 }
 
 /// 按登录方式抓取学校消息中心并归一化。
@@ -480,7 +641,11 @@ pub async fn fetch_school_inbox_ex(
                         age,
                         cached.items.len()
                     );
-                    return Ok(cached.clone());
+                    // #1105：缓存里存的是原始响应（from_cache=Some(false)）；
+                    // 命中时复制一份并标记 fromCache=true，保留原有 complete/truncated/pagesFetched/fetchedItemCount
+                    let mut hit = cached.clone();
+                    hit.from_cache = Some(true);
+                    return Ok(hit);
                 }
             }
         }
@@ -488,7 +653,7 @@ pub async fn fetch_school_inbox_ex(
 
     let fetched_at = Local::now().to_rfc3339();
 
-    let items = if use_chaoxing {
+    let (items, complete, pages_fetched, truncated) = if use_chaoxing {
         let sid = client
             .user_info
             .as_ref()
@@ -502,16 +667,36 @@ pub async fn fetch_school_inbox_ex(
         } else {
             CHAOXING_NOTICE_FAST_PAGES
         };
-        fetch_chaoxing_inbox(client, &sid, pages).await?
+        // #1105：完整性标记由抓取函数单点传出，不在此处根据条数猜测
+        let outcome = fetch_chaoxing_inbox(client, &sid, pages).await?;
+        (
+            outcome.items,
+            Some(outcome.complete),
+            Some(outcome.pages_fetched),
+            Some(outcome.truncated),
+        )
     } else {
-        fetch_portal_inbox(client).await?
+        // 门户：单页抓取，请求成功即视为完整结果
+        (
+            fetch_portal_inbox(client).await?,
+            Some(true),
+            Some(1),
+            Some(false),
+        )
     };
 
+    let fetched_item_count = items.len() as u32;
     let resp = SchoolInboxResponse {
         items,
         fetched_at,
         source: source.to_string(),
         error: None,
+        // #1105（Epic #1106 共享契约 §6）：新字段均为 Option，None 不序列化，旧前端不受影响
+        complete,
+        pages_fetched,
+        truncated,
+        from_cache: Some(false),
+        fetched_item_count: Some(fetched_item_count),
     };
     if let Ok(mut guard) = inbox_cache().lock() {
         *guard = Some((Local::now().timestamp(), cache_key, resp.clone()));
@@ -614,6 +799,41 @@ async fn fetch_chaoxing_notice_detail(
     Ok(body)
 }
 
+/// 教师端本地已读提示（绝不写服务端）。
+///
+/// #1023：教师通知标记已读只保存在本机，不写回教务系统。
+pub const TEACHER_LOCAL_ONLY_READ_MESSAGE: &str = "教师端标记已读仅保存在本机，未写回教务系统";
+
+/// 标记已读的执行计划（#1023 教师只读红线的可测试决策点）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkReadPlan {
+    /// 教师身份：仅本地记录，**绝不**下发状态更新写请求。
+    LocalOnly,
+    /// 学生身份：沿用既有链路（portal 来源会向教务发起状态更新 POST）。
+    Remote,
+}
+
+/// 依身份决定「标记已读」策略：教师一律本地，学生保持原语义。
+///
+/// 这是教师只读红线的**唯一决策点**，被单元测试直接断言，
+/// 避免将来有人把教师分支误改回写型链路。
+pub fn plan_school_inbox_mark_read(is_teacher: bool) -> MarkReadPlan {
+    if is_teacher {
+        MarkReadPlan::LocalOnly
+    } else {
+        MarkReadPlan::Remote
+    }
+}
+
+/// 当前会话是否为教师身份（历史数据缺省学生）。
+fn is_teacher_session(client: &HbutClient) -> bool {
+    client
+        .user_info
+        .as_ref()
+        .map(|user| user.role.is_teacher())
+        .unwrap_or(false)
+}
+
 async fn mark_portal_read(client: &HbutClient, raw_id: &str) -> Result<(), String> {
     let base = client.jwxt_base_url();
     let referer = format!("{base}/admin/");
@@ -706,11 +926,24 @@ pub async fn fetch_school_inbox_detail(
 }
 
 /// 将单条学校消息标记为已读。
+///
+/// #1023 教师只读红线：教师身份下**绝不**向教务发起状态更新写请求
+/// （对照 `data/teacher-api-recon/07-write-endpoints-denylist.md` A4），
+/// 直接返回本地已读结果，由前端按教师作用域本地记录。
 pub async fn mark_school_inbox_read(
     client: &mut HbutClient,
     _login_mode: &str,
     item_id: &str,
 ) -> Result<SchoolInboxMarkReadResponse, String> {
+    // 教师分支必须在任何解析 / 网络调用之前短路：教师路径不得触达写型链路。
+    if plan_school_inbox_mark_read(is_teacher_session(client)) == MarkReadPlan::LocalOnly {
+        return Ok(SchoolInboxMarkReadResponse {
+            id: item_id.to_string(),
+            success: true,
+            message: Some(TEACHER_LOCAL_ONLY_READ_MESSAGE.to_string()),
+        });
+    }
+
     let (source, raw_id) =
         parse_normalized_item_id(item_id).ok_or_else(|| "无效的消息 ID".to_string())?;
 
@@ -829,5 +1062,186 @@ mod tests {
         assert!(items[0].body.contains("https://example.com"));
         assert!(items[0].body.contains("文件.pdf"));
         assert_eq!(items[0].uuid.as_deref(), Some("abc"));
+    }
+
+    /// #1023 教师只读红线：教师身份的标记已读计划必须是纯本地，
+    /// 学生身份保持既有远端链路语义。
+    #[test]
+    fn teacher_mark_read_plan_is_local_only() {
+        assert_eq!(plan_school_inbox_mark_read(true), MarkReadPlan::LocalOnly);
+        assert_eq!(plan_school_inbox_mark_read(false), MarkReadPlan::Remote);
+    }
+
+    /// 教师本地已读提示必须明确「仅保存在本机」，供前端展示。
+    #[test]
+    fn teacher_local_only_message_mentions_local_device() {
+        assert!(TEACHER_LOCAL_ONLY_READ_MESSAGE.contains("本机"));
+        assert!(!TEACHER_LOCAL_ONLY_READ_MESSAGE.is_empty());
+    }
+
+    // ---- #1105（Epic #1106）分页完整性标记：assess_chaoxing_paging 纯函数测试 ----
+
+    /// 第 2 页 API 失败 → 标记不完整，pages_fetched 只计真正返回数据的页。
+    #[test]
+    fn chaoxing_paging_second_page_failed_is_incomplete() {
+        let pages = vec![
+            ChaoxingPageResult::OkPage {
+                has_new_items: true,
+                next_cursor: true,
+                cursor_repeated: false,
+            },
+            ChaoxingPageResult::Failed,
+        ];
+        let a = assess_chaoxing_paging(&pages, CHAOXING_NOTICE_FAST_PAGES);
+        assert!(!a.complete);
+        assert_eq!(a.pages_fetched, 1);
+        assert!(!a.truncated);
+    }
+
+    /// 到达页数上限且仍持有可用下一页游标 → truncated，complete 保持 true。
+    #[test]
+    fn chaoxing_paging_reached_max_pages_with_open_cursor_is_truncated() {
+        let pages = vec![
+            ChaoxingPageResult::OkPage {
+                has_new_items: true,
+                next_cursor: true,
+                cursor_repeated: false,
+            };
+            3
+        ];
+        let a = assess_chaoxing_paging(&pages, 3);
+        assert!(a.complete);
+        assert_eq!(a.pages_fetched, 3);
+        assert!(a.truncated);
+    }
+
+    /// 单页抓完（API 无下一页游标）→ complete=true、truncated=false。
+    #[test]
+    fn chaoxing_paging_single_full_page_is_complete() {
+        let pages = vec![ChaoxingPageResult::OkPage {
+            has_new_items: true,
+            next_cursor: false,
+            cursor_repeated: false,
+        }];
+        let a = assess_chaoxing_paging(&pages, CHAOXING_NOTICE_MAX_PAGES);
+        assert!(a.complete);
+        assert_eq!(a.pages_fetched, 1);
+        assert!(!a.truncated);
+    }
+
+    /// 空页 = 分页自然耗尽：首页空页即空收件箱（完整、0 页）；
+    /// 后续空页同样判完整 —— 误判为中断会让该账号永久静默。
+    #[test]
+    fn chaoxing_paging_empty_page_is_natural_exhaustion() {
+        let first_empty = vec![ChaoxingPageResult::Empty];
+        let a1 = assess_chaoxing_paging(&first_empty, 3);
+        assert!(a1.complete);
+        assert_eq!(a1.pages_fetched, 0);
+        assert!(!a1.truncated);
+
+        let later_empty = vec![
+            ChaoxingPageResult::OkPage {
+                has_new_items: true,
+                next_cursor: true,
+                cursor_repeated: false,
+            },
+            ChaoxingPageResult::Empty,
+        ];
+        let a2 = assess_chaoxing_paging(&later_empty, 3);
+        assert!(a2.complete);
+        assert_eq!(a2.pages_fetched, 1);
+        assert!(!a2.truncated);
+    }
+
+    /// lastGetId 重复（游标不前进）或整页全重复 → 不完整；首页失败防御性判不完整。
+    #[test]
+    fn chaoxing_paging_repeated_cursor_or_all_dup_is_incomplete() {
+        let repeated_cursor = vec![
+            ChaoxingPageResult::OkPage {
+                has_new_items: true,
+                next_cursor: true,
+                cursor_repeated: false,
+            },
+            ChaoxingPageResult::OkPage {
+                has_new_items: true,
+                next_cursor: false,
+                cursor_repeated: true,
+            },
+        ];
+        let a1 = assess_chaoxing_paging(&repeated_cursor, 3);
+        assert!(!a1.complete);
+        assert_eq!(a1.pages_fetched, 2);
+        assert!(!a1.truncated);
+
+        let all_dup = vec![
+            ChaoxingPageResult::OkPage {
+                has_new_items: true,
+                next_cursor: true,
+                cursor_repeated: false,
+            },
+            ChaoxingPageResult::OkPage {
+                has_new_items: false,
+                next_cursor: true,
+                cursor_repeated: false,
+            },
+        ];
+        let a2 = assess_chaoxing_paging(&all_dup, 3);
+        assert!(!a2.complete);
+
+        let first_failed = vec![ChaoxingPageResult::Failed];
+        let a3 = assess_chaoxing_paging(&first_failed, 3);
+        assert!(!a3.complete);
+        assert_eq!(a3.pages_fetched, 0);
+    }
+
+    /// 序列化契约：新字段必须用 camelCase 名，Option::None 字段不出现在 JSON 中。
+    #[test]
+    fn school_inbox_response_new_fields_serialize_camel_case_and_skip_none() {
+        let resp = SchoolInboxResponse {
+            items: vec![],
+            fetched_at: "2026-06-25T12:00:00+08:00".to_string(),
+            source: "chaoxing".to_string(),
+            error: None,
+            complete: Some(true),
+            pages_fetched: Some(3),
+            truncated: Some(true),
+            from_cache: Some(false),
+            fetched_item_count: Some(150),
+        };
+        let v = serde_json::to_value(&resp).expect("应能序列化");
+        // 新字段名（camelCase）与值
+        assert_eq!(v.get("complete"), Some(&json!(true)));
+        assert_eq!(v.get("pagesFetched"), Some(&json!(3)));
+        assert_eq!(v.get("truncated"), Some(&json!(true)));
+        assert_eq!(v.get("fromCache"), Some(&json!(false)));
+        assert_eq!(v.get("fetchedItemCount"), Some(&json!(150)));
+        // 旧字段名与形态不变
+        assert!(v.get("items").is_some());
+        assert!(v.get("fetchedAt").is_some());
+        assert_eq!(v.get("source"), Some(&json!("chaoxing")));
+        assert!(v.get("error").is_none());
+
+        // 新字段全 None → 均不出现在 JSON
+        let resp_none = SchoolInboxResponse {
+            items: vec![],
+            fetched_at: "2026-06-25T12:00:00+08:00".to_string(),
+            source: "portal".to_string(),
+            error: None,
+            complete: None,
+            pages_fetched: None,
+            truncated: None,
+            from_cache: None,
+            fetched_item_count: None,
+        };
+        let v2 = serde_json::to_value(&resp_none).expect("应能序列化");
+        for key in [
+            "complete",
+            "pagesFetched",
+            "truncated",
+            "fromCache",
+            "fetchedItemCount",
+        ] {
+            assert!(v2.get(key).is_none(), "None 字段 {key} 不应出现在 JSON 中");
+        }
     }
 }

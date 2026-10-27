@@ -8,7 +8,9 @@ const read = (relativePath: string) => readFileSync(new URL(`../../${relativePat
 
 describe('towergo home integration contract', () => {
   it('registers towergo as a resource module in home layout, dashboard and search', () => {
-    const dashboard = readVueContractSource('src/components/Dashboard.vue')
+    // #1021：首页模块表 / 分类表已抽到 config/dashboard_modules.ts，首页契约随之覆盖该文件
+    const dashboard =
+      readVueContractSource('src/components/Dashboard.vue') + '\n' + read('src/config/dashboard_modules.ts')
     const app = readAppContractSources()
     const icon = read('src/components/icons/ThemeModuleIcon.vue')
 
@@ -21,7 +23,10 @@ describe('towergo home integration contract', () => {
     )
     expect(dashboard).not.toContain("id: 'smart_orientation'")
     expect(dashboard).toContain("id: 'towergo'")
-    expect(dashboard).toContain("['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class']")
+    // #1055：图书馆预约（library_reserve）并入「学习通」分类；A15 再加入预约（chaoxing_reserve）
+    expect(dashboard).toContain(
+      "['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'library_reserve', 'chaoxing_reserve']"
+    )
     expect(app).toContain("const loadTowerGoView: Loader = () => import('../components/TowerGoView.vue')")
     expect(app).toContain("towergo: loadTowerGoView")
     expect(app).toContain("currentView === 'towergo'")

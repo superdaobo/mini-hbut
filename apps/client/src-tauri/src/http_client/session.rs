@@ -654,6 +654,13 @@ impl HbutClient {
         };
         println!("[调试] 用户信息 HTML 长度: {}", html.len());
 
+        // 教师账号访问学生学籍接口时，教务返回 200 + 错误页
+        // （「获取学生基本信息出错或登录用户所属身份类型不是学生」）。
+        // 这里给出可读错误，避免退化成「无法解析用户信息，可能会话已过期」。
+        if html.contains("身份类型不是学生") {
+            return Err("当前账号不是学生账号，请使用教师端入口登录".into());
+        }
+
         match parser::parse_user_info(&html) {
             Ok(info) => {
                 println!("[调试] 解析出的用户信息: {:?}", info);
@@ -725,8 +732,8 @@ impl HbutClient {
 
         // 学习通补票改为按需：仅在 fetch_user_info 命中登录页时由 session 模块触发。
 
-        // 验证会话
-        let user_info = self.fetch_user_info().await?;
+        // 验证会话并按身份取用户信息（教师/学生链路不同）
+        let user_info = self.resolve_session_user_info().await?;
         self.is_logged_in = true;
         self.user_info = Some(user_info.clone());
         self.save_cookie_snapshot_to_file();
@@ -734,19 +741,49 @@ impl HbutClient {
         Ok(user_info)
     }
 
+    /// 会话恢复/刷新时解析用户信息。
+    ///
+    /// 学生链路保持不变（零额外请求）：先走 `/admin/xsd/xsjbxx/xskp`。
+    /// 仅当该接口明确回报「身份类型不是学生」时，才转而识别教师身份——
+    /// 这样学生端没有回归，教师端只在必要时多一次请求。
+    pub async fn resolve_session_user_info(
+        &self,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        match self.fetch_user_info().await {
+            Ok(info) => Ok(info),
+            Err(err) => {
+                if !err.to_string().contains("不是学生账号") {
+                    return Err(err);
+                }
+                let identity = self.fetch_jwxt_identity().await?;
+                match identity {
+                    Some(identity) => Ok(UserInfo {
+                        student_id: identity.account_id,
+                        student_name: identity.name,
+                        role: crate::IdentityRole::Teacher,
+                        ..Default::default()
+                    }),
+                    None => Err(err),
+                }
+            }
+        }
+    }
+
     /// 刷新会话（保持登录态）
     pub async fn refresh_session(
         &mut self,
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
-        let user_info = self.fetch_user_info().await?;
+        let user_info = self.resolve_session_user_info().await?;
         // 成功登录
         self.last_login_time = Some(std::time::Instant::now());
         self.is_logged_in = true;
         self.user_info = Some(user_info.clone());
         self.save_cookie_snapshot_to_file();
 
-        // 自动预热 SSO Token (如电费)
-        let _ = self.ensure_electricity_token().await;
+        // 教师会话只维护教务身份；不得因保活触发学生电费接口。
+        if !user_info.role.is_teacher() {
+            let _ = self.ensure_electricity_token().await;
+        }
 
         // 学习通 7 天票仍在时，顺带续超星教务 2h 短票（不阻塞失败）
         if self.prefer_chaoxing_jwxt || self.has_chaoxing_learning_cookies() {
@@ -856,6 +893,37 @@ impl HbutClient {
             map.get("chaoxing_jwxt").cloned().unwrap_or_default(),
         );
         serde_json::Value::Object(map)
+    }
+
+    /// 导出**指定 origin** 的 `(host, name=value 对)`，供内嵌 WebView 注入 cookie 用。
+    ///
+    /// 与 [`Self::export_domain_cookie_rows`] 的差别：那个走固定的门户/学习通域清单；
+    /// 本方法按调用方给的 origin 现查 cookie jar —— 例如 `reserve.chaoxing.com`
+    /// 不在固定清单里，但 `.chaoxing.com` 域 cookie 对它同样有效。
+    /// 返回的 `(name, value)` 已去重（同名保留首个）。
+    pub fn export_cookie_pairs_for_origins(
+        &self,
+        origins: &[&str],
+    ) -> Vec<(String, Vec<(String, String)>)> {
+        let mut out = Vec::new();
+        for origin in origins {
+            let Ok(url) = Url::parse(origin) else {
+                continue;
+            };
+            let Some(host) = url.host_str().map(str::to_string) else {
+                continue;
+            };
+            let raw = self.cookie_header_for_origin(origin);
+            if raw.trim().is_empty() {
+                continue;
+            }
+            let pairs = parse_cookie_pairs(&raw);
+            if pairs.is_empty() {
+                continue;
+            }
+            out.push((host, pairs));
+        }
+        out
     }
 
     /// 导出 (domain_host, cookie_header) 供 auth_cookie_v2 落库
@@ -1191,6 +1259,7 @@ impl HbutClient {
                 major: None,
                 class_name: None,
                 grade: None,
+                ..Default::default()
             });
         }
 
@@ -1215,12 +1284,17 @@ impl HbutClient {
         one_code_token: &str,
         refresh_token: &str,
         token_expires_at: &str,
+        role: crate::IdentityRole,
+        v2_rows: &[crate::db::AuthCookieDomainRow],
     ) -> UserInfo {
         let sid = student_id.trim().to_string();
         // 1. 重置内存会话（避免旧账号脏 cookie 污染；与 restore_session 同款）
         self.reset_http_state();
         // 2. v2 全域 cookie（该学号专属；不做全局文件快照 fallback）
-        let v2_restored = self.hydrate_auth_cookie_v2_for_student(&sid);
+        let v2_restored = !v2_rows.is_empty();
+        if v2_restored {
+            self.restore_auth_cookie_v2_rows(v2_rows);
+        }
         // 3. 旧列 scoped cookie 注入（Code/Auth/Jwxt/ChaoxingJwxt）
         self.restore_session_cookie_blob(cookies);
         // 4. 凭据回填（与 lib.rs 启动恢复路径一致）
@@ -1249,35 +1323,25 @@ impl HbutClient {
             major: None,
             class_name: None,
             grade: None,
+            // 角色随会话持久化（见 `user_sessions.role`）：切换账号时无需再联网识别身份。
+            role,
         });
         self.last_username = Some(sid.clone());
         if !password.trim().is_empty() {
             self.last_password = Some(password.to_string());
+        } else {
+            // #1061：目标账号**没有**存储密码时必须显式清空 `last_password`。
+            // `reset_http_state()` 只重置 cookie jar / http client / OCR client，
+            // 不动凭据字段（`last_username` / `last_password`）；若此处不清理，
+            // 切号后 `refresh_session` 的学生分支（电费 keep-alive 链路）可能读到
+            // **上一账号**残留的密码，构成跨账号凭据复用风险。
+            self.last_password = None;
         }
         println!(
             "[调试] 账号切换：student_id={} display_name={} v2_restored={} chaoxing_mode={}",
             sid, display_name, v2_restored, self.prefer_chaoxing_jwxt
         );
         self.user_info.clone().expect("user_info 已设置")
-    }
-
-    /// 仅按学号恢复 auth_cookie_v2 全域 cookie（切换账号专用）。
-    ///
-    /// 与 `hydrate_session_cookies_from_store` 的区别：v2 未命中时**不**回退
-    /// 全局文件快照（那是最近一次活跃账号的 cookie，可能属于其他账号），
-    /// 避免切换时跨账号污染 jar。
-    fn hydrate_auth_cookie_v2_for_student(&mut self, student_id: &str) -> bool {
-        let sid = student_id.trim();
-        if sid.is_empty() {
-            return false;
-        }
-        if let Ok(rows) = crate::db::load_auth_cookies_for_student(crate::DB_FILENAME, sid) {
-            if !rows.is_empty() {
-                self.restore_auth_cookie_v2_rows(&rows);
-                return true;
-            }
-        }
-        false
     }
 
     /// 将保存的 cookies 串注入 cookie jar（旧列 scoped 格式兼容）。
@@ -1360,5 +1424,62 @@ impl HbutClient {
             let _ = std::fs::remove_file(path);
         }
         Self::invalidate_jw_uf_soft_ttl();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #1061：切号到「没有存储密码」的账号时必须清空上一账号残留的 `last_password`。
+    ///
+    /// `reset_http_state()` 只重置 cookie jar / http client / OCR client，不动凭据字段；
+    /// 若目标账号无密码时不显式清空，切号后 `refresh_session` 的学生分支
+    /// （电费 keep-alive 链路）可能读到**上一账号**的密码。
+    #[test]
+    fn activate_saved_account_clears_stale_password_when_target_has_none() {
+        let mut client = HbutClient::new();
+        client.set_credentials("2510230001".to_string(), "secret-of-a".to_string());
+        assert_eq!(client.last_password.as_deref(), Some("secret-of-a"));
+
+        let user = client.activate_saved_account_session(
+            "29990001",
+            "Code: CASTGC=x",
+            "",
+            "",
+            "",
+            "",
+            crate::IdentityRole::Teacher,
+            &[],
+        );
+
+        assert_eq!(user.student_id, "29990001");
+        assert_eq!(user.role, crate::IdentityRole::Teacher);
+        assert_eq!(
+            client.last_password, None,
+            "目标账号无存储密码时必须清空上一账号残留的 last_password"
+        );
+        assert_eq!(client.last_username.as_deref(), Some("29990001"));
+    }
+
+    /// 反向：目标账号**有**密码时必须写入该账号自己的密码（不得沿用上一账号）。
+    #[test]
+    fn activate_saved_account_writes_target_password_when_present() {
+        let mut client = HbutClient::new();
+        client.set_credentials("2510230001".to_string(), "secret-of-a".to_string());
+
+        client.activate_saved_account_session(
+            "29990002",
+            "Code: CASTGC=y",
+            "secret-of-b",
+            "",
+            "",
+            "",
+            crate::IdentityRole::Student,
+            &[],
+        );
+
+        assert_eq!(client.last_username.as_deref(), Some("29990002"));
+        assert_eq!(client.last_password.as_deref(), Some("secret-of-b"));
     }
 }

@@ -13,10 +13,13 @@ pub mod course_selection;
 pub mod electricity;
 pub mod forum;
 pub mod grades;
+// #1052：图书馆预约（超星 reserve）入口解析命令层
+pub mod library_reserve;
 pub mod notification;
 pub mod qxzkb;
 pub mod schedule;
 pub mod system;
+pub mod teacher;
 pub mod teaching_eval;
 pub mod update;
 pub mod widget;

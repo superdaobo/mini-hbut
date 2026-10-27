@@ -1,8 +1,13 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { qrToDataURL } from '../utils/qrcode.js'
 import { t, tf, useI18n } from '../utils/app_i18n'
+import {
+  classifyCampusCodeFailure,
+  createCampusCodeRefreshChain,
+  createOrderStatusPoller
+} from '../utils/campus_code_refresh.js'
 import { TPageHeader } from './templates'
 
 const props = defineProps({
@@ -14,8 +19,9 @@ const emit = defineEmits(['back'])
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const DEV_CODE_KEY = 'hbu_campus_code_devcode'
 const MODE_KEY = 'hbu_campus_code_mode'
+const ORDER_POLL_INTERVAL_MS = 3000
+
 const loadingConfig = ref(false)
-const loadingCode = ref(false)
 const mode = ref('online')
 const configData = ref({})
 const qrcodeText = ref('')
@@ -29,9 +35,19 @@ const statusType = ref('idle')
 const lastRefreshAt = ref('')
 const orderSnapshot = ref(null)
 
-let refreshTimer = null
-let orderTimer = null
-let orderPolling = false
+// #1114：二维码可用性状态机（由刷新链快照驱动，不再手工管理计时器/状态位）
+// 取值：idle | loading | ready | failed | stopped_auth | stopped_business | stopped
+const qrStatus = ref('idle')
+const qrFailureKind = ref(null)
+const qrRetryDelayMs = ref(null)
+const lastSuccessAt = ref(null)
+
+// #1114：组件内不再持有任何 setTimeout —— 全部计时器归注入式控制器所有；
+// qrRenderSeq 仅用于使慢速的二维码图片渲染结果失效，防止旧图写回
+let qrRenderSeq = 0
+let chainRef = null
+let orderPollerRef = null
+let visibilityHandler = null
 
 // #791：响应式 t —— 语言切换后模板即时生效
 const { t: tLocale } = useI18n()
@@ -56,6 +72,22 @@ const autoRefreshHint = computed(() =>
   isOfflineMode.value
     ? tLocale('campuscode.mode.offlineHint')
     : tf('campuscode.mode.onlineHint', { n: refreshSecond.value })
+)
+
+// #1114：失败/恢复文案（区分「将自动恢复」与「需手动重试」两类停止态）
+const failureBanner = computed(() => {
+  if (qrStatus.value === 'failed') {
+    const delay = qrRetryDelayMs.value
+    return typeof delay === 'number' && delay > 0
+      ? tf('campuscode.state.recovering', { n: Math.round(delay / 1000) })
+      : t('campuscode.state.recoverFailed')
+  }
+  if (qrStatus.value === 'stopped_auth') return t('campuscode.state.stoppedAuth')
+  if (qrStatus.value === 'stopped_business') return t('campuscode.state.stoppedBusiness')
+  return ''
+})
+const failureBannerType = computed(() =>
+  qrStatus.value === 'stopped_auth' || qrStatus.value === 'stopped_business' ? 'error' : 'warn'
 )
 
 const ensureDevCode = () => {
@@ -88,26 +120,18 @@ const loadMode = () => {
   }
 }
 
-const clearTimers = () => {
-  if (refreshTimer) {
-    clearTimeout(refreshTimer)
-    refreshTimer = null
-  }
-  if (orderTimer) {
-    clearTimeout(orderTimer)
-    orderTimer = null
-  }
-}
-
 const renderQrCode = async () => {
+  // #1114：记录渲染序号；若期间发生失效/新一轮渲染，慢速结果直接丢弃
+  const seq = ++qrRenderSeq
+  const text = qrcodeText.value
   qrImageDataUrl.value = ''
-  if (!qrcodeText.value) {
+  if (!text) {
     return
   }
 
   try {
-    qrImageDataUrl.value = await qrToDataURL(qrcodeText.value, {
-      text: qrcodeText.value,
+    const dataUrl = await qrToDataURL(text, {
+      text,
       width: 248,
       margin: 1,
       color: {
@@ -115,10 +139,13 @@ const renderQrCode = async () => {
         light: '#ffffff'
       }
     })
+    if (seq !== qrRenderSeq) return
+    qrImageDataUrl.value = dataUrl
   } catch (error) {
+    if (seq !== qrRenderSeq) return
     // 最后兜底：若本地编码失败，回退在线生成。
     qrImageDataUrl.value = `https://api.qrserver.com/v1/create-qr-code/?size=248x248&data=${encodeURIComponent(
-      qrcodeText.value
+      text
     )}`
   }
 }
@@ -132,7 +159,9 @@ const fetchCampusCodeConfig = async () => {
       student_id: props.studentId
     })
     if (!data?.success) {
-      throw new Error(data?.message || data?.error || t('campuscode.error.configRequest'))
+      // #1114：用分类器提取可读 message，避免把 {kind,message} 对象直接当字符串
+      const failure = classifyCampusCodeFailure(data)
+      throw new Error(failure.message || t('campuscode.error.configRequest'))
     }
     configData.value = data.resultData || {}
   } finally {
@@ -169,117 +198,160 @@ const mapOrderStatus = (code) => {
   }
 }
 
-const scheduleAutoRefresh = () => {
-  if (refreshTimer) {
-    clearTimeout(refreshTimer)
-    refreshTimer = null
-  }
-  if (isOfflineMode.value) return
-  refreshTimer = setTimeout(() => {
-    refreshCampusCode({ silent: true }).catch(() => {})
-  }, refreshSecond.value * 1000)
+// —— #1114：刷新链接线（调度/退避/恢复全部在控制器内，组件只做状态映射与渲染）——
+
+const applyChainState = (state) => {
+  qrStatus.value = state.status
+  qrFailureKind.value = state.kind
+  qrRetryDelayMs.value = state.retryDelayMs
+  if (typeof state.lastSuccessAt === 'number') lastSuccessAt.value = state.lastSuccessAt
 }
 
-const scheduleOrderPolling = () => {
-  if (orderTimer) {
-    clearTimeout(orderTimer)
-    orderTimer = null
+const runQrRequest = async (_origin) => {
+  const devCode = ensureDevCode()
+  const { data } = await axios.post(`${API_BASE}/v2/campus_code/qrcode`, {
+    mode: mode.value,
+    qrcode_type: '',
+    dev_code: devCode,
+    student_id: props.studentId
+  })
+  if (!data?.success) {
+    // #1114：失败时把完整载荷抛给控制器分类（error 可能是 {kind,message} 或字符串）
+    throw data ?? new Error(t('campuscode.error.qrRequest'))
   }
+  return data.resultData || {}
+}
+
+const applyQrPayload = (payload) => {
+  const result = payload || {}
+  const code = String(result.qrcode || '').trim()
+  qrcodeText.value = code
+  balance.value = String(result.balance || '--')
+  idSerial.value = String(result.idSerial || '').trim()
+  userName.value = String(result.userName || '').trim()
+  lastRefreshAt.value = new Date().toLocaleTimeString()
+  // #1114：新二维码使旧订单快照失效，避免历史快照暗示当前码已支付
+  orderSnapshot.value = null
+  const mapped = mapOrderStatus('5')
+  statusType.value = mapped.type
+  statusText.value = mapped.text
+
+  void renderQrCode()
+  startOrderPolling()
+}
+
+const applyQrFailure = () => {
+  // #1114：失效二维码不得继续呈现为可安全支付的有效码：立即清空并停止订单轮询
+  qrRenderSeq += 1
+  qrcodeText.value = ''
+  qrImageDataUrl.value = ''
+  orderSnapshot.value = null
+  stopOrderPolling()
+}
+
+const startChain = () => {
+  stopChain()
+  // 在线 = 周期自动刷新（refreshSecond）；离线（高能）= 一次性语义（周期为 null）。
+  // 用 getter 而不是启动时快照，config 晚到/刷新周期变化后也能采用最新值。
+  chainRef = createCampusCodeRefreshChain({
+    request: runQrRequest,
+    getIntervalMs: () => (isOfflineMode.value ? null : refreshSecond.value * 1000),
+    onState: applyChainState,
+    onSuccess: applyQrPayload,
+    onFailure: applyQrFailure
+  })
+  chainRef.start()
+}
+
+const stopChain = () => {
+  if (chainRef) {
+    chainRef.stop()
+    chainRef = null
+  }
+}
+
+const manualRefresh = () => {
+  // #1114：手动刷新可立即重试，任何失败/停止态均可发起
+  if (chainRef) {
+    chainRef.triggerNow()
+  } else {
+    startChain()
+  }
+}
+
+// —— #1114：订单状态独立轮询（仅二维码有效时；失败有界退避继续；失败绝不写成功状态）——
+
+const runOrderStatusRequest = async () => {
+  const { data } = await axios.post(`${API_BASE}/v2/campus_code/order_status`, {
+    qrcode: qrcodeText.value,
+    offline: isOfflineMode.value,
+    student_id: props.studentId
+  })
+  if (!data?.success) {
+    throw data ?? new Error(t('campuscode.error.qrRequest'))
+  }
+  return data.resultData || {}
+}
+
+const applyOrderStatus = (payload) => {
+  // #1114：乱序/陈旧响应守卫 —— 二维码已失效时不回写旧状态
   if (!qrcodeText.value) return
-  orderTimer = setTimeout(() => {
-    queryOrderStatus().catch(() => {})
-  }, 3000)
-}
+  const result = payload || {}
+  orderSnapshot.value = result
+  const mapped = mapOrderStatus(result.status)
+  statusType.value = mapped.type
+  statusText.value = mapped.text
 
-const queryOrderStatus = async () => {
-  if (orderPolling || !qrcodeText.value) {
-    scheduleOrderPolling()
-    return
-  }
-  orderPolling = true
-  try {
-    const { data } = await axios.post(`${API_BASE}/v2/campus_code/order_status`, {
-      qrcode: qrcodeText.value,
-      offline: isOfflineMode.value,
-      student_id: props.studentId
-    })
-    if (!data?.success) {
-      scheduleOrderPolling()
-      return
-    }
-    const result = data.resultData || {}
-    orderSnapshot.value = result
-    const mapped = mapOrderStatus(result.status)
-    statusType.value = mapped.type
-    statusText.value = mapped.text
-
-    if (String(result.status || '') === '1') {
-      await refreshCampusCode({ silent: true })
-      return
-    }
-  } catch {
-    // ignore order status failure
-  } finally {
-    orderPolling = false
-  }
-  scheduleOrderPolling()
-}
-
-const refreshCampusCode = async ({ silent = false } = {}) => {
-  if (loadingCode.value) return
-  loadingCode.value = true
-  if (!silent) {
-    errorMsg.value = ''
-  }
-  clearTimers()
-
-  try {
-    const devCode = ensureDevCode()
-    const { data } = await axios.post(`${API_BASE}/v2/campus_code/qrcode`, {
-      mode: mode.value,
-      qrcode_type: '',
-      dev_code: devCode,
-      student_id: props.studentId
-    })
-    if (!data?.success) {
-      throw new Error(data?.message || data?.error || t('campuscode.error.qrRequest'))
-    }
-    const result = data.resultData || {}
-    qrcodeText.value = String(result.qrcode || '').trim()
-    balance.value = String(result.balance || '--')
-    idSerial.value = String(result.idSerial || '').trim()
-    userName.value = String(result.userName || '').trim()
-    lastRefreshAt.value = new Date().toLocaleTimeString()
-    const mapped = mapOrderStatus('5')
-    statusType.value = mapped.type
-    statusText.value = mapped.text
-
-    await nextTick()
-    await renderQrCode()
-    scheduleAutoRefresh()
-    scheduleOrderPolling()
-  } catch (error) {
-    qrcodeText.value = ''
-    qrImageDataUrl.value = ''
-    if (!silent) {
-      errorMsg.value = error?.message || t('campuscode.error.loadFailed')
-    }
-  } finally {
-    loadingCode.value = false
+  // 已支付 → 旧码已消费，停止旧码轮询并立即刷新出新码（避免 3s 内重复触发）
+  if (String(result.status || '') === '1' && chainRef) {
+    stopOrderPolling()
+    chainRef.triggerNow()
   }
 }
 
-const handleSwitchMode = async (nextMode) => {
+const startOrderPolling = () => {
+  stopOrderPolling()
+  orderPollerRef = createOrderStatusPoller({
+    request: runOrderStatusRequest,
+    getIntervalMs: () => ORDER_POLL_INTERVAL_MS,
+    shouldContinue: () => !!qrcodeText.value,
+    onResult: applyOrderStatus
+  })
+  orderPollerRef.start()
+}
+
+const stopOrderPolling = () => {
+  if (orderPollerRef) {
+    orderPollerRef.stop()
+    orderPollerRef = null
+  }
+}
+
+// —— 生命周期 ——
+
+const handleSwitchMode = (nextMode) => {
   const target = normalizeMode(nextMode)
   if (target === mode.value) return
   if (target === 'online' && !canOnline.value) return
   if (target === 'offline' && !canOffline.value) return
   mode.value = target
   saveMode(target)
-  await refreshCampusCode()
+  // 以新模式语义重建刷新链；旧链计时器已被 stop() 全部失效
+  startChain()
 }
 
 const handleBack = () => emit('back')
+
+const onVisibilityChange = () => {
+  if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+  // #1114：回前台时，若在线且距上次成功已超过 refreshSecond，补一次刷新
+  if (isOfflineMode.value || !chainRef) return
+  const last = lastSuccessAt.value
+  if (typeof last !== 'number') return
+  if (Date.now() - last >= refreshSecond.value * 1000) {
+    chainRef.triggerNow()
+  }
+}
 
 onMounted(async () => {
   mode.value = loadMode()
@@ -287,13 +359,24 @@ onMounted(async () => {
     await fetchCampusCodeConfig()
     applyModeAvailability()
   } catch (error) {
+    // #1114：config 失败只在配置错误槽展示，不阻塞二维码尝试、不吞掉二维码自身状态
     errorMsg.value = error?.message || t('campuscode.error.configFailed')
   }
-  await refreshCampusCode({ silent: false })
+  startChain()
+  if (typeof document !== 'undefined') {
+    visibilityHandler = onVisibilityChange
+    document.addEventListener('visibilitychange', visibilityHandler)
+  }
 })
 
 onBeforeUnmount(() => {
-  clearTimers()
+  // #1114：离开页面即停止全部计时并失效在途响应
+  if (visibilityHandler && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', visibilityHandler)
+    visibilityHandler = null
+  }
+  stopChain()
+  stopOrderPolling()
 })
 </script>
 
@@ -305,7 +388,7 @@ onBeforeUnmount(() => {
       <button
         class="mode-chip"
         :class="{ active: mode === 'online', disabled: !canOnline }"
-        :disabled="!canOnline || loadingCode"
+        :disabled="!canOnline || qrStatus === 'loading'"
         @click="handleSwitchMode('online')"
       >
         {{ tLocale('campuscode.mode.online') }}
@@ -313,7 +396,7 @@ onBeforeUnmount(() => {
       <button
         class="mode-chip"
         :class="{ active: mode === 'offline', disabled: !canOffline }"
-        :disabled="!canOffline || loadingCode"
+        :disabled="!canOffline || qrStatus === 'loading'"
         @click="handleSwitchMode('offline')"
       >
         {{ tLocale('campuscode.mode.offline') }}
@@ -336,7 +419,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="qr-panel">
-      <div v-if="loadingConfig || loadingCode" class="loading-block">
+      <div v-if="loadingConfig || qrStatus === 'loading'" class="loading-block">
         <div class="spinner"></div>
         <p>{{ loadingConfig ? tLocale('campuscode.loading.config') : tLocale('campuscode.loading.qr') }}</p>
       </div>
@@ -346,6 +429,7 @@ onBeforeUnmount(() => {
         <p v-if="!qrcodeText" class="qr-empty">{{ tLocale('campuscode.qr.empty') }}</p>
       </div>
 
+      <div v-if="failureBanner" class="banner" :class="failureBannerType">{{ failureBanner }}</div>
       <div v-if="errorMsg" class="banner error">{{ errorMsg }}</div>
       <div v-if="statusText" class="banner" :class="statusType">{{ statusText }}</div>
 
@@ -368,8 +452,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <button class="refresh-btn" :disabled="loadingCode" @click="refreshCampusCode()">
-        {{ loadingCode ? tLocale('campuscode.refresh.working') : tLocale('campuscode.refresh.idle') }}
+      <button class="refresh-btn" :disabled="qrStatus === 'loading'" @click="manualRefresh">
+        {{ qrStatus === 'loading' ? tLocale('campuscode.refresh.working') : tLocale('campuscode.refresh.idle') }}
       </button>
     </section>
 
@@ -662,7 +746,7 @@ onBeforeUnmount(() => {
   background: linear-gradient(
     135deg,
     color-mix(in oklab, var(--ui-primary) 86%, #1e3a8a 14%) 0%,
-    color-mix(in oklab, var(--ui-secondary) 88%, #0ea5e9 12%) 100%
+    color-mix(in oklab, var(--ui-secondary) 86%, #0ea5e9 12%) 100%
   ) !important;
 }
 

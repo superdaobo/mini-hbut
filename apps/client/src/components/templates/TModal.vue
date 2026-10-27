@@ -2,7 +2,13 @@
   <Teleport to="body">
     <Transition name="t-modal">
       <div v-if="visible" class="t-modal__overlay" @click.self="onOverlayClick">
-        <div class="t-modal__container glass-card" :style="containerStyle">
+        <div
+          class="t-modal__container glass-card"
+          :style="containerStyle"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="title || undefined"
+        >
           <div v-if="title || closable" class="t-modal__header">
             <h3 v-if="title" class="t-modal__title">{{ title }}</h3>
             <button v-if="closable" class="t-modal__close" @click="$emit('close')" :aria-label="t('common.close')">✕</button>
@@ -54,19 +60,49 @@ const onOverlayClick = () => {
   justify-content: center;
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(4px);
-  padding: 16px;
+  /* #1064：四边安全区内边距（iOS 刘海 / Home Indicator），普通设备回落 16px。
+     --app-safe-top/bottom 已在 index.css 聚合 Android inset + iOS env + 兜底。 */
+  padding:
+    max(16px, var(--app-safe-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+    max(16px, var(--app-safe-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
 }
 .t-modal__container {
   width: 100%;
   max-height: 80vh;
+  /* 移动端动态视口：避免 iOS 地址栏/工具栏伸缩导致弹层内容被裁切 */
+  max-height: 80dvh;
   overflow-y: auto;
-  border-radius: calc(20px * var(--ui-radius-scale)) !important;
+  /* 滚动不穿透到背后的列表，保持关闭后滚动位置 */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* 弹窗内容与边框留白：此前容器无 padding（各调用方自管），导致标题 / 正文 / 按钮
+     贴边显得拥挤。这里统一给出舒适内边距（随用户「间距」设置缩放），
+     并放宽圆角；调用方原有的内部块级样式不受影响。 */
+  padding: calc(20px * var(--ui-space-scale)) calc(22px * var(--ui-space-scale));
+  border-radius: calc(24px * var(--ui-radius-scale)) !important;
+}
+/* #1064：二级详情必须是可感知的**前景实体**面板。
+   全局 .glass-card 的 --ui-surface 由用户「透明度」设置注入（默认 0.88/0.76，恒 < 1），
+   会让卡片透出底层列表；这里用独立的不透明 token，并以更高优先级
+   （.t-modal__overlay .t-modal__container 特化 > html.dark .glass-card）
+   覆盖 .glass-card 皮肤与夜间模式的 !important，保证浅色纯白、深色实底。 */
+.t-modal__overlay .t-modal__container {
+  background: var(--ui-modal-surface, #ffffff) !important;
+  color: var(--ui-text);
+  border: 1px solid var(--ui-modal-surface-border, rgba(148, 163, 184, 0.28)) !important;
+  box-shadow: var(--ui-modal-surface-shadow, 0 24px 60px rgba(15, 23, 42, 0.28)) !important;
+  /* 实底无需毛玻璃：去掉模糊既省 GPU，也避免 iOS WebView 的合成异常 */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  /* 容器内边距统一由基础 .t-modal__container 规则提供（见上）；
+     此处只负责不透明实底皮肤，不再单独调整布局。 */
 }
 .t-modal__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: calc(14px * var(--ui-space-scale));
+  gap: 12px;
+  margin-bottom: calc(18px * var(--ui-space-scale));
 }
 .t-modal__title {
   margin: 0;
@@ -95,14 +131,15 @@ const onOverlayClick = () => {
 }
 .t-modal__body {
   color: var(--ui-text);
+  line-height: 1.65;
 }
 .t-modal__footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  padding-top: calc(14px * var(--ui-space-scale));
-  margin-top: calc(14px * var(--ui-space-scale));
+  gap: 12px;
+  padding-top: calc(18px * var(--ui-space-scale));
+  margin-top: calc(18px * var(--ui-space-scale));
   border-top: 1px solid rgba(148, 163, 184, 0.18);
 }
 
@@ -137,5 +174,22 @@ const onOverlayClick = () => {
   .t-modal-leave-active .t-modal__container {
     transition: none;
   }
+}
+</style>
+
+<style>
+/* #1064：共享 TModal 的**不透明实体底** token（运行时唯一来源）。
+   浅色纯白、深色 slate-800 实底，不随用户「透明度」设置变得可透；
+   深色同时覆盖 html.dark（夜间模式）与 html[data-theme='graphite_night']（深色预设）。 */
+:root {
+  --ui-modal-surface: #ffffff;
+  --ui-modal-surface-border: rgba(148, 163, 184, 0.28);
+  --ui-modal-surface-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+}
+html.dark,
+html[data-theme='graphite_night'] {
+  --ui-modal-surface: #1e293b;
+  --ui-modal-surface-border: rgba(148, 163, 184, 0.24);
+  --ui-modal-surface-shadow: 0 24px 60px rgba(2, 6, 23, 0.6);
 }
 </style>

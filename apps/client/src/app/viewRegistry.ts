@@ -20,6 +20,8 @@ const createAsyncPage = (loader: Loader): Component =>
 
 const loadDashboardView: Loader = () => import('../components/Dashboard.vue')
 const loadGradeView: Loader = () => import('../components/GradeView.vue')
+// #1110：给分记录独立首页模块（复用 GradeDistributionView，独立页面壳）
+const loadGradeDistributionPageView: Loader = () => import('../components/GradeDistributionPage.vue')
 const loadElectricityView: Loader = () => import('../components/ElectricityView.vue')
 const loadClassroomView: Loader = () => import('../components/ClassroomView.vue')
 const loadScheduleView: Loader = () => import('../components/ScheduleView.vue')
@@ -62,6 +64,10 @@ const loadCampusMapView: Loader = async () => {
     : import('../components/CampusMapView.vue')
 }
 const loadLibraryView: Loader = () => import('../components/LibraryView.vue')
+// #1055：图书馆预约（座位 / 静音仓 / 研讨室 + 我的预约），与馆藏检索 library 相互独立
+const loadLibraryReserveView: Loader = () => import('../components/LibraryReserveView.vue')
+// A15：预约（内嵌超星官方预约页：座位 / 静音仓 / 研讨室），与原生模块 library_reserve 相互独立
+const loadChaoxingReserveView: Loader = () => import('../components/ChaoxingReserveView.vue')
 const loadResourceShareView: Loader = () => import('../components/ResourceShareView.vue')
 const loadChaoxingClassView: Loader = () => import('../components/ChaoxingClassView.vue')
 const loadChaoxingHubView: Loader = () => import('../components/ChaoxingHubView.vue')
@@ -72,11 +78,19 @@ const loadSportsVenueView: Loader = () => import('../components/SportsVenueView.
 const loadTowerGoView: Loader = () => import('../components/TowerGoView.vue')
 const loadSmartOrientationView: Loader = () => import('../components/SmartOrientationView.vue')
 const loadIdentityAuthHistoryView: Loader = () => import('../features/identity/views/IdentityAuthHistoryView.vue')
+// Teacher Portal V2（#1019）：教师专属视图（E0 预注册为占位，E2/E5/E6/E3/E7 替换实现）
+const loadTeacherProfileView: Loader = () => import('../features/teacher/views/TeacherProfileView.vue')
+const loadTeacherTeachingView: Loader = () => import('../features/teacher/views/TeacherTeachingView.vue')
+const loadTeacherExamsView: Loader = () => import('../features/teacher/views/TeacherExamsView.vue')
+const loadTeacherNotificationView: Loader = () => import('../features/teacher/views/TeacherNotificationView.vue')
+const loadTeacherWorkflowView: Loader = () => import('../features/teacher/views/TeacherWorkflowView.vue')
 
 /** view key → 异步组件（AppViewHost 模板 v-if 分支使用） */
 export const VIEW_COMPONENTS: Record<string, Component> = {
   home: createAsyncPage(loadDashboardView),
   grades: createAsyncPage(loadGradeView),
+  // #1110：给分记录独立页面（首页模块 → view）
+  grade_distribution: createAsyncPage(loadGradeDistributionPageView),
   electricity: createAsyncPage(loadElectricityView),
   classroom: createAsyncPage(loadClassroomView),
   schedule: createAsyncPage(loadScheduleView),
@@ -111,6 +125,8 @@ export const VIEW_COMPONENTS: Record<string, Component> = {
   ai: createAsyncPage(loadAiChatView),
   campus_map: createAsyncPage(loadCampusMapView),
   library: createAsyncPage(loadLibraryView),
+  library_reserve: createAsyncPage(loadLibraryReserveView),
+  chaoxing_reserve: createAsyncPage(loadChaoxingReserveView),
   resource_share: createAsyncPage(loadResourceShareView),
   chaoxing_class: createAsyncPage(loadChaoxingClassView),
   chaoxing_hub: createAsyncPage(loadChaoxingHubView),
@@ -120,7 +136,13 @@ export const VIEW_COMPONENTS: Record<string, Component> = {
   sports_venue: createAsyncPage(loadSportsVenueView),
   towergo: createAsyncPage(loadTowerGoView),
   smart_orientation: createAsyncPage(loadSmartOrientationView),
-  identity_auth_history: createAsyncPage(loadIdentityAuthHistoryView)
+  identity_auth_history: createAsyncPage(loadIdentityAuthHistoryView),
+  // Teacher Portal V2（#1019）：教师专属视图
+  teacherprofile: createAsyncPage(loadTeacherProfileView),
+  teacherteaching: createAsyncPage(loadTeacherTeachingView),
+  teacherexams: createAsyncPage(loadTeacherExamsView),
+  teachernotifications: createAsyncPage(loadTeacherNotificationView),
+  teacherworkflow: createAsyncPage(loadTeacherWorkflowView)
 }
 
 /** view key → loader（prefetch 使用） */
@@ -145,6 +167,8 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   game_center: loadGameCenterView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
   grades: loadGradeView,
+  // #1110：给分记录独立页面（prefetch）
+  grade_distribution: loadGradeDistributionPageView,
   electricity: loadElectricityView,
   transactions: loadTransactionHistoryView,
   campus_code: loadCampusCodeView,
@@ -161,6 +185,8 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   ai: loadAiChatView,
   campus_map: loadCampusMapView,
   library: loadLibraryView,
+  library_reserve: loadLibraryReserveView,
+  chaoxing_reserve: loadChaoxingReserveView,
   resource_share: loadResourceShareView,
   chaoxing_class: loadChaoxingClassView,
   chaoxing_hub: loadChaoxingHubView,
@@ -170,5 +196,11 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   sports_venue: loadSportsVenueView,
   towergo: loadTowerGoView,
   smart_orientation: loadSmartOrientationView,
-  identity_auth_history: loadIdentityAuthHistoryView
+  identity_auth_history: loadIdentityAuthHistoryView,
+  // Teacher Portal V2（#1019）：教师专属视图（prefetch）
+  teacherprofile: loadTeacherProfileView,
+  teacherteaching: loadTeacherTeachingView,
+  teacherexams: loadTeacherExamsView,
+  teachernotifications: loadTeacherNotificationView,
+  teacherworkflow: loadTeacherWorkflowView
 }
