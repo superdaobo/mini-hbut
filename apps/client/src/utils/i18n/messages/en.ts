@@ -3474,7 +3474,7 @@ export const messages: Record<string, string> = {
   'me.legal.privacy.retentionText': 'Kept only as long as necessary for the features. Logging out clears the session.',
   'me.legal.privacy.agreement': 'By continuing to use the app, you have read and agreed to this privacy policy.',
   // panda club promo entry (#1130: text stored locally, images must be referenced by URL)
-  'me.club.panda.title': 'panda Club',
+  'me.club.panda.title': 'panda club',
   'me.club.panda.desc': 'A cross-disciplinary maker club · AI / 3D printing / rapid prototyping',
   'me.opensource.title': 'Open Source',
   'me.opensource.intro': 'Mini-HBUT is an open-source project dedicated to a better campus information experience.',
