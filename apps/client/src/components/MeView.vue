@@ -7,6 +7,8 @@ import {
   ICP_BEIAN_URL,
   NON_OFFICIAL_DISCLAIMER_EN,
   NON_OFFICIAL_DISCLAIMER_ZH,
+  PANDA_CLUB_LOGO_URL,
+  PANDA_CLUB_URL,
   PRIVACY_POLICY_URL,
   isSponsorEntryAllowed,
   isViewAllowed
@@ -233,6 +235,14 @@ const openGithub = async () => {
 
 const openIcpBeian = async () => {
   await openExternal(ICP_BEIAN_URL)
+}
+
+// #1130：panda 社团宣传条目。图像必须用 URL 形式引用（不落仓库），
+// 断网/加载失败时回退为内置图标，避免页面出现裂图。
+const pandaLogoFailed = ref(false)
+
+const openPandaClub = async () => {
+  await openExternal(PANDA_CLUB_URL)
 }
 
 const handleShowLegal = async (tab) => {
@@ -593,6 +603,27 @@ const removeAccount = async (acc) => {
       </div>
     </section>
 
+    <!-- panda 社团宣传条目（#1130）：位于「免责声明与隐私政策」与 ICP 备案号之间；
+         图像必须用 URL 形式引用（不落仓库），断网时回退内置图标 -->
+    <button type="button" class="panda-club-entry" @click="openPandaClub">
+      <span class="panda-club-entry__logo" aria-hidden="true">
+        <img
+          v-show="!pandaLogoFailed"
+          :src="PANDA_CLUB_LOGO_URL"
+          alt=""
+          loading="lazy"
+          @error="pandaLogoFailed = true"
+        />
+        <span v-if="pandaLogoFailed" class="material-symbols-outlined">groups</span>
+      </span>
+      <span class="panda-club-entry__body">
+        <span class="panda-club-entry__title">{{ t('me.club.panda.title') }}</span>
+        <span class="panda-club-entry__desc">{{ t('me.club.panda.desc') }}</span>
+        <span class="panda-club-entry__url">{{ PANDA_CLUB_URL }}</span>
+      </span>
+      <span class="panda-club-entry__chev material-symbols-outlined" aria-hidden="true">open_in_new</span>
+    </button>
+
     <!-- 工信部 ICP 备案公示（页底） -->
     <footer class="icp-beian-footer">
       <button type="button" class="icp-beian-link" @click="openIcpBeian">
@@ -629,6 +660,9 @@ const removeAccount = async (acc) => {
           </p>
           <p>
             {{ t('me.opensource.thanksFriends.prefix') }}<strong>{{ t('me.opensource.thanksFriends.name') }}</strong>{{ t('me.opensource.thanksFriends.suffix') }}
+          </p>
+          <p>
+            {{ t('me.opensource.thanksPanda.prefix') }}<strong>{{ t('me.opensource.thanksPanda.name') }}</strong><a class="opensource-thanks-link" @click="openPandaClub">({{ PANDA_CLUB_URL }})</a>{{ t('me.opensource.thanksPanda.suffix') }}
           </p>
           <p class="highlight">{{ t('me.opensource.thanksAll') }}</p>
         </div>

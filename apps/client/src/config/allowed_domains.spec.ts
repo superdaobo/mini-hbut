@@ -7,6 +7,7 @@ describe('allowed_domains', () => {
     expect(isAllowedHttpsUrl('https://superdaobo.github.io/mini-hbut/privacy')).toBe(true)
     expect(isAllowedHttpsUrl('https://github.com/superdaobo/mini-hbut')).toBe(true)
     expect(isAllowedHttpsUrl('https://beian.miit.gov.cn/')).toBe(true)
+    expect(isAllowedHttpsUrl('https://panda.hbut.site/')).toBe(true)
   })
 
   it('rejects http, javascript, and localhost', () => {
