@@ -3476,6 +3476,7 @@ export const messages: Record<string, string> = {
   // panda club promo entry (#1130: text stored locally, images must be referenced by URL)
   'me.club.panda.title': 'panda club',
   'me.club.panda.desc': 'A cross-disciplinary maker club · AI / 3D printing / rapid prototyping',
+  'me.club.panda.slogan': 'with AI, anything',
   'me.opensource.title': 'Open Source',
   'me.opensource.intro': 'Mini-HBUT is an open-source project dedicated to a better campus information experience.',
   'me.opensource.projectAddress': 'Project',
@@ -3491,7 +3492,7 @@ export const messages: Record<string, string> = {
   'me.opensource.thanksFriends.suffix': ' for testing and feedback',
   'me.opensource.thanksPanda.prefix': 'Thanks to ',
   'me.opensource.thanksPanda.name': 'panda club',
-  'me.opensource.thanksPanda.suffix': ' for their support',
+  'me.opensource.thanksPanda.suffix': ' for the technical support provided to this project',
   'me.opensource.thanksAll': 'Thanks to everyone who contributed to Mini-HBUT! 🎉',
   'me.opensource.gotIt': 'Got it',
   'me.sponsor.title': '❤️ Sponsor',

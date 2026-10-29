@@ -619,6 +619,7 @@ const removeAccount = async (acc) => {
       <span class="panda-club-entry__body">
         <span class="panda-club-entry__title">{{ t('me.club.panda.title') }}</span>
         <span class="panda-club-entry__desc">{{ t('me.club.panda.desc') }}</span>
+        <span class="panda-club-entry__slogan">{{ t('me.club.panda.slogan') }}</span>
         <span class="panda-club-entry__url">{{ PANDA_CLUB_URL }}</span>
       </span>
       <span class="panda-club-entry__chev material-symbols-outlined" aria-hidden="true">open_in_new</span>
