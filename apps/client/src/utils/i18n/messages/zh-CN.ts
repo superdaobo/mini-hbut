@@ -3476,6 +3476,7 @@ export const messages: Record<string, string> = {
   // panda 社团宣传条目（#1130：文字存本地，图像必须用 URL 形式引用）
   'me.club.panda.title': 'panda 社团',
   'me.club.panda.desc': '跨学科实践与造物社团 · AI 协作 / 3D 打印 / 快速原型',
+  'me.club.panda.slogan': 'with AI, anything',
   'me.opensource.title': '开源说明',
   'me.opensource.intro': 'Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。',
   'me.opensource.projectAddress': '项目地址',
@@ -3491,7 +3492,7 @@ export const messages: Record<string, string> = {
   'me.opensource.thanksFriends.suffix': '，提供了测试和反馈',
   'me.opensource.thanksPanda.prefix': '感谢 ',
   'me.opensource.thanksPanda.name': 'panda 社团',
-  'me.opensource.thanksPanda.suffix': ' 对本项目的关注与支持',
+  'me.opensource.thanksPanda.suffix': ' 为本项目提供了技术支持',
   'me.opensource.thanksAll': '感谢所有为 Mini-HBUT 做出贡献的人！ 🎉',
   'me.opensource.gotIt': '知道了',
   'me.sponsor.title': '❤️ 赞助支持',

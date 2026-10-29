@@ -513,6 +513,14 @@
   color: var(--ui-muted, #64748b);
 }
 
+/* 社团标语（#1132：独立一行，主色 + 斜体，作为 motto） */
+.panda-club-entry__slogan {
+  font-size: 12px;
+  font-weight: 600;
+  font-style: italic;
+  color: var(--ui-primary, #2563eb);
+}
+
 /* 网址超链接（点击由外层 button 统一 openExternal 打开） */
 .panda-club-entry__url {
   font-size: 12px;
