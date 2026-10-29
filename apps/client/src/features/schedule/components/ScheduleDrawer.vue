@@ -506,7 +506,7 @@ const { t } = useI18n()
 }
 
 :global(html.dark) .drawer-view-switch {
-  border-color: rgba(148, 163, 184, 0.24);
+  border-color: #0f172a;
   background: rgba(15, 23, 42, 0.72);
 }
 

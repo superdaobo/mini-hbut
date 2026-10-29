@@ -291,7 +291,7 @@ html.dark .schedule-view {
 }
 
 html.dark .schedule-header {
-  background-color: #1e293b !important;
+  background-color: #0f172a !important;
 }
 
 /* 课表页面 - 所有白色背景区域 */
@@ -305,8 +305,8 @@ html.dark .schedule-view .bg-white {
 
 /* 课表页面 - 周选择器（修复双重边框） */
 html.dark .schedule-view .week-selector {
-  background: #1e293b !important;
-  border-color: rgba(148, 163, 184, 0.2) !important;
+  background: transparent !important;
+  border-color: transparent !important;
   box-shadow: none !important;
 }
 
@@ -336,7 +336,7 @@ html.dark .schedule-view .week-header,
 html.dark .schedule-view .day-header,
 html.dark .schedule-view [class*="day-col-header"],
 html.dark .schedule-view [class*="date-row"] {
-  background: #1e293b !important;
+  background: #0f172a !important;
   border-color: rgba(148, 163, 184, 0.1) !important;
   color: #94a3b8 !important;
 }
@@ -367,6 +367,13 @@ html.dark .schedule-view [class*="grid-line"],
 html.dark .schedule-view [class*="time-slot"],
 html.dark .schedule-view [class*="day-column"] {
   border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+/* 课表 - 今日列：去掉整列浅蓝底色，仅保留顶部日期高亮（#1139） */
+html.dark .schedule-view .day-column.is-today-column::before {
+  background: rgba(96, 165, 250, 0.04) !important;
+  border-left-color: transparent !important;
+  border-right-color: transparent !important;
 }
 
 /* 课表 - 时间列文字 */
@@ -1464,7 +1471,7 @@ html.dark .schedule-view .schedule-main {
 html.dark .schedule-view .date-header,
 html.dark .schedule-view .week-header,
 html.dark .schedule-view .day-header {
-  background: #1e293b !important;
+  background: #0f172a !important;
   border-color: rgba(148, 163, 184, 0.1) !important;
 }
 
@@ -2238,6 +2245,13 @@ html.dark body .schedule-view :is(
   box-shadow: 0 16px 34px rgba(2, 6, 23, 0.28) !important;
 }
 
+/* 课表 - 周选择器：融入顶栏，去掉方框感（#1139） */
+html.dark body .schedule-view .week-selector .ios26-select-trigger {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
 html.dark body .schedule-view :is(.menu-bar, .semester-badge-dot) {
   box-shadow: 0 0 0 2px #0f172a !important;
 }
@@ -2256,7 +2270,7 @@ html.dark body .schedule-view :is(.manage-course-card-name, .confirm-title, .wee
 
 html.dark body .schedule-view :is(.drawer-view-switch, .drawer-style-switch) {
   background: rgba(15, 23, 42, 0.78) !important;
-  border-color: rgba(148, 163, 184, 0.22) !important;
+  border-color: #0f172a !important;
 }
 
 html.dark body .schedule-view .week-cell.active {
