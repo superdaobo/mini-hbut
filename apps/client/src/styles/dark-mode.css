@@ -1043,6 +1043,13 @@ html.dark .dashboard-header {
   background: rgba(15, 23, 42, 0.9) !important;
 }
 
+/* 首页「所有功能」分类标签：夜间未选中态对齐法律条款标签（#1134） */
+html.dark .home-feature-tab:not(.is-active) {
+  background: #0f172a !important;
+  color: #94a3b8 !important;
+  border-color: #1e293b !important;
+}
+
 /* ─── 设置页面 ─── */
 html.dark .settings-page-header {
   background: rgba(15, 23, 42, 0.8) !important;
