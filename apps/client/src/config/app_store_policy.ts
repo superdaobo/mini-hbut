@@ -424,6 +424,11 @@ export const PROJECT_HOME_URL = 'https://hbut.6661111.xyz'
 export const GITHUB_URL = 'https://github.com/superdaobo/mini-hbut'
 export const FEEDBACK_URL = 'https://docs.qq.com/sheet/DQkdvWHJxQ3RwWlB4?tab=BB08J2'
 
+/** panda 社团官网（我的页宣传条目 + 开源说明弹窗致谢，#1130） */
+export const PANDA_CLUB_URL = 'https://panda.hbut.site/'
+/** panda 社团 logo（#1130：图像必须用 URL 形式引用，不得下载进仓库） */
+export const PANDA_CLUB_LOGO_URL = 'https://panda.hbut.site/assets/panda-club-logo.webp'
+
 /** 工信部 ICP 备案号（我的页底部公示） */
 export const ICP_BEIAN_TEXT = '鲁ICP备2026039385号-1A'
 /** 工信部备案查询官网 */

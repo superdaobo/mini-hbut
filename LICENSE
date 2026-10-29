@@ -680,3 +680,15 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
+
+================================================================================
+
+                    致谢 / Acknowledgements
+
+感谢 panda 社团（https://panda.hbut.site/）为本项目提供的技术支持与持续关注。
+panda 社团是湖北工业大学的一个跨学科实践与造物社团，成员来自建筑、机械、
+计算机等多个专业，用 AI 协作、3D 打印和快速原型把想法做成可以检验的作品。
+
+Thanks to panda club (https://panda.hbut.site/) for the technical support
+and continued interest in this project. panda is a cross-disciplinary maker
+club at Hubei University of Technology.

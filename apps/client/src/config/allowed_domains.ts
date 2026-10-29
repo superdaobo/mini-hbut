@@ -16,7 +16,9 @@ const DEFAULT_ALLOWED_HOST_SUFFIXES = Object.freeze([
   'apis.map.qq.com',
   // 工信部备案查询（我的页 ICP 链接）
   'miit.gov.cn',
-  'beian.miit.gov.cn'
+  'beian.miit.gov.cn',
+  // panda 社团官网（我的页宣传条目外链，#1130）
+  'panda.hbut.site'
 ])
 
 export function isAllowedHttpsUrl(url: unknown, extraSuffixes: string[] = []): boolean {
