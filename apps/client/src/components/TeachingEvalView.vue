@@ -6,7 +6,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { showToast } from '../utils/toast'
-import { useI18n } from '../utils/app_i18n'
+import { useI18n, tf } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState, TModal } from './templates'
 
 const emit = defineEmits(['back'])
