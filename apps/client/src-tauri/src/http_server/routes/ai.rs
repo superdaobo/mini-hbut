@@ -283,7 +283,14 @@ async fn ai_chat_stream(
         .form(&params)
         .send()
         .await
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
+        .map_err(|e| {
+            // epic #1145 E6：网络层失败给可读文案，断网时不透传 reqwest 原始错误
+            err(
+                StatusCode::BAD_REQUEST,
+                "业务错误",
+                crate::modules::ai::ai_network_error_message(&e),
+            )
+        })?;
 
     let mut stream = response.bytes_stream();
     let event_stream = async_stream::stream! {

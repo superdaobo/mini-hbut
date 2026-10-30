@@ -159,6 +159,15 @@ fn clean_role_id(role_id: Option<&str>) -> Option<String> {
     Some(s.to_string())
 }
 
+/// 判定 reqwest 失败是否为**网络层**问题（连接失败 / 超时 / DNS 失败）。
+///
+/// 用于 epic #1145 E6 的错误可读化：断网时给用户明确的「需要校园网」提示，
+/// 而不是透传 reqwest 的原始英文错误串。
+/// 注：reqwest 0.12 中 DNS 失败归入 `Connect` 错误，`is_connect()` 已覆盖。
+fn is_venue_network_error(e: &reqwest::Error) -> bool {
+    e.is_connect() || e.is_timeout()
+}
+
 /// 场馆 HTTP：自动 SM2 加解密 + token 头
 async fn venue_post(
     client: &reqwest::Client,
@@ -204,11 +213,12 @@ async fn venue_post(
     };
 
     let resp = req.send().await.map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("timed out") || msg.contains("error sending") {
-            format!("场馆服务不可达（需校园网）：{msg}")
+        // epic #1145 E6：断网时明确告知「需要校园网」，不透传 reqwest 原始英文错误
+        if is_venue_network_error(&e) {
+            "运动场馆需要校内网络，当前不可用（场馆服务部署在学校内网，请连接校园网后重试）"
+                .to_string()
         } else {
-            format!("场馆请求失败：{msg}")
+            format!("场馆请求失败：{}", e)
         }
     })?;
 
@@ -359,10 +369,16 @@ async fn fetch_venue_sso_token(
             .send()
             .await;
 
-        let resp = match resp {
-            Ok(r) => r,
-            Err(e) => return Err(format!("场馆跳转失败：{e}")),
-        };
+        let resp =
+            match resp {
+                Ok(r) => r,
+                // epic #1145 E6：断网时明确告知原因（登录票经一码通下发，离线同样不可用）
+                Err(e) if is_venue_network_error(&e) => return Err(
+                    "运动场馆需要网络连接，当前不可用（获取场馆登录凭证失败，请连接校园网后重试）"
+                        .to_string(),
+                ),
+                Err(e) => return Err(format!("场馆跳转失败：{e}")),
+            };
         let status = resp.status();
         let this_url = resp.url().to_string();
         if let Some(t) = extract_query_token(&this_url) {

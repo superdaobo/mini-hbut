@@ -24,12 +24,17 @@ use serde_json::json;
 use tauri::State;
 
 use crate::app_state::AppState;
+use crate::db;
 use crate::modules::library_reserve::{
     self, LibraryApp, LibraryReserveError, ERR_CHAOXING_NOT_LOGGED_IN, ERR_INVALID_PARAMS,
     ERR_NETWORK_UNREACHABLE,
 };
-use crate::modules::library_reserve_pc::{self, CancelReserveRequest, SubmitReserveRequest};
+use crate::modules::library_reserve_pc::{
+    self, CancelReserveRequest, MyReservationList, SubmitReserveRequest,
+};
 use crate::modules::library_reserve_seat;
+use crate::transport::tauri::common::attach_sync_time;
+use crate::DB_FILENAME;
 
 /// 解析单个应用入口
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,7 +359,56 @@ pub(crate) async fn library_reserve_item_occupancy(
     }))
 }
 
-/// 我的预约列表
+/// 「我的预约」网络优先 + 离线缓存降级（epic #1145 E6 / issue #1151）。
+///
+/// - 网络成功：按成功响应形态附 `sync_time` / `offline:false` 并写入 `library_reservation_cache`
+///   （缓存写失败仅告警，不拖垮成功网络结果，与 academic 领域语义一致）；
+/// - 网络不可达（`network_unreachable`）：命中缓存则返回旧快照并标记 `offline:true`
+///   （前端据此展示离线横幅）；未命中则原错误透传；
+/// - 其它错误种类（会话失效 / 无权限 / 业务拒绝等）不是网络问题，**不做**缓存降级，原样透传。
+pub(crate) fn my_reservations_with_cache(
+    db_path: &std::path::Path,
+    cache_key: Option<&str>,
+    fetched: Result<MyReservationList, LibraryReserveError>,
+) -> Result<serde_json::Value, LibraryReserveError> {
+    match fetched {
+        Ok(list) => {
+            // 成功：先按「成功响应形」附同步时间，再落缓存
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(
+                json!({
+                    "success": true,
+                    "items": list.items,
+                    "total": list.total,
+                    "raw": list.raw,
+                }),
+                &sync_time,
+                false,
+            );
+            if let Some(key) = cache_key {
+                // 缓存写失败不拖垮网络成功结果（#578 语义）
+                let _ = db::save_cache(db_path, "library_reservation_cache", key, &payload);
+            }
+            Ok(payload)
+        }
+        Err(error) => {
+            // 仅「网络不可达」才走缓存降级；其余 kind 原样透传
+            if error.kind == ERR_NETWORK_UNREACHABLE {
+                if let Some(key) = cache_key {
+                    if let Ok(Some((cached, sync_time))) =
+                        db::get_cache(db_path, "library_reservation_cache", key)
+                    {
+                        // 离线快照：沿用成功响应形，仅 offline 翻转为 true
+                        return Ok(attach_sync_time(cached, &sync_time, true));
+                    }
+                }
+            }
+            Err(error)
+        }
+    }
+}
+
+/// 我的预约列表（网络优先 + 离线缓存降级，epic #1145 E6 / #1151）
 #[tauri::command(rename_all = "camelCase")]
 pub(crate) async fn library_reserve_my_reservations(
     state: State<'_, AppState>,
@@ -362,15 +416,19 @@ pub(crate) async fn library_reserve_my_reservations(
 ) -> Result<serde_json::Value, LibraryReserveError> {
     let app = parse_pc_app(&req.app)?;
     let mut client = state.client.write().await;
+    // 缓存键：学号 + 应用（表 `library_reservation_cache` 的 student_id 列作通用键列使用）
+    let cache_key = client
+        .user_info
+        .as_ref()
+        .map(|user| format!("{}:{}", user.student_id, app.key()));
     let list =
         library_reserve_pc::fetch_my_reservations(&mut client, app, req.force.unwrap_or(false))
-            .await?;
-    Ok(json!({
-        "success": true,
-        "items": list.items,
-        "total": list.total,
-        "raw": list.raw,
-    }))
+            .await;
+    my_reservations_with_cache(
+        std::path::Path::new(DB_FILENAME),
+        cache_key.as_deref(),
+        list,
+    )
 }
 
 /// 用户视图标记（`showStyle`）
@@ -871,6 +929,117 @@ mod tests {
 
     use super::*;
     use crate::modules::library_reserve::ERR_INVALID_APP;
+
+    // ── 「我的预约」离线缓存（epic #1145 E6 / issue #1151） ──
+
+    /// 测试用临时缓存库：每个用例独立文件，结束后清理。
+    ///
+    /// 注意 `resolve_db_path` 会优先使用 `HBUT_DB_PATH` 环境变量，
+    /// 必须先移除该变量，确保测试落到本用例的临时库。
+    fn cache_test_db(name: &str) -> std::path::PathBuf {
+        std::env::remove_var("HBUT_DB_PATH");
+        let path = std::env::temp_dir().join(format!(
+            "hbut_lib_mine_cache_{}_{}.db",
+            std::process::id(),
+            name
+        ));
+        let _ = std::fs::remove_file(&path);
+        db::init_db(&path).expect("初始化测试数据库失败");
+        path
+    }
+
+    fn sample_reservation_list() -> MyReservationList {
+        MyReservationList {
+            items: vec![],
+            total: Some(1),
+            raw: json!({ "totalRow": 1, "rows": [] }),
+        }
+    }
+
+    #[test]
+    fn my_reservations_success_writes_cache_and_marks_online() {
+        let path = cache_test_db("success");
+        let value = my_reservations_with_cache(
+            &path,
+            Some("10001:quiet_room"),
+            Ok(sample_reservation_list()),
+        )
+        .expect("网络成功应返回成功载荷");
+        assert_eq!(value["success"], json!(true));
+        assert_eq!(
+            value["offline"],
+            json!(false),
+            "在线结果 offline 应为 false"
+        );
+        assert!(value["sync_time"].is_string(), "成功响应应附 sync_time");
+        // 缓存应已写入
+        let (cached, sync_time) =
+            db::get_cache(&path, "library_reservation_cache", "10001:quiet_room")
+                .expect("读缓存失败")
+                .expect("缓存应存在");
+        assert_eq!(cached["total"], json!(1));
+        assert!(!sync_time.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn my_reservations_network_fail_returns_offline_snapshot_when_cached() {
+        let path = cache_test_db("offline");
+        // 先模拟一次成功，在缓存中留下快照
+        my_reservations_with_cache(
+            &path,
+            Some("10001:quiet_room"),
+            Ok(sample_reservation_list()),
+        )
+        .expect("首次成功应成功");
+        // 再模拟「网络不可达」失败 → 命中缓存 → 返回离线快照
+        let value = my_reservations_with_cache(
+            &path,
+            Some("10001:quiet_room"),
+            Err(LibraryReserveError::network_unreachable("网络不可达")),
+        )
+        .expect("缓存命中应返回离线快照");
+        assert_eq!(value["offline"], json!(true), "离线快照 offline 应为 true");
+        assert_eq!(value["success"], json!(true), "离线快照沿用成功响应形");
+        assert_eq!(value["total"], json!(1));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn my_reservations_network_fail_without_cache_propagates_error() {
+        let path = cache_test_db("nocache");
+        let result = my_reservations_with_cache(
+            &path,
+            Some("10001:quiet_room"),
+            Err(LibraryReserveError::network_unreachable("网络不可达")),
+        );
+        let err = result.expect_err("无缓存时原错误应透传");
+        assert_eq!(err.kind, ERR_NETWORK_UNREACHABLE);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn my_reservations_non_network_error_does_not_fallback_to_cache() {
+        let path = cache_test_db("bizerr");
+        // 即便有缓存，非网络错误（如会话失效）也不应降级为离线快照
+        my_reservations_with_cache(
+            &path,
+            Some("10001:quiet_room"),
+            Ok(sample_reservation_list()),
+        )
+        .expect("首次成功应成功");
+        let result = my_reservations_with_cache(
+            &path,
+            Some("10001:quiet_room"),
+            Err(LibraryReserveError::not_logged_in("未登录超星")),
+        );
+        let err = result.expect_err("非网络错误应原样透传");
+        assert_eq!(
+            err.kind,
+            crate::modules::library_reserve::ERR_CHAOXING_NOT_LOGGED_IN
+        );
+        let _ = std::fs::remove_file(&path);
+    }
 
     // ── 应用标识解析：PC / seat 两组命令互斥 ──
 

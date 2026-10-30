@@ -16,7 +16,8 @@
 import { onMounted, ref } from 'vue'
 import { invokeNative } from '../../platform/native'
 import { showToast } from '../../utils/toast'
-import { useLocale } from '../../utils/app_i18n'
+import { useLocale, tf } from '../../utils/app_i18n'
+import { formatRelativeTime } from '../../utils/time.js'
 import { TEmptyState, TModal } from '../templates'
 import { normalizeMyReservation, parseReserveFailure, sortKeyOf } from './catalog'
 
@@ -30,6 +31,9 @@ const error = ref('')
 const errorDetail = ref('')
 const partialError = ref('')
 const items = ref([])
+// epic #1145 E6：离线降级状态（后端 offline:true 时展示「我的预约」离线横幅）
+const offline = ref(false)
+const syncTime = ref('')
 
 /** 取消确认弹窗状态 */
 const cancelTarget = ref(null)
@@ -70,21 +74,34 @@ const load = async () => {
   error.value = ''
   errorDetail.value = ''
   partialError.value = ''
+  offline.value = false
+  syncTime.value = ''
   const results = await Promise.allSettled(
     APPS.map((app) => invokeNative('library_reserve_my_reservations', { req: { app } }))
   )
 
   const merged = []
   const failures = []
+  const offlineSyncTimes = []
   results.forEach((result, i) => {
     const app = APPS[i]
     if (result.status === 'fulfilled') {
-      const list = Array.isArray(result.value?.items) ? result.value.items : []
+      const data = result.value
+      // epic #1145 E6：任一套走离线缓存降级（offline:true）时，横幅取最近一次同步时间
+      if (data?.offline === true) {
+        const time = String(data?.sync_time || '').trim()
+        if (time) offlineSyncTimes.push(time)
+      }
+      const list = Array.isArray(data?.items) ? data.items : []
       list.forEach((item, index) => merged.push(normalizeItem(item, app, index)))
     } else {
       failures.push(parseReserveFailure(result.reason))
     }
   })
+
+  const latestOfflineSync = offlineSyncTimes.sort().pop() || ''
+  offline.value = latestOfflineSync !== ''
+  syncTime.value = latestOfflineSync
 
   // 最近的预约排前面（日期 + 起始时间倒序），避免历史记录压住当前预约
   merged.sort((a, b) => sortKeyOf(b).localeCompare(sortKeyOf(a)))
@@ -146,6 +163,11 @@ onMounted(load)
     </div>
 
     <p v-if="partialError" class="warn span-all">{{ partialError }}</p>
+
+    <!-- epic #1145 E6：离线缓存降级横幅（后端 offline:true 时展示，文案套用 exam.offlineBanner 模式） -->
+    <div v-if="offline && !loading" class="offline-banner span-all">
+      {{ tf('library.reserve.mine.offlineBanner', { time: formatRelativeTime(syncTime) }) }}
+    </div>
 
     <TEmptyState
       v-if="loading"
@@ -344,6 +366,15 @@ onMounted(load)
   margin: 0;
   font-size: calc(12px * var(--ui-font-scale));
   color: var(--ui-danger);
+}
+.offline-banner {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: calc(12px * var(--ui-radius-scale));
+  background: var(--ui-surface-border);
+  color: var(--ui-muted);
+  font-size: calc(12px * var(--ui-font-scale));
+  line-height: 1.5;
 }
 .error-card {
   display: flex;

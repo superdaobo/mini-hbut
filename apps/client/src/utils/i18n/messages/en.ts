@@ -1674,6 +1674,7 @@ export const messages: Record<string, string> = {
   'library.reserve.mine.empty': 'No bookings yet',
   'library.reserve.mine.hint': 'You have not booked any seat, quiet pod or study room yet.',
   'library.reserve.mine.loading': 'Loading bookings…',
+  'library.reserve.mine.offlineBanner': 'Showing offline data, updated {time}',
   'library.reserve.mine.partialError': 'Some records failed to load, refresh to retry',
   'library.reserve.mine.refresh': 'Refresh',
   'library.reserve.mine.statusCancelled': 'Cancelled',
@@ -2661,6 +2662,7 @@ export const messages: Record<string, string> = {
   'campuscode.error.qrRequest': 'Campus code request failed',
   'campuscode.error.loadFailed': 'Failed to load campus code',
   'campuscode.error.configFailed': 'Failed to load campus code config',
+  'campuscode.error.transport': 'Cannot generate the campus code right now (network connection required)',
 
   // —— identity domain (#795 batch J: approval / device management / auth history / QR login) ——
   // ⚠️ Security-sensitive wording: warning strength and fail-closed semantics must not be

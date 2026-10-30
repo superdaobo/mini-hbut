@@ -1673,6 +1673,7 @@ export const messages: Record<string, string> = {
   'library.reserve.mine.empty': '予約はまだありません',
   'library.reserve.mine.hint': '座席・静音ブース・セミナー室の予約はまだありません。',
   'library.reserve.mine.loading': '予約記録を読み込み中…',
+  'library.reserve.mine.offlineBanner': '現在オフライン データとして表示されており、{time} で更新されます',
   'library.reserve.mine.partialError': '一部の記録を読み込めませんでした。更新してください',
   'library.reserve.mine.refresh': '更新',
   'library.reserve.mine.statusCancelled': 'キャンセル済み',
@@ -2660,6 +2661,7 @@ export const messages: Record<string, string> = {
   'campuscode.error.qrRequest': 'キャンパスコードのリクエストが失敗しました',
   'campuscode.error.loadFailed': 'キャンパスコードの読み込みに失敗しました',
   'campuscode.error.configFailed': 'キャンパスコード構成のロードに失敗しました',
+  'campuscode.error.transport': '現在キャンパスコードを生成できません（ネットワーク接続が必要です）',
 
   // —— identity 域（#795 批次 J：授权确认 / 设备管理 / 授权记录 / 扫码登录）——
   // ⚠️ 安全语义文案：翻译不得弱化警告强度；zh 值与迁移前硬编码文案逐字一致
