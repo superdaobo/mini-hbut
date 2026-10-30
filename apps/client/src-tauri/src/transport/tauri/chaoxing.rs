@@ -257,7 +257,10 @@ fn resolve_online_learning_student_id(
 }
 
 /// 离线缓存用学号（E5/#1150）：显式参数 > user_info > last_username；空则无缓存语义
-fn resolve_chaoxing_cache_student_id(client: &HbutClient, student_id: Option<&str>) -> Option<String> {
+fn resolve_chaoxing_cache_student_id(
+    client: &HbutClient,
+    student_id: Option<&str>,
+) -> Option<String> {
     if let Some(raw) = student_id {
         let sid = raw.trim();
         if !sid.is_empty() {

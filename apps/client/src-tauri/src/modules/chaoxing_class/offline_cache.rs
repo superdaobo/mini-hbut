@@ -69,12 +69,20 @@ fn upsert_entry<P: AsRef<std::path::Path>>(
 ) {
     let now = Local::now().to_rfc3339();
     let mut entries = load_entries(&db_path, table, student_id);
-    entries.insert(key.to_string(), EnvelopeEntry { value, at: now.clone() });
+    entries.insert(
+        key.to_string(),
+        EnvelopeEntry {
+            value,
+            at: now.clone(),
+        },
+    );
     // 上限 50 条：按 (at, key) 升序淘汰最旧，tie 时按 key 字典序保证确定性
     if entries.len() > MAX_ENTRIES {
         let excess = entries.len() - MAX_ENTRIES;
-        let mut order: Vec<(String, String)> =
-            entries.iter().map(|(k, e)| (e.at.clone(), k.clone())).collect();
+        let mut order: Vec<(String, String)> = entries
+            .iter()
+            .map(|(k, e)| (e.at.clone(), k.clone()))
+            .collect();
         order.sort();
         for (i, (_, k)) in order.iter().enumerate() {
             if i >= excess {
@@ -178,19 +186,37 @@ mod tests {
 
     fn temp_db(label: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("dsh_cx_offline_{}_{}.db", label, std::process::id()));
+        let path = dir.join(format!(
+            "dsh_cx_offline_{}_{}.db",
+            label,
+            std::process::id()
+        ));
         let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(dir.join(format!("dsh_cx_offline_{}_{}.db-wal", label, std::process::id())));
-        let _ = std::fs::remove_file(dir.join(format!("dsh_cx_offline_{}_{}.db-shm", label, std::process::id())));
+        let _ = std::fs::remove_file(dir.join(format!(
+            "dsh_cx_offline_{}_{}.db-wal",
+            label,
+            std::process::id()
+        )));
+        let _ = std::fs::remove_file(dir.join(format!(
+            "dsh_cx_offline_{}_{}.db-shm",
+            label,
+            std::process::id()
+        )));
         path
     }
 
     #[test]
     fn resource_dir_key_distinguishes_domains() {
         assert_eq!(resource_dir_key("12", "34", "", ""), "12:34::");
-        assert_eq!(resource_dir_key("12", "34", "tch-courseware", "9"), "12:34:tch-courseware:9");
+        assert_eq!(
+            resource_dir_key("12", "34", "tch-courseware", "9"),
+            "12:34:tch-courseware:9"
+        );
         // 去空白 + 大小写归一
-        assert_eq!(resource_dir_key(" 12 ", " 34 ", "TCH-COURSEWARE", " 9 "), "12:34:tch-courseware:9");
+        assert_eq!(
+            resource_dir_key(" 12 ", " 34 ", "TCH-COURSEWARE", " 9 "),
+            "12:34:tch-courseware:9"
+        );
     }
 
     #[test]
@@ -200,17 +226,29 @@ mod tests {
         let sid = "2510231001";
         // 连续写入 51 个逻辑 key → 只保留最近 50 条，最旧被淘汰
         for i in 0..=50 {
-            upsert_entry(&path, TABLE_RESOURCE, sid, &format!("k{i:02}"), json!({ "i": i }));
+            upsert_entry(
+                &path,
+                TABLE_RESOURCE,
+                sid,
+                &format!("k{i:02}"),
+                json!({ "i": i }),
+            );
         }
         let entries = load_entries(&path, TABLE_RESOURCE, sid);
         assert_eq!(entries.len(), MAX_ENTRIES);
         assert!(!entries.contains_key("k00"), "最旧 k00 应被淘汰");
         assert!(entries.contains_key("k01"));
-        assert_eq!(entries.get("k50").map(|e| &e.value), Some(&json!({ "i": 50 })));
+        assert_eq!(
+            entries.get("k50").map(|e| &e.value),
+            Some(&json!({ "i": 50 }))
+        );
         // read_entry 命中 / 未命中
         let (v, _t) = read_entry(&path, TABLE_RESOURCE, sid, Some("k50")).expect("k50 命中");
         assert_eq!(v.get("i").and_then(|x| x.as_u64()), Some(50));
-        assert!(read_entry(&path, TABLE_RESOURCE, sid, Some("k00")).is_none(), "k00 已淘汰应未命中");
+        assert!(
+            read_entry(&path, TABLE_RESOURCE, sid, Some("k00")).is_none(),
+            "k00 已淘汰应未命中"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -230,31 +268,73 @@ mod tests {
         )
         .expect("成功态");
         assert_eq!(r.get("offline"), Some(&Value::Bool(false)));
-        assert!(r.get("sync_time").and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty()));
+        assert!(r
+            .get("sync_time")
+            .and_then(|x| x.as_str())
+            .is_some_and(|s| !s.is_empty()));
 
         // 2) 失败 + 缓存命中 → 旧快照 + offline=true
-        let r = resolve_with_cache(&path, TABLE_CLASS, sid, Some("CODE1"), Err("网络不可用".to_string()))
-            .expect("缓存命中");
+        let r = resolve_with_cache(
+            &path,
+            TABLE_CLASS,
+            sid,
+            Some("CODE1"),
+            Err("网络不可用".to_string()),
+        )
+        .expect("缓存命中");
         assert_eq!(r.get("offline"), Some(&Value::Bool(true)));
-        assert_eq!(r.get("course_name").and_then(|x| x.as_str()), Some("数据库"));
+        assert_eq!(
+            r.get("course_name").and_then(|x| x.as_str()),
+            Some("数据库")
+        );
 
         // 3) 失败 + 无缓存（不同 key）→ 原错误
-        let r = resolve_with_cache(&path, TABLE_CLASS, sid, Some("CODE_MISS"), Err("裸错误".to_string()));
+        let r = resolve_with_cache(
+            &path,
+            TABLE_CLASS,
+            sid,
+            Some("CODE_MISS"),
+            Err("裸错误".to_string()),
+        );
         assert_eq!(r.err().as_deref(), Some("裸错误"));
 
         // 4) 无学号 → 透传（不落缓存）：成功带 offline=false，失败原样
-        let r = resolve_with_cache(&path, TABLE_CLASS, None, Some("CODE1"), Ok(json!({ "x": 1 })))
-            .expect("无学号成功透传");
+        let r = resolve_with_cache(
+            &path,
+            TABLE_CLASS,
+            None,
+            Some("CODE1"),
+            Ok(json!({ "x": 1 })),
+        )
+        .expect("无学号成功透传");
         assert_eq!(r.get("offline"), Some(&Value::Bool(false)));
-        let r = resolve_with_cache(&path, TABLE_CLASS, None, Some("CODE_X"), Err("nope".to_string()));
+        let r = resolve_with_cache(
+            &path,
+            TABLE_CLASS,
+            None,
+            Some("CODE_X"),
+            Err("nope".to_string()),
+        );
         assert_eq!(r.err().as_deref(), Some("nope"));
 
         // 5) 直存域（课程域 entry_key=None）：成功写 / 失败读
-        let r = resolve_with_cache(&path, TABLE_COURSE, sid, None, Ok(json!({ "result": 1, "channelList": [] })))
-            .expect("课程域成功");
+        let r = resolve_with_cache(
+            &path,
+            TABLE_COURSE,
+            sid,
+            None,
+            Ok(json!({ "result": 1, "channelList": [] })),
+        )
+        .expect("课程域成功");
         assert_eq!(r.get("offline"), Some(&Value::Bool(false)));
-        let r = resolve_with_cache(&path, TABLE_COURSE, sid, None, Err("offline err".to_string()))
-            .expect("课程域缓存命中");
+        let r = resolve_with_cache(
+            &path,
+            TABLE_COURSE,
+            sid,
+            None,
+            Err("offline err".to_string()),
+        )
+        .expect("课程域缓存命中");
         assert_eq!(r.get("offline"), Some(&Value::Bool(true)));
         assert_eq!(r.get("result"), Some(&Value::from(1)));
 

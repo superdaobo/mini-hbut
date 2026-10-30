@@ -100,9 +100,12 @@ pub(super) async fn is_student_enrolled_in_clazz(
     // 离线降级：拉取失败（断网/会话失效）→ 用缓存的课程列表继续判定在班
     // 命中 → 返回判定结果（不再 None）；未命中 → 维持原语义 None（无法判断）
     if let Some(sid) = cache_student_id(client) {
-        if let Some((cached, _)) =
-            super::offline_cache::read_entry(crate::DB_FILENAME, super::offline_cache::TABLE_COURSE, &sid, None)
-        {
+        if let Some((cached, _)) = super::offline_cache::read_entry(
+            crate::DB_FILENAME,
+            super::offline_cache::TABLE_COURSE,
+            &sid,
+            None,
+        ) {
             let pairs = parse_backclazz_pairs(&cached);
             if !pairs.is_empty() {
                 return enrolled_from_pairs(&pairs, course_id, clazz_id);
@@ -113,7 +116,11 @@ pub(super) async fn is_student_enrolled_in_clazz(
 }
 
 /// 对课程列表做在班判定（在线 / 离线缓存两来源共用，语义一致）
-fn enrolled_from_pairs(pairs: &[(String, String)], course_id: &str, clazz_id: &str) -> Option<bool> {
+fn enrolled_from_pairs(
+    pairs: &[(String, String)],
+    course_id: &str,
+    clazz_id: &str,
+) -> Option<bool> {
     // 能成功解析接口：列表中须同时命中 course_id + clazz_id
     let enrolled = pairs.iter().any(|(c, z)| c == course_id && z == clazz_id);
     // 仅有 course 无 clazz 精确匹配时：同 course 也视为仍在课（退课通常两者都消失）
