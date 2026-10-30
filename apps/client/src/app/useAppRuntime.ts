@@ -203,6 +203,8 @@ export const useAppRuntime = () => {
     window.addEventListener(JWXT_MAINTENANCE_EVENT, handleMaintenanceEvent)
     window.addEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteModeEvent)
     window.addEventListener(REMOTE_CONFIG_UPDATED_EVENT, handleRemoteUpdatedEvent)
+    // #1146 E1：设备 online/offline 监听（离线→停无效轮询/快速失败；在线→即时恢复）
+    runtime.session.installNetworkStateListeners()
     state.mutable.removeHomeLayoutDiagnosticsErrorCapture = installHomeLayoutDiagnosticsErrorCapture()
     runtime.lifecycle.installResumeListeners()
     runtime.lifecycle.installCapacitorStateListener()
@@ -346,6 +348,8 @@ export const useAppRuntime = () => {
     window.removeEventListener(JWXT_MAINTENANCE_EVENT, handleMaintenanceEvent)
     window.removeEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteModeEvent)
     window.removeEventListener(REMOTE_CONFIG_UPDATED_EVENT, handleRemoteUpdatedEvent)
+    // #1146 E1：卸载 online/offline 监听（幂等）
+    runtime.session.removeNetworkStateListeners()
     runtime.lifecycle.dispose()
     runtime.session.stopSessionKeepAlive()
     runtime.session.stopElectricityKeepAlive()

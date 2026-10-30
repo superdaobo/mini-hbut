@@ -46,12 +46,28 @@ export type OnlineSessionState =
 
 export const normalizeIdentifier = (value: unknown): string => String(value ?? '').trim()
 
+/**
+ * 设备网络状态初始值：读取 `navigator.onLine`；
+ * SSR / 测试环境（无 navigator 或无 onLine 属性）按「在线」兜底，避免误判离线。
+ */
+const readInitialDeviceOnline = (): boolean => {
+  if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') return true
+  return navigator.onLine
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const studentId = ref('')
   const userUuid = ref('')
   const hydrated = ref(false)
   const onlineSessionState = ref<OnlineSessionState>('unknown')
   const isLoggedIn = computed(() => studentId.value.length > 0)
+
+  /**
+   * 设备网络在线状态（epic #1145 E1 / #1146）：初值取 `navigator.onLine`，
+   * 由 SessionCoordinator 的 window online/offline 监听实时驱动。
+   * Dashboard 等 UI 只读消费本字段（E2 阶段接入），不要直接在组件里读 navigator。
+   */
+  const deviceOnline = ref(readInitialDeviceOnline())
 
   /** 仅后端成功的登录/会话恢复可建立教师身份；入口选择只是表单偏好。 */
   const role = ref<IdentityRole>('student')
@@ -124,6 +140,7 @@ export const useAuthStore = defineStore('auth', () => {
     userUuid,
     hydrated,
     onlineSessionState,
+    deviceOnline,
     isLoggedIn,
     sessionVerified,
     verifiedStudentId,
