@@ -101,11 +101,13 @@
         </div>
 
         <div class="text-xs text-orange-700 mt-2 leading-relaxed">
-          {{ jwxtMaintenanceHint || (onlineSessionState === 'cached_offline' && jwxtRecoveryPhase === 'idle'
-            ? t('home.maint.hint.cachedOffline')
-            : (sessionStatusVisual === 'blink'
-              ? t('home.maint.hint.recovering')
-              : t('home.maint.hint.generic'))) }}
+          {{ isDeviceOffline
+            ? t('home.maint.hint.deviceOffline')
+            : (jwxtMaintenanceHint || (onlineSessionState === 'cached_offline' && jwxtRecoveryPhase === 'idle'
+              ? t('home.maint.hint.cachedOffline')
+              : (sessionStatusVisual === 'blink'
+                ? t('home.maint.hint.recovering')
+                : t('home.maint.hint.generic')))) }}
         </div>
 
         <div

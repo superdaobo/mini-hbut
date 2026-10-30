@@ -68,7 +68,59 @@ describe('Dashboard 今日安排个人日程契约 (#850)', () => {
     expect(vue).toContain('catch (_error) {')
     expect(vue).toContain('return []')
     expect(vue).toContain('SCHEDULE_EVENT_CHANGED_EVENT')
-    expect(vue).toContain("String(detail?.studentId || '').trim() !== String(props.studentId || '').trim()")
+    expect("String(detail?.studentId || '').trim() !== String(props.studentId || '').trim()")
     expect(vue).toContain('void fetchTodayCourses()')
+  })
+})
+
+describe('Dashboard 全局离线状态指示（E2 #1147，epic #1145）', () => {
+  const readLocale = (name: string) =>
+    readFileSync(new URL(`../utils/i18n/messages/${name}.ts`, import.meta.url), 'utf8')
+
+  it('deviceOnline=false 且已登录：横幅 title/phase 优先 deviceOffline 相位（先于所有会话恢复分支）', () => {
+    const vue = readVueContractSource('src/components/Dashboard.vue')
+    const titleBlock = vue.slice(vue.indexOf('const maintenanceTitle'), vue.indexOf('const maintenancePhaseLabel'))
+    const phaseBlock = vue.slice(vue.indexOf('const maintenancePhaseLabel'), vue.indexOf('const maintenanceNotices'))
+
+    // 离线相位分支必须存在且先于现有 cached_offline 分支（优先级保证）
+    expect(titleBlock.indexOf("t('home.maint.title.deviceOffline')")).toBeGreaterThan(-1)
+    expect(titleBlock.indexOf("t('home.maint.title.deviceOffline')")).toBeLessThan(titleBlock.indexOf("t('home.maint.title.cachedOffline')"))
+    expect(phaseBlock.indexOf("t('home.maint.phase.deviceOffline')")).toBeGreaterThan(-1)
+    expect(phaseBlock.indexOf("t('home.maint.phase.deviceOffline')")).toBeLessThan(phaseBlock.indexOf("t('home.maint.phase.cachedOffline')"))
+    // 离线相位仅在「已登录 && deviceOnline === false」时生效；未登录时维持现有行为
+    expect(vue).toContain('const isDeviceOffline = computed(() => props.isLoggedIn && authStore.deviceOnline === false)')
+  })
+
+  it('状态点：离线+已登录 → red（与失败态一致，不新增颜色）；在线时不进入新分支（原行为不变）', () => {
+    const vue = readVueContractSource('src/components/Dashboard.vue')
+    const dotBlock = vue.slice(vue.indexOf('const sessionStatusVisual'))
+    const guardIdx = dotBlock.indexOf("if (!props.isLoggedIn) return 'red'")
+    const offlineIdx = dotBlock.indexOf("if (authStore.deviceOnline === false) return 'red'")
+    expect(guardIdx).toBeGreaterThan(-1)
+    // 离线红点紧跟未登录守卫之后，先于在线会话状态分支
+    expect(offlineIdx).toBeGreaterThan(guardIdx)
+    expect(offlineIdx).toBeLessThan(dotBlock.indexOf("const online = String(onlineSessionState.value || '')"))
+  })
+
+  it('详情提示：deviceOffline 提示优先（含优先于父级 hint prop），在线时回落到原分支链', () => {
+    const vue = readVueContractSource('src/components/Dashboard.vue').replace(/\r\n/g, '\n')
+    expect(vue).toContain("{{ isDeviceOffline\n            ? t('home.maint.hint.deviceOffline')")
+    // 原分支链完整保留
+    expect(vue).toContain("t('home.maint.hint.cachedOffline')")
+    expect(vue).toContain("t('home.maint.hint.recovering')")
+    expect(vue).toContain("t('home.maint.hint.generic')")
+  })
+
+  it('三语新增 key 齐备且 zh 文案符合约定', () => {
+    const zh = readLocale('zh-CN')
+    const en = readLocale('en')
+    const ja = readLocale('ja')
+    for (const key of ['home.maint.title.deviceOffline', 'home.maint.phase.deviceOffline', 'home.maint.hint.deviceOffline']) {
+      expect(zh).toContain(`'${key}':`)
+      expect(en).toContain(`'${key}':`)
+      expect(ja).toContain(`'${key}':`)
+    }
+    expect(zh).toContain("'home.maint.title.deviceOffline': '当前离线',")
+    expect(zh).toContain("'home.maint.hint.deviceOffline': '当前离线 · 展示本地缓存数据 · 恢复网络后自动刷新',")
   })
 })
