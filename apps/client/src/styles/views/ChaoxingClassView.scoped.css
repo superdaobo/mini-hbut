@@ -216,6 +216,25 @@
   min-width: 0;
 }
 
+/* 离线降级横幅（E5/#1150）：列表/班级信息来自本地快照时提示 */
+.cx-offline-banner {
+  margin: 10px 16px 0;
+  padding: 8px 12px;
+  border-radius: var(--cx-radius);
+  background: var(--cx-surface-high);
+  color: var(--cx-on-var);
+  font-size: 12.5px;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cx-offline-banner .material-symbols-outlined {
+  font-size: 18px;
+  flex: none;
+}
+
 /* Sticky nimbus header */
 .cx-nimbus-head {
   position: sticky;

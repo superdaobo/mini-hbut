@@ -256,6 +256,28 @@ fn resolve_online_learning_student_id(
         .ok_or_else(|| "缺少 student_id，且当前未登录".to_string())
 }
 
+/// 离线缓存用学号（E5/#1150）：显式参数 > user_info > last_username；空则无缓存语义
+fn resolve_chaoxing_cache_student_id(client: &HbutClient, student_id: Option<&str>) -> Option<String> {
+    if let Some(raw) = student_id {
+        let sid = raw.trim();
+        if !sid.is_empty() {
+            return Some(sid.to_string());
+        }
+    }
+    client
+        .user_info
+        .as_ref()
+        .map(|info| info.student_id.clone())
+        .filter(|sid| !sid.trim().is_empty())
+        .or_else(|| {
+            client
+                .last_username
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
 #[tauri::command]
 #[cfg(feature = "mobile-full")]
 pub(crate) async fn online_learning_overview(
@@ -341,20 +363,32 @@ pub(crate) async fn chaoxing_class_ensure_sso(
 }
 
 /// 学习通班级：预览邀请码（不入班）
+/// 离线降级（E5/#1150）：成功 → 班级预览写缓存（信封 key=邀请码，offline=false）；
+/// 网络失败 → 命中缓存返回旧快照 + offline:true；未命中 → 原错误
 #[tauri::command]
 pub(crate) async fn chaoxing_class_preview_invite(
     state: State<'_, AppState>,
     req: ChaoxingClassInviteRequest,
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.write().await;
-    let preview = modules::chaoxing_class::preview_invite(
+    let sid = resolve_chaoxing_cache_student_id(&client, req.student_id.as_deref());
+    let cache_key = req.invite_code.trim().to_string();
+    // 在线解析邀请码（班级/课程元数据均来自学习通）
+    let result = modules::chaoxing_class::preview_invite(
         &mut client,
         &req.invite_code,
         req.portal_password.as_deref(),
     )
     .await
-    .map_err(|e| e.to_string())?;
-    Ok(serde_json::to_value(preview).unwrap_or_default())
+    .map(|preview| serde_json::to_value(preview).unwrap_or_default())
+    .map_err(|e| e.to_string());
+    modules::chaoxing_class::offline_cache::resolve_with_cache(
+        crate::DB_FILENAME,
+        modules::chaoxing_class::offline_cache::TABLE_CLASS,
+        sid.as_deref(),
+        Some(&cache_key),
+        result,
+    )
 }
 
 /// 学习通班级：接受邀请入班
@@ -374,13 +408,22 @@ pub(crate) async fn chaoxing_class_accept_invite(
 }
 
 /// 学习通班级：资料列表
+/// 离线降级（E5/#1150）：成功 → 目录快照写缓存（信封 key=课程:班级:类型:父目录，offline=false）；
+/// 网络失败（含 SSO 续期失败后的请求失败）→ 命中缓存返回旧快照 + offline:true；未命中 → 原错误
 #[tauri::command]
 pub(crate) async fn chaoxing_class_list_resources(
     state: State<'_, AppState>,
     req: ChaoxingClassResourcesRequest,
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.write().await;
-    modules::chaoxing_class::list_resources(
+    let sid = resolve_chaoxing_cache_student_id(&client, req.student_id.as_deref());
+    let cache_key = modules::chaoxing_class::offline_cache::resource_dir_key(
+        &req.course_id,
+        &req.clazz_id,
+        req.folder_kind.as_deref().unwrap_or(""),
+        req.parent_data_id.as_deref().unwrap_or(""),
+    );
+    let result = modules::chaoxing_class::list_resources(
         &mut client,
         &req.course_id,
         &req.clazz_id,
@@ -393,7 +436,14 @@ pub(crate) async fn chaoxing_class_list_resources(
         },
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string());
+    modules::chaoxing_class::offline_cache::resolve_with_cache(
+        crate::DB_FILENAME,
+        modules::chaoxing_class::offline_cache::TABLE_RESOURCE,
+        sid.as_deref(),
+        Some(&cache_key),
+        result,
+    )
 }
 
 /// 学习通 SSO 诊断（不含密码）

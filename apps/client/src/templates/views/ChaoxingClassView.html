@@ -57,6 +57,10 @@
 
       <!-- 已入班：Nimbus 资料列表 -->
       <template v-if="isJoined">
+        <div v-if="resourcesOffline" class="cx-offline-banner" role="status">
+          <span class="material-symbols-outlined" aria-hidden="true">cloud_off</span>
+          {{ tFmt('chaoxing.class.offlineBanner', { time: formatRelativeTime(resourcesSyncTime) }) }}
+        </div>
         <header class="cx-nimbus-head">
           <div class="cx-nimbus-title-row">
             <div class="cx-nimbus-titles">
@@ -212,6 +216,10 @@
 
       <!-- 未入班 -->
       <template v-else>
+        <div v-if="previewOffline" class="cx-offline-banner" role="status">
+          <span class="material-symbols-outlined" aria-hidden="true">cloud_off</span>
+          {{ tFmt('chaoxing.class.previewOfflineBanner', { time: formatRelativeTime(previewSyncTime) }) }}
+        </div>
         <section class="cx-welcome">
           <div class="cx-welcome-card">
             <div class="cx-welcome-badge">{{ t('chaoxing.class.welcomeBadge') }}</div>

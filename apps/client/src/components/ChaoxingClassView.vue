@@ -15,6 +15,7 @@ import { fetchRemoteConfig, getChaoxingClassConfig } from '../utils/remote_confi
 import { loadPortalRememberedPassword } from '../utils/credential_storage'
 import { pushDebugLog } from '../utils/debug_logger'
 import { showToast } from '../utils/toast'
+import { formatRelativeTime } from '../utils/time.js'
 // #792：学习通域文案英文化（t() 响应式取词，useLocale 解构）
 import { useLocale } from '../utils/app_i18n'
 import { TPageHeader } from './templates'
@@ -67,6 +68,12 @@ const ssoReady = ref(false)
 const ssoHint = ref('')
 const error = ref('')
 const statusMsg = ref('')
+/** 离线降级（E5/#1150）：资料列表来自本地快照时 true，横幅显示缓存时间 */
+const resourcesOffline = ref(false)
+const resourcesSyncTime = ref('')
+/** 离线降级（E5/#1150）：班级预览（未入班欢迎页）来自本地快照时 true */
+const previewOffline = ref(false)
+const previewSyncTime = ref('')
 const preview = ref(null)
 const resources = ref([])
 const activeClass = ref(null)
@@ -339,6 +346,9 @@ const fetchPreview = async () => {
       cover_url: String(res.cover_url || ''),
       cpi: String(res.cpi || defaultCpi())
     }
+    // 离线降级（E5/#1150）：预览命中本地快照时 welcome 页显示横幅
+    previewOffline.value = !!res.offline
+    previewSyncTime.value = String(res.sync_time || '')
     return preview.value
   } catch (e) {
     const msg = formatErr(e)
@@ -629,6 +639,9 @@ const loadResources = async (opts = {}) => {
     }
     const list = Array.isArray(res?.resources) ? res.resources : []
     resources.value = list.map(mapResourceItem)
+    // 离线降级（E5/#1150）：资料目录命中本地快照时列表区显示横幅
+    resourcesOffline.value = !!res?.offline
+    resourcesSyncTime.value = String(res?.sync_time || '')
     bootPhase.value = 'ready'
     statusMsg.value = resources.value.length
       ? tFmt('chaoxing.class.itemsTotal', { n: resources.value.length })

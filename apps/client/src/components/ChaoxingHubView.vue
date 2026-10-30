@@ -10,6 +10,7 @@
 import { onMounted, onUnmounted, watch } from 'vue'
 import { TPageHeader, TEmptyState, TStatusBadge } from './templates'
 import { formatDuration } from '../features/chaoxing/utils/normalize'
+import { formatRelativeTime } from '../utils/time.js'
 // #792：学习通域文案英文化（t() 响应式取词）
 import { useLocale } from '../utils/app_i18n'
 import { createChaoxingHubCore } from '../features/chaoxing/composables/useChaoxingHubCore'
@@ -80,6 +81,8 @@ const {
   totalPending,
   badgeType,
   badgeText,
+  listOffline,
+  listSyncTime,
   loadMoreSentinelRef,
   loadList,
   loadMoreCourses,
@@ -190,6 +193,11 @@ onUnmounted(() => {
             <div class="stat"><span>{{ t('chaoxing.hub.statPending') }}</span><b>{{ totalPending }}</b></div>
           </div>
           <p v-if="error" class="err">{{ error }}</p>
+          <!-- 离线降级（E5/#1150）：课程列表命中本地快照 -->
+          <div v-if="listOffline" class="offline-banner" role="status">
+            <span class="material-symbols-outlined" aria-hidden="true">cloud_off</span>
+            {{ tFmt('chaoxing.hub.offlineBanner', { time: formatRelativeTime(listSyncTime) }) }}
+          </div>
           <p
             v-if="filteredCourses.length > visibleCourses.length"
             class="hint"
