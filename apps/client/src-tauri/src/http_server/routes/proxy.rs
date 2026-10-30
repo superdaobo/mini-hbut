@@ -803,11 +803,12 @@ async fn towergo_proxy(
         request_builder = request_builder.body(body);
     }
 
-    let upstream = request_builder.send().await.map_err(|e| {
+    let upstream = request_builder.send().await.map_err(|_e| {
+        // epic #1145 E6：小塔代理上游不可达 = 网络层问题，给用户可读文案，不透传 reqwest 原始错误
         err(
             StatusCode::BAD_GATEWAY,
             "代理错误",
-            format!("小塔出行代理请求失败: {}", e),
+            "小塔出行服务当前不可用（需要网络连接）".to_string(),
         )
     })?;
 

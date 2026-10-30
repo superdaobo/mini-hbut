@@ -1675,6 +1675,7 @@ export const messages: Record<string, string> = {
   'library.reserve.mine.empty': '暂无预约记录',
   'library.reserve.mine.hint': '你还没有预约任何座位、静音仓或研讨室。',
   'library.reserve.mine.loading': '正在加载预约记录…',
+  'library.reserve.mine.offlineBanner': '当前显示为离线数据，更新于{time}',
   'library.reserve.mine.partialError': '部分记录加载失败，可刷新',
   'library.reserve.mine.refresh': '刷新',
   'library.reserve.mine.statusCancelled': '已取消',
@@ -2662,6 +2663,7 @@ export const messages: Record<string, string> = {
   'campuscode.error.qrRequest': '校园码请求失败',
   'campuscode.error.loadFailed': '校园码加载失败',
   'campuscode.error.configFailed': '校园码配置加载失败',
+  'campuscode.error.transport': '当前无法生成校园码（需要网络连接）',
 
   // —— identity 域（#795 批次 J：授权确认 / 设备管理 / 授权记录 / 扫码登录）——
   // ⚠️ 安全语义文案：翻译不得弱化警告强度；zh 值与迁移前硬编码文案逐字一致

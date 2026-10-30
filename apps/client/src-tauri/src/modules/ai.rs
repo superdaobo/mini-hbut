@@ -671,6 +671,16 @@ pub async fn hbut_ai_upload(
     upload_binary_file(&token, &blade_auth, bytes, &name, Some(mime)).await
 }
 
+/// epic #1145 E6：AI 助手传输层失败 → 用户可读文案（是网络问题，不是数据坏了）。
+/// 注：reqwest 0.12 中 DNS 失败归入 `Connect` 错误，`is_connect()` 已覆盖。
+pub(crate) fn ai_network_error_message(e: &reqwest::Error) -> String {
+    if e.is_connect() || e.is_timeout() {
+        "AI 助手需要网络连接".to_string()
+    } else {
+        e.to_string()
+    }
+}
+
 #[tauri::command]
 /// AI 对话入口
 pub async fn hbut_ai_chat(
@@ -742,9 +752,12 @@ pub async fn hbut_ai_chat(
         .form(&params)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ai_network_error_message(&e))?;
 
-    let text = response.text().await.map_err(|e| e.to_string())?;
+    let text = response
+        .text()
+        .await
+        .map_err(|e| ai_network_error_message(&e))?;
     Ok(parse_ai_stream_text(&text))
 }
 

@@ -161,7 +161,12 @@ const fetchCampusCodeConfig = async () => {
     if (!data?.success) {
       // #1114：用分类器提取可读 message，避免把 {kind,message} 对象直接当字符串
       const failure = classifyCampusCodeFailure(data)
-      throw new Error(failure.message || t('campuscode.error.configRequest'))
+      // epic #1145 E6：网络层失败（transport）→ 明确的「需要网络连接」文案，
+      // 不透传内部「请求发送失败」这类技术性措辞（断网时用户应知道是网络问题）
+      const message = failure.kind === 'transport'
+        ? t('campuscode.error.transport')
+        : (failure.message || t('campuscode.error.configRequest'))
+      throw new Error(message)
     }
     configData.value = data.resultData || {}
   } finally {
