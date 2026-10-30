@@ -7,6 +7,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { formatRelativeTime } from '../utils/time.js'
+import { tf } from '../utils/app_i18n'
 import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
@@ -31,6 +32,8 @@ const notice = ref('')
 const source = ref('')
 const demo = ref(false)
 const fetchedAt = ref('')
+const offline = ref(false)
+const syncTime = ref('')
 
 const panels = ref([])
 const messages = ref([])
@@ -134,6 +137,11 @@ const applyMeta = (payload) => {
   if (payload.error) {
     error.value = String(payload.error)
   }
+  // #1149: 离线快照标记（三个端点任一命中 SQLite 缓存即离线）
+  offline.value = !!(payload.offline ?? offline.value)
+  if (payload.syncTime || payload.sync_time) {
+    syncTime.value = String(payload.syncTime || payload.sync_time)
+  }
 }
 
 const fetchAll = async ({ force = false } = {}) => {
@@ -149,6 +157,8 @@ const fetchAll = async ({ force = false } = {}) => {
   }
   error.value = ''
   notice.value = ''
+  offline.value = false
+  syncTime.value = ''
 
   try {
     const [panelsRes, messagesRes, blocksRes] = await Promise.all([
@@ -262,6 +272,14 @@ onMounted(() => {
     </template>
 
     <template v-else>
+      <!-- 离线快照横幅（#1149）：live 失败回退 SQLite 缓存时显示 -->
+      <div
+        v-if="offline"
+        class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium"
+      >
+        {{ tf('smartOrientation.offlineBanner', { time: formatRelativeTime(syncTime) }) }}
+      </div>
+
       <div v-if="fetchedAt || notice || demo" class="so-banner mx-4 mt-2">
         <span>来源：{{ sourceLabel }}</span>
         <span v-if="fetchedAt"> · 更新于 {{ formatRelativeTime(fetchedAt) || fetchedAt }}</span>

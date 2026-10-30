@@ -74,6 +74,12 @@ pub struct OrientationPanelsResponse {
     pub notice: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// 离线快照标记（#1149）：true 表示来自 SQLite 缓存的旧数据
+    #[serde(default)]
+    pub offline: bool,
+    /// 离线快照的同步时间（#1149，缓存写入时刻，RFC3339）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -104,6 +110,12 @@ pub struct OrientationMessagesResponse {
     pub notice: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// 离线快照标记（#1149）
+    #[serde(default)]
+    pub offline: bool,
+    /// 离线快照的同步时间（#1149）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -188,6 +200,12 @@ pub struct OrientationProfileBlocksResponse {
     pub notice: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// 离线快照标记（#1149）
+    #[serde(default)]
+    pub offline: bool,
+    /// 离线快照的同步时间（#1149）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_time: Option<String>,
 }
 
 fn now_iso() -> String {
@@ -785,6 +803,8 @@ async fn fetch_live_bundle(
         } else {
             Some(errors.join("; "))
         },
+        offline: false,
+        sync_time: None,
     };
 
     let msgs = OrientationMessagesResponse {
@@ -794,6 +814,8 @@ async fn fetch_live_bundle(
         demo: false,
         notice: notice.clone(),
         error: None,
+        offline: false,
+        sync_time: None,
     };
 
     let mut panels = vec![
@@ -880,6 +902,8 @@ async fn fetch_live_bundle(
         } else {
             Some(errors.join("; "))
         },
+        offline: false,
+        sync_time: None,
     };
 
     Ok((blocks, msgs, panels_resp))
@@ -893,6 +917,8 @@ fn empty_panels(notice: &str, error: Option<&str>) -> OrientationPanelsResponse 
         demo: false,
         notice: Some(notice.into()),
         error: error.map(|s| s.into()),
+        offline: false,
+        sync_time: None,
     }
 }
 
@@ -904,6 +930,8 @@ fn empty_messages(notice: &str, error: Option<&str>) -> OrientationMessagesRespo
         demo: false,
         notice: Some(notice.into()),
         error: error.map(|s| s.into()),
+        offline: false,
+        sync_time: None,
     }
 }
 
@@ -918,6 +946,8 @@ fn empty_blocks(notice: &str, error: Option<&str>) -> OrientationProfileBlocksRe
         demo: false,
         notice: Some(notice.into()),
         error: error.map(|s| s.into()),
+        offline: false,
+        sync_time: None,
     }
 }
 
@@ -936,6 +966,8 @@ fn fixture_blocks() -> OrientationProfileBlocksResponse {
         demo: true,
         notice: Some("开发样例数据（MINI_HBUT_ORIENTATION_DEMO=1）".into()),
         error: None,
+        offline: false,
+        sync_time: None,
     }
 }
 
@@ -951,7 +983,78 @@ fn fixture_messages() -> OrientationMessagesResponse {
         demo: true,
         notice: Some("开发样例数据（MINI_HBUT_ORIENTATION_DEMO=1）".into()),
         error: None,
+        offline: false,
+        sync_time: None,
     }
+}
+
+// ─── #1149 SQLite 离线回退缓存 ──────────────────────────────
+
+/// 离线快照缓存表（epic #1145 基础层迁移，按 student_id 键控）
+const ORIENTATION_CACHE_TABLE: &str = "orientation_cache";
+
+/// 缓存键：优先登录用户名，其次学号——保证写/读两侧键一致。
+fn orientation_cache_key(client: &HbutClient) -> Option<String> {
+    client
+        .last_username
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            client
+                .user_info
+                .as_ref()
+                .map(|u| u.student_id.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// live 抓取成功 → 把 panels/messages/blocks 三件套持久化到 SQLite。
+///
+/// 缓存写失败仅告警（#578 语义：不拖垮成功的网络结果）。
+fn persist_bundle_cache(
+    db_path: &str,
+    client: &HbutClient,
+    blocks: &OrientationProfileBlocksResponse,
+    messages: &OrientationMessagesResponse,
+    panels: &OrientationPanelsResponse,
+) {
+    let Some(key) = orientation_cache_key(client) else {
+        return;
+    };
+    let payload = json!({
+        "blocks": blocks,
+        "messages": messages,
+        "panels": panels,
+    });
+    if let Err(e) = crate::db::save_cache(db_path, ORIENTATION_CACHE_TABLE, &key, &payload) {
+        crate::runtime_log::log_warn("SmartOrientation", format!("离线缓存写入失败: {e}"));
+    }
+}
+
+/// 网络失败 → 从 SQLite 读取上一次成功快照；未命中或解析失败返回 None，
+/// 由调用方继续走 demo/空面板路径（不回归现有兜底）。
+fn load_offline_bundle(
+    db_path: &str,
+    client: &HbutClient,
+) -> Option<(
+    OrientationProfileBlocksResponse,
+    OrientationMessagesResponse,
+    OrientationPanelsResponse,
+    String,
+)> {
+    let key = orientation_cache_key(client)?;
+    let (data, sync_time) = crate::db::get_cache(db_path, ORIENTATION_CACHE_TABLE, &key).ok()??;
+    let blocks = data
+        .get("blocks")
+        .and_then(|v| serde_json::from_value::<OrientationProfileBlocksResponse>(v.clone()).ok())?;
+    let messages = data
+        .get("messages")
+        .and_then(|v| serde_json::from_value::<OrientationMessagesResponse>(v.clone()).ok())?;
+    let panels = data
+        .get("panels")
+        .and_then(|v| serde_json::from_value::<OrientationPanelsResponse>(v.clone()).ok())?;
+    Some((blocks, messages, panels, sync_time))
 }
 
 // ─── Public API ─────────────────────────────────────────────
@@ -977,6 +1080,8 @@ async fn fetch_live_bundle_cached(
 
     let started = Instant::now();
     let (blocks, messages, panels) = fetch_live_bundle(client).await?;
+    // #1149: live 抓取成功 → 快照持久化到 SQLite，供下次失败时离线回退
+    persist_bundle_cache(crate::DB_FILENAME, client, &blocks, &messages, &panels);
     crate::runtime_log::log_info(
         "SmartOrientation",
         format!(
@@ -998,10 +1103,21 @@ async fn fetch_live_bundle_cached(
     Ok((blocks, messages, panels))
 }
 
-fn map_live_err_panels(e: String) -> Result<OrientationPanelsResponse, String> {
+fn map_live_err_panels(
+    db_path: &str,
+    client: &HbutClient,
+    e: String,
+) -> Result<OrientationPanelsResponse, String> {
     // 无本地密码时的会话错误仍向上抛，前端可提示重新登录
     if is_cas_session_error(&e) && e.contains("本地无可用密码") {
         return Err(e);
+    }
+    // #1149: SQLite 快照回退（offline:true + sync_time）；未命中继续走 demo/空面板
+    if let Some((_, _, panels, sync_time)) = load_offline_bundle(db_path, client) {
+        let mut p = panels;
+        p.offline = true;
+        p.sync_time = Some(sync_time);
+        return Ok(p);
     }
     if orientation_demo_allowed() {
         let blocks = fixture_blocks();
@@ -1062,6 +1178,8 @@ fn map_live_err_panels(e: String) -> Result<OrientationPanelsResponse, String> {
             demo: true,
             notice: Some(format!("live 失败，展示样例：{e}")),
             error: Some(e),
+            offline: false,
+            sync_time: None,
         });
     }
     Ok(empty_panels(
@@ -1073,7 +1191,7 @@ fn map_live_err_panels(e: String) -> Result<OrientationPanelsResponse, String> {
 pub async fn list_panels(client: &mut HbutClient) -> Result<OrientationPanelsResponse, String> {
     match fetch_live_bundle_cached(client).await {
         Ok((_, _, panels)) => Ok(panels),
-        Err(e) => map_live_err_panels(e),
+        Err(e) => map_live_err_panels(crate::DB_FILENAME, client, e),
     }
 }
 
@@ -1083,6 +1201,15 @@ pub async fn list_messages(client: &mut HbutClient) -> Result<OrientationMessage
         Err(e) => {
             if is_cas_session_error(&e) && e.contains("本地无可用密码") {
                 return Err(e);
+            }
+            // #1149: SQLite 快照回退
+            if let Some((_, messages, _, sync_time)) =
+                load_offline_bundle(crate::DB_FILENAME, client)
+            {
+                let mut m = messages;
+                m.offline = true;
+                m.sync_time = Some(sync_time);
+                return Ok(m);
             }
             if orientation_demo_allowed() {
                 let mut m = fixture_messages();
@@ -1102,6 +1229,14 @@ pub async fn profile_blocks(
         Err(e) => {
             if is_cas_session_error(&e) && e.contains("本地无可用密码") {
                 return Err(e);
+            }
+            // #1149: SQLite 快照回退
+            if let Some((blocks, _, _, sync_time)) = load_offline_bundle(crate::DB_FILENAME, client)
+            {
+                let mut b = blocks;
+                b.offline = true;
+                b.sync_time = Some(sync_time);
+                return Ok(b);
             }
             if orientation_demo_allowed() {
                 let mut b = fixture_blocks();
@@ -1214,5 +1349,114 @@ mod tests {
         let b = empty_blocks("n", None);
         assert!(b.profile.is_none());
         assert!(!b.demo);
+    }
+
+    // ─── #1149: SQLite 离线回退三态 ─────────────────────────
+
+    fn temp_orientation_db(label: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!("mini_hbut_orientation_{label}_{nanos}.db"));
+        let _ = std::fs::remove_file(&path);
+        crate::db::migrations::init_db(&path).expect("init temp db");
+        path
+    }
+
+    fn client_with_user(username: &str) -> HbutClient {
+        let mut client = HbutClient::new();
+        client.last_username = Some(username.to_string());
+        client
+    }
+
+    /// 态 1：live 成功 → 三件套按登录用户名写入 orientation_cache
+    #[test]
+    fn orientation_cache_success_writes_bundle() {
+        let path = temp_orientation_db("write");
+        let client = client_with_user("2510231001");
+        persist_bundle_cache(
+            path.to_str().unwrap(),
+            &client,
+            &empty_blocks("n", None),
+            &empty_messages("n", None),
+            &empty_panels("n", None),
+        );
+        let (data, sync_time) = crate::db::get_cache(&path, "orientation_cache", "2510231001")
+            .expect("get cache")
+            .expect("cache row exists");
+        assert!(!sync_time.is_empty());
+        let panels: OrientationPanelsResponse =
+            serde_json::from_value(data.get("panels").cloned().expect("panels field"))
+                .expect("panels payload");
+        assert_eq!(panels.notice.as_deref(), Some("n"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 态 2：网络失败 + 缓存命中 → 旧快照带 offline:true + sync_time
+    #[test]
+    fn orientation_cache_hit_on_failure_returns_offline_snapshot() {
+        let path = temp_orientation_db("hit");
+        let client = client_with_user("2510231002");
+        persist_bundle_cache(
+            path.to_str().unwrap(),
+            &client,
+            &empty_blocks("last", None),
+            &empty_messages("last", None),
+            &empty_panels("last", None),
+        );
+        let resp = map_live_err_panels(
+            path.to_str().unwrap(),
+            &client,
+            "网络请求失败: 请求超时".to_string(),
+        )
+        .expect("offline snapshot");
+        assert!(resp.offline);
+        assert!(resp.sync_time.is_some());
+        assert!(!resp.demo);
+        assert_eq!(resp.source, "empty"); // 快照原字段保留
+        assert_eq!(resp.notice.as_deref(), Some("last"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 态 3：网络失败 + 无缓存 → 保持原空面板路径（offline 恒 false、sync_time 无）
+    #[test]
+    fn orientation_cache_miss_on_failure_keeps_original_path() {
+        let _ = std::env::remove_var("MINI_HBUT_ORIENTATION_DEMO");
+        let path = temp_orientation_db("miss");
+        let client = client_with_user("2510231003");
+        let resp = map_live_err_panels(
+            path.to_str().unwrap(),
+            &client,
+            "网络请求失败: 请求超时".to_string(),
+        )
+        .expect("empty panels");
+        assert!(!resp.offline);
+        assert!(resp.sync_time.is_none());
+        assert!(!resp.demo);
+        assert_eq!(resp.source, "empty");
+        assert!(resp.panels.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 会话过期且无本地密码：即使有缓存也继续抛错（不掩盖重新登录需求）
+    #[test]
+    fn orientation_cache_still_requires_relogin_when_no_local_password() {
+        let path = temp_orientation_db("relogin");
+        let client = client_with_user("2510231004");
+        persist_bundle_cache(
+            path.to_str().unwrap(),
+            &client,
+            &empty_blocks("n", None),
+            &empty_messages("n", None),
+            &empty_panels("n", None),
+        );
+        let err = map_live_err_panels(
+            path.to_str().unwrap(),
+            &client,
+            "融合门户会话已过期，且本地无可用密码，请重新登录后再打开智慧迎新".to_string(),
+        );
+        assert!(err.is_err());
+        let _ = std::fs::remove_file(&path);
     }
 }

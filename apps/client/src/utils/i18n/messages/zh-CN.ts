@@ -3822,6 +3822,9 @@ export const messages: Record<string, string> = {
   'eval.confirm.noMoreAsk': '不再询问',
   'eval.confirm.submit': '确认提交',
 
+  // —— 智慧迎新（SmartOrientationView.vue）——
+  'smartOrientation.offlineBanner': '当前显示为离线数据，更新于{time}',
+
   // —— 配置工具（ConfigEditor.vue）——
   'config.back': '← 返回',
   'config.title': '配置工具',

@@ -3822,6 +3822,9 @@ export const messages: Record<string, string> = {
   'eval.confirm.noMoreAsk': 'Don\u2019t ask again',
   'eval.confirm.submit': 'Confirm submit',
 
+  // —— Smart Orientation (SmartOrientationView.vue) ——
+  'smartOrientation.offlineBanner': 'Showing offline data, updated {time}',
+
   // —— Config Editor (ConfigEditor.vue) ——
   'config.back': '← Back',
   'config.title': 'Config Tool',
