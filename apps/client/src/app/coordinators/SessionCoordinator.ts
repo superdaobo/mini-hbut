@@ -366,6 +366,9 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     if (isManualLogout()) {
       return false
     }
+    // #1146 E1：设备离线时立即失败 —— 不发起任何登录请求（单请求 30s HTTP 超时是
+    // 断网时恢复链的主要耗时来源），等网络恢复后由 online 事件即时重试
+    if (isDeviceOffline()) return false
     // #931：门户登录成功后 Rust 侧有 60s 冷却门（http_client/mod.rs 的
     // LOGIN_COOLDOWN），窗口内的重登必然被拒并产生 ERROR 日志与维护横幅噪音。
     // 已登记冷却时直接让路，并补一次「冷却结束即恢复」的调度。
@@ -557,6 +560,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
     if (!cookies) return
     if (!hasTauri) return
+    // #1146 E1：设备离线时整体跳过刷新 —— 不 invoke('refresh_session')（避免 30s 空等
+    // HTTP 超时），也不走失败分支（自动重登 / 恢复轮询）；网络恢复后由 online 事件
+    // 触发即时恢复（attemptOnlineRecovery）
+    if (isDeviceOffline()) {
+      console.warn('[Session] 设备离线，跳过本次会话刷新（等待网络恢复后即时重试）')
+      return
+    }
 
     try {
       await invoke('refresh_session')
@@ -672,6 +682,46 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     state.mutable.jwxtRecoveryInFlight = false
   }
 
+  // ── #1146 E1：设备 online/offline 监听 ────────────────────────────────────
+  // 由 useAppRuntime 在 onMounted 安装（installNetworkStateListeners 幂等）；
+  // offline → 停掉无效恢复轮询 + 记录离线态；online → 立即恢复（不等 65s 轮询）。
+  let networkListenersInstalled = false
+
+  const handleDeviceOffline = () => {
+    runtime.stores.auth.deviceOnline = false
+    // 离线期间 65s 恢复轮询每轮都是无效空等，先停掉（网络恢复后由 online 事件重新拉起）
+    if (state.studentId.value && !isManualLogout()) {
+      stopJwxtRecoveryPolling()
+    }
+  }
+
+  const handleDeviceOnline = () => {
+    runtime.stores.auth.deviceOnline = true
+    if (state.studentId.value && !isManualLogout()) {
+      // 网络恢复即恢复：立即跑一次完整恢复链（不等轮询周期）；失败则回落 65s 轮询
+      void attemptOnlineRecovery({ silent: true }).then((ok) => {
+        if (!ok) startJwxtRecoveryPolling()
+      })
+    }
+  }
+
+  const installNetworkStateListeners = () => {
+    if (typeof window === 'undefined') return
+    // 防重复注册：dev 环境组件重挂载 / 重复调用时只装一次
+    if (networkListenersInstalled) return
+    networkListenersInstalled = true
+    window.addEventListener('offline', handleDeviceOffline)
+    window.addEventListener('online', handleDeviceOnline)
+  }
+
+  const removeNetworkStateListeners = () => {
+    if (typeof window === 'undefined') return
+    if (!networkListenersInstalled) return
+    networkListenersInstalled = false
+    window.removeEventListener('offline', handleDeviceOffline)
+    window.removeEventListener('online', handleDeviceOnline)
+  }
+
   const attemptOnlineRecovery = async (options: { silent?: boolean } = {}) => {
     if (isTestAccountSession()) return restoreTestAccountSession()
     if (!hasTauri || isManualLogout()) return false
@@ -679,6 +729,17 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     // 避免「后台恢复」与「正在进行的登录」并发双请求
     if (isLoginInFlight()) return false
     if (state.mutable.jwxtRecoveryInFlight) return false
+    // #1146 E1：设备离线时立即失败 —— 不 invoke 任何网络命令（restore/login 都会空等
+    // 30s 超时）；非静默路径给出明确的离线语义横幅，静默路径（轮询/启动恢复）不弹
+    if (isDeviceOffline()) {
+      if (!options.silent) {
+        markJwxtMaintenance('当前设备已离线，网络恢复后自动重试。', {
+          phase: 'failed',
+          detail: '设备离线，无可用网络'
+        })
+      }
+      return false
+    }
     state.mutable.jwxtRecoveryInFlight = true
     // 在线会话状态：进入恢复即明确「正在后台恢复」（轮询 silent 也如实记录）
     state.onlineSessionState.value = 'recovering'
@@ -742,6 +803,9 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
   const startJwxtRecoveryPolling = () => {
     if (isTestAccountSession()) return
     if (isManualLogout() || !state.studentId.value) return
+    // #1146 E1：设备离线期间不启动 65s 恢复轮询（每轮都会空等超时）；
+    // 网络恢复时由 online 事件先做一次即时恢复，失败才回落到轮询
+    if (isDeviceOffline()) return
     stopJwxtRecoveryPolling()
     state.mutable.jwxtRecoveryTimer = window.setInterval(() => {
       attemptOnlineRecovery({ silent: true }).then((ok) => {
@@ -982,6 +1046,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
     ensureConfigAccess,
     startJwxtRecoveryPolling,
     stopJwxtRecoveryPolling,
+    installNetworkStateListeners,
+    removeNetworkStateListeners,
     markJwxtMaintenance,
     clearJwxtMaintenance,
     syncJwxtMaintenanceFromStorage,

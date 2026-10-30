@@ -126,6 +126,10 @@ export interface SessionCoordinator {
   ensureConfigAccess(): void
   startJwxtRecoveryPolling(): void
   stopJwxtRecoveryPolling(): void
+  /** #1146 E1：安装 window online/offline 监听（幂等；useAppRuntime onMounted 调用） */
+  installNetworkStateListeners(): void
+  /** #1146 E1：移除 window online/offline 监听（useAppRuntime onBeforeUnmount 调用） */
+  removeNetworkStateListeners(): void
   markJwxtMaintenance(hint?: string, options?: Record<string, unknown>): void
   clearJwxtMaintenance(): void
   syncJwxtMaintenanceFromStorage(): void
