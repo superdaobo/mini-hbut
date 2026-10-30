@@ -70,6 +70,8 @@ const emit = defineEmits([
 
 const maintenanceTitle = computed(() => {
   const phase = String(props.jwxtRecoveryPhase || '')
+  // E2 #1147：设备离线相位优先于一切会话恢复相位（离线时「正在恢复」文案有误导性）
+  if (isDeviceOffline.value) return t('home.maint.title.deviceOffline')
   // #659：本地身份已恢复但教务在线会话未恢复（尚未进入恢复轮询）
   if (onlineSessionState.value === 'cached_offline' && phase === 'idle') {
     return t('home.maint.title.cachedOffline')
@@ -82,6 +84,8 @@ const maintenanceTitle = computed(() => {
 
 const maintenancePhaseLabel = computed(() => {
   const phase = String(props.jwxtRecoveryPhase || '')
+  // E2 #1147：设备离线相位优先于一切会话恢复相位
+  if (isDeviceOffline.value) return t('home.maint.phase.deviceOffline')
   if (onlineSessionState.value === 'cached_offline' && phase === 'idle') return t('home.maint.phase.cachedOffline')
   if (phase === 'recovering') return t('home.maint.phase.recovering')
   if (phase === 'need_login') return t('home.maint.phase.needLogin')
@@ -123,6 +127,14 @@ const sessionDetailOpen = ref(false)
 const authStore = useAuthStore()
 const onlineSessionState = computed(() => authStore.onlineSessionState || '')
 /**
+ * 设备离线相位（E2 #1147，epic #1145）：`deviceOnline === false` 且已登录时，
+ * 横幅 title/phase/hint 统一切到「当前离线」文案，优先于 recovering/failed 等
+ * 会话恢复相位；未登录（!isLoggedIn）时维持现有行为。
+ * deviceOnline 由 E1 的 window online/offline 监听驱动，恢复网络后本相位自动退出，
+ * 横幅/状态点随现有状态机回到正常态。
+ */
+const isDeviceOffline = computed(() => props.isLoggedIn && authStore.deviceOnline === false)
+/**
  * 当前登录身份（`student` / `teacher`），供角色能力过滤使用。
  * 教师模式下首页需隐藏依赖学生专属教务接口的入口（否则点进去只会报错）。
  * 由 auth store 的 `isTeacher` 推导，保持单一事实源。
@@ -141,6 +153,9 @@ const isTeacherHome = computed(() => teacherHome.isTeacher.value)
 
 const sessionStatusVisual = computed(() => {
   if (!props.isLoggedIn) return 'red'
+  // E2 #1147：设备离线 → 与失败态一致的红点（不新增颜色）；
+  // deviceOnline === true 时不进入本分支，行为与现状 100% 一致
+  if (authStore.deviceOnline === false) return 'red'
   // #659：优先以「在线会话状态」为准 —— 缓存身份 ≠ 在线会话
   const online = String(onlineSessionState.value || '')
   if (online === 'online') return 'green'
