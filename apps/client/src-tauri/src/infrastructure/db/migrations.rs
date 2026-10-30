@@ -399,13 +399,13 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         "online_learning_yuketang_outline_cache",
         "online_learning_yuketang_progress_cache",
         // 离线降级覆盖（epic #1145）：invokeNative 模块的本地持久缓存表
-        "school_inbox_cache",           // 校邮列表
-        "school_inbox_detail_cache",    // 校邮详情
-        "orientation_cache",            // 智慧迎新（面板/消息/档案块）
-        "chaoxing_class_cache",         // 学习通班级
-        "chaoxing_course_cache",        // 学习通课程
-        "chaoxing_resource_cache",      // 学习通资料目录
-        "library_reservation_cache",    // 图书馆我的预约
+        "school_inbox_cache",        // 校邮列表
+        "school_inbox_detail_cache", // 校邮详情
+        "orientation_cache",         // 智慧迎新（面板/消息/档案块）
+        "chaoxing_class_cache",      // 学习通班级
+        "chaoxing_course_cache",     // 学习通课程
+        "chaoxing_resource_cache",   // 学习通资料目录
+        "library_reservation_cache", // 图书馆我的预约
     ];
 
     for table in cache_tables {
