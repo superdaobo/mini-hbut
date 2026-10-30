@@ -82,6 +82,53 @@ pub(super) async fn is_student_enrolled_in_clazz(
     if course_id.is_empty() || clazz_id.is_empty() {
         return None;
     }
+
+    // 在线拉取：成功后把课程列表（课程域）持久化，供离线判定与快照（E5/#1150）
+    if let Some((payload, pairs)) = fetch_backclazz_pairs(client).await {
+        if let Some(sid) = cache_student_id(client) {
+            let _ = super::offline_cache::resolve_with_cache(
+                crate::DB_FILENAME,
+                super::offline_cache::TABLE_COURSE,
+                Some(sid.as_str()),
+                None,
+                Ok(payload),
+            );
+        }
+        return enrolled_from_pairs(&pairs, course_id, clazz_id);
+    }
+
+    // 离线降级：拉取失败（断网/会话失效）→ 用缓存的课程列表继续判定在班
+    // 命中 → 返回判定结果（不再 None）；未命中 → 维持原语义 None（无法判断）
+    if let Some(sid) = cache_student_id(client) {
+        if let Some((cached, _)) = super::offline_cache::read_entry(
+            crate::DB_FILENAME,
+            super::offline_cache::TABLE_COURSE,
+            &sid,
+            None,
+        ) {
+            let pairs = parse_backclazz_pairs(&cached);
+            if !pairs.is_empty() {
+                return enrolled_from_pairs(&pairs, course_id, clazz_id);
+            }
+        }
+    }
+    None
+}
+
+/// 对课程列表做在班判定（在线 / 离线缓存两来源共用，语义一致）
+fn enrolled_from_pairs(
+    pairs: &[(String, String)],
+    course_id: &str,
+    clazz_id: &str,
+) -> Option<bool> {
+    // 能成功解析接口：列表中须同时命中 course_id + clazz_id
+    let enrolled = pairs.iter().any(|(c, z)| c == course_id && z == clazz_id);
+    // 仅有 course 无 clazz 精确匹配时：同 course 也视为仍在课（退课通常两者都消失）
+    Some(enrolled || pairs.iter().any(|(c, _)| c == course_id))
+}
+
+/// 拉取并解析 backclazzdata 课程列表（None = 网络/解析失败）
+async fn fetch_backclazz_pairs(client: &HbutClient) -> Option<(Value, Vec<(String, String)>)> {
     let url = "https://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1";
     let resp = client
         .client
@@ -115,11 +162,23 @@ pub(super) async fn is_student_enrolled_in_clazz(
         }
     }
     let pairs = parse_backclazz_pairs(&payload);
-    // 能成功解析接口：列表中须同时命中 course_id + clazz_id
-    let enrolled = pairs.iter().any(|(c, z)| c == course_id && z == clazz_id);
-    // 仅有 course 无 clazz 精确匹配时：同 course 也视为仍在课（退课通常两者都消失）
-    let enrolled = enrolled || pairs.iter().any(|(c, _)| c == course_id);
-    Some(enrolled)
+    Some((payload, pairs))
+}
+
+/// 离线缓存用学号（与 transport 层同一解析顺序：user_info > last_username）
+fn cache_student_id(client: &HbutClient) -> Option<String> {
+    client
+        .user_info
+        .as_ref()
+        .map(|u| u.student_id.clone())
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            client
+                .last_username
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 /// 确保门户 SSO → 学习通会话可用（走统一会话层，可静默续期，禁止 force 全量课程）。

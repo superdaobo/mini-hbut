@@ -464,6 +464,22 @@
   font-size: 13px;
   margin: 8px 0 0;
 }
+/* 离线降级横幅（E5/#1150）：课程列表来自本地快照时提示 */
+.offline-banner {
+  margin: 10px 12px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.offline-banner .material-symbols-outlined {
+  font-size: 16px;
+  flex: none;
+}
 .sem-scroll {
   display: flex;
   gap: 8px;
@@ -683,6 +699,10 @@ html.dark .crumb-btn {
   color: #60a5fa;
 }
 html.dark .crumb-btn.current {
+  color: #94a3b8;
+}
+html.dark .offline-banner {
+  background: #1e293b;
   color: #94a3b8;
 }
 html.dark .course-head,

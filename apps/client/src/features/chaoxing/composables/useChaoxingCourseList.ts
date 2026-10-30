@@ -25,6 +25,9 @@ export interface ChaoxingCourseList {
   totalPending: ComputedRef<number>
   badgeType: ComputedRef<'success' | 'warning' | 'muted'>
   badgeText: ComputedRef<string>
+  /** 离线降级（E5/#1150）：课程列表来自本地快照时 true，附缓存时间 */
+  listOffline: Ref<boolean>
+  listSyncTime: Ref<string>
   courseRenderLimit: Ref<number>
   loadMoreSentinelRef: Ref<HTMLElement | null>
   loadList: (options?: { silent?: boolean; force?: boolean }) => Promise<void>
@@ -39,6 +42,9 @@ export const useChaoxingCourseList = (core: ChaoxingHubCore): ChaoxingCourseList
   const activeSemester = ref('全部')
   const searchQuery = ref('')
   const statusMeta = ref<Record<string, unknown>>({})
+  /** 离线降级（E5/#1150）：课程列表为本地快照（offline:true）时列表区显示横幅 */
+  const listOffline = ref(false)
+  const listSyncTime = ref('')
   const courseRenderLimit = ref(core.isIOSLikeDevice ? IOS_PROGRESSIVE_FIRST_BATCH : INITIAL_COURSE_BATCH)
 
   const filteredCourses = computed(() => {
@@ -163,6 +169,9 @@ export const useChaoxingCourseList = (core: ChaoxingHubCore): ChaoxingCourseList
       if (core.mutable.disposed) return
       if (courseRes?.success === false) throw new Error(courseRes?.error || '课程列表失败')
       statusMeta.value = statusRes || {}
+      // 离线降级（E5/#1150）：后端 attach_sync_time 统一注入 offline/sync_time
+      listOffline.value = !!courseRes?.offline
+      listSyncTime.value = String(courseRes?.sync_time || '')
       let list: Array<Record<string, unknown>> = Array.isArray(courseRes?.courses) ? courseRes.courses : []
       // 数据规模防护：先记录数量摘要，超限截断，避免超大列表拖垮 iOS WebView
       pushDebugLog('ChaoxingHub', `课程原始数据 count=${list.length}`, 'info')
@@ -260,6 +269,8 @@ export const useChaoxingCourseList = (core: ChaoxingHubCore): ChaoxingCourseList
     totalPending,
     badgeType,
     badgeText,
+    listOffline,
+    listSyncTime,
     courseRenderLimit,
     loadMoreSentinelRef,
     loadList,

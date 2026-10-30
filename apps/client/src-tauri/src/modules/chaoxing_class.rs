@@ -7,6 +7,8 @@
 
 mod download;
 mod invite;
+/// 列表类只读数据 SQLite 持久缓存（epic #1145 E5 / issue #1150）
+pub(crate) mod offline_cache;
 mod parse;
 mod resource;
 mod session;
