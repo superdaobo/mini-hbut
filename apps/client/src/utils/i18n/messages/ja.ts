@@ -2433,6 +2433,8 @@ export const messages: Record<string, string> = {
   'notify.inbox.frontCheckError': 'フロントデスク検出: {error}',
   'notify.inbox.frontCheckOk': 'フロントデスク検出が利用可能 (合計 {source}、{total})',
   'notify.inbox.bgUnsupported': '現在の環境はバックグラウンド検出をサポートしていません（フォアグラウンドで検出できます）',
+  // #1148：オフラインフォールバックのバナー（ネットワーク失敗時に永続キャッシュのスナップショットを表示）
+  'notify.inbox.offlineBanner': 'オフラインデータを表示中です（{time} 更新）',
   // —— 学习通收件箱 ——
   'notify.cx.title': '受信箱',
   'notify.cx.clientOnly': 'クライアントの学習通信受信箱をご利用ください',

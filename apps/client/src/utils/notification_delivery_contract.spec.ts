@@ -287,6 +287,7 @@ describe('notification delivery contract', () => {
     const appSource = appSources()
     const uiSettings = readText('src/config/ui_settings.ts')
     const inboxView = readText('src/components/SchoolInboxView.vue')
+    const cxInboxView = readText('src/components/ChaoxingInboxView.vue')
     const homeSearch = readText('src/utils/home_search.js')
     const libSource = tauriTransportSources()
 
@@ -305,6 +306,11 @@ describe('notification delivery contract', () => {
     expect(libSource).toContain('school_inbox_mark_read')
     expect(homeSearch).toContain('school_inbox:')
     expect(readText('src/styles/dark-mode.css')).toContain('.school-inbox-page')
+    // #1148：离线回退横幅接线——两个收件箱视图在响应 offline:true 时展示 offlineBanner
+    expect(inboxView).toContain('notify.inbox.offlineBanner')
+    expect(inboxView).toContain('offline.value = response?.offline === true')
+    expect(cxInboxView).toContain('notify.inbox.offlineBanner')
+    expect(cxInboxView).toContain('offline.value = res?.offline === true')
   })
 
   it('filters read school inbox items before enqueueing notifications', () => {

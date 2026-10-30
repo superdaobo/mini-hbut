@@ -2435,6 +2435,8 @@ export const messages: Record<string, string> = {
   'notify.inbox.frontCheckError': '前台检测：{error}',
   'notify.inbox.frontCheckOk': '前台检测可用（{source}，共 {total} 条）',
   'notify.inbox.bgUnsupported': '当前环境不支持后台检测（前台可检测）',
+  // #1148：离线回退横幅（网络失败时展示持久缓存快照）
+  'notify.inbox.offlineBanner': '当前显示为离线数据，更新于{time}',
   // —— 学习通收件箱 ——
   'notify.cx.title': '收件箱',
   'notify.cx.clientOnly': '请在客户端内使用学习通收件箱',
