@@ -26,6 +26,9 @@ const detailLoading = ref(false)
 const error = ref('')
 const items = ref([])
 const selected = ref(null)
+// #1148：离线回退状态（后端网络失败 + 命中持久缓存快照时返回 offline:true + syncTime）
+const offline = ref(false)
+const offlineSyncTime = ref('')
 /** 学习通收件箱必须走 chaoxing 源；门户模式只会拉教务 tzsjx，过滤后恒为空 */
 const CHAOXING_LOGIN_MODE = 'chaoxing'
 
@@ -73,6 +76,9 @@ const fetchList = async ({ force = false } = {}) => {
     items.value = raw
       .map(normalizeItem)
       .filter((i) => i.source === 'chaoxing' || String(i.id).startsWith('chaoxing:'))
+    // #1148：后端离线快照（断网时命中 SQLite 持久缓存）→ 展示离线横幅
+    offline.value = res?.offline === true
+    offlineSyncTime.value = String(res?.syncTime || res?.sync_time || '')
     if (!items.value.length && res?.error) {
       error.value = String(res.error)
     }
@@ -82,6 +88,8 @@ const fetchList = async ({ force = false } = {}) => {
       'info'
     )
   } catch (e) {
+    offline.value = false
+    offlineSyncTime.value = ''
     error.value = String(e?.message || e || tLocale('notify.cx.loadFailed'))
     pushDebugLog('ChaoxingInbox', `inbox failed: ${error.value}`, 'error')
   } finally {
@@ -192,6 +200,10 @@ onMounted(fetchList)
     </TPageHeader>
 
     <div class="cx-inbox-body">
+      <!-- #1148：离线横幅（网络失败 + 持久缓存命中时，后端返回 offline:true + syncTime） -->
+      <p v-if="offline" class="cx-inbox-offline-banner">
+        {{ tf('notify.inbox.offlineBanner', { time: formatRelativeTime(offlineSyncTime) || offlineSyncTime }) }}
+      </p>
       <p v-if="unreadCount" class="cx-inbox-unread">{{ tf('notify.inbox.unreadCount', { n: unreadCount }) }}</p>
       <TEmptyState v-if="loading && !items.length" type="loading" :message="tLocale('notify.cx.loading')" />
       <TEmptyState v-else-if="error && !items.length" type="error" :message="error" />
@@ -262,6 +274,20 @@ onMounted(fetchList)
   margin: 0;
   font-size: 13px;
   color: var(--ui-muted, #64748b);
+}
+/* #1148：离线横幅（样式沿用本视图的 color-mix 设计语言） */
+.cx-inbox-offline-banner {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: color-mix(in oklab, #d97706 14%, transparent);
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+}
+html.dark .cx-inbox-offline-banner {
+  background: color-mix(in oklab, #d97706 22%, transparent);
+  color: #fcd34d;
 }
 .cx-inbox-btn {
   border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);

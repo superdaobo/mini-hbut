@@ -2434,6 +2434,8 @@ export const messages: Record<string, string> = {
   'notify.inbox.frontCheckError': 'Foreground check: {error}',
   'notify.inbox.frontCheckOk': 'Foreground check available ({source}, {total} in total)',
   'notify.inbox.bgUnsupported': 'Background check not supported (foreground check available)',
+  // #1148: offline fallback banner (shows the persisted cache snapshot when the network fails)
+  'notify.inbox.offlineBanner': 'Showing offline data, updated {time}',
   // —— Chaoxing inbox ——
   'notify.cx.title': 'Inbox',
   'notify.cx.clientOnly': 'Please use the Chaoxing inbox inside the client',

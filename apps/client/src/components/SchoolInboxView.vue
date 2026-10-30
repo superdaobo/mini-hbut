@@ -41,6 +41,9 @@ const items = ref([])
 const fetchedAt = ref('')
 const source = ref('')
 const selectedItem = ref(null)
+// #1148：离线回退状态（后端网络失败 + 命中持久缓存快照时返回 offline:true + syncTime）
+const offline = ref(false)
+const offlineSyncTime = ref('')
 
 const isInitialLoading = computed(() => loading.value && items.value.length === 0)
 // E3 #1023：教师身份 / 显式只读时，已读仅本地记录，绝不下发写请求。
@@ -147,10 +150,15 @@ const fetchMessages = async ({ force = false } = {}) => {
     items.value = list.map(normalizeItem).filter((item) => item.id)
     fetchedAt.value = String(response?.fetchedAt || response?.fetched_at || '')
     source.value = String(response?.source || list[0]?.source || '')
+    // #1148：后端离线快照（断网时命中 SQLite 持久缓存）→ 展示离线横幅
+    offline.value = response?.offline === true
+    offlineSyncTime.value = String(response?.syncTime || response?.sync_time || '')
     if (response?.error) {
       error.value = String(response.error)
     }
   } catch (err) {
+    offline.value = false
+    offlineSyncTime.value = ''
     error.value = err?.message || String(err) || tLocale('notify.inbox.fetchFailed')
   } finally {
     loading.value = false
@@ -346,6 +354,11 @@ onMounted(() => {
     <template v-else>
       <div v-if="fetchedAt" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-surface-container-low text-on-surface-variant text-xs">
         {{ tf('notify.inbox.sourceUpdated', { source: sourceLabel, time: formatRelativeTime(fetchedAt) || fetchedAt }) }}
+      </div>
+
+      <!-- #1148：离线横幅（网络失败 + 持久缓存命中时，后端返回 offline:true + syncTime） -->
+      <div v-if="offline" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium">
+        {{ tf('notify.inbox.offlineBanner', { time: formatRelativeTime(offlineSyncTime) || offlineSyncTime }) }}
       </div>
 
       <main class="flex-1 flex flex-col gap-3 p-4">

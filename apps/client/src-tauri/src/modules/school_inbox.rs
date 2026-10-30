@@ -7,6 +7,7 @@ use regex::Regex;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::future::Future;
 
 /// 学习通收件箱列表（type=2 = 我收到的通知）
 /// 分页：响应 `data.notices.lastGetId`，下一页带 `&lastGetId=`
@@ -18,6 +19,13 @@ const CHAOXING_NOTICE_MAX_PAGES: usize = 20;
 const CHAOXING_NOTICE_FAST_PAGES: usize = 3;
 /// 内存缓存 TTL（秒）
 const INBOX_CACHE_TTL_SECS: i64 = 180;
+
+/// 校邮列表 SQLite 缓存表（epic #1145 / #1148：离线回退持久快照）
+const SCHOOL_INBOX_CACHE_TABLE: &str = "school_inbox_cache";
+/// 校邮详情 SQLite 缓存表（信封 {message_id: {cachedAt, detail}}，上限保留最近 20 条）
+const SCHOOL_INBOX_DETAIL_CACHE_TABLE: &str = "school_inbox_detail_cache";
+/// 详情信封上限：超出按 cachedAt 淘汰最旧
+const DETAIL_ENVELOPE_MAX: usize = 20;
 
 static INBOX_CACHE: std::sync::OnceLock<
     std::sync::Mutex<Option<(i64, String, SchoolInboxResponse)>>,
@@ -50,6 +58,12 @@ pub struct SchoolInboxDetailResponse {
     pub created_at: String,
     pub is_read: bool,
     pub source: String,
+    /// #1148：本次响应是否为离线缓存快照（网络失败且命中持久信封时为 true）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offline: Option<bool>,
+    /// #1148：离线快照更新时间（RFC3339，offline=true 时存在）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +99,12 @@ pub struct SchoolInboxResponse {
     /// 本次返回条数（便于日志/诊断）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fetched_item_count: Option<u32>,
+    /// #1148：本次响应是否为离线缓存快照（网络失败且命中持久缓存时为 true；在线响应缺省不序列化）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offline: Option<bool>,
+    /// #1148：离线快照更新时间（RFC3339，offline=true 时存在）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_time: Option<String>,
 }
 
 fn looks_like_login_redirect(url: &str) -> bool {
@@ -651,6 +671,82 @@ pub async fn fetch_school_inbox_ex(
         }
     }
 
+    // #1148：「网络优先 + 缓存降级」（对照 application/academic.rs 的 offline 语义）。
+    // 180s 内存缓存（上方）保持热路径不动；SQLite 缓存键 = 学号，未登录/缺学号不写不降级。
+    let sqlite_key = client
+        .user_info
+        .as_ref()
+        .map(|u| u.student_id.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let resp = fetch_school_inbox_with_cache(crate::DB_FILENAME, sqlite_key, client, |client| {
+        fetch_inbox_network(client, use_chaoxing, source, force)
+    })
+    .await?;
+    // 只有在线网络结果写回内存热缓存；离线快照不进内存缓存（避免掩盖网络恢复）
+    if !matches!(resp.offline, Some(true)) {
+        if let Ok(mut guard) = inbox_cache().lock() {
+            *guard = Some((Local::now().timestamp(), cache_key, resp.clone()));
+        }
+    }
+    Ok(resp)
+}
+
+/// 校邮列表「网络优先 + 缓存降级」编排（#1148，对照 application/academic.rs 的 offline 语义）：
+/// - 网络成功 → 写快照入 SQLite 缓存（写失败仅告警、不拖垮网络结果，#578 语义），返回网络结果；
+/// - 网络失败 → 命中缓存则返回旧快照（附 `offline=true` + `sync_time`，结构沿用在线响应形）；
+/// - 网络失败且未命中缓存 → 原样返回错误。
+async fn fetch_school_inbox_with_cache<'a, F, Fut>(
+    db_path: &str,
+    cache_key: Option<String>,
+    client: &'a mut HbutClient,
+    network: F,
+) -> Result<SchoolInboxResponse, String>
+where
+    F: FnOnce(&'a mut HbutClient) -> Fut,
+    Fut: Future<Output = Result<SchoolInboxResponse, String>> + 'a,
+{
+    match network(client).await {
+        Ok(resp) => {
+            if let Some(key) = &cache_key {
+                if let Err(e) = crate::db::save_cache(
+                    db_path,
+                    SCHOOL_INBOX_CACHE_TABLE,
+                    key,
+                    &serde_json::to_value(&resp).unwrap_or(Value::Null),
+                ) {
+                    eprintln!(
+                        "[school_inbox] 列表缓存写入失败 key={key}: {e}（降级：返回网络结果）"
+                    );
+                }
+            }
+            Ok(resp)
+        }
+        Err(message) => {
+            // 网络失败：尝试读取旧快照（DB 读失败视同未命中，返回原网络错误）
+            if let Some(key) = &cache_key {
+                if let Ok(Some((cached, sync_time))) =
+                    crate::db::get_cache(db_path, SCHOOL_INBOX_CACHE_TABLE, key)
+                {
+                    // 命中：返回旧快照并标记 offline + 更新时间
+                    let mut snapshot: SchoolInboxResponse = serde_json::from_value(cached)
+                        .map_err(|e| format!("校邮缓存快照解析失败: {e}"))?;
+                    snapshot.offline = Some(true);
+                    snapshot.sync_time = Some(sync_time);
+                    return Ok(snapshot);
+                }
+            }
+            Err(message)
+        }
+    }
+}
+
+/// 校邮列表的网络抓取（门户 tzsjx 单页 / 学习通 getNoticeList 分页）。
+async fn fetch_inbox_network(
+    client: &mut HbutClient,
+    use_chaoxing: bool,
+    source: &str,
+    force: bool,
+) -> Result<SchoolInboxResponse, String> {
     let fetched_at = Local::now().to_rfc3339();
 
     let (items, complete, pages_fetched, truncated) = if use_chaoxing {
@@ -686,7 +782,7 @@ pub async fn fetch_school_inbox_ex(
     };
 
     let fetched_item_count = items.len() as u32;
-    let resp = SchoolInboxResponse {
+    Ok(SchoolInboxResponse {
         items,
         fetched_at,
         source: source.to_string(),
@@ -697,11 +793,9 @@ pub async fn fetch_school_inbox_ex(
         truncated,
         from_cache: Some(false),
         fetched_item_count: Some(fetched_item_count),
-    };
-    if let Ok(mut guard) = inbox_cache().lock() {
-        *guard = Some((Local::now().timestamp(), cache_key, resp.clone()));
-    }
-    Ok(resp)
+        offline: None,
+        sync_time: None,
+    })
 }
 
 async fn fetch_portal_detail_body(client: &HbutClient, raw_id: &str) -> Result<String, String> {
@@ -867,6 +961,10 @@ async fn mark_chaoxing_read(
 }
 
 /// 拉取单条学校消息详情（门户 showdetail / 学习通 getNotice）。
+///
+/// #1148：网络优先 + 缓存降级（对照列表编排）：
+/// - 网络成功 → 合并进详情信封（保留最近 20 条，写失败仅告警）；
+/// - 网络失败 → 命中信封返回旧快照（`offline=true` + `syncTime`），未命中返回原错误。
 pub async fn fetch_school_inbox_detail(
     client: &mut HbutClient,
     _login_mode: &str,
@@ -875,19 +973,55 @@ pub async fn fetch_school_inbox_detail(
 ) -> Result<SchoolInboxDetailResponse, String> {
     let (source, raw_id) =
         parse_normalized_item_id(item_id).ok_or_else(|| "无效的消息 ID".to_string())?;
+    // #1148：缓存键 = 学号；未登录/缺学号时不写信封、也不降级
+    let sid = client
+        .user_info
+        .as_ref()
+        .map(|u| u.student_id.trim().to_string())
+        .filter(|v| !v.is_empty());
 
-    let body = if source == "portal" {
-        fetch_portal_detail_body(client, &raw_id).await?
-    } else {
-        let sid = client
-            .user_info
-            .as_ref()
-            .map(|u| u.student_id.clone())
-            .unwrap_or_default();
-        if sid.trim().is_empty() {
-            return Err("缺少学号，无法获取学习通消息详情".into());
+    let network_result =
+        fetch_inbox_detail_network(client, &source, &raw_id, sid.as_deref(), item_id, fallback)
+            .await;
+
+    match network_result {
+        Ok(detail) => {
+            // 网络成功：合并进详情信封（保留最近 20 条）
+            if let Some(key) = &sid {
+                merge_and_save_detail_envelope(crate::DB_FILENAME, key, item_id, &detail);
+            }
+            Ok(detail)
         }
-        fetch_chaoxing_notice_detail(client, &sid, &raw_id)
+        Err(message) => {
+            // 网络失败：信封命中 → 离线快照；未命中 → 原错误
+            if let Some(key) = &sid {
+                if let Some(snapshot) =
+                    load_detail_offline_snapshot(crate::DB_FILENAME, key, item_id)
+                {
+                    return Ok(snapshot);
+                }
+            }
+            Err(message)
+        }
+    }
+}
+
+/// 单条学校消息详情的网络抓取（原函数主体，#1148 抽出供缓存编排调用）。
+async fn fetch_inbox_detail_network(
+    client: &mut HbutClient,
+    source: &str,
+    raw_id: &str,
+    sid: Option<&str>,
+    item_id: &str,
+    fallback: Option<SchoolInboxItem>,
+) -> Result<SchoolInboxDetailResponse, String> {
+    let body = if source == "portal" {
+        fetch_portal_detail_body(client, raw_id).await?
+    } else {
+        let sid = sid
+            .filter(|v| !v.trim().is_empty())
+            .ok_or_else(|| "缺少学号，无法获取学习通消息详情".to_string())?;
+        fetch_chaoxing_notice_detail(client, sid, raw_id)
             .await
             .or_else(|_| {
                 fallback
@@ -921,8 +1055,102 @@ pub async fn fetch_school_inbox_detail(
         body,
         created_at,
         is_read,
-        source,
+        source: source.to_string(),
+        offline: None,
+        sync_time: None,
     })
+}
+
+/// 把一条详情合并进信封并持久化（#1148）。
+///
+/// 信封结构 `{message_id: {cachedAt, detail}}`：serde_json 默认 Map 无插入序，
+/// 故按条目记录 cachedAt，超上限时按 cachedAt 淘汰最旧（见 `merge_detail_envelope`）。
+/// 写失败仅告警，不拖垮网络结果（#578 语义）。
+fn merge_and_save_detail_envelope(
+    db_path: &str,
+    key: &str,
+    message_id: &str,
+    detail: &SchoolInboxDetailResponse,
+) {
+    let existing = crate::db::get_cache(db_path, SCHOOL_INBOX_DETAIL_CACHE_TABLE, key)
+        .ok()
+        .flatten()
+        .map(|(value, _sync_time)| value);
+    let envelope = merge_detail_envelope(existing.as_ref(), message_id, detail);
+    if let Err(e) = crate::db::save_cache(db_path, SCHOOL_INBOX_DETAIL_CACHE_TABLE, key, &envelope)
+    {
+        eprintln!(
+            "[school_inbox] 详情缓存写入失败 key={key} id={message_id}: {e}（降级：返回网络结果）"
+        );
+    }
+}
+
+/// 详情信封合并（纯函数，单测对象）：插入/更新条目，只保留最近 `DETAIL_ENVELOPE_MAX` 条，
+/// 超出按 cachedAt 淘汰最旧（时间相同按 message_id 排序，保证确定性）。
+fn merge_detail_envelope(
+    envelope: Option<&Value>,
+    message_id: &str,
+    detail: &SchoolInboxDetailResponse,
+) -> Value {
+    let mut map: serde_json::Map<String, Value> = envelope
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
+    // 插入/更新：cachedAt 为该条目的「缓存时间」，用于淘汰顺序
+    map.insert(
+        message_id.to_string(),
+        serde_json::json!({
+            "cachedAt": Local::now().to_rfc3339(),
+            "detail": detail
+        }),
+    );
+
+    if map.len() > DETAIL_ENVELOPE_MAX {
+        let mut entries: Vec<(String, i64)> = map
+            .keys()
+            .map(|id| {
+                let ts = map
+                    .get(id)
+                    .and_then(|entry| entry.get("cachedAt"))
+                    .and_then(Value::as_str)
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.timestamp())
+                    .unwrap_or(i64::MIN);
+                (id.clone(), ts)
+            })
+            .collect();
+        entries.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        let excess = map.len() - DETAIL_ENVELOPE_MAX;
+        for (id, _) in entries.into_iter().take(excess) {
+            map.remove(&id);
+        }
+    }
+
+    Value::Object(map)
+}
+
+/// 从信封读取单条详情的离线快照：命中 → 附 `offline=true` + 信封行 syncTime 的响应；
+/// 未命中（或数据损坏/DB 读失败）→ None（由调用方返回原网络错误）。
+fn load_detail_offline_snapshot(
+    db_path: &str,
+    key: &str,
+    message_id: &str,
+) -> Option<SchoolInboxDetailResponse> {
+    let Ok(Some((envelope, sync_time))) =
+        crate::db::get_cache(db_path, SCHOOL_INBOX_DETAIL_CACHE_TABLE, key)
+    else {
+        return None;
+    };
+    let entry = envelope.get(message_id)?;
+    let detail_value = entry
+        .get("detail")
+        .cloned()
+        .unwrap_or_else(|| entry.clone());
+    let mut detail: SchoolInboxDetailResponse = serde_json::from_value(detail_value).ok()?;
+    detail.offline = Some(true);
+    detail.sync_time = Some(sync_time);
+    Some(detail)
 }
 
 /// 将单条学校消息标记为已读。
@@ -1207,6 +1435,8 @@ mod tests {
             truncated: Some(true),
             from_cache: Some(false),
             fetched_item_count: Some(150),
+            offline: Some(true),
+            sync_time: Some("2026-06-25T11:00:00+08:00".to_string()),
         };
         let v = serde_json::to_value(&resp).expect("应能序列化");
         // 新字段名（camelCase）与值
@@ -1215,6 +1445,9 @@ mod tests {
         assert_eq!(v.get("truncated"), Some(&json!(true)));
         assert_eq!(v.get("fromCache"), Some(&json!(false)));
         assert_eq!(v.get("fetchedItemCount"), Some(&json!(150)));
+        // #1148：离线快照字段
+        assert_eq!(v.get("offline"), Some(&json!(true)));
+        assert_eq!(v.get("syncTime"), Some(&json!("2026-06-25T11:00:00+08:00")));
         // 旧字段名与形态不变
         assert!(v.get("items").is_some());
         assert!(v.get("fetchedAt").is_some());
@@ -1232,6 +1465,8 @@ mod tests {
             truncated: None,
             from_cache: None,
             fetched_item_count: None,
+            offline: None,
+            sync_time: None,
         };
         let v2 = serde_json::to_value(&resp_none).expect("应能序列化");
         for key in [
@@ -1240,8 +1475,230 @@ mod tests {
             "truncated",
             "fromCache",
             "fetchedItemCount",
+            "offline",
+            "syncTime",
         ] {
             assert!(v2.get(key).is_none(), "None 字段 {key} 不应出现在 JSON 中");
         }
+    }
+
+    // ---- #1148（Epic #1145 E3）离线回退：列表三态编排 + 详情信封合并/淘汰 ----
+
+    /// 临时测试数据库（init_db 幂等建表；不依赖 HBUT_DB_PATH，路径显式传入）
+    fn temp_inbox_db(label: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!("mini_hbut_inbox_{label}_{nanos}.db"));
+        let _ = std::fs::remove_file(&path);
+        crate::db::init_db(&path).expect("测试数据库初始化失败");
+        path
+    }
+
+    fn sample_inbox_response(source: &str) -> SchoolInboxResponse {
+        SchoolInboxResponse {
+            items: vec![SchoolInboxItem {
+                id: "portal:tzsjx:abc".to_string(),
+                title: "期末考试安排".to_string(),
+                summary: "请同学们注意考试时间".to_string(),
+                body: "请同学们注意考试时间".to_string(),
+                created_at: "2026-06-25".to_string(),
+                is_read: false,
+                source: source.to_string(),
+                uuid: None,
+            }],
+            fetched_at: "2026-06-25T12:00:00+08:00".to_string(),
+            source: source.to_string(),
+            error: None,
+            complete: Some(true),
+            pages_fetched: Some(1),
+            truncated: Some(false),
+            from_cache: Some(false),
+            fetched_item_count: Some(1),
+            offline: None,
+            sync_time: None,
+        }
+    }
+
+    /// 列表三态①：网络成功 → 快照写入 SQLite 缓存，返回结果不带 offline 标记。
+    #[tokio::test]
+    async fn inbox_list_network_success_writes_cache_snapshot() {
+        let path = temp_inbox_db("list_ok");
+        let mut client = crate::http_client::HbutClient::new();
+        let resp = fetch_school_inbox_with_cache(
+            path.as_os_str().to_str().expect("路径应可转字符串"),
+            Some("2510231001".to_string()),
+            &mut client,
+            move |_| async { Ok(sample_inbox_response("portal")) },
+        )
+        .await
+        .expect("网络成功应返回网络结果");
+        assert_eq!(resp.offline, None);
+        assert_eq!(resp.sync_time, None);
+
+        // 缓存应已写入快照（roundtrip 读回）
+        let (cached, sync_time) =
+            crate::db::get_cache(&path, SCHOOL_INBOX_CACHE_TABLE, "2510231001")
+                .expect("读缓存失败")
+                .expect("缓存应存在");
+        let snapshot: SchoolInboxResponse =
+            serde_json::from_value(cached).expect("快照应可解析为响应结构");
+        assert_eq!(snapshot.source, "portal");
+        assert_eq!(snapshot.items.len(), 1);
+        assert!(!sync_time.is_empty(), "缓存行应带 sync_time");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 列表三态②：网络失败 + 命中缓存 → 返回旧快照，offline=true 且带 syncTime。
+    #[tokio::test]
+    async fn inbox_list_network_failure_with_cache_returns_offline_snapshot() {
+        let path = temp_inbox_db("list_offline");
+        let mut client = crate::http_client::HbutClient::new();
+        // 先一次网络成功写入缓存
+        fetch_school_inbox_with_cache(
+            path.as_os_str().to_str().expect("路径应可转字符串"),
+            Some("2510231002".to_string()),
+            &mut client,
+            move |_| async { Ok(sample_inbox_response("chaoxing")) },
+        )
+        .await
+        .expect("首次网络成功应写入缓存");
+        // 网络失败 → 降级返回旧快照
+        let resp = fetch_school_inbox_with_cache(
+            path.as_os_str().to_str().expect("路径应可转字符串"),
+            Some("2510231002".to_string()),
+            &mut client,
+            |_client| async { Err("教务通知请求失败: connection refused".to_string()) },
+        )
+        .await
+        .expect("命中缓存应降级成功");
+        assert_eq!(resp.offline, Some(true));
+        assert!(resp.sync_time.is_some(), "离线快照应带 syncTime");
+        assert_eq!(resp.source, "chaoxing");
+        assert_eq!(resp.items.len(), 1);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 列表三态③：网络失败且无缓存 → 返回原错误（不吞错误、不伪造快照）。
+    #[tokio::test]
+    async fn inbox_list_network_failure_without_cache_returns_error() {
+        let path = temp_inbox_db("list_no_cache");
+        let mut client = crate::http_client::HbutClient::new();
+        let result = fetch_school_inbox_with_cache(
+            path.as_os_str().to_str().expect("路径应可转字符串"),
+            Some("2510231003".to_string()),
+            &mut client,
+            |_client| async { Err("学习通通知请求失败: connection refused".to_string()) },
+        )
+        .await;
+        let message = result.expect_err("无缓存时应返回原错误");
+        assert!(message.contains("connection refused"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn sample_detail(id: &str, title: &str) -> SchoolInboxDetailResponse {
+        SchoolInboxDetailResponse {
+            id: id.to_string(),
+            title: title.to_string(),
+            body: "正文内容".to_string(),
+            created_at: "2026-06-25".to_string(),
+            is_read: false,
+            source: "chaoxing".to_string(),
+            offline: None,
+            sync_time: None,
+        }
+    }
+
+    /// 详情信封：合并后保留最近 20 条，超出按 cachedAt 淘汰最旧。
+    #[test]
+    fn detail_envelope_merge_caps_at_20_and_evicts_oldest() {
+        // 预置 20 条信封（cachedAt 递增：编号越小越旧）
+        let mut envelope: serde_json::Map<String, Value> = serde_json::Map::new();
+        for i in 0..20 {
+            let ts =
+                chrono::DateTime::parse_from_rfc3339(&format!("2026-10-29T00:{i:02}:00+08:00"))
+                    .expect("时间应可解析");
+            envelope.insert(
+                format!("chaoxing:notice:{i}"),
+                json!({
+                    "cachedAt": ts.to_rfc3339(),
+                    "detail": { "id": format!("chaoxing:notice:{i}") }
+                }),
+            );
+        }
+        let merged = merge_detail_envelope(
+            Some(&Value::Object(envelope)),
+            "chaoxing:notice:99",
+            &sample_detail("chaoxing:notice:99", "新消息"),
+        );
+        let obj = merged.as_object().expect("信封应为对象");
+        assert_eq!(obj.len(), DETAIL_ENVELOPE_MAX, "超上限应淘汰至 20 条");
+        assert!(obj.contains_key("chaoxing:notice:99"), "新条目应保留");
+        assert!(!obj.contains_key("chaoxing:notice:0"), "最旧条目应被淘汰");
+        assert!(obj.contains_key("chaoxing:notice:19"), "次新条目应保留");
+    }
+
+    /// 详情信封：同一 message_id 再次合并 → 原地更新（条数不变、内容取新值）。
+    #[test]
+    fn detail_envelope_remerge_updates_in_place() {
+        let env = merge_detail_envelope(
+            None,
+            "portal:tzsjx:a",
+            &sample_detail("portal:tzsjx:a", "v1"),
+        );
+        let env = merge_detail_envelope(
+            Some(&env),
+            "portal:tzsjx:a",
+            &sample_detail("portal:tzsjx:a", "v2"),
+        );
+        let obj = env.as_object().expect("信封应为对象");
+        assert_eq!(obj.len(), 1, "重复合并不得增加条目");
+        assert_eq!(
+            obj.get("portal:tzsjx:a")
+                .and_then(|entry| entry.pointer("/detail/title"))
+                .and_then(Value::as_str),
+            Some("v2")
+        );
+    }
+
+    /// 详情信封：既有数据损坏（非对象）→ 重建空信封，不 panic。
+    #[test]
+    fn detail_envelope_corrupt_existing_starts_fresh() {
+        let merged = merge_detail_envelope(
+            Some(&json!("garbage")),
+            "portal:tzsjx:x",
+            &sample_detail("portal:tzsjx:x", "x"),
+        );
+        assert_eq!(merged.as_object().map(|m| m.len()), Some(1));
+    }
+
+    /// 详情信封：完整落库 roundtrip —— 合并持久化后，离线读取命中并附 offline/syncTime。
+    #[tokio::test]
+    async fn detail_envelope_roundtrip_and_offline_read() {
+        let path = temp_inbox_db("detail_rt");
+        merge_and_save_detail_envelope(
+            path.as_os_str().to_str().expect("路径应可转字符串"),
+            "2510231004",
+            "chaoxing:notice:77",
+            &sample_detail("chaoxing:notice:77", "通知"),
+        );
+        let snapshot = load_detail_offline_snapshot(
+            path.as_os_str().to_str().expect("路径应可转字符串"),
+            "2510231004",
+            "chaoxing:notice:77",
+        )
+        .expect("已缓存的详情应能读出离线快照");
+        assert_eq!(snapshot.offline, Some(true));
+        assert!(snapshot.sync_time.is_some());
+        assert_eq!(snapshot.title, "通知");
+        // 未缓存的 id → None（调用方将返回原网络错误）
+        assert!(load_detail_offline_snapshot(
+            path.as_os_str().to_str().expect("路径应可转字符串"),
+            "2510231004",
+            "chaoxing:notice:999"
+        )
+        .is_none());
+        let _ = std::fs::remove_file(&path);
     }
 }
