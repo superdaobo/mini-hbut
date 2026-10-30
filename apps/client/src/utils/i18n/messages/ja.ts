@@ -3820,6 +3820,9 @@ export const messages: Record<string, string> = {
   'eval.confirm.noMoreAsk': '二度と聞かないでください',
   'eval.confirm.submit': '提出の確認',
 
+  // —— 智慧迎新（SmartOrientationView.vue）——
+  'smartOrientation.offlineBanner': '現在オフライン データとして表示されており、{time} で更新されます',
+
   // —— 配置工具（ConfigEditor.vue）——
   'config.back': '← 戻る',
   'config.title': '設定ツール',
