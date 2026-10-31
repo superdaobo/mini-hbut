@@ -17,6 +17,9 @@ export interface CacheResult<T = unknown> {
   timestamp: number
   stale?: boolean
   demo?: boolean
+  // P0-1（#1158）：离线且无可用 JS 缓存时，fetchWithCache 返回的标准空态标记。
+  // 视图据此渲染「离线且暂无缓存数据」的可读态（common.offline.noCache），而非原始错误。
+  offlineNoCache?: boolean
 }
 
 export interface FetchWithCacheOptions {
@@ -73,6 +76,16 @@ const EXTRA_LONG_TTL = 7 * 24 * 60 * 60 * 1000
 const SHORT_TTL = 30 * 1000 // 30秒，用于需要频繁更新的数据
 const MAX_LOCAL_CACHE_ENTRIES = 220
 const MAX_LOCAL_CACHE_VALUE_BYTES = 180 * 1024
+// P0-1（#1158）：离线快速路径下 /api 上游请求的超时上限。
+// 真断网时上游通常失败很快；弱网时 10s 内拿不到也判「离线空态」，避免 30–90s 假死。
+const OFFLINE_REMOTE_TIMEOUT_MS = 10_000
+
+// P0-1（#1158）：判断浏览器是否离线。SSR/Node 等无 navigator 的环境视为在线（返回 false），
+// 从而让 fetchWithCache 在这些环境逐字节保持原有行为，不进入离线快速路径。
+const isBrowserOffline = (): boolean => {
+  if (typeof navigator === 'undefined' || !navigator) return false
+  return navigator.onLine === false
+}
 
 const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
 const JWXT_MAINTENANCE_TIME_KEY = 'hbu_jwxt_maintenance_time'
@@ -842,6 +855,83 @@ export async function fetchWithCache<T extends ApiPayload>(
       demo: true
     }
   }
+  // P0-1（#1158）离线快速路径：断网时立即返回 JS 缓存或标准离线空态，不发起/不等待长超时请求，
+  // 消除「从未在线打开的模块断网 → 报错页」与「弱网 → 30–90s 假死」两类问题。
+  // 在线（navigator.onLine !== false 或无 navigator）时本分支整体跳过，原有行为逐字节不变。
+  if (isBrowserOffline()) {
+    const offlineStart = Date.now()
+    // 1) fresh 缓存命中：按普通缓存结果返回（与在线 fresh 分支一致，不带额外离线元数据）。
+    const fresh = getCachedData<T>(key, Number(ttl))
+    if (fresh) {
+      recordRequestMetric(key, { source: 'offline-fresh', start: offlineStart, priority })
+      return { ...fresh, fromCache: true }
+    }
+    // 2) 无 fresh 但有 stale（含 forceRemote 场景）：立即返回 stale + offline 元数据，不发起网络请求。
+    const stale = getBestCachedEntry<T>(key)
+    if (stale) {
+      recordRequestMetric(key, { source: 'offline-stale', start: offlineStart, stale: true, priority })
+      return {
+        data: withOfflineMeta(stale.data, stale.timestamp),
+        fromCache: true,
+        timestamp: stale.timestamp,
+        stale: true
+      }
+    }
+    // 3) 完全无 JS 缓存：短超时（≤10s）请求 /api——真断网时 Rust 上游失败快，可读到 grades.db
+    //    快照返回 offline payload；超时/网络异常则不 throw，返回标准「离线且无缓存」空态（P0-2 视图渲染）。
+    const effectiveTimeout =
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? Math.min(OFFLINE_REMOTE_TIMEOUT_MS, timeoutMs)
+        : OFFLINE_REMOTE_TIMEOUT_MS
+    const offlineFetcher = withTimeout(fetcher, effectiveTimeout, `fetchWithCache:offline:${key}`)
+    try {
+      const data = await offlineFetcher()
+      // 成功且非离线：与在线成功分支一致，写缓存后返回。
+      if (data && data.success && !data.offline) {
+        setCachedData(key, data)
+        if (isJwxtCacheKey(key)) {
+          clearMaintenanceFlag()
+        }
+        recordRequestMetric(key, { source: 'remote', start: offlineStart, priority })
+        return { data, fromCache: false, timestamp: Date.now() }
+      }
+      // 成功且为离线快照：复用现有 :907 逻辑（cacheOfflinePayload 时写入缓存），避免重复失败。
+      if (data && data.success && data.offline && requestOptions.cacheOfflinePayload) {
+        const { offline: _drop, ...cacheable } = data
+        setCachedData(key, cacheable)
+        recordRequestMetric(key, {
+          source: 'remote-offline',
+          start: offlineStart,
+          priority,
+          error: asApiPayload(data).error || asApiPayload(data).msg || asApiPayload(data).message || 'offline-payload'
+        })
+        return { data, fromCache: false, timestamp: Date.now() }
+      }
+      // 成功但为业务失败响应：原样交回上层（离线且无缓存时视图据此显示可读态）。
+      recordRequestMetric(key, {
+        source: 'remote',
+        start: offlineStart,
+        priority,
+        error: asApiPayload(data).error || asApiPayload(data).msg || asApiPayload(data).message || 'offline-unsuccessful'
+      })
+      return { data, fromCache: false, timestamp: Date.now() }
+    } catch (error) {
+      // 401/403/会话失效不吞：与在线行为一致地抛出，交由上层处理登录态。
+      if (isSessionInvalidError(error)) {
+        recordRequestMetric(key, { source: 'remote', start: offlineStart, priority, error: errorMessage(error) })
+        throw error
+      }
+      // P0-1 标准离线空态：离线且无可用缓存。不 throw——视图据此渲染「离线且暂无缓存数据」可读态（#1158 P0-2）。
+      recordRequestMetric(key, { source: 'remote', start: offlineStart, priority, error: errorMessage(error) })
+      return {
+        data: { success: true, offline: true, noCache: true } as unknown as T,
+        fromCache: false,
+        timestamp: Date.now(),
+        offlineNoCache: true
+      }
+    }
+  }
+
   const maintenanceMode = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
   const cached = forceRemote ? null : getCachedData<T>(key, Number(ttl))
 
