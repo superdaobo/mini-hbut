@@ -7,6 +7,8 @@ import {
   useUpdateStore
 } from '../stores'
 import type { AppHandlers, AppRuntime, AppStores } from './contracts/runtime'
+// #1158 P1：后台缓存预热（在线时静默预取核心只读模块缓存）
+import { maybeRunCacheWarmup } from '../utils/cache_warmup.js'
 import { createAppState } from './state/appState'
 import { createNavigationCoordinator } from './coordinators/NavigationCoordinator'
 import { createSessionCoordinator } from './coordinators/SessionCoordinator'
@@ -205,6 +207,13 @@ export const useAppRuntime = () => {
     window.addEventListener(REMOTE_CONFIG_UPDATED_EVENT, handleRemoteUpdatedEvent)
     // #1146 E1：设备 online/offline 监听（离线→停无效轮询/快速失败；在线→即时恢复）
     runtime.session.installNetworkStateListeners()
+    // #1158 P1：后台缓存预热——首次在线加载时 fire-and-forget 触发（在线判定取 E1 的
+    // deviceOnline 单一事实源）。maybeRunCacheWarmup 内部已门控（已登录 + 非限频窗口 + 在线）
+    // 并吞掉所有错误，此处仅触发，不阻塞首屏。
+    void maybeRunCacheWarmup({
+      studentId: state.studentId.value,
+      isOnline: () => !!stores.auth.deviceOnline
+    }).catch(() => {})
     state.mutable.removeHomeLayoutDiagnosticsErrorCapture = installHomeLayoutDiagnosticsErrorCapture()
     runtime.lifecycle.installResumeListeners()
     runtime.lifecycle.installCapacitorStateListener()
@@ -339,6 +348,17 @@ export const useAppRuntime = () => {
     recordBootStage('runtime-ready', { current_view: state.currentView.value })
     console.timeEnd('[Boot] total')
   })
+
+  // #1158 P1：后台缓存预热——触发点②（网络恢复）：监听 E1 的 deviceOnline（单一事实源），
+  // false→true（online 事件驱动）时 fire-and-forget 触发；maybeRunCacheWarmup 内部已门控
+  // （已登录 + 非测试账号 + 非限频窗口）并吞错。首次在线加载由上方 onMounted 触发（触发点①）。
+  watch(
+    () => stores.auth.deviceOnline,
+    (online) => {
+      if (!online) return
+      void maybeRunCacheWarmup({ studentId: state.studentId.value, isOnline: () => true }).catch(() => {})
+    }
+  )
 
   onBeforeUnmount(() => {
     setAppStoreSessionVerifier(null)
