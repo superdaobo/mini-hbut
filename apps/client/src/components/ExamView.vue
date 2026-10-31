@@ -35,6 +35,9 @@ const selectedSemester = ref('')
 const currentSemester = ref('')
 const offline = ref(false)
 const syncTime = ref('')
+const offlineNoCache = ref(false)
+// P0-2（#1158）：设备是否离线（无 navigator 的环境视为在线）。
+const isDeviceOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false
 const resolveExamSyncTime = (data) => {
   const explicit = String(data?.sync_time || data?.updated_at || data?.timestamp || '').trim()
   if (explicit) return explicit
@@ -203,6 +206,7 @@ const fetchExams = async (options = {}) => {
   if (!staleApplied || !options.keepOfflineBanner) {
     offline.value = false
     syncTime.value = ''
+    offlineNoCache.value = false
   }
   
   try {
@@ -215,6 +219,13 @@ const fetchExams = async (options = {}) => {
     }, undefined, { forceRemote: true, priority: 'foreground' })
     
     if (requestSeq !== examRequestSeq) return
+    // P0-1 标准离线空态（离线且无缓存）：渲染可读态，不进入原始错误分支。
+    if (data?.noCache) {
+      exams.value = []
+      offlineNoCache.value = true
+      error.value = ''
+      return
+    }
     if (data?.success) {
       exams.value = data.data || []
       offline.value = !!data.offline
@@ -249,6 +260,13 @@ const fetchExams = async (options = {}) => {
     }
   } catch (e) {
     if (requestSeq !== examRequestSeq) return
+    // P0-2（#1158）：离线时的抛出 → 可读离线态（不显示原始错误）。
+    if (isDeviceOffline()) {
+      exams.value = []
+      offlineNoCache.value = true
+      error.value = ''
+      return
+    }
     error.value = e.response?.data?.error || t('exam.error.network')
   } finally {
     if (requestSeq === examRequestSeq) {
@@ -324,6 +342,12 @@ onBeforeUnmount(() => {
       <!-- Content Area -->
       <section class="flex flex-col gap-4">
         <TEmptyState v-if="isInitialLoading" type="loading" :message="t('exam.loading')" />
+        <!-- P0-2（#1158）离线且无缓存：复用离线横幅配色，渲染可读离线态（非原始错误） -->
+        <div v-else-if="offlineNoCache" class="mx-4 mt-2 px-4 py-8 rounded-xl bg-error-container/60 text-on-error-container flex flex-col items-center gap-2 text-center">
+          <span class="material-symbols-outlined text-4xl">cloud_off</span>
+          <p class="text-sm font-medium leading-relaxed">{{ t('common.offline.noCache') }}</p>
+          <button class="mt-1 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchExams">{{ t('common.retry') }}</button>
+        </div>
         <TEmptyState v-else-if="error" type="error" :message="error">
           <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchExams">{{ t('common.retry') }}</button>
         </TEmptyState>

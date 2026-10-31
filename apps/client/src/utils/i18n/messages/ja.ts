@@ -1047,6 +1047,7 @@ export const messages: Record<string, string> = {
   'common.error.network': 'ネットワークエラー',
   'common.no': 'いいえ',
   'common.offline.prefix': '現在オフライン データとして表示されており、更新日に更新されます',
+  'common.offline.noCache': '現在はオフラインで、キャッシュされたデータがありません。オンラインになると自動的に読み込まれます。',
   'common.yes': 'はい',
   // —— #910 漂流瓶（実 UI；#905 のプレースホルダー key は公開に伴い削除）——
   'gameCenter.drift.bottle.anonymous': '匿名の学生',

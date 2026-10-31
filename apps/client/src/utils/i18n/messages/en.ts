@@ -1048,6 +1048,7 @@ export const messages: Record<string, string> = {
   'common.error.network': 'Network error',
   'common.no': 'No',
   'common.offline.prefix': 'Currently showing offline data, updated',
+  'common.offline.noCache': "You're offline and no cached data is available. It will load automatically when back online.",
   'common.yes': 'Yes',
   // —— #910 Drift bottles (real UI; #905 placeholder keys removed with delivery) ——
   'gameCenter.drift.bottle.anonymous': 'Anonymous classmate',

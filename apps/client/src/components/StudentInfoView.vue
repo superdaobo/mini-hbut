@@ -33,6 +33,9 @@ const accessLoading = ref(false)
 const error = ref('')
 const infoError = ref('')
 const accessError = ref('')
+// P0-2（#1158）：离线且无缓存时的可读态标记（基本信息 / 登录访问记录各自独立）
+const infoNoCache = ref(false)
+const accessNoCache = ref(false)
 const orientationError = ref('')
 const orientationNotice = ref('')
 const orientationLoading = ref(false)
@@ -181,7 +184,11 @@ const normalizeLoginAccess = (payload, fallbackPage = 1, fallbackPageSize = 10) 
   }
 }
 
+// P0-2（#1158）：设备是否离线（无 navigator 的环境视为在线）。
+const isDeviceOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false
+
 const fetchStudentInfo = async (force = false) => {
+  infoNoCache.value = false
   try {
     const result = await fetchWithCache(
       `studentinfo:${props.studentId}`,
@@ -195,6 +202,12 @@ const fetchStudentInfo = async (force = false) => {
       { cacheOfflinePayload: true, forceRemote: force }
     )
     const data = result?.data
+    // P0-1 标准离线空态（离线且无缓存）：渲染可读态，不显示原始错误。
+    if (data?.noCache) {
+      infoNoCache.value = true
+      infoError.value = ''
+      return { ...data, _noCache: true }
+    }
     if (data?.success) {
       info.value = data.data || {}
       infoError.value = ''
@@ -215,6 +228,7 @@ const fetchLoginAccess = async (page = accessPage.value, pageSize = accessPageSi
   const normalizedPageSize = pageSizeOptions.includes(Number(pageSize)) ? Number(pageSize) : 10
   const showLoading = options.showLoading !== false
 
+  accessNoCache.value = false
   if (showLoading) {
     accessLoading.value = true
   }
@@ -241,6 +255,12 @@ const fetchLoginAccess = async (page = accessPage.value, pageSize = accessPageSi
     accessError.value = data?.error || t('studentinfo.error.access')
     return null
   } catch (e) {
+    // P0-2（#1158）：离线时 fetchLoginAccess 失败 → 可读离线态（该模块无 JS 缓存，走裸 axios）。
+    if (isDeviceOffline()) {
+      accessNoCache.value = true
+      accessError.value = ''
+      return null
+    }
     accessError.value =
       e?.response?.data?.error ||
       (typeof e === 'string' ? e : e?.message) ||
@@ -338,7 +358,7 @@ const refreshData = async (options = {}) => {
   // 避免"每次进入都显示离线数据"的误报。
   // 整页离线状态只由学生基本信息（basic）决定；登录访问记录（login_access）由独立的
   // 融合门户会话提供，其失败不应把整页拖入"离线数据"状态（#516）。
-  const basicOffline = !!basicRes?.offline && !basicRes?._fromCache && !basicRes?._stale
+  const basicOffline = !!basicRes?.offline && !basicRes?._fromCache && !basicRes?._stale && !basicRes?._noCache
   const accessCached = !!accessRes?.offline
   offline.value = basicOffline
   accessOffline.value = accessCached
@@ -557,7 +577,8 @@ onMounted(() => {
         <!-- Basic Info Tab -->
         <section v-show="activeTab === 'basic'" class="info-card">
           <h3 class="card-section-title">{{ t('studentinfo.section.details') }}</h3>
-          <div v-if="infoError" class="inline-error">{{ infoError }}</div>
+          <div v-if="infoNoCache" class="offline-banner">{{ t('common.offline.noCache') }}</div>
+          <div v-else-if="infoError" class="inline-error">{{ infoError }}</div>
           <div class="info-grid">
             <article v-for="row in basicRows" :key="row.labelKey" class="info-field" :class="{ 'full-width': row.labelKey === 'studentinfo.field.college' }">
               <span class="field-label">
@@ -629,7 +650,8 @@ onMounted(() => {
         <!-- Login Tab -->
         <section v-show="activeTab === 'login'" class="info-card">
           <h3 class="card-section-title">{{ t('studentinfo.tab.login') }} & {{ t('studentinfo.tab.access') }}</h3>
-          <div v-if="accessError" class="inline-error">{{ accessError }}</div>
+          <div v-if="accessNoCache" class="offline-banner">{{ t('common.offline.noCache') }}</div>
+          <div v-else-if="accessError" class="inline-error">{{ accessError }}</div>
           <div v-if="accessOffline && !accessError" class="cache-hint">
             {{ t('studentinfo.error.cacheHintPrefix') }} {{ formatRelativeTime(accessSyncTime) }}{{ t('studentinfo.error.cacheHintSuffix') }}
           </div>
