@@ -28,12 +28,16 @@ const selectedSemester = ref('')
 const currentSemester = ref('')
 const offline = ref(false)
 const syncTime = ref('')
+const offlineNoCache = ref(false)
 const displayedRankingCacheKey = ref('')
 const retryCount = ref(0)
 
 const MAX_RETRIES = 2
 let rankingRealtimeRetryTimer = null
 let rankingRequestSeq = 0
+
+// P0-2（#1158）：设备是否离线（无 navigator 的环境视为在线）。
+const isDeviceOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false
 
 const resolveRankingSyncTime = (data) => {
   const explicit = String(data?.sync_time || data?.updated_at || data?.timestamp || '').trim()
@@ -117,6 +121,7 @@ const fetchRanking = async (options = {}) => {
   if (!staleApplied || !options.keepOfflineBanner) {
     offline.value = false
     syncTime.value = ''
+    offlineNoCache.value = false
   }
 
   const doFetch = async (attempt) => {
@@ -130,6 +135,13 @@ const fetchRanking = async (options = {}) => {
       }, undefined, { forceRemote: true, priority: 'foreground' })
 
       if (requestSeq !== rankingRequestSeq) return
+      // P0-1 标准离线空态（离线且无缓存）：渲染可读态，不进入重试与原始错误分支。
+      if (data?.noCache) {
+        ranking.value = null
+        offlineNoCache.value = true
+        error.value = ''
+        return
+      }
       if (data?.success) {
         applyRankingPayload(data, cacheKey)
         if (!data.offline) {
@@ -151,6 +163,13 @@ const fetchRanking = async (options = {}) => {
       error.value = errMsg || t('ranking.error.fetchFailed')
     } catch (e) {
       if (requestSeq !== rankingRequestSeq) return
+      // P0-2（#1158）：离线时的抛出（如被 10s 超时打断）不重试、不显示原始错误，直接渲染可读离线态。
+      if (isDeviceOffline()) {
+        ranking.value = null
+        offlineNoCache.value = true
+        error.value = ''
+        return
+      }
       if (attempt < MAX_RETRIES) {
         console.warn(`[Ranking] network error, retry #${attempt + 1}:`, e)
         await new Promise(r => setTimeout(r, 1000))
@@ -217,6 +236,12 @@ onBeforeUnmount(() => {
 
       <!-- Loading / Error / Empty -->
       <TEmptyState v-if="isInitialLoading" type="loading" :message="t('ranking.loading')" />
+      <!-- P0-2（#1158）离线且无缓存：复用离线横幅配色，渲染可读离线态（非原始错误） -->
+      <div v-else-if="offlineNoCache" class="mx-4 mt-2 px-4 py-8 rounded-xl bg-error-container/60 text-on-error-container flex flex-col items-center gap-2 text-center">
+        <span class="material-symbols-outlined text-4xl">cloud_off</span>
+        <p class="text-sm font-medium leading-relaxed">{{ t('common.offline.noCache') }}</p>
+        <button class="mt-1 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchRanking">{{ t('common.retry') }}</button>
+      </div>
       <TEmptyState v-else-if="error" type="error" :message="error">
         <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchRanking">{{ t('common.retry') }}</button>
       </TEmptyState>

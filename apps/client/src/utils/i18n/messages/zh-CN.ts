@@ -1049,6 +1049,7 @@ export const messages: Record<string, string> = {
   'common.error.network': '网络错误',
   'common.no': '否',
   'common.offline.prefix': '当前显示为离线数据，更新于',
+  'common.offline.noCache': '当前离线，暂无缓存数据，联网后将自动加载',
   'common.yes': '是',
   // —— #910 漂流瓶（真实 UI；#905 占位 key 已随交付删除）——
   'gameCenter.drift.bottle.anonymous': '匿名同学',
