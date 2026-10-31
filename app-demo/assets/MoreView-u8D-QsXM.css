@@ -1,0 +1,201 @@
+
+.more-view[data-v-77105f63] {
+  padding-bottom: 80px;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* #1002：面板转发骨架。居中且高度稳定（不因有无内容跳版）；失败态给明确文案与重试。 */
+.panel-forward[data-v-77105f63] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 55vh;
+  text-align: center;
+}
+.panel-forward__spinner[data-v-77105f63] {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(37, 99, 235, 0.18);
+  border-top-color: #2563eb;
+  animation: panel-forward-spin-77105f63 0.9s linear infinite;
+}
+@keyframes panel-forward-spin-77105f63 {
+to {
+    transform: rotate(360deg);
+}
+}
+@media (prefers-reduced-motion: reduce) {
+.panel-forward__spinner[data-v-77105f63] {
+    animation: none;
+}
+}
+.panel-forward__icon[data-v-77105f63] {
+  font-size: 26px;
+  line-height: 1;
+}
+.panel-forward__text[data-v-77105f63] {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+.panel-forward__retry[data-v-77105f63] {
+  /* 触控目标下限 40px（与面板内 tile 同规格） */
+  min-height: 40px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.panel-forward__detail[data-v-77105f63] {
+  max-width: 260px;
+  margin: 0;
+  font-size: 12px;
+  color: #9ca3af;
+  word-break: break-word;
+}
+.card-shadow[data-v-77105f63] {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+}
+
+/* #905 湖工游乐场主入口 */
+.game-center-entry[data-v-77105f63] {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 0;
+  border-radius: 18px;
+  text-align: left;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 55%, #8b5cf6 100%);
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.28);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.game-center-entry[data-v-77105f63]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(59, 130, 246, 0.34);
+}
+.game-center-entry__icon[data-v-77105f63] {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: rgba(255, 255, 255, 0.22);
+  flex: 0 0 auto;
+}
+.game-center-entry__body[data-v-77105f63] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.game-center-entry__title[data-v-77105f63] {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.game-center-entry__desc[data-v-77105f63] {
+  font-size: 12px;
+  opacity: 0.88;
+}
+.game-center-entry__cta[data-v-77105f63] {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+.game-center-entry__badge[data-v-77105f63] {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* 经典游戏折叠区：默认收起，展开后与旧版宫格完全一致 */
+.classic-games[data-v-77105f63] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.classic-games__toggle[data-v-77105f63] {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.classic-games__label[data-v-77105f63] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.classic-games__meta[data-v-77105f63] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+.classic-games__chevron[data-v-77105f63] {
+  display: inline-block;
+  transition: transform 0.18s ease;
+}
+.classic-games__chevron--open[data-v-77105f63] {
+  transform: rotate(180deg);
+}
+.classic-games__grid[data-v-77105f63] {
+  padding-bottom: 4px;
+}
+.dialog-error[data-v-77105f63] {
+  margin-top: 8px;
+  color: #ef4444;
+  font-size: 12px;
+}
+.dialog-actions[data-v-77105f63] {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.dialog-btn[data-v-77105f63] {
+  min-width: 88px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 600;
+}
+.dialog-btn.ghost[data-v-77105f63] {
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #64748b;
+}
+.dialog-btn.primary[data-v-77105f63] {
+  background: #3b82f6;
+  color: #fff;
+}
