@@ -1,3 +1,5 @@
+// #1163 T02：Bridge 会话令牌统一注入
+import { bridgeFetch } from '../../../utils/bridge_auth';
 import { resolveCampusGuideBaseUrl } from '../config'
 import type { WisdomApiResponse } from '../types'
 import { CAMPUS_GUIDE_ENDPOINTS } from './endpoints'
@@ -30,7 +32,7 @@ export const wisdomPost = async <T = unknown>(
 ): Promise<T> => {
   let response: Response
   try {
-    response = await fetch(joinUrl(path), {
+    response = await bridgeFetch(joinUrl(path), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

@@ -1,8 +1,11 @@
 /** 安全会话恢复桥：与 Coordinator 状态机解耦，保留原 Cookie 校验与错误传播语义。 */
+// #1163 T02：统一经 bridgeFetch 携带会话令牌（请求体含 Cookie 快照，绝不进 URL）。
+import { bridgeFetch } from '../../utils/bridge_auth';
+
 export const createSessionBridge = (hasTauri: boolean) => {
   const bridgePost = async (path: string, payload: Record<string, unknown> = {}) => {
     const bridgeBase = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
-    const res = await fetch(`${bridgeBase}${path}`, {
+    const res = await bridgeFetch(`${bridgeBase}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {})

@@ -45,6 +45,8 @@ import {
   appendDeepSeekChunk,
   shouldUseThinkingWindow
 } from '../features/ai/chat-model.js'
+// #1163 T02：桥会话令牌统一注入（AI 走本地 bridge 时必须带凭据）
+import { bridgeFetch } from '../utils/bridge_auth'
 
 const props = defineProps({
   studentId: String,
@@ -295,7 +297,7 @@ const probeBridge = async (base) => {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), AI_PROBE_TIMEOUT_MS)
   try {
-    const res = await fetch(buildBridgeUrl(AI_BRIDGE_PATHS.health, base), {
+    const res = await bridgeFetch(buildBridgeUrl(AI_BRIDGE_PATHS.health, base), {
       method: 'GET',
       signal: controller.signal
     })
@@ -379,7 +381,7 @@ const postJson = async (path, body, options = {}) => {
       await ensureBridgeAvailable(!skipProbe || attempt > 0)
       const controller = new AbortController()
       const timeoutId = window.setTimeout(() => controller.abort(), AI_POST_TIMEOUT_MS)
-      const res = await fetch(buildBridgeUrl(path), {
+      const res = await bridgeFetch(buildBridgeUrl(path), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

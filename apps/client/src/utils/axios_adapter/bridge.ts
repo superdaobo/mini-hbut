@@ -1,4 +1,6 @@
 import { invokeNative, isTauriRuntime } from '../../platform/native';
+// #1163 T02：Bridge 会话令牌统一注入（仅主窗口可取得，详见 utils/bridge_auth.ts）
+import { bridgeFetch } from '../bridge_auth';
 
 export type JsonObject = Record<string, unknown>
 
@@ -64,7 +66,10 @@ export const fetchBridgeJson = async (url: string, options: RequestInit = {}, fa
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
-        const res = await fetch(url, controller ? { ...options, signal: controller.signal } : options);
+        const res = await bridgeFetch(
+            url,
+            controller ? { ...options, signal: controller.signal } : options
+        );
         const contentType = res.headers.get('content-type') || '';
         const text = await res.text();
         if (looksLikeJson(contentType, text)) {

@@ -15,6 +15,8 @@
 //   - 测试账号（test_account）一律拒绝 enroll/approve（防御纵深，Core production 亦有校验）；
 //   - 所有错误映射为用户可读中文，内部 code 仅作脱敏日志。
 
+// #1163 T02：调试上报同样经统一凭据注入（DebugOnly 路由）
+import { bridgeFetch } from '../../utils/bridge_auth';
 import type {
   IdentityApproveResult,
   IdentityAuthHistoryItem,
@@ -50,7 +52,7 @@ export const IDENTITY_CORE_BASE_URL_DEFAULT = 'https://id.xn--vhq74jc2fzpchter27
  */
 export const reportIdentityDiag = (event: string, details?: Record<string, unknown>): void => {
   try {
-    void fetch('http://127.0.0.1:4399/debug/logs/push', {
+    void bridgeFetch('http://127.0.0.1:4399/debug/logs/push', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scope: 'identity-diag', level: 'info', message: event, details }),
