@@ -496,8 +496,34 @@ pub(crate) fn decide_bridge_access(
 }
 
 // ────────────────────────────────────────────────────────────
+/// 中间件只依赖「当前会话令牌 + 是否 Debug 构建」，不持有 `AppHandle`。
+///
+/// 这样同一份判定逻辑既能用于真实服务（`HttpState` → 本结构），也能在单元/集成
+/// 测试里用 `oneshot` 直接跑完整中间件链路（#1163 T02-D 的验收需要真实 401 响应）。
+#[derive(Clone)]
+pub(crate) struct BridgeAuthState {
+    pub(crate) token: Arc<str>,
+    pub(crate) debug_build: bool,
+}
+
+impl BridgeAuthState {
+    pub(crate) fn new(token: Arc<str>, debug_build: bool) -> Self {
+        Self { token, debug_build }
+    }
+
+    fn token_matches(&self, headers: &HeaderMap) -> bool {
+        let Some(provided) = extract_bearer(headers) else {
+            return false;
+        };
+        tokens_equal(&provided, self.token.as_ref())
+            || configured_bridge_token()
+                .as_deref()
+                .is_some_and(|expected| tokens_equal(&provided, expected))
+    }
+}
+
 pub(crate) async fn bridge_access_middleware(
-    State(state): State<HttpState>,
+    State(auth): State<BridgeAuthState>,
     request: Request,
     next: Next,
 ) -> Response {
@@ -505,13 +531,13 @@ pub(crate) async fn bridge_access_middleware(
     let method = request.method().clone();
     let policy = bridge_route_policy(&path);
 
-    let token_valid = bridge_token_matches(request.headers(), &state);
+    let token_valid = auth.token_matches(request.headers());
     match decide_bridge_access(
         policy,
         &method,
         request.headers(),
         token_valid,
-        cfg!(debug_assertions),
+        auth.debug_build,
     ) {
         BridgeAccessDecision::Allow => next.run(request).await,
         BridgeAccessDecision::Unauthorized => {

@@ -16,6 +16,10 @@
 //! - `routes`：按领域拆分的 Router 与 Handler
 
 mod auth;
+// #1163 T02-D：Bridge 鉴权整链验收（真实中间件 + 真实状态码）
+#[cfg(all(test, feature = "bridge"))]
+#[path = "bridge_auth_e2e_test.rs"]
+mod bridge_auth_e2e_test;
 mod local_token;
 mod response;
 mod routes;
@@ -357,10 +361,12 @@ async fn run_http_server(
     // Handler 在领域模块内部注册，避免将私有请求类型泄漏到组合层。
     let app = build_router();
 
+    let auth_state =
+        auth::BridgeAuthState::new(Arc::clone(&state.bridge_token), cfg!(debug_assertions));
     let app = app
-        .with_state(state.clone())
+        .with_state(state)
         .layer(middleware::from_fn_with_state(
-            state,
+            auth_state,
             bridge_access_middleware,
         ))
         .layer(bridge_cors_layer());
