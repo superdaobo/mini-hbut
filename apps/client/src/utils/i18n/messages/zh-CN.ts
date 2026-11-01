@@ -2812,6 +2812,7 @@ export const messages: Record<string, string> = {
   // —— 服务层错误码默认文案（#795：DEFAULT_MESSAGES 经 t() 查本节，zh 值与迁移前逐字一致）——
   'identity.error.request_expired': '应用请求已过期，请从网页重新发起',
   'identity.error.request_not_found': '请求不存在或已完成',
+  'identity.error.device_binding_requires_approval': '该学号已绑定其他设备。请先在已登录的设备上确认本次注册，再回到这台设备继续',
   'identity.error.client_unavailable': '应用已被暂停，无法继续授权',
   'identity.error.invalid_handoff': '接力凭据无效，请从网页重新发起授权',
   'identity.error.network_unavailable': '网络不可用，无法连接身份服务，请稍后重试',

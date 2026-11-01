@@ -74,6 +74,14 @@ describe('#622 enroll API', () => {
     return result
   }
 
+  /** #1164 T03：把授权请求标记为「已由某用户批准」，用于验证合法的多设备绑定路径。 */
+  async function approveRequestFor(requestId: string, userId: string): Promise<void> {
+    await db.sql.query(
+      "UPDATE auth_requests SET status = 'APPROVED', approved_at = NOW(), approved_user_id = $1 WHERE id = $2",
+      [userId, requestId],
+    )
+  }
+
   async function createChallenge(ttlSeconds = 300): Promise<string> {
     const { challenge } = await createEnrollmentChallenge(db.sql, {
       purpose: 'device_enrollment',
@@ -196,25 +204,74 @@ describe('#622 enroll API', () => {
     expect((res.body.error as { code: string }).code).toBe('DEVICE_FINGERPRINT_EXISTS')
   })
 
-  it('6. 多设备自绑定：同学号第二台设备挂到既有身份（#679）', async () => {
+  it('6. 自报学号第二台设备：未获既有用户批准 → 409 LINK_REQUIRED，且不产生设备（#1164 T03）', async () => {
     const first = await enrollViaApi({
       handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
       studentId: '2023010107',
     })
     expect(first.status).toBe(201)
+
+    // 攻击者视角：拿到一个未批准的有效 handoff + 自报同一学号 + 自己的新设备密钥
     const res = await enrollViaApi({
       handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
       key: newTestDeviceKey(),
       studentId: '2023010107',
     })
-    expect(res.status).toBe(201)
-    // 新设备挂到同一个 user_id，不再要求「已绑定设备批准」
-    expect(res.body.user_id).toBe(first.body.user_id)
-    const identity = await findIdentityByProviderSubject(db.sql, 'hbut', '2023010107')
-    expect(identity?.user_id).toBe(String(first.body.user_id))
+    expect(res.status).toBe(409)
+    expect((res.body.error as { code: string }).code).toBe('LINK_REQUIRED')
+
+    // 原子性：被拒绝的请求不留下任何设备行
     const devices = await listDevicesByUser(db.sql, String(first.body.user_id))
+    expect(devices.length).toBe(1)
+    expect(devices[0]?.id).toBe(String(first.body.device_id))
+  })
+
+  it('6a. 已由既有用户批准的第二台设备：允许绑定到同一身份（合法多设备路径，替代 #679 自动挂载）', async () => {
+    const first = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      studentId: '2023010112',
+    })
+    expect(first.status).toBe(201)
+    const userId = String(first.body.user_id)
+
+    const pending = await createHandoffRequest(db.sql)
+    await approveRequestFor(pending.requestId, userId)
+    const res = await enrollViaApi({
+      handoffSecret: pending.handoffSecret,
+      key: newTestDeviceKey(),
+      studentId: '2023010112',
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.user_id).toBe(userId)
+    const devices = await listDevicesByUser(db.sql, userId)
     expect(devices.length).toBe(2)
     expect(devices.every((d) => d.status === 'active')).toBe(true)
+  })
+
+  it('6a2. 批准属于其他用户 → 仍拒绝（不能拿别人的批准来绑定目标学号）', async () => {
+    const victim = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      studentId: '2023010113',
+    })
+    const attacker = await enrollViaApi({
+      handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      studentId: '2023010114',
+    })
+    expect(victim.status).toBe(201)
+    expect(attacker.status).toBe(201)
+
+    const pending = await createHandoffRequest(db.sql)
+    // 攻击者用自己的设备批准请求，再去绑受害者的学号
+    await approveRequestFor(pending.requestId, String(attacker.body.user_id))
+    const res = await enrollViaApi({
+      handoffSecret: pending.handoffSecret,
+      key: newTestDeviceKey(),
+      studentId: '2023010113',
+    })
+    expect(res.status).toBe(409)
+    expect((res.body.error as { code: string }).code).toBe('LINK_REQUIRED')
+    const victimDevices = await listDevicesByUser(db.sql, String(victim.body.user_id))
+    expect(victimDevices.length).toBe(1)
   })
 
   it('6b. 同密钥重复 enroll：幂等返回既有 device_id，不新增设备行（#677 补绑定重放安全）', async () => {
@@ -249,8 +306,21 @@ describe('#622 enroll API', () => {
       "UPDATE devices SET status = 'revoked', revoked_at = NOW(), revoked_reason = 'test' WHERE id = $1",
       [String(first.body.device_id)],
     )
-    const res = await enrollViaApi({
+    // 未获批准的重新激活 → 拒绝（否则旧私钥可绕过用户撤销）
+    const denied = await enrollViaApi({
       handoffSecret: (await createHandoffRequest(db.sql)).handoffSecret,
+      key,
+      studentId: '2023010109',
+    })
+    expect(denied.status).toBe(409)
+    expect((denied.body.error as { code: string }).code).toBe('LINK_REQUIRED')
+    expect(await findActiveDeviceById(db.sql, String(first.body.device_id))).toBeNull()
+
+    // 已由该用户批准 → 允许重新激活
+    const approved = await createHandoffRequest(db.sql)
+    await approveRequestFor(approved.requestId, String(first.body.user_id))
+    const res = await enrollViaApi({
+      handoffSecret: approved.handoffSecret,
       key,
       studentId: '2023010109',
     })

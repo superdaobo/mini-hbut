@@ -2813,6 +2813,7 @@ export const messages: Record<string, string> = {
   //    these keys via t(); zh values are identical to the pre-migration strings) ——
   'identity.error.request_expired': 'The app request has expired. Please start again from the web page',
   'identity.error.request_not_found': 'The request does not exist or has already been completed',
+  'identity.error.device_binding_requires_approval': 'This student ID is already bound to another device. Approve this registration on a device that is already signed in, then continue here',
   'identity.error.client_unavailable': 'The app has been suspended; authorization cannot continue',
   'identity.error.invalid_handoff': 'The handoff credential is invalid. Please start the authorization again from the web page',
   'identity.error.network_unavailable': 'Network unavailable. Cannot reach the identity service; please try again later',

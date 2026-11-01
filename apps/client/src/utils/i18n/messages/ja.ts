@@ -2810,6 +2810,7 @@ export const messages: Record<string, string> = {
   // —— 服务层错误码默认文案（#795：DEFAULT_MESSAGES 经 t() 查本节，zh 值与迁移前逐字一致）——
   'identity.error.request_expired': 'アプリケーション リクエストの有効期限が切れました。Web ページから再度開始してください。',
   'identity.error.request_not_found': 'リクエストが存在しないか、完了しました',
+  'identity.error.device_binding_requires_approval': 'この学籍番号は別の端末に登録済みです。ログイン済みの端末でこの登録を承認してから、この端末で続行してください',
   'identity.error.client_unavailable': '申請が一時停止されたため、認証を続行できません',
   'identity.error.invalid_handoff': 'リレー認証情報が無効です。Web ページから認証を再度開始してください。',
   'identity.error.network_unavailable': 'ネットワークが利用できないため、ID サービスに接続できません。後でもう一度試してください。',

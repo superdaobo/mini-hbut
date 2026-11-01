@@ -445,8 +445,11 @@ describe('Security Test Gate（#626 16 条）', () => {
     const group = { name: 'gate12', prefixes: ['/gate12'], methods: ['POST'] as const, rule }
     let allowedCount = 0
     let denied = false
+    // 固定窗口语义：整段 burst 必须落在同一个 window 内，否则跨窗口会把计数重置，
+    // 断言随墙钟时机漂移（CI 上真实出现过 65/60 的 flake）。这里冻结时间戳。
+    const frozenNow = Date.now()
     for (let i = 0; i < rule.limit + 5; i += 1) {
-      const r = await checkRateLimit(db.sql, group, '198.51.100.66', Date.now())
+      const r = await checkRateLimit(db.sql, group, '198.51.100.66', frozenNow)
       if (r.allowed) {
         allowedCount += 1
       } else {

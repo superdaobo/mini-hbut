@@ -39,6 +39,7 @@ jobs:
       # push / 非 PR 事件输出恒 true（全量验证）；PR 事件取 paths-filter 实际结果
       frontend: ${{ github.event_name == 'pull_request' && steps.filter.outputs.frontend || 'true' }}
       rust: ${{ github.event_name == 'pull_request' && steps.filter.outputs.rust || 'true' }}
+      identity: ${{ github.event_name == 'pull_request' && steps.filter.outputs.identity || 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -53,6 +54,8 @@ jobs:
               - 'apps/client/vite.config.*'
             rust:
               - 'apps/client/src-tauri/**'
+            identity:
+              - 'identity-platform/**'
 
   # 敏感内容提交守卫（#644）：独立无条件 job，作为强制门禁。
   # CI checkout 后没有 staged 文件，旧 pre-commit 模式会空放行；改用 commit range 扫描
@@ -78,6 +81,34 @@ jobs:
 
       - name: SecretGuard unit tests
         run: node --test scripts/guard_sensitive_uploads.test.mjs
+
+  # 身份平台（identity-platform/core）测试门禁（#1164 T03）
+  # 此前该包只有「本地能跑」，CI 从不执行 —— 旧身份止损这类改动没有回归保护。
+  test-identity:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.identity == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: identity-platform/core/package-lock.json
+
+      - name: Install dependencies
+        working-directory: identity-platform/core
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: identity-platform/core
+        run: npm run typecheck
+
+      - name: Vitest (pg-mem)
+        working-directory: identity-platform/core
+        run: npm test
 
   test-frontend:
     needs: changes

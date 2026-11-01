@@ -250,6 +250,8 @@ const mapServerCode = (code: string): IdentityUserSafeErrorCode => {
     case 'CHALLENGE_INVALID':
       return 'device_not_bound'
     case 'LINK_REQUIRED':
+      // #1164：该学号已有绑定设备，本次请求未被该账号用户批准 → 不能自动接管
+      return 'device_binding_requires_approval'
     case 'AUTH_REQUEST_ALREADY_APPROVED':
     case 'AUTH_REQUEST_INVALID_TRANSITION':
       // 已被其他设备处理 / 状态不允许：对用户而言请求已不可操作
@@ -277,6 +279,7 @@ const DEFAULT_MESSAGES: Record<IdentityUserSafeErrorCode, string> = {
   invalid_handoff: t('identity.error.invalid_handoff'),
   network_unavailable: t('identity.error.network_unavailable'),
   device_not_bound: t('identity.error.device_not_bound'),
+  device_binding_requires_approval: t('identity.error.device_binding_requires_approval'),
   device_revoked: t('identity.error.device_revoked'),
   session_revalidation_required: t('identity.error.session_revalidation_required'),
   secure_storage_unavailable: t('identity.error.secure_storage_unavailable'),
