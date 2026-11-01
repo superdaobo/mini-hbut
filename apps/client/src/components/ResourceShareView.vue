@@ -169,6 +169,11 @@ const getProxyUrlByBase = (base, path) => {
 }
 
 const buildProxyCandidates = (path) => {
+  // #1163 T02：`/resource_share/proxy` 现在是受保护接口（必须带桥令牌），而它是作为
+  // `<img>/<video>/<a>` 子资源使用的，无法携带 header；而它的 endpoint 参数是任意 URL，
+  // 属 SSRF 面。因此 Tauri 运行时**不再使用**该兜底：主路径是
+  // `resource_share_*_native` 原生命令（list/direct_url/fetch_file_payload）。
+  if (runtimeIsTauri) return []
   const normalized = normalizePath(path)
   return [...new Set(bridgeBaseCandidates.map((base) => getProxyUrlByBase(base, normalized)).filter(Boolean))]
 }

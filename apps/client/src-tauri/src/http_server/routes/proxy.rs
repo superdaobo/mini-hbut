@@ -16,6 +16,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
+use crate::http_server::auth::{bridge_auth_error, bridge_token_matches, media_capability_valid};
 use crate::http_server::response::{err, ok, ApiResponse};
 use crate::http_server::state::HttpState;
 use crate::modules::school_website_embed::{
@@ -904,6 +905,35 @@ async fn chaoxing_video_proxy(
             StatusCode::BAD_REQUEST,
             "参数错误",
             "代理目标不在允许的域名内".to_string(),
+        ));
+    }
+
+    // #1163 T02：`/proxy/video` 属媒体子资源（无法带 header），传输层只放行 GET/HEAD，
+    // 真正的凭据校验在这里：桥令牌（CLI/主窗口 fetch）**或** 主窗口派生的短时能力串。
+    let exp = query
+        .as_deref()
+        .unwrap_or("")
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("exp="))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(0);
+    let cap = query
+        .as_deref()
+        .unwrap_or("")
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("cap="))
+        .unwrap_or("");
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0);
+    let token_ok = bridge_token_matches(&headers, &state);
+    let cap_ok = !cap.is_empty()
+        && media_capability_valid(state.bridge_token.as_ref(), &target, exp, cap, now_secs);
+    if !(token_ok || cap_ok) {
+        return Err(bridge_auth_error(
+            StatusCode::UNAUTHORIZED,
+            "缺少有效 Bridge 令牌或媒体能力串",
         ));
     }
 

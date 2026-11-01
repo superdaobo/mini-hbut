@@ -13,6 +13,7 @@ use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use rand::RngCore;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 
@@ -150,13 +151,14 @@ pub(crate) fn ensure_sensitive_bridge_auth(
         ));
     }
 
-    if has_trusted_bridge_context(headers) || bridge_token_matches(headers, state) {
+    // #1163 T02：handler 级二次校验与中间件保持同一语义 —— 只认凭据。
+    if bridge_token_matches(headers, state) {
         return Ok(());
     }
 
     Err(bridge_auth_error(
         StatusCode::UNAUTHORIZED,
-        "缺少可信 WebView Origin 或有效 Bridge 令牌",
+        "缺少有效 Bridge 令牌",
     ))
 }
 
@@ -197,6 +199,13 @@ pub(crate) enum BridgeRoutePolicy {
     /// `/local/*` 只读数据端点族（#698）：传输层仅拦不可信 Origin，
     /// 真正鉴权由 handler 内 `ensure_local_data_auth` 校验本机 Agent 令牌。
     LocalData,
+    /// `/proxy/video`（#1163 T02 契约 R4）：`<video src>` 无法携带 header，
+    /// 传输层放行 GET/HEAD，凭据校验（桥令牌 **或** 媒体能力串）由 handler 完成。
+    MediaProxy,
+    /// `/cache/get` 本机缓存读取（#1163 T02 收口）：传输层只放行 GET/HEAD，
+    /// 真正鉴权由 handler 内 `ensure_local_cache_auth` 校验 `local_api` JWT（scope=cache:read）。
+    /// 与 `LocalData` 同思路：来源不再是授权依据，凭据校验下沉到 handler。
+    LocalCacheRead,
     DebugOnly,
 }
 
@@ -218,6 +227,14 @@ pub(crate) fn bridge_route_policy(path: &str) -> BridgeRoutePolicy {
         // 这些 URL 会作为子 WebView 的顶层导航地址，请求可能没有 Origin。
         // 仅允许 GET/HEAD，且不得携带显式不可信 Origin。
         BridgeRoutePolicy::PublicEmbed
+    } else if path == "/proxy/video" {
+        // #1163 T02：`<video src>` 子资源无法带 header → 传输层只放行 GET/HEAD，
+        // 由 handler 校验「桥令牌」或「媒体能力串」。
+        BridgeRoutePolicy::MediaProxy
+    } else if path == "/cache/get" {
+        // #1163 T02：本机缓存读取走 local_api JWT（RS256 + scope=cache:read），
+        // 传输层不再把它当普通 Protected（否则 JWT 会在中间件处被令牌检查拦掉）。
+        BridgeRoutePolicy::LocalCacheRead
     } else if path.starts_with("/debug/") || path.starts_with("/campus-guide-debug/") {
         BridgeRoutePolicy::DebugOnly
     } else {
@@ -439,7 +456,39 @@ pub(crate) fn decide_bridge_access(
         return BridgeAccessDecision::Allow;
     }
 
-    if has_trusted_bridge_context(headers) || token_valid {
+    // #1163 T02：媒体代理的凭据（令牌或能力串）在 handler 内校验，传输层只保证只读。
+    if policy == BridgeRoutePolicy::MediaProxy {
+        return if matches!(*method, Method::GET | Method::HEAD) {
+            BridgeAccessDecision::Allow
+        } else {
+            BridgeAccessDecision::Unauthorized
+        };
+    }
+
+    // #1163 T02：`/cache/get` 的凭据校验（local_api JWT）在 handler 内完成，
+    // 传输层只保证「只读 + 不可信来源拒绝」。
+    if policy == BridgeRoutePolicy::LocalCacheRead {
+        return if matches!(*method, Method::GET | Method::HEAD) {
+            BridgeAccessDecision::Allow
+        } else {
+            BridgeAccessDecision::Unauthorized
+        };
+    }
+
+    // #1081 残余（#1163 契约 R3）：图书馆预约官方页是**第三方页面**，无法携带我们下发的令牌，
+    // 因此写方法继续沿用「可信桥上下文」判定；根治在 T04/T07 的「模块与代理来源分离」。
+    if policy == BridgeRoutePolicy::PublicEmbedWrite {
+        return if has_trusted_bridge_context(headers) {
+            BridgeAccessDecision::Allow
+        } else {
+            BridgeAccessDecision::Unauthorized
+        };
+    }
+
+    // #1163 T02（安全收口）：Protected 只认凭据，**来源不再构成授权**。
+    // 主壳（tauri://localhost、dev 的 localhost:5173）与任意 loopback 端口都不再免令牌；
+    // 模块 iframe 与 API 同源的问题由这里断开（模块拿不到令牌）。
+    if token_valid {
         BridgeAccessDecision::Allow
     } else {
         BridgeAccessDecision::Unauthorized
@@ -465,11 +514,9 @@ pub(crate) async fn bridge_access_middleware(
         cfg!(debug_assertions),
     ) {
         BridgeAccessDecision::Allow => next.run(request).await,
-        BridgeAccessDecision::Unauthorized => bridge_auth_error(
-            StatusCode::UNAUTHORIZED,
-            "缺少可信 WebView Origin 或有效 Bridge 令牌",
-        )
-        .into_response(),
+        BridgeAccessDecision::Unauthorized => {
+            bridge_auth_error(StatusCode::UNAUTHORIZED, "缺少有效 Bridge 令牌").into_response()
+        }
         BridgeAccessDecision::ForbiddenOrigin => {
             bridge_auth_error(StatusCode::FORBIDDEN, "请求 Origin 不在 Bridge 白名单")
                 .into_response()
@@ -479,6 +526,68 @@ pub(crate) async fn bridge_access_middleware(
                 .into_response()
         }
     }
+}
+
+// ────────────────────────────────────────────────────────────
+// 媒体能力串（#1163 T02 契约 R4）
+//
+// 背景：`<video src>` / `<img src>` 无法携带 Authorization 头，而又不能把主令牌放进 URL。
+// 方案：由**已持有令牌的主窗口**用 HMAC-SHA256(token, "media|target|exp") 自行派生一个
+// 短时能力串，随 URL 传递；Rust 用同一令牌复算校验。模块拿不到令牌 ⇒ 无法派生。
+
+const MEDIA_CAP_PREFIX: &str = "media";
+
+fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    const BLOCK: usize = 64;
+    let mut normalized = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        let digest = Sha256::digest(key);
+        normalized[..32].copy_from_slice(&digest);
+    } else {
+        normalized[..key.len()].copy_from_slice(key);
+    }
+
+    let mut inner_pad = [0x36u8; BLOCK];
+    let mut outer_pad = [0x5cu8; BLOCK];
+    for index in 0..BLOCK {
+        inner_pad[index] ^= normalized[index];
+        outer_pad[index] ^= normalized[index];
+    }
+
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    inner.update(message);
+    let inner_digest = inner.finalize();
+
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner_digest);
+    let digest = outer.finalize();
+
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+/// 计算媒体能力串：`base64url(HMAC-SHA256(token, "media|target|exp"))`。
+pub(crate) fn media_capability(token: &str, target: &str, exp: u64) -> String {
+    let message = format!("{MEDIA_CAP_PREFIX}|{target}|{exp}");
+    general_purpose::URL_SAFE_NO_PAD.encode(hmac_sha256(token.as_bytes(), message.as_bytes()))
+}
+
+/// 校验媒体能力串：过期、目标不符、长度/内容不符一律拒绝（常量时间比较）。
+pub(crate) fn media_capability_valid(
+    token: &str,
+    target: &str,
+    exp: u64,
+    provided: &str,
+    now_secs: u64,
+) -> bool {
+    if token.is_empty() || provided.is_empty() || exp <= now_secs {
+        return false;
+    }
+    let expected = media_capability(token, target, exp);
+    tokens_equal(provided, &expected)
 }
 
 // ────────────────────────────────────────────────────────────
@@ -505,13 +614,16 @@ pub(crate) fn bridge_cors_layer() -> CorsLayer {
 // ────────────────────────────────────────────────────────────
 // T02 (#1163) 桥授权矩阵：现状锁定 + 目标行为骨架。
 //
-// 本模块是 T7 改造的验收载体：
-// - `锁定` 段：必须**一直**通过，防止 T7 误伤公开/免令牌路由；
-// - `目标` 段：`#[ignore]`，描述 T02 完成后的期望判定；T7 改 `decide_bridge_access`
-//   后去掉 ignore 即为验收（现在运行会失败，属于有意为之）。
+// 本模块是 T02 的验收载体：
+// - `lock_*` 段：必须**一直**通过，防止改造误伤公开/免令牌路由；
+// - `target_*` 段：T02 完成后必须成立的判定（#1163 T02 已于本 PR 翻转 Protected 判定，
+//   这些用例自此作为常规回归）。
 #[cfg(test)]
 mod t02_bridge_auth_matrix {
-    use super::super::auth::{decide_bridge_access, BridgeAccessDecision, BridgeRoutePolicy};
+    use super::super::auth::{
+        decide_bridge_access, media_capability, media_capability_valid, BridgeAccessDecision,
+        BridgeRoutePolicy,
+    };
     use axum::http::Method;
     use reqwest::header::{HeaderMap, HeaderValue};
 
@@ -692,10 +804,109 @@ mod t02_bridge_auth_matrix {
         );
     }
 
-    // ── 目标：T02 完成后应成立（T7 去 ignore 即为验收）─────────
+    #[test]
+    fn media_capability_is_deterministic_and_bound_to_target() {
+        let token = "bridge-session-token";
+        let target = "https://v3.cldisk.com/x/1.mp4";
+        let exp = 4_000_000_000_u64;
+        let cap = media_capability(token, target, exp);
+        assert_eq!(
+            cap,
+            media_capability(token, target, exp),
+            "同输入必须同输出"
+        );
+        // 与标准 HMAC-SHA256（RFC 2104）参考向量对齐：该值由 Node crypto 独立算出，
+        // WebCrypto 侧（bridge_media_capability.spec.ts）也断言同一向量。
+        // 手写 HMAC 若有 padding/多重摘要错误，这条会立刻失败。
+        assert_eq!(cap, "ucvtQnQy8ov1EEVita6kMooZhnY_aeBMuD9Am30VvNw");
+        assert!(media_capability_valid(token, target, exp, &cap, 1_000));
+        assert!(!media_capability_valid(
+            token,
+            "https://v3.cldisk.com/x/2.mp4",
+            exp,
+            &cap,
+            1_000
+        ));
+        assert!(!media_capability_valid(
+            "other-token",
+            target,
+            exp,
+            &cap,
+            1_000
+        ));
+        assert!(!media_capability_valid(token, target, exp, &cap, exp + 1));
+        assert!(!media_capability_valid(token, target, exp, "", 1_000));
+        assert!(!media_capability_valid("", target, exp, &cap, 1_000));
+        assert!(!media_capability_valid(
+            token,
+            target,
+            exp,
+            &format!("{cap}x"),
+            1_000
+        ));
+        assert!(!media_capability_valid(token, target, 0, &cap, 1_000));
+    }
 
     #[test]
-    #[ignore = "T02 #1163 目标行为：T7 翻转 Protected 判定后启用"]
+    fn lock_media_proxy_transport_is_read_only() {
+        for method in [Method::GET, Method::HEAD] {
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::MediaProxy,
+                    &method,
+                    &HeaderMap::new(),
+                    false,
+                    true
+                ),
+                BridgeAccessDecision::Allow
+            );
+        }
+        for method in [Method::POST, Method::PUT, Method::DELETE] {
+            assert_ne!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::MediaProxy,
+                    &method,
+                    &HeaderMap::new(),
+                    false,
+                    true
+                ),
+                BridgeAccessDecision::Allow
+            );
+        }
+    }
+
+    #[test]
+    fn lock_cache_get_transport_is_read_only() {
+        // #1163 T02：`/cache/get` 的 JWT 校验在 handler 内，传输层只放行只读。
+        for method in [Method::GET, Method::HEAD] {
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::LocalCacheRead,
+                    &method,
+                    &HeaderMap::new(),
+                    false,
+                    true
+                ),
+                BridgeAccessDecision::Allow
+            );
+        }
+        for method in [Method::POST, Method::PUT, Method::DELETE] {
+            assert_ne!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::LocalCacheRead,
+                    &method,
+                    &HeaderMap::new(),
+                    false,
+                    true
+                ),
+                BridgeAccessDecision::Allow
+            );
+        }
+    }
+
+    // ── 目标：T02 完成后应成立（T7 已翻转判定，这些用例转为常规回归）──
+
+    #[test]
     fn target_protected_rejects_tauri_origin_without_token() {
         assert_eq!(
             decide_bridge_access(
@@ -710,7 +921,6 @@ mod t02_bridge_auth_matrix {
     }
 
     #[test]
-    #[ignore = "T02 #1163 目标行为：T7 翻转 Protected 判定后启用"]
     fn target_protected_rejects_any_loopback_port_without_token() {
         for port in [4399_u16, 5173, 8080, 1] {
             assert_eq!(
@@ -727,7 +937,6 @@ mod t02_bridge_auth_matrix {
     }
 
     #[test]
-    #[ignore = "T02 #1163 目标行为：T7 翻转 Protected 判定后启用"]
     fn target_protected_rejects_spoofed_referer_without_token() {
         assert_eq!(
             decide_bridge_access(
@@ -742,7 +951,6 @@ mod t02_bridge_auth_matrix {
     }
 
     #[test]
-    #[ignore = "T02 #1163 目标行为：T7 翻转 Protected 判定后启用"]
     fn target_protected_write_rejects_trusted_origin_without_token() {
         for policy in [BridgeRoutePolicy::Protected] {
             for method in [Method::POST, Method::PUT, Method::DELETE] {

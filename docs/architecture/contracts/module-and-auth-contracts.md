@@ -87,6 +87,17 @@
 - 响应体**不得**包含 Cookie / Set-Cookie / Authorization / 宿主令牌；`message` 不得回显凭据片段。
 - 桥传输层另有 `401 { success:false, error:{ kind:"bridge_auth_required"|"bridge_auth_invalid" } }`（T02 契约，与上面信封不冲突：前者是「页面→桥」，后者是「模块→宿主能力」）。
 
+### 4.1 媒体子资源能力串（§4 的补充，T02 实现）
+
+无法携带 header 的媒体加载（`<video>`/`<img>`）使用**路由级短时能力串**，与主令牌严格区分：
+
+- 形式：`base64url(HMAC-SHA256(bridge_session_token, "media|<目标地址>|<exp>"))`，`exp` 为 Unix 秒；
+- 只授权**一个**目标地址，不授予任何其他路由权限；与主令牌不同源、不可复用；
+- 由已持有令牌的主窗口派生（WebCrypto），Rust 用同一令牌复算校验（常量时间比较）；
+- TTL 30 分钟（视频 Range 请求需要跨时长有效）；过期或目标不符一律 401；
+- 模块 iframe 拿不到令牌 ⇒ 无法派生 ⇒ 无法代理学校媒体内容；
+- 传输层对 `/proxy/video` 只放行 `GET/HEAD`，其余方法一律拒绝。
+
 ## 5. 权限与用户同意
 
 ### 5.1 能力标识（本期全集，只读）
