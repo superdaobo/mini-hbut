@@ -240,6 +240,11 @@ export function registerDeviceRoutes(router: Router, deps: DevicesApiDeps): void
       // 原子事务：用户/身份/设备 all-or-nothing（任何一步失败不产生部分写入）。
       // #679 多设备自绑定：同一学号的新设备凭有效 handoff+challenge+签名断言
       // 直接挂到既有身份，不再要求「已绑定设备批准」；同密钥重试幂等返回既有绑定。
+      // #1164 T03：handoff 只证明「有一个未过期的授权请求」，**不证明**请求方拥有该学号。
+      // 因此：把设备挂到**既有身份**上时，额外要求该请求已被这个身份的用户批准过
+      // （approved_user_id 一致）。否则任何人都能凭一次握手的 handoff + 自报学号
+      // 给自己签发一台「属于别人账号」的设备（#679 旧行为）。
+      const approvedUserId = boundRequest.approved_user_id ?? null
       const result = await deps.sql.withTransaction(async (tx) => {
         const identity = await findIdentityByProviderSubject(tx, 'hbut', input.studentId)
         const existingDevice = await findDeviceByFingerprint(tx, fingerprint)
@@ -282,7 +287,11 @@ export function registerDeviceRoutes(router: Router, deps: DevicesApiDeps): void
             // 同密钥重试 / #677 补绑定重放：幂等返回既有绑定（不消费 challenge，重试安全）
             return { userId, deviceId: existingDevice.id }
           }
-          // revoked → 同密钥重新注册即重新激活（密码登录 + 签名断言即表达意图）
+          // revoked → 重新激活属于「恢复已撤销设备」：必须由该用户批准过本次请求，
+          // 否则等同于用一把旧私钥绕过用户撤销（#1164 T03）。
+          if (approvedUserId !== userId) {
+            throw new LinkRequiredError()
+          }
           const consumedRevive = await consumeEnrollmentChallenge(
             tx,
             sha256Base64url(input.challenge),
@@ -293,7 +302,13 @@ export function registerDeviceRoutes(router: Router, deps: DevicesApiDeps): void
           return { userId, deviceId: existingDevice.id }
         }
 
-        // 学号有身份 + 全新设备 → 挂到既有身份（多设备自绑定核心场景）
+        // 学号有身份 + 全新设备 → **不再自动挂载**（#1164 T03 止损）。
+        // 仅当本次请求已被该身份的用户批准（旧设备批准流程）时才允许绑定；
+        // 否则返回 409 LINK_REQUIRED，客户端应提示「先在已登录设备上确认」，
+        // 真实学生身份核验（T10）落地前不开放无依据的自动绑定。
+        if (approvedUserId !== userId) {
+          throw new LinkRequiredError()
+        }
         const registered = await registerDevice(tx, {
           userId,
           publicKeyJwk: input.publicJwk,

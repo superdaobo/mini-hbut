@@ -284,6 +284,8 @@ describe('#775 DEFAULT_MESSAGES 用户可读文案契约', () => {
     'invalid_handoff',
     'network_unavailable',
     'device_not_bound',
+    // #1164：既有学号 + 未获批准的新设备 → 需在已登录设备上确认
+    'device_binding_requires_approval',
     'device_revoked',
     'session_revalidation_required',
     'secure_storage_unavailable',

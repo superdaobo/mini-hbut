@@ -69,11 +69,27 @@ verification_method = mini_hbut_app
 1. `student.identity` scope 的 claims 携带 `verification_method`，Token/Developer Docs 明示保证级别；
 2. 不叫「湖北工业大学官方认证」，UI 固定非官方声明；
 3. 该身份不得用于需要校方官方强实名的高风险用途（平台侧在 Admin 审核界面标注）；
-4. 相同 `(hbut, student_id)` 的后续设备 enrollment 走独立 challenge + 已注册设备签名，**禁止自动接管**（`duplicate identity takeover blocked` 有自动化测试）；
+4. **相同 `(hbut, student_id)` 的后续设备 enrollment 不再自动接管**（#1164 T03 收口，2026-11-01）：
+   - 旧行为（#679）：任何有效 handoff + 新设备自签名 + 自报学号，就能把新设备挂到****已有身份**上 —— 而 handoff 只证明「存在一个未过期的授权请求」，**不证明请求方拥有该学号**。等于任何拿到 handoff 的一方都能给任意学号签发一台设备，进而换取该用户的 Identity AT。
+   - 现行为：把设备挂到**既有身份**（新指纹）或**重新激活已撤销设备**时，额外要求该授权请求已被**该身份的用户**批准（`auth_requests.approved_user_id == identity.user_id`）；否则返回 `409 LINK_REQUIRED`，且事务内不产生任何设备行/身份行。
+   - 合法多设备路径因此变成「**旧设备先批准、新设备再 enroll**」；无既有设备的场景仍走首次 enrollment（`verification_level = low`，见上文限制）。
+   - 覆盖测试：`core/tests/api/app-devices.test.ts` 用例 6（未批准 → 409 且零副作用）、6a（已批准 → 允许）、6a2（拿别人的批准 → 拒绝）、6c（未批准重激活 → 拒绝 / 已批准 → 允许）。
 5. 学校未来开放官方 OIDC 时，`linked_identities.verification_method` 可升级为 `hbut_oidc`（枚举已预留）；
 6. Admin 审核 `student.identity` scope 时看到该风险提示。
 
 > 该 residual risk 是 issue #626 明确接受的业务级根信任限制，不因本 issue 关闭而消失；由 #628 Production E2E gate 与未来校方官方通道演进。
+
+### 3.1 首次 enrollment 仍然只能「自报」（未解决的残余，交给 T10）
+
+即使收口了「接管既有身份」，首次 enrollment 仍由客户端自报学号 + 姓名，服务端只能标记 `verification_level = low`。由此残留两个**已知风险**（由 #1161 的 T10「可信学生认证」负责）：
+
+1. **学号占位（squatting）**：某人可在真正的学生首次登录前，用该学号创建 low  assurances 身份。后续真实学生注册时会被 `LINK_REQUIRED` 拦住，形成可用性伤害（不是数据泄露）。
+2. **low 身份被误当可信**：任何下游若把 `verification_level = low` 当作「已核验学生」，就会放大风险。平台侧必须按保证级别区别对待，且不得凭它授予管理权限（见 T13）。
+
+收口动作（T03 已完成 / T10 待办）：
+
+- 已完成：禁止**无批准**的设备绑定与重激活；错误码稳定（`LINK_REQUIRED`），客户端可提示「先在已登录设备确认」。
+- 待办（T10）：引入可核验的学校身份来源（如一次性教务凭据服务端核验），把 `verification_method` 升级为可证明级别；在此之前**不开放真实学生批量自动建号**。
 
 ---
 

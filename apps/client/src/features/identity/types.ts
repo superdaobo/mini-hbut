@@ -106,6 +106,7 @@ export type IdentityUserSafeErrorCode =
   | 'invalid_handoff' // 接力凭据无效（安全拒绝，不泄露细节）
   | 'network_unavailable' // 网络不可用
   | 'device_not_bound' // 设备尚未绑定
+  | 'device_binding_requires_approval' // 该学号已绑定其他设备：需先在已登录设备上批准（#1164）
   | 'device_revoked' // 当前设备已撤销
   | 'session_revalidation_required' // 学校登录需要重新验证
   | 'secure_storage_unavailable' // 本机安全存储不可用
