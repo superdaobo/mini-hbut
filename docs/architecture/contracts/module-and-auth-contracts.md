@@ -1,7 +1,7 @@
 # 模块与授权公共契约（T01-B · Epic #1161 / Issue #1162）
 
 > 版本：**v1（冻结）**，2026-11-01。作者：Mini-HBUT 客户端维护者（统筹者）。
-> 前置：`facts-and-baseline.md`（T01-A，事实与平台矩阵）。
+> 前置：[事实基线与跨端能力矩阵](./facts-and-baseline.md)（T01-A）。
 > **契约稳定性**：字段名一经冻结，下游不得自行改名；**允许**新增可选字段（向后兼容），**删除/改名/改变语义**必须先回到 Epic #1161 更新本文件并通知下游任务负责人。
 >
 > | 消费者 | 依赖本文件哪些章节 |
@@ -138,6 +138,20 @@
 
 **装载规则**：`status != "active"`、平台不支持、`min_host` 不满足、或 remote 条目缺 `publisher_key_id`/`release_seq` → **不可用并给出可理解原因**，不得静默隐藏、不得降级为「无签名也运行」。
 **未签名远程配置**只能影响展示与已有开关，**不得**扩张原生权限、替换信任根或授权执行新代码。
+
+**与现有目录字段的映射（消费方 T07 必须两种都接受）**
+
+| 新字段 | 现有字段（`apps/client/src/utils/module_center.js:150-185`） | 说明 |
+|---|---|---|
+| `app_id` | `id` / `module_id` | 新条目用 `app_id`，旧条目用 `id` |
+| `summary` | `description` / `desc` | 两者都接受 |
+| `entry` | `view` / `route` | `embedded`/`native` 的入口 |
+| `module.manifest_url` | `manifest_url` / `manifestUrl` | remote 条目 |
+| `compat.min_host` | `min_compatible_version` | 含义相同，新条目用 `compat.min_host` |
+| `kind` | `kind` / `type` | 语义不变（`internal`/`remote`） |
+| — | `key_required` / `order` | 旧字段 `key_required` 仅对内置 `shuake` 等旧条目不废弃；`order` 沿用 |
+
+**旧条目兼容策略**：缺 `app_id`/`compat`/`status` 的旧条目按 `kind=internal`、`status=active` 处理（保持现有可用性）；**remote 旧条目缺 `publisher_key_id` 时一律降级为不可用**并提示「模块未签名」，不得为了兼容而运行未验证代码。
 
 ## 8. 四类职责边界（细化 §8 of T01-A）
 

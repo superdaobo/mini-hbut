@@ -1,7 +1,7 @@
 # 事实基线与跨端能力矩阵（T01-A · Epic #1161 / Issue #1162）
 
 > 版本：v1（2026-11-01）。作者：Mini-HBUT 客户端维护者（统筹者）。
-> 姊妹文档：`module-and-auth-contracts.md`（公共契约，T01-B 产出）；背景材料：`../mini-hbut-architecture-and-migration-requirements.md`（10-30 需求）、`../mini-hbut-migration-plan-2026-11-01.md`（11-01 规划）。
+> 姊妹文档：[模块与授权公共契约](./module-and-auth-contracts.md)（T01-B 产出）；背景材料：[10-30 架构现状与迁移需求说明](../mini-hbut-architecture-and-migration-requirements.md)、[11-01 迁移与模块运行时重新规划](../mini-hbut-migration-plan-2026-11-01.md)。
 >
 > **状态图例（全文统一）**
 > - `已核实`：本仓库代码或本机命令可复现，本文给了 `file:line` 或命令。
@@ -101,7 +101,7 @@
 
 | 职责 | 现状 | 目标 | 归属 |
 |---|---|---|---|
-| 原生权限（IPC/桥/文件/网络） | 单一 `main` 窗口 capability 全集（`capabilities/main.json`）；模块窗口 label 为 `more-module-*`，不在该 capability 内（`apps/client/src-tauri/src/modules/module_bundle.rs:584-600`）；前端使用 **210** 个唯一命令名，Rust 侧注册 **224** 项 handler（脚本统计，差异待 T04 精算） | 模块只能拿到显式授予的能力；Rust 做最终判定 | T04（隔离）、T06（受控请求） |
+| 原生权限（IPC/桥/文件/网络） | 单一 `main` 窗口 capability 全集（`capabilities/main.json`）；模块窗口 label 为 `more-module-*`，不在该 capability 内（`apps/client/src-tauri/src/modules/module_bundle.rs:584-600`）；前端使用 **210** 个唯一命令名，Rust 侧注册 **238** 项 handler（`tauri::generate_handler!` 条目计数），差异待 T04 精算 | 模块只能拿到显式授予的能力；Rust 做最终判定 | T04（隔离）、T06（受控请求） |
 | 签名清单 | 不存在（§4 C4） | Ed25519 清单验签 + 防回放 + 受控回退 | T05 |
 | 用户同意 | 不存在（无数据域/同意/撤销模型） | 应用获批数据域 ∩ 用户有效同意 ∩ 操作 ∩ 数据归属 | T11 |
 | 业务资源授权 | 现有后端 scope 校验可被空 scope 绕过（OCR#3 已记录） | 每次数据访问可证明是谁/哪个应用/哪个操作 | T11 |
@@ -130,5 +130,5 @@
 | G4 | Casdoor 实测凭据未到位（用户稍后提供） | T09/T10/T11/T13 | T09 只交可做部分 + 缺口清单 |
 | G5 | 三端隔离无实测 | T04/T07/T08 | 未实测平台不授予敏感能力 |
 | G6 | 两家新学校接口无协议输入（R8） | T08 后续接入 | 不猜测、不预开放任意 host |
-| G7 | `capabilities` 与命令面未逐条对账（224 vs 210） | T04 | T04 开工第一步做精确对账 |
+| G7 | `capabilities` 与命令面未逐条对账（238 个已注册 handler vs 前端 210 个唯一命令名，两者集合关系未核对） | T04 | T04 开工第一步做精确对账 |
 | G8 | `HBUT_BRIDGE_TOKEN` 是进程级万能钥匙（环境变量一旦设置，任何本机进程可读该变量） | T02/T06 | 保留（CLI 需要），在契约中登记为已知边界 |
