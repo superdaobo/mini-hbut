@@ -59,9 +59,11 @@ describe('checkRateLimit（Postgres 原子计数）', () => {
   it('并发同一 key 计数精确递增（无竞态丢失）', async () => {
     const db = await createTestDatabase()
     try {
+      // 同一窗口内并发：冻结时间戳，避免跨窗口边界导致计数被重置
+      const frozenNow = Date.now()
       const results = await Promise.all(
         Array.from({ length: 20 }, () =>
-          checkRateLimit(db.sql, smallRule, '203.0.113.9', Date.now()),
+          checkRateLimit(db.sql, smallRule, '203.0.113.9', frozenNow),
         ),
       )
       // limit=3：前 3 次放行，其余拒绝
@@ -79,14 +81,15 @@ describe('checkRateLimit（Postgres 原子计数）', () => {
   it('不同 IP 独立计数（不因一人攻击封全 NAT）', async () => {
     const db = await createTestDatabase()
     try {
+      const frozenNow = Date.now()
       for (let i = 0; i < 3; i += 1) {
-        const r = await checkRateLimit(db.sql, smallRule, '203.0.113.1', Date.now())
+        const r = await checkRateLimit(db.sql, smallRule, '203.0.113.1', frozenNow)
         expect(r.allowed).toBe(true)
       }
       // 第一个 IP 已到 limit=3；第二个 IP 从头计数
-      const other = await checkRateLimit(db.sql, smallRule, '203.0.113.2', Date.now())
+      const other = await checkRateLimit(db.sql, smallRule, '203.0.113.2', frozenNow)
       expect(other.allowed).toBe(true)
-      const again = await checkRateLimit(db.sql, smallRule, '203.0.113.2', Date.now())
+      const again = await checkRateLimit(db.sql, smallRule, '203.0.113.2', frozenNow)
       expect(again.allowed).toBe(true)
     } finally {
       await db.cleanup()
