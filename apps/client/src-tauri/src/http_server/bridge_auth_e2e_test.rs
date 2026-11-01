@@ -40,12 +40,13 @@ mod t02_bridge_e2e {
             .route("/import_cookies", post(|| async { "import" }))
             .route("/module_bundle/prepare", post(|| async { "prepare" }))
             .route("/course_selection/select", post(|| async { "select" }))
-            .route("/exports/demo.ics", get(|| async { "ics" }))
+            // 与真实路由同形：`/exports/:filename` + `/school-website/*path`
+            .route("/exports/:filename", get(|| async { "ics" }))
             .route(
                 "/module_bundle/content/main/demo/1/index.html",
                 get(|| async { "html" }),
             )
-            .route("/school-website/news/1", get(|| async { "news" }))
+            .route("/school-website/*path", get(|| async { "news" }))
             .route("/reserve-embed/x", any(|| async { "reserve" }))
             .route("/proxy/video", get(|| async { "video" }))
             .route("/cache/get", get(|| async { "cache" }))
@@ -269,6 +270,38 @@ mod t02_bridge_e2e {
         )
         .await;
         assert_eq!(code, 401);
+    }
+
+    #[tokio::test]
+    async fn path_normalization_tricks_do_not_reach_protected_data() {
+        let base = spawn_bridge(true).await;
+        // 公开前缀 + 穿越 / 编码 / 大小写 / 尾斜杠：一律不得返回 200
+        for path in [
+            "/exports/../sync_grades",
+            "/exports/..%2Fsync_grades",
+            "/exports/%2e%2e/sync_grades",
+            "/school-website/../../sync_grades",
+            "/%73ync_grades",
+            "/SYNC_GRADES",
+            "/sync_grades/",
+            "/sync_grades.json",
+        ] {
+            let (code, body) = status(&base, "GET", path, &[("origin", "tauri://localhost")]).await;
+            assert_ne!(code, 200, "路径 {path} 不得绕过受保护判定（body={body}）");
+            // 双保险：受保护 stub 的响应体绝不允许出现
+            for protected_body in ["grades", "schedule", "login", "cookies"] {
+                assert_ne!(body, protected_body, "路径 {path} 命中了受保护 handler");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn token_in_url_query_is_not_accepted() {
+        // 契约 R5：主令牌不得进 URL，服务端也不得把 query 里的令牌当凭据。
+        let base = spawn_bridge(true).await;
+        let path = format!("/sync_grades?token={TOKEN}&access_token={TOKEN}");
+        let (code, _) = status(&base, "POST", &path, &[("origin", "tauri://localhost")]).await;
+        assert_eq!(code, 401, "query 中的令牌不得构成授权");
     }
 
     #[tokio::test]

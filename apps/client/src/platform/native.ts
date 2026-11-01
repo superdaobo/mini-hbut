@@ -32,6 +32,8 @@ export const isTauriMobileRuntime = () =>
  * 原生调用也禁止把完整 args 写入本地调试日志（#1029）。
  */
 const SILENT_NATIVE_COMMANDS = new Set([
+  // #1163 T02：桥会话令牌命令只取值，命令名也不必进调试日志（减少痕迹面）
+  'bridge_session_token',
   'push_runtime_log',
   'get_runtime_logs',
   'clear_runtime_logs',

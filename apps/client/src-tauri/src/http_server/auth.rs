@@ -209,7 +209,20 @@ pub(crate) enum BridgeRoutePolicy {
     DebugOnly,
 }
 
+/// 路径里出现穿越/编码歧义时一律按 `Protected` 处理（fail closed）。
+///
+/// 原因：中间件用**原始** `uri().path()` 分类，而 axum 路由匹配发生在**百分号解码**之后，
+/// 两者不一致时可能把「看起来像公开前缀」的路径交给别的 handler。这里直接把这类路径
+/// 归入最高保护级别，宁可多要一个令牌，也不给分类/路由错位留空间（#1163 G-B）。
+fn has_ambiguous_path_encoding(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.contains("%2e") || lower.contains("%2f") || lower.contains("%5c")
+}
+
 pub(crate) fn bridge_route_policy(path: &str) -> BridgeRoutePolicy {
+    if has_ambiguous_path_encoding(path) || path.contains("..") || path.contains('\\') {
+        return BridgeRoutePolicy::Protected;
+    }
     if path == "/health" {
         BridgeRoutePolicy::PublicHealth
     } else if path.starts_with("/local/") {
@@ -647,8 +660,8 @@ pub(crate) fn bridge_cors_layer() -> CorsLayer {
 #[cfg(test)]
 mod t02_bridge_auth_matrix {
     use super::super::auth::{
-        decide_bridge_access, media_capability, media_capability_valid, BridgeAccessDecision,
-        BridgeRoutePolicy,
+        bridge_route_policy, decide_bridge_access, media_capability, media_capability_valid,
+        BridgeAccessDecision, BridgeRoutePolicy,
     };
     use axum::http::Method;
     use reqwest::header::{HeaderMap, HeaderValue};
@@ -682,6 +695,38 @@ mod t02_bridge_auth_matrix {
     }
 
     // ── 锁定：公开与免令牌路由不得因 T02 改变 ──────────────────
+
+    #[test]
+    fn ambiguous_paths_are_always_treated_as_protected() {
+        // 分类用原始路径、路由匹配用解码路径 → 这类歧义路径必须 fail closed。
+        for path in [
+            "/exports/../sync_grades",
+            "/exports/..%2Fsync_grades",
+            "/exports/%2e%2e/sync_grades",
+            "/school-website/%2e%2e/%2e%2e/sync_grades",
+            "/module_bundle/content/..%5C..%5Csync_grades",
+            r"/exports\..\sync_grades",
+        ] {
+            assert_eq!(
+                bridge_route_policy(path),
+                BridgeRoutePolicy::Protected,
+                "{path} 必须归入 Protected"
+            );
+        }
+        // 正常路径不受影响
+        assert_eq!(
+            bridge_route_policy("/exports/demo.ics"),
+            BridgeRoutePolicy::PublicEmbed
+        );
+        assert_eq!(
+            bridge_route_policy("/module_bundle/content/main/demo/1/index.html"),
+            BridgeRoutePolicy::PublicEmbed
+        );
+        assert_eq!(
+            bridge_route_policy("/health"),
+            BridgeRoutePolicy::PublicHealth
+        );
+    }
 
     #[test]
     fn lock_public_health_is_open_for_reads_only() {
