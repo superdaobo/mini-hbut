@@ -96,6 +96,9 @@ struct BridgeLifecycle {
     listening: std::sync::atomic::AtomicBool,
     /// spawn 代数（日志可观测冷启 vs 热恢复）
     generation: std::sync::atomic::AtomicU64,
+    /// 当前代 Bridge 会话令牌（#1163 T02）：仅下发给**主窗口**，
+    /// 随 respawn 更新；`None` 表示尚未 spawn 或 bridge 未启用。
+    session_token: std::sync::Mutex<Option<Arc<str>>>,
 }
 
 impl BridgeLifecycle {
@@ -105,6 +108,7 @@ impl BridgeLifecycle {
             shutdown_tx: Mutex::new(None),
             listening: std::sync::atomic::AtomicBool::new(false),
             generation: std::sync::atomic::AtomicU64::new(0),
+            session_token: std::sync::Mutex::new(None),
         }
     }
 }
@@ -155,14 +159,24 @@ pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
         return;
     }
     let life = bridge_lifecycle();
+    // #1163 T02：令牌在同一次 spawn 里生成一次，同时交给 Router 状态与生命周期持有，
+    // 保证「下发给主窗口的值」与「服务端比较的值」永远一致（respawn 后同步更新）。
+    let bridge_token = generate_bridge_session_token();
     let state = HttpState {
         client,
         local_api_key: load_local_api_public_key(),
-        bridge_token: generate_bridge_session_token(),
+        bridge_token: Arc::clone(&bridge_token),
         // #698：启动时确保本机 Agent 令牌存在（缺失则生成写入，存在则复用）
         local_agent_token: local_token::ensure_local_agent_token(),
         app,
     };
+    {
+        let mut slot = life
+            .session_token
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *slot = Some(bridge_token);
+    }
     let gen = life
         .generation
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -276,6 +290,36 @@ pub async fn ensure_http_bridge(
     })
 }
 
+/// 只有主窗口能取得 Bridge 会话令牌（#1163 T02）。
+///
+/// 模块窗口（`more-module-*`）、调试窗口、外部页面与 CLI 一律拒绝：
+/// 令牌是「主壳代表用户访问受保护接口」的凭据，不是给被嵌入内容用的能力。
+pub(crate) fn bridge_token_allowed_for_window(label: &str) -> bool {
+    label == "main"
+}
+
+/// 把当前代 Bridge 会话令牌交给**主窗口**（#1163 T02）。
+///
+/// 约束：
+/// - 仅 `label == "main"` 的窗口可调用；其他窗口返回错误且不发令牌；
+/// - 令牌只经此原生命令进入主窗口 JS 上下文，不得写入 storage/URL/日志/子页面；
+/// - bridge 未启用或尚未 spawn 时返回 `None`（调用方走无桥降级路径）。
+#[tauri::command]
+pub async fn bridge_session_token(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+    if !bridge_token_allowed_for_window(window.label()) {
+        return Err("Bridge 会话令牌仅向主窗口下发".into());
+    }
+    if !is_http_bridge_enabled() {
+        return Ok(None);
+    }
+    let life = bridge_lifecycle();
+    let guard = life
+        .session_token
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    Ok(guard.as_ref().map(|token| token.to_string()))
+}
+
 /// 组装完整 Bridge Router（领域 router 聚合；`#[cfg(debug_assertions)]` 追加 debug 路由）。
 ///
 /// 无需 state 即可构建：拆分后各领域 router 均为 `Router<HttpState>`，组合层只负责聚合。
@@ -384,6 +428,25 @@ mod ensure_http_bridge_tests {
         assert!(addr.port() > 0, "bridge port must be non-zero");
         assert!(addr.ip().is_loopback(), "bridge must stay on loopback");
         assert_eq!(addr.ip().to_string(), "127.0.0.1");
+    }
+
+    #[test]
+    fn t02_token_only_for_main_window() {
+        // #1163 T02：令牌下发面必须只有主窗口；模块/调试/其他 label 一律拒绝。
+        assert!(super::bridge_token_allowed_for_window("main"));
+        for label in [
+            "",
+            "more-module-demo",
+            "debug",
+            "module-bundle",
+            "Main",
+            "main ",
+        ] {
+            assert!(
+                !super::bridge_token_allowed_for_window(label),
+                "label {label:?} 不应取得 Bridge 会话令牌"
+            );
+        }
     }
 
     #[test]

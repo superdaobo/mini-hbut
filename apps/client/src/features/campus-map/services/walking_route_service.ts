@@ -1,3 +1,5 @@
+// #1163 T02：Bridge 会话令牌统一注入
+import { bridgeFetch } from '../../../utils/bridge_auth';
 import { isLikelyAndroidUserAgent, isTauriRuntime } from '../../../platform/native'
 import { CAMPUS_MAP_DIRECTION_PROXY } from '../constants'
 import type { MapLatLng, WalkingRouteResult } from '../types'
@@ -54,7 +56,7 @@ export const fetchWalkingRoute = async (
     output: 'json'
   })
   const endpoint = resolveCampusMapDirectionUrl()
-  const response = await fetch(`${endpoint}?${params.toString()}`, {
+  const response = await bridgeFetch(`${endpoint}?${params.toString()}`, {
     method: 'GET',
     cache: 'no-store',
     signal

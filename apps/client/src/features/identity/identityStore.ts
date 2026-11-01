@@ -10,6 +10,8 @@
 //
 // 状态推进由 IdentityCoordinator 单向驱动（组件只读 + 用户动作回调）。
 
+// #1163 T02：调试上报同样经统一凭据注入（DebugOnly 路由）
+import { bridgeFetch } from '../../utils/bridge_auth';
 import { computed, reactive, type ComputedRef } from 'vue'
 import type {
   IdentityApprovalOutcome,
@@ -196,7 +198,7 @@ export const getRemainingSeconds = (detail: IdentityRequestDetail | null): numbe
 /** 测试诊断：把授权状态推进上报到本地 bridge（仅 debug 构建存在该端点；失败静默） */
 const diagReport = (event: string, details?: Record<string, unknown>): void => {
   try {
-    void fetch('http://127.0.0.1:4399/debug/logs/push', {
+    void bridgeFetch('http://127.0.0.1:4399/debug/logs/push', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scope: 'identity-store', level: 'info', message: event, details }),

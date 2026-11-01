@@ -1,3 +1,5 @@
+// #1163 T02：Bridge 会话令牌统一注入
+import { bridgeFetch } from './bridge_auth';
 type TowerGoHttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 export interface TowerGoStorageLike {
@@ -286,7 +288,10 @@ export const towerGoRequest = async <T = unknown>(
   const relativeUrl = method === 'GET' ? appendGetQuery(url, data) : url
   const fullUrl = relativeUrl.startsWith('http') ? relativeUrl : `${resolveTowerGoBaseUrl()}${relativeUrl}`
   try {
-    const response = await fetch(fullUrl, await buildTowerGoRequestInit(method, url, data, options))
+    const response = await bridgeFetch(
+      fullUrl,
+      await buildTowerGoRequestInit(method, url, data, options)
+    )
     const rawText = await response.text()
     let parsed: unknown = {}
     try {
