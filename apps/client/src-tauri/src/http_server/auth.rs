@@ -501,3 +501,256 @@ pub(crate) fn bridge_cors_layer() -> CorsLayer {
         ])
         .allow_headers(AllowHeaders::mirror_request())
 }
+
+// ────────────────────────────────────────────────────────────
+// T02 (#1163) 桥授权矩阵：现状锁定 + 目标行为骨架。
+//
+// 本模块是 T7 改造的验收载体：
+// - `锁定` 段：必须**一直**通过，防止 T7 误伤公开/免令牌路由；
+// - `目标` 段：`#[ignore]`，描述 T02 完成后的期望判定；T7 改 `decide_bridge_access`
+//   后去掉 ignore 即为验收（现在运行会失败，属于有意为之）。
+#[cfg(test)]
+mod t02_bridge_auth_matrix {
+    use super::super::auth::{decide_bridge_access, BridgeAccessDecision, BridgeRoutePolicy};
+    use axum::http::Method;
+    use reqwest::header::{HeaderMap, HeaderValue};
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                (*name)
+                    .parse::<reqwest::header::HeaderName>()
+                    .expect("header name"),
+                HeaderValue::from_str(value).expect("header value"),
+            );
+        }
+        map
+    }
+
+    /// 主壳在 Tauri 里的典型 Origin（桌面窗口）。
+    fn tauri_origin() -> HeaderMap {
+        headers(&[("origin", "tauri://localhost")])
+    }
+
+    /// 任意 loopback 端口（当前实现不限制端口）。
+    fn loopback_origin(port: u16) -> HeaderMap {
+        headers(&[("origin", &format!("http://127.0.0.1:{port}"))])
+    }
+
+    /// 伪造 Referer：不带 Origin，只带一个 loopback Referer。
+    fn spoofed_referer() -> HeaderMap {
+        headers(&[("referer", "http://127.0.0.1:4399/index.html")])
+    }
+
+    // ── 锁定：公开与免令牌路由不得因 T02 改变 ──────────────────
+
+    #[test]
+    fn lock_public_health_is_open_for_reads_only() {
+        for method in [Method::GET, Method::HEAD] {
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::PublicHealth,
+                    &method,
+                    &HeaderMap::new(),
+                    false,
+                    true
+                ),
+                BridgeAccessDecision::Allow
+            );
+        }
+        for method in [Method::POST, Method::PUT] {
+            assert_ne!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::PublicHealth,
+                    &method,
+                    &HeaderMap::new(),
+                    false,
+                    true
+                ),
+                BridgeAccessDecision::Allow
+            );
+        }
+    }
+
+    #[test]
+    fn lock_public_embed_allows_read_without_context() {
+        for method in [Method::GET, Method::HEAD] {
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::PublicEmbed,
+                    &method,
+                    &HeaderMap::new(),
+                    false,
+                    true
+                ),
+                BridgeAccessDecision::Allow
+            );
+        }
+        assert_ne!(
+            decide_bridge_access(
+                BridgeRoutePolicy::PublicEmbed,
+                &Method::POST,
+                &HeaderMap::new(),
+                false,
+                true
+            ),
+            BridgeAccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn lock_reserve_embed_read_allowed_write_needs_context() {
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::PublicEmbedWrite,
+                &Method::GET,
+                &HeaderMap::new(),
+                false,
+                true
+            ),
+            BridgeAccessDecision::Allow
+        );
+        // 写方法在 T02 中**保持**「可信上下文」语义（官方页无法携带我们下发的令牌）。
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::PublicEmbedWrite,
+                &Method::POST,
+                &loopback_origin(4399),
+                false,
+                true
+            ),
+            BridgeAccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn lock_local_data_read_allowed_and_write_rejected() {
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::LocalData,
+                &Method::GET,
+                &HeaderMap::new(),
+                false,
+                true
+            ),
+            BridgeAccessDecision::Allow
+        );
+        assert_ne!(
+            decide_bridge_access(
+                BridgeRoutePolicy::LocalData,
+                &Method::POST,
+                &HeaderMap::new(),
+                false,
+                true
+            ),
+            BridgeAccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn lock_explicit_untrusted_origin_is_forbidden() {
+        for origin in ["https://evil.example", "null", "http://192.168.1.10:8080"] {
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::Protected,
+                    &Method::GET,
+                    &headers(&[("origin", origin)]),
+                    true,
+                    true
+                ),
+                BridgeAccessDecision::ForbiddenOrigin
+            );
+        }
+    }
+
+    #[test]
+    fn lock_valid_token_is_accepted_without_any_origin() {
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::GET,
+                &HeaderMap::new(),
+                true,
+                true
+            ),
+            BridgeAccessDecision::Allow
+        );
+    }
+
+    #[test]
+    fn lock_debug_route_hidden_in_release() {
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::DebugOnly,
+                &Method::GET,
+                &HeaderMap::new(),
+                true,
+                false
+            ),
+            BridgeAccessDecision::DebugRouteUnavailable
+        );
+    }
+
+    // ── 目标：T02 完成后应成立（T7 去 ignore 即为验收）─────────
+
+    #[test]
+    #[ignore = "T02 #1163 目标行为：T7 翻转 Protected 判定后启用"]
+    fn target_protected_rejects_tauri_origin_without_token() {
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::GET,
+                &tauri_origin(),
+                false,
+                true
+            ),
+            BridgeAccessDecision::Unauthorized
+        );
+    }
+
+    #[test]
+    #[ignore = "T02 #1163 目标行为：T7 翻转 Protected 判定后启用"]
+    fn target_protected_rejects_any_loopback_port_without_token() {
+        for port in [4399_u16, 5173, 8080, 1] {
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::Protected,
+                    &Method::GET,
+                    &loopback_origin(port),
+                    false,
+                    true
+                ),
+                BridgeAccessDecision::Unauthorized
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "T02 #1163 目标行为：T7 翻转 Protected 判定后启用"]
+    fn target_protected_rejects_spoofed_referer_without_token() {
+        assert_eq!(
+            decide_bridge_access(
+                BridgeRoutePolicy::Protected,
+                &Method::POST,
+                &spoofed_referer(),
+                false,
+                true
+            ),
+            BridgeAccessDecision::Unauthorized
+        );
+    }
+
+    #[test]
+    #[ignore = "T02 #1163 目标行为：T7 翻转 Protected 判定后启用"]
+    fn target_protected_write_rejects_trusted_origin_without_token() {
+        for policy in [BridgeRoutePolicy::Protected] {
+            for method in [Method::POST, Method::PUT, Method::DELETE] {
+                assert_eq!(
+                    decide_bridge_access(policy, &method, &tauri_origin(), false, true),
+                    BridgeAccessDecision::Unauthorized
+                );
+            }
+        }
+    }
+}
