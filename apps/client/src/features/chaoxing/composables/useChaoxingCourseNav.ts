@@ -199,7 +199,9 @@ export const useChaoxingCourseNav = (core: ChaoxingHubCore): ChaoxingCourseNav =
       const st = res?.data && typeof res.data === 'object' ? res.data : res
       // 直链经本地代理播放（绕过 cldisk Referer 防盗链）；官方 ananas 播放器
       // 带参 URL 已被学习通新版前端废弃（会永久卡「正在为您加载文件」），不再兜底
-      const playUrls = collectPlayUrls(st, res || {}).map((u) => toVideoProxyUrl(u, isTauriRuntime()))
+      const playUrls = await Promise.all(
+        collectPlayUrls(st, res || {}).map((u) => toVideoProxyUrl(u, isTauriRuntime()))
+      )
       if (!playUrls.length) {
         throw new Error(
           st.status && st.status !== 'success'

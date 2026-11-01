@@ -261,8 +261,11 @@ export const collectDocUrls = (
  * Rust cookie jar 不共享；Tauri 下必须经 http_server 的 /proxy/video 流式代理播放。
  * 非 Tauri（dev 浏览器）退回原直链尽力播放。
  */
-export const toVideoProxyUrl = (u: string, isTauri: boolean): string => {
+export const toVideoProxyUrl = async (u: string, isTauri: boolean): Promise<string> => {
   if (!u || !u.startsWith('http')) return u
   if (!isTauri) return u
-  return `http://127.0.0.1:4399/proxy/video?url=${encodeURIComponent(u)}`
+  // #1163 T02：`<video src>` 不能带 Authorization，改用「媒体能力串」。
+  // 能力串由主窗口用桥令牌派生（HMAC-SHA256），模块拿不到令牌 ⇒ 无法派生。
+  const { buildMediaCapabilityUrl } = await import('../../../utils/bridge_media_capability')
+  return buildMediaCapabilityUrl(u)
 }

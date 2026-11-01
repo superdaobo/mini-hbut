@@ -139,12 +139,12 @@ describe('chaoxing 视频/文档地址收集', () => {
     expect(urls).toContain('https://e.com/y.pdf')
   })
 
-  it('toVideoProxyUrl：仅 Tauri 下转本地代理，其余退回原直链', () => {
-    expect(toVideoProxyUrl('https://a.com/1.mp4', true)).toBe(
-      'http://127.0.0.1:4399/proxy/video?url=https%3A%2F%2Fa.com%2F1.mp4'
-    )
-    expect(toVideoProxyUrl('https://a.com/1.mp4', false)).toBe('https://a.com/1.mp4')
-    expect(toVideoProxyUrl('', true)).toBe('')
+  it('toVideoProxyUrl：仅 Tauri 且取到令牌时才转本地代理（带媒体能力串）', async () => {
+    // 非 Tauri / 空值：原样返回，不触桥
+    expect(await toVideoProxyUrl('https://a.com/1.mp4', false)).toBe('https://a.com/1.mp4')
+    expect(await toVideoProxyUrl('', true)).toBe('')
+    // Tauri 但无令牌（测试环境 invoke 不可用）：退回直链，绝不生成无凭据代理地址
+    expect(await toVideoProxyUrl('https://a.com/1.mp4', true)).toBe('https://a.com/1.mp4')
   })
 })
 

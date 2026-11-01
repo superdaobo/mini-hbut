@@ -201,6 +201,12 @@ jobs:
       - name: Cargo test
         run: cargo test --manifest-path apps/client/src-tauri/Cargo.toml --lib
 
+      # #1163 T02：http_server（本地 Bridge）整模块由 #[cfg(feature = "bridge")] 门控，
+      # 上面的默认 features 测试**不会编译它**，导致桥鉴权改动没有 CI 覆盖。
+      # 该步骤专门编译并运行 bridge feature 下的鉴权/路由用例。
+      - name: Cargo test (bridge feature, #1163)
+        run: cargo test --manifest-path apps/client/src-tauri/Cargo.toml --lib --features bridge
+
       - name: Cargo fmt check
         run: cargo fmt --manifest-path apps/client/src-tauri/Cargo.toml --all -- --check
 

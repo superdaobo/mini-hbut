@@ -520,6 +520,11 @@ mod ensure_http_bridge_tests {
             bridge_route_policy("/course_selection/select"),
             BridgeRoutePolicy::Protected
         );
+        // #1163 T02：本机缓存读取走 local_api JWT，归入 LocalCacheRead（handler 内校验）
+        assert_eq!(
+            bridge_route_policy("/cache/get"),
+            BridgeRoutePolicy::LocalCacheRead
+        );
         // #698：本机只读数据端点族使用独立 LocalData 策略
         assert_eq!(
             bridge_route_policy("/local/profile"),
@@ -709,7 +714,7 @@ mod ensure_http_bridge_tests {
     }
 
     #[test]
-    fn event_stream_post_is_allowed_for_trusted_origin_or_bearer_context() {
+    fn event_stream_post_requires_bridge_token_not_just_origin() {
         let mut capacitor = HeaderMap::new();
         capacitor.insert("origin", HeaderValue::from_static("capacitor://localhost"));
         capacitor.insert("content-type", HeaderValue::from_static("application/json"));
@@ -722,7 +727,7 @@ mod ensure_http_bridge_tests {
                 false,
                 true,
             ),
-            BridgeAccessDecision::Allow
+            BridgeAccessDecision::Unauthorized
         );
 
         let mut vite = HeaderMap::new();
@@ -738,7 +743,7 @@ mod ensure_http_bridge_tests {
                 false,
                 true,
             ),
-            BridgeAccessDecision::Allow
+            BridgeAccessDecision::Unauthorized
         );
 
         assert_eq!(
@@ -784,19 +789,40 @@ mod ensure_http_bridge_tests {
     }
 
     #[test]
-    fn access_decision_accepts_trusted_origin_or_valid_token() {
-        let mut trusted = HeaderMap::new();
-        trusted.insert("origin", HeaderValue::from_static("tauri://localhost"));
-        assert_eq!(
-            decide_bridge_access(
-                BridgeRoutePolicy::Protected,
-                &Method::POST,
-                &trusted,
-                false,
-                true,
-            ),
-            BridgeAccessDecision::Allow
-        );
+    fn access_decision_requires_token_for_protected_routes() {
+        // #1163 T02：可信 Origin（tauri://localhost、dev 端口、任意 loopback 端口）不再免令牌。
+        for origin in [
+            "tauri://localhost",
+            "https://tauri.localhost",
+            "http://localhost:5173",
+            "http://127.0.0.1:4399",
+            "http://127.0.0.1:1",
+        ] {
+            let mut trusted = HeaderMap::new();
+            trusted.insert("origin", HeaderValue::from_static(origin));
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::Protected,
+                    &Method::GET,
+                    &trusted,
+                    false,
+                    true,
+                ),
+                BridgeAccessDecision::Unauthorized,
+                "origin {origin} 不能单独构成授权"
+            );
+            assert_eq!(
+                decide_bridge_access(
+                    BridgeRoutePolicy::Protected,
+                    &Method::GET,
+                    &trusted,
+                    true,
+                    true,
+                ),
+                BridgeAccessDecision::Allow,
+                "带有效令牌时必须放行（origin {origin}）"
+            );
+        }
 
         assert_eq!(
             decide_bridge_access(
