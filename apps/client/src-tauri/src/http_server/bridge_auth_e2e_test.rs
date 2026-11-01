@@ -286,8 +286,12 @@ mod t02_bridge_e2e {
             "/sync_grades/",
             "/sync_grades.json",
         ] {
-            let (code, _) = status(&base, "GET", path, &[("origin", "tauri://localhost")]).await;
-            assert_ne!(code, 200, "路径 {path} 不得绕过受保护判定");
+            let (code, body) = status(&base, "GET", path, &[("origin", "tauri://localhost")]).await;
+            assert_ne!(code, 200, "路径 {path} 不得绕过受保护判定（body={body}）");
+            // 双保险：受保护 stub 的响应体绝不允许出现
+            for protected_body in ["grades", "schedule", "login", "cookies"] {
+                assert_ne!(body, protected_body, "路径 {path} 命中了受保护 handler");
+            }
         }
     }
 
