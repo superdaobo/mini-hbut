@@ -260,7 +260,7 @@ const frameSandbox = computed(() => {
   if (!src) return undefined
   try {
     return isLocalModuleContentOrigin(new URL(src).origin)
-      ? // 保留本地游戏需要的输入/下载能力，但**不给** allow-top-navigation / allow-modals 之外的危险项
+      ? // 只给「跑脚本 + 保留自身 origin + 表单/弹窗/指针锁/下载」；导航类与弹模态类能力一律不给
         'allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-downloads'
       : undefined
   } catch {
