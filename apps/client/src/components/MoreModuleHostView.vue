@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
-import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
+import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, isLocalModuleContentOrigin, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
 import { openExternal } from '../utils/external_link'
 import { pushDebugLog } from '../utils/debug_logger'
 import { isIOSLike } from '../platform/runtime'
@@ -249,6 +249,25 @@ const frameSrc = computed(() =>
   )
 )
 
+/**
+ * #1165 T04：只有**本机模块内容**（我们自己的内容服务 origin）加 sandbox。
+ *
+ * 远端游戏 iframe 暂不加：它们依赖 fullscreen / 输入聚焦等能力，且与宿主本就跨源；
+ * 远端模块的收紧由 T07 的显式来源与能力握手处理（不在 T04 里顺手改，避免打断 11 个游戏）。
+ */
+const frameSandbox = computed(() => {
+  const src = safeText(frameSrc.value)
+  if (!src) return undefined
+  try {
+    return isLocalModuleContentOrigin(new URL(src).origin)
+      ? // 保留本地游戏需要的输入/下载能力，但**不给** allow-top-navigation / allow-modals 之外的危险项
+        'allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-downloads'
+      : undefined
+  } catch {
+    return undefined
+  }
+})
+
 const hasEmbeddedFrameHeight = computed(() => frameContentHeight.value > 0)
 
 const clearLoadingGuardTimer = () => {
@@ -420,7 +439,8 @@ const handlePanelPointsRequestMessage = async (event) => {
     const validPath = /\/(?:modules|module_bundle\/content)\/[^/]+\/more_panel\/[^/]+\//.test(url.pathname)
     isOfficialPanel = validPath && (
       expectedOrigin === 'https://hbut.6661111.xyz' ||
-      (expectedOrigin === 'http://127.0.0.1:4399' && isLocalModuleBridgePreviewUrl(currentSrc))
+      // #1165 T04：本机模块内容已迁到独立端口，不能再用写死的 4399
+      (isLocalModuleContentOrigin(expectedOrigin) && isLocalModuleBridgePreviewUrl(currentSrc))
     )
   } catch {
     return
@@ -786,6 +806,7 @@ onBeforeUnmount(() => {
           class="module-frame"
           :class="{ 'module-frame--content': hasEmbeddedFrameHeight }"
           :src="frameSrc"
+          :sandbox="frameSandbox"
           allowfullscreen
           allow="cross-origin-isolated; clipboard-write"
           referrerpolicy="no-referrer-when-downgrade"

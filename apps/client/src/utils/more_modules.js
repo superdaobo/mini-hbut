@@ -96,6 +96,10 @@ import {
   fetchModuleManifest
 } from './more_modules/core.js'
 export {
+  // #1165 T04：模块内容独立 origin 的判定（HostView 用它替代写死的 4399）
+  isLocalModuleContentOrigin,
+  getModuleContentOrigin,
+  MODULE_CONTENT_PORT,
   isLocalModuleBridgePreviewUrl,
   canUseLocalModuleBridgePreview,
   getLocalModuleState,

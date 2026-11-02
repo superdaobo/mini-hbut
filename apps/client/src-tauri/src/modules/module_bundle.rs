@@ -10,6 +10,9 @@ use tauri::{AppHandle, Manager};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 const DEFAULT_BRIDGE_PORT: u16 = 4399;
+/// #1165 T04：模块静态内容独立端口（与业务 API 不同 origin）。
+/// 该端口由 `http_server` 单独监听，只提供 `/module_bundle/content/*`。
+const DEFAULT_MODULE_CONTENT_PORT: u16 = 4398;
 const MODULE_CACHE_ROOT: &str = "more_modules";
 const REMOTE_MODULE_CDN_HOST: &str = "hbut.6661111.xyz";
 const LOCAL_MODULE_REDIRECT_ENV: &str = "HBUT_DEBUG_LOCAL_MODULE_REDIRECT";
@@ -84,6 +87,40 @@ fn bridge_port() -> u16 {
         .ok()
         .and_then(|v| v.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_BRIDGE_PORT)
+}
+
+/// 模块内容端口（#1165 T04）。必须与 Bridge 端口不同 —— 否则模块页面与业务 API
+/// 同源，同源即可读响应体，隔离失效。相同或非法时回退到默认内容端口。
+pub fn module_content_port() -> u16 {
+    let configured = std::env::var("HBUT_MODULE_CONTENT_PORT")
+        .ok()
+        .and_then(|value| value.trim().parse::<u16>().ok())
+        .filter(|port| *port != 0);
+    resolve_module_content_port(configured, bridge_port())
+}
+
+/// 纯函数版本（便于单测）：内容端口必须与 Bridge 端口不同，否则隔离失效。
+fn resolve_module_content_port(configured: Option<u16>, bridge_port: u16) -> u16 {
+    match configured {
+        // 显式配置且与 Bridge 端口不同 → 采用
+        Some(port) if port != bridge_port => port,
+        // 显式配置但与 Bridge 相同 → 拒绝该配置（如果直接沿用会让模块与 API 同源）
+        Some(_) => {
+            eprintln!("[T04] HBUT_MODULE_CONTENT_PORT 与 Bridge 端口相同，已回退到默认内容端口");
+            if DEFAULT_MODULE_CONTENT_PORT == bridge_port {
+                DEFAULT_MODULE_CONTENT_PORT + 1
+            } else {
+                DEFAULT_MODULE_CONTENT_PORT
+            }
+        }
+        None => {
+            if DEFAULT_MODULE_CONTENT_PORT == bridge_port {
+                DEFAULT_MODULE_CONTENT_PORT + 1
+            } else {
+                DEFAULT_MODULE_CONTENT_PORT
+            }
+        }
+    }
 }
 
 fn normalize_channel(raw: &str) -> Result<String, String> {
@@ -212,9 +249,11 @@ fn locate_entry_path(root: &Path, requested: &str) -> Result<String, String> {
 }
 
 fn build_preview_url(channel: &str, module_id: &str, version: &str, entry_path: &str) -> String {
+    // #1165 T04：模块内容走独立端口 —— 模块 origin 与业务 API origin 分离，
+    // 模块即使想同源读取桥响应也做不到（浏览器层面跨源 + 桥仍只认令牌）。
     format!(
         "http://127.0.0.1:{}/module_bundle/content/{}/{}/{}/{}",
-        bridge_port(),
+        module_content_port(),
         channel,
         module_id,
         version,
@@ -621,4 +660,36 @@ pub async fn open_module_bundle_window(
         "当前平台不支持独立模块窗口，请改用主窗口内嵌模式：{}",
         prepared.preview_url
     ))
+}
+
+#[cfg(test)]
+mod t04_module_content_port_tests {
+    use super::{resolve_module_content_port, DEFAULT_MODULE_CONTENT_PORT};
+
+    #[test]
+    fn content_port_defaults_away_from_bridge_port() {
+        // 默认内容端口与默认 Bridge 端口不同
+        assert_ne!(resolve_module_content_port(None, 4399), 4399);
+        assert_eq!(
+            resolve_module_content_port(None, 4399),
+            DEFAULT_MODULE_CONTENT_PORT
+        );
+    }
+
+    #[test]
+    fn content_port_honours_explicit_override() {
+        assert_eq!(resolve_module_content_port(Some(5000), 4399), 5000);
+    }
+
+    #[test]
+    fn content_port_never_collides_with_bridge_port() {
+        // 显式配置与 Bridge 相同 → 拒绝该配置（否则模块与 API 同源，隔离失效）
+        let resolved = resolve_module_content_port(Some(4399), 4399);
+        assert_ne!(resolved, 4399);
+        assert_eq!(resolved, DEFAULT_MODULE_CONTENT_PORT);
+
+        // 默认内容端口恰好等于 Bridge 端口时也要错开
+        let resolved_default = resolve_module_content_port(None, DEFAULT_MODULE_CONTENT_PORT);
+        assert_ne!(resolved_default, DEFAULT_MODULE_CONTENT_PORT);
+    }
 }
