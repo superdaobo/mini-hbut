@@ -1070,4 +1070,32 @@ mod t05_signature_and_unpack_tests {
         assert!(!error.is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn cached_entry_requires_matching_sha_and_metadata() {
+        // #1166 T05：缓存复用必须与 metadata 里的摘要/最小兼容版本一致，
+        // 否则按「缓存失效」处理（删除后重下），不得直接用旧包。
+        let root = temp_root("cachehit");
+        write_cache_metadata(
+            &root,
+            &ModuleBundleCacheMetadata {
+                version: "1.0.0".to_string(),
+                package_sha256: "e".repeat(64),
+                min_compatible_version: String::new(),
+                entry_path: "index.html".to_string(),
+                manifest: None,
+                release_seq: 1,
+            },
+        )
+        .expect("write meta");
+        std::fs::write(root.join("index.html"), b"<html></html>").expect("write entry");
+
+        // 摘要一致 → 命中
+        assert!(resolve_cached_entry_path(&root, "index.html", &"e".repeat(64), "").is_some());
+        // 摘要不一致 → 不命中（会触发重新下载）
+        assert!(resolve_cached_entry_path(&root, "index.html", &"f".repeat(64), "").is_none());
+        // 最小兼容版本不一致 → 不命中
+        assert!(resolve_cached_entry_path(&root, "index.html", &"e".repeat(64), "9.9.9").is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

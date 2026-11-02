@@ -56,6 +56,17 @@ Rust 规范化字节与 Node 逐字节相同、且签名能被内置信任根验
 - **同 sha256 的幂等重试**（重复 prepare、缓存命中）不算回放。
 - 受控回退通过「重新发布一个更高 `release_seq`、内容为旧版」的包实现，而不是接受旧清单。
 
+## 四·补 缓存 / 离线 / 回退的同一信任要求
+
+| 场景 | 行为 | 证据 |
+|---|---|---|
+| 冷缓存 | 先验签再下载；摘要必须等于清单声明 | `prepare_module_bundle` 顺序：`parse_and_verify_manifest` → 下载 → 比对 |
+| 缓存命中 | 复用缓存，但要求「缓存里的签名 == 当前清单签名」且摘要/最小版本/入口一致 | `resolve_cached_entry_path` + 签名比对分支；单测 `cached_entry_requires_matching_sha_and_metadata` |
+| 缓存元数据不一致 | 视为缓存失效：删目录重新下载（不会「用旧包凑合」） | `prepare_module_bundle` 的 `fs::remove_dir_all` 分支 |
+| 离线 | 无缓存且无法下载 → 报错；有缓存则命中路径同样要过签名比对 | 同上 |
+| 降级（未签名） | `trusted=false`：允许安装但不授予敏感能力（能力层由 T06 拒绝） | `ModuleBundlePrepareResult.trusted` |
+| 回退到旧版 | **只接受更高 `release_seq` 的包**；受控回退 = 用旧内容重新发布更高序号 | `ensure_release_seq` + `MODULE_RELEASE_REPLAY` |
+
 ## 五、密钥边界（必须遵守）
 
 1. **真实发布私钥不进仓库**，只在受控签名环境使用；CI 用 `scripts/check_module_signing_material.mjs`

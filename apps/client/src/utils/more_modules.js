@@ -93,9 +93,15 @@ import {
   resolveModuleChannel,
   normalizeCatalogModule,
   fetchModuleCatalog,
-  fetchModuleManifest
+  fetchModuleManifest,
+  moduleSigningErrorKey
 } from './more_modules/core.js'
+import { t } from './app_i18n'
 export {
+  // #1166 T05：签名类错误码 → i18n key
+  MODULE_SIGNING_ERROR_CODES,
+  extractModuleSigningErrorCode,
+  moduleSigningErrorKey,
   // #1165 T04：模块内容独立 origin 的判定（HostView 用它替代写死的 4399）
   isLocalModuleContentOrigin,
   getModuleContentOrigin,
@@ -741,7 +747,10 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
         local_ready: true
       }
     } catch (error) {
-      throw new Error(safeText(error?.message || error) || '模块本地准备失败')
+      const raw = safeText(error?.message || error)
+      // #1166 T05：签名/清单类错误给用户可读文案（原文里带 MODULE_* 前缀）
+      const key = moduleSigningErrorKey(raw)
+      throw new Error((key && t(key)) || raw || '模块本地准备失败')
     }
   }
 

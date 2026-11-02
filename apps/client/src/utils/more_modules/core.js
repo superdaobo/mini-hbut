@@ -57,6 +57,35 @@ export const MODULE_CONTENT_PORT = 4398
 /** 模块内容 origin（用于来源比较，不含末尾斜杠）。 */
 export const getModuleContentOrigin = () => `http://127.0.0.1:${MODULE_CONTENT_PORT}`
 
+/** #1166 T05：模块签名/清单类错误码（Rust 返回，形如 `CODE: 细节`）。 */
+export const MODULE_SIGNING_ERROR_CODES = Object.freeze([
+  'MODULE_SIGNATURE_MISSING',
+  'MODULE_SIGNATURE_INVALID',
+  'MODULE_SIGNATURE_ALG_UNSUPPORTED',
+  'MODULE_PUBLISHER_KEY_UNKNOWN',
+  'MODULE_MANIFEST_INVALID',
+  'MODULE_PROTOCOL_UNSUPPORTED',
+  'MODULE_RELEASE_REPLAY'
+])
+
+/**
+ * 从错误消息里解出签名类错误码（大小写敏感，取首个 `CODE:` 前缀）。
+ * 非签名类错误返回 ''，调用方原样展示原文。
+ */
+export const extractModuleSigningErrorCode = (message) => {
+  const text = safeText(message)
+  const matched = MODULE_SIGNING_ERROR_CODES.find(
+    (code) => text === code || text.startsWith(`${code}:`) || text.startsWith(`${code} `)
+  )
+  return matched || ''
+}
+
+/** 对应的 i18n key（无匹配返回 ''）。 */
+export const moduleSigningErrorKey = (message) => {
+  const code = extractModuleSigningErrorCode(message)
+  return code ? `more.moduleSigning.${code}` : ''
+}
+
 /** 判断一个 origin 是否是「本机模块内容服务」的 origin。 */
 export const isLocalModuleContentOrigin = (origin) =>
   safeText(origin).replace(/\/$/, '') === getModuleContentOrigin()
