@@ -27,6 +27,7 @@ pub mod library_reserve_embed;
 // #1081：图书馆预约 · 官方页 Bridge 反向代理（iOS 无 add_child，改走「代理 + iframe」）
 pub mod library_reserve_proxy;
 pub mod module_bundle;
+pub mod module_manifest;
 pub mod notification;
 pub mod one_code;
 pub mod online_learning;

@@ -687,7 +687,10 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
             packageUrls,
             packageSha256: safeText(manifest?.package_sha256),
             minCompatibleVersion: safeText(manifest?.min_compatible_version),
-            entryPath: safeText(manifest?.entry_path || 'index.html')
+            entryPath: safeText(manifest?.entry_path || 'index.html'),
+            // #1166 T05：把原始清单（含 signature）交给 Rust 验签；
+            // 缺签名时 Rust 按签名策略处理（release 拒绝 / debug 降级为 trusted=false）。
+            manifest: manifest || null
           }
         },
         `模块本地准备 ${moduleId}`

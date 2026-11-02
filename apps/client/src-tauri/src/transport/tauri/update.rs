@@ -630,6 +630,9 @@ pub(crate) struct PrepareModuleBundleRequest {
     pub entry_path: String,
     #[serde(alias = "moduleName", default)]
     pub module_name: String,
+    /// #1166 T05：前端取到的原始清单（含 signature）。缺省走迁移期开关判定。
+    #[serde(default)]
+    pub manifest: Option<serde_json::Value>,
 }
 
 #[tauri::command]
@@ -649,6 +652,7 @@ pub(crate) async fn prepare_module_bundle(
             min_compatible_version: request.min_compatible_version,
             entry_path: request.entry_path,
             module_name: request.module_name,
+            manifest: request.manifest,
         },
     )
     .await?;
