@@ -40,9 +40,18 @@ const main = async () => {
   })
   assert.equal(hostile.status, 403, 'hostile Origin must win over a supplied token')
 
+  // #1165 T04：模块静态内容已迁到独立端口；Bridge 上该路径必须**不再**被业务路由接管
+  const bridgeContent = await request('/module_bundle/content/main/contract/0/index.html', {
+    method: 'GET'
+  })
+  assert.equal(
+    bridgeContent.status,
+    404,
+    'module content must no longer be served by the bridge port (T04 独立 origin)'
+  )
+
   for (const [path, label] of [
     ['/exports/__bridge_contract_missing__.ics', 'export download'],
-    ['/module_bundle/content/main/contract/0/index.html', 'module content'],
     ['/school-website/__bridge_contract_missing__', 'school website embed']
   ]) {
     const response = await request(path, { method: 'GET' })

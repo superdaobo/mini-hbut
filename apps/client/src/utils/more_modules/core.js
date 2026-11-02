@@ -47,6 +47,20 @@ export const isAbsoluteHttpUrl = (url) => /^https?:\/\//i.test(safeText(url))
 export const isLocalModuleBridgePreviewUrl = (url) =>
   /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(safeText(url))
 
+/**
+ * #1165 T04：模块静态内容独立端口（与业务 Bridge 端口不同 origin）。
+ * 默认 4398，与 Rust 侧 `module_bundle::module_content_port()` 的默认值保持一致；
+ * 生产构建若改了端口，需要同时改 `tauri.conf.json` 的 `frame-src`。
+ */
+export const MODULE_CONTENT_PORT = 4398
+
+/** 模块内容 origin（用于来源比较，不含末尾斜杠）。 */
+export const getModuleContentOrigin = () => `http://127.0.0.1:${MODULE_CONTENT_PORT}`
+
+/** 判断一个 origin 是否是「本机模块内容服务」的 origin。 */
+export const isLocalModuleContentOrigin = (origin) =>
+  safeText(origin).replace(/\/$/, '') === getModuleContentOrigin()
+
 export const canUseLocalModuleBridgePreview = () => isTauriRuntime() && !isLikelyAndroidUserAgent()
 
 export const describeError = (error) => {

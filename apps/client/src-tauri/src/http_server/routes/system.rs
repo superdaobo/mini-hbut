@@ -556,11 +556,15 @@ async fn campus_code_order_status(
 
 // GENERATED DOMAIN ROUTERS — 路由协议由原始 method+path 清单生成。
 
-pub(crate) fn router() -> Router<HttpState> {
+/// #1165 T04：模块静态内容的**独立 Router**，只由模块内容端口监听。
+///
+/// 关键点：
+/// - 这里**没有** `bridge_access_middleware`，也没有 CORS 层 —— 它只提供公开的静态资源；
+/// - 业务 API（含 `/module_bundle/prepare`、成绩、Cookie 导出）仍在 Bridge 端口，
+///   两者 **origin 不同**，模块页面即使发同源请求也读不到桥响应；
+/// - 除这两条路由外一律 404（没有默认 fallback，不留旁路）。
+pub(crate) fn module_content_router() -> Router<HttpState> {
     Router::new()
-        .route("/health", get(health))
-        .route("/module_bundle/prepare", post(module_bundle_prepare))
-        .route("/module_bundle/open", post(module_bundle_open))
         .route(
             "/module_bundle/content/:channel/:module_id/:version",
             get(module_bundle_content_index),
@@ -569,6 +573,13 @@ pub(crate) fn router() -> Router<HttpState> {
             "/module_bundle/content/:channel/:module_id/:version/*path",
             get(module_bundle_content),
         )
+}
+
+pub(crate) fn router() -> Router<HttpState> {
+    Router::new()
+        .route("/health", get(health))
+        .route("/module_bundle/prepare", post(module_bundle_prepare))
+        .route("/module_bundle/open", post(module_bundle_open))
         .route("/cache/get", get(cache_get))
         .route("/qxzkb/options", get(fetch_qxzkb_options))
         .route("/qxzkb/jcinfo", post(fetch_qxzkb_jcinfo))

@@ -24,7 +24,20 @@
 
 所有未知路由默认归入 `Protected`，新增路由不能因为遗漏登记而自动变成公开接口。
 
-公开只读路由仅用于浏览器顶层导航或内嵌资源：`/exports/*`、`/module_bundle/content/*` 与 `/school-website/*`。对应的创建、下载准备、代理和写入接口仍属于 `Protected`。
+公开只读路由仅用于浏览器顶层导航或内嵌资源：`/exports/*` 与 `/school-website/*`。对应的创建、下载准备、代理和写入接口仍属于 `Protected`。
+
+### 模块静态内容已迁出 Bridge（#1165 T04）
+
+`/module_bundle/content/*` **不再由 Bridge 端口提供**，改由一个独立监听的「模块内容服务」提供：
+
+| 项 | 值 |
+|---|---|
+| 监听 | `127.0.0.1` 固定 loopback，默认端口 **4398**（`HBUT_MODULE_CONTENT_PORT` 可改，且**强制不与 Bridge 端口相同**） |
+| 路由 | 仅 `GET /module_bundle/content/:channel/:module_id/:version[/...]`，其余一律 404 |
+| 鉴权 | 无（公开静态资源；业务数据仍在 Bridge 且只认凭据） |
+| 为什么 | 模块页面与业务 API 同源时，同源即可读响应体 —— 迁到不同 origin 后，浏览器本身会拦住跨源读取；Bridge 的令牌要求是第二道 |
+
+页面侧配合：`MoreModuleHostView` 对**本机模块内容**加 `sandbox`（`allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-downloads`），并把 `expectedOrigin` 判定从写死的 `4399` 改为 `isLocalModuleContentOrigin()`。CSP 的 `frame-src` 同步增加 `http://127.0.0.1:4398`。
 
 ## Origin 白名单
 

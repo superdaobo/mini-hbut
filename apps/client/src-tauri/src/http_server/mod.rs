@@ -72,6 +72,14 @@ pub fn bridge_listen_addr() -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], port))
 }
 
+/// 模块静态内容监听地址（#1165 T04）：固定 loopback + 独立端口。
+pub fn module_content_listen_addr() -> SocketAddr {
+    SocketAddr::from((
+        [127, 0, 0, 1],
+        crate::modules::module_bundle::module_content_port(),
+    ))
+}
+
 /// `ensure_http_bridge` / 前端 resume 探测共用的状态字段。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -185,6 +193,8 @@ pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
         .generation
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         + 1;
+    // #1165 T04：模块内容服务单独监听（幂等，只启动一次）
+    spawn_module_content_server(state.clone());
     tauri::async_runtime::spawn(async move {
         println!("[HTTP] run_http_server task 开始 (gen={})", gen);
         if let Err(e) = run_http_server(state, gen).await {
@@ -322,6 +332,42 @@ pub async fn bridge_session_token(window: tauri::WebviewWindow) -> Result<Option
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     Ok(guard.as_ref().map(|token| token.to_string()))
+}
+
+/// 启动模块静态内容服务（#1165 T04）。
+///
+/// 与 Bridge 分离监听，只挂 `module_content_router()`（无鉴权中间件、无 CORS）：
+/// 模块页面的 origin 因此与业务 API **不同源**，同源读响应体的越权路径被浏览器本身切断。
+/// 只启动一次；进程内已有监听时直接返回（内容服务不随 Bridge respawn 重建）。
+pub fn spawn_module_content_server(state: HttpState) {
+    static SPAWNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if SPAWNED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = run_module_content_server(state).await {
+            eprintln!("[T04] 模块内容服务错误: {error}");
+            SPAWNED.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+}
+
+async fn run_module_content_server(
+    state: HttpState,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let addr = module_content_listen_addr();
+    let app = routes::system::module_content_router().with_state(state);
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(err) if err.kind() == ErrorKind::AddrInUse => {
+            eprintln!("[T04] 模块内容端口已被占用，模块将无法从独立 origin 加载: http://{addr}");
+            return Ok(());
+        }
+        Err(err) => return Err(err.into()),
+    };
+    println!("[T04] 模块内容服务监听: http://{addr}/module_bundle/content/");
+    axum::serve(listener, app).await?;
+    Ok(())
 }
 
 /// 组装完整 Bridge Router（领域 router 聚合；`#[cfg(debug_assertions)]` 追加 debug 路由）。
