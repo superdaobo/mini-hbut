@@ -295,6 +295,17 @@ pub(crate) fn is_trusted_bridge_origin(raw: &str) -> bool {
     let scheme = url.scheme().to_ascii_lowercase();
     let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
 
+    // #1165 T04：模块内容服务（独立 loopback 端口）**永远不是可信来源**。
+    // 否则模块页面与业务 API 虽不同源，CORS 仍会回显它的 Origin，
+    // 从而让模块读到 `/exports/*`、`/school-website/*` 这类公开只读响应。
+    // 这条与「模块内容迁出 Bridge 端口」配合，才是完整的 origin 隔离。
+    if matches!(scheme.as_str(), "http" | "https")
+        && host == "127.0.0.1"
+        && url.port_or_known_default() == Some(crate::modules::module_bundle::module_content_port())
+    {
+        return false;
+    }
+
     match scheme.as_str() {
         "tauri" | "capacitor" => host == "localhost",
         "http" | "https" => matches!(
@@ -660,8 +671,8 @@ pub(crate) fn bridge_cors_layer() -> CorsLayer {
 #[cfg(test)]
 mod t02_bridge_auth_matrix {
     use super::super::auth::{
-        bridge_route_policy, decide_bridge_access, media_capability, media_capability_valid,
-        BridgeAccessDecision, BridgeRoutePolicy,
+        bridge_route_policy, decide_bridge_access, is_trusted_bridge_origin, media_capability,
+        media_capability_valid, BridgeAccessDecision, BridgeRoutePolicy,
     };
     use axum::http::Method;
     use reqwest::header::{HeaderMap, HeaderValue};
@@ -695,6 +706,32 @@ mod t02_bridge_auth_matrix {
     }
 
     // ── 锁定：公开与免令牌路由不得因 T02 改变 ──────────────────
+
+    #[test]
+    fn module_content_origin_is_never_trusted() {
+        // #1165 T04：模块内容跑在独立 loopback 端口，它的 Origin 不能被视为可信来源，
+        // 否则 CORS 会回显、模块能读到桥的公开只读响应。
+        let module_origin = format!(
+            "http://127.0.0.1:{}",
+            crate::modules::module_bundle::module_content_port()
+        );
+        assert!(
+            !is_trusted_bridge_origin(&module_origin),
+            "模块内容 origin 必须不可信: {module_origin}"
+        );
+        // 反向：主壳与普通 loopback（开发用）仍然可信
+        for origin in [
+            "tauri://localhost",
+            "https://tauri.localhost",
+            "http://localhost:5173",
+            "http://127.0.0.1:4399",
+        ] {
+            assert!(
+                is_trusted_bridge_origin(origin),
+                "普通宿主/开发 origin 应保持可信: {origin}"
+            );
+        }
+    }
 
     #[test]
     fn ambiguous_paths_are_always_treated_as_protected() {

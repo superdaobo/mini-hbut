@@ -37,6 +37,10 @@
 | 鉴权 | 无（公开静态资源；业务数据仍在 Bridge 且只认凭据） |
 | 为什么 | 模块页面与业务 API 同源时，同源即可读响应体 —— 迁到不同 origin 后，浏览器本身会拦住跨源读取；Bridge 的令牌要求是第二道 |
 
+**模块内容 origin 永远不是可信来源**（`is_trusted_bridge_origin` 显式拒绝 `127.0.0.1:<内容端口>`）：
+否则 CORS 会回显它的 Origin，模块仍能读到 `/exports/*`、`/school-website/*` 这类公开只读响应。
+「端口分离 + 该 origin 不可信」两件事必须同时成立才算隔离。
+
 页面侧配合：`MoreModuleHostView` 对**本机模块内容**加 `sandbox`（`allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-downloads`），并把 `expectedOrigin` 判定从写死的 `4399` 改为 `isLocalModuleContentOrigin()`。CSP 的 `frame-src` 同步增加 `http://127.0.0.1:4398`。
 
 ## Origin 白名单
