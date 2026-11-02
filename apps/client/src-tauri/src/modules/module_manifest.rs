@@ -445,3 +445,59 @@ mod tests {
         ));
     }
 }
+#[cfg(test)]
+mod tests_support {
+    pub const NODE_SIGNED_MANIFEST: &str = include_str!("testdata/node_signed_manifest.json");
+    pub const NODE_CANONICAL: &str = include_str!("testdata/node_canonical.txt");
+}
+
+/// 跨语言回归向量：由 `apps/client/scripts/sign_module_manifest.mjs --test-seed` 生成。
+/// 若 Rust 的规范化实现或 Node 脚本任一侧改动导致字节不一致，这条会立刻失败。
+const NODE_SIGNED_MANIFEST: &str = r#"{
+  "module_id": "demo",
+  "version": "1.0.0",
+  "release_seq": 3,
+  "channel": "main",
+  "module_name": "示例",
+  "entry_path": "index.html",
+  "package_sha256": "bb7f74faee4f4540e49392dbc4fcec8ebae1c6a46569f6dff9ceb9262b413a69",
+  "min_compatible_version": "",
+  "compat": { "host_min": "", "bridge_protocol": 1 },
+  "permissions": ["school.schedule"],
+  "publisher_key_id": "dev-test-1",
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "dev-test-1",
+    "value": "QJ8XmqDpze991_eNIU0s2XsEvOG7j2sGgV65EX922x1JSvaPUjWovFu10vtk9SBZB7An3TI-X97OGdtpwPaPCw"
+  }
+}"#;
+
+const NODE_CANONICAL: &str = r#"{"channel":"main","compat":{"bridge_protocol":1,"host_min":""},"entry_path":"index.html","min_compatible_version":"","module_id":"demo","module_name":"示例","package_sha256":"bb7f74faee4f4540e49392dbc4fcec8ebae1c6a46569f6dff9ceb9262b413a69","permissions":["school.schedule"],"publisher_key_id":"dev-test-1","release_seq":3,"version":"1.0.0"}"#;
+
+#[cfg(test)]
+mod cross_language_tests {
+    use super::tests_support::{NODE_CANONICAL, NODE_SIGNED_MANIFEST};
+    use super::{canonical_manifest_bytes, verify_manifest_signature, ModuleManifest};
+
+    #[test]
+    fn rust_canonical_matches_node_signing_script() {
+        let manifest: ModuleManifest =
+            serde_json::from_str(NODE_SIGNED_MANIFEST).expect("parse signed manifest");
+        let canonical = canonical_manifest_bytes(&manifest).expect("canonical");
+        assert_eq!(
+            String::from_utf8(canonical).expect("utf8"),
+            NODE_CANONICAL,
+            "Rust 与 Node 的规范化字节必须逐字节一致"
+        );
+    }
+
+    #[test]
+    fn node_signed_manifest_verifies_in_rust() {
+        let manifest: ModuleManifest =
+            serde_json::from_str(NODE_SIGNED_MANIFEST).expect("parse signed manifest");
+        assert!(
+            verify_manifest_signature(&manifest).is_ok(),
+            "Node 脚本签出的清单必须能被 Rust 内置信任根验证"
+        );
+    }
+}

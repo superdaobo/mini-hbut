@@ -160,6 +160,8 @@ jobs:
         working-directory: apps/client
         run: |
           node scripts/check-frontend-safety.mjs
+          # #1166 T05：发布签名材料守卫（真实私钥不得进仓库；测试 seed 只允许在 testdata/白名单）
+          node scripts/check_module_signing_material.mjs --root .
           node scripts/check-design-tokens.mjs
           node scripts/check_arch_guards.mjs
           node scripts/test_npm_cli_path.mjs
