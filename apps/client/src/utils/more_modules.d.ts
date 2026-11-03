@@ -19,6 +19,14 @@ export interface ModuleHostPreviewResult {
   [key: string]: unknown
 }
 
+// #1166 T05：签名类错误码 → i18n key
+export const MODULE_SIGNING_ERROR_CODES: readonly string[]
+export function extractModuleSigningErrorCode(message: string): string
+export function moduleSigningErrorKey(message: string): string
+// #1165 T04：模块内容独立 origin
+export const MODULE_CONTENT_PORT: number
+export function getModuleContentOrigin(): string
+export function isLocalModuleContentOrigin(origin: string): boolean
 export function isLocalModuleBridgePreviewUrl(url: string): boolean
 export function canUseLocalModuleBridgePreview(): boolean
 export function getLocalModuleState(moduleId: string): unknown

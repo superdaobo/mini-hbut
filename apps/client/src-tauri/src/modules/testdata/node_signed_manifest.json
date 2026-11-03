@@ -1,0 +1,23 @@
+{
+  "module_id": "demo",
+  "version": "1.0.0",
+  "release_seq": 3,
+  "channel": "main",
+  "module_name": "示例",
+  "entry_path": "index.html",
+  "package_sha256": "bb7f74faee4f4540e49392dbc4fcec8ebae1c6a46569f6dff9ceb9262b413a69",
+  "min_compatible_version": "",
+  "compat": {
+    "host_min": "",
+    "bridge_protocol": 1
+  },
+  "permissions": [
+    "school.schedule"
+  ],
+  "publisher_key_id": "dev-test-1",
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "dev-test-1",
+    "value": "QJ8XmqDpze991_eNIU0s2XsEvOG7j2sGgV65EX922x1JSvaPUjWovFu10vtk9SBZB7An3TI-X97OGdtpwPaPCw"
+  }
+}

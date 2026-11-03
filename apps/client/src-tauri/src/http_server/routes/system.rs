@@ -158,6 +158,11 @@ async fn module_bundle_content(
 }
 
 // ────────────────────────────────────────────────────────────
+/// 模块内容响应的 CSP（#1166 T05）。
+///
+/// 只允许同源脚本：签名清单证明的是「这个包」，包内若再拼远端脚本就等于绕过验签。
+pub(crate) const MODULE_CONTENT_CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' tauri://localhost https://tauri.localhost http://localhost:* http://127.0.0.1:*";
+
 async fn serve_module_bundle_file(
     state: HttpState,
     channel: String,
@@ -195,6 +200,13 @@ async fn serve_module_bundle_file(
     response
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    // #1166 T05：模块内容自身的 CSP —— 已签名产物不得再加载未受验证的远端脚本。
+    // 允许同源脚本与内联（现有模块多为打包产物），禁止 object/base 与顶层表单提交；
+    // frame-ancestors 只允许宿主（tauri 协议）与开发态 localhost。
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(MODULE_CONTENT_CSP),
+    );
     response
 }
 

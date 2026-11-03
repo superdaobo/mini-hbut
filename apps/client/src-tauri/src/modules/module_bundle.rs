@@ -37,6 +37,10 @@ pub struct ModuleBundlePrepareRequest {
     pub entry_path: String,
     #[serde(default, alias = "moduleName")]
     pub module_name: String,
+    /// #1166 T05：前端取到的原始清单（含 signature）。缺省时按 `HBUT_ALLOW_UNSIGNED_MODULES`
+    /// 决定是否允许（默认拒绝）。
+    #[serde(default)]
+    pub manifest: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,6 +55,11 @@ pub struct ModuleBundlePrepareResult {
     pub bundle_path: String,
     pub min_compatible_version: String,
     pub source: String,
+    /// #1166 T05：清单是否通过发布者验签。`false` 时模块不得获得任何敏感能力。
+    pub trusted: bool,
+    /// 通过验签时的发布者 key_id（未签名为空）。
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub publisher_key_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -59,6 +68,11 @@ struct ModuleBundleCacheMetadata {
     package_sha256: String,
     min_compatible_version: String,
     entry_path: String,
+    /// #1166 T05：缓存命中时必须重新验签，因此把清单原样存下来。
+    #[serde(default)]
+    manifest: Option<serde_json::Value>,
+    #[serde(default)]
+    release_seq: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -382,13 +396,36 @@ fn write_bundle_archive(dest_root: &Path, zip_bytes: &[u8]) -> Result<(), String
     }
     fs::create_dir_all(&temp_root).map_err(|e| format!("创建临时模块目录失败: {}", e))?;
 
+    // #1166 T05：解包边界（防 zip bomb / 超量文件 / 单条目过大）。
+    const MAX_ENTRIES: usize = 512;
+    const MAX_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
+    const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+
     let cursor = Cursor::new(zip_bytes.to_vec());
     let mut archive =
         zip::ZipArchive::new(cursor).map_err(|e| format!("解析模块压缩包失败: {}", e))?;
+    if archive.len() > MAX_ENTRIES {
+        return Err(format!(
+            "模块压缩包条目过多（{} > {MAX_ENTRIES}）",
+            archive.len()
+        ));
+    }
+    let mut total_bytes: u64 = 0;
     for index in 0..archive.len() {
         let mut entry = archive
             .by_index(index)
             .map_err(|e| format!("读取压缩包条目失败: {}", e))?;
+        // #1166 T05：单条目与总量上限（解压前按声明大小判断，写入时再累计）。
+        if entry.size() > MAX_ENTRY_BYTES {
+            return Err(format!(
+                "模块压缩包条目过大（{} > {MAX_ENTRY_BYTES}）",
+                entry.size()
+            ));
+        }
+        total_bytes = total_bytes.saturating_add(entry.size());
+        if total_bytes > MAX_TOTAL_BYTES {
+            return Err(format!("模块解压总量超限（> {MAX_TOTAL_BYTES} 字节）"));
+        }
         // zip v9 的条目名称解析会返回 Result；拒绝解码失败的名称，
         // 不以不可信名称或默认值构造文件路径。
         let entry_name = entry
@@ -506,7 +543,41 @@ pub async fn prepare_module_bundle(
         req.module_name.trim().to_string()
     };
     let cache_dir = module_cache_dir(app, &channel, &module_id, &version)?;
-    let expected_sha = req.package_sha256.trim().to_ascii_lowercase();
+    let cache_root = module_cache_root(app)?;
+
+    // ── #1166 T05：清单验签（先于一切下载/解包） ─────────────────────────
+    //
+    // 规则（与契约 §2 一致）：
+    // - 有签名且通过 → trusted=true，后续才允许把清单摘要当作授权依据；
+    // - 缺签名/错签名/未知密钥/协议不兼容 → **拒绝**；只有显式设置
+    //   `HBUT_ALLOW_UNSIGNED_MODULES=1`（仅用于迁移期，且结果 trusted=false）才放行；
+    // - 清单声明的 module_id/version/channel/entry/摘要必须与请求一致，防止「签A装B」；
+    // - `release_seq` 单调，回放旧清单被拒。
+    let manifest = parse_and_verify_manifest(&cache_root, req.manifest.as_ref(), &req)?;
+    let trusted = manifest.is_some();
+    let publisher_key_id = manifest
+        .as_ref()
+        .and_then(|item| item.signature.as_ref().map(|sig| sig.key_id.clone()))
+        .unwrap_or_default();
+
+    // 清单通过验签时，以清单为准（摘要、入口、版本号都不可被请求体覆盖）
+    let expected_sha = match manifest.as_ref() {
+        Some(item) if !item.package_sha256.trim().is_empty() => {
+            let claimed = item.package_sha256.trim().to_ascii_lowercase();
+            let requested = req.package_sha256.trim().to_ascii_lowercase();
+            if !requested.is_empty() && requested != claimed {
+                return Err(format!(
+                    "模块清单声明的摘要与请求不一致（清单 {}，请求 {}）",
+                    claimed, requested
+                ));
+            }
+            claimed
+        }
+        _ => req.package_sha256.trim().to_ascii_lowercase(),
+    };
+    if trusted && expected_sha.is_empty() {
+        return Err("已签名模块清单必须声明 package_sha256".to_string());
+    }
 
     if cache_dir.exists() {
         if let Some(entry_path) = resolve_cached_entry_path(
@@ -515,6 +586,20 @@ pub async fn prepare_module_bundle(
             &expected_sha,
             &min_compatible_version,
         ) {
+            // #1166 T05：缓存命中不得绕过验签 —— 缓存里的清单必须是同一份且仍能验过。
+            if let Some(item) = manifest.as_ref() {
+                let cached = read_cache_metadata(&cache_dir).and_then(|meta| meta.manifest);
+                let cached_signature = cached
+                    .as_ref()
+                    .and_then(|value| value.get("signature"))
+                    .cloned();
+                let current_signature = serde_json::to_value(item)
+                    .ok()
+                    .and_then(|value| value.get("signature").cloned());
+                if cached_signature != current_signature {
+                    return Err("模块缓存与当前清单签名不一致，拒用缓存".to_string());
+                }
+            }
             let preview_url = build_preview_url(&channel, &module_id, &version, &entry_path);
             return Ok(ModuleBundlePrepareResult {
                 channel,
@@ -527,6 +612,8 @@ pub async fn prepare_module_bundle(
                 bundle_path: cache_dir.join("bundle.zip").display().to_string(),
                 min_compatible_version,
                 source: "cache".to_string(),
+                trusted,
+                publisher_key_id: publisher_key_id.clone(),
             });
         }
         fs::remove_dir_all(&cache_dir).map_err(|e| format!("清理失效模块缓存失败: {}", e))?;
@@ -562,8 +649,25 @@ pub async fn prepare_module_bundle(
         },
         min_compatible_version: min_compatible_version.clone(),
         entry_path: entry_path.clone(),
+        manifest: manifest
+            .as_ref()
+            .and_then(|item| serde_json::to_value(item).ok()),
+        release_seq: manifest.as_ref().map(|item| item.release_seq).unwrap_or(0),
     };
     write_cache_metadata(&cache_dir, &metadata)?;
+    // #1166 T05：验签通过的发布序号写入防回放表（只增不减）
+    if let Some(item) = manifest.as_ref() {
+        if item.release_seq > 0 {
+            if let Err(error) = crate::modules::module_manifest::write_release_seq(
+                &cache_root,
+                &channel,
+                &module_id,
+                item.release_seq,
+            ) {
+                eprintln!("[T05] 写入防回放序号失败: {error}");
+            }
+        }
+    }
     let preview_url = build_preview_url(&channel, &module_id, &version, &entry_path);
     Ok(ModuleBundlePrepareResult {
         channel,
@@ -576,7 +680,113 @@ pub async fn prepare_module_bundle(
         bundle_path: cache_dir.join("bundle.zip").display().to_string(),
         min_compatible_version,
         source: "download".to_string(),
+        trusted,
+        publisher_key_id,
     })
+}
+
+/// #1166 T05：解析并校验清单。
+///
+/// - `manifest` 存在 → 解析 → 字段与请求一致 → 验签 → 协议 → 防回放；
+/// - `manifest` 缺失 → 只有显式 `HBUT_ALLOW_UNSIGNED_MODULES=1` 才放行（trusted=false）。
+fn parse_and_verify_manifest(
+    cache_root: &Path,
+    raw: Option<&serde_json::Value>,
+    req: &ModuleBundlePrepareRequest,
+) -> Result<Option<crate::modules::module_manifest::ModuleManifest>, String> {
+    use crate::modules::module_manifest::{
+        ensure_release_seq, verify_manifest_signature, ManifestError, ModuleManifest,
+    };
+
+    let Some(raw) = raw else {
+        return unsigned_module_decision(ManifestError::MissingSignature);
+    };
+
+    let manifest: ModuleManifest = serde_json::from_value(raw.clone())
+        .map_err(|error| format!("MODULE_MANIFEST_INVALID: 清单解析失败: {error}"))?;
+
+    // 清单与请求必须是同一个模块，避免「签名有效但装错包」
+    let request_channel = crate::modules::module_bundle::normalize_channel(&req.channel)?;
+    if manifest.module_id != req.module_id.trim()
+        || manifest.version != req.version.trim()
+        || normalize_channel(&manifest.channel)? != request_channel
+    {
+        return Err("MODULE_MANIFEST_INVALID: 清单与请求的模块标识不一致".to_string());
+    }
+    if manifest.package_sha256.trim().is_empty() {
+        return Err(format!(
+            "{}: 已签名清单必须声明 package_sha256",
+            ManifestError::MissingSignature.code()
+        ));
+    }
+
+    if let Err(error) = verify_manifest_signature(&manifest) {
+        match unsigned_module_decision(error)? {
+            None => return Ok(None),
+            Some(_) => unreachable!("unsigned_module_decision 只返回 None"),
+        }
+    }
+
+    // 防回放：同一 channel+module 的 release_seq 不得倒退（同包幂等重试除外）
+    let same_package = req
+        .package_sha256
+        .trim()
+        .eq_ignore_ascii_case(manifest.package_sha256.trim());
+    ensure_release_seq(
+        cache_root,
+        &request_channel,
+        manifest.module_id.trim(),
+        manifest.release_seq,
+        same_package,
+    )
+    .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
+
+    Ok(Some(manifest))
+}
+
+/// 未通过验签时的决策（#1166 T05 签名策略）。
+///
+/// - 显式 `HBUT_MODULE_SIGNATURE_POLICY=enforce` 或 **release 构建** → 拒绝安装；
+/// - debug 构建默认降级：允许安装但 `trusted=false`（该模块拿不到任何敏感能力），
+///   便于开发期继续迭代；不会因此放宽运行期授权。
+fn unsigned_module_decision(
+    error: crate::modules::module_manifest::ManifestError,
+) -> Result<Option<crate::modules::module_manifest::ModuleManifest>, String> {
+    let rejected = format!("{}: {}", error.code(), error.message());
+    if signature_policy_enforced() {
+        return Err(rejected);
+    }
+    eprintln!("[T05] 模块未通过发布者验签（{rejected}），按 debug 降级策略加载但标记为不可信");
+    Ok(None)
+}
+
+/// 是否强制验签（release 构建或显式策略）。
+fn signature_policy_enforced() -> bool {
+    match std::env::var("HBUT_MODULE_SIGNATURE_POLICY") {
+        Ok(value) => {
+            let value = value.trim().to_ascii_lowercase();
+            matches!(value.as_str(), "enforce" | "strict" | "required")
+        }
+        Err(_) => !cfg!(debug_assertions),
+    }
+}
+
+/// 迁移期开关：允许未签名模块（仅显式设置时生效）。
+fn allow_unsigned_modules() -> bool {
+    std::env::var("HBUT_ALLOW_UNSIGNED_MODULES")
+        .map(|value| {
+            let value = value.trim().to_ascii_lowercase();
+            value == "1" || value == "true" || value == "yes" || value == "on"
+        })
+        .unwrap_or(false)
+}
+
+/// 模块缓存根目录（`app_cache_dir/more_modules`）。
+fn module_cache_root(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_cache_dir()
+        .map(|dir| dir.join(MODULE_CACHE_ROOT))
+        .map_err(|e| format!("获取应用缓存目录失败: {}", e))
 }
 
 pub fn resolve_module_bundle_file(
@@ -691,5 +901,201 @@ mod t04_module_content_port_tests {
         // 默认内容端口恰好等于 Bridge 端口时也要错开
         let resolved_default = resolve_module_content_port(None, DEFAULT_MODULE_CONTENT_PORT);
         assert_ne!(resolved_default, DEFAULT_MODULE_CONTENT_PORT);
+    }
+}
+
+// ────────────────────────────────────────────────────────────
+// #1166 T05：验签入口与解包边界的单元测试（不依赖 AppHandle / 网络）
+#[cfg(test)]
+mod t05_signature_and_unpack_tests {
+    use super::*;
+    use crate::modules::module_manifest::{
+        canonical_manifest_bytes, ManifestCompat, ManifestSignature, ModuleManifest,
+    };
+    use base64::Engine as _;
+    use ed25519_dalek::{Signer, SigningKey};
+    use std::io::Write;
+
+    fn test_signing_key() -> SigningKey {
+        SigningKey::from_bytes(&[7u8; 32])
+    }
+
+    fn signed_manifest_value(release_seq: u64, sha: &str) -> serde_json::Value {
+        let mut manifest = ModuleManifest {
+            module_id: "demo".to_string(),
+            version: "1.0.0".to_string(),
+            release_seq,
+            channel: "main".to_string(),
+            module_name: "示例".to_string(),
+            entry_path: "index.html".to_string(),
+            package_sha256: sha.to_string(),
+            min_compatible_version: String::new(),
+            compat: ManifestCompat {
+                host_min: String::new(),
+                bridge_protocol: 1,
+            },
+            permissions: vec!["school.schedule".to_string()],
+            publisher_key_id: "dev-test-1".to_string(),
+            signature: None,
+        };
+        let canonical = canonical_manifest_bytes(&manifest).expect("canonical");
+        let signature = test_signing_key().sign(&canonical);
+        manifest.signature = Some(ManifestSignature {
+            alg: "ed25519".to_string(),
+            key_id: "dev-test-1".to_string(),
+            value: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes()),
+        });
+        serde_json::to_value(manifest).expect("value")
+    }
+
+    fn request(sha: &str) -> ModuleBundlePrepareRequest {
+        ModuleBundlePrepareRequest {
+            channel: "main".to_string(),
+            module_id: "demo".to_string(),
+            version: "1.0.0".to_string(),
+            package_url: "https://example.com/a.zip".to_string(),
+            package_urls: Vec::new(),
+            package_sha256: sha.to_string(),
+            min_compatible_version: String::new(),
+            entry_path: "index.html".to_string(),
+            module_name: "示例".to_string(),
+            manifest: None,
+        }
+    }
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hbut-t05-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        dir
+    }
+
+    #[test]
+    fn valid_signed_manifest_matching_request_is_accepted() {
+        let root = temp_root("ok");
+        let sha = "b".repeat(64);
+        let value = signed_manifest_value(1, &sha);
+        let parsed = parse_and_verify_manifest(&root, Some(&value), &request(&sha)).expect("ok");
+        let manifest = parsed.expect("应返回清单");
+        assert_eq!(manifest.publisher_key_id, "dev-test-1");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn manifest_for_other_module_is_rejected() {
+        let root = temp_root("mismatch");
+        let sha = "c".repeat(64);
+        let mut value = signed_manifest_value(1, &sha);
+        value["module_id"] = serde_json::Value::from("other");
+        let error = parse_and_verify_manifest(&root, Some(&value), &request(&sha)).unwrap_err();
+        assert!(error.contains("MODULE_MANIFEST_INVALID"), "{error}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn signed_manifest_without_sha_is_rejected() {
+        let root = temp_root("nosha");
+        let mut value = signed_manifest_value(1, "");
+        value["package_sha256"] = serde_json::Value::from("");
+        let error = parse_and_verify_manifest(&root, Some(&value), &request("")).unwrap_err();
+        assert!(
+            error.contains("MODULE_SIGNATURE_MISSING") || error.contains("package_sha256"),
+            "{error}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn replayed_release_seq_is_rejected() {
+        let root = temp_root("replay");
+        let sha = "d".repeat(64);
+        crate::modules::module_manifest::write_release_seq(&root, "main", "demo", 5)
+            .expect("seed replay store");
+        let value = signed_manifest_value(2, &sha);
+        let error = parse_and_verify_manifest(&root, Some(&value), &request(&sha)).unwrap_err();
+        assert!(error.contains("MODULE_RELEASE_REPLAY"), "{error}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn zip_with_entries(entries: &[(&str, usize)]) -> Vec<u8> {
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut buffer);
+            let options = zip::write::SimpleFileOptions::default();
+            for (name, size) in entries {
+                writer.start_file(*name, options).expect("start_file");
+                writer.write_all(&vec![b'a'; *size]).expect("write");
+            }
+            writer.finish().expect("finish");
+        }
+        buffer.into_inner()
+    }
+
+    #[test]
+    fn too_many_zip_entries_are_rejected() {
+        let root = temp_root("manyentries");
+        let names: Vec<String> = (0..600).map(|index| format!("f{index}.html")).collect();
+        let entries: Vec<(&str, usize)> = names.iter().map(|name| (name.as_str(), 1)).collect();
+        let archive = zip_with_entries(&entries);
+        let error = write_bundle_archive(&root, &archive).unwrap_err();
+        assert!(error.contains("条目过多"), "{error}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn oversized_zip_entry_is_rejected() {
+        let root = temp_root("bigentry");
+        let archive = zip_with_entries(&[("index.html", 17 * 1024 * 1024)]);
+        let error = write_bundle_archive(&root, &archive).unwrap_err();
+        assert!(error.contains("条目过大"), "{error}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn safe_zip_with_index_html_is_extracted() {
+        let root = temp_root("safe");
+        let archive = zip_with_entries(&[("index.html", 16), ("assets/app.js", 32)]);
+        write_bundle_archive(&root, &archive).expect("extract");
+        assert!(root.join("index.html").is_file());
+        assert!(root.join("assets/app.js").is_file());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn traversal_entry_is_rejected() {
+        let root = temp_root("traversal");
+        let archive = zip_with_entries(&[("../escape.html", 4)]);
+        let error = write_bundle_archive(&root, &archive).unwrap_err();
+        assert!(!root.join("escape.html").exists(), "不得写出目录外文件");
+        assert!(!error.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cached_entry_requires_matching_sha_and_metadata() {
+        // #1166 T05：缓存复用必须与 metadata 里的摘要/最小兼容版本一致，
+        // 否则按「缓存失效」处理（删除后重下），不得直接用旧包。
+        let root = temp_root("cachehit");
+        write_cache_metadata(
+            &root,
+            &ModuleBundleCacheMetadata {
+                version: "1.0.0".to_string(),
+                package_sha256: "e".repeat(64),
+                min_compatible_version: String::new(),
+                entry_path: "index.html".to_string(),
+                manifest: None,
+                release_seq: 1,
+            },
+        )
+        .expect("write meta");
+        std::fs::write(root.join("index.html"), b"<html></html>").expect("write entry");
+
+        // 摘要一致 → 命中
+        assert!(resolve_cached_entry_path(&root, "index.html", &"e".repeat(64), "").is_some());
+        // 摘要不一致 → 不命中（会触发重新下载）
+        assert!(resolve_cached_entry_path(&root, "index.html", &"f".repeat(64), "").is_none());
+        // 最小兼容版本不一致 → 不命中
+        assert!(resolve_cached_entry_path(&root, "index.html", &"e".repeat(64), "9.9.9").is_none());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
