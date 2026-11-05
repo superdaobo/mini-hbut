@@ -501,3 +501,43 @@ mod cross_language_tests {
         );
     }
 }
+
+/// #1169 T08：样例模块（`samples/account_security`）的真实签名产物。
+///
+/// 由 `node scripts/build_sample_module.mjs` 生成，清单与规范化字节一起进仓库，
+/// 用来证明「运行期验签逻辑接受真实发布流水线的产物」而不是只接受单测自己构造的数据。
+#[cfg(test)]
+mod sample_module_artifact_tests {
+    use super::{canonical_manifest_bytes, verify_manifest_signature, ModuleManifest};
+
+    const MANIFEST_JSON: &str = include_str!("testdata/sample_module/manifest.json");
+    const CANONICAL: &str = include_str!("testdata/sample_module/canonical.txt");
+
+    #[test]
+    fn sample_module_manifest_matches_canonical_bytes() {
+        let manifest: ModuleManifest = serde_json::from_str(MANIFEST_JSON).expect("parse manifest");
+        let canonical = canonical_manifest_bytes(&manifest).expect("canonical");
+        assert_eq!(
+            String::from_utf8(canonical).expect("utf8"),
+            CANONICAL.trim_end(),
+            "样例模块清单的规范化字节必须与签名时一致（否则说明规范化实现漂移）"
+        );
+    }
+
+    #[test]
+    fn sample_module_manifest_signature_verifies() {
+        let manifest: ModuleManifest = serde_json::from_str(MANIFEST_JSON).expect("parse manifest");
+        assert!(
+            verify_manifest_signature(&manifest).is_ok(),
+            "样例模块的发布签名必须能被内置信任根验证"
+        );
+        assert_eq!(manifest.module_id, "account_security");
+        assert_eq!(manifest.publisher_key_id, "dev-test-1");
+        assert!(manifest
+            .permissions
+            .contains(&"school.profile_online".to_string()));
+        assert!(manifest
+            .permissions
+            .contains(&"school.login_logs".to_string()));
+    }
+}

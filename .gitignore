@@ -171,3 +171,6 @@ apps/client/src-tauri/exports/
 tools/.session_cookies.json
 # iOS Capacitor 遗留 Web 资源目录（apps/client/ios/.gitignore 已忽略，此处显式兜底防误提交）
 apps/client/ios/App/App/public/
+
+# #1169 T08：样例模块构建产物（zip/manifest 不入库，签名夹具已单独存在 src-tauri/src/modules/testdata）
+apps/client/dist-modules/

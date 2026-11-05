@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>账号安全概览</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="head">
+        <h1>账号安全概览</h1>
+        <p class="sub">仅展示当前账号的在线设备与最近登录记录；数据由宿主代取，模块不持有会话。</p>
+      </header>
+
+      <section class="card" id="online-card">
+        <div class="card-head">
+          <h2>在线设备</h2>
+          <span class="badge" id="online-badge">加载中</span>
+        </div>
+        <div class="body" id="online-body"></div>
+      </section>
+
+      <section class="card" id="logs-card">
+        <div class="card-head">
+          <h2>最近登录</h2>
+          <span class="badge" id="logs-badge">加载中</span>
+        </div>
+        <div class="body" id="logs-body"></div>
+      </section>
+
+      <footer class="foot">
+        <button id="refresh" type="button">刷新</button>
+        <span id="hint" class="hint"></span>
+      </footer>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
