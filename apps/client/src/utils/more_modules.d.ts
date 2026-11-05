@@ -19,6 +19,9 @@ export interface ModuleHostPreviewResult {
   [key: string]: unknown
 }
 
+// #1168 T07：远端嵌入白名单
+export const MODULE_REMOTE_OPEN_HOSTS: readonly string[]
+export function isTrustedRemoteModuleUrl(url: string): boolean
 // #1166 T05：签名类错误码 → i18n key
 export const MODULE_SIGNING_ERROR_CODES: readonly string[]
 export function extractModuleSigningErrorCode(message: string): string

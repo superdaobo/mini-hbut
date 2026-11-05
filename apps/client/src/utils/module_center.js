@@ -172,6 +172,14 @@ export const normalizeModuleCenterEntry = (
     view,
     order,
     min_compatible_version: firstNonEmpty(raw.min_compatible_version, raw.minCompatibleVersion),
+    // #1168 T07：新契约字段（可选）。旧条目缺省时保持 undefined/0，消费方按「未知」处理，
+    // 不得因此把条目判成可信或可本地加载。
+    release_seq: safeNumber(raw.release_seq ?? raw.releaseSeq, 0),
+    permissions: Array.isArray(raw.permissions)
+      ? raw.permissions.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+      : [],
+    publisher_key_id: firstNonEmpty(raw.publisher_key_id, raw.publisherKeyId),
+    bridge_protocol: safeNumber(raw.bridge_protocol ?? raw.bridgeProtocol, 0),
     manifest_url:
       kind === 'remote'
         ? buildModuleManifestUrl({

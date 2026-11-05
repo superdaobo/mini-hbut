@@ -94,10 +94,15 @@ import {
   normalizeCatalogModule,
   fetchModuleCatalog,
   fetchModuleManifest,
-  moduleSigningErrorKey
+  moduleSigningErrorKey,
+  isTrustedRemoteModuleUrl,
+  MODULE_REMOTE_OPEN_HOSTS
 } from './more_modules/core.js'
 import { t } from './app_i18n'
 export {
+  // #1168 T07：远端嵌入白名单
+  isTrustedRemoteModuleUrl,
+  MODULE_REMOTE_OPEN_HOSTS,
   // #1166 T05：签名类错误码 → i18n key
   MODULE_SIGNING_ERROR_CODES,
   extractModuleSigningErrorCode,
@@ -477,8 +482,14 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
     !isLocalModuleBridgePreviewUrl(rawPreviewUrl) &&
     (!isCapacitorRuntime() || previewMode === PREVIEW_MODE_REMOTE)
   ) {
-    resolvedPreviewUrl = rawPreviewUrl
-    sourceKind = PREVIEW_MODE_REMOTE
+    // #1168 T07：Tauri 下远端嵌入必须来自白名单 host（否则等于绕过验签执行远端代码）
+    if (isTauriRuntime() && !isTrustedRemoteModuleUrl(rawPreviewUrl)) {
+      resolvedPreviewUrl = ''
+      sourceKind = 'invalid'
+    } else {
+      resolvedPreviewUrl = rawPreviewUrl
+      sourceKind = PREVIEW_MODE_REMOTE
+    }
   } else if (
     openUrl &&
     !isLocalModuleBridgePreviewUrl(openUrl) &&

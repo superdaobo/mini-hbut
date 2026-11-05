@@ -180,7 +180,8 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
 
     if (type === HOST_MESSAGE_TYPES.hello) {
       const protocolVersion = Number(payload.protocol_version)
-      if (Number.isInteger(protocolVersion) && protocolVersion !== HOST_PROTOCOL_VERSION) {
+      // #1168 T07：协议版本必须显式声明且匹配 —— 缺失/非整数一律拒绝（原先放行 = fail open）
+      if (!Number.isInteger(protocolVersion) || protocolVersion !== HOST_PROTOCOL_VERSION) {
         noteRejection('protocol_version_unsupported')
         return
       }
