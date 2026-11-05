@@ -1,0 +1,24 @@
+{
+  "module_id": "account_security",
+  "version": "1.0.0",
+  "release_seq": 1,
+  "channel": "main",
+  "module_name": "账号安全概览",
+  "entry_path": "index.html",
+  "package_sha256": "2ca554b38865c22b7eb09431434e3a3fc046848a2d9b128b5e3c02fcdf4bbd37",
+  "min_compatible_version": "",
+  "compat": {
+    "host_min": "",
+    "bridge_protocol": 1
+  },
+  "permissions": [
+    "school.login_logs",
+    "school.profile_online"
+  ],
+  "publisher_key_id": "dev-test-1",
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "dev-test-1",
+    "value": "X5qu1qt5YK42vgNIJkVke869OiyU8Zh9hKfIO2X2TBKraaA36Wwy2NJ2sN9fsUtKA2ezKsH4UhLEH6c67g9nBg"
+  }
+}
