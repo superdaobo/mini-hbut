@@ -242,7 +242,13 @@ export const createHostBridge = (options = {}) => {
         return
       }
       const protocolVersion = Number(payload.protocol_version)
-      if (Number.isInteger(protocolVersion) && (protocolVersion < SUPPORTED_PROTOCOL_VERSIONS.min || protocolVersion > SUPPORTED_PROTOCOL_VERSIONS.max)) {
+      // #1168 T07：宿主**必须**显式声明协议版本。缺失/非整数一律视为不兼容 —— 否则
+      // 「不发协议版本」就能跳过协商（宿主侧同样的 fail-open 已在本轮修掉，两侧必须一致）。
+      if (
+        !Number.isInteger(protocolVersion) ||
+        protocolVersion < SUPPORTED_PROTOCOL_VERSIONS.min ||
+        protocolVersion > SUPPORTED_PROTOCOL_VERSIONS.max
+      ) {
         noteRejection('protocol_version_unsupported', { protocol_version: protocolVersion })
         resolvePending('welcome', { welcome: null, error: 'protocol_version_unsupported' })
         return

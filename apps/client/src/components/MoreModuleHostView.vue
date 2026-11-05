@@ -704,6 +704,9 @@ const tryClassicFallback = () => {
 
 const reloadFrame = () => {
   if (!ready.value) return
+  // #1168 T07：导航/重载即新实例 —— 旧实例立刻作废（在途取数随 Rust 侧实例注销而失败），
+  // 新文档 onload 后再重新登记，避免「旧文档继续借用新实例」。
+  unregisterModuleInstance()
   frameKey.value += 1
   resetFrameState()
 }
@@ -715,6 +718,8 @@ const handleLoad = () => {
   loadError.value = ''
   // iframe 完成加载后 contentWindow 才可用：在此重建宿主桥（来源白名单同步刷新）
   rebuildHostBridge()
+  // #1168 T07：新文档加载完成时重新登记实例（旧实例已在 reload/地址变化时注销）
+  void registerModuleInstance()
   pushDebugLog('ModuleHost', `iframe onload 触发`, 'info', {
     src: frameSrc.value?.slice(0, 120),
     hasHeight: frameContentHeight.value > 0
@@ -761,7 +766,9 @@ const handleError = () => {
 
 watch(
   () => previewUrl.value,
-  () => {
+  (next, previous) => {
+    // #1168 T07：地址变化 = 换实例（旧上下文不得继续持有受控请求能力）
+    if (previous && next !== previous) unregisterModuleInstance()
     remoteFirstActive.value = true
     frameKey.value += 1
     resetFrameState()
