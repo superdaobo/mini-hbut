@@ -57,6 +57,43 @@ export const MODULE_CONTENT_PORT = 4398
 /** 模块内容 origin（用于来源比较，不含末尾斜杠）。 */
 export const getModuleContentOrigin = () => `http://127.0.0.1:${MODULE_CONTENT_PORT}`
 
+/**
+ * #1168 T07：允许「直接内嵌」的远端 host 白名单（与模块 CDN 同源）。
+ *
+ * 背景：目录条目可以给任意 `open_url`，而宿主会直接把它当嵌入地址 —— 这等于绕过
+ * `module_bundle` 与发布者验签去执行一段远端代码。G-E 检查把这条列为必须收紧的旁路。
+ * 规则：Tauri 运行时，非本机模块内容的绝对 http(s) 地址只有在**白名单 host** 内才允许
+ * 直接嵌入；其它地址一律丢弃（回退到本机已签名包或报不可用）。
+ */
+export const MODULE_REMOTE_OPEN_HOSTS = Object.freeze(['hbut.6661111.xyz'])
+
+/** 解析 URL 的 host（无协议 / 非法 → ''）。 */
+const urlHost = (url) => {
+  const text = safeText(url)
+  if (!text) return ''
+  try {
+    return new URL(text).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+/** 远程 open_url 是否可信（白名单 host + https + 无 userinfo）。 */
+export const isTrustedRemoteModuleUrl = (url) => {
+  const text = safeText(url)
+  if (!isAbsoluteHttpUrl(text)) return false
+  try {
+    const parsed = new URL(text)
+    // 带用户名/密码的 URL（`https://evil@good.host/`）一律拒绝：host 看着对，实际是可伪造的跳板
+    if (parsed.username || parsed.password) return false
+    if (parsed.protocol !== 'https:') return false
+    if (parsed.hostname.toLowerCase() !== parsed.hostname) return false
+    return MODULE_REMOTE_OPEN_HOSTS.includes(parsed.hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
 /** #1166 T05：模块签名/清单类错误码（Rust 返回，形如 `CODE: 细节`）。 */
 export const MODULE_SIGNING_ERROR_CODES = Object.freeze([
   'MODULE_SIGNATURE_MISSING',
