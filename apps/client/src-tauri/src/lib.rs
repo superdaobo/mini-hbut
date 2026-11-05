@@ -549,6 +549,9 @@ pub fn run() {
             #[cfg(feature = "bridge")]
             http_server::bridge_session_token,
             transport::tauri::module_fetch::module_session_fetch,
+            transport::tauri::module_fetch::module_instance_register,
+            transport::tauri::module_fetch::module_instance_unregister,
+            transport::tauri::module_fetch::module_instances_clear,
             transport::tauri::update::prepare_module_bundle,
             transport::tauri::system::open_file_with_system,
             transport::tauri::update::open_module_bundle_window,

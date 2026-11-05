@@ -8,14 +8,17 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct ModuleInstance {
+    #[serde(alias = "instanceId")]
     pub instance_id: String,
     /// 打开实例时的账号作用域（学号/身份键）。
+    #[serde(default, alias = "accountScope")]
     pub account_scope: String,
     /// 清单是否通过发布者验签（T05）。
     pub trusted: bool,
     /// 允许的能力 id 集合（空 = 不允许任何受控请求）。
+    #[serde(default)]
     pub capabilities: Vec<String>,
 }
 
