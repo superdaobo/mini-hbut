@@ -599,6 +599,34 @@ pub async fn prepare_module_bundle(
                 if cached_signature != current_signature {
                     return Err("模块缓存与当前清单签名不一致，拒用缓存".to_string());
                 }
+                // #1166 G-E：签名只覆盖「包」的摘要，不覆盖解包后的文件。缓存命中若不做
+                // 完整性复核，本机改动缓存目录里的 index.html 就能绕过验签。这里重算
+                // bundle.zip 的 sha256 并与清单声明比对，不一致则视为缓存失效。
+                let bundle_path = cache_dir.join("bundle.zip");
+                let integrity_ok =
+                    cached_bundle_integrity_ok(&bundle_path, item.package_sha256.trim());
+                if !integrity_ok {
+                    eprintln!("[T05] 模块缓存完整性校验失败，按失效处理并重新下载");
+                    fs::remove_dir_all(&cache_dir)
+                        .map_err(|e| format!("清理完整性失效的模块缓存失败: {}", e))?;
+                } else {
+                    let preview_url =
+                        build_preview_url(&channel, &module_id, &version, &entry_path);
+                    return Ok(ModuleBundlePrepareResult {
+                        channel,
+                        module_id,
+                        module_name,
+                        version,
+                        entry_path: entry_path.clone(),
+                        preview_url,
+                        cache_dir: cache_dir.display().to_string(),
+                        bundle_path: bundle_path.display().to_string(),
+                        min_compatible_version,
+                        source: "cache".to_string(),
+                        trusted,
+                        publisher_key_id: publisher_key_id.clone(),
+                    });
+                }
             }
             let preview_url = build_preview_url(&channel, &module_id, &version, &entry_path);
             return Ok(ModuleBundlePrepareResult {
@@ -769,6 +797,17 @@ fn signature_policy_enforced() -> bool {
         }
         Err(_) => !cfg!(debug_assertions),
     }
+}
+
+/// 缓存里的 bundle.zip 是否与清单声明的摘要一致（#1166 G-E）。
+fn cached_bundle_integrity_ok(bundle_path: &Path, expected_sha: &str) -> bool {
+    if expected_sha.trim().is_empty() {
+        return false;
+    }
+    std::fs::read(bundle_path)
+        .map(|bytes| sha256_hex(&bytes))
+        .map(|actual| actual.eq_ignore_ascii_case(expected_sha.trim()))
+        .unwrap_or(false)
 }
 
 /// 迁移期开关：允许未签名模块（仅显式设置时生效）。
@@ -1096,6 +1135,23 @@ mod t05_signature_and_unpack_tests {
         assert!(resolve_cached_entry_path(&root, "index.html", &"f".repeat(64), "").is_none());
         // 最小兼容版本不一致 → 不命中
         assert!(resolve_cached_entry_path(&root, "index.html", &"e".repeat(64), "9.9.9").is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cached_bundle_integrity_detects_tampering() {
+        // #1166 G-E：缓存命中必须重算包摘要；本机改缓存目录里的文件不得绕过验签。
+        let root = temp_root("integrity");
+        let payload = b"fake zip bytes".to_vec();
+        let bundle_path = root.join("bundle.zip");
+        std::fs::write(&bundle_path, &payload).expect("write bundle");
+        let sha = format!("{:x}", sha2::Sha256::digest(&payload));
+        assert!(cached_bundle_integrity_ok(&bundle_path, &sha));
+        assert!(!cached_bundle_integrity_ok(&bundle_path, &"0".repeat(64)));
+        assert!(!cached_bundle_integrity_ok(&bundle_path, ""));
+        // 篡改文件内容 → 摘要不再匹配
+        std::fs::write(&bundle_path, b"tampered").expect("tamper");
+        assert!(!cached_bundle_integrity_ok(&bundle_path, &sha));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
