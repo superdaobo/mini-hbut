@@ -34,6 +34,8 @@ export const isTauriMobileRuntime = () =>
 const SILENT_NATIVE_COMMANDS = new Set([
   // #1163 T02：桥会话令牌命令只取值，命令名也不必进调试日志（减少痕迹面）
   'bridge_session_token',
+  // #1167 T06：模块受控请求由宿主转发，参数可能含个人查询条件，同样不写调试日志
+  'module_session_fetch',
   'push_runtime_log',
   'get_runtime_logs',
   'clear_runtime_logs',

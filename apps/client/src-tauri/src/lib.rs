@@ -548,6 +548,7 @@ pub fn run() {
             // #1163 T02：Bridge 会话令牌仅向主窗口下发（模块窗口/外部页面不得取得）
             #[cfg(feature = "bridge")]
             http_server::bridge_session_token,
+            transport::tauri::module_fetch::module_session_fetch,
             transport::tauri::update::prepare_module_bundle,
             transport::tauri::system::open_file_with_system,
             transport::tauri::update::open_module_bundle_window,

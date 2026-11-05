@@ -15,6 +15,7 @@ pub mod forum;
 pub mod grades;
 // #1052：图书馆预约（超星 reserve）入口解析命令层
 pub mod library_reserve;
+pub(crate) mod module_fetch;
 pub mod notification;
 pub mod qxzkb;
 pub mod schedule;
