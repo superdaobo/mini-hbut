@@ -2,6 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
 import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, isLocalModuleContentOrigin, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
+import {
+  MODULE_FETCH_REQUEST_TYPE,
+  buildModuleFetchResponse,
+  moduleFetchErrorText,
+  normalizeModuleFetchMessage,
+  parseModuleFetchError
+} from '../utils/module_controlled_request'
 import { openExternal } from '../utils/external_link'
 import { pushDebugLog } from '../utils/debug_logger'
 import { isIOSLike } from '../platform/runtime'
@@ -379,6 +386,103 @@ const resetFrameState = () => {
   }, 4500)
 }
 
+/**
+ * #1167 T06：模块受控请求的宿主侧处理。
+ *
+ * - 只有「通过验签 + 已登记」的实例能取数（登记值来自 T05 结果，模块无法伪造）；
+ * - 模块只能发参数值，能力/宿主/路径由 Rust 白名单决定；
+ * - 响应按 request_id 原样回投，错误归一成 `{code,message}` 后附三语文案。
+ */
+const moduleInstanceId = ref('')
+const moduleInstanceTrusted = ref(false)
+
+const ensureModuleInstance = () => {
+  if (!moduleInstanceId.value) {
+    moduleInstanceId.value = `inst_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+  }
+  return moduleInstanceId.value
+}
+
+const registerModuleInstance = async () => {
+  const instanceId = ensureModuleInstance()
+  const permissions = Array.isArray(props.session?.permissions) ? props.session.permissions : []
+  moduleInstanceTrusted.value = props.session?.trusted === true
+  try {
+    await invokeNative('module_instance_register', {
+      request: {
+        instanceId,
+        accountScope: safeText(authStore.verifiedStudentId),
+        trusted: moduleInstanceTrusted.value,
+        capabilities: permissions.filter((item) => typeof item === 'string')
+      }
+    })
+  } catch (error) {
+    pushDebugLog('ModuleHost', '模块实例登记失败', 'warn', { error: safeText(error?.message || error) })
+  }
+}
+
+const unregisterModuleInstance = () => {
+  const instanceId = moduleInstanceId.value
+  if (!instanceId) return
+  moduleInstanceId.value = ''
+  void invokeNative('module_instance_unregister', { instanceId }).catch(() => {})
+}
+
+const handleModuleFetchMessage = async (event) => {
+  const frameWindow = frameRef.value?.contentWindow
+  if (!frameWindow || event.source !== frameWindow) return
+  if (!isGameFrameOriginAllowed(event.origin, frameAllowedOrigins.value)) return
+  const payload = event?.data
+  if (!payload || payload.type !== MODULE_FETCH_REQUEST_TYPE) return
+
+  const request = normalizeModuleFetchMessage(payload)
+  if (!request) {
+    pushDebugLog('ModuleHost', '丢弃形状非法的受控请求', 'warn', {})
+    return
+  }
+  const reply = (message) => {
+    // 投递前确认窗口与来源未变化，避免把结果送进已导航的新文档
+    if (frameRef.value?.contentWindow !== frameWindow) return
+    try {
+      frameWindow.postMessage(message, event.origin)
+    } catch {
+      // 宿主拒绝投递时不记录任何含个人信息的日志
+    }
+  }
+
+  if (!moduleInstanceTrusted.value) {
+    const error = parseModuleFetchError('MODULE_NOT_TRUSTED: 模块未通过发布者验签')
+    reply(buildModuleFetchResponse(request.request_id, { ok: false, error }))
+    return
+  }
+  try {
+    const result = await invokeNative('module_session_fetch', {
+      request: {
+        instance_id: ensureModuleInstance(),
+        request_id: request.request_id,
+        capability: request.capability,
+        account_scope: safeText(authStore.verifiedStudentId),
+        query: request.query || {},
+        form: request.form || {},
+        timeout_ms: request.timeout_ms
+      }
+    })
+    reply(
+      buildModuleFetchResponse(request.request_id, {
+        ok: true,
+        status: Number(result?.status) || 0,
+        content_type: safeText(result?.content_type),
+        body: safeText(result?.body)
+      })
+    )
+  } catch (error) {
+    const payloadError = parseModuleFetchError(error)
+    pushDebugLog('ModuleHost', '受控请求被拒绝', 'warn', { code: payloadError.code })
+    reply(buildModuleFetchResponse(request.request_id, { ok: false, error: payloadError }))
+    moduleFetchErrorText(payloadError)
+  }
+}
+
 const handleFrameSizeMessage = (event) => {
   const frameWindow = frameRef.value?.contentWindow
   const payload = event?.data
@@ -675,6 +779,20 @@ watch(sessionVerified, () => {
 })
 
 /**
+ * #1167 T06：账号切换后清空全部模块实例 —— 在途受控请求与旧实例一并作废，
+ * 避免旧账号的模块继续用新账号的会话取数。
+ */
+watch(
+  () => safeText(authStore.verifiedStudentId),
+  (next, previous) => {
+    if (!previous || next === previous) return
+    moduleInstanceTrusted.value = false
+    moduleInstanceId.value = ''
+    void invokeNative('module_instances_clear', {}).catch(() => {})
+  }
+)
+
+/**
  * 会话恢复策略 A（协议 §6.2.3）：resume 前由**宿主重新申请 ticket**并更新 iframe URL，
  * 游戏重新兑换；旧 ticket 是否已兑换都不阻塞（策略 B 的 exchange 幂等仍由服务端保证）。
  * 契约 C：单一前置判定不通过（未登录 / origin 不在白名单 / 开关关闭）→ **零请求**保持既有 remount。
@@ -740,20 +858,24 @@ const handleAppEmbedResumeEvent = async (event) => {
 }
 
 onMounted(() => {
+  window.addEventListener('message', handleModuleFetchMessage)
   window.addEventListener('message', handleFrameSizeMessage)
   window.addEventListener('message', handleHostBridgeMessage)
   window.addEventListener('message', handleOpenModuleMessage)
   window.addEventListener('message', handlePanelPointsRequestMessage)
   window.addEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
   void loadHostFlags()
+  void registerModuleInstance()
 })
 
 onBeforeUnmount(() => {
+  unregisterModuleInstance()
   clearLoadingGuardTimer()
   clearFrameSizeHintTimer()
   clearCapacitorFallbackTimer()
   hostBridge?.dispose()
   hostBridge = null
+  window.removeEventListener('message', handleModuleFetchMessage)
   window.removeEventListener('message', handleFrameSizeMessage)
   window.removeEventListener('message', handleHostBridgeMessage)
   window.removeEventListener('message', handleOpenModuleMessage)

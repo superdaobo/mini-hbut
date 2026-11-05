@@ -432,6 +432,14 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
       source: sessionPayload.source,
       preview_mode: previewMode,
       invalid_reason: invalidReason,
+      // #1167 T06：把 T05 的验签结果与清单权限带给宿主，用于登记受控请求实例。
+      // 未验签（trusted=false）时宿主只能登记「不可信实例」，受控请求会被 Rust 拒绝。
+      trusted: prepared?.trusted === true,
+      permissions: Array.isArray(prepared?.permissions)
+        ? prepared.permissions
+        : Array.isArray(sessionPayload?.permissions)
+          ? sessionPayload.permissions
+          : [],
       // #1002 回归修复：宿主对「游乐场发起」的对局会走 HTTPS-first ——
       // `launch_surface==='game_center'` 时 `resolveGameCenterLaunchUrl` 会返回远端
       // `open_url` 原文并**整体丢弃**挂在 `preview_url` 上的注入参数（身份 / rank_api）。

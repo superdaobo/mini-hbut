@@ -55,3 +55,45 @@ mod tests {
         assert!(!window_allows_module_fetch("debug"));
     }
 }
+
+/// 宿主登记模块实例（#1167 T06/T07 接缝）。
+///
+/// `trusted` / `capabilities` 由宿主根据 T05 验签结果与清单 permissions 传入；
+/// 模块自身无法调用（iframe 无 IPC，且命令只允许 main 窗口）。
+#[tauri::command]
+pub(crate) fn module_instance_register(
+    window: tauri::WebviewWindow,
+    request: crate::modules::module_instance_registry::ModuleInstance,
+) -> Result<(), String> {
+    if !module_fetch_allowed_for_window(window.label()) {
+        return Err("MODULE_FORBIDDEN_WINDOW: 实例登记仅允许宿主主窗口".to_string());
+    }
+    if request.instance_id.trim().is_empty() {
+        return Err("MODULE_INSTANCE_REQUIRED: 实例 id 不能为空".to_string());
+    }
+    crate::modules::module_instance_registry::register_instance(request);
+    Ok(())
+}
+
+/// 注销模块实例（关闭 / 导航 / 撤权时调用）。
+#[tauri::command]
+pub(crate) fn module_instance_unregister(
+    window: tauri::WebviewWindow,
+    instance_id: String,
+) -> Result<(), String> {
+    if !module_fetch_allowed_for_window(window.label()) {
+        return Err("MODULE_FORBIDDEN_WINDOW: 实例注销仅允许宿主主窗口".to_string());
+    }
+    crate::modules::module_instance_registry::unregister_instance(instance_id.trim());
+    Ok(())
+}
+
+/// 切换账号时清空全部实例（在途请求随之作废）。
+#[tauri::command]
+pub(crate) fn module_instances_clear(window: tauri::WebviewWindow) -> Result<(), String> {
+    if !module_fetch_allowed_for_window(window.label()) {
+        return Err("MODULE_FORBIDDEN_WINDOW: 实例清理仅允许宿主主窗口".to_string());
+    }
+    crate::modules::module_instance_registry::clear_all();
+    Ok(())
+}
