@@ -177,6 +177,13 @@ const prepareCapacitorLocalModuleBundle = async ({
   packageUrls,
   openUrlCandidates
 }) => {
+  // #1166 T05/G-E：Capacitor 本地打包路径**没有发布者验签**（JS 侧只比 sha256，且可缺省），
+  // 会让「安装模块」绕过 Rust 的 Ed25519 校验。Capacitor 是历史资产、不在三端构建内
+  // （Windows/macOS/Android/iOS 均为 Tauri），因此这里 fail closed：仅 DEV 构建保留，
+  // 正式产物一律拒绝安装，避免出现「另一条能装未签名模块」的通道。
+  if (!import.meta.env?.DEV) {
+    throw new Error('MODULE_INSTALL_UNSUPPORTED_PLATFORM: 当前平台不支持安装模块包')
+  }
   const { unzipSync } = await import('fflate')
   const { Filesystem, Directory } = await import('@capacitor/filesystem')
   const requestedEntryPath = normalizeRelativeModulePath(manifest?.entry_path, 'index.html')
