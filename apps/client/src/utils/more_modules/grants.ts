@@ -18,7 +18,23 @@
  * @param {{ firstInstall?: boolean }} [options]
  * @returns {{ granted: string[], needsConsent: string[] }}
  */
-export const computeGrantedCapabilities = (previousGranted, requested, options = {}) => {
+/** 只依赖用到的三个方法（测试可传最小实现）。 */
+export interface ModuleGrantStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+  removeItem?(key: string): void
+}
+
+export interface ModuleGrantResult {
+  granted: string[]
+  needsConsent: string[]
+}
+
+export const computeGrantedCapabilities = (
+  previousGranted: string[] | null | undefined,
+  requested: unknown,
+  options: { firstInstall?: boolean } = {}
+): ModuleGrantResult => {
   const requestedList = Array.isArray(requested)
     ? Array.from(new Set(requested.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())))
     : []
@@ -39,10 +55,14 @@ export const computeGrantedCapabilities = (previousGranted, requested, options =
 }
 
 /** 授予记录的存储键（按模块，跨版本）。 */
-export const moduleGrantStorageKey = (moduleId) => `hbu_module_grants:${String(moduleId || '').trim()}`
+export const moduleGrantStorageKey = (moduleId: string): string =>
+  `hbu_module_grants:${String(moduleId || '').trim()}`
 
 /** 读取历史授予（非法内容按「无记录」处理，不放大权限）。 */
-export const readModuleGrant = (moduleId, storage = globalThis?.localStorage) => {
+export const readModuleGrant = (
+  moduleId: string,
+  storage: ModuleGrantStorage | undefined = globalThis?.localStorage
+): string[] | null => {
   const key = moduleGrantStorageKey(moduleId)
   try {
     const raw = storage?.getItem(key)
@@ -56,10 +76,14 @@ export const readModuleGrant = (moduleId, storage = globalThis?.localStorage) =>
 }
 
 /** 写入授予记录（只存字符串数组）。 */
-export const writeModuleGrant = (moduleId, granted, storage = globalThis?.localStorage) => {
+export const writeModuleGrant = (
+  moduleId: string,
+  granted: unknown,
+  storage: ModuleGrantStorage | undefined = globalThis?.localStorage
+): boolean => {
   const key = moduleGrantStorageKey(moduleId)
   try {
-    storage?.setItem(key, JSON.stringify(Array.isArray(granted) ? granted : []))
+    storage?.setItem(key, JSON.stringify(Array.isArray(granted) ? (granted as string[]) : []))
     return true
   } catch {
     return false

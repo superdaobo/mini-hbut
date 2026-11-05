@@ -12,7 +12,7 @@ import {
   moduleGrantStorageKey,
   readModuleGrant,
   writeModuleGrant
-} from './more_modules/grants.js'
+} from './more_modules/grants'
 
 const read = (relativePath: string) => readFileSync(path.join(process.cwd(), relativePath), 'utf8')
 

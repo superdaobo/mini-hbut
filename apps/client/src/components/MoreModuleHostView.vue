@@ -6,7 +6,7 @@ import {
   computeGrantedCapabilities,
   readModuleGrant,
   writeModuleGrant
-} from '../utils/more_modules/grants.js'
+} from '../utils/more_modules/grants'
 import {
   MODULE_FETCH_REQUEST_TYPE,
   buildModuleFetchResponse,
