@@ -3,6 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
 import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, isLocalModuleContentOrigin, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
 import {
+  computeGrantedCapabilities,
+  readModuleGrant,
+  writeModuleGrant
+} from '../utils/more_modules/grants.js'
+import {
   MODULE_FETCH_REQUEST_TYPE,
   buildModuleFetchResponse,
   moduleFetchErrorText,
@@ -405,15 +410,27 @@ const ensureModuleInstance = () => {
 
 const registerModuleInstance = async () => {
   const instanceId = ensureModuleInstance()
-  const permissions = Array.isArray(props.session?.permissions) ? props.session.permissions : []
+  const requested = Array.isArray(props.session?.permissions)
+    ? props.session.permissions.filter((item) => typeof item === 'string')
+    : []
   moduleInstanceTrusted.value = props.session?.trusted === true
+  // ⛳ G-F：模块更新不得悄悄扩权 —— 只授予「历史已同意 ∩ 新清单」，
+  // 新声明出来的能力先挂起（needsConsent），等同意流程（T11/T13 的 permission_epoch）。
+  const previous = readModuleGrant(moduleId.value)
+  const { granted, needsConsent } = computeGrantedCapabilities(previous, requested, {
+    firstInstall: previous === null
+  })
+  if (previous === null) writeModuleGrant(moduleId.value, granted)
+  if (needsConsent.length) {
+    pushDebugLog('ModuleHost', '模块申请了新增能力，等待同意', 'warn', { needsConsent })
+  }
   try {
     await invokeNative('module_instance_register', {
       request: {
         instanceId,
         accountScope: safeText(authStore.verifiedStudentId),
         trusted: moduleInstanceTrusted.value,
-        capabilities: permissions.filter((item) => typeof item === 'string')
+        capabilities: granted
       }
     })
   } catch (error) {
