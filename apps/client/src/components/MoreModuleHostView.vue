@@ -683,19 +683,58 @@ const evaluateGameTrustPolicy = () =>
  * 必须先经 `createGatedTicketRequest` 判定；判定不通过时本函数**不会被调用**（零请求）。
  */
 const requestLaunchTicket = async () => {
+  const apiBase = hostFlags.value.api_base
+  publishGameDiag({ event: 'ticket_request_started', api_base: apiBase })
   const result = await fetchGameLaunchTicket({
     gameId: moduleId.value,
-    apiBase: hostFlags.value.api_base,
+    apiBase,
     idempotencyKey: ''
+  })
+  publishGameDiag({
+    event: 'ticket_platform_result',
+    ticket_present: !!result.ticket,
+    error_code: result.error && result.error.code ? String(result.error.code) : ''
   })
   if (!result.ticket) return null
   return { ticket: result.ticket, expiresAt: result.expiresAt }
+}
+
+/**
+ * DEV 专用握手/取票诊断写入（生产不挂全局）。
+ *
+ * 真机排查事实：游戏 SDK 与宿主桥两侧都不打 console，`ticket` 为空时**完全无法归因**
+ * （可能是握手、origin 白名单、会话、产品开关、取票渠道、AT 缺失或平台失败）。
+ * 这里把每个关键判定写进 `globalThis.__HBUT_GAME_BRIDGE_DIAG__`，供 `/debug/frontend-eval`
+ * 或 CDP 读回。
+ */
+const publishGameDiag = (entry) => {
+  if (!import.meta.env.DEV) return
+  try {
+    if (!Array.isArray(globalThis.__HBUT_GAME_BRIDGE_DIAG__)) globalThis.__HBUT_GAME_BRIDGE_DIAG__ = []
+    if (globalThis.__HBUT_GAME_BRIDGE_DIAG__.length > 200) {
+      globalThis.__HBUT_GAME_BRIDGE_DIAG__.splice(0, globalThis.__HBUT_GAME_BRIDGE_DIAG__.length - 200)
+    }
+    globalThis.__HBUT_GAME_BRIDGE_DIAG__.push(Object.assign({ module_id: moduleId.value, at: Date.now() }, entry))
+  } catch {
+    // 诊断失败不影响握手/取票
+  }
 }
 
 /** 创建（或重建）宿主桥：iframe remount / origin 白名单变化时必须整体替换 */
 const rebuildHostBridge = () => {
   hostBridge?.dispose()
   const policy = evaluateGameTrustPolicy()
+  // DEV 诊断：闸门结论与失败原因（没有它时「票据为空」无法归因）
+  publishGameDiag({
+    event: 'trust_policy',
+    verified_eligible: policy.verifiedEligible,
+    reasons: policy.reasons,
+    origin: policy.origin,
+    allowlist: policy.allowlist,
+    config_origins: hostFlags.value.allowed_game_origins,
+    verified_flag: hostFlags.value.game_verified_session_enabled === true,
+    session_verified: sessionVerified.value
+  })
   hostBridge = createModuleHostBridge({
     moduleId: moduleId.value,
     frameWindow: frameRef.value?.contentWindow || null,
@@ -707,7 +746,9 @@ const rebuildHostBridge = () => {
     // 判定通过才落到真实取票（失败仍按协议 §6.2.3 降级 compatibility/standalone）。
     requestTicket: createGatedTicketRequest({
       resolvePolicy: evaluateGameTrustPolicy,
-      requestTicket: requestLaunchTicket
+      requestTicket: requestLaunchTicket,
+      // 被闸门拒绝时留痕（此前无 onDenied → 真机上「发过请求但没结果」查不出原因）
+      onDenied: (reason) => publishGameDiag({ event: 'ticket_denied', reason })
     }),
     onMode: (mode) => {
       gameRuntimeMode.value = mode
