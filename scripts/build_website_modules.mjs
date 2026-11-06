@@ -283,6 +283,11 @@ const publishBuiltModule = ({
     published_at: new Date().toISOString(),
     release_notes: String(moduleMeta.release_notes || '').trim(),
     open_url: openUrl,
+    // ⚠️ 运行期（Rust `ModuleManifest`）把 `channel` 作为**必填**字段，用于防回放键
+    // 与路径校验；这里发布时必须写 `channel`。此前只写 `published_channel`，导致
+    // 「直接用发布产物调 prepare」会报 `MODULE_MANIFEST_INVALID: missing field channel`
+    // （App 端是把 URL 路径里的 channel 补进清单才绕过的，属于隐式耦合）。
+    channel: publishChannel,
     published_channel: publishChannel,
     source_channel: SOURCE_CHANNEL || 'local'
   }

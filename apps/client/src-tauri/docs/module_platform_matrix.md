@@ -28,7 +28,9 @@
 |---|---|
 | Windows 上模块在 4398 加载、iframe 带 sandbox | ✅ 已验（真机 + CDP OOPIF 进模块上下文核对 origin/sandbox/CSP） |
 | Windows 上四条负向（fetch 桥 / invoke 令牌命令 / 读 parent / remount 旧上下文） | ✅ 三条已验（`fetch` 桥被内容 CSP 拦 → `TypeError`；`invoke('bridge_session_token')` **永不 settle** 且主机未执行（哨兵日志对照）；`parent.document/location` → `SecurityError`）；remount 旧上下文见契约测试 |
-| 11 个游戏握手/票据/尺寸上报 | **部分已验**：游戏中心可进入，但报「面板清单未发布」→ **11 个游戏入口本身取不到**（远端 `more_panel` 未发布，数据态问题非代码缺陷）。**握手机制已在真机验证**：以 `launch_surface='game_center'` 打开探针模块并让它发 `mini-hbut:game-sdk:hello(protocol_version=1)`，宿主回 `welcome{protocol_version:1, game_id}` → 协议版本闸门与回包字段在真机成立。票据/尺寸上报仍未执行（需真实面板） |
+| 11 个游戏握手 | ✅ **真机已验证**（2026-11-06 晚）：用仓库里的真实游戏源码 + `more_panel` 面板构建出官方 CDN 布局，本地静态 CDN（`tools/goal8-static-cdn.mjs`）服务后逐个打开：**10/11 完成 `hello_accepted` → `welcome_sent{protocol_version:1}` → `mode_reported`**；`hbut_gomoku` 按契约**不适用**（它不 import SDK 的 `MiniHBUTGame`，票据走宿主注入 URL 的 `gpt` 参数，见 `LAUNCH_TICKET_QUERY_KEYS`）。矩阵证据：`goal-8/evidence/games-matrix.json` |
+| 真实面板链路（更多页 → `more_panel` → 点卡片 → 游戏） | ✅ 真机验证：面板从 CDN 下载并在 4398 安装、宿主注入 `game_list`（11 项）、网格 11 张 `button.tile[data-module-id]`、点卡片后游戏在 4398 安装并完成握手 |
+| 票据兑换（`request-ticket` → `:ticket`） | ⚠️ **本环境不可验证**：契约 C 要求「可信握手 + origin 白名单 + **会话已确认** + 产品开关 + 取票渠道」全满足才下发；本地环境未确认会话 → 所有游戏的 `welcome.launch_ticket` 均为 `false`（保守护栏生效，游戏降级 `compatibility/legacy` 仍可玩） |
 | Android 上远端模块 + 无 Bridge 行为 | **未执行**（2026-11-06：无设备连接） |
 | macOS / iOS | **无环境，`unverified`** |
 

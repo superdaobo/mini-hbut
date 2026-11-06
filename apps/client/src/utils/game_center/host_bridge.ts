@@ -103,6 +103,30 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
   }
 
   const rejections: HostBridgeRejection[] = []
+
+  /**
+   * DEV 专用握手诊断（2026-11-06 真机验证补的观测面）。
+   *
+   * 为什么需要：宿主桥与 SDK 两侧**都不打 console**，于是「游戏是否真的完成握手」在真机上
+   * 完全不可观测（游戏中心回归只能证明 iframe 打开了）。这里把关键事件写进
+   * `globalThis.__HBUT_GAME_BRIDGE_DIAG__`，用 `/debug/frontend-eval` 或 CDP 即可读回：
+   * hello 的 game_id/protocol_version、是否回了 welcome、被拒原因、ticket 请求与结果、mode 上报。
+   * 只在 DEV 生效，生产构建不会挂这个全局。
+   */
+  const publishDiag = (entry: Record<string, unknown>) => {
+    if (!import.meta.env?.DEV) return
+    try {
+      const globalRef = globalThis as unknown as { __HBUT_GAME_BRIDGE_DIAG__?: unknown[] }
+      if (!Array.isArray(globalRef.__HBUT_GAME_BRIDGE_DIAG__)) {
+        globalRef.__HBUT_GAME_BRIDGE_DIAG__ = []
+      }
+      const list = globalRef.__HBUT_GAME_BRIDGE_DIAG__
+      if (list.length > 200) list.splice(0, list.length - 200)
+      list.push({ ...entry, module_id: moduleId, at: Date.now() })
+    } catch {
+      // 诊断写入失败不得影响正常握手
+    }
+  }
   let disposed = false
   let ticketGranted = 0
   let lastTicketAt = 0
@@ -158,16 +182,25 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
     if (disposed) return
     const frameWindow = options.frameWindow
     if (!frameWindow || event.source !== frameWindow) {
-      // 非本 iframe 的消息一律忽略（不记录，避免噪声）
+      // 非本 iframe 的消息一律忽略（不记录 rejection，避免噪声）；
+      // DEV 下仍打点，否则「游戏发了 hello 但宿主没反应」在真机上完全不可观测。
+      publishDiag({ event: 'message_ignored', reason: 'source_mismatch' })
       return
     }
     const origin = safeText(event.origin)
     if (!allowedOrigins.length) {
       noteRejection('origin_allowlist_empty')
+      publishDiag({ event: 'message_ignored', reason: 'origin_allowlist_empty', origin })
       return
     }
     if (!origin || origin === '*' || !allowedOrigins.includes(origin)) {
       noteRejection('origin_rejected')
+      publishDiag({
+        event: 'message_ignored',
+        reason: 'origin_rejected',
+        origin,
+        allowed_origins: allowedOrigins.slice(0, 4)
+      })
       return
     }
     const payload = event.data
@@ -183,12 +216,15 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
       // #1168 T07：协议版本必须显式声明且匹配 —— 缺失/非整数一律拒绝（原先放行 = fail open）
       if (!Number.isInteger(protocolVersion) || protocolVersion !== HOST_PROTOCOL_VERSION) {
         noteRejection('protocol_version_unsupported')
+        publishDiag({ event: 'hello_rejected', reason: 'protocol_version_unsupported', protocol_version: protocolVersion })
         return
       }
       if (payloadGameId && moduleId && payloadGameId !== moduleId) {
         noteRejection('game_id_mismatch')
+        publishDiag({ event: 'hello_rejected', reason: 'game_id_mismatch', game_id: payloadGameId })
         return
       }
+      publishDiag({ event: 'hello_accepted', game_id: payloadGameId, protocol_version: protocolVersion })
       reply(event, {
         type: HOST_MESSAGE_TYPES.welcome,
         protocol_version: HOST_PROTOCOL_VERSION,
@@ -200,6 +236,11 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
           launch_ticket: features.game_verified_session_enabled && !!options.requestTicket,
           session_recovery: true
         }
+      })
+      publishDiag({
+        event: 'welcome_sent',
+        protocol_version: HOST_PROTOCOL_VERSION,
+        launch_ticket: features.game_verified_session_enabled && !!options.requestTicket
       })
       return
     }
@@ -214,7 +255,9 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
         return
       }
       const reason = safeText(payload.reason)
+      publishDiag({ event: 'ticket_requested', reason })
       void resolveTicket(reason, requestId).then((grant) => {
+        publishDiag({ event: 'ticket_replied', granted: !!safeText(grant?.ticket) })
         if (disposed) return
         reply(event, {
           type: HOST_MESSAGE_TYPES.ticketResponse,
@@ -233,6 +276,7 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
         mode: safeText(payload.mode),
         trustLevel: safeText(payload.trust_level)
       }
+      publishDiag({ event: 'mode_reported', mode: modeReport.mode, trust_level: modeReport.trustLevel })
       options.onMode?.(modeReport.mode, modeReport.trustLevel)
     }
   }
