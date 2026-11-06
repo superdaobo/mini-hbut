@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "module_id": "hbut_stack",
+  "module_name": "湖工叠塔",
+  "version": "20261106172135-266bfc0",
+  "package_url": "https://hbut.6661111.xyz/modules/main/hbut_stack/20261106172135-266bfc0/bundle.zip",
+  "package_sha256": "e43416255c3673d8130a93b666f18d8d2e434366bedd64bd934c4d05285c5a93",
+  "package_size": 29963,
+  "entry_path": "index.html",
+  "published_at": "2026-11-06T17:21:48.217Z",
+  "release_notes": "湖工叠塔模块：点击落下、切除悬挑、完美奖励与排行榜",
+  "open_url": "https://hbut.6661111.xyz/modules/main/hbut_stack/20261106172135-266bfc0/site/index.html",
+  "channel": "main",
+  "published_channel": "main",
+  "source_channel": "main",
+  "sdk_version": "1.0.0",
+  "sdk_sha256": "99da4e337f11679edabc0a65626080111568f312f25555cdf66e32e8e0e9951c",
+  "sdk_protocol_version": 1
+}

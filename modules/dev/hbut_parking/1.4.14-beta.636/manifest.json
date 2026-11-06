@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "module_id": "hbut_parking",
+  "module_name": "湖工挪车",
+  "version": "1.4.14-beta.636",
+  "package_url": "https://hbut.6661111.xyz/modules/dev/hbut_parking/1.4.14-beta.636/bundle.zip",
+  "package_sha256": "5c51062100f00a871fe69661d2bb9d34e23cc4865d1dba104ea868080aa2b197",
+  "package_size": 30127,
+  "entry_path": "index.html",
+  "published_at": "2026-11-06T12:29:08.929Z",
+  "release_notes": "湖工挪车：Rush Hour 风格出库闯关与排行榜",
+  "open_url": "https://hbut.6661111.xyz/modules/dev/hbut_parking/1.4.14-beta.636/site/index.html",
+  "published_channel": "dev",
+  "source_channel": "dev",
+  "sdk_version": "1.0.0",
+  "sdk_sha256": "99da4e337f11679edabc0a65626080111568f312f25555cdf66e32e8e0e9951c",
+  "sdk_protocol_version": 1
+}

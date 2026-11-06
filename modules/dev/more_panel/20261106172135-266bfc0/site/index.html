@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 与其它竖屏模块同契约：锁定初始缩放、禁用双击缩放（三端触控一致） -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>湖工游乐场总面板</title>
+    <script type="module" src="./assets/index-DzyT6Q7D.js"></script>
+    <link rel="stylesheet" href="./assets/index-Cecpjvs7.css">
+  </head>
+  <body>
+    <!-- 面板骨架先于任何网络请求渲染：这是本模块的核心要求 ——
+         「直接显示在更多页里，而不是等它加载完之后才显示」。 -->
+    <div id="panel" class="panel" data-state="booting">
+      <header class="panel__head">
+        <div class="panel__title-row">
+          <span class="panel__icon" aria-hidden="true">🎛️</span>
+          <h1 class="panel__title">湖工游乐场</h1>
+        </div>
+        <p class="panel__identity" id="identity">正在读取身份…</p>
+      </header>
+
+      <section class="card" id="points-card" aria-labelledby="points-title">
+        <h2 class="card__title" id="points-title">我的积分</h2>
+        <div class="points">
+          <div class="points__cell">
+            <span class="points__label">等级</span>
+            <span class="points__value" id="level">—</span>
+          </div>
+          <div class="points__cell">
+            <span class="points__label">湖工币</span>
+            <span class="points__value" id="coins">—</span>
+          </div>
+          <div class="points__cell">
+            <span class="points__label">今日任务</span>
+            <span class="points__value" id="tasks">—</span>
+          </div>
+        </div>
+        <p class="card__hint" id="points-hint" role="status"></p>
+      </section>
+
+      <section class="card" aria-labelledby="games-title">
+        <h2 class="card__title" id="games-title">游戏</h2>
+        <div class="grid" id="games-grid">
+          <!-- 骨架占位：保证布局稳定，不因数据到达而跳版 -->
+          <div class="tile tile--skeleton"></div>
+          <div class="tile tile--skeleton"></div>
+          <div class="tile tile--skeleton"></div>
+          <div class="tile tile--skeleton"></div>
+        </div>
+        <p class="card__hint" id="games-hint" role="status"></p>
+      </section>
+    </div>
+  </body>
+</html>
