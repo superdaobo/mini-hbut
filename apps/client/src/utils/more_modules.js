@@ -96,12 +96,14 @@ import {
   fetchModuleManifest,
   moduleSigningErrorKey,
   isTrustedRemoteModuleUrl,
+  isDevLoopbackModuleUrl,
   MODULE_REMOTE_OPEN_HOSTS
 } from './more_modules/core.js'
 import { t } from './app_i18n'
 export {
   // #1168 T07：远端嵌入白名单
   isTrustedRemoteModuleUrl,
+  isDevLoopbackModuleUrl,
   MODULE_REMOTE_OPEN_HOSTS,
   // #1166 T05：签名类错误码 → i18n key
   MODULE_SIGNING_ERROR_CODES,
@@ -482,8 +484,11 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
     !isLocalModuleBridgePreviewUrl(rawPreviewUrl) &&
     (!isCapacitorRuntime() || previewMode === PREVIEW_MODE_REMOTE)
   ) {
-    // #1168 T07：Tauri 下远端嵌入必须来自白名单 host（否则等于绕过验签执行远端代码）
-    if (isTauriRuntime() && !isTrustedRemoteModuleUrl(rawPreviewUrl)) {
+    // #1168 T07：Tauri 下远端嵌入必须来自白名单 host（否则等于绕过验签执行远端代码）。
+    // DEV 构建额外允许回环地址（本地静态 CDN 真机验证用）；生产语义不变。
+    const devLoopbackAllowed =
+      import.meta.env.DEV && isDevLoopbackModuleUrl(rawPreviewUrl)
+    if (isTauriRuntime() && !isTrustedRemoteModuleUrl(rawPreviewUrl) && !devLoopbackAllowed) {
       resolvedPreviewUrl = ''
       sourceKind = 'invalid'
     } else {

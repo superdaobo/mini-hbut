@@ -94,6 +94,33 @@ export const isTrustedRemoteModuleUrl = (url) => {
   }
 }
 
+/**
+ * DEV 构建下的**回环地址豁免**（仅用于真机/本地验证真实 CDN 流程）。
+ *
+ * 背景：`isTrustedRemoteModuleUrl` 要求 https + 固定白名单 host，因此用本地静态 CDN
+ * （`http://127.0.0.1:<port>/...`）跑游戏中心时，远端嵌入会被判 `invalid`，
+ * 真实面板与游戏包就永远加载不了（无法验证游戏链路）。
+ *
+ * 安全边界（必须保持）：
+ * - 只在 **DEV** 构建生效（调用点用 `import.meta.env.DEV` 门控），生产/Release 一律不豁免；
+ * - 只豁免**回环**主机（`127.0.0.1` / `localhost` / `[::1]`），且不带 userinfo；
+ * - 只是「允许嵌入」，不涉及任何能力/验签：模块内容仍然跑在 sandbox iframe 里，
+ *   受控请求仍走 Rust 的能力登记表与实例信任。
+ */
+export const isDevLoopbackModuleUrl = (url) => {
+  const text = safeText(url)
+  if (!isAbsoluteHttpUrl(text)) return false
+  try {
+    const parsed = new URL(text)
+    if (parsed.username || parsed.password) return false
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1'
+  } catch {
+    return false
+  }
+}
+
 /** #1166 T05：模块签名/清单类错误码（Rust 返回，形如 `CODE: 细节`）。 */
 export const MODULE_SIGNING_ERROR_CODES = Object.freeze([
   'MODULE_SIGNATURE_MISSING',
