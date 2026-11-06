@@ -179,3 +179,7 @@ apps/client/dist-modules/
 /tools/*-report.json
 goal8-games-report.json
 goal8-realmachine-report.json
+
+# 真机验证的临时报告（goal8 工具产出）
+goal8-games-report.json
+goal8-realmachine-report.json

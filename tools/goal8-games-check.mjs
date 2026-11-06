@@ -211,7 +211,7 @@ const PROBE_JS = `(() => {
     title: document.title,
     // 页面正文快照：当选择器全为 0 时（如新版模块面板“清单未发布”错误态），
     // 让报告自证当前视图到底渲染了什么，而不是只留下一个空 counts
-    bodyText: (document.body && document.body.innerText ? document.body.innerText : '').replace(/\s+/g, ' ').slice(0, 300),
+    bodyText: (document.body && document.body.innerText ? document.body.innerText : '').replace(/\\s+/g, ' ').slice(0, 300),
     counts,
     candidates,
     tabs,
