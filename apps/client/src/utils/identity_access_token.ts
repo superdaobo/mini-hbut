@@ -38,13 +38,38 @@ export const clearIdentityAccessToken = (): void => {
 }
 
 /**
+ * DEV 专用 Access Token 打桩缝（**仅用于真机/本地验证游戏票据链路**）。
+ *
+ * 为什么需要：`Device Key → Identity AT → Launch Ticket` 的第一跳要求本机设备已在
+ * Identity Core **注册**（未注册时换票端点返回 `not_found`）。要在「不碰生产身份平台」的前提下
+ * 验证**我们这一侧的链路**（宿主闸门 → 取票请求 → 平台 API → 回 `:ticket`），需要能把 AT 打桩。
+ *
+ * 安全边界（必须保持）：
+ * - **只在 DEV 构建生效**（生产构建 `import.meta.env.DEV` 为 false → 永远读不到打桩值）；
+ * - 只接受非空字符串；调用方仍走原有的缓存 / 并发去重路径；
+ * - 打桩值只驻留内存语义（由调试方在运行期写入 `globalThis`），**不写任何存储、不进日志**。
+ */
+const readDevAccessTokenStub = (): string => {
+  if (!import.meta.env?.DEV) return ''
+  try {
+    const stub = (globalThis as unknown as { __HBUT_IDENTITY_AT_STUB__?: unknown }).__HBUT_IDENTITY_AT_STUB__
+    return typeof stub === 'string' ? stub.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
  * 获取 access token：
+ * - DEV 打桩优先（见 `readDevAccessTokenStub`，生产不生效）；
  * - 内存已有且非 forceRefresh → 直接返回；
  * - 无 provider → null（调用方回退 legacy）；
  * - forceRefresh=true → 调 provider.refreshAccessToken() 单次；
  * - 并发调用共享同一 promise。
  */
 export const getIdentityAccessToken = async (forceRefresh = false): Promise<string | null> => {
+  const stubbed = readDevAccessTokenStub()
+  if (stubbed) return stubbed
   if (!forceRefresh && memoryToken) return memoryToken
   if (!activeProvider) return null
   if (forceRefresh) memoryToken = ''
