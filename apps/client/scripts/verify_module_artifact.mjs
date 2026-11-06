@@ -178,10 +178,36 @@ const main = async () => {
   return 0
 }
 
+/**
+ * 与 Rust `ModuleManifest` 一致的字段集合：**只有这些字段参与规范化与签名**。
+ * 清单里多出来的扩展字段（`package_url` / `open_url` / `package_size` …）不参与签名，
+ * 因此在计算规范化字节时必须先投影掉，否则校验结论会与运行期不一致。
+ */
+const MODULE_MANIFEST_FIELDS = [
+  'module_id',
+  'version',
+  'release_seq',
+  'channel',
+  'module_name',
+  'entry_path',
+  'package_sha256',
+  'min_compatible_version',
+  'compat',
+  'permissions',
+  'publisher_key_id'
+]
+
 const withoutSignature = (manifest) => {
-  const clone = { ...manifest }
-  delete clone.signature
-  return clone
+  const projected = {}
+  for (const field of MODULE_MANIFEST_FIELDS) {
+    projected[field] = field === 'compat' ? projectCompat(manifest.compat) : manifest[field]
+  }
+  return projected
 }
+
+const projectCompat = (compat) => ({
+  host_min: compat?.host_min ?? '',
+  bridge_protocol: compat?.bridge_protocol ?? 0
+})
 
 process.exit(await main())

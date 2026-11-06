@@ -138,6 +138,17 @@ export const useAppRuntime = () => {
     localStorage.setItem(HOME_LAYOUT_DEBUG_HIDDEN_KEY, '1')
   }
 
+  // #1169 真机验证：把应用自己的导航能力暴露给调试桥。
+  //
+  // 背景（2026-11-06 实测）：`/debug/navigate` 原实现只改 `window.location.hash`，
+  // 但本应用的视图状态由 `state.currentView` 驱动（hash 只是对外深链形态），
+  // 因此调试导航**改得动 URL、改不动视图** —— `/debug/open_module` 也因此一直点不到按钮。
+  // 这里仅在 DEV 构建下挂一个内部钩子，供 `utils/debug_bridge.ts` 调用真实导航。
+  if (import.meta.env.DEV) {
+    ;(globalThis as Record<string, unknown>).__hbuDebugNavigate = (target: unknown) =>
+      runtime.navigation.handleNavigate(target)
+  }
+
   runtime.handlers = {
     handleNavigate: runtime.navigation.handleNavigate,
     handleLogout: runtime.auth.handleLogout,

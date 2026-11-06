@@ -568,7 +568,15 @@ export const initDebugBridgeClient = async () => {
       }
     }
 
-    if (window.location.hash !== targetHash) {
+    // 优先走应用自己的导航（能真正切换视图）；仅在钩子缺失时退回改 hash。
+    const debugNavigate = (globalThis as Record<string, unknown>).__hbuDebugNavigate
+    if (typeof debugNavigate === 'function') {
+      await (debugNavigate as (target: unknown) => Promise<void> | void)({
+        view,
+        payload: { ...navigatePayload, student_id: sid }
+      })
+      await waitForNextPaint()
+    } else if (window.location.hash !== targetHash) {
       window.location.hash = targetHash
     } else {
       window.dispatchEvent(new PopStateEvent('popstate'))

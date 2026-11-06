@@ -810,6 +810,28 @@ fn cached_bundle_integrity_ok(bundle_path: &Path, expected_sha: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 回读缓存里的清单并**重新验签**（供实例登记时判定信任，避免前端自报 trusted）。
+///
+/// 返回 `Some(manifest)` 仅当：缓存里存在该模块的清单、且 Ed25519 签名验证通过。
+pub fn read_verified_cached_manifest(
+    app: &AppHandle,
+    channel: &str,
+    module_id: &str,
+    version: &str,
+) -> Option<crate::modules::module_manifest::ModuleManifest> {
+    if channel.is_empty() || module_id.is_empty() || version.is_empty() {
+        return None;
+    }
+    let cache_dir = module_cache_dir(app, channel, module_id, version).ok()?;
+    let raw = read_cache_metadata(&cache_dir)?.manifest?;
+    let manifest: crate::modules::module_manifest::ModuleManifest =
+        serde_json::from_value(raw).ok()?;
+    match crate::modules::module_manifest::verify_manifest_signature(&manifest) {
+        Ok(()) => Some(manifest),
+        Err(_) => None,
+    }
+}
+
 /// 迁移期开关：允许未签名模块（仅显式设置时生效）。
 fn allow_unsigned_modules() -> bool {
     std::env::var("HBUT_ALLOW_UNSIGNED_MODULES")

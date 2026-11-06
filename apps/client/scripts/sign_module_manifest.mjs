@@ -123,9 +123,17 @@ export const buildManifest = ({ args, bundleSha256, privateKey, publicKeyB64 }) 
   const canonical = canonicalJson(manifest)
   const signature = cryptoSign(null, Buffer.from(canonical, 'utf8'), privateKey)
   if (!publicKeyB64) throw new Error('公钥推导失败')
+  // ⚠️ 契约现状：签名只覆盖 Rust 侧声明的字段（见 MODULE_MANIFEST_FIELDS）。
+  // 前端还会消费 `package_url` / `open_url` 等**未被签名覆盖**的扩展字段，因此这里允许附加它们，
+  // 但调用方必须知道：这些字段不具备签名保护（已记录为待修问题）。
+  const extra = {}
+  if (args['package-url']) extra.package_url = String(args['package-url'])
+  if (args['open-url']) extra.open_url = String(args['open-url'])
+  if (args['package-size']) extra.package_size = Number(args['package-size'])
   return {
     manifest: {
       ...manifest,
+      ...extra,
       signature: {
         alg: 'ed25519',
         key_id: manifest.publisher_key_id,
