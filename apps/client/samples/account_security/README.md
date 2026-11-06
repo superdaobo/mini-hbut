@@ -6,8 +6,8 @@
 
 展示当前账号的：
 
-1. **在线设备**（能力 `school.profile_online`）
-2. **最近登录记录**（能力 `school.login_logs`）
+1. **在线设备**（能力 `school.portal_client_ip`）
+2. **最近登录记录**（能力 `school.portal_page_view`）
 
 两个接口都是应用现有代码在用的只读 GET（`http_client/academic/student_info.rs` 的
 `USER_ONLINE_URL` / `USER_LOGS_URL`），由 Rust 受控请求内核代为发起。
@@ -54,7 +54,7 @@ node scripts/build_sample_module.mjs --version 1.0.1 --release-seq 2
 
 1. 清单的规范化字节与 `canonical.txt` **逐字节一致**；
 2. 签名能被内置信任根验证；
-3. 清单里确实声明了 `school.profile_online` / `school.login_logs` 两个能力。
+3. 清单里确实声明了 `school.portal_client_ip` / `school.portal_page_view` 两个能力。
 
 也就是说：**发布流水线产出的东西，运行期真的认**（不是只认单测自己构造的数据）。
 

@@ -103,6 +103,10 @@ export const buildManifest = ({ args, bundleSha256, privateKey, publicKeyB64 }) 
     .filter(Boolean)
     .sort()
 
+  // ⚠️ 这份对象必须与 Rust `ModuleManifest` **逐字段一致**（含默认值），
+  // 否则规范化字节与运行期不一致、验签会失败。
+  // 2026-11-06 起 `package_url` / `package_size` / `open_url` / `schema_version`
+  // 也纳入签名覆盖（此前它们是「未签名扩展字段」，可被改写而不破坏签名）。
   const manifest = {
     module_id: moduleId,
     version,
@@ -117,7 +121,11 @@ export const buildManifest = ({ args, bundleSha256, privateKey, publicKeyB64 }) 
       bridge_protocol: Number(args['bridge-protocol'] || DEFAULTS.bridgeProtocol)
     },
     permissions,
-    publisher_key_id: String(args['key-id'] || DEFAULTS.keyId)
+    publisher_key_id: String(args['key-id'] || DEFAULTS.keyId),
+    package_url: String(args['package-url'] || ''),
+    package_size: Number(args['package-size'] || 0),
+    open_url: String(args['open-url'] || ''),
+    schema_version: Number(args['schema-version'] || 1)
   }
 
   const canonical = canonicalJson(manifest)
@@ -169,10 +177,13 @@ const main = (argv) => {
     if (args.printCanonical) {
       process.stdout.write(`${canonical}\n`)
     }
-    console.log(
+    // ⚠️ `--print-canonical` 的输出会被直接重定向成夹具文件（testdata/*.txt），
+    // 该模式下日志必须走 stderr，否则 `[sign-manifest] …` 会被写进夹具。
+    const log = args.printCanonical ? console.error : console.log
+    log(
       `[sign-manifest] 已签名 ${manifest.module_id}@${manifest.version} (release_seq=${manifest.release_seq}) → ${outPath}`
     )
-    console.log(`[sign-manifest] publisher=${manifest.publisher_key_id} sha256=${bundleSha256.slice(0, 16)}…`)
+    log(`[sign-manifest] publisher=${manifest.publisher_key_id} sha256=${bundleSha256.slice(0, 16)}…`)
     return 0
   } catch (error) {
     console.error(`[sign-manifest] 失败：${error.message}`)

@@ -16,10 +16,22 @@ pub struct ModuleInstance {
     #[serde(default, alias = "accountScope")]
     pub account_scope: String,
     /// 清单是否通过发布者验签（T05）。
+    ///
+    /// 注意：这是**前端声明值**，仅作参考。真正的信任判定由
+    /// `http_server::routes` 侧在登记时用缓存里的清单重新验签后覆盖（见
+    /// `module_instance_register`），避免前端自报 trusted。
     pub trusted: bool,
     /// 允许的能力 id 集合（空 = 不允许任何受控请求）。
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// 模块标识（用于登记时回读缓存清单重新验签）。
+    #[serde(default, alias = "moduleId")]
+    pub module_id: String,
+    /// 模块渠道与版本：用于在登记时回读缓存清单重新验签（前端不可信）。
+    #[serde(default)]
+    pub channel: String,
+    #[serde(default)]
+    pub version: String,
 }
 
 fn table() -> &'static Mutex<HashMap<String, ModuleInstance>> {
@@ -92,7 +104,10 @@ mod tests {
             instance_id: id.to_string(),
             account_scope: "20230001".to_string(),
             trusted,
-            capabilities: vec!["school.profile_online".to_string()],
+            capabilities: vec!["school.portal_client_ip".to_string()],
+            module_id: "demo".to_string(),
+            channel: "main".to_string(),
+            version: "1.0.0".to_string(),
         }
     }
 
@@ -114,9 +129,9 @@ mod tests {
     #[test]
     fn capabilities_are_per_instance() {
         register_instance(instance("inst_c", true));
-        assert!(instance_allows("inst_c", "school.profile_online"));
+        assert!(instance_allows("inst_c", "school.portal_client_ip"));
         assert!(!instance_allows("inst_c", "school.grades"));
-        assert!(!instance_allows("inst_missing", "school.profile_online"));
+        assert!(!instance_allows("inst_missing", "school.portal_client_ip"));
     }
 
     #[test]

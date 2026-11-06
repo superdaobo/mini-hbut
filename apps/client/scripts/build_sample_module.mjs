@@ -32,10 +32,13 @@ for (let i = 2; i < process.argv.length; i += 2) {
 }
 
 const root = process.cwd()
-const sourceDir = path.join(root, 'samples/account_security')
+const sourceDir = path.resolve(args.get('source') || path.join(root, 'samples/account_security'))
+const moduleId = args.get('module-id') || 'account_security'
+const moduleName = args.get('name') || '账号安全概览'
+const permissions = args.get('permissions') || 'school.portal_client_ip,school.portal_page_view'
 const version = args.get('version') || '1.0.0'
 const releaseSeq = Number(args.get('release-seq') || 1)
-const outDir = path.resolve(args.get('out') || path.join(root, `dist-modules/account_security-${version}`))
+const outDir = path.resolve(args.get('out') || path.join(root, `dist-modules/${moduleId}-${version}`))
 
 const run = (command, commandArgs) =>
   new Promise((resolve, reject) => {
@@ -54,7 +57,17 @@ await fs.rm(outDir, { recursive: true, force: true })
 await fs.mkdir(outDir, { recursive: true })
 
 const zipPath = path.join(outDir, 'bundle.zip')
-const files = ['index.html', 'main.js', 'parse.js', 'style.css']
+// 自动收集源目录里的静态文件（排除清单/说明/类型声明，它们不进包）
+const files = (await fs.readdir(sourceDir)).filter(
+  (name) =>
+    !name.startsWith('.') &&
+    !name.endsWith('.d.ts') &&
+    !['manifest.json', 'canonical.txt', 'README.md'].includes(name)
+)
+if (!files.length) {
+  console.error(`[sample-module] 源目录没有可打包文件: ${sourceDir}`)
+  process.exit(1)
+}
 const filePaths = files.map((name) => path.join(sourceDir, name))
 
 if (process.platform === 'win32') {
@@ -75,14 +88,16 @@ const bundle = await fs.readFile(zipPath)
 const bundleSha256 = createHash('sha256').update(bundle).digest('hex')
 
 const manifestArgs = {
-  'module-id': 'account_security',
+  'module-id': moduleId,
   version,
   'release-seq': String(releaseSeq),
   channel: 'main',
-  name: '账号安全概览',
+  name: moduleName,
   entry: 'index.html',
-  permissions: 'school.profile_online,school.login_logs',
-  'bridge-protocol': '1'
+  permissions,
+  'bridge-protocol': '1',
+  // 扩展字段（不参与签名）：前端要求清单里有 package_url 才能下载
+  'package-url': args.get('package-url') || `http://127.0.0.1:8899/modules/${moduleId}-${version}/bundle.zip`
 }
 const publicKeyB64 = createPublicKey(testKey)
   .export({ format: 'der', type: 'spki' })

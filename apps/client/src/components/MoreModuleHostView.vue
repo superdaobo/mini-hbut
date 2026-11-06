@@ -14,6 +14,7 @@ import {
   normalizeModuleFetchMessage,
   parseModuleFetchError
 } from '../utils/module_controlled_request'
+import { invokeNative } from '../platform/native'
 import { openExternal } from '../utils/external_link'
 import { pushDebugLog } from '../utils/debug_logger'
 import { isIOSLike } from '../platform/runtime'
@@ -429,8 +430,13 @@ const registerModuleInstance = async () => {
       request: {
         instanceId,
         accountScope: safeText(authStore.verifiedStudentId),
+        // trusted 只是**声明值**：Rust 会用缓存里已验签的清单重新判定并覆盖它
+        //（2026-11-06 真机整改：先前会因为会话归一化丢掉该字段而导致受控请求全被拒）。
         trusted: moduleInstanceTrusted.value,
-        capabilities: granted
+        capabilities: granted,
+        moduleId: moduleId.value,
+        channel: safeText(moduleChannel.value) || 'main',
+        version: safeText(moduleVersion.value)
       }
     })
   } catch (error) {
@@ -467,7 +473,9 @@ const handleModuleFetchMessage = async (event) => {
     }
   }
 
-  if (!moduleInstanceTrusted.value) {
+  // 只在**明确不可信**时本地拦截；未知（字段缺失/未加载完）交给 Rust 判定，
+  // 避免「前端不知道」被当成「不可信」而静默断掉整条取数链路。
+  if (props.session?.trusted === false) {
     const error = parseModuleFetchError('MODULE_NOT_TRUSTED: 模块未通过发布者验签')
     reply(buildModuleFetchResponse(request.request_id, { ok: false, error }))
     return

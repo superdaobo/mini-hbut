@@ -5,7 +5,7 @@
  * 上传 CDN 之前先跑这一条，能提前发现「包/清单不匹配、签名不对、能力没声明」这三类事故：
  *
  *   node scripts/verify_module_artifact.mjs --dir dist-modules/account_security-1.0.0
- *   node scripts/verify_module_artifact.mjs --dir <dir> --expect-capabilities school.profile_online
+ *   node scripts/verify_module_artifact.mjs --dir <dir> --expect-capabilities school.portal_client_ip
  *
  * 校验内容：
  * 1. 目录里同时存在 `bundle.zip` 与 `manifest.json`；
@@ -178,10 +178,54 @@ const main = async () => {
   return 0
 }
 
+/**
+ * 与 Rust `ModuleManifest` 一致的字段集合：**只有这些字段参与规范化与签名**。
+ * 清单里多出来的扩展字段（`package_url` / `open_url` / `package_size` …）不参与签名，
+ * 因此在计算规范化字节时必须先投影掉，否则校验结论会与运行期不一致。
+ */
+const MODULE_MANIFEST_FIELDS = [
+  'module_id',
+  'version',
+  'release_seq',
+  'channel',
+  'module_name',
+  'entry_path',
+  'package_sha256',
+  'min_compatible_version',
+  'compat',
+  'permissions',
+  'publisher_key_id',
+  // 2026-11-06 起纳入签名覆盖（此前为未签名扩展字段）
+  'package_url',
+  'package_size',
+  'open_url',
+  'schema_version'
+]
+
 const withoutSignature = (manifest) => {
-  const clone = { ...manifest }
-  delete clone.signature
-  return clone
+  const projected = {}
+  // 默认值必须与 Rust `#[serde(default)]` 语义一致（字段缺失时的规范化结果）。
+  for (const field of MODULE_MANIFEST_FIELDS) {
+    if (field === 'compat') {
+      projected[field] = projectCompat(manifest.compat)
+      continue
+    }
+    if (field === 'package_size' || field === 'schema_version') {
+      projected[field] = Number(manifest[field] ?? 0)
+      continue
+    }
+    if (field === 'package_url' || field === 'open_url') {
+      projected[field] = String(manifest[field] ?? '')
+      continue
+    }
+    projected[field] = manifest[field]
+  }
+  return projected
 }
+
+const projectCompat = (compat) => ({
+  host_min: compat?.host_min ?? '',
+  bridge_protocol: compat?.bridge_protocol ?? 0
+})
 
 process.exit(await main())

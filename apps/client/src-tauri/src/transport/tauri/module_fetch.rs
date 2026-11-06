@@ -8,6 +8,7 @@ use crate::app_state::AppState;
 use crate::modules::module_session_fetch::{
     fetch_with_session, ModuleFetchRequest, ModuleFetchResponse,
 };
+use tauri::Manager;
 
 /// 仅主窗口可发起受控请求。
 fn module_fetch_allowed_for_window(label: &str) -> bool {
@@ -71,7 +72,37 @@ pub(crate) fn module_instance_register(
     if request.instance_id.trim().is_empty() {
         return Err("MODULE_INSTANCE_REQUIRED: 实例 id 不能为空".to_string());
     }
-    crate::modules::module_instance_registry::register_instance(request);
+    // 安全要点（2026-11-06 真机整改）：**不接受前端自报的 trusted/能力**。
+    // 用缓存里那份「准备阶段已验签」的清单重新验签，并取清单声明的 permissions 与
+    // 前端申请集合的交集。前端伪造 trusted=true 也不会获得受控请求能力。
+    let mut instance = request;
+    let verified = crate::modules::module_bundle::read_verified_cached_manifest(
+        window.app_handle(),
+        instance.channel.trim(),
+        instance.module_id.trim(),
+        instance.version.trim(),
+    );
+    match verified {
+        Some(manifest) => {
+            let declared = manifest.permissions.clone();
+            instance.trusted = true;
+            instance.capabilities = if instance.capabilities.is_empty() {
+                declared
+            } else {
+                instance
+                    .capabilities
+                    .iter()
+                    .filter(|item| declared.iter().any(|declared_item| declared_item == *item))
+                    .cloned()
+                    .collect()
+            };
+        }
+        None => {
+            instance.trusted = false;
+            instance.capabilities.clear();
+        }
+    }
+    crate::modules::module_instance_registry::register_instance(instance);
     Ok(())
 }
 

@@ -60,7 +60,7 @@
 cd apps/client
 node scripts/build_sample_module.mjs --release-seq <n>
 node scripts/verify_module_artifact.mjs --dir dist-modules/account_security-<version> \
-  --expect-capabilities school.profile_online,school.login_logs
+  --expect-capabilities school.portal_client_ip,school.portal_page_view
 ```
 
 `verify_module_artifact.mjs` 会校验：包/清单存在、sha256 一致、签名可被**内置信任根**验证、

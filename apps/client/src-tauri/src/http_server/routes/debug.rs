@@ -13,6 +13,7 @@ use crate::debug_bridge::{
     DebugResetMoreModulesRequest, DebugScreenshotBridgeError, DebugScreenshotRequest,
     DebugStateBridgeError, DebugStateRequest,
 };
+use crate::debug_bridge::{store_debug_eval_result, take_debug_eval_result};
 use crate::http_server::auth::{ensure_debug_bridge_enabled, ensure_sensitive_bridge_auth};
 use crate::http_server::response::{err, ok, ApiResponse};
 use crate::http_server::state::HttpState;
@@ -657,23 +658,62 @@ async fn debug_frontend_eval(
             "找不到 main WebView".to_string(),
         )
     })?;
-    // tauri eval 是 fire-and-forget；约定前端把诊断结果写入 document.title（DIAG:... 前缀），
-    // 这里执行后读回 title 作为返回值（仅 debug 构建的测试链路约定）。
-    webview.eval(&req.js).map_err(|e| {
+    let request_id = format!(
+        "eval-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default()
+    );
+    // 注入脚本：用 `eval(<js>)` 兼容「表达式」与「语句序列」两种写法（与控制台语义一致），
+    // 结果（含 Promise）通过命令回传；同时保留写 title 的旧约定作为兜底。
+    let wrapped = format!(
+        r#"(async () => {{
+  const __rid = {rid};
+  const __report = async (payload) => {{
+    try {{ await window.__TAURI_INTERNALS__.invoke('debug_frontend_eval_result', {{ request: Object.assign({{ requestId: __rid }}, payload) }}); }}
+    catch (e) {{ try {{ document.title = 'DIAG:' + JSON.stringify({{ ok: false, error: 'report_failed:' + String(e && e.message || e) }}); }} catch (_) {{}} }}
+  }};
+  try {{
+    let value = eval({js});
+    if (value && typeof value.then === 'function') value = await value;
+    let safe = null;
+    try {{ safe = JSON.parse(JSON.stringify(value ?? null)); }} catch (e) {{ safe = String(value); }}
+    await __report({{ ok: true, value: safe }});
+  }} catch (e) {{
+    await __report({{ ok: false, error: String(e && e.message || e), name: String(e && e.name || 'Error') }});
+  }}
+}})()"#,
+        rid = serde_json::to_string(&request_id).unwrap_or_else(|_| "\"eval\"".to_string()),
+        js = serde_json::to_string(&req.js).unwrap_or_else(|_| "\"\"".to_string())
+    );
+    webview.eval(&wrapped).map_err(|e| {
         err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "eval_failed",
             e.to_string(),
         )
     })?;
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // 轮询上限 2s：前端脚本本身可能带异步等待，交由调用方决定是否加超时。
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        if let Some(value) = take_debug_eval_result(&request_id) {
+            return Ok(ok(
+                serde_json::json!({ "result": value, "request_id": request_id }),
+            ));
+        }
+    }
+    // 兜底：老的 title 约定（Windows 上通常读不到，保留以免破坏既有脚本）
     let title = state
         .app
         .get_window("main")
         .and_then(|window| window.title().ok())
         .unwrap_or_default();
     let result = title.strip_prefix("DIAG:").map(|s| s.to_string());
-    Ok(ok(serde_json::json!({ "diag": result })))
+    Ok(ok(
+        serde_json::json!({ "diag": result, "request_id": request_id, "timed_out": true }),
+    ))
 }
 
 // ────────────────────────────────────────────────────────────

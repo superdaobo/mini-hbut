@@ -1,0 +1,9 @@
+body { font: 13px/1.5 "Microsoft YaHei", sans-serif; margin: 0; padding: 12px; color: #1f2328; background: #fff; }
+h1 { font-size: 16px; margin: 0 0 6px; }
+#summary { color: #4b5563; margin: 0 0 10px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #e5e7eb; padding: 4px 6px; text-align: left; word-break: break-all; font-size: 12px; }
+th { background: #f9fafb; }
+tr.ok td:first-child { border-left: 3px solid #10b981; }
+tr.warn td:first-child { border-left: 3px solid #f59e0b; }
+tr.bad td:first-child { border-left: 3px solid #ef4444; }

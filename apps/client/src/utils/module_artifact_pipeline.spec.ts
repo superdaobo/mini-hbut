@@ -47,8 +47,14 @@ const signManifest = (sha256: string) => {
     package_sha256: sha256,
     min_compatible_version: '',
     compat: { host_min: '', bridge_protocol: 1 },
-    permissions: ['school.profile_online'],
-    publisher_key_id: 'dev-test-1'
+    permissions: ['school.portal_client_ip'],
+    publisher_key_id: 'dev-test-1',
+    // 2026-11-06 起这几个字段纳入签名覆盖（此前是未签名扩展字段）：
+    // 缺省值必须与 Rust `#[serde(default)]` / 校验器投影一致。
+    package_url: '',
+    package_size: 0,
+    open_url: '',
+    schema_version: 1
   }
   const canonical = canonicalJson(base)
   const signature = cryptoSign(null, Buffer.from(canonical, 'utf8'), privateKey).toString('base64url')

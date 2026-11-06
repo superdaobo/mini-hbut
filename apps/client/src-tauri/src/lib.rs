@@ -525,6 +525,7 @@ pub fn run() {
             debug_bridge::complete_debug_open_module,
             debug_bridge::complete_debug_reset_more_modules,
             debug_bridge::complete_debug_state,
+            debug_bridge::debug_frontend_eval_result,
             debug_bridge::save_debug_capture_file,
             transport::tauri::system::get_runtime_logs,
             transport::tauri::system::clear_runtime_logs,

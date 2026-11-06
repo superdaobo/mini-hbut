@@ -20,7 +20,7 @@ const read = (relativePath: string) => readFileSync(path.join(process.cwd(), rel
 const baseMessage = {
   type: MODULE_FETCH_REQUEST_TYPE,
   request_id: 'req_123456',
-  capability: 'school.profile_online',
+  capability: 'school.portal_client_ip',
   query: { t: '1700000000' }
 }
 
@@ -28,7 +28,7 @@ describe('#1167 T06 受控请求协议', () => {
   it('正常请求被规范化（只保留参数值）', () => {
     const normalized = normalizeModuleFetchMessage(baseMessage)
     expect(normalized).not.toBeNull()
-    expect(normalized!.capability).toBe('school.profile_online')
+    expect(normalized!.capability).toBe('school.portal_client_ip')
     expect(normalized!.query).toEqual({ t: '1700000000' })
     expect(normalized!.form).toEqual({})
   })

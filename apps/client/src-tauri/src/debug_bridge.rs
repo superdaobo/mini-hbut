@@ -852,3 +852,92 @@ pub(crate) async fn request_debug_state(
         }
     }
 }
+
+// ────────────────────────────────────────────────────────────
+// `/debug/frontend-eval` 的结果回传通道（2026-11-06 真机整改）
+//
+// 旧实现让前端把结果写进 `document.title`，再由 Rust 读**原生窗口标题**；在
+// Windows/WebView2 上 `document.title` 不会同步到原生标题，回读恒为 `null`
+// （接口返回成功但拿不到值）。现在改为：注入脚本执行完通过 Tauri 命令回传，
+// HTTP 侧按 `requestId` 轮询取回；标题机制仅作兼容兜底。
+//
+// 放在本模块（而不是 `http_server::routes::debug`）是因为本模块不随
+// `cfg(debug_assertions)` 编译开关变化，命令注册可以无条件写在 `generate_handler!` 里，
+// 由命令体内部自行做 debug 门控。
+static DEBUG_EVAL_RESULTS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>>,
+> = std::sync::OnceLock::new();
+
+fn debug_eval_results(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>> {
+    DEBUG_EVAL_RESULTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// 写入一次 eval 结果。
+pub fn store_debug_eval_result(request_id: &str, payload: serde_json::Value) {
+    if request_id.trim().is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = debug_eval_results().lock() {
+        // 简单上限：避免调试期间无限堆积
+        if guard.len() > 32 {
+            guard.clear();
+        }
+        guard.insert(request_id.to_string(), payload);
+    }
+}
+
+/// 取出并移除一次 eval 结果。
+pub fn take_debug_eval_result(request_id: &str) -> Option<serde_json::Value> {
+    debug_eval_results()
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.remove(request_id))
+}
+
+/// `/debug/frontend-eval` 的结果回传请求（由注入脚本调用）。
+#[derive(Debug, serde::Deserialize)]
+pub struct DebugEvalResultRequest {
+    #[serde(default, alias = "requestId")]
+    pub request_id: String,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub value: serde_json::Value,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Tauri 命令：接收前端 eval 结果（仅 debug 构建 + 主窗口）。
+///
+/// ⚠️ 参数形状：Tauri 会把命令的每个参数摊平成顶层字段，因此前端调用必须是
+/// `invoke('debug_frontend_eval_result', { request: { requestId, ok, value } })`。
+/// 早期版本多套了一层 envelope，导致真机上一直报 `missing field request`
+/// （2026-11-06 真机冒烟发现）。
+#[tauri::command]
+pub fn debug_frontend_eval_result(
+    webview: tauri::Webview,
+    request: DebugEvalResultRequest,
+) -> Result<(), String> {
+    // 生产构建直接拒绝：本命令只服务于 debug 诊断链路。
+    if !cfg!(debug_assertions) {
+        return Err("仅 debug 构建可用".to_string());
+    }
+    if webview.label() != "main" {
+        return Err("仅主窗口可用".to_string());
+    }
+    let payload = request;
+    let value = if payload.ok {
+        serde_json::json!({ "ok": true, "value": payload.value })
+    } else {
+        serde_json::json!({
+            "ok": false,
+            "error": payload.error,
+            "name": if payload.name.is_empty() { "Error".to_string() } else { payload.name }
+        })
+    };
+    store_debug_eval_result(&payload.request_id, value);
+    Ok(())
+}

@@ -23,9 +23,14 @@ use crate::{db, QxzkbQuery, DB_FILENAME};
 
 // ────────────────────────────────────────────────────────────
 #[derive(Debug, Deserialize)]
+/// `/cache/get` 查询参数。
+///
+/// 用 `Option` 而不是必填：axum 的参数提取发生在 handler 之前，必填字段缺失会直接
+/// 返回 400，**早于 `ensure_local_cache_auth`**，导致未带凭据的请求拿到 400 而不是 401
+/// （2026-11-06 真机发现）。改成可选后由 handler 在鉴权之后自行校验空值。
 struct CacheGetQuery {
-    table: String,
-    key: String,
+    table: Option<String>,
+    key: Option<String>,
 }
 
 // ────────────────────────────────────────────────────────────
@@ -219,8 +224,8 @@ async fn cache_get(
 {
     ensure_local_cache_auth(&headers, &state)?;
 
-    let table = req.table.trim();
-    let key = req.key.trim();
+    let table = req.table.as_deref().unwrap_or_default().trim();
+    let key = req.key.as_deref().unwrap_or_default().trim();
     if table.is_empty() || key.is_empty() {
         return Err(err(
             StatusCode::BAD_REQUEST,
