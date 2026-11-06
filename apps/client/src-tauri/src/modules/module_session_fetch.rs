@@ -59,33 +59,40 @@ impl Method {
     }
 }
 
-/// 能力登记表（本阶段只登记**已在应用代码中实际使用**的只读接口）。
+/// 能力登记表。
 ///
-/// 说明：`auth.hbut.edu.cn` 的两个 GET 接口来自 `http_client/academic/student_info.rs`
-/// （`USER_ONLINE_URL` / `USER_LOGS_URL`），是应用现有的只读查询，返回 JSON。
-/// 需要 POST 的课表/成绩接口等 T08 用真实账号核对参数后再登记，避免把没验证过的路径写进来。
+/// 登记原则：只登记**应用自己已经在用、且真机实测返回 JSON** 的只读接口。
+///
+/// 2026-11-06 真机实测记录（详见 `goal-8/evidence/realmachine-verification.md`）：
+/// - `auth.hbut.edu.cn` 的 `queryUserOnline` / `queryUserLogs`：返回**门户登录 HTML**，
+///   不是 JSON —— 该校门户会话在 `e.hbut.edu.cn`，`auth.hbut.edu.cn` 不在会话范围内，
+///   故**不予登记**（登记了只会给模块一个「能调但拿到登录页」的假能力）。
+/// - chaoxing 的 `getCourseFolders`（404）、`mooc-ans/visit/coursefolders`（404）、
+///   `gas/folder`（403）、`mooc-ans/visit/interaction`（登录页）同样不可用，故不登记。
+/// - `e.hbut.edu.cn` 的 `/common/clientIp` 与 `/getPageView`：实测 `application/json`，
+///   且正是应用自己在用、按 JSON 解析的调用（`http_client/academic/student_info.rs`）。
 pub const CAPABILITIES: &[ModuleCapability] = &[
     ModuleCapability {
-        id: "school.profile_online",
+        id: "school.portal_client_ip",
         scheme: "https",
-        host: "auth.hbut.edu.cn",
+        host: "e.hbut.edu.cn",
         port: 443,
         method: Method::Get,
-        path: "/personalInfo/UserOnline/user/queryUserOnline",
-        allowed_query_keys: &["t"],
+        path: "/common/clientIp",
+        allowed_query_keys: &[],
         allowed_form_keys: &[],
-        referer: "https://auth.hbut.edu.cn/",
+        referer: "https://e.hbut.edu.cn/stu/index.html",
     },
     ModuleCapability {
-        id: "school.login_logs",
+        id: "school.portal_page_view",
         scheme: "https",
-        host: "auth.hbut.edu.cn",
+        host: "e.hbut.edu.cn",
         port: 443,
         method: Method::Get,
-        path: "/personalInfo/UserLogs/user/queryUserLogs",
-        allowed_query_keys: &["t"],
+        path: "/getPageView",
+        allowed_query_keys: &["_t", "pageCode", "originalUrl", "lang"],
         allowed_form_keys: &[],
-        referer: "https://auth.hbut.edu.cn/",
+        referer: "https://e.hbut.edu.cn/stu/index.html",
     },
 ];
 
@@ -382,7 +389,7 @@ mod tests {
 
     #[test]
     fn unregistered_query_key_is_rejected() {
-        let mut req = request("school.profile_online");
+        let mut req = request("school.portal_client_ip");
         req.query
             .insert("redirect".to_string(), "https://evil.example".to_string());
         let error = validate_request(&req).unwrap_err();
@@ -391,12 +398,12 @@ mod tests {
 
     #[test]
     fn crlf_injection_in_params_is_rejected() {
-        let mut req = request("school.profile_online");
+        let mut req = request("school.portal_client_ip");
         req.query
             .insert("t".to_string(), "1\r\nX-Injected: 1".to_string());
         assert!(validate_request(&req).is_err());
 
-        let mut req2 = request("school.profile_online");
+        let mut req2 = request("school.portal_client_ip");
         req2.query.insert("t".to_string(), "123abc".to_string());
         // t 必须是纯数字
         assert!(validate_request(&req2).is_err());
@@ -404,7 +411,7 @@ mod tests {
 
     #[test]
     fn form_on_get_capability_is_rejected() {
-        let mut req = request("school.profile_online");
+        let mut req = request("school.portal_client_ip");
         req.form.insert("xnm".to_string(), "2024".to_string());
         let error = validate_request(&req).unwrap_err();
         assert_eq!(error.code(), "MODULE_PARAM_REJECTED");
@@ -412,16 +419,13 @@ mod tests {
 
     #[test]
     fn target_url_is_built_from_registry_only() {
-        let mut req = request("school.profile_online");
-        req.query.insert("t".to_string(), "1700000000".to_string());
+        let mut req = request("school.portal_page_view");
+        req.query.insert("_t".to_string(), "1700000000".to_string());
         let (capability, query, _) = validate_request(&req).expect("valid");
         let url = build_target_url(capability, &query);
-        assert_eq!(
-            url,
-            "https://auth.hbut.edu.cn:443/personalInfo/UserOnline/user/queryUserOnline?t=1700000000"
-        );
+        assert_eq!(url, "https://e.hbut.edu.cn:443/getPageView?_t=1700000000");
         // 模块无法影响 host/path
-        assert!(url.starts_with("https://auth.hbut.edu.cn:443/personalInfo/"));
+        assert!(url.starts_with("https://e.hbut.edu.cn:443/getPageView"));
     }
 
     #[test]

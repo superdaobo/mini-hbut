@@ -31,6 +31,8 @@ const steps = [
   () => runNode('Strict CSP bundle guard contract', 'apps/client/scripts/test_strict_csp_bundle.mjs', { cwd: clientDir }),
   () => runNpm('Frontend test suite', ['run', 'test:ci'], { cwd: clientDir }),
   () => runNpm('Vue typecheck', ['run', 'typecheck'], { cwd: clientDir }),
+  // #1169：Tauri 应用命令 ACL 与模块签名材料门禁
+  () => runNpm('Module platform guards', ['run', 'check:module-platform'], { cwd: clientDir }),
   () => runNode('Frontend safety guard', 'apps/client/scripts/check-frontend-safety.mjs'),
   () => runNode('Design token guard', 'apps/client/scripts/check-design-tokens.mjs'),
   () => runNode('Phase 3 architecture guard', 'apps/client/scripts/check_arch_guards.mjs'),

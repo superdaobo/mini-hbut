@@ -48,6 +48,28 @@ pub struct ModuleManifest {
     pub permissions: Vec<String>,
     #[serde(default)]
     pub publisher_key_id: String,
+    // ────────────────────────────────────────────────────────────
+    // 2026-11-06 真机整改：以下字段**前端会消费且影响安全**，必须纳入签名覆盖。
+    //
+    // 背景：此前规范化只覆盖上面 11 个字段，前端 manifest 里的 `package_url` /
+    // `open_url` 属于「未签名扩展字段」—— 攻击者若能改写清单（镜像/中间人），就能把
+    // 模块指向另一个下载地址或嵌入地址而不破坏签名（包体仍受 `package_sha256` 约束，
+    // 但嵌入地址不受约束）。现在这些字段进入结构体 → 进入规范化字节 → 进入签名覆盖。
+    //
+    // ⚠️ 迁移影响：本变更**改变了规范化形态**，按旧形态签名的清单将验签失败。
+    // 模块 CDN 尚未发布正式模块，故只需重新签发样例模块（见 docs/module_signing.md）。
+    /// 包下载地址（分发用）。
+    #[serde(default)]
+    pub package_url: String,
+    /// 包体字节数（分发展示与预检用）。
+    #[serde(default)]
+    pub package_size: u64,
+    /// 嵌入打开地址（官网/游戏类模块用；宿主白名单仍单独校验）。
+    #[serde(default)]
+    pub open_url: String,
+    /// 清单 schema 版本（未来按版本解释字段，纳入签名可防降级）。
+    #[serde(default)]
+    pub schema_version: u32,
     pub signature: Option<ManifestSignature>,
 }
 
@@ -296,6 +318,10 @@ mod tests {
             },
             permissions: vec!["school.schedule".to_string()],
             publisher_key_id: "dev-test-1".to_string(),
+            package_url: "https://cdn.example.com/modules/demo-1.0.0.zip".to_string(),
+            package_size: 4096,
+            open_url: "https://example.com/demo".to_string(),
+            schema_version: 1,
             signature: None,
         }
     }
@@ -323,6 +349,42 @@ mod tests {
         assert!(
             !text.contains("\"signature\""),
             "签名块不参与规范化: {text}"
+        );
+    }
+
+    /// 回归（2026-11-06 真机整改）：这些字段过去是「未签名扩展字段」，
+    /// 攻击者改写它们不会破坏签名。现在必须一律验签失败。
+    #[test]
+    fn tampering_distribution_fields_breaks_signature() {
+        let base = sign(sample_manifest());
+        verify_manifest_signature(&base).expect("基线应通过");
+
+        let mut tampered_url = base.clone();
+        tampered_url.package_url = "https://evil.example.com/demo.zip".to_string();
+        assert_eq!(
+            verify_manifest_signature(&tampered_url).unwrap_err(),
+            ManifestError::InvalidSignature
+        );
+
+        let mut tampered_open = base.clone();
+        tampered_open.open_url = "https://evil.example.com/embed".to_string();
+        assert_eq!(
+            verify_manifest_signature(&tampered_open).unwrap_err(),
+            ManifestError::InvalidSignature
+        );
+
+        let mut tampered_size = base.clone();
+        tampered_size.package_size = 1;
+        assert_eq!(
+            verify_manifest_signature(&tampered_size).unwrap_err(),
+            ManifestError::InvalidSignature
+        );
+
+        let mut tampered_schema = base.clone();
+        tampered_schema.schema_version = 999;
+        assert_eq!(
+            verify_manifest_signature(&tampered_schema).unwrap_err(),
+            ManifestError::InvalidSignature
         );
     }
 
@@ -451,29 +513,17 @@ mod tests_support {
     pub const NODE_CANONICAL: &str = include_str!("testdata/node_canonical.txt");
 }
 
-/// 跨语言回归向量：由 `apps/client/scripts/sign_module_manifest.mjs --test-seed` 生成。
-/// 若 Rust 的规范化实现或 Node 脚本任一侧改动导致字节不一致，这条会立刻失败。
-const NODE_SIGNED_MANIFEST: &str = r#"{
-  "module_id": "demo",
-  "version": "1.0.0",
-  "release_seq": 3,
-  "channel": "main",
-  "module_name": "示例",
-  "entry_path": "index.html",
-  "package_sha256": "bb7f74faee4f4540e49392dbc4fcec8ebae1c6a46569f6dff9ceb9262b413a69",
-  "min_compatible_version": "",
-  "compat": { "host_min": "", "bridge_protocol": 1 },
-  "permissions": ["school.schedule"],
-  "publisher_key_id": "dev-test-1",
-  "signature": {
-    "alg": "ed25519",
-    "key_id": "dev-test-1",
-    "value": "QJ8XmqDpze991_eNIU0s2XsEvOG7j2sGgV65EX922x1JSvaPUjWovFu10vtk9SBZB7An3TI-X97OGdtpwPaPCw"
-  }
-}"#;
-
-const NODE_CANONICAL: &str = r#"{"channel":"main","compat":{"bridge_protocol":1,"host_min":""},"entry_path":"index.html","min_compatible_version":"","module_id":"demo","module_name":"示例","package_sha256":"bb7f74faee4f4540e49392dbc4fcec8ebae1c6a46569f6dff9ceb9262b413a69","permissions":["school.schedule"],"publisher_key_id":"dev-test-1","release_seq":3,"version":"1.0.0"}"#;
-
+/// 跨语言回归向量的生成方式（勿手改 `testdata/` 下的两个文件）：
+///
+/// 1. 准备任意一个小文件当作 bundle（脚本会算它的 sha256）；
+/// 2. 执行 `scripts/sign_module_manifest.mjs`，参数为：
+///    `--bundle <小文件> --out src-tauri/src/modules/testdata/node_signed_manifest.json
+///     --module-id demo --version 1.0.0 --release-seq 3 --channel main --name 示例
+///     --permissions school.schedule --test-seed --print-canonical`
+///    并把 stdout（规范化字节）重定向到 `testdata/node_canonical.txt`。
+///
+/// 任何一侧的规范化实现漂移（字段集、键序、空白、默认值）都会让
+/// `cross_language_tests` 立刻失败。
 #[cfg(test)]
 mod cross_language_tests {
     use super::tests_support::{NODE_CANONICAL, NODE_SIGNED_MANIFEST};
@@ -486,7 +536,8 @@ mod cross_language_tests {
         let canonical = canonical_manifest_bytes(&manifest).expect("canonical");
         assert_eq!(
             String::from_utf8(canonical).expect("utf8"),
-            NODE_CANONICAL,
+            // 夹具文件以换行结尾（生成脚本 stdout 重定向），比较前归一化掉
+            NODE_CANONICAL.trim_end(),
             "Rust 与 Node 的规范化字节必须逐字节一致"
         );
     }
@@ -535,9 +586,9 @@ mod sample_module_artifact_tests {
         assert_eq!(manifest.publisher_key_id, "dev-test-1");
         assert!(manifest
             .permissions
-            .contains(&"school.profile_online".to_string()));
+            .contains(&"school.portal_client_ip".to_string()));
         assert!(manifest
             .permissions
-            .contains(&"school.login_logs".to_string()));
+            .contains(&"school.portal_page_view".to_string()));
     }
 }

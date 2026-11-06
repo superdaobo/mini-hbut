@@ -23,13 +23,31 @@
 
 | 能力 id | 方法 | 目标 | 允许模块提供的参数 |
 |---|---|---|---|
-| `school.profile_online` | GET | `https://auth.hbut.edu.cn:443/personalInfo/UserOnline/user/queryUserOnline` | query `t`（纯数字） |
-| `school.login_logs` | GET | `https://auth.hbut.edu.cn:443/personalInfo/UserLogs/user/queryUserLogs` | query `t`（纯数字） |
+| `school.portal_client_ip` | GET | `https://e.hbut.edu.cn:443/common/clientIp` | 无 |
+| `school.portal_page_view` | GET | `https://e.hbut.edu.cn:443/getPageView` | query `_t` / `pageCode` / `originalUrl` / `lang` |
 
-两个接口都是应用**现有代码在用的只读查询**（`http_client/academic/student_info.rs` 的 `USER_ONLINE_URL` / `USER_LOGS_URL`），
-所以不是「猜出来的 URL」。
+两个接口都是应用**现有代码在用的只读查询、且按 JSON 解析**
+（`http_client/academic/student_info.rs` 的 `fetch_portal_client_ip` / `getPageView`）。
 
-需要 POST 的课表/成绩接口，等 T08 用真实账号核对参数后再登记 —— 登记表里不写没验证过的东西。
+### 为什么不是 `auth.hbut.edu.cn` 与超星接口（2026-11-06 真机实测）
+
+登记表的原则是「**实测返回 JSON 才登记**」。真机逐个实测的结果：
+
+| 候选 | 实测 | 结论 |
+|---|---|---|
+| `auth.hbut.edu.cn/.../queryUserOnline`（原 `school.profile_online`） | 200 但 **门户登录 HTML** | 该校门户会话在 `e.hbut.edu.cn`，该域不在会话范围 → 不登记 |
+| `auth.hbut.edu.cn/.../queryUserLogs` | 同上 | 不登记 |
+| `mooc1-api.chaoxing.com/mycourse/getCourseFolders` | **404** | 接口已不存在 → 不登记 |
+| `mooc1.chaoxing.com/mooc-ans/visit/coursefolders` | **404** | 不登记 |
+| `mooc1-api.chaoxing.com/gas/folder` | **403** | 不登记 |
+| `mooc1.chaoxing.com/mooc-ans/visit/interaction` | **登录页**（`<title>用户登录</title>`） | 超星会话不覆盖该域 → 不登记 |
+| `e.hbut.edu.cn/common/clientIp` | **200 `application/json`** | ✅ 登记 |
+| `e.hbut.edu.cn/getPageView` | **200 `application/json`** | ✅ 登记 |
+
+真机证据（模块身份走完整链路，宿主代取）：
+`controlled_fetch_portal_client_ip → 200 {"errcode":"0","errmsg":"请求成功","data":"<自身校园网 IP>"}`。
+
+需要 POST 的课表/成绩接口，等用真实账号核对参数后再登记 —— 登记表里不写没验证过的东西。
 
 ## 三、模块能提供什么、不能提供什么
 

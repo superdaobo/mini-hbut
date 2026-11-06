@@ -104,7 +104,7 @@ mod tests {
             instance_id: id.to_string(),
             account_scope: "20230001".to_string(),
             trusted,
-            capabilities: vec!["school.profile_online".to_string()],
+            capabilities: vec!["school.portal_client_ip".to_string()],
             module_id: "demo".to_string(),
             channel: "main".to_string(),
             version: "1.0.0".to_string(),
@@ -129,9 +129,9 @@ mod tests {
     #[test]
     fn capabilities_are_per_instance() {
         register_instance(instance("inst_c", true));
-        assert!(instance_allows("inst_c", "school.profile_online"));
+        assert!(instance_allows("inst_c", "school.portal_client_ip"));
         assert!(!instance_allows("inst_c", "school.grades"));
-        assert!(!instance_allows("inst_missing", "school.profile_online"));
+        assert!(!instance_allows("inst_missing", "school.portal_client_ip"));
     }
 
     #[test]

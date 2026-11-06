@@ -22,7 +22,9 @@ mod auth;
 mod bridge_auth_e2e_test;
 mod local_token;
 mod response;
-mod routes;
+/// 供 `lib.rs` 注册命令使用（`/debug/frontend-eval` 的结果回传命令）。
+/// 模块本身保持 pub(crate) 语义，只把需要的命令 re-export 出去。
+pub(crate) mod routes;
 mod state;
 
 use axum::middleware;

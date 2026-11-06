@@ -26,16 +26,31 @@ node scripts/sign_module_manifest.mjs \
 
 ## 二、签名覆盖范围（关键）
 
-签名覆盖**除 `signature` 外全部字段**的规范化字节：
+签名覆盖**除 `signature` 外、结构体声明过的全部字段**的规范化字节：
 
 - 键**字典序**、无空白、UTF-8（Rust 用 `serde_json` 的 BTreeMap + `to_vec`；Node 用 `canonicalJson`）；
-- 列在清单里的每一项都不可被改动：`module_id / version / release_seq / channel / module_name /
+- 参与签名的字段（**15 个**）：`module_id / version / release_seq / channel / module_name /
   entry_path / package_sha256 / min_compatible_version / compat{host_min,bridge_protocol} /
-  permissions[] / publisher_key_id`。
+  permissions[] / publisher_key_id / package_url / package_size / open_url / schema_version`。
+
+> ⚠️ **2026-11-06 变更（安全修正）**：`package_url` / `package_size` / `open_url` / `schema_version`
+> 此前**不在**结构体里，因而属于「不参与签名的扩展字段」——攻击者若能改写清单（镜像/中间人，
+> 或落到 CDN 的写权限），就能把模块的**下载地址**与**嵌入地址**改到别处而不破坏签名
+> （包体仍受 `package_sha256` 约束，但嵌入地址完全不受约束）。现在它们进入结构体 →
+> 进入规范化字节 → 进入签名覆盖。
+>
+> **迁移影响**：本变更改变了规范化形态，按旧形态签名的清单会验签失败。模块 CDN 尚未发布
+> 正式模块，因此只需重新签发样例模块（`node scripts/build_sample_module.mjs`）与
+> 跨语言夹具（见下）。回归测试：`tampering_distribution_fields_breaks_signature`。
+>
+> 仍然**不参与签名**的字段（仅展示用，运行期不据其做安全决策）：`published_at` / `release_notes` /
+> `package_urls`（由 `package_url` 派生）。
 
 **跨语言一致性由测试锁定**：`module_manifest.rs` 的 `cross_language_tests` 直接消费
 `src-tauri/src/modules/testdata/node_signed_manifest.json`（由签名脚本生成），断言
 Rust 规范化字节与 Node 逐字节相同、且签名能被内置信任根验证。任何一侧改了格式，测试立刻红。
+夹具的再生成命令见该测试上方的文档注释（**必须用 `--print-canonical` 且只把 stdout 重定向到
+`node_canonical.txt`**，脚本在该模式下把日志写到 stderr）。
 
 ## 三、签名策略（当前）
 
@@ -63,6 +78,8 @@ Rust 规范化字节与 Node 逐字节相同、且签名能被内置信任根验
 | 冷缓存 | 先验签再下载；摘要必须等于清单声明 | `prepare_module_bundle` 顺序：`parse_and_verify_manifest` → 下载 → 比对 |
 | 缓存命中 | 复用缓存，但要求「缓存里的签名 == 当前清单签名」且摘要/最小版本/入口一致 | `resolve_cached_entry_path` + 签名比对分支；单测 `cached_entry_requires_matching_sha_and_metadata` |
 | 缓存元数据不一致 | 视为缓存失效：删目录重新下载（不会「用旧包凑合」） | `prepare_module_bundle` 的 `fs::remove_dir_all` 分支 |
+| **同版本重新发布**（新 `release_seq`/新 `package_sha256`） | 旧缓存签名与当前清单不一致 → **丢弃缓存并重新下载**（不再直接报错） | 2026-11-06 真机修正；`eprintln!("[T05] 模块缓存失效…")` |
+| 解包后内容被改动 | 缓存命中时重算 `bundle.zip` 的 sha256 与清单比对，不一致 → 丢弃缓存并重新下载 | `cached_bundle_integrity_ok` |
 | 离线 | 无缓存且无法下载 → 报错；有缓存则命中路径同样要过签名比对 | 同上 |
 | 降级（未签名） | `trusted=false`：允许安装但不授予敏感能力（能力层由 T06 拒绝） | `ModuleBundlePrepareResult.trusted` |
 | 回退到旧版 | **只接受更高 `release_seq` 的包**；受控回退 = 用旧内容重新发布更高序号 | `ensure_release_seq` + `MODULE_RELEASE_REPLAY` |

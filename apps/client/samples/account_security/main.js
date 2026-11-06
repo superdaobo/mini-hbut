@@ -125,8 +125,8 @@ const refresh = async () => {
   button.disabled = true
   document.getElementById('hint').textContent = ''
   await Promise.all([
-    load('school.profile_online', 'online', document.getElementById('online-body'), document.getElementById('online-badge')),
-    load('school.login_logs', 'logs', document.getElementById('logs-body'), document.getElementById('logs-badge'))
+    load('school.portal_client_ip', 'online', document.getElementById('online-body'), document.getElementById('online-badge')),
+    load('school.portal_page_view', 'logs', document.getElementById('logs-body'), document.getElementById('logs-badge'))
   ])
   button.disabled = false
 }

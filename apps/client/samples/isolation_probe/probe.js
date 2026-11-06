@@ -104,7 +104,27 @@ const runChecks = async () => {
   record('self_secure_context', { detail: String(window.isSecureContext) })
 
   // 7. 受控能力正向调用（走宿主 → Rust）
-  record('controlled_fetch', await requestThroughHost())
+  record(
+    'controlled_fetch_portal_client_ip',
+    await requestThroughHost('school.portal_client_ip', {}, 'controlled_fetch_portal_client_ip')
+  )
+  record(
+    'controlled_fetch_portal_page_view',
+    await requestThroughHost(
+      'school.portal_page_view',
+      {
+        _t: String(Math.floor(Date.now() / 1000)),
+        pageCode: '',
+        originalUrl: 'https%3A%2F%2Fe.hbut.edu.cn%2Fstu%2Findex.html',
+        lang: 'zh_CN'
+      },
+      'controlled_fetch_portal_page_view'
+    )
+  )
+
+  // 8. Game SDK 握手（仅在宿主以 launch_surface='game_center' 打开时才有 game bridge）：
+  //    发 hello，等 welcome。用来验证「协议版本闸门」在真机上确实 fail closed / 正常回 welcome。
+  record('game_handshake_welcome', await probeGameHandshake())
 
   render()
   window.parent.postMessage({ type: RESULT_TYPE, origin: location.origin, results }, '*')
@@ -112,13 +132,19 @@ const runChecks = async () => {
   document.title = `PROBE_DONE:${results.length - failed}/${results.length}`
 }
 
-/** 走宿主代取一次受控请求。 */
-const requestThroughHost = () =>
+/**
+ * 走宿主代取一次受控请求。
+ *
+ * @param {string} capability 能力 id
+ * @param {Record<string,string>} query 允许的 query 参数
+ * @param {string} id 结果行 id
+ */
+const requestThroughHost = (capability, query, id) =>
   new Promise((resolve) => {
     const requestId = `probe_${Math.random().toString(36).slice(2, 10)}`
     const timer = setTimeout(() => {
       window.removeEventListener('message', onMessage)
-      resolve({ id: 'controlled_fetch', status: null, error: 'host_timeout', detail: '' })
+      resolve({ id, status: null, error: 'host_timeout', detail: '' })
     }, 14000)
     const onMessage = (event) => {
       const payload = event.data
@@ -127,14 +153,14 @@ const requestThroughHost = () =>
       window.removeEventListener('message', onMessage)
       if (payload.ok) {
         resolve({
-          id: 'controlled_fetch',
+          id,
           status: Number(payload.status) || 0,
           error: '',
           detail: `body:${safeSnippet(payload.body)}`
         })
       } else {
         resolve({
-          id: 'controlled_fetch',
+          id,
           status: null,
           error: String(payload.error?.code || 'error'),
           detail: safeSnippet(payload.error?.message)
@@ -146,9 +172,47 @@ const requestThroughHost = () =>
       {
         type: REQUEST_TYPE,
         request_id: requestId,
-        capability: 'school.profile_online',
-        query: { t: String(Math.floor(Date.now() / 1000)) },
+        capability,
+        query,
         timeout_ms: 12000
+      },
+      '*'
+    )
+  })
+
+/** 发一次 Game SDK hello 并等待 welcome（8s 超时 → `no_welcome`）。 */
+const probeGameHandshake = () =>
+  new Promise((resolve) => {
+    const requestId = `hello_${Math.random().toString(36).slice(2, 10)}`
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', onMessage)
+      resolve({
+        id: 'game_handshake_welcome',
+        status: null,
+        error: 'no_welcome',
+        detail: '宿主未回 welcome（未启用 game bridge，或协议版本被拒）'
+      })
+    }, 8000)
+    const onMessage = (event) => {
+      const payload = event.data
+      if (!payload || payload.type !== 'mini-hbut:game-sdk:welcome') return
+      if (payload.request_id !== requestId) return
+      clearTimeout(timer)
+      window.removeEventListener('message', onMessage)
+      resolve({
+        id: 'game_handshake_welcome',
+        status: 200,
+        error: '',
+        detail: `protocol_version:${payload.protocol_version} game_id:${String(payload.game_id || '')}`
+      })
+    }
+    window.addEventListener('message', onMessage)
+    window.parent.postMessage(
+      {
+        type: 'mini-hbut:game-sdk:hello',
+        request_id: requestId,
+        game_id: 'isolation_probe',
+        protocol_version: 1
       },
       '*'
     )

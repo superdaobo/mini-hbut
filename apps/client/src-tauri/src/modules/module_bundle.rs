@@ -586,63 +586,63 @@ pub async fn prepare_module_bundle(
             &expected_sha,
             &min_compatible_version,
         ) {
-            // #1166 T05：缓存命中不得绕过验签 —— 缓存里的清单必须是同一份且仍能验过。
-            if let Some(item) = manifest.as_ref() {
-                let cached = read_cache_metadata(&cache_dir).and_then(|meta| meta.manifest);
-                let cached_signature = cached
-                    .as_ref()
-                    .and_then(|value| value.get("signature"))
-                    .cloned();
-                let current_signature = serde_json::to_value(item)
-                    .ok()
-                    .and_then(|value| value.get("signature").cloned());
-                if cached_signature != current_signature {
-                    return Err("模块缓存与当前清单签名不一致，拒用缓存".to_string());
-                }
-                // #1166 G-E：签名只覆盖「包」的摘要，不覆盖解包后的文件。缓存命中若不做
-                // 完整性复核，本机改动缓存目录里的 index.html 就能绕过验签。这里重算
-                // bundle.zip 的 sha256 并与清单声明比对，不一致则视为缓存失效。
-                let bundle_path = cache_dir.join("bundle.zip");
-                let integrity_ok =
-                    cached_bundle_integrity_ok(&bundle_path, item.package_sha256.trim());
-                if !integrity_ok {
-                    eprintln!("[T05] 模块缓存完整性校验失败，按失效处理并重新下载");
-                    fs::remove_dir_all(&cache_dir)
-                        .map_err(|e| format!("清理完整性失效的模块缓存失败: {}", e))?;
-                } else {
-                    let preview_url =
-                        build_preview_url(&channel, &module_id, &version, &entry_path);
-                    return Ok(ModuleBundlePrepareResult {
-                        channel,
-                        module_id,
-                        module_name,
-                        version,
-                        entry_path: entry_path.clone(),
-                        preview_url,
-                        cache_dir: cache_dir.display().to_string(),
-                        bundle_path: bundle_path.display().to_string(),
-                        min_compatible_version,
-                        source: "cache".to_string(),
-                        trusted,
-                        publisher_key_id: publisher_key_id.clone(),
-                    });
-                }
+            // 迁移期语义：没有清单（未签名模块）时保持既有「直接命中缓存」行为。
+            let Some(item) = manifest.as_ref() else {
+                let preview_url = build_preview_url(&channel, &module_id, &version, &entry_path);
+                return Ok(ModuleBundlePrepareResult {
+                    channel,
+                    module_id,
+                    module_name,
+                    version,
+                    entry_path: entry_path.clone(),
+                    preview_url,
+                    cache_dir: cache_dir.display().to_string(),
+                    bundle_path: cache_dir.join("bundle.zip").display().to_string(),
+                    min_compatible_version,
+                    source: "cache".to_string(),
+                    trusted,
+                    publisher_key_id: publisher_key_id.clone(),
+                });
+            };
+            // #1166 T05：缓存命中不得绕过验签 —— 缓存里的清单必须是同一份。
+            let cached = read_cache_metadata(&cache_dir).and_then(|meta| meta.manifest);
+            let cached_signature = cached
+                .as_ref()
+                .and_then(|value| value.get("signature"))
+                .cloned();
+            let current_signature = serde_json::to_value(item)
+                .ok()
+                .and_then(|value| value.get("signature").cloned());
+            // #1166 G-E：签名只覆盖「包」的摘要，不覆盖解包后的文件。缓存命中若不做
+            // 完整性复核，本机改动缓存目录里的 index.html 就能绕过验签。
+            let bundle_path = cache_dir.join("bundle.zip");
+            let integrity_ok = cached_bundle_integrity_ok(&bundle_path, item.package_sha256.trim());
+            if cached_signature == current_signature && integrity_ok {
+                let preview_url = build_preview_url(&channel, &module_id, &version, &entry_path);
+                return Ok(ModuleBundlePrepareResult {
+                    channel,
+                    module_id,
+                    module_name,
+                    version,
+                    entry_path: entry_path.clone(),
+                    preview_url,
+                    cache_dir: cache_dir.display().to_string(),
+                    bundle_path: bundle_path.display().to_string(),
+                    min_compatible_version,
+                    source: "cache".to_string(),
+                    trusted,
+                    publisher_key_id: publisher_key_id.clone(),
+                });
             }
-            let preview_url = build_preview_url(&channel, &module_id, &version, &entry_path);
-            return Ok(ModuleBundlePrepareResult {
-                channel,
-                module_id,
-                module_name,
-                version,
-                entry_path: entry_path.clone(),
-                preview_url,
-                cache_dir: cache_dir.display().to_string(),
-                bundle_path: cache_dir.join("bundle.zip").display().to_string(),
-                min_compatible_version,
-                source: "cache".to_string(),
-                trusted,
-                publisher_key_id: publisher_key_id.clone(),
-            });
+            // 2026-11-06 真机修正：缓存失效（重新发布导致签名不一致 / 解包内容被改动）
+            // 的正确动作是**丢掉旧缓存重新下载**，而不是报错或返回一个指向已删目录的
+            // 「缓存命中」结果。旧实现前者会把模块卡死到用户手清缓存为止，后者会让宿主
+            // 加载一个不存在的预览地址。丢缓存不削弱安全性：新包仍走完整验签 + 摘要校验。
+            eprintln!(
+                "[T05] 模块缓存失效（签名一致={} 完整性={}），丢弃并重新下载",
+                cached_signature == current_signature,
+                integrity_ok
+            );
         }
         fs::remove_dir_all(&cache_dir).map_err(|e| format!("清理失效模块缓存失败: {}", e))?;
     }
@@ -997,6 +997,10 @@ mod t05_signature_and_unpack_tests {
             },
             permissions: vec!["school.schedule".to_string()],
             publisher_key_id: "dev-test-1".to_string(),
+            package_url: String::new(),
+            package_size: 0,
+            open_url: String::new(),
+            schema_version: 1,
             signature: None,
         };
         let canonical = canonical_manifest_bytes(&manifest).expect("canonical");

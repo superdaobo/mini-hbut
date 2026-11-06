@@ -111,7 +111,15 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
       manifest_checked_at: String(raw.manifest_checked_at || raw.manifestCheckedAt || '').trim(),
       // #905：启动来源（'classic' | 'game_center'）。宿主据此走远程 HTTPS 优先 + 会话恢复取票；
       // 缺省 'classic' 保证旧持久化 session 行为完全不变（零破坏）。
-      launch_surface: String(raw.launch_surface || raw.launchSurface || 'classic').trim() || 'classic'
+      launch_surface: String(raw.launch_surface || raw.launchSurface || 'classic').trim() || 'classic',
+      // #1169 真机整改：这里是**字段白名单**，先前没有 trusted/permissions，导致宿主视图
+      // 拿不到它们（真机上表现为受控请求被本地 `MODULE_NOT_TRUSTED` 全拦）。
+      // 注意：它们只是**声明值**，真正判定信任的是 Rust（登记实例时用缓存里已验签的清单
+      // 重新验签并覆盖），前端伪造 trusted=true 不会获得任何能力。
+      trusted: raw.trusted === true,
+      permissions: Array.isArray(raw.permissions)
+        ? raw.permissions.filter((item) => typeof item === 'string')
+        : []
     }
   }
 
