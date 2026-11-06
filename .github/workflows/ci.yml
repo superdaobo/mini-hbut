@@ -189,6 +189,7 @@ jobs:
       # #1169：模块平台门禁 —— Tauri 应用命令 ACL 收窄是否与 lib.rs 同步、
       # 以及模块签名材料是否越界（私钥/测试 seed 不得进仓库）。
       - name: Module platform guards
+        working-directory: apps/client
         run: npm run check:module-platform
 
       - name: Tauri npm/rust version alignment

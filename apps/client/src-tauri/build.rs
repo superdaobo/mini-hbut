@@ -4,7 +4,7 @@ fn main() {
     // 不声明的话，注册进 invoke_handler 的命令对**所有 webview**（含承载远程内容的
     // 模块窗口/内嵌页）一律可见；声明后必须由 capability 显式授权。
     // 本块由 scripts/sync_tauri_command_grants.mjs 生成，勿手改。
-// BEGIN APP_COMMANDS
+    // BEGIN APP_COMMANDS
     let app_commands: &[&str] = &[
         "add_custom_schedule_course",
         "add_schedule_event",
@@ -266,11 +266,10 @@ fn main() {
         "yuketang_poll_qr_login",
         "yuketang_send_heartbeat",
     ];
-// END APP_COMMANDS
+    // END APP_COMMANDS
     tauri_build::try_build(
-        tauri_build::Attributes::new().app_manifest(
-            tauri_build::AppManifest::new().commands(app_commands),
-        ),
+        tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(app_commands)),
     )
     .expect("tauri build 失败");
 }

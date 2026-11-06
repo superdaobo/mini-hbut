@@ -73,21 +73,22 @@ export const extractCommands = (source) => {
 
 const buildRsContent = (commands) => {
   const list = commands.map((name) => `        "${name}",`).join('\n')
+  // ⚠️ 生成结果必须是 **rustfmt 干净**的：CI 的 `cargo fmt --check` 会直接判定 build.rs。
+  // 标记注释要缩进到函数体层级，`try_build` 链要按 rustfmt 的折叠方式书写。
   return `fn main() {
     println!("cargo:rerun-if-changed=icons/icon.ico");
     // 应用命令声明：让 Tauri 为每个命令生成 allow-<command> / deny-<command> 权限。
     // 不声明的话，注册进 invoke_handler 的命令对**所有 webview**（含承载远程内容的
     // 模块窗口/内嵌页）一律可见；声明后必须由 capability 显式授权。
     // 本块由 scripts/sync_tauri_command_grants.mjs 生成，勿手改。
-${BEGIN}
+    ${BEGIN}
     let app_commands: &[&str] = &[
 ${list}
     ];
-${END}
+    ${END}
     tauri_build::try_build(
-        tauri_build::Attributes::new().app_manifest(
-            tauri_build::AppManifest::new().commands(app_commands),
-        ),
+        tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(app_commands)),
     )
     .expect("tauri build 失败");
 }
