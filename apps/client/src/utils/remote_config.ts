@@ -855,16 +855,66 @@ export const applyOcrRuntimeConfig = async (
   return runtimePayload
 }
 
+/**
+ * DEV 专用「运行时配置覆盖」缝（**仅本地/真机验证用，生产不生效**）。
+ *
+ * 背景：`game_platform` 的关键开关（`allowed_game_origins` / `game_verified_session_enabled` /
+ * `api_base`）来自远端配置（`REMOTE_CONFIG_URLS`，gitcode 仓库）。本地要验证**游戏票据链路**
+ * 时，冷启动快照会很快被后台刷新覆盖，导致注入不生效（实测 `reasons=[origin_whitelist_empty,
+ * verified_flag_disabled]`）。
+ *
+ * 本缝让 DEV 构建可以用 `globalThis.__HBUT_REMOTE_CONFIG_OVERRIDE__` 做**深合并覆盖**，
+ * 优先级高于内存/快照/远端三路，从而确定性复现配置组合。
+ *
+ * 安全边界：`import.meta.env.DEV` 为假（生产构建）时**直接返回原配置**，
+ * 与既有「快照是产品开关、权威在服务端」的边界一致（服务端 flag 复核才是防线）。
+ */
+const applyDevRemoteConfigOverride = (config: RemoteConfig): RemoteConfig => {
+  if (!import.meta.env?.DEV) return config
+  let override: unknown = null
+  try {
+    override = (globalThis as unknown as { __HBUT_REMOTE_CONFIG_OVERRIDE__?: unknown })
+      .__HBUT_REMOTE_CONFIG_OVERRIDE__
+  } catch {
+    return config
+  }
+  if (!override || typeof override !== 'object' || Array.isArray(override)) return config
+  try {
+    const base = config as unknown as Record<string, unknown>
+    const merged: Record<string, unknown> = { ...base }
+    for (const [key, value] of Object.entries(override as Record<string, unknown>)) {
+      const current = base[key]
+      if (
+        current &&
+        typeof current === 'object' &&
+        !Array.isArray(current) &&
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+      ) {
+        merged[key] = { ...(current as Record<string, unknown>), ...(value as Record<string, unknown>) }
+      } else {
+        merged[key] = value
+      }
+    }
+    return merged as unknown as RemoteConfig
+  } catch {
+    return config
+  }
+}
+
 export async function fetchRemoteConfig(
   options: RemoteConfigFetchOptions = {}
 ): Promise<RemoteConfig> {
   const forceRefresh = options?.force === true
   // 演示会话：直接用本地默认并按当前会话夹紧（不污染磁盘上的真实配置）
   if (isTestAccountSession()) {
-    return applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(DEFAULT_CONFIG))
+    return applyDevRemoteConfigOverride(
+      applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(DEFAULT_CONFIG))
+    )
   }
   if (!isRemoteConfigEnabled()) {
-    return applyAppStoreRemoteConfigClamp(buildLocalOnlyConfig())
+    return applyDevRemoteConfigOverride(applyAppStoreRemoteConfigClamp(buildLocalOnlyConfig()))
   }
 
   if (!forceRefresh) {
@@ -872,7 +922,7 @@ export async function fetchRemoteConfig(
     if (memory) {
       // 短时内存命中：后台仍可静默刷新远端
       scheduleBackgroundRemoteRefresh()
-      return applyAppStoreRemoteConfigClamp(memory)
+      return applyDevRemoteConfigOverride(applyAppStoreRemoteConfigClamp(memory))
     }
     if (remoteConfigInFlight) {
       return remoteConfigInFlight
@@ -888,7 +938,7 @@ export async function fetchRemoteConfig(
       const normalized = normalizeRemoteConfig(snapshot)
       setMemoryConfig(normalized)
       scheduleBackgroundRemoteRefresh()
-      return applyAppStoreRemoteConfigClamp(normalized)
+      return applyDevRemoteConfigOverride(applyAppStoreRemoteConfigClamp(normalized))
     }
   }
 
@@ -902,7 +952,7 @@ export async function fetchRemoteConfig(
         emitEvent: false,
         previousFingerprint: prev ? remoteConfigFingerprint(prev as RemoteConfigInput) : ''
       })
-      return applyAppStoreRemoteConfigClamp(normalized)
+      return applyDevRemoteConfigOverride(applyAppStoreRemoteConfigClamp(normalized))
     } catch {
       // 真远端失败
     }
@@ -911,7 +961,7 @@ export async function fetchRemoteConfig(
     if (snapshot) {
       const normalized = normalizeRemoteConfig(snapshot)
       setMemoryConfig(normalized)
-      return applyAppStoreRemoteConfigClamp(normalized)
+      return applyDevRemoteConfigOverride(applyAppStoreRemoteConfigClamp(normalized))
     }
 
     // 零次安装兜底：打包 json → 代码 DEFAULT（可写入快照作为起点）
@@ -919,14 +969,14 @@ export async function fetchRemoteConfig(
       const { payload } = await fetchFromPackageUrl()
       const normalized = normalizeRemoteConfig(payload)
       saveSnapshot(normalized, { emitEvent: false, previousFingerprint: '' })
-      return applyAppStoreRemoteConfigClamp(normalized)
+      return applyDevRemoteConfigOverride(applyAppStoreRemoteConfigClamp(normalized))
     } catch {
       // ignore
     }
 
     const fallback = normalizeRemoteConfig(DEFAULT_CONFIG)
     saveSnapshot(fallback, { emitEvent: false, previousFingerprint: '' })
-    return applyAppStoreRemoteConfigClamp(fallback)
+    return applyDevRemoteConfigOverride(applyAppStoreRemoteConfigClamp(fallback))
   })()
 
   if (forceRefresh) {
