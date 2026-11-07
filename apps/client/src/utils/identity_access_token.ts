@@ -1,10 +1,15 @@
 /**
- * src/utils/identity_access_token.ts —— #629 Forum Phase C：first-party Identity access token 获取抽象。
+ * src/utils/identity_access_token.ts —— #629 / #1171 T13：first-party Identity access token 获取抽象。
  *
  * 职责：
  *   - Forum / Cloud Sync 客户端统一从这里拿 Mini-HBUT Identity access token；
  *   - token 只驻留内存（安全 runtime/session 层），绝不写入 localStorage 明文 / debug log；
- *   - 401 只触发一次 refresh/re-auth，并发请求共享同一轮 refresh（防刷新风暴，不无限循环）；
+ *   - **单飞（single-flight）**：并发 get 共享同一惰性任务；并发 401/过期请求（forceRefresh）
+ *     共享同一刷新任务 —— N 个并发刷新只触发一次 provider 刷新，防刷新风暴；
+ *   - **原子替换**：令牌状态是单字段（V1 无 refresh token，不存在「新 AT + 旧 RT」这类
+ *     组合），唯一写路径 `swapIdentityToken` 以单次赋值完成替换（JS 单线程 ⇒ 无中间态）；
+ *     刷新失败**不写状态**（旧令牌原样保留，无半更新），刷新成功才替换；
+ *   - 刷新在途时，普通 get 也等待刷新结果（不再返回刷新中的旧令牌）；
  *   - 默认 provider 未接入时返回 null → 调用方回退 legacy 双轨流程（服务端 LEGACY_GRACE 期内兼容）。
  *
  * 接入点（未来 src-tauri 提供安全存储命令后，在此 setIdentityAccessTokenProvider）：
@@ -22,19 +27,41 @@ export interface IdentityAccessTokenProvider {
 }
 
 let activeProvider: IdentityAccessTokenProvider | null = null
-let memoryToken = ''
-let inFlight: Promise<string | null> | null = null
 
-/** 注入 provider（切换时清空内存 token，避免跨 provider 复用） */
+/**
+ * 令牌状态：单字段原子载体。
+ * - 唯一写路径是 `swapIdentityToken`（单次赋值，JS 单线程 ⇒ 不可观察到中间态）；
+ * - 无 refresh_token 字段 ⇒ 不存在「新 AT + 旧 RT」或反之的半更新组合。
+ */
+const tokenState = { token: '' }
+
+/** 惰性 get 的在途任务（单飞：并发 get 共享） */
+let getInFlight: Promise<string | null> | null = null
+/** 刷新（forceRefresh）的在途任务（单飞：并发 401 共享同一轮刷新） */
+let refreshInFlight: Promise<string | null> | null = null
+
+const normalizeToken = (value: unknown): string =>
+  typeof value === 'string' && value.trim() ? value.trim() : ''
+
+/** 令牌状态唯一写路径：原子替换（刷新失败时绝不调用，保持原状态） */
+export const swapIdentityToken = (token: string): void => {
+  tokenState.token = token
+}
+
+/** 读取当前内存令牌（诊断/测试用；不触发 provider） */
+export const peekIdentityAccessToken = (): string => tokenState.token
+
+/** 注入 provider（切换时清空内存 token 与在途任务，避免跨 provider 复用） */
 export const setIdentityAccessTokenProvider = (provider: IdentityAccessTokenProvider | null): void => {
   activeProvider = provider
   clearIdentityAccessToken()
 }
 
-/** 清空内存 token 与在途刷新 */
+/** 清空内存 token（原子置空）与在途刷新任务 */
 export const clearIdentityAccessToken = (): void => {
-  memoryToken = ''
-  inFlight = null
+  swapIdentityToken('')
+  getInFlight = null
+  refreshInFlight = null
 }
 
 /**
@@ -61,40 +88,65 @@ const readDevAccessTokenStub = (): string => {
 
 /**
  * 获取 access token：
- * - DEV 打桩优先（见 `readDevAccessTokenStub`，生产不生效）；
- * - 内存已有且非 forceRefresh → 直接返回；
+ * - DEV 打桩优先（见 `readDevAccessTokenStub`，生产构建不生效）；
+ * - 有刷新在途 → 所有调用方（含普通 get）共享该刷新结果（刷新中的旧令牌不得再被使用）；
  * - 无 provider → null（调用方回退 legacy）；
- * - forceRefresh=true → 调 provider.refreshAccessToken() 单次；
- * - 并发调用共享同一 promise。
+ * - forceRefresh=true → 调 provider.refreshAccessToken()，并发共享同一任务（只刷新一次）；
+ * - 普通调用 → 内存缓存命中直接返回，未命中走惰性 get（并发共享）。
+ *
+ * 状态语义：
+ * - 刷新成功 → `swapIdentityToken` 原子替换为新令牌；
+ * - 刷新失败 → 不写状态（原令牌原样保留，无半更新），本次返回 null（调用方回退 legacy）。
  */
 export const getIdentityAccessToken = async (forceRefresh = false): Promise<string | null> => {
+  // DEV 专用打桩缝优先（生产构建 `import.meta.env.DEV` 为 false → 永远读不到打桩值）
   const stubbed = readDevAccessTokenStub()
   if (stubbed) return stubbed
-  if (!forceRefresh && memoryToken) return memoryToken
   if (!activeProvider) return null
-  if (forceRefresh) memoryToken = ''
-  if (inFlight) return inFlight
-  // task 先以 null 初始化：闭包内以 inFlight === task 判断“仍是当前在途任务”
+  // 刷新在途：共享同一轮刷新（普通 get 也等待其结果，避免复用刷新中的旧令牌）
+  if (refreshInFlight) return refreshInFlight
+  if (!forceRefresh && tokenState.token) return tokenState.token
+  if (forceRefresh) {
+    // task 先以 null 初始化：闭包内以 refreshInFlight === task 判断“仍是当前在途任务”
+    let task: Promise<string | null> | null = null
+    task = (async () => {
+      try {
+        const raw = await activeProvider?.refreshAccessToken()
+        const value = normalizeToken(raw)
+        // 仅当刷新成功且仍是当前在途任务时才原子写回（clear 之后迟到的结果不污染 session）
+        if (value && refreshInFlight === task) {
+          swapIdentityToken(value)
+        }
+        // 刷新失败（空值）：不写状态 → 令牌状态保持原样（无半更新），返回 null 让调用方回退 legacy
+        return value || null
+      } finally {
+        if (refreshInFlight === task) {
+          refreshInFlight = null
+        }
+      }
+    })()
+    refreshInFlight = task
+    return task
+  }
+  // 惰性 get：并发调用共享同一任务
+  if (getInFlight) return getInFlight
   let task: Promise<string | null> | null = null
   task = (async () => {
     try {
-      const token = forceRefresh
-        ? await activeProvider?.refreshAccessToken()
-        : await activeProvider?.getAccessToken()
-      const value = typeof token === 'string' && token.trim() ? token.trim() : ''
-      // 仅当本轮刷新仍是当前在途任务时才写回缓存（避免 clearIdentityAccessToken 后污染 session）
-      if (inFlight === task) {
-        memoryToken = value
+      const raw = await activeProvider?.getAccessToken()
+      const value = normalizeToken(raw)
+      if (value && getInFlight === task) {
+        swapIdentityToken(value)
       }
       return value || null
     } finally {
-      if (inFlight === task) {
-        inFlight = null
+      if (getInFlight === task) {
+        getInFlight = null
       }
     }
   })()
-  inFlight = task
-  return inFlight
+  getInFlight = task
+  return task
 }
 
 /** 是否配置了 provider（用于调用方判断能否走新协议） */

@@ -29,6 +29,9 @@ import { IDENTITY_DEVICE_ID_KEY } from '../features/identity/identityStore'
 const DEVICE_ID = '0198a1b2c3d4e5f6a7b8c9d0'
 const STUDENT_ID = '2023010101'
 const OTHER_STUDENT_ID = '2023010199'
+// #1171 T13：默认 fixture 携带 canonical issuer（与 identityIssuers.PRODUCTION_CANONICAL_ISSUER 同源）
+const CANONICAL_ISSUER = 'https://id.xn--vhq74jc2fzpchter27a.com'
+const EVIL_ISSUER = 'https://evil.example.com'
 
 /** 构造三段式假 JWT（payload 可指定 claims）；签名段只是占位（本模块不验签） */
 const makeJwt = (claims: Record<string, unknown>): string => {
@@ -43,6 +46,7 @@ const makeJwt = (claims: Record<string, unknown>): string => {
 
 const okPayload = (claims: Record<string, unknown> = {}): DeviceTokenNativePayload => ({
   access_token: makeJwt({
+    iss: CANONICAL_ISSUER,
     aud: 'mini-hbut-hf-api',
     scope: 'game.read game.play',
     hbut_student_id: STUDENT_ID,
@@ -258,6 +262,50 @@ describe('#902 设备换票 provider', () => {
       report: () => undefined
     })
     expect(await matched.getAccessToken()).toBe(okPayload().access_token)
+  })
+
+  it('#1171 T13：未知 issuer 显式拒绝：换票返回 null，可读错误含实际 issuer 且不含完整令牌', async () => {
+    const reports: string[] = []
+    const provider = createIdentityDeviceTokenProvider({
+      invoke: makeInvoke(async () => okPayload({ iss: EVIL_ISSUER })),
+      isTauri: () => true,
+      report: (message) => reports.push(message)
+    })
+    expect(await provider.getAccessToken()).toBeNull()
+    expect(reports.length).toBe(1)
+    expect(reports[0]).toContain(EVIL_ISSUER)
+    expect(reports[0]).toContain('拒绝')
+    const token = okPayload({ iss: EVIL_ISSUER }).access_token
+    expect(reports[0]).not.toContain(token)
+  })
+
+  it('#1171 T13：缺少 iss claim 同样拒绝（不得降级为不校验）', async () => {
+    const reports: string[] = []
+    // 构造缺 iss 的令牌（payload 里没有 iss claim）
+    const noIss = makeJwt({
+      aud: 'mini-hbut-hf-api',
+      hbut_student_id: STUDENT_ID
+    })
+    const missing = createIdentityDeviceTokenProvider({
+      invoke: makeInvoke(async () => ({
+        access_token: noIss,
+        token_type: 'Bearer',
+        expires_in: 900,
+        expires_at: '2026-09-27T10:15:00.000Z'
+      })),
+      isTauri: () => true,
+      report: (message) => reports.push(message)
+    })
+    expect(await missing.getAccessToken()).toBeNull()
+    expect(reports.join('|')).toContain('拒绝')
+  })
+
+  it('#1171 T13：canonical issuer 正常通过（既有成功路径不受影响）', async () => {
+    const provider = createIdentityDeviceTokenProvider({
+      invoke: makeInvoke(async () => okPayload()),
+      isTauri: () => true
+    })
+    expect(await provider.getAccessToken()).toBe(okPayload().access_token)
   })
 
   it('绝不写任何 storage（AT 仅内存；只允许读取 device_id / 会话学号）', async () => {
