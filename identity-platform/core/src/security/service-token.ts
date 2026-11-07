@@ -28,7 +28,7 @@ export type EnvLike = Record<string, string | undefined>
 export const SERVICE_TOKEN_HEADER = 'x-identity-service-token'
 
 /** 需要服务令牌的路径前缀（BFF server-to-server 通道） */
-const PROTECTED_PREFIXES = ['/api/v1/requests/', '/api/v1/admin/', '/api/v1/developer/']
+const PROTECTED_PREFIXES = ['/api/v1/requests/', '/api/v1/admin/', '/api/v1/developer/', '/api/v1/apps/']
 
 /** 常量时间比较两个字符串（长度不同立即 false，避免泄露长度信息） */
 export function safeTokenEqual(expected: string | undefined, actual: string | undefined): boolean {
