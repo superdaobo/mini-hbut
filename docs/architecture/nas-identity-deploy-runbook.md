@@ -240,7 +240,36 @@ networks:
 |---|---|---|---|
 | `MINI_HBUT_IDENTITY_ENABLED` | `false` | Resource Server 验签总开关（Rollout 第 1 步） | `docs/identity_auth_rollout.md:12` |
 | `MINI_HBUT_IDENTITY_LEGACY_GRACE` | `true` | 旧 HMAC/无 Bearer 兼容；回滚=重开它 | rollout.md:13,70-72 |
-| `MINI_HBUT_DATA_AUTHZ_ENABLED` | `false` | T11 数据授权（`/identity/consents*`）总开关 | config.py:291 |
+| `MINI_HBUT_DATA_AUTHZ_ENABLED` | `false` | T11 数据授权（`/identity/consents*`）总开关 | `identity_auth/config.py`（`load_data_authz_settings`） |
+
+### 11.4 资源服务器与多 issuer（T13，本清单**按代码实际读取的变量**补齐）
+
+> 11.1/11.2 节由子代理产出时只覆盖 T10 新增项；本节由审阅者做**代码↔文档差集核对**后补齐
+> （方法：抓取 `identity_auth/*.py`、`modules/identity_bootstrap/*.py`、`modules/identity_data_authz/*.py`
+> 中读取的 `MINI_HBUT_*` 变量名，与本文比较，差集即本节内容）。
+> **漏配的后果是"静默跑默认值"**（多 issuer 关闭、strict scope 关闭、`aud` 不校验），因此必须逐项确认。
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `MINI_HBUT_IDENTITY_ISSUER` | 旧 IdP canonical issuer | 单 issuer 模式的 issuer（未配 `ISSUERS` 时生效） |
+| `MINI_HBUT_IDENTITY_AUDIENCE` | 空（**空 = 不校验 `aud`**） | 资源 audience；生产必须显式设置 |
+| `MINI_HBUT_IDENTITY_JWKS_URL` | 空 → 由 issuer 推导 `{issuer}/oauth/jwks` | 单 issuer 的 JWKS 地址 |
+| `MINI_HBUT_IDENTITY_ALLOWED_ALGS` | `RS256` | 算法白名单（**不得**跟随元数据放宽） |
+| `MINI_HBUT_IDENTITY_SCOPES` | 空（空 = 不强制 scope） | scope 白名单；与下一条共同决定门禁模式 |
+| `MINI_HBUT_IDENTITY_STRICT_SCOPES` | `false` | **T11**：true 时即使白名单为空也强制（消除"空=全局跳过"） |
+| `MINI_HBUT_IDENTITY_ISSUERS` | 空 → 回落单 issuer | **T13**：JSON 数组 `{issuer,jwks_url,audience,algs,student_id_claim,admin_source,label,enabled}` |
+| `MINI_HBUT_IDENTITY_MULTI_ISSUER_ENABLED` | `false` | **T13**：按 token 的 `iss` 选画像验签（未知 issuer 拒绝且不降级） |
+| `MINI_HBUT_IDENTITY_JWKS_CACHE_TTL_SECONDS` | 见 `config.py` | JWKS 缓存时长 |
+| `MINI_HBUT_IDENTITY_JWKS_MAX_STALE_SECONDS` | 见 `config.py` | JWKS 陈旧上限（超出即 fail closed） |
+| `MINI_HBUT_IDENTITY_CLOCK_SKEW_SECONDS` | 见 `config.py` | 时钟偏移容忍 |
+| `MINI_HBUT_IDENTITY_HTTP_TIMEOUT_SECONDS` | 见 `config.py` | JWKS 读取超时 |
+| `MINI_HBUT_IDENTITY_HTTP_CONNECT_TIMEOUT_SECONDS` | 见 `config.py` | JWKS 连接超时 |
+| `MINI_HBUT_DATA_AUTHZ_POLICY_VERSION` | `1` | **T11**：权限策略版本；扩容权限时必须提升 |
+| `MINI_HBUT_DATA_AUTHZ_MAX_CACHE_TTL_SECONDS` | `3600` | **T11**：端侧缓存上限提示 |
+
+**部署核对方法**（无 SSH 也能做）：把 NAS 上 ocr-service 的实际环境变量与本节逐项对照，差集必须为空或经确认。
+其中 `MINI_HBUT_IDENTITY_AUDIENCE`、`MINI_HBUT_IDENTITY_ISSUERS`、`MINI_HBUT_DATA_AUTHZ_POLICY_VERSION`
+**不允许留默认值就上线**。
 
 ## 12. 禁止事项
 
