@@ -7,7 +7,10 @@
  * - 本模块只负责「如何拿到 AT」：Rust 命令 `identity_device_token` 完成
  *   challenge → 设备私钥签名 → 换取 resource-scoped JWT AT（#902 Core 端点）；
  * - 缓存 / 401 单次 refresh / 并发去重由 `identity_access_token.ts` 负责（本模块只当 provider）；
- * - `setIdentityAccessTokenProvider` 的接口签名保持不变（#902b 硬约束）。
+ * - `setIdentityAccessTokenProvider` 的接口签名保持不变（#902b 硬约束）；
+ * - #1171 T13：换回的 AT 还须通过 **issuer 校验**（多 issuer 兼容，
+ *   `identityIssuers.verifyIdentityTokenIssuer`）—— 未知/缺失 issuer 一律显式拒绝（可读错误），
+ *   绝不降级为不校验。
  *
  * 安全约束（逐条可验证）：
  * 1. **不得新建第二套密钥**：Rust 命令复用 device_key 的 keyring 条目（service=mini-hbut-identity）；
@@ -25,16 +28,23 @@
  *    不通过 postMessage / iframe URL / 任何宿主桥暴露（游戏侧只允许拿 Launch Ticket，#902c）。
  *
  * 生命周期（挂点在既有事件上，不新增耦合）：
- * - `hbu-identity-login-resumed`（AuthCoordinator 登录成功派发）→ 重新绑定会话主体（清旧 token）；
- * - `hbu-session-logout`（AuthCoordinator 登出派发）→ 清空内存 token（登出后绝不复用）。
+ * - `hbu-identity-login-resumed`（AuthCoordinator 登录成功派发）→ 重新绑定会话主体
+ *   （清空两个凭据域：Identity AT + legacy bridge 令牌，#1171 T13）；
+ * - `hbu-session-logout`（AuthCoordinator 登出派发）→ 清空两个凭据域（登出后绝不复用）。
  */
 import {
-  clearIdentityAccessToken,
   setIdentityAccessTokenProvider,
   type IdentityAccessTokenProvider
 } from './identity_access_token'
+// #1171 T13：登出/切号时两个凭据域（Identity AT + legacy bridge 令牌）统一清理
+import { clearAllSessionCredentials } from './session_credentials'
 import { IDENTITY_DEVICE_ID_KEY } from '../features/identity/identityStore'
 import { getIdentityCoreBaseUrl } from '../features/identity/identityService'
+// #1171 T13：多 issuer 校验（已接受 issuer 列表 + 显式拒绝未知 issuer）
+import {
+  decodeJwtPayload,
+  verifyIdentityTokenIssuer
+} from '../features/identity/identityIssuers'
 import { getRememberedUsername } from './remembered_username.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 
@@ -82,25 +92,15 @@ const readStorage = (key: string): string => {
 }
 
 /**
- * 只做 base64url JSON 解码读 `hbut_student_id`（**不验签**）。
- * 用途仅限本地一致性护栏（见文件头第 5 条）；任何失败都返回 ''（调用方按不一致处理）。
+ * 只做 payload 解码读 `hbut_student_id`（**不验签**；解码逻辑收敛到 identityIssuers.decodeJwtPayload，
+ * 与 issuer 校验共用同一解码路径）。用途仅限本地一致性护栏（见文件头第 5 条）；
+ * 任何失败都返回 ''（调用方按不一致处理）。
  */
 export const decodeAccessTokenStudentId = (token: string): string => {
-  try {
-    const parts = String(token || '').split('.')
-    if (parts.length !== 3) return ''
-    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-    const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4)
-    const decoded = globalThis.atob(padded)
-    // UTF-8 安全解码（学号是 ASCII，但整体 payload 含中文姓名快照）
-    const json = decodeURIComponent(
-      Array.from(decoded, (ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, '0')}`).join('')
-    )
-    const parsed = JSON.parse(json) as { hbut_student_id?: unknown }
-    return typeof parsed.hbut_student_id === 'string' ? parsed.hbut_student_id.trim() : ''
-  } catch {
-    return ''
-  }
+  const payload = decodeJwtPayload(token)
+  if (!payload) return ''
+  const value = payload['hbut_student_id']
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 /** 单次设备换票（challenge → 设备签名 → JWT AT）；任何失败返回 null，绝不抛错 */
@@ -120,6 +120,14 @@ const mintDeviceAccessToken = async (deps: Required<Pick<DeviceTokenProviderDeps
     const result = (raw ?? null) as DeviceTokenNativePayload | null
     const token = typeof result?.access_token === 'string' ? result.access_token.trim() : ''
     if (!token) return null
+    // #1171 T13：issuer 校验（多 issuer 兼容）—— 已接受 issuer 列表之外的签发者一律
+    // 显式拒绝（可读错误经 report 上报），绝不降级为不校验（与主体护栏同为本地护栏，
+    // 验签仍由资源服务器负责）
+    const issuerCheck = verifyIdentityTokenIssuer(token)
+    if (!issuerCheck.ok) {
+      deps.report(issuerCheck.message)
+      return null
+    }
     // 主体一致性护栏：AT 主体学号必须与本地会话学号一致（防跨账号数据错配）
     const tokenStudentId = decodeAccessTokenStudentId(token)
     if (!tokenStudentId || tokenStudentId !== localStudentId) {
@@ -178,12 +186,14 @@ export const installIdentityDeviceTokenProvider = (
   setIdentityAccessTokenProvider(createIdentityDeviceTokenProvider(deps))
 
   const onLogout = (): void => {
-    // 登出即丢内存令牌：登出后任何调用方都拿不到旧 AT（重新登录后按需重换）
-    clearIdentityAccessToken()
+    // 登出即丢两个凭据域的内存令牌（#1171 T13）：Identity AT 与 legacy bridge 令牌
+    // 都必须清理（登出后任何调用方都拿不到旧凭据；重新登录后按需重换/重取）
+    clearAllSessionCredentials()
   }
   const onLoginResumed = (): void => {
-    // 登录/切换账号：旧 AT 可能属于上一个会话主体 → 清空，交由下一次 getAccessToken 重新换取
-    clearIdentityAccessToken()
+    // 登录/切换账号：旧 AT 可能属于上一个会话主体 → 清空两个凭据域，交由下一次
+    // getAccessToken 重新换取 / bridge 令牌惰性重取
+    clearAllSessionCredentials()
   }
 
   const hasWindow = typeof window !== 'undefined' && typeof window.addEventListener === 'function'

@@ -117,4 +117,37 @@ describe('#623 Contract：信任边界与密钥边界', () => {
     expect(service).toContain('url.search')
     expect(service).toContain('url.hash')
   })
+
+  it('#1171 T13：客户端 issuer 校验 —— 未知 issuer 显式拒绝，Production 不从 localStorage 读 issuer 列表', () => {
+    const issuers = readContractSource('src/features/identity/identityIssuers.ts')
+    // canonical issuer 单一事实源（与 identity-platform 的 PRODUCTION_CANONICAL_ISSUER 同源）
+    expect(issuers).toContain("PRODUCTION_CANONICAL_ISSUER = 'https://id.xn--vhq74jc2fzpchter27a.com'")
+    // 可配置列表（不是写死单一值）+ 显式拒绝语义
+    expect(issuers).toContain('getAcceptedIdentityIssuers')
+    expect(issuers).toContain('setAcceptedIdentityIssuers')
+    expect(issuers).toContain('unknown_issuer')
+    // Production 永不从 localStorage 读 issuer 列表（DEV-only 守卫）
+    expect(issuers).toContain('isDevRuntime')
+    expect(issuers).toContain('import.meta.env')
+    // 换票路径强制经过 issuer 校验（拒绝后 return null，无降级分支）
+    const device = readContractSource('src/utils/identity_device_token.ts')
+    expect(device).toContain('verifyIdentityTokenIssuer')
+    expect(device).toContain('if (!issuerCheck.ok) {')
+  })
+
+  it('#1171 T13：双轨凭据隔离 —— 登出/切号统一清两个域；原子刷新 + 单飞状态机', () => {
+    // 统一清理入口：Identity 域 + legacy bridge 域
+    const creds = readContractSource('src/utils/session_credentials.ts')
+    expect(creds).toContain('clearIdentityAccessToken')
+    expect(creds).toContain('resetBridgeSessionToken')
+    expect(creds).toContain('clearAllSessionCredentials')
+    // 生命周期挂点：既有事件上清理两个域
+    const device = readContractSource('src/utils/identity_device_token.ts')
+    expect(device).toContain('clearAllSessionCredentials()')
+    // 单飞 + 原子替换：get/refresh 分开的在途任务；单字段原子载体
+    const at = readContractSource('src/utils/identity_access_token.ts')
+    expect(at).toContain('refreshInFlight')
+    expect(at).toContain('getInFlight')
+    expect(at).toContain('swapIdentityToken')
+  })
 })
