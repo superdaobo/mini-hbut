@@ -9,6 +9,8 @@
  *   GET  /api/v1/apps/:appId/reviews                  列表（管理员全部状态 / owner 本人）
  *   POST /api/v1/apps/:appId/reviews/:reviewId/approve  批准（管理员 + step-up）
  *   POST /api/v1/apps/:appId/reviews/:reviewId/reject  驳回（管理员 + step-up + 原因必填）
+ *   POST /api/v1/apps/:appId/reviews/:reviewId/provision  上架（管理员 + step-up；
+ *     编排层 provisioner.ts，依赖部署侧注入，见 provision.routes.ts）
  *
  * 边界（与 #625 admin 路由同一套身份/审计设施，不另建第二套账号认证）：
  * - 身份：x-admin-subject（pairwise sub 经 resolveUserIdBySubject 回写，
@@ -68,6 +70,7 @@ import {
 } from '../../db/repos/app_registry.repo.js'
 import { writeAuditEvent } from '../../observability/audit/index.js'
 import { assertAppId, parseSubmitBody, type SubmitContent } from './validate.js'
+import { registerAppRegistryProvisionRoutes, type ProvisioningDeps } from './provision.routes.js'
 
 export interface AppRegistryApiDeps {
   sql: SqlExecutor
@@ -77,6 +80,9 @@ export interface AppRegistryApiDeps {
   developerClientId?: string
   /** 环境变量（测试可注入；缺省 process.env） */
   env?: Record<string, string | undefined>
+  /** T12 provisioner 编排层依赖（部署侧注入：四适配器 + 快照读取器，见 provision.routes.ts）；
+   *  未配置 → POST .../provision 返回 503 provisioner_not_configured（fail closed） */
+  provisioning?: ProvisioningDeps
 }
 
 /** AppRegistryError.code → HTTP 状态（未知 code 默认 400，fail closed） */
@@ -583,5 +589,13 @@ export function registerAppRegistryRoutes(router: Router, deps: AppRegistryApiDe
     } catch (err) {
       respondError(ctx, err)
     }
+  })
+
+  // POST /api/v1/apps/:appId/reviews/:reviewId/provision —— 上架（reviewer + step-up；
+  // 编排层 provisioner.ts，依赖部署侧注入，见 provision.routes.ts）
+  registerAppRegistryProvisionRoutes(router, {
+    sql,
+    env: deps.env ?? process.env,
+    provisioning: deps.provisioning,
   })
 }
