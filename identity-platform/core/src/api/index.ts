@@ -19,6 +19,7 @@ import { registerAppRoutes } from './app/index.js'
 import { registerAdminRoutes } from './admin/index.js'
 import { registerDeveloperRoutes } from './developer/index.js'
 import { registerAccountRoutes } from './account/index.js'
+import { registerAppRegistryRoutes } from './app-registry/index.js'
 
 export { API_PREFIX, HANDOFF_HEADER } from './requests.js'
 export type { RequestsApiDeps } from './requests.js'
@@ -68,6 +69,17 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
   // #688 account 端点：账户级 API Key——Bearer 直连 /api/v1/account/**，
   // 以及管理面 /api/v1/developer/keys（service-token + x-developer-subject 链路）。
   registerAccountRoutes(router, {
+    sql: deps.sql,
+    pairwiseKey: process.env.IDENTITY_PAIRWISE_SUBJECT_KEY,
+    developerClientId: process.env.DEVELOPER_OIDC_CLIENT_ID ?? 'developer-portal',
+    env: process.env,
+  })
+
+  // T12（mini-hbut#1170）应用注册审核端点：/api/v1/apps/:appId/reviews/**
+  // （新审核记录表 app_registry_reviews，见 migrations/0010；身份/RBAC/step-up
+  // 复用 admin/developer 既有设施，路径纳入 service-token 保护，
+  // 见 src/security/service-token.ts PROTECTED_PREFIXES）
+  registerAppRegistryRoutes(router, {
     sql: deps.sql,
     pairwiseKey: process.env.IDENTITY_PAIRWISE_SUBJECT_KEY,
     developerClientId: process.env.DEVELOPER_OIDC_CLIENT_ID ?? 'developer-portal',
