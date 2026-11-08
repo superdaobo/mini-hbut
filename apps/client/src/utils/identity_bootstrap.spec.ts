@@ -334,6 +334,22 @@ describe('maybeBootstrapIdentity（登录成功后的总入口）', () => {
     expect(peekIdentityAccessToken()).toBe('')
   })
 
+  it('令牌**缺少** hbut_student_id claim → 也拒绝（与设备换票护栏对齐，fail closed）', async () => {
+    // 红队 M2：原先 `tokenStudentId &&` 会让"合法签发但缺该 claim"的令牌跳过主体检查而落地
+    const noSubject = makeJwt({ iss: PRODUCTION_CANONICAL_ISSUER })
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) =>
+      jsonResponse(200, { access_token: noSubject, token_type: 'Bearer', expires_in: 60 })
+    )
+    const outcome = await maybeBootstrapIdentity({
+      studentId: STUDENT_ID,
+      config: enabledConfig(),
+      baseUrl: 'https://api.example.com',
+      fetchImpl
+    })
+    expect(outcome).toMatchObject({ status: 'rejected', error: 'subject_mismatch' })
+    expect(peekIdentityAccessToken()).toBe('')
+  })
+
   it('令牌主体与本地学号不一致 → rejected（subject_mismatch）且不落令牌', async () => {
     const other = okJwt('2510231107')
     const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) =>
