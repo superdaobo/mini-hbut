@@ -469,9 +469,11 @@ export const maybeBootstrapIdentity = async (
     return { status: 'rejected', error: 'issuer_check_failed', message: issuerCheck.message }
   }
   const tokenStudentId = decodeAccessTokenStudentId(token)
-  if (tokenStudentId && tokenStudentId !== studentId) {
-    report('身份引导令牌与本地会话学号不一致，已丢弃')
-    return { status: 'rejected', error: 'subject_mismatch', message: '身份引导令牌与本地会话学号不一致，已丢弃' }
+  // fail closed：**缺失** `hbut_student_id` 也必须拒绝（与 identity_device_token.ts:133 对齐）——
+  // 否则一个合法签发但缺该 claim 的令牌（如被替换的响应）会跳过主体一致性检查而落地。
+  if (!tokenStudentId || tokenStudentId !== studentId) {
+    report('身份引导令牌缺少主体或与本地会话学号不一致，已丢弃')
+    return { status: 'rejected', error: 'subject_mismatch', message: '身份引导令牌缺少主体或与本地会话学号不一致，已丢弃' }
   }
   // 6. 落地：既有身份域唯一写路径（内存；登出/切号由既有事件监听统一清理）
   swapIdentityToken(token)
