@@ -298,3 +298,178 @@ networks:
 | 7 | ocr-service `compose.yaml` 实际内容（网络/挂载/labels 现值） | 仓库内无该文件 | 只读 `cat` 后与 §5 模板 diff |
 | 8 | secrets 文件 → 环境变量注入机制（当前 Dockerfile CMD 直接 uvicorn，不读文件） | ocr-service `Dockerfile:54` | 按 §5 模板加 `command` 包装（需 FDL 验证）或改镜像入口 |
 | 9 | `/identity/*` 是否需 Access 保护或保持公开（仅 `/health` 有 P1002 提醒） | P1002:94 | 拍板后更新 SR |
+
+## 14. 开启 identity 引导的 app_attestation 模式（2026-11-08 追加）
+
+> 本章为**追加章节**，§1–§13 未改动。适用变更：在 NAS `fdl-ocr-service` 上开启 3 个默认关闭的开关，
+> 使 `POST /identity/bootstrap` 接受「App 自证身份」（`app_attestation` 模式）：App 已在客户端内登录教务，
+> 直接把学号/姓名交给后端，后端**不再请求校方**（零对外 HTTP）。
+>
+> 代码依据（只读核实；ocr-service 分支 `feat/campus-app-attestation` @ `f702a23`，该 commit **尚未合入 `ocr-services/main`**（ahead 1），部署前必须随镜像带上）：
+> - `identity_auth/campus_session.py:234-256`（三个开关的加载）/ `:402-521`（verifier 的 fail closed 纪律）
+> - `identity_auth/campus_session.py:338-353`（设备签名校验件接口；**entrypoint 未注入** → 信任开关为必须项）
+> - `runtime/entrypoint.py:174-214`（路由注册条件：断言开 或 建号开 或 校园校验器已配置；verifier 注入条件：校园会话 configured）
+> - `modules/identity_bootstrap/routes.py:110-166`（端点门禁：`assertion.enabled` 否则 503 `disabled`；verifier 未注入 → 503 `verifier_not_configured`；验证不通过 → 401 `session_not_verified`）
+> - `identity_auth/config.py:135-137,155-169`（CASDOOR 最小条件：enabled + admin_client_id + admin_client_secret）
+> - `identity_auth/assertion.py:93-95,110-128`（ASSERTION 最小条件：enabled + issuer + audience + 私钥）
+>
+> 配套交付物（ocr-service 仓库）：
+> - `deploy/identity/bootstrap-app-attestation.env.example`：键清单（必填 / 已在 NAS / 本次新增 / 回滚时改什么，只含键名与注释）
+> - `scripts/smoke_identity_bootstrap.py`：本机离线冒烟（2026-11-08 实跑 6/6 通过，见 §14.4）
+
+### 14.0 部署前前置条件（逐项关闭，否则停）
+
+| # | 前置 | 依据 / 关闭方式 |
+|---|---|---|
+| 1 | 拟部署镜像的 commit **包含 `f702a23`**（`app_attestation` 模式所在 commit）；若当前 NAS 镜像是更旧版本，先按 §6 构建 + 投递（build-arg `APP_BUILD_SHA` 用含 `f702a23` 的 commit SHA） | ocr-service `git log`；§6 |
+| 2 | §13-5（当前在跑镜像 tag/digest）与 §13-7（`compose.yaml` 现值）已核实并记录 | §13 |
+| 3 | §13-8（secrets → env 注入机制）已确认：若当前 compose 未注入，按 §5 模板加 `command` 包装（由 FDL 验证） | §13-8；§5 |
+| 4 | env 示例中 B/C 组占位符已填 NAS 真实值：`MINI_HBUT_ASSERTION_ISSUER`/`MINI_HBUT_ASSERTION_AUDIENCE` 必须与 Casdoor Federated Credential 配置**逐字一致**；`MINI_HBUT_CASDOOR_ADMIN_CLIENT_ID/SECRET` 从 `secrets/` 读入 | §11.1/§11.2；§12-3 |
+| 5 | 本机冒烟通过：ocr-service 仓库根 `python scripts/smoke_identity_bootstrap.py`（无网络） | §14.4 |
+| 6 | **信任根决策已拍板**：`MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION=true` 是产品/安全决策（见 §14.0 下方风险声明），不是纯技术开关 | 本 § |
+
+**风险声明（随变更保留）**：开启 `MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION=true` 意味着 **App 即信任根**——后端把客户端自报的学号/姓名直接当作可信身份，并据此在 Casdoor 建号/签发令牌。伪造或被攻破的客户端可自证任意学号。缓解：(a) 当前无设备签名校验件注入，该开关是唯一「开门」，不得与其它信任放宽叠加；(b) 每次接受打 WARNING（logger `identity-auth`，`verification_method=app_attestation` 可审计，campus_session.py:457-462）；(c) 降级路径：置 `false` 立即 401 fail closed，无需回滚镜像/密钥；(d) 更高信任级 = 注入 `device_attestation_verifier`（campus_session.py:338-353）后关闭信任开关。
+
+### 14.1 部署步骤（订单；执行者 = 有 shell 的人（FDL）；无 SSH 通道时 SFTP 只完成文件到位，命令待 shell 开放后执行，§2）
+
+**0. 切换前备份（红线，未完成不得切换，PC:123-136）：**
+
+```bash
+# 0.1 记录当前在跑镜像（tag + digest），填入 §13-5
+docker image inspect --format '{{.RepoTags}} {{index .RepoDigests 0}}' fdl-ocr-service:<当前tag>
+# 0.2 当前镜像保留为 :rollback（SR:82 先例）
+docker tag fdl-ocr-service:<当前tag> fdl-ocr-service:rollback
+# 0.3 「digest↔tag↔commit」映射 + 备份时间写入 worklog（PC:40-50,135）
+```
+
+**1.（镜像）若前置 1 未满足**：按 §6 从含 `f702a23` 的 commit 构建 `fdl-ocr-service:<新tag>` 并经 SFTP 投递 + `docker load`；若已满足则跳过。
+
+**2.（环境注入）编辑 `/volume1/services/apps/ocr-service/compose.yaml`**，在 `fdl-ocr-service` 服务的 `environment:` 块中**新增/修改**（值中的尖括号为占位，必须替换；A 组三项是本次**唯一新增**；B/C 组先与现值比对，已有正确值则不重写）：
+
+```yaml
+      # ── A 组：本次新增（app_attestation 三开关）──
+      MINI_HBUT_CAMPUS_SESSION_ENABLED: "true"
+      MINI_HBUT_CAMPUS_VERIFY_MODE: "app_attestation"
+      MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION: "true"
+      # ── B 组：断言签发（必填；缺任一项 bootstrap 恒 503）──
+      MINI_HBUT_ASSERTION_ENABLED: "true"
+      MINI_HBUT_ASSERTION_ISSUER: "<真实值，必须与 Casdoor Federated Credential 一致>"
+      MINI_HBUT_ASSERTION_AUDIENCE: "<Casdoor 应用 client_id>"
+      MINI_HBUT_ASSERTION_PRIVATE_KEY_FILE: /run/secrets/assertion_private_key.pem
+      # ── C 组：Casdoor 建号/换令牌（必填；凭据只从 secrets 注入，禁止明文字面量，SR:83）──
+      MINI_HBUT_CASDOOR_ENABLED: "true"
+      MINI_HBUT_CASDOOR_ADMIN_CLIENT_ID: "<从 /volume1/services/secrets/casdoor_admin_client_id 读入>"
+      MINI_HBUT_CASDOOR_ADMIN_CLIENT_SECRET: "<从 /volume1/services/secrets/casdoor_admin_client_secret 读入>"
+```
+
+> - 若 `volumes:` 尚无断言私钥挂载，补一行：`- /volume1/services/secrets/assertion_private_key.pem:/run/secrets/assertion_private_key.pem:ro`（SR:83 只读）。
+> - 若 B/C 组凭据尚未以 env 注入（§13-8 待确认）：按 §5 模板的 `command` 包装从 `/run/secrets/` `cat` 出 `export`，再 `exec uvicorn ...`；**不得把凭据写成 compose 明文字面量**（§12-3）。
+> - 可选（一般不动）：`MINI_HBUT_CASDOOR_BASE_URL`（默认 `https://sso.hbut.site`，强制 https）、`MINI_HBUT_CASDOOR_ORG`（默认 `fdl-users`）、`MINI_HBUT_CASDOOR_USER_PREFIX`（默认 `hbut_`；改名 = 另建新号，见 env 示例 C5 注释）。
+
+**3.（校验）**
+
+```bash
+cd /volume1/services/apps/ocr-service
+docker compose config   # 无 "Invalid"、退出码 0（PC:113-121）
+```
+
+**4.（重启）** 用 `/volume1/services/scripts/fdl-stack.sh`（root、LF 行尾）对 `fdl-ocr-service` 栈执行 stop、随后 up（语义见 §10 步 4；**子命令具体接口以 NAS 现场版本为准**，§14.5-6）。
+
+**5.（部署后验证）** 按 §14.2 逐项执行。
+
+### 14.2 验证步骤（curl 与预期码）
+
+> `http://127.0.0.1:7860` 只在「容器内 / fdl-apps 同网段」可达（不发布宿主端口，SR:19）；无 shell 时用对外入口 `https://mini.hbut.site`（线路待确认 §13-4）。
+
+```bash
+# (1) 构建溯源（§8；build.sha 必须 = 本次发布 SHA）
+curl -fsS http://127.0.0.1:7860/health
+
+# (2) JWKS（断言已配置 → 200 公钥；503 = B 组缺配，对照 env 示例）
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7860/identity/jwks.json   # 预期 200
+curl -fsS http://127.0.0.1:7860/identity/jwks.json | head -c 200                       # 预期含 "keys"、kid、kty=RSA
+
+# (3) 自证主路径（10 位假学号；建号幂等 upsert，重复调用安全）
+curl -fsS -w '\n%{http_code}\n' -X POST http://127.0.0.1:7860/identity/bootstrap \
+  -H 'Content-Type: application/json' \
+  -d '{"student_id":"2510231106","student_name":"测试学生","proof":{"app_identity":{"student_id":"2510231106","student_name":"测试学生"}}}'
+# 预期 200；JSON 含 access_token/refresh_token/id_token/token_type/expires_in/scope；**不含 assertion 字段**
+# 若 503 disabled / assertion_not_configured → B 组缺配；503 verifier_not_configured → A 组未生效（compose 未重载？）
+
+# (4) 无自证 → 401（fail closed 证据；必须 401，不得 200/503）
+curl -fsS -w '\n%{http_code}\n' -X POST http://127.0.0.1:7860/identity/bootstrap \
+  -H 'Content-Type: application/json' \
+  -d '{"student_id":"2510231106","proof":{}}'
+# 预期 401 {"error":"session_not_verified"}
+
+# (5) 非 10 位学号 → 401
+curl -fsS -w '\n%{http_code}\n' -X POST http://127.0.0.1:7860/identity/bootstrap \
+  -H 'Content-Type: application/json' \
+  -d '{"student_id":"2510231106","proof":{"app_identity":{"student_id":"abc123","student_name":"测试学生"}}}'
+# 预期 401 {"error":"session_not_verified"}
+
+# (6) 日志（NAS 上）
+docker logs fdl-ocr-service --tail 200 2>&1 | grep -E 'IdentityAuth'
+# 接受行："app attestation accepted on trust flag (App is the trust root): student_id=2510*** device=..." + "metric=bootstrap_ok"
+# 拒绝行："bootstrap rejected kind=session_not_verified"（对 (4)/(5) 的请求）
+
+# (7) 对外入口（无 shell 时）
+curl -fsS -o /dev/null -w '%{http_code}\n' https://mini.hbut.site/identity/jwks.json   # 预期 200（线路可达前提下）
+```
+
+### 14.3 回滚步骤（A 组三开关逐条回滚；与镜像回滚独立，无需回滚 DB/密钥/用户）
+
+> 优先级：R1（总开关）> R2（信任开关）> R3（模式）。每改一条，执行下方公共步骤后按 §14.2(3)(4) 验证，再继续下一条。
+> 症状判读依赖「B/C 组仍开」这一前提（路由仍注册）；若 B/C 组同时关闭，S1 场景的 404 属预期（见冒烟脚本）。
+
+| # | 改什么（`compose.yaml` 的 `environment:`） | 改后预期症状 |
+|---|---|---|
+| R1 | `MINI_HBUT_CAMPUS_SESSION_ENABLED: "false"`（或删行） | `POST /identity/bootstrap` → 503 `{"error":"verifier_not_configured"}`；App 自证整条链路关闭；JWKS 仍 200（B 组未动）；既有端点不受影响 |
+| R2 | `MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION: "false"` | 自证请求 → 401 `session_not_verified`；日志 `app attestation rejected: no device verifier/signature and MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION is off`（campus_session.py:451-455） |
+| R3 | `MINI_HBUT_CAMPUS_VERIFY_MODE: "school_session"` | 自证不再被接受（请求须带教务域 cookie 于 `proof.cookie`，且 NAS 可达校方 https）；不可达时同样 401（日志 `campus session verify failed`）。注意：NAS 到校方**未实测**（campus_session.py:52-55），R3 是「退回部署前设计」而非「保证可用」 |
+
+改后公共步骤：
+
+```bash
+cd /volume1/services/apps/ocr-service
+docker compose config    # 必须通过
+# 用 fdl-stack.sh 对 fdl-ocr-service 执行 stop、随后 up（§10 步 4）
+# 验证（按所回滚条目对应的预期症状断言）：
+curl -fsS -w '\n%{http_code}\n' -X POST http://127.0.0.1:7860/identity/bootstrap -H 'Content-Type: application/json' -d '{}'
+```
+
+镜像级回滚（仅镜像问题时，与开关回滚无关）：按 §10（旧 digest → `:rollback` → `compose config` → stop/up → 健康校验 → 24h 观察期）。
+
+### 14.4 本机冒烟（已实跑通过；无网络）
+
+```bash
+# ocr-service 仓库根；Python 3.13 + fastapi/httpx/cryptography/pyjwt（本机已具备）
+python scripts/smoke_identity_bootstrap.py
+```
+
+6 场景（装配复刻 `runtime/entrypoint.py:174-214`；校方=ExplodingTransport 证明零对外请求；Casdoor=假客户端）：
+
+| 场景 | 配置 | 断言 |
+|---|---|---|
+| S1 | 全部开关关 | 路由未注册 → `POST /identity/bootstrap` 404、`GET /identity/jwks.json` 404（如实断言；503 只出现在路由已注册时） |
+| S2 | B/C 开、校园开关关 | 503 `{"error":"verifier_not_configured"}`；JWKS 200（两码事） |
+| S3 | A 组三开关开（app_attestation + 信任） | 200 且 access_token/refresh_token/id_token/token_type/expires_in/scope 全齐、无 assertion 字段；**对外请求 0 次**；假 Casdoor 收到 `get-user`+`add-user` 建号（属性 `hbut_verification_method=app_attestation`）与 `grant_type=jwt-bearer` 换令牌 |
+| S4 | 缺自证（proof 空） | 401 `{"error":"session_not_verified"}` |
+| S5 | 学号非 10 位（`abc123`/9 位） | 401 `session_not_verified`，且不触发建号 |
+| S6 | 声明学号与自证不一致 | 401 `session_not_verified`，且不触发建号 |
+
+**实跑结果（2026-11-08，本机，`python -X utf8 scripts/smoke_identity_bootstrap.py`）：`结果：共 6 个场景，通过 6，失败 0`，退出码 0。** 日志侧见审计行 `app attestation accepted on trust flag (App is the trust root): student_id=2510*** device=dev-lo`。
+
+### 14.5 已知未验证项（必须 NAS / 真机验证）
+
+| # | 事项 | 为什么本机无法验证 |
+|---|---|---|
+| 1 | 真实 Casdoor 是否接受该断言（Federated Credential 的 Issuer/Audience/Subject 匹配、`getFederatedUser` 命中）并发出 AT/RT/ID | 真实机器凭据不在本机；冒烟只用假客户端模拟接口形状 |
+| 2 | 建号 4 个 properties（`hbut_student_id/name/verification_method/verified_at`）是否真的注入到 token claims（依赖 Casdoor 应用 `tokenFields` 配置） | T09 实测过注入机制（config.py:76-81），但 app_attestation 全链路未真机跑过 |
+| 3 | `mini.hbut.site` 能否到达 `fdl-ocr-service`（线路 A cf-tunnel 还是线路 B frpc） | §13-4 待确认 |
+| 4 | NAS 网络能否到达校方 https（仅当 R3 回滚到 `school_session` 后才相关） | 本机打不到校方（campus_session.py:52-55），校方页面结构/双基址未实测 |
+| 5 | secrets 文件 → env 的注入机制现值（compose 是否已有 `command` 包装） | §13-8 待确认 |
+| 6 | `fdl-stack.sh` stop/up 的确切子命令接口 | 本手册 §10 步 4 只记录了语义；接口以 NAS 现场版本为准 |
+| 7 | 信任开关开启期的安全授权（App 即信任根） | 本章是技术 runbook；开信任根属产品/安全决策，需显式拍板（§14.0-6） |
+| 8 | 当前 NAS 镜像是否已含 `f702a23` | §13-5 待确认；未含则必须先走 §6 构建/投递 |
+
