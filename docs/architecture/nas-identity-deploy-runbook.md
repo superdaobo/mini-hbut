@@ -305,30 +305,33 @@ networks:
 > 使 `POST /identity/bootstrap` 接受「App 自证身份」（`app_attestation` 模式）：App 已在客户端内登录教务，
 > 直接把学号/姓名交给后端，后端**不再请求校方**（零对外 HTTP）。
 >
-> 代码依据（只读核实；ocr-service 分支 `feat/campus-app-attestation` @ `f702a23`，该 commit **尚未合入 `ocr-services/main`**（ahead 1），部署前必须随镜像带上）：
-> - `identity_auth/campus_session.py:234-256`（三个开关的加载）/ `:402-521`（verifier 的 fail closed 纪律）
-> - `identity_auth/campus_session.py:338-353`（设备签名校验件接口；**entrypoint 未注入** → 信任开关为必须项）
+> 代码依据（**已全部合入 `ocr-services/main`**：app_attestation 实现 = PR **#16**（squash `795ba1d2`）；
+> 后续 #17（e2e 测试 `ae54885e`）、#18（部署样例+冒烟 `d4c3810a`）、#19（学号形状可配置 `1119a244`）。
+> ⚠️ **不要**按早前草案里的 `f702a23` 锚点构建：那是分支上的**兄弟提交**，不在 main 祖先链上，
+> 用它构建会漏掉 #17/#18/#19（尤其 #19 的学号形状修复）。合规镜像是**从 main 构建且包含 `1119a244` 或更晚**：
+> - `identity_auth/campus_session.py:241-256`（三个开关的加载 + 学号形状）/ `:419-530`（verifier 的 fail closed 纪律）
+> - `identity_auth/campus_session.py:347-362`（设备签名校验件接口；**entrypoint 未注入** → 信任开关为必须项）
 > - `runtime/entrypoint.py:174-214`（路由注册条件：断言开 或 建号开 或 校园校验器已配置；verifier 注入条件：校园会话 configured）
 > - `modules/identity_bootstrap/routes.py:110-166`（端点门禁：`assertion.enabled` 否则 503 `disabled`；verifier 未注入 → 503 `verifier_not_configured`；验证不通过 → 401 `session_not_verified`）
-> - `identity_auth/config.py:135-137,155-169`（CASDOOR 最小条件：enabled + admin_client_id + admin_client_secret）
+> - `identity_auth/config.py:135-137,154-168`（CASDOOR 最小条件：enabled + admin_client_id + admin_client_secret）
 > - `identity_auth/assertion.py:93-95,110-128`（ASSERTION 最小条件：enabled + issuer + audience + 私钥）
 >
 > 配套交付物（ocr-service 仓库）：
 > - `deploy/identity/bootstrap-app-attestation.env.example`：键清单（必填 / 已在 NAS / 本次新增 / 回滚时改什么，只含键名与注释）
-> - `scripts/smoke_identity_bootstrap.py`：本机离线冒烟（2026-11-08 实跑 6/6 通过，见 §14.4）
+> - `scripts/smoke_identity_bootstrap.py`：本机离线冒烟（2026-11-08 实跑 6/6 通过，见 §14.4；须在仓库根运行）
 
 ### 14.0 部署前前置条件（逐项关闭，否则停）
 
 | # | 前置 | 依据 / 关闭方式 |
 |---|---|---|
-| 1 | 拟部署镜像的 commit **包含 `f702a23`**（`app_attestation` 模式所在 commit）；若当前 NAS 镜像是更旧版本，先按 §6 构建 + 投递（build-arg `APP_BUILD_SHA` 用含 `f702a23` 的 commit SHA） | ocr-service `git log`；§6 |
+| 1 | 拟部署镜像的 commit **包含 PR #16 与 PR #19**（判据：`git merge-base --is-ancestor 1119a244 <构建commit>` 为真，或 build.sha 属 main 上 `1119a244` 之后的提交）；若当前 NAS 镜像是更旧版本，先按 §6 构建 + 投递（build-arg `APP_BUILD_SHA` 用该 commit SHA） | ocr-service `git log`；§6 |
 | 2 | §13-5（当前在跑镜像 tag/digest）与 §13-7（`compose.yaml` 现值）已核实并记录 | §13 |
 | 3 | §13-8（secrets → env 注入机制）已确认：若当前 compose 未注入，按 §5 模板加 `command` 包装（由 FDL 验证） | §13-8；§5 |
 | 4 | env 示例中 B/C 组占位符已填 NAS 真实值：`MINI_HBUT_ASSERTION_ISSUER`/`MINI_HBUT_ASSERTION_AUDIENCE` 必须与 Casdoor Federated Credential 配置**逐字一致**；`MINI_HBUT_CASDOOR_ADMIN_CLIENT_ID/SECRET` 从 `secrets/` 读入 | §11.1/§11.2；§12-3 |
-| 5 | 本机冒烟通过：ocr-service 仓库根 `python scripts/smoke_identity_bootstrap.py`（无网络） | §14.4 |
+| 5 | 本机冒烟通过（在 ocr-service 仓库根）：ocr-service 仓库根 `python -X utf8 scripts/smoke_identity_bootstrap.py`（无网络；需在 ocr-service 仓库根运行或 PYTHONPATH 含仓库根——脚本 import 仓库内的 `identity_auth`/`modules`，不是独立单文件） | §14.4 |
 | 6 | **信任根决策已拍板**：`MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION=true` 是产品/安全决策（见 §14.0 下方风险声明），不是纯技术开关 | 本 § |
 
-**风险声明（随变更保留）**：开启 `MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION=true` 意味着 **App 即信任根**——后端把客户端自报的学号/姓名直接当作可信身份，并据此在 Casdoor 建号/签发令牌。伪造或被攻破的客户端可自证任意学号。缓解：(a) 当前无设备签名校验件注入，该开关是唯一「开门」，不得与其它信任放宽叠加；(b) 每次接受打 WARNING（logger `identity-auth`，`verification_method=app_attestation` 可审计，campus_session.py:457-462）；(c) 降级路径：置 `false` 立即 401 fail closed，无需回滚镜像/密钥；(d) 更高信任级 = 注入 `device_attestation_verifier`（campus_session.py:338-353）后关闭信任开关。
+**风险声明（随变更保留）**：开启 `MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION=true` 意味着 **App 即信任根**——后端把客户端自报的学号/姓名直接当作可信身份，并据此在 Casdoor 建号/签发令牌。伪造或被攻破的客户端可自证任意学号。缓解：(a) 当前无设备签名校验件注入，该开关是唯一「开门」，不得与其它信任放宽叠加；(b) 每次接受打 WARNING（logger `identity-auth`，`verification_method=app_attestation` 可审计，campus_session.py:457-462）；(c) 降级路径：置 `false` 立即 401 fail closed，无需回滚镜像/密钥；(d) 更高信任级 = 注入 `device_attestation_verifier`（campus_session.py:347-362）后关闭信任开关。
 
 ### 14.1 部署步骤（订单；执行者 = 有 shell 的人（FDL）；无 SSH 通道时 SFTP 只完成文件到位，命令待 shell 开放后执行，§2）
 
@@ -347,19 +350,27 @@ docker tag fdl-ocr-service:<当前tag> fdl-ocr-service:rollback
 **2.（环境注入）编辑 `/volume1/services/apps/ocr-service/compose.yaml`**，在 `fdl-ocr-service` 服务的 `environment:` 块中**新增/修改**（值中的尖括号为占位，必须替换；A 组三项是本次**唯一新增**；B/C 组先与现值比对，已有正确值则不重写）：
 
 ```yaml
-      # ── A 组：本次新增（app_attestation 三开关）──
+      # ── A 组：本次新增（app_attestation 三开关 + 学号形状）──
       MINI_HBUT_CAMPUS_SESSION_ENABLED: "true"
       MINI_HBUT_CAMPUS_VERIFY_MODE: "app_attestation"
       MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION: "true"
+      # ⚠️ 学号形状：默认只认 10 位。我校若存在 9 位/12 位学号（研究生等），**必须**放宽此项，
+      #    否则这些用户 bootstrap 恒 401（fail closed，不静默成功，但用户视角"登录成功却拿不到身份"）。
+      #    放宽前请确认真实位数；非法正则会被实现忽略并回落默认规则（不会静默放行）。
+      MINI_HBUT_CAMPUS_STUDENT_ID_PATTERN: "^\d{9,12}$"   # 若确认只有 10 位，则整体删除本行（用默认）
       # ── B 组：断言签发（必填；缺任一项 bootstrap 恒 503）──
       MINI_HBUT_ASSERTION_ENABLED: "true"
       MINI_HBUT_ASSERTION_ISSUER: "<真实值，必须与 Casdoor Federated Credential 一致>"
       MINI_HBUT_ASSERTION_AUDIENCE: "<Casdoor 应用 client_id>"
       MINI_HBUT_ASSERTION_PRIVATE_KEY_FILE: /run/secrets/assertion_private_key.pem
-      # ── C 组：Casdoor 建号/换令牌（必填；凭据只从 secrets 注入，禁止明文字面量，SR:83）──
+      # ── C 组：Casdoor 建号/换令牌（必填）──
+      # 🔴 凭据**禁止**写成下面的明文（本段只是"需要这两个键"的说明，不是让你填字面量！）：
+      #    MINI_HBUT_CASDOOR_ADMIN_CLIENT_ID: "<不要这样写>"
+      #    MINI_HBUT_CASDOOR_ADMIN_CLIENT_SECRET: "<不要这样写>"
+      #    正确做法：**不写进 environment**，改用 §5 模板的 command 包装从只读 secret 注入，例如：
+      #      command: ["/bin/sh","-c","export MINI_HBUT_CASDOOR_ADMIN_CLIENT_ID=$$(cat /run/secrets/casdoor_admin_client_id) &&       #                export MINI_HBUT_CASDOOR_ADMIN_CLIENT_SECRET=$$(cat /run/secrets/casdoor_admin_client_secret) &&       #                exec uvicorn runtime.entrypoint:app --host 0.0.0.0 --port 7860"]
+      #    并确保 volumes 里有对应的 :ro 挂载（SR:83）。
       MINI_HBUT_CASDOOR_ENABLED: "true"
-      MINI_HBUT_CASDOOR_ADMIN_CLIENT_ID: "<从 /volume1/services/secrets/casdoor_admin_client_id 读入>"
-      MINI_HBUT_CASDOOR_ADMIN_CLIENT_SECRET: "<从 /volume1/services/secrets/casdoor_admin_client_secret 读入>"
 ```
 
 > - 若 `volumes:` 尚无断言私钥挂载，补一行：`- /volume1/services/secrets/assertion_private_key.pem:/run/secrets/assertion_private_key.pem:ro`（SR:83 只读）。
