@@ -301,6 +301,19 @@ networks:
 
 ## 14. 开启 identity 引导的 app_attestation 模式（2026-11-08 追加）
 
+> # ⛔ 本章已作废（2026-11-09），**禁止执行**
+>
+> 原因：本章指示开启的 `MINI_HBUT_CAMPUS_TRUST_APP_ATTESTATION=true`（"App 即信任根"）已被架构决策取代：
+> - 需求方 2026-11-09 定：**用设备签名直证**，且 **NAS 连不到教务、不上传 cookie**；
+> - FDL 2026-10-31 也明确否决"后端代理 Casdoor"与"服务端只拿到 App 的一句话"。
+>
+> 正确方案见 [`identity-v2-device-attestation.md`](identity-v2-device-attestation.md)（ADR）与
+> [`identity-v2-execution-runbook.md`](identity-v2-execution-runbook.md)（执行手册）。
+>
+> 本章以下内容**仅作历史记录**保留；其中"风险声明""回滚 R1–R3""验证命令"等仍可作为**理解背景**阅读，
+> 但**不得**据此修改任何生产配置。
+
+
 > 本章为**追加章节**，§1–§13 未改动。适用变更：在 NAS `fdl-ocr-service` 上开启 3 个默认关闭的开关，
 > 使 `POST /identity/bootstrap` 接受「App 自证身份」（`app_attestation` 模式）：App 已在客户端内登录教务，
 > 直接把学号/姓名交给后端，后端**不再请求校方**（零对外 HTTP）。
