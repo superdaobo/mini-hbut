@@ -5,7 +5,7 @@
 > 一键脚本：[`../../scripts/identity_v2_phase0_e2e.py`](../../scripts/identity_v2_phase0_e2e.py)
 > 假 Casdoor：[`../../scripts/identity_v2_phase0_fake_casdoor.py`](../../scripts/identity_v2_phase0_fake_casdoor.py)
 > JSON 证据（脚本 `--json-out` 产物，含每步命令/状态码/响应体/断言/时间戳）：[`identity-v2-phase0-evidence.json`](identity-v2-phase0-evidence.json)
-> 状态：**[RESULT] PASS，退出码 0**（2026-11-10，11 步全部通过；总耗时 26.5s）
+> 状态：**[RESULT] PASS，退出码 0**（2026-11-10，11 步全部通过；总耗时 113.0s）
 
 ---
 
@@ -18,12 +18,13 @@
 | mini-hbut（本 worktree） | `D:\ct_scratch\hb-p08`，分支 `feat/p0-8-phase0`（基线 = `origin/main` `92de0263`；分支上的 P0-8 提交见 PR） |
 | ocr-service 检出 | `D:\ct_scratch\ocr-golden`，`799827ff`（main=799827f，只读） |
 | mini-hbut-student-auth 检出 | `D:\ct_scratch\sa-p08`，分支 `feat/p0-8-exchange`（基线 = `origin/main` `58774b0`；`/debug/exchange` 为分支上的新交付） |
-| App 签名 | `cargo run --quiet --example identity_v2_dev_sign`（worktree 新文件 `apps/client/src-tauri/examples/identity_v2_dev_sign.rs`；复用主仓预热 target `D:/Documents/C_learn/成绩查询/tauri-app/apps/client/src-tauri/target`） |
+| App 签名 | `cargo run --quiet --example identity_v2_dev_sign`（worktree 新文件 `apps/client/src-tauri/examples/identity_v2_dev_sign.rs`；脚本**默认** `--cargo-target-dir` = 主仓预热 target `D:/Documents/C_learn/成绩查询/tauri-app/apps/client/src-tauri/target`，故命令行里不显式出现——检查 2 复核 A 指出该措辞与记录命令不符，已在此说明） |
 | Python | 3.13.7（两个脚本均纯标准库） |
 | 命令 | `python scripts/identity_v2_phase0_e2e.py --root . --ocr-dir /d/ct_scratch/ocr-golden --sa-dir /d/ct_scratch/sa-p08` |
 | 端口 | 8941 ocr / 8942 新服务 / 8943 假 Casdoor（探测结果：均空闲，直接使用基准端口） |
 | 服务日志 | `D:/ct_scratch/p08-logs/{ocr,student-auth,fake-casdoor}.log` |
-| 种子 | `--seed-hex` = `07`×32（规格默认，可复现；每次运行 nonce 随机、idtoken 密钥随机） |
+| 种子 | `--seed-hex` = `5a`×32（阶段 0 联调**测试**种子；每次运行 nonce 随机、idtoken 密钥随机）。检查 2 复核 B 指出旧默认 `07`×32 与本机 keyring 设备密钥相同 → 已换值，且证据文件里种子**脱敏**（只记「用了默认值」） |
+| 假 Casdoor 自检 | 一键脚本 step 1 先跑 `identity_v2_phase0_fake_casdoor.py --selftest`（8 条：真票通过 + alg=none/篡改/错钥/过期×2/缺 jti/坏 sub 全拒）——给「拒绝路径」加回归保护（复核 B 变异发现原来会被静默放过） |
 
 **三类清单（诚实口径，规格 §0/§5）**：
 
@@ -48,22 +49,34 @@
 
 ## 2. 逐步真实输出（脚本 stdout 原样，最终一次运行）
 
-> 本次 stdout 与配套 `identity-v2-phase0-evidence.json` 是**同一次运行**（复核 A 曾指出两者来自不同 run，已重跑同步）。
-> 命令：`python scripts/identity_v2_phase0_e2e.py --root . --ocr-dir /d/ct_scratch/ocr-golden --sa-dir /d/ct_scratch/sa-p08`
-> 结果：`[RESULT] PASS`、退出码 `0`、总耗时 `26.5s`。
+> 本次 stdout 与配套 `identity-v2-phase0-evidence.json` 是**同一次运行**，且**在合并后的 main 上跑的**
+> （`mini-hbut c6caa4c9` + `mini-hbut-student-auth bb27607` + `ocr-service 799827f`，见 JSON `meta.repos`；
+> 检查 2 复核 B 指出旧版 meta 记录的是合并前的分支快照，已重跑消除歧义）。
+> 命令：`python scripts/identity_v2_phase0_e2e.py --root . --ocr-dir <ocr 检出> --sa-dir <新仓检出>`
+> 结果：`[RESULT] PASS`、退出码 `0`、总耗时 `113.0s`。
 
 ```text
 [step 1] 端口探测 + 启动 3 个服务（ocr / 新服务 / 假 Casdoor）+ 等 /health
   · 端口探测：实际使用 ocr=8941 / 新服务=8942 / 假Casdoor=8943（尝试记录见 JSON）
   · MINI_HBUT_DEBUG_IDTOKEN_SECRET 已生成（不回显，只注入 env/参数）
-  已启动 ocr（pid=366700，日志 D:/ct_scratch/p08-logs\ocr.log）
-  已启动 student-auth（pid=342636，日志 D:/ct_scratch/p08-logs\student-auth.log）
-  已启动 fake-casdoor（pid=197476，日志 D:/ct_scratch/p08-logs\fake-casdoor.log）
-  · ocr /health 200（5.9s，响应体见 JSON 证据 meta.health）
+  · [selftest] 真票通过: claims=True err=None -> PASS
+  · [selftest] alg=none 拒绝: claims=False err=invalid_shape -> PASS
+  · [selftest] 签名篡改拒绝: claims=False err=bad_signature -> PASS
+  · [selftest] 错钥拒绝: claims=False err=bad_signature -> PASS
+  · [selftest] 缺 jti 拒绝: claims=False err=missing_claim -> PASS
+  · [selftest] 过期拒绝: claims=False err=expired -> PASS
+  · [selftest] 过期（now-1）拒绝: claims=False err=expired -> PASS
+  · [selftest] sub 非 hbut_ 拒绝: claims=False err=bad_sub -> PASS
+  · [selftest] 全部 8 条符合预期（拒绝路径有回归保护）
+  ✓ 断言「假 Casdoor 验签器自检（拒绝路径回归）」：期望 `--selftest` 退出码 0（含 alg=none/篡改/错钥/过期/缺 claim/坏 sub 全拒）；实际 exit=0
+  已启动 ocr（pid=281400，日志 D:/ct_scratch/p08-logs\ocr.log）
+  已启动 student-auth（pid=151084，日志 D:/ct_scratch/p08-logs\student-auth.log）
+  已启动 fake-casdoor（pid=315608，日志 D:/ct_scratch/p08-logs\fake-casdoor.log）
+  · ocr /health 200（5.5s，响应体见 JSON 证据 meta.health）
   · student-auth /health 200（0.0s，响应体见 JSON 证据 meta.health）
   · fake-casdoor /health 200（0.0s，响应体见 JSON 证据 meta.health）
 [step 2] App 签名：cargo run --example identity_v2_dev_sign（复用 identity::v2_signature）
-  · cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex 0707070707070707070707070707070707070707070707070707070707070707 --nonce 31ef9d2b1e0a526d02e8c5ba01d22868 --ts 1794263686（cwd=.\apps\client\src-tauri，耗时 1.1s）
+  · cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex *** --nonce 20e873a6c5adac2cb4629da3a5ac1dc2 --ts 1794267459（cwd=.\apps\client\src-tauri，耗时 86.9s）
   · cargo 退出码：0；stderr 尾部：d: Option<&OnlineLearningPlatformStateRecord>) -> Value {
     |               ^^^^^^^^^^^^^^^^^
 
@@ -72,10 +85,10 @@ warning: function `resolve_online_learning_student_id` is never used
     |
 241 | fn resolve_online_learning_student_id(
     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ …（截断，共 600 字符）
-  · App 证明（stdout 那行 JSON）：{"device_id": "phase0-dev-0001", "student_id": "2510234567", "student_name": "张三", "student_name_hash": "1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf", "nonce": "31ef9d2b1e0a526d02e8c5ba01d22868", "ts": 1794263686, "alg": "Ed25519", "canonical": "v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|31ef9d2b1e0a526d02e8c5ba01d22868|1794263686", "signature": "WJg7OFSGeoooXCi-sEiNfqK6n9eLlgY6T3RgVAprEFahtPzASkwn1dMoSHQI1Vc6UoaJQnryClnjmKPihJ3gBw", "public_key_jwk": "{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw\"}", "self_check_ok": true}
+  · App 证明（stdout 那行 JSON）：{"device_id": "phase0-dev-0001", "student_id": "2510234567", "student_name": "张三", "student_name_hash": "1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf", "nonce": "20e873a6c5adac2cb4629da3a5ac1dc2", "ts": 1794267459, "alg": "Ed25519", "canonical": "v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|20e873a6c5adac2cb4629da3a5ac1dc2|1794267459", "signature": "SFqOFZo__ti4XSzO-59drX0qfhbUOdgYgNEj7r7W7jh8q07XqbMidsggI4Obhqsi6CtPAJYrcxs2yqjKneR6AA", "public_key_jwk": "{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"DXVQdU4IAKXSN-71gmA1dmubPloVhoqUCrKJlYeI47A\"}", "self_check_ok": true}
   ✓ 断言「self_check_ok」：期望 self_check_ok == true 且退出码 0；实际 self_check_ok=True, exit=0
-  ✓ 断言「canonical 跨语言一致」：期望 Rust build_v2_canonical 输出 == Python 重算；实际 rust='v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|31ef9d2b1e0a526d02e8c5ba01d22868|1794263686' py='v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|31ef9d2b1e0a526d02e8c5ba01d22868|1794263686'
-  ✓ 断言「public_key_jwk」：期望 OKP/Ed25519 公钥 JWK（43 位 base64url x，无 d）；实际 {"kty":"OKP","crv":"Ed25519","x":"6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"}
+  ✓ 断言「canonical 跨语言一致」：期望 Rust build_v2_canonical 输出 == Python 重算；实际 rust='v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|20e873a6c5adac2cb4629da3a5ac1dc2|1794267459' py='v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|20e873a6c5adac2cb4629da3a5ac1dc2|1794267459'
+  ✓ 断言「public_key_jwk」：期望 OKP/Ed25519 公钥 JWK（43 位 base64url x，无 d）；实际 {"kty":"OKP","crv":"Ed25519","x":"DXVQdU4IAKXSN-71gmA1dmubPloVhoqUCrKJlYeI47A"}
 [step 3] 未登记失败路径：device_id 尚未登记时 /debug/verify 必须 fail-closed
   → POST http://127.0.0.1:8942/debug/verify
     HTTP 401
@@ -105,20 +118,20 @@ warning: function `resolve_online_learning_student_id` is never used
     响应体（截断 800）：{"error":"signature_invalid","reason":"nonce_replayed"}
   ✓ 断言「nonce 一次性」：期望 401 且 reason==nonce_replayed（必须命中）；实际 401 reason=nonce_replayed
 [step 7] 授权码：/debug/authorize（新证明/新 nonce）→ 200 且 code 匹配 dbg_+32hex
-  · cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex 0707070707070707070707070707070707070707070707070707070707070707 --nonce 876aee9ad876e33a163b3758ab94acbd --ts 1794263695（cwd=.\apps\client\src-tauri，耗时 1.2s）（退出码 0）
-  · 新证明 B（nonce=876aee9ad876e33a163b3758ab94acbd）
+  · cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex *** --nonce 811d6812d37beb7925c2d482a87fc236 --ts 1794267555（cwd=.\apps\client\src-tauri，耗时 1.9s）（退出码 0）
+  · 新证明 B（nonce=811d6812d37beb7925c2d482a87fc236）
   → POST http://127.0.0.1:8942/debug/authorize
     HTTP 200
-    响应体（截断 800）：{"ok":true,"code":"dbg_2e2e62dfdae6804c0c12961667b24a46","student_id_masked":"2510***","redirect_uri":null,"expires_in":60}
-  ✓ 断言「授权码签发」：期望 200 且 ok=true 且 code 匹配 ^dbg_[0-9a-f]{32}$；实际 HTTP 200 code='dbg_2e2e62dfdae6804c0c12961667b24a46'
+    响应体（截断 800）：{"ok":true,"code":"dbg_66f1692feee3511b9e5ba6c799515ed9","student_id_masked":"2510***","redirect_uri":null,"expires_in":60}
+  ✓ 断言「授权码签发」：期望 200 且 ok=true 且 code 匹配 ^dbg_[0-9a-f]{32}$；实际 HTTP 200 code='dbg_66f1692feee3511b9e5ba6c799515ed9'
 [step 8] 假 Casdoor 换令牌：fake /oidc/exchange → 新服务 /debug/exchange → JWT 校验
   → POST http://127.0.0.1:8943/oidc/exchange
     HTTP 200
-    响应体（截断 800）：{"ok": true, "claims": {"alg": "Ed25519", "aud": "phase0-fake-casdoor", "auth_time": 1794263699, "device_id": "phase0-dev-0001", "exp": 1794264299, "iat": 1794263699, "iss": "http://127.0.0.1:8942", "jti": "97d7cd02c19042371cd9a1ef2fbf3d05", "nonce": "876aee9ad876e33a163b3758ab94acbd", "student_id_masked": "2510***", "sub": "hbut_2510234567"}, "id_token_fingerprint": "e8190a0d20a13153"}
-  ✓ 断言「换令牌成功」：期望 200 且 ok=true，claims 含 iss/aud/exp/sub/jti 且 sub 以 hbut_ 开头，指纹 16 位 hex；实际 HTTP 200 ok=True err=None fp='e8190a0d20a13153' sub='hbut_2510234567'
+    响应体（截断 800）：{"ok": true, "claims": {"alg": "Ed25519", "aud": "phase0-fake-casdoor", "auth_time": 1794267559, "device_id": "phase0-dev-0001", "exp": 1794268159, "iat": 1794267559, "iss": "http://127.0.0.1:8942", "jti": "dab43d4e1d1923f89c47e759fb99346a", "nonce": "811d6812d37beb7925c2d482a87fc236", "student_id_masked": "2510***", "sub": "hbut_2510234567"}, "id_token_fingerprint": "95096bbd5d4f103d"}
+  ✓ 断言「换令牌成功」：期望 200 且 ok=true，claims 含 iss/aud/exp/sub/jti 且 sub 以 hbut_ 开头，指纹 16 位 hex；实际 HTTP 200 ok=True err=None fp='95096bbd5d4f103d' sub='hbut_2510234567'
 [step 9] 错签失败路径：签名改一个 base64url 字符（新证明/新 nonce）→ signature_invalid
-  · cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex 0707070707070707070707070707070707070707070707070707070707070707 --nonce b6b77be6af42f4173d2d50badc2818d2 --ts 1794263699（cwd=.\apps\client\src-tauri，耗时 1.2s）（退出码 0）
-  · 错签构造：原签名首字符 'F' → 'A'（nonce 为新的 b6b77be6…）
+  · cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex *** --nonce 1aa640cccee7652dfd5244862823d103 --ts 1794267559（cwd=.\apps\client\src-tauri，耗时 1.1s）（退出码 0）
+  · 错签构造：原签名首字符 'u' → 'A'（nonce 为新的 1aa640cc…）
   → POST http://127.0.0.1:8942/debug/verify（错签）
     HTTP 401
     响应体（截断 800）：{"error":"not_verified","reason":"upstream_unauthorized"}
@@ -130,10 +143,10 @@ warning: function `resolve_online_learning_student_id` is never used
 [step 10] 设备列表：GET /debug/devices → 含该设备、条目恰好 10 字段、学号掩码
   → GET http://127.0.0.1:8942/debug/devices
     HTTP 200
-    响应体（截断 800）：{"devices":[{"device_id":"phase0-dev-0001","status":"active","bound_by":"first_claim","alg":"Ed25519","student_id_masked":"2510***","created_at":1794263690,"updated_at":1794263690,"last_verified_at":null,"revoked_at":null,"revoked_reason":null}],"count":1}
+    响应体（截断 800）：{"devices":[{"device_id":"phase0-dev-0001","status":"active","bound_by":"first_claim","alg":"Ed25519","student_id_masked":"2510***","created_at":1794267549,"updated_at":1794267549,"last_verified_at":null,"revoked_at":null,"revoked_reason":null}],"count":1}
   ✓ 断言「条目形状」：期望 恰好 10 个字段、无 public_key_jwk、status=active、学号掩码 2510***；实际 fields=['device_id', 'status', 'bound_by', 'alg', 'student_id_masked', 'created_at', 'updated_at', 'last_verified_at', 'revoked_at', 'revoked_reason'] status=active mask='2510***'
 [step 11] 汇总：写 JSON 证据 + 打印 [RESULT]
-  · 全部 11 步执行完毕，总耗时 26.5s
+  · 全部 11 步执行完毕，总耗时 113.0s
   已停止 fake-casdoor
   已停止 student-auth
   已停止 ocr

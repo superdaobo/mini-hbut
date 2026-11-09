@@ -1,10 +1,10 @@
 {
   "meta": {
-    "generated_at": "2026-11-10T06:35:06+08:00",
+    "generated_at": "2026-11-10T07:39:26+08:00",
     "script": "scripts/identity_v2_phase0_e2e.py",
     "spec": "goal-10/evidence/p0-8-phase0-e2e-spec.md §4/§5",
     "result": "PASS",
-    "elapsed_s": 26.5,
+    "elapsed_s": 113.0,
     "python": "3.13.7",
     "machine": "nt",
     "ports": {
@@ -31,9 +31,9 @@
         "service": "ocr",
         "url": "http://127.0.0.1:8941/health",
         "ok": true,
-        "elapsed_s": 5.85,
+        "elapsed_s": 5.47,
         "status": 200,
-        "body_preview": "{\"status\":\"ok\",\"service\":{\"version\":\"1.4.1\",\"started_at\":\"2026-11-10T06:34:41.779611+08:00\",\"uptime_seconds\":4,\"uptime\":\"0分钟\",\"timezone\":\"Asia/Shanghai\"},\"build\":{\"sha\":null,\"built_at\":null},\"ocr_maintenance\":{\"enabled\":false,\"interval_seconds\":900,\"last_run_at\":null,\"warmup_ok\":null,\"last_check\":null},\"daily_usage\":{\"date\":\"2026-11-10\",\"ocr_count\":0,\"upload_count\":0,\"grade_dist_query_count\":0,\"ti …（截断，共 2286 字符）"
+        "body_preview": "{\"status\":\"ok\",\"service\":{\"version\":\"1.4.1\",\"started_at\":\"2026-11-10T07:37:34.927967+08:00\",\"uptime_seconds\":4,\"uptime\":\"0分钟\",\"timezone\":\"Asia/Shanghai\"},\"build\":{\"sha\":null,\"built_at\":null},\"ocr_maintenance\":{\"enabled\":false,\"interval_seconds\":900,\"last_run_at\":null,\"warmup_ok\":null,\"last_check\":null},\"daily_usage\":{\"date\":\"2026-11-10\",\"ocr_count\":0,\"upload_count\":0,\"grade_dist_query_count\":0,\"ti …（截断，共 2286 字符）"
       },
       {
         "service": "student-auth",
@@ -47,7 +47,7 @@
         "service": "fake-casdoor",
         "url": "http://127.0.0.1:8943/health",
         "ok": true,
-        "elapsed_s": 0.03,
+        "elapsed_s": 0.02,
         "status": 200,
         "body_preview": "{\"ok\": true, \"service\": \"phase0-fake-casdoor\"}"
       }
@@ -55,19 +55,19 @@
     "repos": {
       "mini-hbut": {
         "dir": ".",
-        "head": "36d4f0376a6a96ef4a2583ffed82ad363932f9bf"
+        "head": "c6caa4c97c6d9d4749d0fd6dce965633a96b9fee"
       },
       "ocr-service": {
-        "dir": "D:/ct_scratch/ocr-golden",
+        "dir": "D:/ct_scratch/c2-ocr",
         "head": "799827fff75adc8b609daa5bc761d37c4d8570aa"
       },
       "student-auth": {
-        "dir": "D:/ct_scratch/sa-p08",
-        "head": "12d1ef1ba05a718ec5ab0a45b47706614b7095aa"
+        "dir": "D:/ct_scratch/mini-hbut-student-auth",
+        "head": "bb27607b321d57c0dc848e5cf3e3e9fa8a518ae8"
       }
     },
     "params": {
-      "seed_hex": "0707070707070707070707070707070707070707070707070707070707070707",
+      "seed_hex": "(redacted)",
       "device_id": "phase0-dev-0001",
       "student_id": "2510234567",
       "student_name": "张三",
@@ -89,7 +89,7 @@
           "--port",
           "8941"
         ],
-        "cwd": "D:/ct_scratch/ocr-golden",
+        "cwd": "D:/ct_scratch/c2-ocr",
         "log": "D:/ct_scratch/p08-logs\\ocr.log"
       },
       {
@@ -99,14 +99,14 @@
           "-m",
           "mini_hbut_student_auth.main"
         ],
-        "cwd": "D:/ct_scratch/sa-p08",
+        "cwd": "D:/ct_scratch/mini-hbut-student-auth",
         "log": "D:/ct_scratch/p08-logs\\student-auth.log"
       },
       {
         "name": "fake-casdoor",
         "cmd": [
           "C:\\Users\\yangd\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
-          "D:\\ct_scratch\\hb-p08\\scripts\\identity_v2_phase0_fake_casdoor.py",
+          "D:\\ct_scratch\\hb-c2\\scripts\\identity_v2_phase0_fake_casdoor.py",
           "--port",
           "8943",
           "--host",
@@ -122,23 +122,39 @@
       "no": "1",
       "name": "services",
       "desc": "端口探测 + 启动 3 个服务（ocr / 新服务 / 假 Casdoor）+ 等 /health",
-      "ts": "2026-11-10T06:34:39+08:00",
+      "ts": "2026-11-10T07:37:33+08:00",
       "http": [],
-      "assertions": [],
+      "assertions": [
+        {
+          "name": "假 Casdoor 验签器自检（拒绝路径回归）",
+          "expected": "`--selftest` 退出码 0（含 alg=none/篡改/错钥/过期/缺 claim/坏 sub 全拒）",
+          "actual": "exit=0",
+          "pass": true
+        }
+      ],
       "notes": [
         "端口探测：实际使用 ocr=8941 / 新服务=8942 / 假Casdoor=8943（尝试记录见 JSON）",
         "MINI_HBUT_DEBUG_IDTOKEN_SECRET 已生成（不回显，只注入 env/参数）",
-        "ocr /health 200（5.9s，响应体见 JSON 证据 meta.health）",
+        "[selftest] 真票通过: claims=True err=None -> PASS",
+        "[selftest] alg=none 拒绝: claims=False err=invalid_shape -> PASS",
+        "[selftest] 签名篡改拒绝: claims=False err=bad_signature -> PASS",
+        "[selftest] 错钥拒绝: claims=False err=bad_signature -> PASS",
+        "[selftest] 缺 jti 拒绝: claims=False err=missing_claim -> PASS",
+        "[selftest] 过期拒绝: claims=False err=expired -> PASS",
+        "[selftest] 过期（now-1）拒绝: claims=False err=expired -> PASS",
+        "[selftest] sub 非 hbut_ 拒绝: claims=False err=bad_sub -> PASS",
+        "[selftest] 全部 8 条符合预期（拒绝路径有回归保护）",
+        "ocr /health 200（5.5s，响应体见 JSON 证据 meta.health）",
         "student-auth /health 200（0.0s，响应体见 JSON 证据 meta.health）",
         "fake-casdoor /health 200（0.0s，响应体见 JSON 证据 meta.health）"
       ],
-      "pass": null
+      "pass": true
     },
     {
       "no": "2",
       "name": "app-sign",
       "desc": "App 签名：cargo run --example identity_v2_dev_sign（复用 identity::v2_signature）",
-      "ts": "2026-11-10T06:34:46+08:00",
+      "ts": "2026-11-10T07:37:39+08:00",
       "http": [],
       "assertions": [
         {
@@ -150,20 +166,20 @@
         {
           "name": "canonical 跨语言一致",
           "expected": "Rust build_v2_canonical 输出 == Python 重算",
-          "actual": "rust='v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|31ef9d2b1e0a526d02e8c5ba01d22868|1794263686' py='v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|31ef9d2b1e0a526d02e8c5ba01d22868|1794263686'",
+          "actual": "rust='v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|20e873a6c5adac2cb4629da3a5ac1dc2|1794267459' py='v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|20e873a6c5adac2cb4629da3a5ac1dc2|1794267459'",
           "pass": true
         },
         {
           "name": "public_key_jwk",
           "expected": "OKP/Ed25519 公钥 JWK（43 位 base64url x，无 d）",
-          "actual": "{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw\"}",
+          "actual": "{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"DXVQdU4IAKXSN-71gmA1dmubPloVhoqUCrKJlYeI47A\"}",
           "pass": true
         }
       ],
       "notes": [
-        "cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex 0707070707070707070707070707070707070707070707070707070707070707 --nonce 31ef9d2b1e0a526d02e8c5ba01d22868 --ts 1794263686（cwd=.\\apps\\client\\src-tauri，耗时 1.1s）",
+        "cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex *** --nonce 20e873a6c5adac2cb4629da3a5ac1dc2 --ts 1794267459（cwd=.\\apps\\client\\src-tauri，耗时 86.9s）",
         "cargo 退出码：0；stderr 尾部：d: Option<&OnlineLearningPlatformStateRecord>) -> Value {\n    |               ^^^^^^^^^^^^^^^^^\n\nwarning: function `resolve_online_learning_student_id` is never used\n   --> src\\transport\\tauri\\chaoxing.rs:241:4\n    |\n241 | fn resolve_online_learning_student_id(\n    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ …（截断，共 600 字符）",
-        "App 证明（stdout 那行 JSON）：{\"device_id\": \"phase0-dev-0001\", \"student_id\": \"2510234567\", \"student_name\": \"张三\", \"student_name_hash\": \"1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf\", \"nonce\": \"31ef9d2b1e0a526d02e8c5ba01d22868\", \"ts\": 1794263686, \"alg\": \"Ed25519\", \"canonical\": \"v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|31ef9d2b1e0a526d02e8c5ba01d22868|1794263686\", \"signature\": \"WJg7OFSGeoooXCi-sEiNfqK6n9eLlgY6T3RgVAprEFahtPzASkwn1dMoSHQI1Vc6UoaJQnryClnjmKPihJ3gBw\", \"public_key_jwk\": \"{\\\"kty\\\":\\\"OKP\\\",\\\"crv\\\":\\\"Ed25519\\\",\\\"x\\\":\\\"6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw\\\"}\", \"self_check_ok\": true}"
+        "App 证明（stdout 那行 JSON）：{\"device_id\": \"phase0-dev-0001\", \"student_id\": \"2510234567\", \"student_name\": \"张三\", \"student_name_hash\": \"1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf\", \"nonce\": \"20e873a6c5adac2cb4629da3a5ac1dc2\", \"ts\": 1794267459, \"alg\": \"Ed25519\", \"canonical\": \"v1|phase0-dev-0001|2510234567|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|20e873a6c5adac2cb4629da3a5ac1dc2|1794267459\", \"signature\": \"SFqOFZo__ti4XSzO-59drX0qfhbUOdgYgNEj7r7W7jh8q07XqbMidsggI4Obhqsi6CtPAJYrcxs2yqjKneR6AA\", \"public_key_jwk\": \"{\\\"kty\\\":\\\"OKP\\\",\\\"crv\\\":\\\"Ed25519\\\",\\\"x\\\":\\\"DXVQdU4IAKXSN-71gmA1dmubPloVhoqUCrKJlYeI47A\\\"}\", \"self_check_ok\": true}"
       ],
       "pass": true
     },
@@ -171,7 +187,7 @@
       "no": "3",
       "name": "not-registered",
       "desc": "未登记失败路径：device_id 尚未登记时 /debug/verify 必须 fail-closed",
-      "ts": "2026-11-10T06:34:47+08:00",
+      "ts": "2026-11-10T07:39:06+08:00",
       "http": [
         {
           "method": "POST",
@@ -209,7 +225,7 @@
       "no": "4",
       "name": "register",
       "desc": "登记：POST ocr /identity/debug/device/register（JWK 来自 App 证明）",
-      "ts": "2026-11-10T06:34:50+08:00",
+      "ts": "2026-11-10T07:39:09+08:00",
       "http": [
         {
           "method": "POST",
@@ -234,7 +250,7 @@
       "no": "5",
       "name": "verify-ok",
       "desc": "验签成功：同一证明再发 → /debug/verify ok:true（跨语言 Ed25519）",
-      "ts": "2026-11-10T06:34:50+08:00",
+      "ts": "2026-11-10T07:39:09+08:00",
       "http": [
         {
           "method": "POST",
@@ -259,7 +275,7 @@
       "no": "6",
       "name": "replay",
       "desc": "重放失败路径：同一证明再发一次 → 必须命中 nonce_replayed（跨语言 nonce 一次性）",
-      "ts": "2026-11-10T06:34:52+08:00",
+      "ts": "2026-11-10T07:39:12+08:00",
       "http": [
         {
           "method": "POST",
@@ -297,27 +313,27 @@
       "no": "7",
       "name": "authorize",
       "desc": "授权码：/debug/authorize（新证明/新 nonce）→ 200 且 code 匹配 dbg_+32hex",
-      "ts": "2026-11-10T06:34:55+08:00",
+      "ts": "2026-11-10T07:39:15+08:00",
       "http": [
         {
           "method": "POST",
           "url": "http://127.0.0.1:8942/debug/authorize",
           "status": 200,
-          "body_preview": "{\"ok\":true,\"code\":\"dbg_2e2e62dfdae6804c0c12961667b24a46\",\"student_id_masked\":\"2510***\",\"redirect_uri\":null,\"expires_in\":60}",
-          "body_full": "{\"ok\":true,\"code\":\"dbg_2e2e62dfdae6804c0c12961667b24a46\",\"student_id_masked\":\"2510***\",\"redirect_uri\":null,\"expires_in\":60}"
+          "body_preview": "{\"ok\":true,\"code\":\"dbg_66f1692feee3511b9e5ba6c799515ed9\",\"student_id_masked\":\"2510***\",\"redirect_uri\":null,\"expires_in\":60}",
+          "body_full": "{\"ok\":true,\"code\":\"dbg_66f1692feee3511b9e5ba6c799515ed9\",\"student_id_masked\":\"2510***\",\"redirect_uri\":null,\"expires_in\":60}"
         }
       ],
       "assertions": [
         {
           "name": "授权码签发",
           "expected": "200 且 ok=true 且 code 匹配 ^dbg_[0-9a-f]{32}$",
-          "actual": "HTTP 200 code='dbg_2e2e62dfdae6804c0c12961667b24a46'",
+          "actual": "HTTP 200 code='dbg_66f1692feee3511b9e5ba6c799515ed9'",
           "pass": true
         }
       ],
       "notes": [
-        "cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex 0707070707070707070707070707070707070707070707070707070707070707 --nonce 876aee9ad876e33a163b3758ab94acbd --ts 1794263695（cwd=.\\apps\\client\\src-tauri，耗时 1.2s）（退出码 0）",
-        "新证明 B（nonce=876aee9ad876e33a163b3758ab94acbd）"
+        "cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex *** --nonce 811d6812d37beb7925c2d482a87fc236 --ts 1794267555（cwd=.\\apps\\client\\src-tauri，耗时 1.9s）（退出码 0）",
+        "新证明 B（nonce=811d6812d37beb7925c2d482a87fc236）"
       ],
       "pass": true
     },
@@ -325,21 +341,21 @@
       "no": "8",
       "name": "fake-exchange",
       "desc": "假 Casdoor 换令牌：fake /oidc/exchange → 新服务 /debug/exchange → JWT 校验",
-      "ts": "2026-11-10T06:34:59+08:00",
+      "ts": "2026-11-10T07:39:19+08:00",
       "http": [
         {
           "method": "POST",
           "url": "http://127.0.0.1:8943/oidc/exchange",
           "status": 200,
-          "body_preview": "{\"ok\": true, \"claims\": {\"alg\": \"Ed25519\", \"aud\": \"phase0-fake-casdoor\", \"auth_time\": 1794263699, \"device_id\": \"phase0-dev-0001\", \"exp\": 1794264299, \"iat\": 1794263699, \"iss\": \"http://127.0.0.1:8942\", \"jti\": \"97d7cd02c19042371cd9a1ef2fbf3d05\", \"nonce\": \"876aee9ad876e33a163b3758ab94acbd\", \"student_id_masked\": \"2510***\", \"sub\": \"hbut_2510234567\"}, \"id_token_fingerprint\": \"e8190a0d20a13153\"}",
-          "body_full": "{\"ok\": true, \"claims\": {\"alg\": \"Ed25519\", \"aud\": \"phase0-fake-casdoor\", \"auth_time\": 1794263699, \"device_id\": \"phase0-dev-0001\", \"exp\": 1794264299, \"iat\": 1794263699, \"iss\": \"http://127.0.0.1:8942\", \"jti\": \"97d7cd02c19042371cd9a1ef2fbf3d05\", \"nonce\": \"876aee9ad876e33a163b3758ab94acbd\", \"student_id_masked\": \"2510***\", \"sub\": \"hbut_2510234567\"}, \"id_token_fingerprint\": \"e8190a0d20a13153\"}"
+          "body_preview": "{\"ok\": true, \"claims\": {\"alg\": \"Ed25519\", \"aud\": \"phase0-fake-casdoor\", \"auth_time\": 1794267559, \"device_id\": \"phase0-dev-0001\", \"exp\": 1794268159, \"iat\": 1794267559, \"iss\": \"http://127.0.0.1:8942\", \"jti\": \"dab43d4e1d1923f89c47e759fb99346a\", \"nonce\": \"811d6812d37beb7925c2d482a87fc236\", \"student_id_masked\": \"2510***\", \"sub\": \"hbut_2510234567\"}, \"id_token_fingerprint\": \"95096bbd5d4f103d\"}",
+          "body_full": "{\"ok\": true, \"claims\": {\"alg\": \"Ed25519\", \"aud\": \"phase0-fake-casdoor\", \"auth_time\": 1794267559, \"device_id\": \"phase0-dev-0001\", \"exp\": 1794268159, \"iat\": 1794267559, \"iss\": \"http://127.0.0.1:8942\", \"jti\": \"dab43d4e1d1923f89c47e759fb99346a\", \"nonce\": \"811d6812d37beb7925c2d482a87fc236\", \"student_id_masked\": \"2510***\", \"sub\": \"hbut_2510234567\"}, \"id_token_fingerprint\": \"95096bbd5d4f103d\"}"
         }
       ],
       "assertions": [
         {
           "name": "换令牌成功",
           "expected": "200 且 ok=true，claims 含 iss/aud/exp/sub/jti 且 sub 以 hbut_ 开头，指纹 16 位 hex",
-          "actual": "HTTP 200 ok=True err=None fp='e8190a0d20a13153' sub='hbut_2510234567'",
+          "actual": "HTTP 200 ok=True err=None fp='95096bbd5d4f103d' sub='hbut_2510234567'",
           "pass": true
         }
       ],
@@ -350,7 +366,7 @@
       "no": "9",
       "name": "bad-signature",
       "desc": "错签失败路径：签名改一个 base64url 字符（新证明/新 nonce）→ signature_invalid",
-      "ts": "2026-11-10T06:34:59+08:00",
+      "ts": "2026-11-10T07:39:19+08:00",
       "http": [
         {
           "method": "POST",
@@ -382,8 +398,8 @@
         }
       ],
       "notes": [
-        "cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex 0707070707070707070707070707070707070707070707070707070707070707 --nonce b6b77be6af42f4173d2d50badc2818d2 --ts 1794263699（cwd=.\\apps\\client\\src-tauri，耗时 1.2s）（退出码 0）",
-        "错签构造：原签名首字符 'F' → 'A'（nonce 为新的 b6b77be6…）"
+        "cargo 命令：cargo run --quiet --example identity_v2_dev_sign -- --device-id phase0-dev-0001 --student-id 2510234567 --student-name 张三 --seed-hex *** --nonce 1aa640cccee7652dfd5244862823d103 --ts 1794267559（cwd=.\\apps\\client\\src-tauri，耗时 1.1s）（退出码 0）",
+        "错签构造：原签名首字符 'u' → 'A'（nonce 为新的 1aa640cc…）"
       ],
       "pass": true
     },
@@ -391,14 +407,14 @@
       "no": "10",
       "name": "devices",
       "desc": "设备列表：GET /debug/devices → 含该设备、条目恰好 10 字段、学号掩码",
-      "ts": "2026-11-10T06:35:03+08:00",
+      "ts": "2026-11-10T07:39:23+08:00",
       "http": [
         {
           "method": "GET",
           "url": "http://127.0.0.1:8942/debug/devices",
           "status": 200,
-          "body_preview": "{\"devices\":[{\"device_id\":\"phase0-dev-0001\",\"status\":\"active\",\"bound_by\":\"first_claim\",\"alg\":\"Ed25519\",\"student_id_masked\":\"2510***\",\"created_at\":1794263690,\"updated_at\":1794263690,\"last_verified_at\":null,\"revoked_at\":null,\"revoked_reason\":null}],\"count\":1}",
-          "body_full": "{\"devices\":[{\"device_id\":\"phase0-dev-0001\",\"status\":\"active\",\"bound_by\":\"first_claim\",\"alg\":\"Ed25519\",\"student_id_masked\":\"2510***\",\"created_at\":1794263690,\"updated_at\":1794263690,\"last_verified_at\":null,\"revoked_at\":null,\"revoked_reason\":null}],\"count\":1}"
+          "body_preview": "{\"devices\":[{\"device_id\":\"phase0-dev-0001\",\"status\":\"active\",\"bound_by\":\"first_claim\",\"alg\":\"Ed25519\",\"student_id_masked\":\"2510***\",\"created_at\":1794267549,\"updated_at\":1794267549,\"last_verified_at\":null,\"revoked_at\":null,\"revoked_reason\":null}],\"count\":1}",
+          "body_full": "{\"devices\":[{\"device_id\":\"phase0-dev-0001\",\"status\":\"active\",\"bound_by\":\"first_claim\",\"alg\":\"Ed25519\",\"student_id_masked\":\"2510***\",\"created_at\":1794267549,\"updated_at\":1794267549,\"last_verified_at\":null,\"revoked_at\":null,\"revoked_reason\":null}],\"count\":1}"
         }
       ],
       "assertions": [
@@ -416,11 +432,11 @@
       "no": "11",
       "name": "summary",
       "desc": "汇总：写 JSON 证据 + 打印 [RESULT]",
-      "ts": "2026-11-10T06:35:06+08:00",
+      "ts": "2026-11-10T07:39:26+08:00",
       "http": [],
       "assertions": [],
       "notes": [
-        "全部 11 步执行完毕，总耗时 26.5s"
+        "全部 11 步执行完毕，总耗时 113.0s"
       ],
       "pass": null
     }
