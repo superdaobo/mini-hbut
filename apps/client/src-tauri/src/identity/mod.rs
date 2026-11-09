@@ -16,3 +16,5 @@ pub mod enrollment;
 pub mod errors;
 pub mod keyring;
 pub mod models;
+pub mod v2_dev_seam;
+pub mod v2_signature;
