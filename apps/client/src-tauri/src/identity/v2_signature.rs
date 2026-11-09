@@ -11,12 +11,11 @@
 //!
 //! 自检判定（规格 §2 的「见 §4 的判定」）：
 //! `student_name_hash` 是单向哈希，无法反推 `student_name`，因此 `verify_v2_proof`
-//! **不复算 canonical**，而是：
-//! 1. 形状校验 `proof.canonical`：恰好 6 段、版本段为 `v1`、第 4 段为 64 位小写 hex、
-//!    第 6 段（ts）与 `proof.ts` 相等；
-//! 2. 一致性校验：`device_id`/`student_id`/`nonce` 与 canonical 第 2/3/5 段逐字相等；
-//! 3. 加密学验证：从 `proof.public_key_jwk` 解析公钥，对 `proof.canonical` 字节验签
-//!    （`DeviceKey::verify_with_public_key`）。
+//! **不复算 canonical**，而是做三件事：① 形状校验 `proof.canonical`（恰好 6 段、版本段为 `v1`、
+//! 第 4 段为 64 位小写 hex、第 6 段 ts 与 `proof.ts` 相等）；② 一致性校验（`device_id`/
+//! `student_id`/`nonce` 与 canonical 第 2/3/5 段逐字相等）；③ 加密学验证（从
+//! `proof.public_key_jwk` 解析公钥，对 `proof.canonical` 字节验签）。
+//!
 //! 任何一步失败 → `false`（不抛错、不打日志细节）。
 
 use base64::{engine::general_purpose, Engine as _};
@@ -73,10 +72,10 @@ fn assert_pipe_field(name: &str, value: &str) -> Result<(), IdentityError> {
 
 /// 构建 v2 canonical（**与 ocr-service 逐字节一致**，无末尾换行）。
 ///
-/// 校验（与 ocr 侧对齐）：
-/// - `device_id` / `student_id` / `nonce` 为空 → `IdentityError::InvalidInput`；
-/// - 三者含 `|` → `IdentityError::InvalidInput`；
-/// - 拼接：`v1|<device_id>|<student_id>|<sha256_hex(student_name)>|<nonce>|<ts>`。
+/// 校验（与 ocr 侧对齐）：`device_id`/`student_id`/`nonce` 为空或含 `|` 一律
+/// `IdentityError::InvalidInput`；拼接为
+/// `v1|<device_id>|<student_id>|<sha256_hex(student_name)>|<nonce>|<ts>`。
+///
 /// `student_name` 本身不进入 canonical 明文（只进 hash），不做字符集限制。
 pub fn build_v2_canonical(
     device_id: &str,

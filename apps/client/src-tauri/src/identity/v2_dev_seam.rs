@@ -1,8 +1,9 @@
 //! DEV 自检缝（P0-7 / goal-10 身份 v2）：本地签名 + 自检，**不联网、不碰服务端**。
 //!
-//! 生产 fail closed（双层门禁，与 `__HBUT_IDENTITY_AT_STUB__` 同类做法）：
-//! - 编译期：`cfg!(debug_assertions)` 必须打开（release 构建恒为 false）；
-//! - 运行期：环境变量 `MINI_HBUT_IDENTITY_V2_DEV` 必须为 `"1"`。
+//! 生产 fail closed（双层门禁，与 `__HBUT_IDENTITY_AT_STUB__` 同类做法）：编译期要求
+//! `cfg!(debug_assertions)` 打开（release 构建恒为 false），运行期要求环境变量
+//! `MINI_HBUT_IDENTITY_V2_DEV` 为 `"1"`。
+//!
 //! 任一条件不满足 → 命令仍注册存在但直接返回错误，绝不返回任何签名材料。
 //!
 //! 安全约定：

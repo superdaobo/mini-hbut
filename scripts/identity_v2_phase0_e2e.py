@@ -65,7 +65,9 @@ B64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678
 CODE_RE = re.compile(r"^dbg_[0-9a-f]{32}$")
 MASKED_RE = re.compile(r"^\d{4}\*\*\*$")
 #: 默认种子（规格固定值，保证可复现）
-DEFAULT_SEED_HEX = "07" * 32
+#: 默认种子（阶段 0 联调用**测试**种子；检查 2 复核 B 指出旧默认 07×32 与本机 keyring
+#: 设备密钥相同 → 已换成本值，避免「证据文件里出现可推导真实设备私钥的种子」）
+DEFAULT_SEED_HEX = "5a" * 32
 #: 设备列表固定字段数（规格 §4 步骤 10）
 DEVICE_FIELDS_EXPECTED = 10
 
@@ -359,7 +361,8 @@ def run_app_sign(
         proc.returncode,
         proc.stdout.decode("utf-8", "replace"),
         proc.stderr.decode("utf-8", "replace"),
-        f"{' '.join(cmd)}（cwd={src_tauri_dir}，耗时 {elapsed:.1f}s）",
+        # 记录命令前脱敏种子（检查 2 复核 B：证据文件里不得出现 64-hex 种子明文）
+        f"{' '.join(redact_secret(arg, seed_hex) for arg in cmd)}（cwd={src_tauri_dir}，耗时 {elapsed:.1f}s）",
     )
 
 
@@ -519,6 +522,26 @@ def main() -> int:
         fake_script = os.path.join(
             normalize_path(os.path.dirname(os.path.abspath(__file__))), "identity_v2_phase0_fake_casdoor.py"
         )
+
+        # 复核（检查 2 / 红队 B）要求：假 Casdoor 的**拒绝路径**必须有回归保护，
+        # 否则「把验签改成 skip」这类变异会静默通过。这里先跑它自带的 --selftest。
+        selftest = subprocess.run(
+            [sys.executable, fake_script, "--selftest"],
+            cwd=root,
+            env=base_env,
+            capture_output=True,
+            timeout=120,
+        )
+        selftest_out = selftest.stdout.decode("utf-8", "replace")
+        for line in selftest_out.strip().splitlines():
+            rec.note(line.strip())
+        if not rec.check(
+            "假 Casdoor 验签器自检（拒绝路径回归）",
+            "`--selftest` 退出码 0（含 alg=none/篡改/错钥/过期/缺 claim/坏 sub 全拒）",
+            selftest.returncode == 0,
+            f"exit={selftest.returncode}",
+        ):
+            fail("1", "假 Casdoor --selftest 未通过（验签器拒绝路径回归失败）")
 
         ocr = Service(
             "ocr",
@@ -905,7 +928,9 @@ def main() -> int:
                 "student-auth": {"dir": sa_dir, "head": git_head(sa_dir)},
             },
             "params": {
-                "seed_hex": args.seed_hex,
+                # 种子不回显明文（复核 B：旧证据 JSON 里出现 64-hex 种子）；
+                # 只记录「用的是默认值还是显式传入」，保证可复现性说明不失真
+                "seed_hex": "(redacted)" if args.seed_hex == DEFAULT_SEED_HEX else "(redacted, 显式传入)",
                 "device_id": args.device_id,
                 "student_id": args.student_id,
                 "student_name": args.student_name,

@@ -122,6 +122,67 @@ def is_loopback_base(url: str) -> bool:
     return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
 
 
+
+def _selftest_sign(payload: dict, key: bytes) -> str:
+    """selftest 专用：签一个 HS256 token（与服务端同规范）。"""
+    header = {"alg": "HS256", "typ": "JWT"}
+    def enc(obj: dict) -> str:
+        return base64.urlsafe_b64encode(
+            json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).decode("ascii").rstrip("=")
+    signing_input = f"{enc(header)}.{enc(payload)}"
+    sig = hmac.new(key, signing_input.encode("ascii"), hashlib.sha256).digest()
+    return f"{signing_input}.{base64.urlsafe_b64encode(sig).decode('ascii').rstrip('=')}"
+
+
+def run_selftest() -> int:
+    """复核（检查 2 / 红队 B）要求的**拒绝路径回归**：本 stub 的验签器必须拒绝伪造票。
+
+    `--selftest` 由一键脚本在 step 1 调用；任何一条不符合预期即非零退出
+    → 让「把验签改成 skip」这类变异**无法**再静默通过。
+    """
+    import time as _time
+
+    key = b"selftest-key-0123456789abcdef"
+    now = int(_time.time())
+    good = {"iss": "http://127.0.0.1:1", "aud": "phase0-fake-casdoor", "exp": now + 600,
+            "iat": now, "jti": "a" * 32, "sub": "hbut_2510231106", "nonce": "n1"}
+    cases: list[tuple[str, str, str | None]] = []
+
+    cases.append(("真票通过", _selftest_sign(good, key), None))
+    # alg=none：手工拼 header，去掉签名
+    header_none = base64.urlsafe_b64encode(
+        json.dumps({"alg": "none", "typ": "JWT"}).encode()
+    ).decode().rstrip("=")
+    body = base64.urlsafe_b64encode(json.dumps(good).encode()).decode().rstrip("=")
+    cases.append(("alg=none 拒绝", f"{header_none}.{body}.", "invalid_shape"))
+    # 篡改签名
+    tok = _selftest_sign(good, key)
+    cases.append(("签名篡改拒绝", tok[:-1] + ("A" if tok[-1] != "A" else "B"), "bad_signature"))
+    cases.append(("错钥拒绝", _selftest_sign(good, b"another-key-0123456789abcdef"), "bad_signature"))
+    # claims 类
+    cases.append(("缺 jti 拒绝", _selftest_sign({k: v for k, v in good.items() if k != "jti"}, key), "missing_claim"))
+    cases.append(("过期拒绝", _selftest_sign({**good, "exp": now}, key), "expired"))
+    cases.append(("过期（now-1）拒绝", _selftest_sign({**good, "exp": now - 1}, key), "expired"))
+    cases.append(("sub 非 hbut_ 拒绝", _selftest_sign({**good, "sub": "2510231106"}, key), "bad_sub"))
+
+    failures = []
+    for name, token, expected_err in cases:
+        claims, err = verify_hs256_jwt(token, key)
+        if expected_err is None:
+            ok = err is None and isinstance(claims, dict)
+        else:
+            ok = err == expected_err
+        print(f"  [selftest] {name}: claims={bool(claims)} err={err} -> {'PASS' if ok else 'FAIL'}")
+        if not ok:
+            failures.append(name)
+    if failures:
+        print(f"[selftest] FAILED: {failures}", file=sys.stderr)
+        return 1
+    print(f"[selftest] 全部 {len(cases)} 条符合预期（拒绝路径有回归保护）")
+    return 0
+
+
 def exchange_upstream(new_service_base: str, code: str, client_id: str) -> tuple[int, dict | str]:
     """调新服务 ``POST {base}/debug/exchange``。
 
@@ -287,6 +348,7 @@ def main() -> int:
             pass
 
     parser = argparse.ArgumentParser(description="P0-8 阶段 0 假 Casdoor（OIDC 客户端 stub，纯标准库）")
+    parser.add_argument("--selftest", action="store_true", help="只跑验签器自检（拒绝路径回归）后退出")
     parser.add_argument("--port", type=int, default=8943, help="监听端口（默认 8943）")
     parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
     parser.add_argument(
@@ -296,6 +358,10 @@ def main() -> int:
         "也可用 env FAKE_CASDOOR_IDTOKEN_SECRET 传入（一键脚本走 env，避免密钥进 argv）",
     )
     args = parser.parse_args()
+
+    if args.selftest:
+        return run_selftest()
+
 
     # 密钥来源：`--idtoken-secret` 优先，其次 env `FAKE_CASDOOR_IDTOKEN_SECRET`
     # （一键脚本用 env 传，避免密钥出现在 argv/进程列表/证据文件里）
