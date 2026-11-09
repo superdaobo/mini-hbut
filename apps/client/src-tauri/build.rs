@@ -129,6 +129,7 @@ fn main() {
         "identity_get_public_key",
         "identity_revoke_current_device_local",
         "identity_sign_auth_request",
+        "identity_v2_dev_sign_selfcheck",
         "library_reserve_cancel",
         "library_reserve_dialog",
         "library_reserve_embed_close",

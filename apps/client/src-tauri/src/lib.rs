@@ -749,6 +749,9 @@ pub fn run() {
             identity::commands::identity_fetch_auth_history,
             // #902：设备换票（Device 签名 + 一次性 challenge → resource-scoped JWT AT）
             identity::commands::identity_device_token,
+            // P0-7：身份 v2 DEV 签名自检缝（生产 fail closed：仅 debug 构建且
+            // 环境变量 MINI_HBUT_IDENTITY_V2_DEV=1 时可用；命令存在但拒绝服务）
+            identity::v2_dev_seam::identity_v2_dev_sign_selfcheck,
             // #1019：教师门户 V2 只读命令（E0 预注册 stub；E2/E5/E6 只改实现文件，不再改本文件）
             transport::tauri::teacher::teacher_profile_fetch,
             transport::tauri::teacher::teacher_teaching_fetch,
