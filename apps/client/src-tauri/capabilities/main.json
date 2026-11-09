@@ -149,6 +149,7 @@
     "allow-identity-get-public-key",
     "allow-identity-revoke-current-device-local",
     "allow-identity-sign-auth-request",
+    "allow-identity-v2-dev-sign-selfcheck",
     "allow-library-reserve-cancel",
     "allow-library-reserve-dialog",
     "allow-library-reserve-embed-close",

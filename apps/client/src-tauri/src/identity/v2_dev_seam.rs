@@ -141,10 +141,20 @@ mod tests {
             !v2_dev_seam_enabled_with(&|_| Some(" 1".to_string())),
             "带空格的 \" 1\" 必须不可用"
         );
-        assert!(
-            v2_dev_seam_enabled_with(&|_| Some("1".to_string())),
-            "debug 构建 + \"1\" 必须可用"
-        );
+        // 编译期门（独立复核提示）：debug 构建下 env="1" 必须可用；
+        // release 构建下 `cfg!(debug_assertions)` 恒 false → 即使 env="1" 也不可用
+        // （fail closed 的编译期保证）。两种 profile 下本用例都必须绿。
+        if cfg!(debug_assertions) {
+            assert!(
+                v2_dev_seam_enabled_with(&|_| Some("1".to_string())),
+                "debug 构建 + \"1\" 必须可用"
+            );
+        } else {
+            assert!(
+                !v2_dev_seam_enabled_with(&|_| Some("1".to_string())),
+                "release 构建 + \"1\" 仍必须不可用（编译期门）"
+            );
+        }
         // 读取的变量名必须是约定的 DEV_SEAM_ENV（Fn 闭包 + RefCell 内部可变性）
         let seen: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
         let _ = v2_dev_seam_enabled_with(&|key| {

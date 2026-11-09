@@ -151,8 +151,19 @@ pub fn verify_v2_proof(proof: &V2Proof) -> bool {
     if parts[5] != proof.ts.to_string() {
         return false;
     }
-    // 2) 一致性校验：device_id/student_id/nonce 与第 2/3/5 段一致
+    // 2) 一致性校验：device_id/student_id/nonce 与第 2/3/5 段一致；
+    //    第 4 段必须与 proof.student_name_hash 相同（红队 F2：字段与 canonical 脱钩时
+    //    旧实现会放行「字段称李四、canonical 实为张三哈希」的自洽伪造）；
+    //    算法字段必须就是本阶段唯一允许的 Ed25519（红队 F2：alg="ES256" 旧实现放行）。
     if parts[1] != proof.device_id || parts[2] != proof.student_id || parts[4] != proof.nonce {
+        return false;
+    }
+    if parts[3] != proof.student_name_hash || proof.alg != V2_ALG {
+        return false;
+    }
+    // 2b) 服务端会拒的空值/负时间戳，本地自检也必须拒（红队 O1：旧实现放行
+    //     空 student_id/nonce 与负 ts，导致 self_check_ok 语义弱于服务端）
+    if parts[1].is_empty() || parts[2].is_empty() || parts[4].is_empty() || proof.ts < 0 {
         return false;
     }
     // 3) 公钥 JWK 解析（kty/crv 固定值 + x 必须为 base64url 32 字节）
@@ -162,6 +173,10 @@ pub fn verify_v2_proof(proof: &V2Proof) -> bool {
     if jwk.get("kty").and_then(|v| v.as_str()) != Some("OKP")
         || jwk.get("crv").and_then(|v| v.as_str()) != Some("Ed25519")
     {
+        return false;
+    }
+    // 私钥材料不允许出现（与服务端 `_public_key_jwk_sane` 同口径；红队 O2）
+    if jwk.get("d").is_some() {
         return false;
     }
     let Some(x) = jwk.get("x").and_then(|v| v.as_str()) else {
@@ -409,6 +424,65 @@ mod tests {
             "nonce 与 canonical 不一致必须自检失败"
         );
 
+        // 红队 F2：student_name_hash 字段与 canonical 第 4 段脱钩 → 必须拒绝
+        let mut t7 = proof.clone();
+        t7.student_name_hash = "0".repeat(64);
+        assert!(
+            !verify_v2_proof(&t7),
+            "student_name_hash 与 canonical 第 4 段不一致必须自检失败"
+        );
+
+        // 红队 F2：alg 字段伪造（本阶段只允许 Ed25519）→ 必须拒绝
+        let mut t8 = proof.clone();
+        t8.alg = "ES256".to_string();
+        assert!(!verify_v2_proof(&t8), "alg 非 Ed25519 必须自检失败");
+
+        // 红队 O1：自洽但服务端会拒的形态（空 student_id/nonce、负 ts）→ 本地也必须拒
+        for (label, canonical, ts) in [
+            (
+                "空 student_id",
+                format!(
+                    "v1|dev-0001||{}|0f1e2d3c4b5a6978|1794244737",
+                    proof.student_name_hash
+                ),
+                1794244737,
+            ),
+            (
+                "空 nonce",
+                format!(
+                    "v1|dev-0001|2510234567|{}||1794244737",
+                    proof.student_name_hash
+                ),
+                1794244737,
+            ),
+            (
+                "负 ts",
+                format!(
+                    "v1|dev-0001|2510234567|{}|0f1e2d3c4b5a6978|-5",
+                    proof.student_name_hash
+                ),
+                -5,
+            ),
+        ] {
+            let mut t = proof.clone();
+            t.canonical = canonical;
+            t.ts = ts;
+            if label == "空 student_id" {
+                t.student_id = String::new();
+            }
+            if label == "空 nonce" {
+                t.nonce = String::new();
+            }
+            assert!(!verify_v2_proof(&t), "{label} 形态必须自检失败");
+        }
+
+        // 红队 O2：JWK 带私钥成员 d → 必须拒绝
+        let mut t9 = proof.clone();
+        let mut jwk: serde_json::Value = serde_json::from_str(&t9.public_key_jwk).unwrap();
+        jwk["d"] = serde_json::Value::String("private".to_string());
+        t9.public_key_jwk = jwk.to_string();
+        assert!(!verify_v2_proof(&t9), "JWK 含私钥成员 d 必须自检失败");
+
         // 公钥 JWK 换成错误公钥（签名对不上）
         let mut t6 = proof.clone();
         let other = DeviceKey::generate();
@@ -419,6 +493,49 @@ mod tests {
             other.public_jwk().x
         );
         assert!(!verify_v2_proof(&t6), "错误公钥 JWK 自检必须失败");
+    }
+
+    /// 形状校验（独立复核 M3 补测）：canonical 必须**恰好 6 段**、版本 `v1`、
+    /// 第 4 段为 64 位**小写** hex；缺一不可（删掉该检查时本用例必须变红）。
+    #[test]
+    fn verify_v2_proof_rejects_malformed_canonical_shapes() {
+        let key = DeviceKey::from_seed(golden_seed());
+        let proof = sign_v2_proof(
+            &key,
+            "dev-0001",
+            "2510234567",
+            "张三",
+            "0f1e2d3c4b5a6978",
+            1794244737,
+        )
+        .expect("签名不应失败");
+        let parts: Vec<&str> = proof.canonical.split('|').collect();
+        assert_eq!(parts.len(), 6, "前置：合法 canonical 必须是 6 段");
+
+        // 5 段 / 7 段
+        for (label, canonical) in [
+            ("5 段", parts[..5].join("|")),
+            ("7 段", format!("{}|extra", proof.canonical)),
+        ] {
+            let mut t = proof.clone();
+            t.canonical = canonical;
+            assert!(!verify_v2_proof(&t), "{label} canonical 必须被判非法");
+        }
+
+        // 版本段不对
+        let mut bad_version = proof.clone();
+        bad_version.canonical = proof.canonical.replacen("v1|", "v2|", 1);
+        assert!(!verify_v2_proof(&bad_version), "版本非 v1 必须非法");
+
+        // 第 4 段不是 64 位小写 hex（过短 / 大写）
+        for (label, hash) in [("过短", "abc"), ("大写", &parts[3].to_uppercase()[..])] {
+            let mut t = proof.clone();
+            t.canonical = format!(
+                "{}|{}|{}|{}|{}|{}",
+                parts[0], parts[1], parts[2], hash, parts[4], parts[5]
+            );
+            assert!(!verify_v2_proof(&t), "第 4 段{label}时必须非法");
+        }
     }
 
     /// 输入校验（规格 §2）：空字段 / 含 `|` 一律 `InvalidInput`；
