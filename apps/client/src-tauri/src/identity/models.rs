@@ -123,3 +123,59 @@ pub struct SignedCanonicalPayload {
     /// 学号掩码
     pub student_id_masked: String,
 }
+
+/// P1-2：换绑 canonical 的**专用**签名输入（角色白名单；不是任意串签名）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct SignRebindInput {
+    /// `"request"`（新设备发起）或 `"approve"`（旧设备批准）。
+    pub role: String,
+    /// `hbut-rebind-v1|…` canonical 原文。
+    pub canonical: String,
+    /// 本机 device_id（必须与 canonical 中对应角色段一致）。
+    pub device_id: String,
+    /// request 角色必填：学号（必须等于 canonical 第 4 段且等于本机登录会话学号）。
+    pub student_id: Option<String>,
+}
+
+/// P1-2：首次登记（v2）输入。
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnrollV2Input {
+    pub device_id: String,
+    /// 服务地址覆盖（缺省 → 生产常量；dev 允许本机回环）。
+    pub service_base: Option<String>,
+}
+
+/// P1-2：发起换机（新设备）输入。
+#[derive(Debug, Clone, Deserialize)]
+pub struct RebindRequestV2Input {
+    pub device_id: String,
+    pub service_base: Option<String>,
+}
+
+/// P1-2：批准换机（旧设备）输入（字段来自**前端解析的换机码**；服务端会以自己存的 pending 重建 canonical 交叉校验）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct RebindApproveV2Input {
+    pub request_id: String,
+    pub new_device_id: String,
+    pub new_pubkey_sha256: String,
+    /// 换机码里的过期时间（本机先挡过期码，避免白发请求）。
+    pub expires_at: i64,
+    /// 本机 device_id（批准方，必须是该学号当前活跃设备）。
+    pub approver_device_id: String,
+    pub service_base: Option<String>,
+}
+
+/// P1-2：三个流程的统一返回（`ok=false` 时仍带稳定 `kind` 与固定文案；**不含**服务端原文）。
+#[derive(Debug, Clone, Serialize)]
+pub struct FlowPayload {
+    pub ok: bool,
+    pub kind: String,
+    pub message: String,
+    pub device_id: String,
+    pub student_id_masked: String,
+    pub request_id: String,
+    pub expires_at: i64,
+    pub new_pubkey_sha256: String,
+    /// 供前端组装换机码（= 本机公钥指纹用的同一份 sha256 口径）。
+    pub public_key_jwk: String,
+}
