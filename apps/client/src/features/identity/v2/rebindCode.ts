@@ -137,7 +137,7 @@ const isWellFormedPayload = (payload: unknown, nowSec: number): payload is Rebin
 
 /**
  * 编码换机码：`HBRB1:` + base32(紧凑 JSON `{"r","d","k","e"}`，无填充大写)。
- * 载荷不合法（字段缺失/形状不符/e 非未来时间）或序列化后 ≥256 字节 → `{ok:false, kind:'code_invalid'}`。
+ * 载荷不合法（字段缺失/形状不符/e 非安全整数或非未来时间）或序列化后 > PAYLOAD_MAX_BYTES（300 字节） → `{ok:false, kind:'code_invalid'}`。
  * 不抛异常、不写 console/存储。
  */
 export const encodeRebindCode = (
