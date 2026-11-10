@@ -116,7 +116,8 @@ describe('buildIdentityV2Canonical（identity_build_v2_canonical）', () => {
   })
 
   it('缺 deviceId（或空串）→ 不触达原生命令，直接稳定文案 reject', async () => {
-    const noDevice = await expectReject(buildIdentityV2Canonical({}))
+    // 故意绕过 TS 类型（模拟 JS 调用方运行时未传 deviceId）
+    const noDevice = await expectReject(buildIdentityV2Canonical({} as { deviceId: string }))
     expect(noDevice.message).toBe('构造 canonical 失败：输入缺失或不合法')
     const emptyDevice = await expectReject(buildIdentityV2Canonical({ deviceId: '   ' }))
     expect(emptyDevice.message).toBe('构造 canonical 失败：输入缺失或不合法')
