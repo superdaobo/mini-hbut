@@ -24,8 +24,15 @@ export const REBIND_CODE_PREFIX = 'HBRB1:'
 export const REBIND_CODE_MIN_LEN = 24
 export const REBIND_CODE_MAX_LEN = 512
 
-/** 载荷 JSON 序列化的字节上限（规格 §2：载荷 <256 字节） */
-const PAYLOAD_MAX_BYTES = 256
+/**
+ * 载荷 JSON 序列化的字节上限。
+ *
+ * 红队 T1：原值 256 与「设备 id 形状 8–128 + 码长上限 512」**不自洽** —— 123 位以上的
+ * 合法设备 id 会让载荷 ≥256 字节，导致 encode 恒失败（换机流程死在本地），而 parse 又
+ * 不查这个上限（两侧不对称）。现取 300：最坏情况（设备 id 128 位、ts 11 位）载荷 = 262
+ * 字节，base32 后 424 字符 ≤ 512 ✓；且 parse 使用**同一个**上限，两侧对称。
+ */
+export const PAYLOAD_MAX_BYTES = 300
 
 /** RFC4648 base32 字母表（A–Z, 2–7） */
 const B32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
@@ -120,7 +127,11 @@ const isWellFormedPayload = (payload: unknown, nowSec: number): payload is Rebin
   if (typeof o.r !== 'string' || !HEX32_RE.test(o.r)) return false
   if (typeof o.d !== 'string' || !DEVICE_ID_RE.test(o.d)) return false
   if (typeof o.k !== 'string' || !HEX64_RE.test(o.k)) return false
-  if (typeof o.e !== 'number' || !Number.isFinite(o.e)) return false
+  // O4：必须整数秒（浮点/1e30 会让 Rust i64 反序列化失败 → 用户拿到 unknown）
+  if (typeof o.e !== 'number' || !Number.isFinite(o.e) || !Number.isInteger(o.e)) return false
+  // O4（红队）：必须是**安全整数**且在 i64 范围内——`1e30` 这类整数值浮点会让 Rust 侧
+  // `i64` 反序列化失败，用户最后只拿到 `unknown`；这里本地就 fail-closed 成 `code_invalid`。
+  if (!Number.isSafeInteger(o.e) || o.e <= 0) return false
   return o.e > nowSec
 }
 
@@ -139,7 +150,7 @@ export const encodeRebindCode = (
   // 键序固定 r,d,k,e（紧凑 JSON，无空白）
   const compact = JSON.stringify({ r: payload.r, d: payload.d, k: payload.k, e: payload.e })
   const bytes = new TextEncoder().encode(compact)
-  if (bytes.length >= PAYLOAD_MAX_BYTES) {
+  if (bytes.length > PAYLOAD_MAX_BYTES) {
     return { ok: false, kind: 'code_invalid', message: messageFor('code_invalid') }
   }
   return { ok: true, code: `${REBIND_CODE_PREFIX}${base32Encode(bytes)}` }
@@ -164,6 +175,8 @@ export const parseRebindCode = (
   const body = trimmed.slice(REBIND_CODE_PREFIX.length)
   const bytes = base32Decode(body)
   if (bytes === null) return invalid
+  // 红队 T1：与 encode 使用**同一个**载荷上限（两侧对称，避免「编不出但能解」的死胡同）
+  if (bytes.length > PAYLOAD_MAX_BYTES) return invalid
   const jsonText = utf8Decode(bytes)
   if (jsonText === null) return invalid
   let json: unknown

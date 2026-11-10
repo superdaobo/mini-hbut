@@ -347,3 +347,48 @@ describe('零 console / 零存储（spy 钉死）', () => {
     consoleDebug.mockRestore()
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 红队 O2 回归：服务端回显明文学号时，客户端**本地兜底再掩码**（不把不可信回显当展示值）
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('O2 回归：student_id_masked 本地兜底再掩码', () => {
+  afterEach(() => {
+    mockInvoke.mockReset()
+  })
+
+  it('服务端返回明文学号 → 本地掩码为 2510***（不透出明文）', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      status: 'active',
+      device_id: LOCAL_DEVICE_ID,
+      bound_by: 'first_claim',
+      student_id_masked: '2510231106' // 服务端异常回显明文
+    })
+    const result = await enrollV2()
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.studentIdMasked).toBe('2510***')
+    expect(result.studentIdMasked).not.toContain('2510231106')
+  })
+
+  it('已是标准掩码 → 原样保留；过短值 → ***', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      status: 'active',
+      device_id: LOCAL_DEVICE_ID,
+      student_id_masked: '2510***'
+    })
+    const first = await enrollV2()
+    expect(first.ok && first.studentIdMasked).toBe('2510***')
+
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      status: 'active',
+      device_id: LOCAL_DEVICE_ID,
+      student_id_masked: '1234'
+    })
+    const second = await enrollV2()
+    expect(second.ok && second.studentIdMasked).toBe('***')
+  })
+})

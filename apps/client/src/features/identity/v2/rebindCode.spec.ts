@@ -198,3 +198,62 @@ describe('encodeRebindCode 的防御', () => {
     if (encoded.ok) expect(encoded.code).toMatch(/^HBRB1:[A-Z2-7]+$/)
   })
 })
+
+/** 测试辅助：直接把 UTF-8 文本编成 base32（与 codec 同字母表，用于构造畸形码） */
+const base32Of = (text: string): string => {
+  const bytes = new TextEncoder().encode(text)
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  let out = ''
+  let buffer = 0
+  let bits = 0
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte
+    bits += 8
+    while (bits >= 5) {
+      out += alphabet[(buffer >>> (bits - 5)) & 31]
+      bits -= 5
+    }
+  }
+  if (bits > 0) out += alphabet[(buffer << (5 - bits)) & 31]
+  return out
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 红队 T1 回归：编解码上限对称 + 最长合法设备 id 不再死胡同
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('T1 回归：载荷上限对称（encode/parse 同一 300 字节）', () => {
+  const base = {
+    r: R,
+    k: K,
+    e: FUTURE
+  }
+
+  it('最长合法设备 id（128 位）可编码且可解回（不再死胡同）', () => {
+    const d = 'A'.repeat(128)
+    const enc = encodeRebindCode({ ...base, d }, NOW)
+        expect(enc.ok).toBe(true)
+    if (!enc.ok) return
+    // 码长仍在上限内
+    expect(enc.code.length).toBeLessThanOrEqual(512)
+    const parsed = parseRebindCode(enc.code, NOW)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.newDeviceId).toBe(d)
+    expect(parsed.requestId).toBe(base.r)
+  })
+
+  it('超上限载荷：encode 与 parse **都**拒绝（对称）', () => {
+    const tooLong = 'A'.repeat(400) // 载荷将 > 300 字节（且设备 id 形状本身也不合法）
+    expect(encodeRebindCode({ ...base, d: tooLong }, NOW).ok).toBe(false)
+    // 手工构造超上限码（绕过 encode 的长度校验）→ parse 必须同样拒绝
+    const compact = JSON.stringify({ r: base.r, d: tooLong, k: base.k, e: base.e })
+    expect(parseRebindCode('HBRB1:' + base32Of(compact), NOW).ok).toBe(false)
+  })
+
+  it('e 必须是整数秒（浮点/1e30 → code_invalid）', () => {
+    for (const bad of [FUTURE + 0.5, 1e30]) {
+      expect(encodeRebindCode({ ...base, d: 'device-0001', e: bad }, NOW).ok).toBe(false)
+    }
+  })
+})

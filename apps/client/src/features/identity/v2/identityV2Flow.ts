@@ -134,8 +134,18 @@ const readDeviceId = (raw: Record<string, unknown>): string | null =>
   isNonEmptyString(raw.device_id) ? raw.device_id.trim() : null
 
 /** 成功 payload 的学号掩码（契约字段；缺失 → 空串，绝不回退为明文） */
-const readStudentIdMasked = (raw: Record<string, unknown>): string =>
-  typeof raw.student_id_masked === 'string' ? raw.student_id_masked : ''
+/**
+ * 读取服务端返回的学号掩码，并做**本地兜底再掩码**（红队 O2）：
+ * 服务端是不可信输入边界——若它回了明文学号（或任何非 `xxxx***` 形态），客户端不原样透给 UI，
+ * 而是本地重新掩码（前 4 位 + `***`；不足 8 位一律 `***`），避免把服务端回显当可信展示值。
+ */
+const readStudentIdMasked = (raw: Record<string, unknown>): string => {
+  const value = typeof raw.student_id_masked === 'string' ? raw.student_id_masked.trim() : ''
+  if (value === '') return ''
+  if (/^\d{4}\*{3}$/.test(value)) return value // 已是标准掩码
+  if (value.length >= 8) return `${value.slice(0, 4)}***` // 兜底：本地重掩（可能是明文回显）
+  return '***'
+}
 
 const readKind = (raw: Record<string, unknown>): FlowErrorKind | null =>
   isFlowErrorKind(raw.kind) ? raw.kind : null
