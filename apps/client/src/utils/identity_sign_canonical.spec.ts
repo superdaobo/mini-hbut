@@ -95,45 +95,61 @@ describe('buildIdentityV2Canonical（identity_build_v2_canonical）', () => {
     invokeNativeMock.mockReset()
   })
 
-  it('参数映射：三个可选参数全给 → camelCase payload 传入原生命令', async () => {
+  it('参数映射：必填 deviceId + 三个可选参数全给 → { input: {...snake_case} }（复核 R1 契约）', async () => {
     invokeNativeMock.mockResolvedValue(makeBuildResponse())
-    await buildIdentityV2Canonical({ studentName: '张三', nonce: 'abc123', ts: 1700000001 })
-    expect(invokeNativeMock).toHaveBeenCalledTimes(1)
-    expect(invokeNativeMock).toHaveBeenCalledWith(BUILD_COMMAND, {
+    await buildIdentityV2Canonical({
+      deviceId: 'device-0001',
       studentName: '张三',
       nonce: 'abc123',
       ts: 1700000001
     })
+    expect(invokeNativeMock).toHaveBeenCalledTimes(1)
+    // 契约：Rust 侧是单参结构体 `input`（Tauri 按 args["input"] 取参），字段名 snake_case
+    expect(invokeNativeMock).toHaveBeenCalledWith(BUILD_COMMAND, {
+      input: {
+        device_id: 'device-0001',
+        student_name: '张三',
+        nonce: 'abc123',
+        ts: 1700000001
+      }
+    })
   })
 
-  it('全部缺省 → 空 payload（不传任何空值键）', async () => {
-    invokeNativeMock.mockResolvedValue(makeBuildResponse())
-    await buildIdentityV2Canonical()
-    expect(invokeNativeMock).toHaveBeenCalledTimes(1)
-    expect(invokeNativeMock).toHaveBeenCalledWith(BUILD_COMMAND, {})
+  it('缺 deviceId（或空串）→ 不触达原生命令，直接稳定文案 reject', async () => {
+    const noDevice = await expectReject(buildIdentityV2Canonical({}))
+    expect(noDevice.message).toBe('构造 canonical 失败：输入缺失或不合法')
+    const emptyDevice = await expectReject(buildIdentityV2Canonical({ deviceId: '   ' }))
+    expect(emptyDevice.message).toBe('构造 canonical 失败：输入缺失或不合法')
+    expect(invokeNativeMock).not.toHaveBeenCalled()
+  })
 
-    invokeNativeMock.mockClear()
-    await buildIdentityV2Canonical({})
+  it('只给必填 deviceId → payload 只有 device_id（不传任何空值键）', async () => {
+    invokeNativeMock.mockResolvedValue(makeBuildResponse())
+    await buildIdentityV2Canonical({ deviceId: 'device-0001' })
     expect(invokeNativeMock).toHaveBeenCalledTimes(1)
-    expect(invokeNativeMock).toHaveBeenCalledWith(BUILD_COMMAND, {})
+    expect(invokeNativeMock).toHaveBeenCalledWith(BUILD_COMMAND, {
+      input: { device_id: 'device-0001' }
+    })
   })
 
   it('studentName 缺省 → 不传该键（避免 Rust 侧把空串当姓名）；只传给出的键', async () => {
     invokeNativeMock.mockResolvedValue(makeBuildResponse())
-    await buildIdentityV2Canonical({ ts: 1700000002 })
+    await buildIdentityV2Canonical({ deviceId: 'device-0001', ts: 1700000002 })
     expect(invokeNativeMock).toHaveBeenCalledTimes(1)
-    expect(invokeNativeMock).toHaveBeenCalledWith(BUILD_COMMAND, { ts: 1700000002 })
+    expect(invokeNativeMock).toHaveBeenCalledWith(BUILD_COMMAND, {
+      input: { device_id: 'device-0001', ts: 1700000002 }
+    })
     // payload 里不得出现任何缺省字段（含空串键）
-    const payload = invokeNativeMock.mock.calls[0][1] as Record<string, unknown>
-    expect(payload).not.toHaveProperty('studentName')
-    expect(payload).not.toHaveProperty('nonce')
-    expect(Object.keys(payload)).toEqual(['ts'])
+    const args = invokeNativeMock.mock.calls[0][1] as { input: Record<string, unknown> }
+    expect(args.input).not.toHaveProperty('student_name')
+    expect(args.input).not.toHaveProperty('nonce')
+    expect(Object.keys(args.input)).toEqual(['device_id', 'ts'])
   })
 
   it('返回值透传：snake_case 字段与 Rust 侧一一对应，不做变换', async () => {
     const response = makeBuildResponse()
     invokeNativeMock.mockResolvedValue(response)
-    const result = await buildIdentityV2Canonical({ studentName: '张三' })
+    const result = await buildIdentityV2Canonical({ deviceId: 'device-0001', studentName: '张三' })
     expect(result).toEqual(response)
     // 钉死字段名集合与关键类型
     expect(Object.keys(result).sort()).toEqual(
@@ -146,7 +162,7 @@ describe('buildIdentityV2Canonical（identity_build_v2_canonical）', () => {
   it('invoke reject（未登录 / 命令不可用 等）：以固定稳定文案 reject，不透传原始错误', async () => {
     const rawDetail = '未登录：请先在本机完成登录后再操作 [session-err-9]'
     invokeNativeMock.mockRejectedValue(new Error(rawDetail))
-    const error = await expectReject(buildIdentityV2Canonical({}))
+    const error = await expectReject(buildIdentityV2Canonical({ deviceId: 'device-0001' }))
     // 文案固定、稳定（与 Rust 原始文案完全无关）
     expect(error.message).toBe(
       '构造身份 v2 canonical 失败：当前环境不满足构造条件（未登录或命令不可用）'
@@ -172,7 +188,7 @@ describe('buildIdentityV2Canonical（identity_build_v2_canonical）', () => {
     for (const bad of badResponses) {
       invokeNativeMock.mockReset()
       invokeNativeMock.mockResolvedValue(bad)
-      const error = await expectReject(buildIdentityV2Canonical({}))
+      const error = await expectReject(buildIdentityV2Canonical({ deviceId: 'device-0001' }))
       expect(error.message).toBe('构造身份 v2 canonical 失败：Rust 侧响应形状异常')
     }
     // 全程零 console
@@ -183,7 +199,7 @@ describe('buildIdentityV2Canonical（identity_build_v2_canonical）', () => {
 
   it('成功路径全程零 console 输出、零存储写入', async () => {
     invokeNativeMock.mockResolvedValue(makeBuildResponse())
-    await buildIdentityV2Canonical({ studentName: '张三' })
+    await buildIdentityV2Canonical({ deviceId: 'device-0001', studentName: '张三' })
     for (const spy of consoleSpies) {
       expect(spy).not.toHaveBeenCalled()
     }
@@ -230,10 +246,13 @@ describe('signIdentityV2Canonical（identity_sign_canonical）', () => {
       canonical: CANONICAL
     })
     expect(invokeNativeMock).toHaveBeenCalledTimes(1)
+    // 契约（复核 R1）：{ input: { device_id, student_id, canonical } }（snake_case + input 包装）
     expect(invokeNativeMock).toHaveBeenCalledWith(SIGN_COMMAND, {
-      deviceId: 'device-0001',
-      studentId: '2021123456',
-      canonical: CANONICAL
+      input: {
+        device_id: 'device-0001',
+        student_id: '2021123456',
+        canonical: CANONICAL
+      }
     })
   })
 

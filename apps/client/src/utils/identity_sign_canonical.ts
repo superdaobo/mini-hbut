@@ -76,6 +76,7 @@ const ERR_BUILD_INVOKE =
   '构造身份 v2 canonical 失败：当前环境不满足构造条件（未登录或命令不可用）'
 const ERR_BUILD_MALFORMED = '构造身份 v2 canonical 失败：Rust 侧响应形状异常'
 const ERR_SIGN_INPUT = '签名 canonical 失败：输入缺失或不合法'
+const ERR_BUILD_INPUT = '构造 canonical 失败：输入缺失或不合法'
 const ERR_SIGN_INVOKE =
   '签名 canonical 失败：当前环境不满足签名条件（设备未登记、未登录或命令不可用）'
 const ERR_SIGN_MALFORMED = '签名 canonical 失败：Rust 侧响应形状异常'
@@ -153,18 +154,28 @@ const normalizeSignedCanonical = (raw: unknown): SignedCanonicalResult | null =>
  * - 缺省的可选字段**不传**（`studentName` 未给就不传该键，避免 Rust 侧把空串当姓名）；
  * - invoke reject / 响应畸形 → 以稳定文案 reject，不透传原始细节；不写日志、不写存储。
  */
-export const buildIdentityV2Canonical = async (
-  opts?: { studentName?: string; nonce?: string; ts?: number }
-): Promise<BuildIdentityV2CanonicalResult> => {
-  // Tauri v2 约定：前端传 camelCase；缺省的可选字段不传（不传空值键）
-  const payload: Record<string, unknown> = {}
-  if (opts?.studentName !== undefined) payload.studentName = opts.studentName
-  if (opts?.nonce !== undefined) payload.nonce = opts.nonce
-  if (opts?.ts !== undefined) payload.ts = opts.ts
+export const buildIdentityV2Canonical = async (input: {
+  /** 本机已登记 device_id（Rust 侧 `input.device_id`，必填） */
+  deviceId: string
+  studentName?: string
+  nonce?: string
+  ts?: number
+}): Promise<BuildIdentityV2CanonicalResult> => {
+  // 本地守卫：device_id 必须是非空（含去掉首尾空白后仍非空）字符串
+  if (typeof input?.deviceId !== 'string' || input.deviceId.trim() === '') {
+    throw new Error(ERR_BUILD_INPUT)
+  }
+  // **契约**（复核 R1）：Rust 侧是单参结构体 `input`，Tauri v2 按 `args["input"]` 取参，
+  // 且 serde 字段名是 snake_case（Tauri 不做 camelCase 自动转换）。
+  // 同仓正确姿势见 `src/app/coordinators/IdentityCoordinator.ts` 的 `identity_sign_auth_request`。
+  const payload: Record<string, unknown> = { device_id: input.deviceId }
+  if (input.studentName !== undefined) payload.student_name = input.studentName
+  if (input.nonce !== undefined) payload.nonce = input.nonce
+  if (input.ts !== undefined) payload.ts = input.ts
 
   let raw: unknown
   try {
-    raw = await invokeNative<unknown>(BUILD_CANONICAL_COMMAND, payload)
+    raw = await invokeNative<unknown>(BUILD_CANONICAL_COMMAND, { input: payload })
   } catch {
     // invoke 失败（未登录 / 命令未注册 / 当前运行时不支持 invoke 等）：
     // 统一折叠为固定文案重新抛出，不透传原始错误细节（错误文本可能携带命令名以外内容）
@@ -207,9 +218,11 @@ export const signIdentityV2Canonical = async (input: {
   let raw: unknown
   try {
     raw = await invokeNative<unknown>(SIGN_CANONICAL_COMMAND, {
-      deviceId: input.deviceId,
-      studentId: input.studentId,
-      canonical: input.canonical
+      input: {
+        device_id: input.deviceId,
+        student_id: input.studentId,
+        canonical: input.canonical
+      }
     })
   } catch {
     // invoke 失败（设备未登记 / 未登录 / canonical 与设备或学号不匹配 / 命令未注册 等）：
