@@ -748,6 +748,12 @@ pub fn run() {
             // P1-1（#1212）：设备密钥对 v2 canonical 的正式签名路径
             identity::commands::identity_build_v2_canonical,
             identity::commands::identity_sign_canonical,
+            // P1-2（#1213）：首次登记 / 换机（新设备发起 + 旧设备批准）
+            identity::commands::identity_sign_rebind,
+            identity::commands::identity_enroll_v2,
+            identity::commands::identity_rebind_request_v2,
+            identity::commands::identity_rebind_approve_v2,
+            identity::commands::identity_v2_service_base,
             identity::commands::identity_revoke_current_device_local,
             identity::commands::identity_fetch_auth_history,
             // #902：设备换票（Device 签名 + 一次性 challenge → resource-scoped JWT AT）

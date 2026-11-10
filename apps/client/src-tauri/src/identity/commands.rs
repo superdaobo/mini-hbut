@@ -18,11 +18,21 @@ use super::enrollment::{build_enroll_assertion, EnrollAssertionInput};
 use super::errors::IdentityError;
 use super::models::{
     current_platform, BuildCanonicalInput, BuildCanonicalPayload, DeviceStatusPayload,
-    EnrollPayload, PublicKeyPayload, SignAuthRequestInput, SignCanonicalInput,
+    EnrollPayload, EnrollV2Input, FlowPayload, PublicKeyPayload, RebindApproveV2Input,
+    RebindRequestV2Input, SignAuthRequestInput, SignCanonicalInput, SignRebindInput,
     SignedCanonicalPayload,
 };
+use super::rebind_sign::{sign_rebind_impl, ROLE_APPROVE, ROLE_REQUEST};
 use super::sign_canonical::{
     canonical_sha256, is_valid_device_id, mask_student_id, sign_canonical_impl,
+};
+use super::v2_flow::{
+    enroll_v2, rebind_approve_v2, rebind_request_v2, validate_approve_shape, EnrollV2Request,
+    FlowErr, FlowOk, RebindApproveV2Request, RebindRequestV2Request,
+};
+use super::v2_service_client::{
+    default_v2_service_base, pubkey_sha256, resolve_v2_service_base, ReqwestV2Transport,
+    V2_ALLOW_LOCAL_SERVICE_ENV,
 };
 use super::v2_signature::{build_v2_canonical, generate_nonce, now_unix};
 
@@ -819,4 +829,359 @@ pub(crate) async fn identity_sign_canonical(
         canonical_sha256: signed.canonical_sha256,
         student_id_masked: mask_student_id(&signed.student_id),
     })
+}
+
+// ── P1-2：首次登记 / 换机 三流程 + 换绑专用签名 ──────────────────────────────
+
+/// 本机设备公钥的紧凑 JWK（`{"kty":"OKP","crv":"Ed25519","x":"…"}`，与 ocr 服务端口径一致）。
+fn device_public_jwk(key: &DeviceKey) -> String {
+    let jwk = key.public_jwk();
+    format!(
+        r#"{{"kty":"{}","crv":"{}","x":"{}"}}"#,
+        jwk.kty, jwk.crv, jwk.x
+    )
+}
+
+/// 本机登录会话的学号（无会话/空 → `NoLocalLogin`）。
+fn current_session_student_id() -> Result<String, IdentityError> {
+    let latest = crate::db::get_latest_user_session(crate::DB_FILENAME)
+        .map_err(|e| IdentityError::Internal(format!("读取本地会话失败：{e}")))?;
+    latest
+        .map(|s| s.student_id)
+        .filter(|s| !s.trim().is_empty())
+        .ok_or(IdentityError::NoLocalLogin)
+}
+
+/// 解析服务地址（生产常量 / dev 本机回环）。
+fn v2_service_base(input: Option<&str>) -> Result<String, IdentityError> {
+    let allow_local = cfg!(debug_assertions)
+        && std::env::var(V2_ALLOW_LOCAL_SERVICE_ENV)
+            .map(|v| v == "1")
+            .unwrap_or(false);
+    let raw = input
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(default_v2_service_base);
+    resolve_v2_service_base(&raw, allow_local)
+}
+
+fn flow_ok_payload(ok: FlowOk, key: Option<&DeviceKey>) -> FlowPayload {
+    FlowPayload {
+        ok: true,
+        kind: ok.kind.to_string(),
+        message: ok.message.to_string(),
+        device_id: ok.device_id,
+        student_id_masked: ok.student_id_masked,
+        request_id: ok.request_id,
+        expires_at: ok.expires_at,
+        new_pubkey_sha256: ok.new_pubkey_sha256,
+        public_key_jwk: key.map(device_public_jwk).unwrap_or_default(),
+    }
+}
+
+/// 流程失败 → 统一返回体（`ok=false` + 稳定 kind/文案；**不**透传服务端细节）。
+fn flow_err_payload(err: FlowErr) -> FlowPayload {
+    FlowPayload {
+        ok: false,
+        kind: err.kind.to_string(),
+        message: err.message.to_string(),
+        device_id: String::new(),
+        student_id_masked: String::new(),
+        request_id: String::new(),
+        expires_at: 0,
+        new_pubkey_sha256: String::new(),
+        public_key_jwk: String::new(),
+    }
+}
+
+/// 读取本机设备密钥（**只读**：不存在 → `NotEnrolled`，绝不新建密钥）。
+async fn load_device_key() -> Result<DeviceKey, IdentityError> {
+    let store = real_store();
+    let loaded = tauri::async_runtime::spawn_blocking(move || store.load())
+        .await
+        .map_err(|e| IdentityError::Internal(format!("设备密钥读取任务失败：{e}")))?
+        .map_err(|e| e)?;
+    loaded.ok_or(IdentityError::NotEnrolled)
+}
+
+/// P1-2：换绑 canonical 的**专用**签名（角色白名单 + 本地绑定 + 自检；绝非任意串签名）。
+#[tauri::command]
+pub(crate) async fn identity_sign_rebind(
+    input: SignRebindInput,
+) -> Result<SignedCanonicalPayload, String> {
+    // #672：Android 无 OS keyring 后端
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份签名，敬请期待后续版本".to_string());
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let device_id = input.device_id.trim().to_string();
+        if !is_valid_device_id(&device_id) {
+            return Err(IdentityError::InvalidInput(
+                "device_id 形状非法（须 8–128 位，字符集 [A-Za-z0-9._:-]）".to_string(),
+            )
+            .to_string());
+        }
+        // approve 角色不需要本地会话（服务端才是权威）；request 角色在 impl 内要求会话学号非空。
+        let session_student_id = current_session_student_id().unwrap_or_default();
+        let key = load_device_key().await.map_err(|e| e.to_string())?;
+        let signed = sign_rebind_impl(
+            &key,
+            input.role.as_str(),
+            input.canonical.as_str(),
+            &device_id,
+            session_student_id.as_str(),
+            input.student_id.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+        let fingerprint = key.fingerprint();
+        log::info!(
+            "identity_sign_rebind {}",
+            super::sign_canonical::audit_fields(
+                &signed.device_id,
+                &fingerprint,
+                signed.signature.len(),
+                &signed.canonical_sha256,
+                &signed.student_id,
+            )
+        );
+        Ok(SignedCanonicalPayload {
+            device_id: signed.device_id,
+            alg: signed.alg,
+            signature: signed.signature,
+            fingerprint,
+            public_key_jwk: device_public_jwk(&key),
+            canonical_sha256: signed.canonical_sha256,
+            student_id_masked: mask_student_id(&signed.student_id),
+        })
+    }
+}
+
+/// P1-2：首次登记（v2）——构建 `v1|…` canonical → 本机签名 → 提交学生认证服务 → 稳定分类。
+#[tauri::command]
+pub(crate) async fn identity_enroll_v2(input: EnrollV2Input) -> Result<FlowPayload, String> {
+    // #672：Android 无 OS keyring 后端
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份注册，敬请期待后续版本".to_string());
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let device_id = input.device_id.trim().to_string();
+        if !is_valid_device_id(&device_id) {
+            return Ok(flow_err_payload(FlowErr::new(super::v2_flow::KIND_UNKNOWN)));
+        }
+        let base = match v2_service_base(input.service_base.as_deref()) {
+            Ok(v) => v,
+            Err(_) => return Ok(flow_err_payload(FlowErr::new(super::v2_flow::KIND_UNKNOWN))),
+        };
+        let student_id = match current_session_student_id() {
+            Ok(v) => v,
+            Err(_) => {
+                return Ok(flow_err_payload(FlowErr::new(
+                    super::v2_flow::KIND_NOT_LOGGED_IN,
+                )))
+            }
+        };
+        let nonce = super::v2_signature::generate_nonce();
+        let ts = super::v2_signature::now_unix();
+        let canonical = match super::v2_signature::build_v2_canonical(
+            &device_id,
+            &student_id,
+            "",
+            &nonce,
+            ts,
+        ) {
+            Ok(c) => c,
+            Err(_) => return Ok(flow_err_payload(FlowErr::new(super::v2_flow::KIND_UNKNOWN))),
+        };
+        let name_hash = canonical.split('|').nth(3).unwrap_or_default().to_string();
+        let key = match load_device_key().await {
+            Ok(k) => k,
+            Err(_) => {
+                return Ok(flow_err_payload(FlowErr::new(
+                    super::v2_flow::KIND_NOT_ENROLLED,
+                )))
+            }
+        };
+        let signed =
+            match sign_canonical_impl(&key, &canonical, &device_id, &student_id, &student_id) {
+                Ok(v) => v,
+                Err(_) => {
+                    return Ok(flow_err_payload(FlowErr::new(
+                        super::v2_flow::KIND_NOT_ENROLLED,
+                    )))
+                }
+            };
+        let req = EnrollV2Request {
+            device_id: device_id.clone(),
+            student_id: student_id.clone(),
+            alg: signed.alg.to_string(),
+            public_key_jwk: device_public_jwk(&key),
+            student_name_hash: name_hash,
+            nonce,
+            ts,
+            signature: signed.signature,
+        };
+        let transport = ReqwestV2Transport::new(&base);
+        match enroll_v2(&transport, &req).await {
+            Ok(ok) => Ok(flow_ok_payload(ok, Some(&key))),
+            Err(err) => Ok(flow_err_payload(err)),
+        }
+    }
+}
+
+/// P1-2：发起换机（新设备）——签 `hbut-rebind-v1|request|…` → 提交 → 返回 request_id（前端据此展示换机码）。
+#[tauri::command]
+pub(crate) async fn identity_rebind_request_v2(
+    input: RebindRequestV2Input,
+) -> Result<FlowPayload, String> {
+    // #672：Android 无 OS keyring 后端
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份签名，敬请期待后续版本".to_string());
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let device_id = input.device_id.trim().to_string();
+        if !is_valid_device_id(&device_id) {
+            return Ok(flow_err_payload(FlowErr::new(super::v2_flow::KIND_UNKNOWN)));
+        }
+        let base = match v2_service_base(input.service_base.as_deref()) {
+            Ok(v) => v,
+            Err(_) => return Ok(flow_err_payload(FlowErr::new(super::v2_flow::KIND_UNKNOWN))),
+        };
+        let student_id = match current_session_student_id() {
+            Ok(v) => v,
+            Err(_) => {
+                return Ok(flow_err_payload(FlowErr::new(
+                    super::v2_flow::KIND_NOT_LOGGED_IN,
+                )))
+            }
+        };
+        let key = match load_device_key().await {
+            Ok(k) => k,
+            Err(_) => {
+                return Ok(flow_err_payload(FlowErr::new(
+                    super::v2_flow::KIND_NOT_ENROLLED,
+                )))
+            }
+        };
+        let public_key_jwk = device_public_jwk(&key);
+        let key_sha = pubkey_sha256(&key.public_jwk());
+        let nonce = super::v2_signature::generate_nonce();
+        let ts = super::v2_signature::now_unix();
+        let canonical = super::v2_flow::build_rebind_request_canonical(
+            &device_id,
+            &student_id,
+            &key_sha,
+            &nonce,
+            ts,
+        );
+        let signed = match sign_rebind_impl(
+            &key,
+            ROLE_REQUEST,
+            &canonical,
+            &device_id,
+            &student_id,
+            Some(&student_id),
+        ) {
+            Ok(v) => v,
+            Err(_) => {
+                return Ok(flow_err_payload(FlowErr::new(
+                    super::v2_flow::KIND_NOT_ENROLLED,
+                )))
+            }
+        };
+        let req = RebindRequestV2Request {
+            new_device_id: device_id.clone(),
+            student_id: student_id.clone(),
+            alg: signed.alg.to_string(),
+            public_key_jwk,
+            student_name_hash: String::new(),
+            new_pubkey_sha256: key_sha,
+            nonce,
+            ts,
+            signature: signed.signature,
+        };
+        let transport = ReqwestV2Transport::new(&base);
+        match rebind_request_v2(&transport, &req).await {
+            Ok(ok) => Ok(flow_ok_payload(ok, Some(&key))),
+            Err(err) => Ok(flow_err_payload(err)),
+        }
+    }
+}
+
+/// P1-2：批准换机（旧设备）——形状先挡 → 签 `hbut-rebind-v1|approve|…` → 提交。
+#[tauri::command]
+pub(crate) async fn identity_rebind_approve_v2(
+    input: RebindApproveV2Input,
+) -> Result<FlowPayload, String> {
+    // #672：Android 无 OS keyring 后端
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份签名，敬请期待后续版本".to_string());
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let base = match v2_service_base(input.service_base.as_deref()) {
+            Ok(v) => v,
+            Err(_) => return Ok(flow_err_payload(FlowErr::new(super::v2_flow::KIND_UNKNOWN))),
+        };
+        let approver = input.approver_device_id.trim().to_string();
+        if !is_valid_device_id(&approver) {
+            return Ok(flow_err_payload(FlowErr::new(
+                super::v2_flow::KIND_NOT_ENROLLED,
+            )));
+        }
+        let nonce = super::v2_signature::generate_nonce();
+        let ts = super::v2_signature::now_unix();
+        let mut req = RebindApproveV2Request {
+            request_id: input.request_id.trim().to_string(),
+            new_device_id: input.new_device_id.trim().to_string(),
+            new_pubkey_sha256: input.new_pubkey_sha256.trim().to_string(),
+            expires_at: input.expires_at,
+            approver_device_id: approver.clone(),
+            student_id: String::new(),
+            nonce: nonce.clone(),
+            ts,
+            signature: String::new(),
+        };
+        if let Err(err) = validate_approve_shape(&req, ts) {
+            return Ok(flow_err_payload(err));
+        }
+        let key = match load_device_key().await {
+            Ok(k) => k,
+            Err(_) => {
+                return Ok(flow_err_payload(FlowErr::new(
+                    super::v2_flow::KIND_NOT_ENROLLED,
+                )))
+            }
+        };
+        let canonical = super::v2_flow::build_rebind_approve_canonical(
+            &req.request_id,
+            &approver,
+            &req.new_device_id,
+            &req.new_pubkey_sha256,
+            &nonce,
+            ts,
+        );
+        let signed = match sign_rebind_impl(&key, ROLE_APPROVE, &canonical, &approver, "", None) {
+            Ok(v) => v,
+            Err(_) => {
+                return Ok(flow_err_payload(FlowErr::new(
+                    super::v2_flow::KIND_APPROVER_MISMATCH,
+                )))
+            }
+        };
+        req.signature = signed.signature;
+        let transport = ReqwestV2Transport::new(&base);
+        match rebind_approve_v2(&transport, &req).await {
+            Ok(ok) => Ok(flow_ok_payload(ok, Some(&key))),
+            Err(err) => Ok(flow_err_payload(err)),
+        }
+    }
+}
+
+/// P1-2：只读——当前生效的学生认证服务地址（供前端展示/自检；不含任何凭据）。
+#[tauri::command]
+pub(crate) async fn identity_v2_service_base() -> Result<String, String> {
+    v2_service_base(None).map_err(|e| e.to_string())
 }
