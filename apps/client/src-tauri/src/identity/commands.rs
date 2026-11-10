@@ -17,8 +17,14 @@ use super::device_token::{exchange_device_token, DeviceTokenPayload};
 use super::enrollment::{build_enroll_assertion, EnrollAssertionInput};
 use super::errors::IdentityError;
 use super::models::{
-    current_platform, DeviceStatusPayload, EnrollPayload, PublicKeyPayload, SignAuthRequestInput,
+    current_platform, BuildCanonicalInput, BuildCanonicalPayload, DeviceStatusPayload,
+    EnrollPayload, PublicKeyPayload, SignAuthRequestInput, SignCanonicalInput,
+    SignedCanonicalPayload,
 };
+use super::sign_canonical::{
+    canonical_sha256, is_valid_device_id, mask_student_id, sign_canonical_impl,
+};
+use super::v2_signature::{build_v2_canonical, generate_nonce, now_unix};
 
 const IDENTITY_CORE_ORIGIN: &str = "https://id.xn--vhq74jc2fzpchter27a.com";
 const IDENTITY_AUTH_ORIGIN: &str = "https://auth.xn--vhq74jc2fzpchter27a.com";
@@ -661,4 +667,156 @@ mod tests {
             );
         }
     }
+}
+
+/// P1-1（#1212）：构造 v2 canonical。
+///
+/// - **device_id** 由前端传入（本机已登记 id，形状校验）；
+/// - **学号**一律取本地登录会话（`user_sessions` 最新一条，空 → `NoLocalLogin`）；
+/// - **姓名**优先取可信 `user_info` 快照，快照为空时用入参兜底（进 canonical 的只是 sha256）；
+/// - 不联网、不写库、不碰 keyring。
+#[tauri::command]
+pub(crate) async fn identity_build_v2_canonical(
+    state: State<'_, AppState>,
+    input: BuildCanonicalInput,
+) -> Result<BuildCanonicalPayload, String> {
+    // #672：Android 无 OS keyring 后端（本命令本身不需要 keyring，但保持一致的功能闸门语义）
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份签名，敬请期待后续版本".to_string());
+
+    let device_id = input.device_id.trim().to_string();
+    if !is_valid_device_id(&device_id) {
+        return Err(IdentityError::InvalidInput(
+            "device_id 形状非法（须 8–128 位，字符集 [A-Za-z0-9._:-]）".to_string(),
+        )
+        .to_string());
+    }
+
+    // 学号：本地登录会话（不接受前端传入，避免替他人构造 canonical）
+    let latest = crate::db::get_latest_user_session(crate::DB_FILENAME)
+        .map_err(|e| IdentityError::Internal(format!("读取本地会话失败：{e}")).to_string())?;
+    let student_id = latest
+        .map(|s| s.student_id)
+        .filter(|s| !s.trim().is_empty())
+        .ok_or(IdentityError::NoLocalLogin)
+        .map_err(|e| e.to_string())?;
+    let student_id = student_id.trim().to_string();
+
+    let snapshot_name = state
+        .client
+        .read()
+        .await
+        .user_info
+        .as_ref()
+        .map(|u| u.student_name.clone())
+        .unwrap_or_default();
+    let student_name = if snapshot_name.trim().is_empty() {
+        input.student_name.unwrap_or_default()
+    } else {
+        snapshot_name
+    };
+
+    let nonce = input
+        .nonce
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(generate_nonce);
+    let ts = input.ts.unwrap_or_else(now_unix);
+
+    let canonical = build_v2_canonical(&device_id, &student_id, student_name.trim(), &nonce, ts)
+        .map_err(|e| e.to_string())?;
+    let name_hash = canonical.split('|').nth(3).unwrap_or_default().to_string();
+    log::info!(
+        "identity_build_v2_canonical device_id={} student_id={} ts={} canonical_sha256={}…",
+        device_id,
+        mask_student_id(&student_id),
+        ts,
+        canonical_sha256(&canonical)
+            .chars()
+            .take(16)
+            .collect::<String>()
+    );
+    Ok(BuildCanonicalPayload {
+        canonical,
+        device_id,
+        student_id_masked: mask_student_id(&student_id),
+        student_name_hash: name_hash,
+        nonce,
+        ts,
+    })
+}
+
+/// P1-1（#1212）：对 v2 canonical 签名（**正式路径**；只签名、不新造密钥）。
+///
+/// 顺序：平台闸门 → device_id 形状 → 本地登录会话 → `DeviceKeyStore::load()`（**不 create_if_missing**）
+/// → `sign_canonical_impl`（三重绑定 + 自检）→ 组装只含公开材料的返回。
+#[tauri::command]
+pub(crate) async fn identity_sign_canonical(
+    input: SignCanonicalInput,
+) -> Result<SignedCanonicalPayload, String> {
+    // #672：Android 无 OS keyring 后端（keyring crate 不支持），显式降级而非误导性报错
+    #[cfg(target_os = "android")]
+    return Err("该平台暂不支持设备身份签名，敬请期待后续版本".to_string());
+
+    let device_id = input.device_id.trim().to_string();
+    if !is_valid_device_id(&device_id) {
+        return Err(IdentityError::InvalidInput(
+            "device_id 形状非法（须 8–128 位，字符集 [A-Za-z0-9._:-]）".to_string(),
+        )
+        .to_string());
+    }
+
+    let latest = crate::db::get_latest_user_session(crate::DB_FILENAME)
+        .map_err(|e| IdentityError::Internal(format!("读取本地会话失败：{e}")).to_string())?;
+    let session_student_id = latest
+        .map(|s| s.student_id)
+        .filter(|s| !s.trim().is_empty())
+        .ok_or(IdentityError::NoLocalLogin)
+        .map_err(|e| e.to_string())?;
+
+    // **只读密钥**：没有密钥 → NotEnrolled（明确「未登记」，绝不静默成功、绝不新建密钥）。
+    // keyring 是同步 blocking API，放 spawn_blocking（Windows 上 CredRead 的既有经验）。
+    let store = real_store();
+    let loaded = tauri::async_runtime::spawn_blocking(move || store.load())
+        .await
+        .map_err(|e| format!("设备密钥读取任务失败：{e}"))?
+        .map_err(|e| e.to_string())?;
+    let key = loaded
+        .ok_or(IdentityError::NotEnrolled)
+        .map_err(|e| e.to_string())?;
+
+    let signed = sign_canonical_impl(
+        &key,
+        input.canonical.as_str(),
+        &device_id,
+        input.student_id.as_str(),
+        &session_student_id,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let fingerprint = key.fingerprint();
+    log::info!(
+        "identity_sign_canonical {}",
+        super::sign_canonical::audit_fields(
+            &signed.device_id,
+            &fingerprint,
+            signed.signature.len(),
+            &signed.canonical_sha256,
+            &signed.student_id,
+        )
+    );
+    Ok(SignedCanonicalPayload {
+        device_id: signed.device_id,
+        alg: signed.alg,
+        signature: signed.signature,
+        fingerprint,
+        public_key_jwk: serde_json::json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": key.public_jwk().x,
+        })
+        .to_string(),
+        canonical_sha256: signed.canonical_sha256,
+        student_id_masked: mask_student_id(&signed.student_id),
+    })
 }

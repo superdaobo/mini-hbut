@@ -65,3 +65,61 @@ pub fn current_platform() -> &'static str {
         "unknown"
     }
 }
+
+/// P1-1：`identity_build_v2_canonical` 输入。
+///
+/// `device_id` 由前端保存的已登记 id 传入（本地无「服务端登记状态」缓存）；
+/// 学号与姓名**不由前端传**（学号取本地登录会话、姓名取可信 user_info 快照）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct BuildCanonicalInput {
+    /// 本机已登记 device_id（enroll 返回值，由前端持有）
+    pub device_id: String,
+    /// 姓名（仅在可信 user_info 快照为空时作为兜底；进 canonical 的只是它的 sha256）
+    pub student_name: Option<String>,
+    /// 一次性 nonce（缺省 → 内部生成 32 位小写 hex）
+    pub nonce: Option<String>,
+    /// unix 秒（缺省 → 当前时间）
+    pub ts: Option<i64>,
+}
+
+/// P1-1：`identity_build_v2_canonical` 返回（不含明文完整学号）。
+#[derive(Debug, Clone, Serialize)]
+pub struct BuildCanonicalPayload {
+    /// v2 canonical 原文（无末尾换行）
+    pub canonical: String,
+    pub device_id: String,
+    /// 学号掩码（前 4 位 + `***`）
+    pub student_id_masked: String,
+    pub student_name_hash: String,
+    pub nonce: String,
+    pub ts: i64,
+}
+
+/// P1-1：`identity_sign_canonical` 输入。
+#[derive(Debug, Clone, Deserialize)]
+pub struct SignCanonicalInput {
+    /// 本机已登记 device_id（必须与 canonical 第 2 段一致）
+    pub device_id: String,
+    /// 期望绑定的学号（必须与 canonical 第 3 段一致，且与本机登录会话学号一致）
+    pub student_id: String,
+    /// v2 canonical 原文（由 `identity_build_v2_canonical` 构造）
+    pub canonical: String,
+}
+
+/// P1-1：`identity_sign_canonical` 返回（只含公开材料 + 签名，无任何私钥材料）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SignedCanonicalPayload {
+    pub device_id: String,
+    /// 恒 "Ed25519"
+    pub alg: &'static str,
+    /// base64url 无 padding（86 字符）
+    pub signature: String,
+    /// 设备公钥指纹（sha256(canonical JWK) base64url）
+    pub fingerprint: String,
+    /// 公钥 JWK JSON 字符串（便于**独立验签**；公开材料）
+    pub public_key_jwk: String,
+    /// canonical 的 sha256（小写 hex），供调用方与 Core 对账
+    pub canonical_sha256: String,
+    /// 学号掩码
+    pub student_id_masked: String,
+}
