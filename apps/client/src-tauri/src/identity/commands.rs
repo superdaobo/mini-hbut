@@ -959,7 +959,10 @@ pub(crate) async fn identity_sign_rebind(
 
 /// P1-2：首次登记（v2）——构建 `v1|…` canonical → 本机签名 → 提交学生认证服务 → 稳定分类。
 #[tauri::command]
-pub(crate) async fn identity_enroll_v2(input: EnrollV2Input) -> Result<FlowPayload, String> {
+pub(crate) async fn identity_enroll_v2(
+    state: State<'_, AppState>,
+    input: EnrollV2Input,
+) -> Result<FlowPayload, String> {
     // #672：Android 无 OS keyring 后端
     #[cfg(target_os = "android")]
     return Err("该平台暂不支持设备身份注册，敬请期待后续版本".to_string());
@@ -984,10 +987,21 @@ pub(crate) async fn identity_enroll_v2(input: EnrollV2Input) -> Result<FlowPaylo
         };
         let nonce = super::v2_signature::generate_nonce();
         let ts = super::v2_signature::now_unix();
+        // 复核 A 指出的口径：登记 canonical 的姓名哈希必须与 P1-1 同源 ——
+        // 取**可信 user_info 快照**的姓名（无快照 → 空串 → sha256("")）。
+        // 服务端（P2-2 的 enroll 路由）重建 canonical 时必须采用同一口径，已在 spec §1 冻结。
+        let student_name = state
+            .client
+            .read()
+            .await
+            .user_info
+            .as_ref()
+            .map(|u| u.student_name.clone())
+            .unwrap_or_default();
         let canonical = match super::v2_signature::build_v2_canonical(
             &device_id,
             &student_id,
-            "",
+            student_name.trim(),
             &nonce,
             ts,
         ) {
