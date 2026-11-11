@@ -179,3 +179,20 @@ pub struct FlowPayload {
     /// 供前端组装换机码（= 本机公钥指纹用的同一份 sha256 口径）。
     pub public_key_jwk: String,
 }
+
+/// P2-4（#1208）：`identity_oidc_complete` 输入（浏览器回调 URL 由深链/loopback 页交回）。
+///
+/// `callback_url` 是**完整回调 URL**（`minihbut://identity/callback?code=..&state=..`
+/// 或 loopback 形态 `http://127.0.0.1:<port>/callback?code=..&state=..`）；
+/// code/state 在 Rust 侧解析，前端不接触 verifier/nonce/token。
+#[derive(Debug, Clone, Deserialize)]
+pub struct OidcCompleteInput {
+    pub callback_url: String,
+}
+
+/// P2-4（loopback 回退）：等待回环回调的入参。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct OidcAwaitCallbackInput {
+    /// 等待上限（毫秒）；命令层会 clamp 到 1..=600000。
+    pub timeout_ms: i64,
+}

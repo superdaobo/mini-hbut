@@ -6,6 +6,7 @@
 //   - 小组件现有链接：minihbut://schedule?date=...&source=widget&period=N、
 //     minihbut://electricity、minihbut://exam（解析行为与迁移前一致，保证无回归）；
 //   - 身份授权：minihbut://identity?request_id=ar_xxx&handoff=<short-lived-secret>；
+//   - OIDC 回调（P2-4）：minihbut://identity/callback?code=..&state=..（#1208）；
 //   - 无效/恶意链接：只返回通用错误，绝不把 URL 或 secret 回显到 log/UI。
 //
 // 安全边界：
@@ -27,11 +28,20 @@ export const IDENTITY_HANDOFF_MIN_LENGTH = 32
 export const IDENTITY_HANDOFF_MAX_LENGTH = 128
 export const IDENTITY_HANDOFF_PATTERN = /^[A-Za-z0-9._~-]{32,128}$/
 
+// P2-4（#1208）OIDC 回调：minihbut://identity/callback?code=..&state=..
+// code：授权码（形状校验 [A-Za-z0-9._~-]{16,512}）；state：32 hex（形状校验 [A-Za-z0-9._~-]{16,128}）。
+// 与 handoff 同款纪律：只做形状校验、不区分缺哪个参数、错误不回显任何参数值。
+export const IDENTITY_CALLBACK_CODE_PATTERN = /^[A-Za-z0-9._~-]{16,512}$/
+export const IDENTITY_CALLBACK_STATE_PATTERN = /^[A-Za-z0-9._~-]{16,128}$/
+
 /** 统一深链解析结果（单一入口的全部业务类型） */
 export type MiniHbutDeepLink =
   | { kind: 'widget-schedule'; date: string; period: number; source: string }
   | { kind: 'navigate'; view: 'electricity' | 'exams'; source: string }
   | { kind: 'identity'; requestId: string; handoff: string }
+  // P2-4（#1208）：OIDC 授权码+PKCE 回调；code/state 仅透传给 identity_oidc_complete，
+  // 不得写入 console/存储/URL 历史（与 #621 handoff 同款短期 opaque 纪律）
+  | { kind: 'identity-callback'; code: string; state: string }
 
 /**
  * 深链投递时机（#739）：
@@ -113,6 +123,11 @@ export const parseMiniHbutDeepLink = (rawUrl: string): MiniHbutDeepLinkResult =>
     return { ok: true, link: { kind: 'navigate', view: 'exams', source: toWidgetSource(url) } }
   }
   if (host === 'identity') {
+    // P2-4（#1208）：path 必须恰为 /callback 才走 OIDC 回调解析；
+    // 既有 #619 授权意图 minihbut://identity?request_id=..&handoff=..（path 为空）行为不变
+    if (url.pathname === '/callback') {
+      return parseIdentityCallbackDeepLink(url)
+    }
     return parseIdentityDeepLink(url)
   }
   return fail('unsupported-host', '不支持的链接')
@@ -126,6 +141,20 @@ const parseIdentityDeepLink = (url: URL): MiniHbutDeepLinkResult => {
     return fail('invalid-identity', '授权请求无效')
   }
   return { ok: true, link: { kind: 'identity', requestId, handoff } }
+}
+
+/**
+ * P2-4（#1208）：minihbut://identity/callback?code=..&state=..
+ * 只做形状校验（code [A-Za-z0-9._~-]{16,512} / state [A-Za-z0-9._~-]{16,128}）；
+ * 通用错误：不区分“缺哪个参数”，不回显参数值（code/state 可能含恶意内容/secret）。
+ */
+const parseIdentityCallbackDeepLink = (url: URL): MiniHbutDeepLinkResult => {
+  const code = url.searchParams.get('code') || ''
+  const state = url.searchParams.get('state') || ''
+  if (!IDENTITY_CALLBACK_CODE_PATTERN.test(code) || !IDENTITY_CALLBACK_STATE_PATTERN.test(state)) {
+    return fail('invalid-identity', '登录回调无效')
+  }
+  return { ok: true, link: { kind: 'identity-callback', code, state } }
 }
 
 export type MiniHbutDeepLinkHandler = (link: MiniHbutDeepLink, delivery: DeepLinkDelivery) => void
