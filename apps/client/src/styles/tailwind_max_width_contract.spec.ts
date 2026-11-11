@@ -18,9 +18,12 @@ import { resolve } from 'node:path'
  *    快捷入口编辑弹窗的关键 class（w-full / max-h-[80vh] 等）必须被生成。
  */
 
-/** 从生成的 CSS 中取出某个 class 的全部规则文本（按出现顺序） */
+/** 从生成的 CSS 中取出某个 class 的全部规则文本（按出现顺序）。
+ *  className 按字面选择器处理：先转义反斜杠（如 sm\:max-w-sm 的 CSS 转义选择器），
+ *  再转义其余正则元字符，确保 RegExp 输入全部被转义（CodeQL regexp 规则）。 */
 function collectRules(css: string, className: string): string[] {
-  const re = new RegExp(`\\.${className.replace(/[-[\]{}()+]/g, '\\$&')}(?![\\w-])\\s*\\{[^}]*\\}`, 'g')
+  const escaped = className.replace(/[-[\]{}()+\\]/g, '\\$&')
+  const re = new RegExp(`\\.${escaped}(?![\\w-])\\s*\\{[^}]*\\}`, 'g')
   return [...css.matchAll(re)].map((m) => m[0].replace(/\s+/g, ' '))
 }
 
@@ -68,7 +71,7 @@ describe('max-width scale contract (#1229)', () => {
 
     // 响应式变体 sm:max-w-sm（Sheet 组件，≥640px 视口，iPad 横屏可达）
     // 生成 CSS 里的选择器是转义形式 .sm\:max-w-sm，故 className 需带转义反斜杠
-    const rulesSmVariant = collectRules(css, 'sm\\\\:max-w-sm')
+    const rulesSmVariant = collectRules(css, 'sm\\:max-w-sm')
     expect(rulesSmVariant.length, 'sm:max-w-sm 变体规则应被生成').toBeGreaterThan(0)
     const vSmV = maxWidthValue(rulesSmVariant[rulesSmVariant.length - 1])
     expect(vSmV === '24rem', `sm:max-w-sm 的层叠胜出版本应为 24rem，实际 ${vSmV}`).toBe(true)
