@@ -196,3 +196,11 @@ pub struct OidcAwaitCallbackInput {
     /// 等待上限（毫秒）；命令层会 clamp 到 1..=600000。
     pub timeout_ms: i64,
 }
+
+/// P2-5（#1209）：`identity_oidc_access_token` 入参。
+#[derive(Debug, Clone, Deserialize)]
+pub struct OidcAccessTokenInput {
+    /// 强制刷新：`true` 时先走完整 refresh 刷新链（**会话仍新鲜也刷新**，供 401 场景），
+    /// 成功后返回新 AT；`false` 时只在会话有效时直接返回存储的 AT（零网络）。
+    pub force: bool,
+}

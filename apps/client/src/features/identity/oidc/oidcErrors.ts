@@ -11,7 +11,7 @@
  *     逐字一致：改这里必须同步改 Rust 侧。
  */
 
-/** §4.1 全部稳定 kind（17 个；与 Rust 侧 kind 常量逐字一致） */
+/** §4.1 全部稳定 kind（20 个；与 Rust 侧 kind 常量逐字一致；P2-5 新增 3 个 refresh kind） */
 export type OidcKind =
   | 'oidc_begin_ok'
   | 'oidc_login_ok'
@@ -28,6 +28,9 @@ export type OidcKind =
   | 'oidc_session_active'
   | 'oidc_session_absent'
   | 'oidc_logout_ok'
+  | 'oidc_refresh_ok'
+  | 'oidc_refresh_unavailable'
+  | 'oidc_refresh_failed'
   | 'secure_storage_unavailable'
   | 'unknown'
 
@@ -48,6 +51,9 @@ export const OIDC_KINDS: readonly OidcKind[] = [
   'oidc_session_active',
   'oidc_session_absent',
   'oidc_logout_ok',
+  'oidc_refresh_ok',
+  'oidc_refresh_unavailable',
+  'oidc_refresh_failed',
   'secure_storage_unavailable',
   'unknown'
 ]
@@ -72,6 +78,9 @@ export const OIDC_MESSAGES: Record<OidcKind, string> = {
   oidc_session_active: '已登录',
   oidc_session_absent: '未登录',
   oidc_logout_ok: '已退出登录',
+  oidc_refresh_ok: '登录状态已更新',
+  oidc_refresh_unavailable: '登录已过期，请重新登录',
+  oidc_refresh_failed: '登录状态刷新失败，请重新登录',
   secure_storage_unavailable: '无法安全保存登录状态（系统凭据存储不可用）',
   unknown: '操作失败，请稍后重试'
 }

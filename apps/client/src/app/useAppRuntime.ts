@@ -29,9 +29,9 @@ import { startUsageUploadScheduler, stopUsageUploadScheduler } from '../utils/us
 import { runCampusNetworkAutoLogin } from '../utils/campus_network_service'
 import { installHomeLayoutDiagnosticsErrorCapture, collectHomeLayoutDiagnostics } from '../utils/home_layout_diagnostics'
 import {
-  installIdentityDeviceTokenProvider,
-  type InstallIdentityDeviceTokenResult
-} from '../utils/identity_device_token'
+  installIdentityTokenProvider,
+  type InstallIdentityTokenProviderResult
+} from '../utils/identity_token_provider'
 import { showToast } from '../utils/toast'
 import { setAppStoreSessionVerifier } from '../config/app_store_policy'
 import { markBootMetric } from '../utils/boot_metrics.js'
@@ -72,11 +72,13 @@ export const useAppRuntime = () => {
   // 这是 #629 identity_access_token.ts 的生产注入点：未注入时 getIdentityAccessToken()
   // 恒为 null（Forum / Cloud Sync 走 legacy）；注入后失败仍返回 null，行为向后兼容。
   // 登出 / 登录事件由 provider 内部监听并清空内存令牌（见 utils/identity_device_token.ts）。
-  let identityDeviceTokenInstall: InstallIdentityDeviceTokenResult | null = null
+  // P2-5：provider 由**选择器**安装 —— 默认走 Casdoor refresh token（OIDC 会话），
+  // 仅当 VITE_HBUT_IDENTITY_DEVICE_TOKEN_ENABLED==='1' 时退回设备换票（显式过渡开关）。
+  // 注册失败绝不阻断启动：保持未注入状态 = 调用方走 legacy 双轨。
+  let identityTokenInstall: InstallIdentityTokenProviderResult | null = null
   try {
-    identityDeviceTokenInstall = installIdentityDeviceTokenProvider()
+    identityTokenInstall = installIdentityTokenProvider()
   } catch (err) {
-    // 注册失败绝不阻断启动：保持未注入状态 = 调用方走 legacy
     console.warn('[IdentityToken] provider 注册失败，继续使用 legacy 链路:', err)
   }
 
@@ -389,8 +391,8 @@ export const useAppRuntime = () => {
     runtime.notification.stopWidgetCrossDayTimer()
     runtime.identity.dispose()
     // #902：解绑 provider 与登出/登录监听（幂等）；卸载后 getIdentityAccessToken() 回到 null
-    identityDeviceTokenInstall?.uninstall()
-    identityDeviceTokenInstall = null
+    identityTokenInstall?.uninstall()
+    identityTokenInstall = null
     if (typeof state.mutable.removeNotificationActionListener === 'function') {
       state.mutable.removeNotificationActionListener()
       state.mutable.removeNotificationActionListener = null
