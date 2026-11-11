@@ -18,6 +18,16 @@ interface ImportMetaEnv {
    * 否则默认走 Casdoor OIDC refresh token 路径（identity_oidc_token / identity_token_provider）。
    */
   readonly VITE_HBUT_IDENTITY_DEVICE_TOKEN_ENABLED?: string
+  /**
+   * P2-6（#1210）学号主 claim 名（默认 `hbut_student_id`）；
+   * 非法名（不匹配 `^[A-Za-z_][A-Za-z0-9_.]{0,63}$`）被忽略并回落默认，不抛错。
+   */
+  readonly VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM?: string
+  /**
+   * P2-6（#1210）学号回退 claim 名，逗号分隔（默认 `oauth_OIDC_id,student_id`）；
+   * 非法项逐条忽略，整条全非法时回落默认列表。
+   */
+  readonly VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM_FALLBACKS?: string
 }
 
 interface ImportMeta {
