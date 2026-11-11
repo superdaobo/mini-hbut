@@ -14,6 +14,10 @@
 .max-w-md { max-width: 28rem; }
 .max-w-lg { max-width: 32rem; }
 .max-w-xl { max-width: 36rem; }
+/* 响应式变体（Sheet 组件 sm:max-w-sm，≥640px 视口生效，iPad 横屏可达） */
+@media (min-width: 40rem) {
+  .sm\:max-w-sm { max-width: 24rem; }
+}
 
 :root {
   --app-vh: 1vh;

@@ -65,6 +65,13 @@ describe('max-width scale contract (#1229)', () => {
     expect(rules2xl.length).toBeGreaterThan(0)
     const v2xl = maxWidthValue(rules2xl[rules2xl.length - 1])
     expect(v2xl === 'var(--container-2xl)' || v2xl === '42rem', `max-w-2xl 异常: ${v2xl}`).toBe(true)
+
+    // 响应式变体 sm:max-w-sm（Sheet 组件，≥640px 视口，iPad 横屏可达）
+    // 生成 CSS 里的选择器是转义形式 .sm\:max-w-sm，故 className 需带转义反斜杠
+    const rulesSmVariant = collectRules(css, 'sm\\\\:max-w-sm')
+    expect(rulesSmVariant.length, 'sm:max-w-sm 变体规则应被生成').toBeGreaterThan(0)
+    const vSmV = maxWidthValue(rulesSmVariant[rulesSmVariant.length - 1])
+    expect(vSmV === '24rem', `sm:max-w-sm 的层叠胜出版本应为 24rem，实际 ${vSmV}`).toBe(true)
   })
 
   it('模板目录 class 扫描有效（编辑弹窗关键 class 必须生成）', { timeout: 120_000 }, async () => {
