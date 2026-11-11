@@ -2015,6 +2015,49 @@ mod tests {
         assert_eq!(stored.refresh_token.as_deref(), Some("rt-old"));
     }
 
+    // 6b) **HTTP 200 但 body 带 error 字段** → 仍必须拒绝（红队 P-1 回归锁）
+    //
+    // 为什么单独一条：OAuth2 允许「200 + {"error": ...}」这种违背常规的响应；
+    // 只判状态码会把它当成功（进而写入毒化会话/返回 AT）。变异删掉 `error` 检查后
+    // 本用例必须变红。
+    #[tokio::test]
+    async fn refresh_http_200_with_error_field_is_rejected() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_status = 200; // 状态码是 200
+        transport.token_body = serde_json::json!({
+            "error": "invalid_grant",
+            "access_token": "at-poison",
+            "refresh_token": "rt-poison",
+            "expires_in": 3600
+        });
+        let jwks_cache = JwksCache::new();
+        let payload = match refresh_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Payload(payload) => payload,
+            RefreshOutcome::Ready(_) => panic!("200+error 必须拒绝（不得当作成功）"),
+        };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_REFRESH_FAILED);
+        // 毒化令牌绝不落库
+        let stored = stored_session(&store);
+        assert_eq!(stored.access_token, "at-old");
+        assert_eq!(stored.refresh_token.as_deref(), Some("rt-old"));
+    }
+
     // 7) 网络错误 → oidc_network 且会话不变
     #[tokio::test]
     async fn refresh_network_error_fails_and_keeps_session() {
