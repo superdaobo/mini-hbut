@@ -2366,6 +2366,7 @@ export const messages: Record<string, string> = {
   'notify.action.sendTest': 'Send Test Notification',
   // —— Recent messages cards ——
   'notify.recent.title': 'Recent Messages',
+  'notify.recent.viewDetails': 'View details',
   'notify.recent.gradesSummary': '{total} grades in total · {changed} this round',
   'notify.recent.changed': 'changed',
   'notify.recent.unchanged': 'no change',

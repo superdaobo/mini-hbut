@@ -278,6 +278,24 @@ describe('notification delivery contract', () => {
     expect(uiSettings).toContain("'school_inbox'")
   })
 
+  it('wires recent-message cards to navigate to their feature pages (#1228)', () => {
+    const source = notificationSources()
+    const appSource = appSources()
+
+    // 6 张卡片各自的语义映射必须完整（缺一张 = 该卡片点击无跳转）
+    expect(source).toContain('openRecentCard')
+    expect(source).toContain("openRecentCard('grades')")
+    expect(source).toContain("openRecentCard('schedule')")
+    expect(source).toContain("openRecentCard('exams')")
+    expect(source).toContain("openRecentCard('electricity')")
+    expect(source).toContain("openRecentCard('school_inbox')")
+    expect(source).toContain("openRecentCard('chaoxing_inbox')")
+    // 统一经 navigate 事件交给 App 的 handleNavigate（含成绩页数据加载与门禁）
+    expect(source).toContain("emit('navigate', view)")
+    expect(source).toContain('notify.recent.viewDetails')
+    expect(appSource).toContain('@navigate="handleNavigate"')
+  })
+
   it('registers school inbox browse module on home dashboard and app routing', () => {
     // #1021：模块表/分类表已抽到 config/dashboard_modules.ts，首页契约随之覆盖该文件
     const dashboard =
