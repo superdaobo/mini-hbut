@@ -2,6 +2,19 @@
 @config "../tailwind.config.ts";
 @source "./templates/views";
 
+/* #1229：显式声明 max-w 命名标度（v3 语义：xs=20rem … xl=36rem）。
+   Tailwind v4 对命名 max-w 的取值顺序是 --spacing 标度优先于 --container 标度，
+   而 tailwind.config.ts 的 spacing 自定义标度恰好有 xs…xl 键（0.5rem…2rem），
+   导致 max-w-md 被解析成 17px、w-full max-w-md 的弹窗塌缩成竖条
+   （#1094 v3→v4 迁移引入的回归；max-w-2xl 及以上因 spacing 无同名键而正常）。
+   覆盖规则放在无层（unlayered）CSS 里：v4 的内置工具类在 @layer tailwind 内，
+   无层样式在层叠中恒优先于层内样式，因此这里能稳定压住错误值。 */
+.max-w-xs { max-width: 20rem; }
+.max-w-sm { max-width: 24rem; }
+.max-w-md { max-width: 28rem; }
+.max-w-lg { max-width: 32rem; }
+.max-w-xl { max-width: 36rem; }
+
 :root {
   --app-vh: 1vh;
   /* #810：顶部安全区三层取值（取最大）：
