@@ -19,7 +19,8 @@
  * 3. **V1 无 Refresh Token**：`refreshAccessToken()` 就是重新走一次设备签名换票；
  * 4. **失败一律 null**：任何失败（未注册设备 / 非 Tauri / 能力未开启 / 网络 / 服务端 4xx-5xx）
  *    都返回 null，调用方（Forum / Cloud Sync）继续走既有 legacy 双轨，不被破坏；
- * 5. **主体一致性护栏**（防跨账号数据错配）：换回的 AT 必须含 `hbut_student_id`，
+ * 5. **主体一致性护栏**（防跨账号数据错配）：换回的 AT 必须含学号（claim 名可配置，
+ *    默认 `hbut_student_id` + 回退链，见 `resolveStudentIdClaimPolicy`，P2-6 #1210），
  *    且等于当前本地会话学号；否则丢弃 —— 设备绑定的是 A 学号而本地会话已切换为 B 时，
  *    绝不能把 B 的数据带上 A 的令牌（否则服务端会把 B 的数据记到 A 名下）。
  *    该护栏只做**本地一致性检查**，不做验签（验签是资源服务器的职责，本地自解 payload
@@ -91,16 +92,116 @@ const readStorage = (key: string): string => {
   }
 }
 
+// ── P2-6（#1210）：学号 claim 名可配置 ─────────────────────────────────────────
+// 背景：旧平台 AT 用 `hbut_student_id`；Casdoor 令牌可能只带 `oauth_OIDC_id`
+//（或 `student_id`）。claim 名经构建期 env 配置（默认保持现行为，见下方常量），
+// 解析一律「主名优先、回退链按序」，全部缺失返回 ''。
+// 安全约束（与文件头一致）：只做本地解码，**不验签**；claim 名是配置而非秘密，
+// 可出现在代码/类型中，但解码结果（学号）绝不出现在日志或错误文案里。
+
+/** 默认学号主 claim 名（与既有行为一致；不设 env 时命中结果不变） */
+export const DEFAULT_STUDENT_ID_CLAIM = 'hbut_student_id'
+
+/** 默认回退 claim 名（主名缺失时按此顺序尝试；P2-6 新增 `oauth_OIDC_id` 回退） */
+export const DEFAULT_STUDENT_ID_CLAIM_FALLBACKS = ['oauth_OIDC_id', 'student_id'] as const
+
 /**
- * 只做 payload 解码读 `hbut_student_id`（**不验签**；解码逻辑收敛到 identityIssuers.decodeJwtPayload，
- * 与 issuer 校验共用同一解码路径）。用途仅限本地一致性护栏（见文件头第 5 条）；
- * 任何失败都返回 ''（调用方按不一致处理）。
+ * claim 名形状校验：标识符形态（防误配成 JSON 路径 / 注入点）。
+ * 与 ocr-service P2-6 单 issuer 路径的校验规则同源（`^[A-Za-z_][A-Za-z0-9_.]{0,63}$`）。
+ */
+const STUDENT_ID_CLAIM_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/
+
+/** claim 名策略（主名 + 回退链；回退链已去重且不含主名） */
+export interface StudentIdClaimPolicy {
+  /** 主 claim 名（第一个候选） */
+  primary: string
+  /** 回退 claim 名（主名缺失时按顺序尝试） */
+  fallbacks: string[]
+}
+
+/**
+ * 从构建期 env 解析 claim 名策略：
+ * - `VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM`：主 claim 名（默认 `hbut_student_id`）；
+ * - `VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM_FALLBACKS`：逗号分隔的回退 claim 名
+ *   （默认 `oauth_OIDC_id,student_id`）。
+ *
+ * 容错语义（**不抛错**，fail-soft）：
+ * - 主名缺失/空/非法（不匹配 `STUDENT_ID_CLAIM_NAME_PATTERN`）→ 回落默认主名；
+ * - 回退列表缺省/空串 → 回落默认回退列表；
+ * - 回退列表中非法项逐条忽略；整条列表全非法 → 回落默认回退列表；
+ * - 去重：主名出现在回退链中时移除（保持顺序）。
+ * 默认行为零变化：不设任何 env 时等价于 `{primary: hbut_student_id, fallbacks: [oauth_OIDC_id, student_id]}`。
+ */
+export const resolveStudentIdClaimPolicy = (): StudentIdClaimPolicy => {
+  const env = import.meta.env
+  const primaryRaw =
+    typeof env.VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM === 'string'
+      ? env.VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM.trim()
+      : ''
+  const primary =
+    primaryRaw !== '' && STUDENT_ID_CLAIM_NAME_PATTERN.test(primaryRaw)
+      ? primaryRaw
+      : DEFAULT_STUDENT_ID_CLAIM
+
+  const fallbacksRaw =
+    typeof env.VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM_FALLBACKS === 'string'
+      ? env.VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM_FALLBACKS
+      : ''
+  let candidates: string[]
+  if (fallbacksRaw.trim() === '') {
+    // 缺省 / 空串：回落默认回退列表（与 ocr 侧「空串=不回退」不同：客户端 fail-soft 恒保默认链）
+    candidates = [...DEFAULT_STUDENT_ID_CLAIM_FALLBACKS]
+  } else {
+    candidates = fallbacksRaw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry !== '' && STUDENT_ID_CLAIM_NAME_PATTERN.test(entry))
+    if (candidates.length === 0) {
+      // 整条列表全非法（误配）：忽略并回落默认，绝不因配置错误抛出
+      candidates = [...DEFAULT_STUDENT_ID_CLAIM_FALLBACKS]
+    }
+  }
+
+  // 去重 + 剔除主名（保持配置顺序）
+  const seen = new Set<string>([primary])
+  const fallbacks: string[] = []
+  for (const name of candidates) {
+    if (!seen.has(name)) {
+      seen.add(name)
+      fallbacks.push(name)
+    }
+  }
+  return { primary, fallbacks }
+}
+
+/**
+ * 按策略从**已解码** payload 取学号（首个非空字符串；全部缺失/非对象/非字符串 → ''）。
+ * 策略缺省 = 当前 env 解析结果。任何失败返回 ''（绝不抛错）。
+ */
+export const decodeStudentIdFromPayload = (
+  payload: unknown,
+  policy?: StudentIdClaimPolicy | null
+): string => {
+  if (!payload || typeof payload !== 'object') return ''
+  const effective = policy ?? resolveStudentIdClaimPolicy()
+  const record = payload as Record<string, unknown>
+  for (const claimName of [effective.primary, ...effective.fallbacks]) {
+    const value = record[claimName]
+    if (typeof value === 'string' && value.trim() !== '') return value.trim()
+  }
+  return ''
+}
+
+/**
+ * 只做 payload 解码取学号（**不验签**；解码逻辑收敛到 identityIssuers.decodeJwtPayload，
+ * 与 issuer 校验共用同一解码路径）。P2-6 起内部走 `decodeStudentIdFromPayload`
+ *（claim 名可配置，默认 `hbut_student_id` + 回退链；不设 env 时命中结果与原先一致）。
+ * 用途仅限本地一致性护栏（见文件头第 5 条）；任何失败都返回 ''（调用方按不一致处理）。
  */
 export const decodeAccessTokenStudentId = (token: string): string => {
   const payload = decodeJwtPayload(token)
   if (!payload) return ''
-  const value = payload['hbut_student_id']
-  return typeof value === 'string' ? value.trim() : ''
+  return decodeStudentIdFromPayload(payload)
 }
 
 /** 单次设备换票（challenge → 设备签名 → JWT AT）；任何失败返回 null，绝不抛错 */

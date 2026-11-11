@@ -17,11 +17,15 @@ import {
   setIdentityAccessTokenProvider
 } from './identity_access_token'
 import {
+  DEFAULT_STUDENT_ID_CLAIM,
+  DEFAULT_STUDENT_ID_CLAIM_FALLBACKS,
   IDENTITY_DEVICE_TOKEN_LOGIN_EVENT,
   IDENTITY_DEVICE_TOKEN_LOGOUT_EVENT,
   createIdentityDeviceTokenProvider,
   decodeAccessTokenStudentId,
+  decodeStudentIdFromPayload,
   installIdentityDeviceTokenProvider,
+  resolveStudentIdClaimPolicy,
   type DeviceTokenNativePayload
 } from './identity_device_token'
 import { IDENTITY_DEVICE_ID_KEY } from '../features/identity/identityStore'
@@ -337,5 +341,98 @@ describe('#902 设备换票 provider', () => {
     expect(invoke).toHaveBeenCalledTimes(2)
     const args = invoke.mock.calls[0]?.[1] as Record<string, unknown>
     expect(Object.keys(args).sort()).toEqual(['baseUrl', 'deviceId'])
+  })
+})
+
+// ── P2-6（#1210）：claim 名可配置（策略解析 + payload 取号回归） ─────────────────
+// 规格 §2.1：默认行为零变化（不设 env 时 hbut_student_id 命中结果与原先一致）；
+// env 非法时不抛错（忽略并回落默认）；`decodeAccessTokenStudentId` 内部改走策略。
+describe('P2-6（#1210）claim 名策略：学号 claim 名可配置', () => {
+  beforeEach(() => {
+    // 两个 env 显式重置为空（= 未设 → 默认策略）；避免 env 桩跨用例泄漏
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM', '')
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM_FALLBACKS', '')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('默认：不设 env 时策略 = hbut_student_id + 默认回退链，且 hbut_student_id 命中', () => {
+    expect(DEFAULT_STUDENT_ID_CLAIM).toBe('hbut_student_id')
+    expect([...DEFAULT_STUDENT_ID_CLAIM_FALLBACKS]).toEqual(['oauth_OIDC_id', 'student_id'])
+    const policy = resolveStudentIdClaimPolicy()
+    expect(policy.primary).toBe('hbut_student_id')
+    expect(policy.fallbacks).toEqual(['oauth_OIDC_id', 'student_id'])
+    // 默认命中（与既有行为一致：payload 的 hbut_student_id 原样取出）
+    expect(decodeStudentIdFromPayload({ hbut_student_id: STUDENT_ID })).toBe(STUDENT_ID)
+  })
+
+  it('改 env 主名为 oauth_OIDC_id：命中 oauth_OIDC_id（证明配置生效）', () => {
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM', 'oauth_OIDC_id')
+    const policy = resolveStudentIdClaimPolicy()
+    expect(policy.primary).toBe('oauth_OIDC_id')
+    // 主名从回退链中剔除（去重）
+    expect(policy.fallbacks).toEqual(['student_id'])
+    // 策略取号 + 既有入口 decodeAccessTokenStudentId 内部都改走策略
+    expect(decodeStudentIdFromPayload({ oauth_OIDC_id: STUDENT_ID })).toBe(STUDENT_ID)
+    const token = makeJwt({ iss: CANONICAL_ISSUER, oauth_OIDC_id: STUDENT_ID })
+    expect(decodeAccessTokenStudentId(token)).toBe(STUDENT_ID)
+  })
+
+  it('回退链：主名缺失时按序尝试 oauth_OIDC_id → student_id；多值同时存在时主名优先', () => {
+    // 主名缺失 → 第一个回退命中
+    expect(decodeStudentIdFromPayload({ oauth_OIDC_id: '2023010102' })).toBe('2023010102')
+    // 前一个缺失 → 第二个回退命中
+    expect(decodeStudentIdFromPayload({ student_id: '2023010103' })).toBe('2023010103')
+    // 全部候选都有值 → 主名优先（顺序正确）
+    expect(
+      decodeStudentIdFromPayload({
+        hbut_student_id: '2023010101',
+        oauth_OIDC_id: '2023010102',
+        student_id: '2023010103'
+      })
+    ).toBe('2023010101')
+  })
+
+  it('全部缺失返回 ""；非对象 payload 也返回 ""（绝不抛错）', () => {
+    expect(decodeStudentIdFromPayload({})).toBe('')
+    expect(decodeStudentIdFromPayload({ other_claim: 'x' })).toBe('')
+    for (const bad of [undefined, null, 'str', 42, ['arr']]) {
+      expect(decodeStudentIdFromPayload(bad)).toBe('')
+    }
+    // 纯空白字符串视为缺失（按策略回退到下一个候选）
+    expect(
+      decodeStudentIdFromPayload({ hbut_student_id: '   ', oauth_OIDC_id: '2023010104' })
+    ).toBe('2023010104')
+  })
+
+  it('非法 env：主名非法 → 忽略并回落默认；回退全非法 → 忽略并回落默认（不抛错）', () => {
+    // 主名含 / 与空白、回退含非法项 —— 均不匹配 ^[A-Za-z_][A-Za-z0-9_.]{0,63}$
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM', '../x')
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM_FALLBACKS', '../y,bad name')
+    const policy = resolveStudentIdClaimPolicy() // 必须不抛
+    expect(policy.primary).toBe(DEFAULT_STUDENT_ID_CLAIM)
+    expect(policy.fallbacks).toEqual([...DEFAULT_STUDENT_ID_CLAIM_FALLBACKS])
+    // 解码行为回落默认策略（hbut_student_id 仍命中）
+    expect(decodeStudentIdFromPayload({ hbut_student_id: STUDENT_ID })).toBe(STUDENT_ID)
+
+    // 混合列表：合法项保留、非法项逐条忽略（顺序不变）
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM', '')
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM_FALLBACKS', 'oauth_OIDC_id,../z,student_id')
+    const mixed = resolveStudentIdClaimPolicy()
+    expect(mixed.primary).toBe('hbut_student_id')
+    expect(mixed.fallbacks).toEqual(['oauth_OIDC_id', 'student_id'])
+  })
+
+  it('与既有 decodeAccessTokenStudentId 行为一致：默认 env 下 hbut_student_id 命中 / 非法输入返回空串', () => {
+    // 默认 env：与旧实现同输入同输出（hbut_student_id 命中结果不变）
+    expect(decodeAccessTokenStudentId(makeJwt({ hbut_student_id: STUDENT_ID }))).toBe(STUDENT_ID)
+    // 非法输入返回 '' 不抛（既有用例语义保持不变）
+    for (const bad of ['', 'not-a-jwt', 'a.b', 'a.b.c.d', 'x.y.z']) {
+      expect(decodeAccessTokenStudentId(bad)).toBe('')
+    }
+    // 缺 iss 的令牌同样能取学号（本函数只解码，不验签/不校验 issuer）
+    expect(decodeAccessTokenStudentId(makeJwt({ hbut_student_id: STUDENT_ID }))).toBe(STUDENT_ID)
   })
 })
