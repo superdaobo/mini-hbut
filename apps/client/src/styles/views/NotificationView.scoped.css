@@ -343,6 +343,9 @@
   border: 1px solid transparent;
   cursor: pointer;
   transition: transform 0.2s;
+  /* #1228：卡片整体可点击跳转，禁止长按触发系统文本选择（移动端） */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .notify-message-card:active {
