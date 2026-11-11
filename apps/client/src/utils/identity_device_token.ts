@@ -111,6 +111,16 @@ export const DEFAULT_STUDENT_ID_CLAIM_FALLBACKS = ['oauth_OIDC_id', 'student_id'
  */
 const STUDENT_ID_CLAIM_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/
 
+/**
+ * claim 名是否合法（**与 ocr-service 同口径**）：标识符形态 **且不含 `..`**。
+ * 复核 O-2：客户端原先只做正则，`x..y`/`__proto__` 会被当合法名（ocr 会拒），
+ * 现已对齐（`__proto__` 仍匹配正则，但只可能由故意误配产生，且下方会告警）。
+ */
+const isStudentIdClaimName = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  STUDENT_ID_CLAIM_NAME_PATTERN.test(value) &&
+  !value.includes('..')
+
 /** claim 名策略（主名 + 回退链；回退链已去重且不含主名） */
 export interface StudentIdClaimPolicy {
   /** 主 claim 名（第一个候选） */
@@ -132,6 +142,8 @@ export interface StudentIdClaimPolicy {
  * - 去重：主名出现在回退链中时移除（保持顺序）。
  * 默认行为零变化：不设任何 env 时等价于 `{primary: hbut_student_id, fallbacks: [oauth_OIDC_id, student_id]}`。
  */
+let claimPolicyWarned = false
+
 export const resolveStudentIdClaimPolicy = (): StudentIdClaimPolicy => {
   const env = import.meta.env
   const primaryRaw =
@@ -139,7 +151,7 @@ export const resolveStudentIdClaimPolicy = (): StudentIdClaimPolicy => {
       ? env.VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM.trim()
       : ''
   const primary =
-    primaryRaw !== '' && STUDENT_ID_CLAIM_NAME_PATTERN.test(primaryRaw)
+    primaryRaw !== '' && isStudentIdClaimName(primaryRaw)
       ? primaryRaw
       : DEFAULT_STUDENT_ID_CLAIM
 
@@ -155,7 +167,7 @@ export const resolveStudentIdClaimPolicy = (): StudentIdClaimPolicy => {
     candidates = fallbacksRaw
       .split(',')
       .map((entry) => entry.trim())
-      .filter((entry) => entry !== '' && STUDENT_ID_CLAIM_NAME_PATTERN.test(entry))
+      .filter((entry) => entry !== '' && isStudentIdClaimName(entry))
     if (candidates.length === 0) {
       // 整条列表全非法（误配）：忽略并回落默认，绝不因配置错误抛出
       candidates = [...DEFAULT_STUDENT_ID_CLAIM_FALLBACKS]
@@ -170,6 +182,16 @@ export const resolveStudentIdClaimPolicy = (): StudentIdClaimPolicy => {
       seen.add(name)
       fallbacks.push(name)
     }
+  }
+  // 复核 O-3：主名被 env 改成**非默认**值时告警一次——fail-soft 回落虽不抛错，
+  // 但「静默按错名字取号」比直接失败更难排查；只告警一次，避免每次取票刷日志。
+  if (!claimPolicyWarned && primary !== DEFAULT_STUDENT_ID_CLAIM) {
+    claimPolicyWarned = true
+    console.warn(
+      '[IdentityToken] 学号 claim 名已由 VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM 覆盖为',
+      primary,
+      '；若与后端不一致将取不到学号'
+    )
   }
   return { primary, fallbacks }
 }

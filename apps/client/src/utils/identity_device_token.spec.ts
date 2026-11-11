@@ -436,3 +436,32 @@ describe('P2-6（#1210）claim 名策略：学号 claim 名可配置', () => {
     expect(decodeAccessTokenStudentId(makeJwt({ hbut_student_id: STUDENT_ID }))).toBe(STUDENT_ID)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 复核 O-2/O-3 回归：claim 名校验与 ocr 同口径（拒 `..`）+ 非默认名告警一次
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('claim 名校验（O-2）与非默认名告警（O-3）', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it("含 '..' 的 claim 名被拒绝并回落默认", () => {
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM', 'x..y')
+    const policy = resolveStudentIdClaimPolicy()
+    expect(policy.primary).toBe('hbut_student_id')
+    expect(policy.fallbacks).not.toContain('x..y')
+  })
+
+  it('非默认主名生效且只告警一次', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubEnv('VITE_HBUT_IDENTITY_STUDENT_ID_CLAIM', 'oauth_OIDC_id')
+    const first = resolveStudentIdClaimPolicy()
+    const second = resolveStudentIdClaimPolicy()
+    expect(first.primary).toBe('oauth_OIDC_id')
+    expect(second.primary).toBe('oauth_OIDC_id')
+    const related = warn.mock.calls.filter((c) => String(c[0]).includes('学号 claim 名'))
+    expect(related.length).toBeLessThanOrEqual(1)
+  })
+})
