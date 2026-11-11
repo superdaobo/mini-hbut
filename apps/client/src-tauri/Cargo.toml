@@ -73,6 +73,10 @@ rqrr = "0.10.1"
 image = "0.25"
 dashmap = "6"
 url = "2"
+# P2-4：id_token RS256 验签（identity/oidc_core.rs）改用 `ring`（替代 jsonwebtoken 的
+# `rust_crypto` 后端——后者引入的 `rsa` crate 带未修复的 RUSTSEC-2023-0071 Marvin 时序侧信道）。
+# `ring` 本就在依赖树中（rustls 使用），此处仅声明为直接依赖，不新增 crate。
+ring = "0.17"
 # keyring 基础行不带任何平台 feature：保证无原生后端的平台（如 Android）也能编译通过；
 # 各平台真正的持久化后端在下方 [target.*] 段按 target 启用
 # （#669：keyring v3 缺平台 feature 时会静默回退「零持久化」mock 存储，写入假成功）。

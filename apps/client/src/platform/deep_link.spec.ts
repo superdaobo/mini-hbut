@@ -274,6 +274,128 @@ describe('parseMiniHbutDeepLink: identity 与非法输入', () => {
   })
 })
 
+// ─── P2-4（#1208）：identity-callback 新类型 + 既有 identity 不回归 ─────────────
+
+// 与 §4.2 形状约束对齐的合法值
+const validCode = 'C' + 'a'.repeat(42) // 43 字符（16..512）
+const validState = '0123456789abcdef0123456789abcdef' // 32 字符（16..128）
+const callbackUrl = (query: string) => `minihbut://identity/callback?${query}`
+
+describe('parseMiniHbutDeepLink: identity-callback（P2-4 OIDC 回调）', () => {
+  it('正常：code/state 形状合法 → {kind:"identity-callback", code, state}', () => {
+    const result = parseMiniHbutDeepLink(callbackUrl(`code=${validCode}&state=${validState}`))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.link).toEqual({ kind: 'identity-callback', code: validCode, state: validState })
+    // 白名单语义：对象只含冻结的 3 个字段，不携带其它查询参数
+    expect(Object.keys(result.link).sort()).toEqual(['code', 'kind', 'state'])
+  })
+
+  it('缺 code → invalid-identity（通用错误，不回显）', () => {
+    expectGenericError(parseMiniHbutDeepLink(callbackUrl(`state=${validState}`)), 'invalid-identity')
+  })
+
+  it('缺 state → invalid-identity', () => {
+    expectGenericError(parseMiniHbutDeepLink(callbackUrl(`code=${validCode}`)), 'invalid-identity')
+  })
+
+  it('code 过短（<16）→ invalid-identity', () => {
+    expectGenericError(parseMiniHbutDeepLink(callbackUrl(`code=${'a'.repeat(15)}&state=${validState}`)), 'invalid-identity')
+    // 边界：15 字符拒绝 / 16 字符接受
+    expectGenericError(parseMiniHbutDeepLink(callbackUrl(`code=${'a'.repeat(16)}`)), 'invalid-identity') // 缺 state
+    const ok = parseMiniHbutDeepLink(callbackUrl(`code=${'a'.repeat(16)}&state=${validState}`))
+    expect(ok.ok).toBe(true)
+  })
+
+  it('state 非法字符（+ / %FF 解码出的非 URL-safe 字节）→ invalid-identity', () => {
+    expectGenericError(
+      parseMiniHbutDeepLink(callbackUrl(`code=${validCode}&state=${'a+'.repeat(16)}`)),
+      'invalid-identity'
+    )
+    expectGenericError(
+      parseMiniHbutDeepLink(callbackUrl(`code=${validCode}&state=%FF${validState.slice(1)}`)),
+      'invalid-identity'
+    )
+  })
+
+  it('错 host（identity2 / oauth）→ unsupported-host', () => {
+    expectGenericError(
+      parseMiniHbutDeepLink(`minihbut://identity2/callback?code=${validCode}&state=${validState}`),
+      'unsupported-host'
+    )
+    expectGenericError(
+      parseMiniHbutDeepLink(`minihbut://oauth/callback?code=${validCode}&state=${validState}`),
+      'unsupported-host'
+    )
+  })
+
+  it('补充边界：code 超长(>512)/state 超长(>128)/错 path 一律 invalid-identity', () => {
+    expectGenericError(
+      parseMiniHbutDeepLink(callbackUrl(`code=${'a'.repeat(513)}&state=${validState}`)),
+      'invalid-identity'
+    )
+    expectGenericError(
+      parseMiniHbutDeepLink(callbackUrl(`code=${validCode}&state=${'a'.repeat(129)}`)),
+      'invalid-identity'
+    )
+    // path 必须恰为 /callback：/callbackx、//callback 都落入旧 parser → invalid-identity
+    expectGenericError(
+      parseMiniHbutDeepLink(`minihbut://identity/callbackx?code=${validCode}&state=${validState}`),
+      'invalid-identity'
+    )
+    expectGenericError(
+      parseMiniHbutDeepLink(`minihbut://identity//callback?code=${validCode}&state=${validState}`),
+      'invalid-identity'
+    )
+  })
+
+  it('长度上限照旧：超长的 identity-callback URL → oversized', () => {
+    const hugeCode = 'a'.repeat(MINI_HBUT_DEEPLINK_MAX_LENGTH)
+    const url = callbackUrl(`code=${hugeCode}&state=${validState}`)
+    expect(url.length).toBeGreaterThan(MINI_HBUT_DEEPLINK_MAX_LENGTH)
+    expectGenericError(parseMiniHbutDeepLink(url), 'oversized')
+  })
+
+  it('错误消息为通用文案，绝不包含 code / state 原值', () => {
+    const cases = [
+      callbackUrl(`state=${validState}`),
+      callbackUrl(`code=${validCode}`),
+      callbackUrl(`code=short&state=${validState}`),
+      callbackUrl(`code=${validCode}&state=${'a!'.repeat(10)}`),
+      `minihbut://oauth/callback?code=${validCode}&state=${validState}`
+    ]
+    for (const url of cases) {
+      const result = parseMiniHbutDeepLink(url)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error.message).not.toContain(validCode)
+      expect(result.error.message).not.toContain(validState)
+      expect(result.error.message).not.toContain('minihbut')
+    }
+  })
+
+  it('既有 identity 深链回归 ①：minihbut://identity?request_id=..&handoff=.. 行为不变', () => {
+    const result = parseMiniHbutDeepLink(identityUrl(`request_id=${validRequestId}&handoff=${validHandoff}`))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.link).toEqual({ kind: 'identity', requestId: validRequestId, handoff: validHandoff })
+  })
+
+  it('既有 identity 深链回归 ②：带其它 path 的 #619 形态（path≠/callback）仍按旧 parser 解析', () => {
+    const result = parseMiniHbutDeepLink(
+      `minihbut://identity/legacy?request_id=${validRequestId}&handoff=${validHandoff}`
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.link).toEqual({ kind: 'identity', requestId: validRequestId, handoff: validHandoff })
+    // /callback path 上若给的是 #619 参数（无 code/state）→ 按新类型严格拒绝
+    expectGenericError(
+      parseMiniHbutDeepLink(callbackUrl(`request_id=${validRequestId}&handoff=${validHandoff}`)),
+      'invalid-identity'
+    )
+  })
+})
+
 // ─── 生成逻辑迁移（widget_snapshot.buildDeepLink 委托） ───────────────────────
 
 describe('buildMiniHbutDeepLink（自 widget_snapshot.ts 迁移）', () => {

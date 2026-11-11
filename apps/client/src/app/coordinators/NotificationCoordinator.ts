@@ -91,6 +91,9 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
       runAfterBoot(() => handleNavigatePayload({ view: link.view, source: link.source }))
       return
     }
+    // P2-4：union 新增了 `identity-callback`（OIDC 授权码回调），它不是 #619 的授权意图，
+    // 不交给 IdentityCoordinator 的 submitIntent（其消费方属 OIDC 流程，UI 接线在后续任务）。
+    if (link.kind !== 'identity') return
     // identity：交给 IdentityCoordinator（内部处理冷启动缓冲、队列调度与 #739 死信降级）
     runtime.identity.submitIntent(
       {
