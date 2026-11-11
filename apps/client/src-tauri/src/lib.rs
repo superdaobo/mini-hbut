@@ -759,6 +759,9 @@ pub fn run() {
             // #902：设备换票（Device 签名 + 一次性 challenge → resource-scoped JWT AT）
             identity::commands::identity_device_token,
             // P2-4（#1208）：OIDC 统一登录（授权码 + PKCE；begin/complete/session_status/logout）
+            // P2-5（#1209）：refresh token 刷新（默认路径）+ access_token 唯一出口（force 强制刷新）
+            identity::oidc_commands::identity_oidc_refresh,
+            identity::oidc_commands::identity_oidc_access_token,
             identity::oidc_commands::identity_oidc_begin,
             identity::oidc_commands::identity_oidc_complete,
             identity::oidc_commands::identity_oidc_begin_loopback,

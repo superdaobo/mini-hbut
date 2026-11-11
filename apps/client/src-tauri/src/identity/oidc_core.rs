@@ -568,9 +568,24 @@ fn lookup_rsa_key(jwks: &Value, kid: &str) -> Option<(Vec<u8>, Vec<u8>)> {
     None
 }
 
-/// 校验 id_token（**只**接受 RS256；JWKS 注入以便测试）。
+/// 校验 id_token（**登录场景**公开入口：**只**接受 RS256；JWKS 注入以便测试）。
 ///
-/// 校验点（任一失败 → `OidcError`；nonce 失败为 `oidc_nonce_mismatch`，其余为
+/// 语义 = [`verify_id_token_with_optional_nonce`] 传 `Some(expected_nonce)`：
+/// `nonce` 必须与 `expected_nonce` 逐字相等（失败 → `oidc_nonce_mismatch`），
+/// 签名与其余校验点与核心入口完全一致、不削弱。
+pub fn verify_id_token(
+    id_token: &str,
+    jwks: &Value,
+    cfg: &OidcConfig,
+    expected_nonce: &str,
+    now: i64,
+) -> Result<IdTokenClaims, OidcError> {
+    verify_id_token_with_optional_nonce(id_token, jwks, cfg, Some(expected_nonce), now)
+}
+
+/// 校验 id_token（核心验签入口；P2-5 **刷新场景**用 `expected_nonce = None` 跳过 nonce 比对）。
+///
+/// 校验点（任一失败 → `OidcError`；`Some` 时 nonce 失败为 `oidc_nonce_mismatch`，其余为
 /// `oidc_id_token_invalid`）：
 /// 1. JWS 恰好三段，header 可解析；
 /// 2. `header.alg` 必须逐字等于 `"RS256"`（拒绝 `none`/`HS256`/缺失等；
@@ -578,16 +593,16 @@ fn lookup_rsa_key(jwks: &Value, kid: &str) -> Option<(Vec<u8>, Vec<u8>)> {
 /// 3. `header.kid` 必须在 `jwks.keys[]` 中命中，且该键为 RSA 族；
 /// 4. RS256 签名验证（message 为 `header.payload` 原文字节）；
 /// 5. claims 校验（委托 [`validate_claims`]）：`iss` 去尾斜杠逐字相等、`aud` 含
-///    `client_id`（字符串/数组）、`nonce` 逐字相等、`exp > now`、`iat <= now + 300`、
-///    `sub` 非空 + 学号解析（`hbut_<学号>` 优先，回退 `hbut_student_id` /
-///    `oauth_OIDC_id` / `student_id`）。
+///    `client_id`（字符串/数组）、`nonce`（`Some` 时逐字相等；`None` 仅刷新场景跳过）、
+///    `exp > now`、`iat <= now + 300`、`sub` 非空 + 学号解析（`hbut_<学号>` 优先，
+///    回退 `hbut_student_id` / `oauth_OIDC_id` / `student_id`）。
 ///
 /// 错误文案固定（`OidcError::message`），不含 token 片段。
-pub fn verify_id_token(
+pub fn verify_id_token_with_optional_nonce(
     id_token: &str,
     jwks: &Value,
     cfg: &OidcConfig,
-    expected_nonce: &str,
+    expected_nonce: Option<&str>,
     now: i64,
 ) -> Result<IdTokenClaims, OidcError> {
     let invalid = || OidcError::IdTokenInvalid;
@@ -677,20 +692,22 @@ pub fn template_port(template: &str) -> Option<u16> {
     split_loopback_redirect(template).map(|(_, port)| port)
 }
 
-/// 校验 claims（**不验签**，由 `verify_id_token` 在验签通过后调用；也供单测直接覆盖各分支）。
+/// 校验 claims（**不验签**，由验签入口在验签通过后调用；也供单测直接覆盖各分支）。
 ///
-/// 校验点与顺序（与 `verify_id_token` 原内联逻辑逐字一致）：
+/// 校验点与顺序（与验签入口原内联逻辑逐字一致）：
 /// 1. 载荷必须是 JSON 对象；
 /// 2. `iss` 与 `cfg.issuer` 去尾斜杠后逐字相等；
 /// 3. `aud` 必须含 `cfg.client_id`（字符串须等于、数组须包含；其它形态畸形拒绝）；
-/// 4. `nonce` 与 `expected_nonce` 逐字相等（独立 kind `oidc_nonce_mismatch`）；
+/// 4. `expected_nonce = Some(n)` 时 `nonce` 与 `n` 逐字相等（独立 kind `oidc_nonce_mismatch`）；
+///    `None` = **跳过 nonce 比对（仅刷新场景 P2-5 使用**——刷新响应不携带新 nonce，
+///    其余校验一项不少）；
 /// 5. `exp > now`；`iat <= now + 300`（时钟偏移容忍）；
 /// 6. `sub` 非空；形如 `hbut_<学号>` 时解析学号，否则要求 `hbut_student_id`
 ///    claim（回退 `oauth_OIDC_id` / `student_id`）存在。
 pub fn validate_claims(
     claims: &Value,
     cfg: &OidcConfig,
-    expected_nonce: &str,
+    expected_nonce: Option<&str>,
     now: i64,
 ) -> Result<IdTokenClaims, OidcError> {
     let invalid = || OidcError::IdTokenInvalid;
@@ -725,10 +742,13 @@ pub fn validate_claims(
         }
         _ => return Err(invalid()),
     };
-    // 3) nonce 逐字相等（独立 kind，供前端区分文案）。
+    // 3) nonce：`Some(n)` 时逐字相等（独立 kind，供前端区分文案）；
+    //    `None` = 刷新场景（P2-5）：跳过比对（刷新响应没有新 nonce），其余校验不受影响。
     let nonce = claims.get("nonce").and_then(Value::as_str).unwrap_or("");
-    if nonce != expected_nonce {
-        return Err(OidcError::NonceMismatch);
+    if let Some(expected) = expected_nonce {
+        if nonce != expected {
+            return Err(OidcError::NonceMismatch);
+        }
     }
     // 4) exp / iat。
     let exp = claims
@@ -789,20 +809,22 @@ pub fn validate_claims(
 /// id_token 验签器抽象（可注入以便命令层单测；**生产必须**使用 [`RingIdTokenVerifier`]）。
 ///
 /// 实现不得削弱 [`verify_id_token`] 的任何校验（alg 白名单 / kid / 签名 /
-/// iss / aud / nonce / exp / iat / sub）。
+/// iss / aud / nonce / exp / iat / sub）；`expected_nonce = None` 仅允许
+/// **刷新场景（P2-5）** 跳过 nonce 比对，其余校验仍必须逐条执行。
 pub trait IdTokenVerifier: Send + Sync {
-    /// 校验 `id_token`（语义与 [`verify_id_token`] 完全一致）。
+    /// 校验 `id_token`（语义与 [`verify_id_token`] 完全一致；
+    /// `expected_nonce = None` 时跳过 nonce 比对，仅刷新场景使用）。
     fn verify(
         &self,
         id_token: &str,
         jwks: &Value,
         cfg: &OidcConfig,
-        expected_nonce: &str,
+        expected_nonce: Option<&str>,
         now: i64,
     ) -> Result<IdTokenClaims, OidcError>;
 }
 
-/// 生产验签实现：直接委托 [`verify_id_token`]（ring RS256 真验签，零削弱）。
+/// 生产验签实现：直接委托核心验签（ring RS256 真验签，零削弱）。
 pub struct RingIdTokenVerifier;
 
 impl IdTokenVerifier for RingIdTokenVerifier {
@@ -811,10 +833,10 @@ impl IdTokenVerifier for RingIdTokenVerifier {
         id_token: &str,
         jwks: &Value,
         cfg: &OidcConfig,
-        expected_nonce: &str,
+        expected_nonce: Option<&str>,
         now: i64,
     ) -> Result<IdTokenClaims, OidcError> {
-        verify_id_token(id_token, jwks, cfg, expected_nonce, now)
+        verify_id_token_with_optional_nonce(id_token, jwks, cfg, expected_nonce, now)
     }
 }
 
@@ -1268,38 +1290,38 @@ mod tests {
         let mut c = fixture_claims();
         c["iss"] = json!("https://evil.example");
         assert_eq!(
-            validate_claims(&c, &cfg, FIXTURE_NONCE, NOW),
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
             Err(OidcError::IdTokenInvalid)
         );
         // iss 带尾斜杠（去尾斜杠后比较）→ 通过
         let mut c = fixture_claims();
         c["iss"] = json!("https://auth.example.com/");
-        assert!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW).is_ok());
+        assert!(validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW).is_ok());
         // aud（字符串）不符
         let mut c = fixture_claims();
         c["aud"] = json!("other-client");
         assert_eq!(
-            validate_claims(&c, &cfg, FIXTURE_NONCE, NOW),
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
             Err(OidcError::IdTokenInvalid)
         );
         // aud 为数组但不含 client_id
         let mut c = fixture_claims();
         c["aud"] = json!(["other-client"]);
         assert_eq!(
-            validate_claims(&c, &cfg, FIXTURE_NONCE, NOW),
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
             Err(OidcError::IdTokenInvalid)
         );
         // aud 为数组且含 client_id → 通过
         let mut c = fixture_claims();
         c["aud"] = json!(["other-client", "minihbut-client"]);
-        let out =
-            validate_claims(&c, &cfg, FIXTURE_NONCE, NOW).expect("数组 aud 含 client_id 应通过");
+        let out = validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW)
+            .expect("数组 aud 含 client_id 应通过");
         assert_eq!(out.aud, "minihbut-client");
         // aud 为对象（畸形）→ 拒绝
         let mut c = fixture_claims();
         c["aud"] = json!({"weird": true});
         assert_eq!(
-            validate_claims(&c, &cfg, FIXTURE_NONCE, NOW),
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
             Err(OidcError::IdTokenInvalid)
         );
     }
@@ -1311,7 +1333,7 @@ mod tests {
         let mut c = fixture_claims();
         c["nonce"] = json!("other-nonce-01234567");
         assert_eq!(
-            validate_claims(&c, &cfg, FIXTURE_NONCE, NOW),
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
             Err(OidcError::NonceMismatch)
         );
         // 全路径：合法签名 token + 传入错误的 expected_nonce → 同样 nonce_mismatch
@@ -1328,6 +1350,39 @@ mod tests {
         );
     }
 
+    /// P2-5（刷新场景）：`expected_nonce = None` 跳过 nonce 比对，其余校验一项不少。
+    #[test]
+    fn validate_claims_none_nonce_skips_comparison_for_refresh() {
+        let cfg = base_cfg();
+        let jwks = fixture_jwks();
+        // 刷新场景（None）：claim 的 nonce 是任意值也通过（比对被跳过）
+        assert!(validate_claims(&fixture_claims(), &cfg, None, NOW).is_ok());
+        // 刷新场景（None）：claim 完全没有 nonce 字段也通过（刷新 token 不携带 nonce）
+        let mut c = fixture_claims();
+        c.as_object_mut().unwrap().remove("nonce");
+        assert!(validate_claims(&c, &cfg, None, NOW).is_ok());
+        // None 不削弱其它校验：iss 不符仍拒绝
+        let mut c = fixture_claims();
+        c.as_object_mut().unwrap().remove("nonce");
+        c["iss"] = json!("https://evil.example");
+        assert_eq!(
+            validate_claims(&c, &cfg, None, NOW),
+            Err(OidcError::IdTokenInvalid)
+        );
+        // Some 分支不受影响：nonce 不符仍报独立 kind（防回归）
+        let mut c2 = fixture_claims();
+        c2["nonce"] = json!("other-nonce-01234567");
+        assert_eq!(
+            validate_claims(&c2, &cfg, Some(FIXTURE_NONCE), NOW),
+            Err(OidcError::NonceMismatch)
+        );
+        // 全路径：合法签名 token + None → 通过（刷新入口可用公开 fixture 验证）
+        let out = verify_id_token_with_optional_nonce(&fixture_id_token(), &jwks, &cfg, None, NOW)
+            .expect("刷新场景（无 nonce 比对）应通过");
+        assert_eq!(out.student_id, "2510231106");
+        assert_eq!(out.exp, 4102444800);
+    }
+
     /// 12h/12i：exp 须严格 > now；iat 超前 301s 拒绝、恰好 300s 通过；缺 exp/iat 拒绝。
     #[test]
     fn validate_claims_exp_iat_and_missing() {
@@ -1336,27 +1391,42 @@ mod tests {
         // exp == now（须严格 >）→ 拒绝
         let mut c = fixture_claims();
         c["exp"] = json!(NOW);
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
         // exp 已过期 → 拒绝
         let mut c = fixture_claims();
         c["exp"] = json!(NOW - 1);
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
         // iat 超前超过容忍（now+301）→ 拒绝
         let mut c = fixture_claims();
         c["iat"] = json!(NOW + 301);
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
         // iat 恰好 now+300 → 通过
         let mut c = fixture_claims();
         c["iat"] = json!(NOW + 300);
-        assert!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW).is_ok());
+        assert!(validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW).is_ok());
         // 缺 exp → 拒绝
         let mut c = fixture_claims();
         c.as_object_mut().unwrap().remove("exp");
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
         // 缺 iat → 拒绝
         let mut c = fixture_claims();
         c.as_object_mut().unwrap().remove("iat");
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
     }
 
     /// 12j/12k：缺 sub / sub 形态异常；学号 claim 回退链；`hbut_` 形态优先。
@@ -1367,44 +1437,56 @@ mod tests {
         // 缺 sub
         let mut c = fixture_claims();
         c.as_object_mut().unwrap().remove("sub");
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
         // sub 为空串 → 拒绝
         let mut c = fixture_claims();
         c["sub"] = json!("");
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
         // sub = "hbut_"（学号为空）→ 拒绝
         let mut c = fixture_claims();
         c["sub"] = json!("hbut_");
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
         // sub 非 hbut_ 形态且无学号 claim → 拒绝
         let mut c = fixture_claims();
         c["sub"] = json!("anonymous-user-001");
         c.as_object_mut().unwrap().remove("hbut_student_id");
-        assert_eq!(validate_claims(&c, &cfg, FIXTURE_NONCE, NOW), invalid());
+        assert_eq!(
+            validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW),
+            invalid()
+        );
         // hbut_student_id 存在 → 通过
         let mut c = fixture_claims();
         c["sub"] = json!("anonymous-user-001");
         c["hbut_student_id"] = json!("2510234567");
-        let out = validate_claims(&c, &cfg, FIXTURE_NONCE, NOW).expect("有学号 claim 应通过");
+        let out = validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW).expect("有学号 claim 应通过");
         assert_eq!(out.student_id, "2510234567");
         // 回退 oauth_OIDC_id
         let mut c = fixture_claims();
         c["sub"] = json!("anonymous-user-001");
         c.as_object_mut().unwrap().remove("hbut_student_id");
         c["oauth_OIDC_id"] = json!("2510237777");
-        let out = validate_claims(&c, &cfg, FIXTURE_NONCE, NOW).expect("回退 oauth_OIDC_id");
+        let out = validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW).expect("回退 oauth_OIDC_id");
         assert_eq!(out.student_id, "2510237777");
         // 回退 student_id
         let mut c = fixture_claims();
         c["sub"] = json!("anonymous-user-001");
         c.as_object_mut().unwrap().remove("hbut_student_id");
         c["student_id"] = json!("2510238888");
-        let out = validate_claims(&c, &cfg, FIXTURE_NONCE, NOW).expect("回退 student_id");
+        let out = validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW).expect("回退 student_id");
         assert_eq!(out.student_id, "2510238888");
         // sub 为 hbut_ 形态时优先从 sub 解析（即使同时有学号 claim）
         let mut c = fixture_claims();
         c["hbut_student_id"] = json!("9999999999");
-        let out = validate_claims(&c, &cfg, FIXTURE_NONCE, NOW).expect("hbut_ 形态应优先");
+        let out = validate_claims(&c, &cfg, Some(FIXTURE_NONCE), NOW).expect("hbut_ 形态应优先");
         assert_eq!(out.student_id, "2510231106");
     }
 

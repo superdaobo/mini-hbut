@@ -13,6 +13,11 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE?: string
   /** 官网 Hero 嵌入离线演示构建标记 */
   readonly VITE_WEBSITE_DEMO?: string
+  /**
+   * P2-5（#1209）过渡开关：`'1'` 时 token provider 走设备换票（identity_device_token），
+   * 否则默认走 Casdoor OIDC refresh token 路径（identity_oidc_token / identity_token_provider）。
+   */
+  readonly VITE_HBUT_IDENTITY_DEVICE_TOKEN_ENABLED?: string
 }
 
 interface ImportMeta {

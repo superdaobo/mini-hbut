@@ -1,7 +1,9 @@
 /**
  * oidcErrors.spec.ts —— P2-4（#1208）§4.1 kind → 文案 **逐字** 冻结校验 + 未知 kind 回落。
+ * P2-5（#1209）新增 3 条 refresh kind（oidc_refresh_ok / oidc_refresh_unavailable /
+ * oidc_refresh_failed），与实现文件同步扩为 20 条。
  *
- * 断言口径：本文件内独立硬编码规格 §4.1 的 17 条原文（与实现文件不同源），
+ * 断言口径：本文件内独立硬编码规格 §4.1 的 20 条原文（与实现文件不同源），
  * 任何一侧改动都会导致失败——保证「逐字」不被静默漂移。
  */
 import { describe, expect, it } from 'vitest'
@@ -24,19 +26,22 @@ const SPEC_TABLE: Record<string, string> = {
   oidc_session_active: '已登录',
   oidc_session_absent: '未登录',
   oidc_logout_ok: '已退出登录',
+  oidc_refresh_ok: '登录状态已更新',
+  oidc_refresh_unavailable: '登录已过期，请重新登录',
+  oidc_refresh_failed: '登录状态刷新失败，请重新登录',
   secure_storage_unavailable: '无法安全保存登录状态（系统凭据存储不可用）',
   unknown: '操作失败，请稍后重试'
 }
 
-describe('§4.1 文案表逐字（17 条）', () => {
-  it('kind 表恰为 17 个且与规格表键逐字一致（含顺序）', () => {
-    expect(OIDC_KINDS).toHaveLength(17)
+describe('§4.1 文案表逐字（20 条，P2-5 新增 3 条 refresh kind）', () => {
+  it('kind 表恰为 20 个且与规格表键逐字一致（含顺序）', () => {
+    expect(OIDC_KINDS).toHaveLength(20)
     expect([...OIDC_KINDS]).toEqual(Object.keys(SPEC_TABLE))
     // 无重复
-    expect(new Set(OIDC_KINDS).size).toBe(17)
+    expect(new Set(OIDC_KINDS).size).toBe(20)
   })
 
-  it('17 条文案与规格 §4.1 逐字一致（含标点）', () => {
+  it('20 条文案与规格 §4.1 逐字一致（含标点）', () => {
     for (const kind of OIDC_KINDS) {
       expect(OIDC_MESSAGES[kind]).toBe(SPEC_TABLE[kind])
     }

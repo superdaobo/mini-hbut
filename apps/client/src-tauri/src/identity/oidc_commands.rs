@@ -19,13 +19,14 @@ use tauri::State;
 
 use crate::app_state::AppState;
 
-use super::models::{OidcAwaitCallbackInput, OidcCompleteInput};
+use super::models::{OidcAccessTokenInput, OidcAwaitCallbackInput, OidcCompleteInput};
 use super::oidc_core::{
     build_authorize_url, generate_nonce, generate_pkce, generate_state,
-    loopback_redirect_template_from_env, parse_callback, template_port, with_port, IdTokenVerifier,
-    OidcConfig, OidcError, PendingAuth, PendingStore, RingIdTokenVerifier,
-    KIND_OIDC_CALLBACK_INVALID, KIND_OIDC_DISABLED, KIND_OIDC_MISCONFIGURED, KIND_OIDC_NETWORK,
-    KIND_OIDC_NO_PENDING, KIND_OIDC_TIMEOUT, KIND_OIDC_TOKEN_EXCHANGE_FAILED,
+    loopback_redirect_template_from_env, parse_callback, template_port, with_port, IdTokenClaims,
+    IdTokenVerifier, OidcConfig, OidcError, PendingAuth, PendingStore, RingIdTokenVerifier,
+    KIND_OIDC_CALLBACK_INVALID, KIND_OIDC_DISABLED, KIND_OIDC_ID_TOKEN_INVALID,
+    KIND_OIDC_MISCONFIGURED, KIND_OIDC_NETWORK, KIND_OIDC_NO_PENDING, KIND_OIDC_TIMEOUT,
+    KIND_OIDC_TOKEN_EXCHANGE_FAILED,
 };
 use super::oidc_loopback::LoopbackServer;
 use super::oidc_session::{OidcSession, OidcSessionStore};
@@ -50,6 +51,10 @@ pub const KIND_LOGIN_OK: &str = "oidc_login_ok";
 pub const KIND_SESSION_ACTIVE: &str = "oidc_session_active";
 pub const KIND_SESSION_ABSENT: &str = "oidc_session_absent";
 pub const KIND_LOGOUT_OK: &str = "oidc_logout_ok";
+/// P2-5（#1209）refresh 系列 kind（与前端 `OIDC_MESSAGES` 逐字同步；文案见 `oidc_message`）。
+pub const KIND_REFRESH_OK: &str = "oidc_refresh_ok";
+pub const KIND_REFRESH_UNAVAILABLE: &str = "oidc_refresh_unavailable";
+pub const KIND_REFRESH_FAILED: &str = "oidc_refresh_failed";
 
 /// kind → 固定中文文案（与前端 §4.1 **逐字冻结**一致；不含令牌/URL/服务端原文）。
 fn oidc_message(kind: &str) -> &'static str {
@@ -69,6 +74,9 @@ fn oidc_message(kind: &str) -> &'static str {
         KIND_SESSION_ACTIVE => "已登录",
         KIND_SESSION_ABSENT => "未登录",
         KIND_LOGOUT_OK => "已退出登录",
+        KIND_REFRESH_OK => "登录状态已更新",
+        KIND_REFRESH_UNAVAILABLE => "登录已过期，请重新登录",
+        KIND_REFRESH_FAILED => "登录状态刷新失败，请重新登录",
         KIND_SECURE_STORAGE_UNAVAILABLE => "无法安全保存登录状态（系统凭据存储不可用）",
         _ => "操作失败，请稍后重试",
     }
@@ -85,6 +93,11 @@ pub struct OidcFlowPayload {
     pub ok: bool,
     pub kind: String,
     pub message: String,
+    /// P2-5（#1209）：access_token——**唯一**允许交给前端的 AT 出口。
+    /// 只有 `identity_oidc_access_token` 成功时填充；begin/complete/refresh/status
+    /// 等其余命令恒为空串（前端拿到后只进 `identity_access_token.ts` 的内存缓存，
+    /// 不得落任何持久化）。
+    pub access_token: String,
     /// begin 成功：授权 URL（前端只允许 http/https）；其余场景为空
     pub authorize_url: String,
     /// begin 成功：一次性 state（32 hex，前端随回调带回）；其余场景为空
@@ -103,6 +116,7 @@ impl OidcFlowPayload {
             ok: true,
             kind: kind.to_string(),
             message: oidc_message(kind).to_string(),
+            access_token: String::new(),
             authorize_url: String::new(),
             state: String::new(),
             student_id_masked: String::new(),
@@ -117,6 +131,7 @@ impl OidcFlowPayload {
             ok: false,
             kind: kind.to_string(),
             message: oidc_message(kind).to_string(),
+            access_token: String::new(),
             authorize_url: String::new(),
             state: String::new(),
             student_id_masked: String::new(),
@@ -382,7 +397,8 @@ async fn complete_impl(
     };
     // 5) id_token 校验（生产 `RingIdTokenVerifier` = ring RS256 真验签；
     //    nonce 与 begin 时存的 nonce 比对）
-    let claims = match verifier.verify(id_token, &jwks, cfg, &pending_auth.nonce, now) {
+    let claims = match verifier.verify(id_token, &jwks, cfg, Some(pending_auth.nonce.as_str()), now)
+    {
         Ok(c) => c,
         Err(err) => return CompleteOutcome::Failure(OidcFlowPayload::err(err.kind())),
     };
@@ -438,6 +454,232 @@ fn session_status_impl(sessions: &OidcSessionStore, now: i64) -> OidcFlowPayload
 fn logout_impl(sessions: &OidcSessionStore) -> OidcFlowPayload {
     match sessions.delete() {
         Ok(()) => OidcFlowPayload::ok_with(KIND_LOGOUT_OK),
+        Err(_) => OidcFlowPayload::err(KIND_SECURE_STORAGE_UNAVAILABLE),
+    }
+}
+
+// ── P2-5（issue #1209）：refresh token 刷新 + access_token 出口 ────────────────
+
+/// 会话「仍新鲜」边距（秒）：`now + 30 < exp` 视为新鲜 → 刷新短路、**零网络**
+/// （规格 §1 第 2 步，顺序冻结）。
+const FRESH_MARGIN_SECONDS: i64 = 30;
+
+/// refresh 核心结果：
+enum RefreshOutcome {
+    /// 直接返回（会话仍新鲜 / 无会话 / 无 RT / 任何失败）：payload 已是稳定分类；
+    /// **没有**发生会话写入（fail closed：旧令牌原样保留）。
+    Payload(OidcFlowPayload),
+    /// 全部校验通过：等待原子写 keyring（唯一写库点，失败 → `secure_storage_unavailable`）。
+    Ready(OidcSession),
+}
+
+/// refresh 核心（规格 §1 顺序冻结）：
+/// 1. 读 keyring 会话：不可用 → `secure_storage_unavailable`（fail closed，不联网）；
+///    无会话 → `oidc_session_absent`（不联网）；
+/// 2. 仍新鲜（`now + 30 < exp`）且 `force=false` → `oidc_refresh_ok` + 原过期时间，
+///    **零网络**（transport 一次都不调用）；`force=true` 跳过本步（**仍新鲜也强制刷新**，
+///    供 `identity_oidc_access_token` 的 401 场景）；
+/// 3. 过期且无 `refresh_token` → `oidc_refresh_unavailable`（不联网）；
+/// 4. `POST {token_endpoint}`（form：`grant_type=refresh_token` / `refresh_token` / `client_id`，
+///    复用 `OidcTransport::token_request`，**不**新增 trait 方法）：
+///    网络错误 → `oidc_network`；非 2xx 或 `error` 字段存在 → `oidc_refresh_failed`
+///    （日志只记状态码类别，不透传服务端原文）；`access_token` 缺失/空 → `oidc_refresh_failed`；
+/// 5. 响应含 `id_token` → 验签（签名 + iss + aud + exp + iat + sub；**刷新场景没有 nonce**
+///    → `expected_nonce = None` 仅跳过 nonce 比对，其余校验一项不少）；
+///    失败 → `oidc_id_token_invalid`（不写会话）；
+/// 6. 组装新会话：`access_token` 用新值；`refresh_token` **响应带轮换值才替换**，否则保留旧值；
+///    `id_token` 同理；`exp` 优先级 = 响应 `expires_in`（`now + expires_in`）> 已校验
+///    id_token 的 `exp` > 旧 `exp`；`student_id` / `issuer` / `client_id` 不变；
+///    **防串号**：id_token 解析出的学号与旧会话 `student_id` 不一致 → 拒绝（不写会话）。
+///
+/// 任何失败路径**绝不写会话**，也不返回新令牌（零泄露：令牌永不进日志/错误文案）。
+async fn refresh_impl(
+    cfg: &OidcConfig,
+    sessions: &OidcSessionStore,
+    transport: &dyn OidcTransport,
+    jwks_cache: &JwksCache,
+    verifier: &dyn IdTokenVerifier,
+    force: bool,
+    now: i64,
+) -> RefreshOutcome {
+    // 1) 读 keyring 会话（keyring 错误/无会话：不联网）
+    let session = match sessions.load() {
+        Err(_) => {
+            return RefreshOutcome::Payload(OidcFlowPayload::err(KIND_SECURE_STORAGE_UNAVAILABLE))
+        }
+        Ok(None) => return RefreshOutcome::Payload(OidcFlowPayload::err(KIND_SESSION_ABSENT)),
+        Ok(Some(session)) => session,
+    };
+    // 2) 仍新鲜（now + 30 < exp）且非强制 → 直接返回（零网络；transport 零调用）
+    if !force && session.exp > now + FRESH_MARGIN_SECONDS {
+        let mut payload = OidcFlowPayload::ok_with(KIND_REFRESH_OK);
+        payload.student_id_masked = session.student_id_masked();
+        payload.expires_at = session.exp;
+        return RefreshOutcome::Payload(payload);
+    }
+    // 3) 过期且无 refresh_token → unavailable（不联网）
+    let Some(refresh_token) = session.refresh_token.clone() else {
+        return RefreshOutcome::Payload(OidcFlowPayload::err(KIND_REFRESH_UNAVAILABLE));
+    };
+    // 4) 刷新换票（form POST；refresh_token 只进请求，不进日志/返回体）
+    let form = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token.as_str()),
+        ("client_id", cfg.client_id.as_str()),
+    ];
+    let (status, body) = match transport.token_request(&cfg.token_endpoint(), &form).await {
+        Ok(result) => result,
+        Err(_) => return RefreshOutcome::Payload(OidcFlowPayload::err(KIND_OIDC_NETWORK)),
+    };
+    // 非 2xx 或 error 字段存在 → refresh_failed（只记状态码类别；不写会话）
+    if !(200..300).contains(&status) || body.get("error").is_some() {
+        log::warn!("[identity] OIDC refresh：令牌端点返回失败（status={status}）");
+        return RefreshOutcome::Payload(OidcFlowPayload::err(KIND_REFRESH_FAILED));
+    }
+    let access_token = match body
+        .get("access_token")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        Some(token) => token.to_string(),
+        // access_token 缺失/空 → refresh_failed（不写会话）
+        None => return RefreshOutcome::Payload(OidcFlowPayload::err(KIND_REFRESH_FAILED)),
+    };
+    // 5) 响应含 id_token → 校验（刷新场景无 nonce → None 跳过 nonce 比对；其余不削弱）
+    let new_id_token = body
+        .get("id_token")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let claims: Option<IdTokenClaims> = match new_id_token.as_deref() {
+        Some(id_token) => {
+            let jwks = match jwks_cache.fetch(&cfg.jwks_uri(), transport, now).await {
+                Ok(value) => value,
+                Err(err) => return RefreshOutcome::Payload(OidcFlowPayload::err(err.kind())),
+            };
+            match verifier.verify(id_token, &jwks, cfg, None, now) {
+                Ok(c) => Some(c),
+                Err(err) => return RefreshOutcome::Payload(OidcFlowPayload::err(err.kind())),
+            }
+        }
+        // 响应不带 id_token → 保留旧 id_token（规格允许），无需校验
+        None => None,
+    };
+    // 防串号：id_token 解析出的学号必须与旧会话一致（sub = hbut_<学号> 或 hbut_student_id
+    // 等 claim，已由 validate_claims 解析）；不一致 → 拒绝且不写会话
+    if let Some(claims) = &claims {
+        if claims.student_id != session.student_id {
+            log::warn!("[identity] OIDC refresh：id_token 学号与会话不一致，拒绝（防串号）");
+            return RefreshOutcome::Payload(OidcFlowPayload::err(KIND_OIDC_ID_TOKEN_INVALID));
+        }
+    }
+    // 6) 组装新会话（RT 轮换：响应带新值才替换，否则保留旧值；绝不清空）
+    let new_refresh_token = body
+        .get("refresh_token")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| session.refresh_token.clone());
+    // exp 优先级：响应 expires_in（正整数）> 已校验 id_token 的 exp > 旧 exp
+    let expires_in = body.get("expires_in").and_then(Value::as_i64);
+    let new_exp = match expires_in {
+        Some(delta) if delta > 0 => now + delta,
+        _ => claims.as_ref().map_or(session.exp, |c| c.exp),
+    };
+    RefreshOutcome::Ready(OidcSession {
+        access_token,
+        refresh_token: new_refresh_token,
+        id_token: new_id_token.unwrap_or_else(|| session.id_token.clone()),
+        // student_id / issuer / client_id 不变（防串号已在上面通过）
+        student_id: session.student_id,
+        student_name: session.student_name,
+        exp: new_exp,
+        iat: session.iat,
+        issuer: session.issuer,
+        client_id: session.client_id,
+    })
+}
+
+/// refresh 命令的唯一写库点（测试用）：成功 → `oidc_refresh_ok`（**不含** token，只回掩码学号
+/// + 过期时间）；失败 → `secure_storage_unavailable`（新令牌不返回，也不落明文）。
+fn finish_refresh(session: &OidcSession, sessions: &OidcSessionStore) -> OidcFlowPayload {
+    match sessions.save(session) {
+        Ok(()) => {
+            let mut payload = OidcFlowPayload::ok_with(KIND_REFRESH_OK);
+            payload.student_id_masked = session.student_id_masked();
+            payload.expires_at = session.exp;
+            payload
+        }
+        Err(_) => OidcFlowPayload::err(KIND_SECURE_STORAGE_UNAVAILABLE),
+    }
+}
+
+/// access_token 核心结果：
+enum AccessTokenOutcome {
+    /// 直接返回（payload 已分类；access_token 为空，或已为存储的 AT）。
+    Payload(OidcFlowPayload),
+    /// 强制刷新校验通过：等待原子写 keyring（唯一写库点）。
+    Ready(OidcSession),
+}
+
+/// access_token 核心（规格 §2.2，**唯一 AT 出口**；`force` 由入参传入）：
+/// - keyring 不可用 → `secure_storage_unavailable`（不联网）；
+/// - `force=true`：直接走完整刷新链（**仍新鲜也强制刷新**——provider 的 401 场景），
+///   任何失败 → 稳定 kind，**不返回 AT**；
+/// - `force=false`：无会话 → `oidc_session_absent`（不联网）；会话有效
+///   （`now + 30 < exp`）→ 直接返回存储的 AT（**零网络**）；已过期 → `oidc_session_absent`
+///   （不联网；需要令牌时调用方应走 `force=true`）。
+async fn access_token_impl(
+    cfg: &OidcConfig,
+    sessions: &OidcSessionStore,
+    transport: &dyn OidcTransport,
+    jwks_cache: &JwksCache,
+    verifier: &dyn IdTokenVerifier,
+    force: bool,
+    now: i64,
+) -> AccessTokenOutcome {
+    if force {
+        // 强制刷新语义：无论会话是否仍新鲜，都走完整刷新链（跳过「仍新鲜」短路）
+        return match refresh_impl(cfg, sessions, transport, jwks_cache, verifier, true, now).await {
+            RefreshOutcome::Payload(payload) => AccessTokenOutcome::Payload(payload),
+            RefreshOutcome::Ready(session) => AccessTokenOutcome::Ready(session),
+        };
+    }
+    let session = match sessions.load() {
+        Err(_) => {
+            return AccessTokenOutcome::Payload(OidcFlowPayload::err(
+                KIND_SECURE_STORAGE_UNAVAILABLE,
+            ))
+        }
+        Ok(None) => return AccessTokenOutcome::Payload(OidcFlowPayload::err(KIND_SESSION_ABSENT)),
+        Ok(Some(session)) => session,
+    };
+    if session.exp > now + FRESH_MARGIN_SECONDS {
+        // 有效会话：直接返回存储的 AT（零网络；附掩码学号 + 过期时间）
+        let mut payload = OidcFlowPayload::ok_with(KIND_REFRESH_OK);
+        payload.student_id_masked = session.student_id_masked();
+        payload.expires_at = session.exp;
+        payload.access_token = session.access_token.clone();
+        return AccessTokenOutcome::Payload(payload);
+    }
+    // 已过期：按未登录报告（不联网；强制刷新走 force 路径）
+    AccessTokenOutcome::Payload(OidcFlowPayload::err(KIND_SESSION_ABSENT))
+}
+
+/// access_token 强制刷新成功后的唯一写库点（测试用）：成功 → `oidc_refresh_ok` 且**携带新 AT**
+/// （唯一允许交给前端的出口）；失败 → `secure_storage_unavailable`（新令牌不返回）。
+fn finish_refresh_with_token(
+    session: &OidcSession,
+    sessions: &OidcSessionStore,
+) -> OidcFlowPayload {
+    match sessions.save(session) {
+        Ok(()) => {
+            let mut payload = OidcFlowPayload::ok_with(KIND_REFRESH_OK);
+            payload.student_id_masked = session.student_id_masked();
+            payload.expires_at = session.exp;
+            payload.access_token = session.access_token.clone();
+            payload
+        }
         Err(_) => OidcFlowPayload::err(KIND_SECURE_STORAGE_UNAVAILABLE),
     }
 }
@@ -655,6 +897,108 @@ pub(crate) async fn identity_oidc_logout() -> Result<OidcFlowPayload, String> {
     Ok(payload)
 }
 
+/// P2-5（issue #1209）：刷新 OIDC 会话（**默认路径**，refresh token 换票）。
+///
+/// 顺序 = keyring 读取 → 新鲜短路（**零网络**）→ 刷新换票 → id_token 校验（无 nonce）→
+/// 原子写 keyring。**任何失败都不写会话**（旧令牌原样保留，fail closed），
+/// 返回体只含稳定 kind + 掩码学号 + 过期时间（**不含** AT/RT）。
+#[tauri::command]
+pub(crate) async fn identity_oidc_refresh(
+    _state: State<'_, AppState>,
+) -> Result<OidcFlowPayload, String> {
+    let now = now_unix();
+    let cfg = match resolve_config() {
+        Ok(cfg) => cfg,
+        Err(payload) => return Ok(payload),
+    };
+    let jwks_cache = production_jwks_cache();
+    let transport = ReqwestOidcTransport::new();
+    // 生产验签走 `RingIdTokenVerifier`（ring RS256 真验签，绝不旁路）
+    let verifier = RingIdTokenVerifier;
+    let sessions = OidcSessionStore::real();
+    match refresh_impl(
+        &cfg, &sessions, &transport, jwks_cache, &verifier, false, now,
+    )
+    .await
+    {
+        RefreshOutcome::Payload(payload) => Ok(payload),
+        RefreshOutcome::Ready(session) => {
+            // 唯一写库点：keyring 写入放阻塞池（绝不阻塞 async 运行时）
+            let masked = session.student_id_masked();
+            let exp = session.exp;
+            let result = tauri::async_runtime::spawn_blocking(move || sessions.save(&session))
+                .await
+                .map_err(|e| format!("会话写入任务失败：{e}"))?;
+            Ok(match result {
+                Ok(()) => {
+                    let mut payload = OidcFlowPayload::ok_with(KIND_REFRESH_OK);
+                    payload.student_id_masked = masked;
+                    payload.expires_at = exp;
+                    payload
+                }
+                Err(_) => OidcFlowPayload::err(KIND_SECURE_STORAGE_UNAVAILABLE),
+            })
+        }
+    }
+}
+
+/// P2-5（issue #1209）：获取 OIDC access_token（**唯一 AT 出口**，入参 `{input:{force}}`）。
+///
+/// - **只在有有效会话时返回 AT**（前端拿到后只进 `identity_access_token.ts` 的内存缓存，
+///   不得落任何持久化）；
+/// - `force=false`：会话有效 → 直接返回存储的 AT（零网络）；无会话/已过期 →
+///   `oidc_session_absent`（不联网）；
+/// - `force=true`：先走完整刷新链（**仍新鲜也强制刷新**，供 401 场景）；
+///   成功 → 返回新 AT；任何失败 → 稳定 kind，**不返回 AT**；
+/// - `session_status` 保持不返回令牌（不变）。
+#[tauri::command]
+pub(crate) async fn identity_oidc_access_token(
+    _state: State<'_, AppState>,
+    input: OidcAccessTokenInput,
+) -> Result<OidcFlowPayload, String> {
+    let now = now_unix();
+    let cfg = match resolve_config() {
+        Ok(cfg) => cfg,
+        Err(payload) => return Ok(payload),
+    };
+    let jwks_cache = production_jwks_cache();
+    let transport = ReqwestOidcTransport::new();
+    // 生产验签走 `RingIdTokenVerifier`（ring RS256 真验签，绝不旁路）
+    let verifier = RingIdTokenVerifier;
+    let sessions = OidcSessionStore::real();
+    match access_token_impl(
+        &cfg,
+        &sessions,
+        &transport,
+        jwks_cache,
+        &verifier,
+        input.force,
+        now,
+    )
+    .await
+    {
+        AccessTokenOutcome::Payload(payload) => Ok(payload),
+        AccessTokenOutcome::Ready(session) => {
+            let masked = session.student_id_masked();
+            let exp = session.exp;
+            let access_token = session.access_token.clone();
+            let result = tauri::async_runtime::spawn_blocking(move || sessions.save(&session))
+                .await
+                .map_err(|e| format!("会话写入任务失败：{e}"))?;
+            Ok(match result {
+                Ok(()) => {
+                    let mut payload = OidcFlowPayload::ok_with(KIND_REFRESH_OK);
+                    payload.student_id_masked = masked;
+                    payload.expires_at = exp;
+                    payload.access_token = access_token;
+                    payload
+                }
+                Err(_) => OidcFlowPayload::err(KIND_SECURE_STORAGE_UNAVAILABLE),
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -676,12 +1020,24 @@ mod tests {
 
     /// 假验签器（**仅单测**）：模拟「服务端已验签通过」，直接返回带期望学号的 claims。
     ///
-    /// 语义对齐 `verify_id_token` 的两条关键分支：nonce 不符 → `NonceMismatch`；
-    /// `reject_invalid` 置位 → `IdTokenInvalid`（模拟真验签对垃圾 token 的拒绝）。
-    #[derive(Default)]
+    /// 语义对齐 `verify_id_token` 的两条关键分支：`Some` nonce 不符 → `NonceMismatch`
+    /// （`None` = 刷新场景，跳过比对）；`reject_invalid` 置位 → `IdTokenInvalid`
+    /// （模拟真验签对垃圾 token 的拒绝）。
     struct FakeIdTokenVerifier {
         nonce: String,
         reject_invalid: bool,
+        /// 返回 claims 里的学号（默认 fixture 学号 `20241234`；可改以模拟防串号场景）
+        student_id: String,
+    }
+
+    impl Default for FakeIdTokenVerifier {
+        fn default() -> Self {
+            Self {
+                nonce: String::new(),
+                reject_invalid: false,
+                student_id: "20241234".to_string(),
+            }
+        }
     }
 
     impl FakeIdTokenVerifier {
@@ -689,7 +1045,14 @@ mod tests {
             Self {
                 nonce: nonce.to_string(),
                 reject_invalid: false,
+                student_id: "20241234".to_string(),
             }
+        }
+
+        /// 指定返回 claims 的学号（模拟刷新 id_token 学号与会话不一致的防串号场景）。
+        fn with_student_id(mut self, student_id: &str) -> Self {
+            self.student_id = student_id.to_string();
+            self
         }
     }
 
@@ -699,20 +1062,23 @@ mod tests {
             _id_token: &str,
             _jwks: &Value,
             cfg: &OidcConfig,
-            expected_nonce: &str,
+            expected_nonce: Option<&str>,
             now: i64,
         ) -> Result<IdTokenClaims, OidcError> {
             if self.reject_invalid {
                 return Err(OidcError::IdTokenInvalid);
             }
-            if self.nonce != expected_nonce {
-                return Err(OidcError::NonceMismatch);
+            // `None` = 刷新场景：跳过 nonce 比对（与 `validate_claims` 的 Option 语义一致）
+            if let Some(expected) = expected_nonce {
+                if self.nonce != expected {
+                    return Err(OidcError::NonceMismatch);
+                }
             }
             Ok(IdTokenClaims {
                 sub: "hbut_20241234".to_string(),
                 iss: cfg.issuer.clone(),
                 aud: cfg.client_id.clone(),
-                student_id: "20241234".to_string(),
+                student_id: self.student_id.clone(),
                 student_name: Some("测试同学".to_string()),
                 nonce: self.nonce.clone(),
                 exp: now + 3600,
@@ -735,12 +1101,17 @@ mod tests {
         let ring: &dyn IdTokenVerifier = &RingIdTokenVerifier;
         // 合法 fixture token（ring 真验签）→ 通过，学号从 `hbut_<学号>` 解析
         let out = ring
-            .verify(&fixture_id_token(), &jwks, &cfg, FIXTURE_NONCE, T0)
+            .verify(&fixture_id_token(), &jwks, &cfg, Some(FIXTURE_NONCE), T0)
             .expect("合法 fixture 令牌应通过真验签");
         assert_eq!(out.student_id, "2510231106");
+        // 刷新场景（None）→ 跳过 nonce 比对，真验签仍通过
+        let out2 = ring
+            .verify(&fixture_id_token(), &jwks, &cfg, None, T0)
+            .expect("刷新场景（无 nonce 比对）应通过真验签");
+        assert_eq!(out2.student_id, "2510231106");
         // 垃圾 token → IdTokenInvalid（证明默认路径不是透传假验签）
         assert_eq!(
-            ring.verify("not.a.jwt", &jwks, &cfg, FIXTURE_NONCE, T0),
+            ring.verify("not.a.jwt", &jwks, &cfg, Some(FIXTURE_NONCE), T0),
             Err(OidcError::IdTokenInvalid)
         );
     }
@@ -765,6 +1136,8 @@ mod tests {
         token_body: Value,
         jwks_status: u16,
         jwks_body: Value,
+        /// 置位后 `token_request` 返回网络错误（模拟断网/连接失败，用于 fail closed 测试）
+        token_fail: bool,
     }
 
     impl FakeOidcTransport {
@@ -777,6 +1150,7 @@ mod tests {
                 token_body: Value::Null,
                 jwks_status: 200,
                 jwks_body: Value::Null,
+                token_fail: false,
             }
         }
         fn token_calls(&self) -> usize {
@@ -794,6 +1168,12 @@ mod tests {
             form: &'a [(&'a str, &'a str)],
         ) -> OidcBoxFuture<'a, Result<(u16, Value), OidcTransportError>> {
             *self.token_calls.lock().unwrap() += 1;
+            if self.token_fail {
+                // 模拟网络错误（连接失败）：计数已记，直接 Err（零返回体）
+                return Box::pin(async {
+                    Err(OidcTransportError::Network("测试网络故障".to_string()))
+                });
+            }
             self.token_form
                 .lock()
                 .unwrap()
@@ -1151,6 +1531,7 @@ mod tests {
         let reject_verifier = FakeIdTokenVerifier {
             nonce: nonce.clone(),
             reject_invalid: true,
+            student_id: "20241234".to_string(),
         };
         let callback_url = format!(
             "minihbut://identity/callback?code=0123456789abcdef0123456789abcdef01234567&state={state}"
@@ -1379,5 +1760,549 @@ mod tests {
             2,
             "失败后必须重新拉取（不得缓存失败）"
         );
+    }
+
+    // ── P2-5（#1209）：refresh 与 access_token（规格 §1 的 10 条 + §2.2 的 4 条）──
+
+    /// 测试会话（存入 keyring 用；学号 20241234 → 掩码 `2024***`）。
+    fn test_oidc_session(exp: i64, refresh_token: Option<&str>) -> OidcSession {
+        OidcSession {
+            access_token: "at-old".to_string(),
+            refresh_token: refresh_token.map(str::to_string),
+            id_token: "id-old".to_string(),
+            student_id: "20241234".to_string(),
+            student_name: Some("测试同学".to_string()),
+            exp,
+            iat: T0 - 3600,
+            issuer: "https://auth.example.com".to_string(),
+            client_id: "client-test".to_string(),
+        }
+    }
+
+    /// 从内存 keyring 读回会话（断言 fail closed 时旧值未被改动）。
+    fn stored_session(store: &OidcSessionStore) -> OidcSession {
+        store.load().expect("回读不应失败").expect("会话必须仍在")
+    }
+
+    // 1) 会话新鲜 → 跳过（**零网络**：token_calls == 0），返回原过期时间
+    #[tokio::test]
+    async fn refresh_fresh_session_skips_without_network() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 + 3600, Some("rt-old")))
+            .expect("会话写入应成功");
+        let transport = FakeOidcTransport::new();
+        let jwks_cache = JwksCache::new();
+        let payload = match refresh_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Payload(payload) => payload,
+            RefreshOutcome::Ready(_) => panic!("新鲜会话应直接返回，不得进入刷新写链"),
+        };
+        assert!(payload.ok);
+        assert_eq!(payload.kind, KIND_REFRESH_OK);
+        assert_eq!(payload.expires_at, T0 + 3600);
+        assert_eq!(payload.student_id_masked, "2024***");
+        assert_eq!(
+            transport.token_calls(),
+            0,
+            "新鲜会话必须零网络（transport 零调用）"
+        );
+        // 会话未被重写（旧值原样保留）
+        let stored = stored_session(&store);
+        assert_eq!(stored.access_token, "at-old");
+        assert_eq!(stored.refresh_token.as_deref(), Some("rt-old"));
+    }
+
+    // 2) 无会话 → oidc_session_absent（不联网）
+    #[tokio::test]
+    async fn refresh_without_session_reports_absent() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new())); // 空
+        let transport = FakeOidcTransport::new();
+        let jwks_cache = JwksCache::new();
+        let payload = match refresh_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Payload(payload) => payload,
+            RefreshOutcome::Ready(_) => panic!("无会话必须拒绝"),
+        };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_SESSION_ABSENT);
+        assert_eq!(transport.token_calls(), 0, "无会话不得联网");
+    }
+
+    // 3) 过期且无 RT → oidc_refresh_unavailable（不联网）
+    #[tokio::test]
+    async fn refresh_expired_without_rt_reports_unavailable() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, None))
+            .expect("会话写入应成功");
+        let transport = FakeOidcTransport::new();
+        let jwks_cache = JwksCache::new();
+        let payload = match refresh_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Payload(payload) => payload,
+            RefreshOutcome::Ready(_) => panic!("无 refresh_token 必须拒绝"),
+        };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_REFRESH_UNAVAILABLE);
+        assert_eq!(transport.token_calls(), 0, "无 RT 不得联网");
+        // 会话原样保留
+        assert_eq!(stored_session(&store).access_token, "at-old");
+    }
+
+    // 4) 200 带新 AT + 轮换 RT → 会话被更新（AT/RT 都变），返回 oidc_refresh_ok
+    #[tokio::test]
+    async fn refresh_success_rotates_rt_and_updates_session() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_body = serde_json::json!({
+            "access_token": "at-new",
+            "refresh_token": "rt-new",
+            "expires_in": 3600
+        });
+        let jwks_cache = JwksCache::new();
+        let session = match refresh_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Ready(session) => session,
+            RefreshOutcome::Payload(p) => panic!("刷新应成功，实际 kind={}", p.kind),
+        };
+        assert_eq!(session.access_token, "at-new");
+        assert_eq!(
+            session.refresh_token.as_deref(),
+            Some("rt-new"),
+            "轮换值必须替换旧 RT"
+        );
+        assert_eq!(
+            session.exp,
+            T0 + 3600,
+            "exp 优先取响应 expires_in（now + 3600）"
+        );
+        assert_eq!(session.id_token, "id-old", "响应不带 id_token → 保留旧值");
+        assert_eq!(session.student_id, "20241234", "学号不变");
+        // 令牌请求恰好一次，form 携带刷新全要素（用旧 RT 换票）
+        assert_eq!(transport.token_calls(), 1);
+        let form_text = format!("{:?}", transport.token_form.lock().unwrap().clone());
+        assert!(form_text.contains("grant_type"));
+        assert!(form_text.contains("refresh_token"));
+        assert!(form_text.contains("rt-old"));
+        assert!(form_text.contains("client-test"));
+        // 唯一写库点：成功 → oidc_refresh_ok（只含掩码学号 + 过期时间，**不含**任何令牌）
+        let payload = finish_refresh(&session, &store);
+        assert!(payload.ok);
+        assert_eq!(payload.kind, KIND_REFRESH_OK);
+        assert_eq!(payload.student_id_masked, "2024***");
+        assert_eq!(payload.expires_at, T0 + 3600);
+        let wire = serde_json::to_string(&payload).unwrap();
+        assert!(
+            !wire.contains("at-new") && !wire.contains("rt-new"),
+            "refresh 返回体不得含令牌"
+        );
+    }
+
+    // 5) 200 只带新 AT（无 RT/id_token）→ RT 保留旧值（不得清空）
+    #[tokio::test]
+    async fn refresh_without_rotation_keeps_old_refresh_token() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_body = serde_json::json!({
+            "access_token": "at-new",
+            "expires_in": 3600
+        });
+        let jwks_cache = JwksCache::new();
+        let session = match refresh_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Ready(session) => session,
+            RefreshOutcome::Payload(p) => panic!("刷新应成功，实际 kind={}", p.kind),
+        };
+        assert_eq!(
+            session.refresh_token.as_deref(),
+            Some("rt-old"),
+            "无轮换值必须保留旧 RT"
+        );
+        assert_eq!(session.access_token, "at-new");
+    }
+
+    // 6) 400 invalid_grant → oidc_refresh_failed 且会话不变（读回旧值）
+    #[tokio::test]
+    async fn refresh_invalid_grant_fails_and_keeps_session() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_status = 400;
+        transport.token_body = serde_json::json!({"error": "invalid_grant", "error_description": "secret-detail-should-not-leak"});
+        let jwks_cache = JwksCache::new();
+        let payload = match refresh_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Payload(payload) => payload,
+            RefreshOutcome::Ready(_) => panic!("invalid_grant 必须拒绝"),
+        };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_REFRESH_FAILED);
+        // 错误文案固定，不含服务端原文/令牌片段
+        assert!(!payload.message.contains("invalid_grant"));
+        assert!(!payload.message.contains("secret-detail-should-not-leak"));
+        // 会话不变（读回旧值）
+        let stored = stored_session(&store);
+        assert_eq!(stored.access_token, "at-old");
+        assert_eq!(stored.refresh_token.as_deref(), Some("rt-old"));
+    }
+
+    // 7) 网络错误 → oidc_network 且会话不变
+    #[tokio::test]
+    async fn refresh_network_error_fails_and_keeps_session() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_fail = true; // 模拟断网
+        let jwks_cache = JwksCache::new();
+        let payload = match refresh_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Payload(payload) => payload,
+            RefreshOutcome::Ready(_) => panic!("网络错误必须拒绝"),
+        };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_OIDC_NETWORK);
+        let stored = stored_session(&store);
+        assert_eq!(stored.access_token, "at-old");
+        assert_eq!(stored.refresh_token.as_deref(), Some("rt-old"));
+    }
+
+    // 8) 带 id_token 但学号与旧会话不同 → 拒绝（oidc_id_token_invalid）且会话不变（防串号）
+    #[tokio::test]
+    async fn refresh_id_token_sub_mismatch_rejects_and_keeps_session() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_body = serde_json::json!({
+            "access_token": "at-new",
+            "refresh_token": "rt-new",
+            "id_token": "some.verified.jwt"
+        });
+        transport.jwks_body = test_jwks();
+        let jwks_cache = JwksCache::new();
+        // 假验签器返回与旧会话不同的学号（模拟他人 id_token 混入）
+        let verifier = FakeIdTokenVerifier::with_nonce("n").with_student_id("99999999");
+        let payload =
+            match refresh_impl(&cfg, &store, &transport, &jwks_cache, &verifier, false, T0).await {
+                RefreshOutcome::Payload(payload) => payload,
+                RefreshOutcome::Ready(_) => panic!("学号不一致必须拒绝（防串号）"),
+            };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_OIDC_ID_TOKEN_INVALID);
+        let stored = stored_session(&store);
+        assert_eq!(stored.access_token, "at-old");
+        assert_eq!(stored.refresh_token.as_deref(), Some("rt-old"));
+    }
+
+    // 9) 带 id_token 且签名无效 → oidc_id_token_invalid 且会话不变
+    #[tokio::test]
+    async fn refresh_id_token_bad_signature_rejects_and_keeps_session() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_body = serde_json::json!({
+            "access_token": "at-new",
+            "id_token": "not.a.valid.jwt"
+        });
+        transport.jwks_body = test_jwks();
+        let jwks_cache = JwksCache::new();
+        let mut verifier = FakeIdTokenVerifier::with_nonce("n");
+        verifier.reject_invalid = true; // 模拟真验签对垃圾 token 的拒绝
+        let payload =
+            match refresh_impl(&cfg, &store, &transport, &jwks_cache, &verifier, false, T0).await {
+                RefreshOutcome::Payload(payload) => payload,
+                RefreshOutcome::Ready(_) => panic!("签名无效必须拒绝"),
+            };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_OIDC_ID_TOKEN_INVALID);
+        let stored = stored_session(&store);
+        assert_eq!(stored.access_token, "at-old");
+        assert_eq!(stored.refresh_token.as_deref(), Some("rt-old"));
+    }
+
+    // 10) keyring 不可用 → secure_storage_unavailable（不联网）；写失败同样不落令牌
+    #[tokio::test]
+    async fn refresh_keyring_unavailable_reports_secure_storage() {
+        let cfg = test_cfg();
+        // 读失败（keyring 不可用）→ 不联网
+        let failing_store = OidcSessionStore::with_keyring(Box::new(FailingKeyring));
+        let transport = FakeOidcTransport::new();
+        let jwks_cache = JwksCache::new();
+        let payload = match refresh_impl(
+            &cfg,
+            &failing_store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            RefreshOutcome::Payload(payload) => payload,
+            RefreshOutcome::Ready(_) => panic!("keyring 不可用必须拒绝"),
+        };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_SECURE_STORAGE_UNAVAILABLE);
+        assert_eq!(transport.token_calls(), 0, "keyring 不可用不得联网");
+        // 写失败（keyring 不可用）→ 新令牌不返回（fail closed）
+        let write_store = OidcSessionStore::with_keyring(Box::new(FailingKeyring));
+        let write_payload = finish_refresh(&test_oidc_session(T0 + 3600, Some("rt")), &write_store);
+        assert!(!write_payload.ok);
+        assert_eq!(write_payload.kind, KIND_SECURE_STORAGE_UNAVAILABLE);
+        assert!(write_payload.access_token.is_empty(), "写失败不得返回令牌");
+    }
+
+    // access_token 1) 无会话 → oidc_session_absent（不联网，无令牌）
+    #[tokio::test]
+    async fn access_token_without_session_reports_absent() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new())); // 空
+        let transport = FakeOidcTransport::new();
+        let jwks_cache = JwksCache::new();
+        let payload = match access_token_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            AccessTokenOutcome::Payload(payload) => payload,
+            AccessTokenOutcome::Ready(_) => panic!("无会话不得进入刷新写链"),
+        };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_SESSION_ABSENT);
+        assert!(payload.access_token.is_empty());
+        assert_eq!(transport.token_calls(), 0);
+        // 过期会话 + 非强制 → 同样按未登录报告（不联网；需要令牌应走 force）
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let payload2 = match access_token_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            AccessTokenOutcome::Payload(payload) => payload,
+            AccessTokenOutcome::Ready(_) => panic!("过期会话非强制模式应按未登录报告"),
+        };
+        assert!(!payload2.ok);
+        assert_eq!(payload2.kind, KIND_SESSION_ABSENT);
+        assert_eq!(transport.token_calls(), 0, "非强制模式过期会话不得联网");
+    }
+
+    // access_token 2) 有效会话（非强制）→ 直接返回存储 AT（零网络），expires_at 正确
+    #[tokio::test]
+    async fn access_token_fresh_returns_stored_at_without_network() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 + 3600, Some("rt-old")))
+            .expect("会话写入应成功");
+        let transport = FakeOidcTransport::new();
+        let jwks_cache = JwksCache::new();
+        let payload = match access_token_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            false,
+            T0,
+        )
+        .await
+        {
+            AccessTokenOutcome::Payload(payload) => payload,
+            AccessTokenOutcome::Ready(_) => panic!("有效会话应直接返回，无需刷新"),
+        };
+        assert!(payload.ok);
+        assert_eq!(payload.kind, KIND_REFRESH_OK);
+        assert_eq!(
+            payload.access_token, "at-old",
+            "有效会话必须返回存储的 AT（唯一出口）"
+        );
+        assert_eq!(payload.expires_at, T0 + 3600);
+        assert_eq!(payload.student_id_masked, "2024***");
+        assert_eq!(transport.token_calls(), 0, "有效会话必须零网络");
+    }
+
+    // access_token 3) force=true → 触发一次刷新（即使仍新鲜），成功返回新 AT 并写库
+    #[tokio::test]
+    async fn access_token_force_triggers_single_refresh() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        // 会话仍新鲜，但 force=true 必须跳过新鲜短路、走完整刷新链
+        store
+            .save(&test_oidc_session(T0 + 3600, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_body = serde_json::json!({
+            "access_token": "at-forced",
+            "refresh_token": "rt-forced",
+            "expires_in": 3600
+        });
+        let jwks_cache = JwksCache::new();
+        let session = match access_token_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            true,
+            T0,
+        )
+        .await
+        {
+            AccessTokenOutcome::Ready(session) => session,
+            AccessTokenOutcome::Payload(p) => panic!("强制刷新应成功，实际 kind={}", p.kind),
+        };
+        assert_eq!(session.access_token, "at-forced");
+        assert_eq!(
+            transport.token_calls(),
+            1,
+            "force=true 必须触发恰好一次刷新"
+        );
+        // 唯一写库点 + 唯一 AT 出口（携带新 AT）
+        let payload = finish_refresh_with_token(&session, &store);
+        assert!(payload.ok);
+        assert_eq!(payload.kind, KIND_REFRESH_OK);
+        assert_eq!(payload.access_token, "at-forced");
+        assert_eq!(payload.expires_at, T0 + 3600);
+        let stored = stored_session(&store);
+        assert_eq!(stored.access_token, "at-forced");
+        assert_eq!(stored.refresh_token.as_deref(), Some("rt-forced"));
+    }
+
+    // access_token 4) force=true 且刷新失败（invalid_grant）→ 稳定 kind，不返回 AT，会话不变
+    #[tokio::test]
+    async fn access_token_force_refresh_failure_returns_no_at() {
+        let cfg = test_cfg();
+        let store = OidcSessionStore::with_keyring(Box::new(MemoryKeyring::new()));
+        store
+            .save(&test_oidc_session(T0 - 1, Some("rt-old")))
+            .expect("会话写入应成功");
+        let mut transport = FakeOidcTransport::new();
+        transport.token_status = 400;
+        transport.token_body = serde_json::json!({"error": "invalid_grant"});
+        let jwks_cache = JwksCache::new();
+        let payload = match access_token_impl(
+            &cfg,
+            &store,
+            &transport,
+            &jwks_cache,
+            &FakeIdTokenVerifier::default(),
+            true,
+            T0,
+        )
+        .await
+        {
+            AccessTokenOutcome::Payload(payload) => payload,
+            AccessTokenOutcome::Ready(_) => panic!("刷新失败不得返回令牌"),
+        };
+        assert!(!payload.ok);
+        assert_eq!(payload.kind, KIND_REFRESH_FAILED);
+        assert!(
+            payload.access_token.is_empty(),
+            "刷新失败不得返回 AT（不得降级为旧令牌）"
+        );
+        let stored = stored_session(&store);
+        assert_eq!(stored.access_token, "at-old");
+        assert_eq!(stored.refresh_token.as_deref(), Some("rt-old"));
     }
 }

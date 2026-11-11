@@ -17,7 +17,7 @@ vi.mock('../platform/native', () => ({
 }))
 
 import { getBridgeSessionToken, resetBridgeSessionToken, withBridgeAuthHeaders } from './bridge_auth'
-import { invokeNative } from '../platform/native'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 import {
   clearIdentityAccessToken,
   peekIdentityAccessToken,
@@ -29,6 +29,10 @@ import {
   installIdentityDeviceTokenProvider,
   type DeviceTokenNativePayload
 } from './identity_device_token'
+import {
+  clearAllSessionCredentials,
+  clearOidcSessionCredential
+} from './session_credentials'
 import { IDENTITY_DEVICE_ID_KEY } from '../features/identity/identityStore'
 import { PRODUCTION_CANONICAL_ISSUER } from '../features/identity/identityIssuers'
 
@@ -178,5 +182,72 @@ describe('#1171 T13 双轨凭据隔离', () => {
     second.uninstall()
     expect(listeners.get(IDENTITY_DEVICE_TOKEN_LOGOUT_EVENT)?.size ?? 0).toBe(0)
     expect(listeners.get(IDENTITY_DEVICE_TOKEN_LOGIN_EVENT)?.size ?? 0).toBe(0)
+  })
+})
+
+describe('P2-5（#1209）登出/切号三清：① Identity AT ② bridge 令牌 ③ OIDC 会话', () => {
+  const countOidcLogouts = () =>
+    vi.mocked(invokeNative).mock.calls.filter((args) => args[0] === 'identity_oidc_logout').length
+
+  it('clearAllSessionCredentials()：① AT 清空 ② bridge 令牌清空 ③ identity_oidc_logout 被调用一次', async () => {
+    installWithCountedBridge()
+    expect(await getIdentityAccessToken()).toBe(IDENTITY_AT)
+    expect(await getBridgeSessionToken()).toBe('bridge-token-v1')
+    expect(countBridgeFetches()).toBe(1)
+
+    clearAllSessionCredentials()
+
+    // ① Identity 域（同步）：内存 AT 清空
+    expect(peekIdentityAccessToken()).toBe('')
+    // ② Legacy 域（同步）：bridge 缓存重置 → 重取得到 v2
+    expect(await getBridgeSessionToken()).toBe('bridge-token-v2')
+    expect(countBridgeFetches()).toBe(2)
+    // ③ OIDC 域（异步 best-effort）：identity_oidc_logout 被调用一次
+    expect(countOidcLogouts()).toBe(1)
+  })
+
+  it('幂等：连续两次调用不抛；logout 被调用两次（fire-and-forget 语义，规格允许"调用两次"）', async () => {
+    installWithCountedBridge()
+    expect(await getIdentityAccessToken()).toBe(IDENTITY_AT)
+    expect(await getBridgeSessionToken()).toBe('bridge-token-v1')
+
+    clearAllSessionCredentials()
+    clearAllSessionCredentials()
+
+    expect(peekIdentityAccessToken()).toBe('')
+    expect(countOidcLogouts()).toBe(2)
+    // 第二次清理后 bridge 缓存已清干净（重取 v2，无半更新）
+    expect(await getBridgeSessionToken()).toBe('bridge-token-v2')
+  })
+
+  it('切号事件（hbu-identity-login-resumed）同样触发三清', async () => {
+    installWithCountedBridge()
+    expect(await getIdentityAccessToken()).toBe(IDENTITY_AT)
+    expect(await getBridgeSessionToken()).toBe('bridge-token-v1')
+
+    dispatchWindowEvent(IDENTITY_DEVICE_TOKEN_LOGIN_EVENT)
+
+    expect(peekIdentityAccessToken()).toBe('')
+    expect(await getBridgeSessionToken()).toBe('bridge-token-v2')
+    expect(countOidcLogouts()).toBe(1)
+  })
+
+  it('非 Tauri：OIDC 域跳过清理（不发起 identity_oidc_logout），两个内存域照常清空', async () => {
+    installWithCountedBridge()
+    expect(await getIdentityAccessToken()).toBe(IDENTITY_AT)
+    expect(await getBridgeSessionToken()).toBe('bridge-token-v1')
+
+    vi.mocked(isTauriRuntime).mockReturnValue(false)
+    clearAllSessionCredentials()
+
+    // ①② 照常清空（同步，与 Tauri 无关）
+    expect(peekIdentityAccessToken()).toBe('')
+    // ③ 未发起（Web 无 keyring 会话；独立入口同样直接返回）
+    expect(countOidcLogouts()).toBe(0)
+    await expect(clearOidcSessionCredential()).resolves.toBeUndefined()
+    expect(countOidcLogouts()).toBe(0)
+    // 切回 Tauri 后观察 bridge 缓存确已重置：重取得到 v2
+    vi.mocked(isTauriRuntime).mockReturnValue(true)
+    expect(await getBridgeSessionToken()).toBe('bridge-token-v2')
   })
 })
