@@ -435,6 +435,7 @@ const {
         v-else-if="currentView === 'notifications'"
         :student-id="studentId"
         @back="handleBackToDashboard"
+        @navigate="handleNavigate"
         @openWorkspaceLayout="openWorkspaceLayoutEditor('notifications')"
       />
 

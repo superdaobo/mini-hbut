@@ -31,7 +31,13 @@ const props = defineProps({
   studentId: String
 })
 
-const emit = defineEmits(['back', 'openWorkspaceLayout'])
+const emit = defineEmits(['back', 'openWorkspaceLayout', 'navigate'])
+
+// #1228：近期消息卡片点击 → 跳转对应功能页。view 按卡片语义确定，
+// 统一经 App.vue 的 handleNavigate 导航（内含成绩页数据加载与版本/角色/登录门禁）。
+const openRecentCard = (view) => {
+  emit('navigate', view)
+}
 const uiSettings = useUiSettings()
 // #790：响应式 locale + 取词函数（语言切换即时生效）
 const { t: tLocale } = useLocale()
@@ -1085,7 +1091,7 @@ watch(
         </div>
 
         <!-- Grade Card (Unread style with details) -->
-        <div v-if="gradeItems.length" class="notify-message-card unread">
+        <div v-if="gradeItems.length" class="notify-message-card unread" @click="openRecentCard('grades')">
           <div class="notify-msg-left">
             <div class="notify-msg-icon icon-accent">
               <span class="material-symbols-outlined fill">school</span>
@@ -1094,6 +1100,7 @@ watch(
               <div class="notify-msg-head">
                 <h4 class="notify-msg-title" :class="{ bold: gradeSummary?.changed }">{{ gradeSummary?.changed ? tLocale('notify.card.gradesNew') : tLocale('notify.card.grades') }}</h4>
                 <span class="notify-msg-time">{{ lastCheckText }}</span>
+                <span class="material-symbols-outlined notify-msg-chevron" :aria-label="tLocale('notify.recent.viewDetails')">chevron_right</span>
               </div>
               <p class="notify-msg-text">{{ tf('notify.recent.gradesSummary', { total: gradeSummary?.total || 0, changed: gradeSummary?.changed ? tLocale('notify.recent.changed') : tLocale('notify.recent.unchanged') }) }}</p>
               <ul v-if="gradeItems.length" class="notify-detail-list">
@@ -1110,7 +1117,7 @@ watch(
         </div>
 
         <!-- Class Reminder Card (with details) -->
-        <div v-if="classSummary?.enabled" class="notify-message-card">
+        <div v-if="classSummary?.enabled" class="notify-message-card" @click="openRecentCard('schedule')">
           <div class="notify-msg-left">
             <div class="notify-msg-icon icon-sky">
               <span class="material-symbols-outlined fill">schedule</span>
@@ -1119,6 +1126,7 @@ watch(
               <div class="notify-msg-head">
                 <h4 class="notify-msg-title">{{ tLocale('notify.card.classReminder') }}</h4>
                 <span class="notify-msg-time">{{ classReminderText }}</span>
+                <span class="material-symbols-outlined notify-msg-chevron" :aria-label="tLocale('notify.recent.viewDetails')">chevron_right</span>
               </div>
               <p class="notify-msg-text">{{ nextClassText }}</p>
               <div class="notify-detail-kv" v-if="classSummary?.nextCourse?.name">
@@ -1129,7 +1137,7 @@ watch(
         </div>
 
         <!-- Exam Card (with details) -->
-        <div v-if="examItems.length" class="notify-message-card">
+        <div v-if="examItems.length" class="notify-message-card" @click="openRecentCard('exams')">
           <div class="notify-msg-left">
             <div class="notify-msg-icon icon-orange">
               <span class="material-symbols-outlined fill">edit_document</span>
@@ -1138,6 +1146,7 @@ watch(
               <div class="notify-msg-head">
                 <h4 class="notify-msg-title">{{ tLocale('notify.card.exams') }}</h4>
                 <span class="notify-msg-time">{{ examSummary?.tomorrowCount ? tLocale('notify.exams.tomorrowBadge') : '' }}</span>
+                <span class="material-symbols-outlined notify-msg-chevron" :aria-label="tLocale('notify.recent.viewDetails')">chevron_right</span>
               </div>
               <p class="notify-msg-text">{{ tf('notify.recent.examsSummary', { recent: examItems.length, tomorrow: examSummary?.tomorrowCount || 0 }) }}</p>
               <ul class="notify-detail-list">
@@ -1158,7 +1167,7 @@ watch(
         </div>
 
         <!-- Electricity Card（#732：前移至上课提醒/考试与学校消息之间） -->
-        <div v-if="powerSummary?.quantity != null" class="notify-message-card">
+        <div v-if="powerSummary?.quantity != null" class="notify-message-card" @click="openRecentCard('electricity')">
           <div class="notify-msg-left">
             <div class="notify-msg-icon icon-teal">
               <span class="material-symbols-outlined fill">bolt</span>
@@ -1167,6 +1176,7 @@ watch(
               <div class="notify-msg-head">
                 <h4 class="notify-msg-title">{{ tLocale('notify.card.electricity') }}</h4>
                 <span class="notify-msg-time">{{ powerStatusText }}</span>
+                <span class="material-symbols-outlined notify-msg-chevron" :aria-label="tLocale('notify.recent.viewDetails')">chevron_right</span>
               </div>
               <p class="notify-msg-text">{{ tf('notify.recent.powerRemaining', { quantity: powerQuantityText }) }}</p>
               <p v-if="powerSummary?.isDual" class="notify-msg-text">{{ tf('notify.recent.powerAc', { quantity: acPowerQuantityText }) }}</p>
@@ -1175,7 +1185,7 @@ watch(
         </div>
 
         <!-- School Inbox Card -->
-        <div v-if="schoolInboxSummary?.enabled" class="notify-message-card">
+        <div v-if="schoolInboxSummary?.enabled" class="notify-message-card" @click="openRecentCard('school_inbox')">
           <div class="notify-msg-left">
             <div class="notify-msg-icon icon-indigo">
               <span class="material-symbols-outlined fill">mail</span>
@@ -1186,6 +1196,7 @@ watch(
                   {{ schoolInboxSummary?.triggered > 0 ? tLocale('notify.card.schoolInboxNew') : tLocale('notify.card.schoolInbox') }}
                 </h4>
                 <span class="notify-msg-time">{{ lastCheckText }}</span>
+                <span class="material-symbols-outlined notify-msg-chevron" :aria-label="tLocale('notify.recent.viewDetails')">chevron_right</span>
               </div>
               <p class="notify-msg-text">
                 {{ tf('notify.recent.inboxSummary', {
@@ -1200,7 +1211,7 @@ watch(
         </div>
 
         <!-- #715 学习通通知 Card（独立渠道） -->
-        <div v-if="chaoxingInboxSummary?.enabled" class="notify-message-card">
+        <div v-if="chaoxingInboxSummary?.enabled" class="notify-message-card" @click="openRecentCard('chaoxing_inbox')">
           <div class="notify-msg-left">
             <div class="notify-msg-icon icon-teal">
               <span class="material-symbols-outlined fill">mark_email_unread</span>
@@ -1211,6 +1222,7 @@ watch(
                   {{ chaoxingInboxSummary?.triggered > 0 ? tLocale('notify.card.chaoxingInboxNew') : tLocale('notify.card.chaoxingInbox') }}
                 </h4>
                 <span class="notify-msg-time">{{ lastCheckText }}</span>
+                <span class="material-symbols-outlined notify-msg-chevron" :aria-label="tLocale('notify.recent.viewDetails')">chevron_right</span>
               </div>
               <p class="notify-msg-text">
                 {{ tf('notify.recent.inboxSummaryPlain', { total: chaoxingInboxSummary?.total || 0, triggered: chaoxingInboxSummary?.triggered || 0 }) }}

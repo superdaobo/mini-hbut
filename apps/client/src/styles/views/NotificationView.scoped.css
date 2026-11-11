@@ -380,6 +380,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 0.25rem;
   margin-bottom: 0.25rem;
 }
 
@@ -389,12 +390,24 @@
   font-weight: 500;
   color: var(--md-sys-color-on-surface, #171c1f);
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .notify-msg-time {
   font-size: 10px;
   line-height: 14px;
   color: var(--md-sys-color-on-surface-variant, #424754);
+}
+
+/* #1228：卡片右侧 chevron，提示可点击跳转对应功能页 */
+.notify-msg-chevron {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--md-sys-color-outline-variant, #c3c6cf);
+  flex-shrink: 0;
+  align-self: center;
 }
 
 .notify-msg-text {

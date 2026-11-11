@@ -2367,6 +2367,7 @@ export const messages: Record<string, string> = {
   'notify.action.sendTest': '发送测试通知',
   // —— 近期消息卡片 ——
   'notify.recent.title': '近期消息',
+  'notify.recent.viewDetails': '查看详情',
   'notify.recent.gradesSummary': '总成绩 {total} 条 · 本次{changed}',
   'notify.recent.changed': '有变化',
   'notify.recent.unchanged': '无变化',
