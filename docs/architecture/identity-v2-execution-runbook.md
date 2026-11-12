@@ -116,6 +116,81 @@
 | 数据 | 3 用户 / 4 设备 / 0 快照 的迁移核对（含学号↔用户映射导出） |
 | 回滚 | 镜像 `:rollback` + 配置开关，逐项列症状 |
 
+### 7.1 Casdoor 实测记录（2026-11-12）
+
+> 采集：2026-11-12；目标 `https://sso.hbut.site`（可达，HTTP 200）。
+> 方法：主 agent 只读 curl 探测（GET discovery/JWKS + 无凭据 POST/GET 错误探测）；探针工具复跑见 §7.1.4。
+> 复验：2026-11-12 18:28 已把上述 13 条只读探测逐条重跑一遍（F11–F13 用未注册的伪造 `client_id=p41-spoof`），结果与 F1–F13 完全一致（24 字段 / JWKS 单 key / 200+body error / 401 / 200）。
+> **未执行任何 Casdoor 写操作**：未创建/修改/删除任何 Casdoor 对象，未调 admin 写接口。
+> 零泄露：本记录不含 `client_secret`/`access_token`/`id_token`/`refresh_token` 原文。
+> 事实编号 F1–F13，供配套验收矩阵 [`docs/qa/identity-v2-casdoor-acceptance.md`](../qa/identity-v2-casdoor-acceptance.md) 引用（该矩阵硬规则：未测必须写「未测」、每行必须有证据、不得伪造通过）。
+
+#### 7.1.1 真实事实（13 条，2026-11-12 实测）
+
+| # | 事实 | 命令 | 原始输出摘要 |
+|---|---|---|---|
+| F1 | discovery **24 个字段** | `curl -sS https://sso.hbut.site/.well-known/openid-configuration` | HTTP 200；顶层 24 个字段 |
+| F2 | `issuer` = `https://sso.hbut.site`；`authorization_endpoint` = `/login/oauth/authorize`；`token_endpoint` = `/api/login/oauth/access_token`；`userinfo_endpoint` = `/api/userinfo`；`jwks_uri` = `/.well-known/jwks` | 同 F1 | 同上（字段值逐字） |
+| F3 | **`device_authorization_endpoint` 存在** = `/api/device-auth` | 同 F1 | 同上 |
+| F4 | `grant_types_supported` **含** `urn:ietf:params:oauth:grant-type:device_code` 与 `urn:ietf:params:oauth:grant-type:token-exchange` | 同 F1 | 同上 |
+| F5 | `code_challenge_methods_supported` = **`["S256"]`** | 同 F1 | 同上 |
+| F6 | `token_endpoint_auth_methods_supported` = `["client_secret_basic","client_secret_post","private_key_jwt"]` → **未声明 `none`** | 同 F1 | 同上 |
+| F7 | `scopes_supported` = `["openid","email","profile","address","phone","offline_access"]` → **无自定义 scope** | 同 F1 | 同上 |
+| F8 | `claims_supported` 实测 **28 项**：`affiliation`/`aud`/`avatar`/`bio`/`displayName`/`email`/`exp`/`homepage`/`iat`/`id`/`isAdmin`/`isForbidden`/`isOnline`/`iss`/…；**未列出 `groups`**、**未列出 `hbut_student_id`**、**也没有 `name`**（只有 `displayName`）；含 `signupApplication`（账号来源线索）与 **`isAdmin`** | 同 F1 + 探针 `token_attributes` | 28 项列表（探针 live 输出） |
+| F9 | `id_token_signing_alg_values_supported` = `["RS256","RS512","ES256","ES384","ES512"]` | 同 F1 | 同上 |
+| F10 | **JWKS 实际只有 1 个密钥**：`kty=RSA`、`alg=RS256`、`use=sig`、`kid=cert-built-in` | `curl -sS https://sso.hbut.site/.well-known/jwks` | HTTP 200；`keys` 仅 1 条 |
+| F11 | `POST /api/device-auth`（**伪造 client_id**）→ **HTTP 200** + body `{"error":"Invalid client_id"}` | `curl -sS -X POST https://sso.hbut.site/api/device-auth --data-urlencode "client_id=<伪造未注册值>"` | 200 + body error（**注意：错误在 body，状态码 200**） |
+| F12 | `POST /api/login/oauth/access_token`（伪造 client_id）→ **401** + `{"error":"invalid_client","error_description":"client_id is invalid"}` | `curl -sS -X POST https://sso.hbut.site/api/login/oauth/access_token --data-urlencode "grant_type=authorization_code" --data-urlencode "client_id=<伪造未注册值>"` | 401 + body error |
+| F13 | `GET /login/oauth/authorize`（伪造 client_id）→ **HTTP 200**（错误在页面/body，非 4xx） | `curl -sS "https://sso.hbut.site/login/oauth/authorize?client_id=<伪造未注册值>&response_type=code&scope=openid"` | 200（错误渲染在页面） |
+
+#### 7.1.2 5 项状态表（issue mini-hbut#1216）
+
+| 探针 | 状态 | 已测（无凭据） | 未测（阻塞：FDL 凭据） |
+|---|---|---|---|
+| `device_grant` device grant 二维码入口 | **部分实测** | F3/F4：discovery 声明 `device_code` grant + 端点存在；F11：伪造 client 的 body error 形状（200 + error） | 用真实 client 拿 `device_code`/`user_code`/`verification_uri` → 判定「入口可用」 |
+| `token_exchange` token exchange 权限检查 | **部分实测** | F4：discovery 声明 `token-exchange` grant；F12：伪造 client_id → 401 `invalid_client`（分类：客户端无效，非 `unsupported_grant_type`） | 真实 client + 真实 `subject_token` → 判定是否返回新 AT 且 aud 正确 |
+| `token_attributes` Token attributes 改名（`hbut_student_id` / `groups`） | **部分实测** | 仅能记录 `claims_supported` 实际内容：F7（无自定义 scope）、F8（无 `groups`、无 `hbut_student_id`） | 真实 AT 调 `/api/userinfo` + 解 id_token → 报告真实 claim 名集合（直接决定 `MINI_HBUT_IDENTITY_STUDENT_ID_CLAIM(_FALLBACKS)` / `MINI_HBUT_IDENTITY_ADMIN_GROUP_CLAIM` 填什么） |
+| `account_linking` 已有账号绑定上游 | **未测** | 无（无凭据不可测，无既有证据） | 需 `--admin-token`：`GET /api/get-user?name=...` → 报告 `signupApplication`/`properties` 是否与上游一致（只读） |
+| `registration_off` 关闭注册时上游用户建号 | **未测** | 无（无凭据不可测，无既有证据） | 需 `--admin-token`：`GET /api/get-organization`/`get-application` → 报告 `enableSignUp` 与是否存在上游自动建号路径（只读） |
+
+#### 7.1.3 对实现的直接影响（6 条结论）
+
+1. **签名算法**：真实 JWKS 只有 **RS256**（F10）→ 客户端 `alg==RS256` 硬断言**与真实一致**，**不需要**新增算法开关（记录为约束：若 Casdoor 改 alg，需同步改客户端并回归）。
+2. **公有客户端**：discovery **未声明** `token_endpoint_auth_methods_supported: none`（F6）→「无 secret 换票是否被接受」**必须实测**（需 FDL 提供已注册 client）。**不得**因此在客户端内嵌 `client_secret`（桌面端内嵌 secret 等于公开）。若 Casdoor 拒绝，正确落点是 **Casdoor 应用侧配置为 public/PKCE**，并把「应用必须可无 secret 换票」写成**部署前提**（见验收矩阵 §2）。
+3. **自定义 scope 不可用**：`scopes_supported` 只有标准集（F7）→ 与 **P3-2「数据授权不靠 scope」**一致 ✅；客户端/服务端**不得**依赖自定义 scope 做授权。
+4. **claim 名**：`claims_supported` 无 `groups`、无 `hbut_student_id`（F8）→ 真实 claim 名**待实测**；已具备的兜底：`MINI_HBUT_IDENTITY_STUDENT_ID_CLAIM(_FALLBACKS)`（P2-6）与 `MINI_HBUT_IDENTITY_ADMIN_GROUP_CLAIM`（P3-3）→ **开关已就位**，待实测后填值即可。
+5. **device flow**：端点存在且 grant 已声明（F3/F4）→ 可作后续「扫码登录」选项（**本期不实现**，仅记录）。口径限定：只能说「端点存在 + grant 已声明」，**不得**据此写「device flow 已启用」（F11 表明无有效 client 时入口返回 body error，可用性待凭据实测）。
+6. **错误形状**：Casdoor 对错误返回 **200 + body error**（F11/F13：device-auth / authorize）与 **401**（F12：token）两种形态 → 探针与客户端解析**必须**按 body 判定，不能只看状态码。
+
+#### 7.1.4 复跑命令
+
+**① 原始只读探测（2026-11-12 方法；`<伪造未注册值>` = 任意未注册的 client_id，如 `p41-spoof`）**
+
+```bash
+curl -sS "https://sso.hbut.site/.well-known/openid-configuration" | python -m json.tool | head -5
+curl -sS "https://sso.hbut.site/.well-known/jwks" | python -m json.tool | head -5
+```
+
+```bash
+curl -sS -w "\nHTTP=%{http_code}\n" -X POST "https://sso.hbut.site/api/device-auth" --data-urlencode "client_id=<伪造未注册值>"
+curl -sS -w "\nHTTP=%{http_code}\n" -X POST "https://sso.hbut.site/api/login/oauth/access_token" --data-urlencode "grant_type=authorization_code" --data-urlencode "client_id=<伪造未注册值>"
+curl -sS -o /dev/null -w "HTTP=%{http_code}\n" "https://sso.hbut.site/login/oauth/authorize?client_id=<伪造未注册值>&response_type=code&scope=openid"
+```
+
+期望输出形态：discovery/JWKS → `200` + JSON（字段值应同 F1–F10）；`/api/device-auth` → `HTTP=200` + `{"error":"Invalid client_id"}`；token 端点 → `HTTP=401` + `invalid_client`；authorize → `HTTP=200`（F11–F13）。
+
+**② 探针工具（auth 仓 `deploy/nas/rehearsal/casdoor_probes.py`，P4-1 agent A 交付；`--mode=offline` 用内置 fixture，CI/无网可跑）**
+
+```bash
+python deploy/nas/rehearsal/casdoor_probes.py --mode=offline --out=report.json
+python deploy/nas/rehearsal/casdoor_probes.py --mode=live --issuer=https://sso.hbut.site --out=report.json
+# FDL 提供凭据后可选：--client-id=... --client-secret=... --access-token=... --admin-token=...
+```
+
+期望输出形态：`report.json` + `report.md`（表格，可直接贴进 ADR/矩阵）；每个探针输出 `{id, title, status, evidence, needs, notes}`，`status ∈ pass|fail|unavailable|needs_credentials`；offline 模式 5 项都产出 status（其中 `account_linking`/`registration_off` 为 `needs_credentials`）；令牌/secret 只输出长度或前 4 字符（零泄露）。
+
+> 注：本 §7.1 为 ADR/矩阵回填（agent B，mini 仓，分支 `feat/p4-1-casdoor-records`）；探针脚本本身属 agent A 交付物（auth 仓分支 `feat/p4-1-casdoor-probes`），以上命令按 P4-1 规格 §2 书写，live 复跑以该脚本合并后为准。
+
 ---
 
 ## 8. 延后项（**成员小应用进模块中心之前必须完成**）
