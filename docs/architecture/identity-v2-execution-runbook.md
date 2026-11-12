@@ -191,6 +191,10 @@ python deploy/nas/rehearsal/casdoor_probes.py --mode=live --issuer=https://sso.h
 
 > 注：本 §7.1 为 ADR/矩阵回填（agent B，mini 仓，分支 `feat/p4-1-casdoor-records`）；探针脚本本身属 agent A 交付物（auth 仓分支 `feat/p4-1-casdoor-probes`），以上命令按 P4-1 规格 §2 书写，live 复跑以该脚本合并后为准。
 
+### 7.2 端到端验收矩阵
+
+六类场景（**首次登录 / 换机 / 退出 / 切号 / 权限变更生效时间 / 双 issuer 过渡期**）的端到端验收见新口径矩阵 [`docs/qa/identity-v2-acceptance-matrix.md`](../qa/identity-v2-acceptance-matrix.md)（含权限变更生效时间表与双 issuer 表；harness 输出待 P4-2 PR 合并后回填，P4-1 真实 Casdoor 2 项 `needs_credentials` 不重复计为通过）。
+
 ---
 
 ## 8. 延后项（**成员小应用进模块中心之前必须完成**）
