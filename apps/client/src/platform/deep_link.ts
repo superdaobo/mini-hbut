@@ -6,6 +6,8 @@
 //   - 小组件现有链接：minihbut://schedule?date=...&source=widget&period=N、
 //     minihbut://electricity、minihbut://exam（解析行为与迁移前一致，保证无回归）；
 //   - 身份授权：minihbut://identity?request_id=ar_xxx&handoff=<short-lived-secret>；
+//   - 身份确认（【检查 5】G7）：minihbut://student-auth?request_id=<32hex>&nonce=<16..128>
+//     （auth /authorize 返回的 deep_link 现有输出形态，host=student-auth、path 空或 /）；
 //   - OIDC 回调（P2-4）：minihbut://identity/callback?code=..&state=..（#1208）；
 //   - 无效/恶意链接：只返回通用错误，绝不把 URL 或 secret 回显到 log/UI。
 //
@@ -34,6 +36,12 @@ export const IDENTITY_HANDOFF_PATTERN = /^[A-Za-z0-9._~-]{32,128}$/
 export const IDENTITY_CALLBACK_CODE_PATTERN = /^[A-Za-z0-9._~-]{16,512}$/
 export const IDENTITY_CALLBACK_STATE_PATTERN = /^[A-Za-z0-9._~-]{16,128}$/
 
+// 【检查 5】G7：auth /authorize 返回的 confirm 深链 minihbut://student-auth?request_id=<32hex>&nonce=<16..128>。
+// request_id = auth 侧 secrets.token_hex(16)（32 hex）；nonce 形状与 auth _STATE_NONCE_RE 同字符集（本侧上限 128）。
+// 与 handoff 同款纪律：只做形状校验、不区分缺哪个参数、错误不回显任何参数值。
+export const IDENTITY_CONFIRM_REQUEST_ID_PATTERN = /^[0-9a-fA-F]{32}$/
+export const IDENTITY_CONFIRM_NONCE_PATTERN = /^[A-Za-z0-9._~-]{16,128}$/
+
 /** 统一深链解析结果（单一入口的全部业务类型） */
 export type MiniHbutDeepLink =
   | { kind: 'widget-schedule'; date: string; period: number; source: string }
@@ -42,6 +50,9 @@ export type MiniHbutDeepLink =
   // P2-4（#1208）：OIDC 授权码+PKCE 回调；code/state 仅透传给 identity_oidc_complete，
   // 不得写入 console/存储/URL 历史（与 #621 handoff 同款短期 opaque 纪律）
   | { kind: 'identity-callback'; code: string; state: string }
+  // 【检查 5】G7：auth /authorize 返回的 confirm 深链（minihbut://student-auth?request_id=..&nonce=..）；
+  // requestId/nonce 仅为短期 opaque 透传，UI 接线（调 auth /authorize/confirm）在后续任务
+  | { kind: 'identity-confirm'; requestId: string; nonce: string }
 
 /**
  * 深链投递时机（#739）：
@@ -130,6 +141,10 @@ export const parseMiniHbutDeepLink = (rawUrl: string): MiniHbutDeepLinkResult =>
     }
     return parseIdentityDeepLink(url)
   }
+  if (host === 'student-auth') {
+    // 【检查 5】G7：auth /authorize 返回的 confirm 深链（path 空或 /）
+    return parseIdentityConfirmDeepLink(url)
+  }
   return fail('unsupported-host', '不支持的链接')
 }
 
@@ -155,6 +170,27 @@ const parseIdentityCallbackDeepLink = (url: URL): MiniHbutDeepLinkResult => {
     return fail('invalid-identity', '登录回调无效')
   }
   return { ok: true, link: { kind: 'identity-callback', code, state } }
+}
+
+/**
+ * 【检查 5】G7：minihbut://student-auth?request_id=<32hex>&nonce=<16..128 [A-Za-z0-9._~-]>
+ * 与 auth 服务 /authorize 返回的 deep_link 现有输出形态一致（host=student-auth、path 空或 /）。
+ * 只做形状校验；通用错误：不区分“缺哪个参数”，不回显参数值（request_id/nonce 为短期 opaque 值）。
+ */
+const parseIdentityConfirmDeepLink = (url: URL): MiniHbutDeepLinkResult => {
+  // path 必须为空或 /（与 auth deep_link 输出形态一致；其余 path 视为形状非法）
+  if (url.pathname !== '' && url.pathname !== '/') {
+    return fail('invalid-identity', '授权确认链接无效')
+  }
+  const requestId = url.searchParams.get('request_id') || ''
+  const nonce = url.searchParams.get('nonce') || ''
+  if (
+    !IDENTITY_CONFIRM_REQUEST_ID_PATTERN.test(requestId) ||
+    !IDENTITY_CONFIRM_NONCE_PATTERN.test(nonce)
+  ) {
+    return fail('invalid-identity', '授权确认链接无效')
+  }
+  return { ok: true, link: { kind: 'identity-confirm', requestId, nonce } }
 }
 
 export type MiniHbutDeepLinkHandler = (link: MiniHbutDeepLink, delivery: DeepLinkDelivery) => void

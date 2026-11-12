@@ -554,3 +554,110 @@ describe('installMiniHbutDeepLinkListeners', () => {
     expect(() => cleanup()).not.toThrow()
   })
 })
+
+// ─── 【检查 5】G7：identity-confirm 新 kind（host=student-auth） ────────────────
+
+const confirmRequestId = '0123456789abcdef0123456789abcdef' // 32 hex（auth 侧 secrets.token_hex(16)）
+const confirmNonce = 'Ab0-_.1234567890' // 16 字符，[A-Za-z0-9._~-]
+const confirmUrl = (query: string, path = '') => `minihbut://student-auth${path}?${query}`
+
+describe('parseMiniHbutDeepLink: identity-confirm（【检查 5】G7）', () => {
+  it('正常：32hex request_id + nonce(16..128) 解析成功，path 空与 / 均接受', () => {
+    const result = parseMiniHbutDeepLink(confirmUrl(`request_id=${confirmRequestId}&nonce=${confirmNonce}`))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.link).toEqual({
+      kind: 'identity-confirm',
+      requestId: confirmRequestId,
+      nonce: confirmNonce
+    })
+    // path = / 的等价形态（auth 输出为无 path，但 / 不得被拒）
+    const resultSlash = parseMiniHbutDeepLink(confirmUrl(`request_id=${confirmRequestId}&nonce=${confirmNonce}`, '/'))
+    expect(resultSlash.ok).toBe(true)
+    if (!resultSlash.ok) return
+    expect(resultSlash.link).toEqual({ kind: 'identity-confirm', requestId: confirmRequestId, nonce: confirmNonce })
+  })
+
+  it('缺 request_id 拒绝（invalid-identity，不回显参数值）', () => {
+    const result = parseMiniHbutDeepLink(confirmUrl(`nonce=${confirmNonce}`))
+    expectGenericError(result, 'invalid-identity')
+    if (result.ok) return
+    expect(result.error.message).not.toContain(confirmNonce)
+    expect(result.error.message).not.toContain('student-auth')
+    // request_id 形状非法（长度不足 / 超长非 hex 结尾）同样拒绝
+    expectGenericError(
+      parseMiniHbutDeepLink(confirmUrl(`request_id=${confirmRequestId.slice(0, 31)}&nonce=${confirmNonce}`)),
+      'invalid-identity'
+    )
+    expectGenericError(
+      parseMiniHbutDeepLink(confirmUrl(`request_id=${confirmRequestId}g&nonce=${confirmNonce}`)),
+      'invalid-identity'
+    )
+  })
+
+  it('nonce 非法（过短 / 非法字符）拒绝', () => {
+    // 过短（<16）
+    expectGenericError(
+      parseMiniHbutDeepLink(confirmUrl(`request_id=${confirmRequestId}&nonce=${'a'.repeat(15)}`)),
+      'invalid-identity'
+    )
+    // 非法字符（含 +）
+    expectGenericError(
+      parseMiniHbutDeepLink(confirmUrl(`request_id=${confirmRequestId}&nonce=${'a+'.repeat(8)}`)),
+      'invalid-identity'
+    )
+  })
+
+  it('超长（nonce >128）拒绝且不回显', () => {
+    const longNonce = 'a'.repeat(129) // 超 128 上限，但 URL 总长仍 < 2048
+    const result = parseMiniHbutDeepLink(confirmUrl(`request_id=${confirmRequestId}&nonce=${longNonce}`))
+    expectGenericError(result, 'invalid-identity')
+    if (result.ok) return
+    expect(result.error.message).not.toContain(longNonce)
+  })
+})
+
+// ─── 既有 host 回归（G7 增量后行为不变） ────────────────────────────────────────
+
+describe('parseMiniHbutDeepLink: 既有 host 回归（G7 纯增量）', () => {
+  it('schedule 仍解析为 widget-schedule（date/period/source 原样）', () => {
+    const result = parseMiniHbutDeepLink('minihbut://schedule?date=2026-11-12&source=widget&period=2')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.link).toEqual({
+      kind: 'widget-schedule',
+      date: '2026-11-12',
+      period: 2,
+      source: 'widget'
+    })
+  })
+
+  it('electricity / exam 仍映射到 navigate 视图', () => {
+    const r1 = parseMiniHbutDeepLink('minihbut://electricity?source=widget')
+    expect(r1.ok).toBe(true)
+    if (!r1.ok) return
+    expect(r1.link).toEqual({ kind: 'navigate', view: 'electricity', source: 'widget' })
+    const r2 = parseMiniHbutDeepLink('minihbut://exam')
+    expect(r2.ok).toBe(true)
+    if (!r2.ok) return
+    expect(r2.link).toEqual({ kind: 'navigate', view: 'exams', source: 'widget' })
+  })
+
+  it('identity（path 空）仍解析为 #619 授权意图', () => {
+    const result = parseMiniHbutDeepLink(
+      identityUrl(`request_id=${validRequestId}&handoff=${validHandoff}`)
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.link).toEqual({ kind: 'identity', requestId: validRequestId, handoff: validHandoff })
+  })
+
+  it('identity/callback（path /callback）仍解析为 P2-4 OIDC 回调', () => {
+    const result = parseMiniHbutDeepLink(
+      `minihbut://identity/callback?code=${'a'.repeat(16)}&state=${'b'.repeat(16)}`
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.link).toEqual({ kind: 'identity-callback', code: 'a'.repeat(16), state: 'b'.repeat(16) })
+  })
+})
