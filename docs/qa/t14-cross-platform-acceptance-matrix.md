@@ -1,5 +1,9 @@
 # T14 跨平台迁移与故障恢复验收矩阵（superdaobo/mini-hbut#1172）
 
+> ⚠️ **口径提示（2026-11-12）**：本文为**旧链路**（设备换票 + 后端换令牌）口径。
+> 身份 v2 **新链路**（OIDC 授权码+PKCE / refresh / 数据白名单 / 管理员 groups / 双 issuer）的验收见 [`identity-v2-acceptance-matrix.md`](identity-v2-acceptance-matrix.md)。
+> 本文**保留作历史证据**，不再更新。
+
 > 建立：2026-11-07。性质：**验收清单 + 既有证据回填 + 一次验收执行手册**。
 > 本文档未执行任何部署、NAS 操作或 Casdoor 写操作；「实际结果」要么引用本机既有证据（标注来源与版本），要么写「未测」。
 > 依据：`docs/architecture/mini-hbut-migration-plan-2026-11-01.md:144`（T14 定义）、`goal-9/plan.md`、`goal-9/tasks.md`。
