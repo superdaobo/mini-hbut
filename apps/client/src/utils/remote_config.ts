@@ -362,7 +362,6 @@ export function normalizeRemoteConfig(raw: unknown): RemoteConfig {
     }),
     ai_models: toArray(cfg.ai_models),
     config_admin_ids: toArray(cfg.config_admin_ids).map((item) => String(item)),
-    identity_bootstrap: (cfg.identity_bootstrap && typeof cfg.identity_bootstrap === 'object' ? cfg.identity_bootstrap : {})
   }
 }
 

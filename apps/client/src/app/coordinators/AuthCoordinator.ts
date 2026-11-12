@@ -43,8 +43,6 @@ import { clearTeacherSnapshotScope } from '../../features/teacher/cache/teacherS
 import { clearTeacherFetchInFlight } from '../../features/teacher/api/teacherApi'
 import { normalizePortalAccountId } from '../../utils/portal_account.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
-// T10 身份引导（默认关闭）：教务登录成功后用本地身份换身份平台令牌
-import { maybeBootstrapIdentity } from '../../utils/identity_bootstrap'
 
 /** 登录后成绩补拉的等待上限：超时以空快照兜底继续云同步，不无限等待 */
 const LOGIN_GRADES_TIMEOUT_MS = 20 * 1000
@@ -174,16 +172,6 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       } catch {
         // 事件派发失败不影响登录主流程
       }
-    }
-    // T10 身份引导（app_attestation，默认关闭）：远端开关 `identity_bootstrap.enabled` 为 true 时，
-    // 教务登录成功后把本地已有身份换成身份平台令牌（不请求校方；令牌落进既有身份域内存）。
-    // 测试账号是虚构身份、教师会话的工号不是学号 —— 两者都不进入本链路；
-    // 放在 login-resumed 事件（会清空身份凭据）之后，保证新令牌不会被刚清掉的旧状态顶掉。
-    // fire-and-forget：内部已收敛所有异常路径，任何失败只出诊断文案，不影响登录主流程。
-    if (!isTestAccountSession() && !isTeacherRoleValue(state.role.value) && state.studentId.value) {
-      void maybeBootstrapIdentity({ studentId: state.studentId.value }).catch((e) => {
-        console.warn('[IdentityBootstrap] 令牌交换异常:', e)
-      })
     }
     // 跳转到 Dashboard 显示所有模块
     runtime.navigation.applyViewState('home')
