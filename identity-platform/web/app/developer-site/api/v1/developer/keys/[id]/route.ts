@@ -1,25 +1,20 @@
 /**
- * BFF：DELETE /api/v1/developer/keys/[id] —— 吊销 API Key（不可恢复）。
- * 非本人 / 不存在 → 404（Core 侧防枚举，不区分）。
+ * BFF：DELETE /api/v1/developer/keys/[id]
+ * P4-4（mini-hbut#1219）退役：API Key 吊销写能力移除 → 410 Gone
+ * （固定响应体；不泄露 Key 是否存在）。
  */
 
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-import { getDeveloperKeysApi } from '@/lib/developer-api/account-client'
-import { developerErrorResponse, guardMutation } from '@/lib/developer-api/bff'
+import { requireSession, registryRetiredResponse } from '@/lib/developer-api/bff'
 
 export const dynamic = 'force-dynamic'
 
-export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const session = guardMutation(request)
-  if (session instanceof NextResponse) {
-    return session
+export async function DELETE(request: NextRequest) {
+  const session = requireSession(request)
+  if (!session) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const { id } = await ctx.params
-  try {
-    await getDeveloperKeysApi().revokeKey(session.sub, id)
-    return new NextResponse(null, { status: 204 })
-  } catch (err) {
-    return developerErrorResponse(err)
-  }
+  // P4-4 退役：固定 410 响应，先于任何 store 调用
+  return registryRetiredResponse()
 }

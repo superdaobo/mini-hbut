@@ -101,7 +101,14 @@
 - 清单 YAML = 插槽规范 v2 的 8 维度 + 身份（client 类型/回调/放行群组/形态/数据域）+ 应用中心条目；
 - PR 审核（1 位 `ops` 批准且非作者）为唯一门；
 - NAS 接入程序幂等生成：Casdoor 应用 + `perm-<应用>-<群组>`、mini 数据域白名单、New API key、compose/Traefik/frpc、module_center 清单；secret 落 `secrets/`；
-- 退役：自建应用注册表/审核/provisioner、developer 门户（改只读目录 + "新建应用"表单开 PR）。
+- 退役（P4-4 已完成 2026-11-12，worktree `feat/p4-4-registry-retire`）：自建应用注册表/审核/provisioner 写接口
+  （core `POST /apps` 提交/`approve`/`reject`/`provision` + web BFF 全部 developer 写路由 + admin approve/reject）
+  一律 **410 Gone** + 固定响应体 `{"error":"registry_retired",...}`（会话/CSRF 守卫 401/403 仍先于 410；
+  固定响应先于任何 store 调用，零副作用）；developer 门户改**只读目录**（应用列表/详情/回调地址/数据域/审核历史/动态），
+  移除全部写按钮与写凭据（创建表单/密钥/轮换/撤销），「接入申请 = 开 PR」入口替代创建表单；
+  admin 保留只读队列/详情/审计与运行时动作（suspend/unsuspend/revoke）。
+- 未交付（由 Agent A · P4-1 承担）：清单仓库 PR 流程本体（`manifest/apps.json` 条目规范 + 1 位 `ops` 非作者批准门 +
+  清单仓库 + 接入程序），见下两条与阶段 6。
 
 **出口条件**：一个示例应用仅靠清单 PR 完成接入（含权限与数据域）。
 

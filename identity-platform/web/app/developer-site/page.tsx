@@ -20,7 +20,8 @@ export default async function DeveloperSiteHomePage() {
     <div className="dev-card">
       <h1>Mini-HBUT 开发者平台</h1>
       <p>
-        面向第三方开发者的一站式接入门户：创建应用、管理回调地址与权限、提交审核，
+        面向第三方开发者的接入门户：已接入应用可在本站查看只读目录（回调地址 / 数据域 / 审核历史）；
+        接入申请改由清单仓库 <code>manifest/apps.json</code> + PR 审核完成，
         通过标准的 OIDC/OAuth 2.0（Authorization Code + PKCE）接入 Mini-HBUT 身份服务。
       </p>
 
@@ -53,7 +54,7 @@ export default async function DeveloperSiteHomePage() {
 
       <h2>开始接入</h2>
       <p>
-        <a href="/apps">创建应用</a> · <a href={OFFICIAL_IDENTITY_DOCS_URL}>接入文档</a>
+        <a href="/apps/new">接入申请（开 PR）</a> · <a href="/apps">我的应用（只读）</a> · <a href={OFFICIAL_IDENTITY_DOCS_URL}>接入文档</a>
         （官网统一维护：Quick Start / Scopes &amp; Claims / Security / Errors）
       </p>
 

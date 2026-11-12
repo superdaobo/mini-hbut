@@ -17,8 +17,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import {
-  approveReview,
-  rejectReview,
   suspendApp,
   unsuspendApp,
   revokeApp,
@@ -27,7 +25,7 @@ import {
   AdminClientApiError,
   type MeResult,
 } from '../../_components/admin-api'
-import type { AdminAppDetailDTO, AdminReviewDTO, ScopeDecisionInput } from '@/lib/admin/contract'
+import type { AdminAppDetailDTO, AdminReviewDTO } from '@/lib/admin/contract'
 import { classifyRedirectRisk, scopeLabel, scopeRisk, REDIRECT_RISK_LABELS } from '@/lib/admin/risk'
 import { formatTime, shortId } from '../../page'
 
@@ -231,31 +229,23 @@ export default function AdminAppDetailPage() {
       </section>
 
       <section className="admin-section">
-        <h2>8. Decision</h2>
-        {pending_review ? (
-          <ReviewDecisionPanel
-            appId={appId}
-            review={pending_review}
-            csrf={me?.csrf_token ?? ''}
-            onDone={async () => {
-              setNotice('操作成功')
-              await reload()
-            }}
-            onError={setError}
-          />
-        ) : (
-          <RuntimeActionsPanel
-            appId={appId}
-            status={application.status}
-            isAdmin={isAdmin}
-            csrf={me?.csrf_token ?? ''}
-            onDone={async (msg) => {
-              setNotice(msg)
-              await reload()
-            }}
-            onError={setError}
-          />
-        )}
+        <h2>8. 运行时动作（审批已退役）</h2>
+        <div className="admin-note" style={{ marginBottom: 12 }}>
+          P4-4 退役：自建注册表不再是权威源，「通过/拒绝」决策面板已移除——接入与审核改由
+          清单仓库（mini-hbut-ocr-service）<code>manifest/apps.json</code> + PR 审核完成。
+          上方第 7 节审核历史仅只读展示。以下运行时安全动作（暂停/恢复/撤销）仍可用。
+        </div>
+        <RuntimeActionsPanel
+          appId={appId}
+          status={application.status}
+          isAdmin={isAdmin}
+          csrf={me?.csrf_token ?? ''}
+          onDone={async (msg) => {
+            setNotice(msg)
+            await reload()
+          }}
+          onError={setError}
+        />
       </section>
     </div>
   )
@@ -282,97 +272,6 @@ function RiskFlags({ uri, kind, homepageUrl, reviews }: {
         </span>
       ))}
     </>
-  )
-}
-
-/** 决策面板：逐 scope 批准/拒绝 + 整体意见 + 通过/拒绝（敏感 scope 走 step-up） */
-function ReviewDecisionPanel({ appId, review, csrf, onDone, onError }: {
-  appId: string
-  review: AdminReviewDTO
-  csrf: string
-  onDone: () => Promise<void>
-  onError: (msg: string) => void
-}) {
-  const [decisions, setDecisions] = useState<Record<string, 'approved' | 'rejected'>>(() =>
-    Object.fromEntries(review.scopes.map((s) => [s.scope, 'approved' as const])),
-  )
-  const [note, setNote] = useState('')
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const hasSensitive = review.scopes.some((s) => scopeRisk(s.scope) === 'sensitive')
-
-  async function submit(mode: 'approve' | 'reject') {
-    if (!csrf) return
-    setBusy(true)
-    onError('')
-    try {
-      if (mode === 'approve') {
-        const scopeDecisions: ScopeDecisionInput[] = review.scopes.map((s) => ({
-          scope: s.scope,
-          decision: decisions[s.scope] ?? 'approved',
-        }))
-        await approveReview(appId, review.id, { scope_decisions: scopeDecisions, note: note || null }, csrf)
-      } else {
-        if (reason.trim().length === 0) {
-          onError('拒绝必须填写开发者可读的原因')
-          setBusy(false)
-          return
-        }
-        await rejectReview(appId, review.id, reason, csrf)
-      }
-      await onDone()
-    } catch (err) {
-      onError(err instanceof Error ? err.message : '操作失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div>
-      {hasSensitive && (
-        <div className="admin-warning-banner" role="note">
-          本审核包含敏感 Scope（student.identity / offline_access）。批准前请核实：用途是否确需学校身份、
-          隐私政策是否说明用途与保存期限、是否只需要「是 Mini-HBUT 用户」而不是学号。
-          此操作要求近期认证（10 分钟内完成过登录），过期将引导重新认证。
-        </div>
-      )}
-      <p className="admin-muted" style={{ marginBottom: 10 }}>
-        审核快照 {shortId(review.id)}（revision {shortId(review.revision)}），提交于 {formatTime(review.submitted_at)}；
-        以下决策基于不可变快照，应用内容在此期间变化会自动作废本次审核。
-      </p>
-      {review.scopes.map((s) => (
-        <div className="admin-scope-item" key={s.scope}>
-          <div>
-            <strong>{scopeLabel(s.scope)}</strong>
-            <span className={`admin-risk ${scopeRisk(s.scope) === 'sensitive' ? '' : 'risk-info'}`} style={{ marginLeft: 8 }}>
-              {scopeRisk(s.scope) === 'sensitive' ? '敏感' : '基础'}
-            </span>
-          </div>
-          <div className="admin-checkbox-row">
-            <label><input type="radio" name={`scope-${s.scope}`} checked={decisions[s.scope] === 'approved'} onChange={() => setDecisions((d) => ({ ...d, [s.scope]: 'approved' }))} /> 批准</label>
-            <label><input type="radio" name={`scope-${s.scope}`} checked={decisions[s.scope] === 'rejected'} onChange={() => setDecisions((d) => ({ ...d, [s.scope]: 'rejected' }))} /> 拒绝</label>
-          </div>
-        </div>
-      ))}
-      <div className="admin-form-row" style={{ marginTop: 12 }}>
-        <label htmlFor="review-note">整体审核意见（可选）</label>
-        <textarea id="review-note" className="admin-textarea" value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} />
-      </div>
-      <div className="admin-form-row">
-        <label htmlFor="reject-reason">拒绝原因（拒绝时必填，开发者可见）</label>
-        <textarea id="reject-reason" className="admin-textarea" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={2000} placeholder="例如：redirect URI 不符合要求 / 用途描述不足 / 缺少隐私政策…" />
-      </div>
-      <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-        <button className="admin-btn admin-btn-primary" disabled={busy || !csrf} onClick={() => void submit('approve')}>
-          通过并激活
-        </button>
-        <button className="admin-btn admin-btn-danger" disabled={busy || !csrf} onClick={() => void submit('reject')}>
-          拒绝
-        </button>
-      </div>
-    </div>
   )
 }
 

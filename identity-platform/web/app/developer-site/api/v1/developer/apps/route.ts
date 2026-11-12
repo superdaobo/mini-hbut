@@ -1,22 +1,21 @@
 /**
  * BFF：GET/POST /api/v1/developer/apps
- *  - GET：应用列表（Dashboard 卡片）；
- *  - POST：创建应用（先落 Draft；client_secret 只在此响应返回一次）。
+ *  - GET：应用列表（只读目录，保留）；
+ *  - POST：创建应用 —— P4-4（mini-hbut#1219）退役：410 Gone。
+ *    自建注册表不再是权威源；应用接入改由清单仓库 manifest/apps.json + PR 审核。
  */
 
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 import { getDeveloperApi } from '@/lib/developer-api/client'
-import { assertTurnstileFromRequest } from '@/lib/turnstile-server'
 import {
   developerErrorResponse,
   errorJson,
   guardMutation,
-  noStoreJsonHeaders,
   jsonOk,
+  registryRetiredResponse,
   requireSession,
 } from '@/lib/developer-api/bff'
-import { sanitizeCreateAppInput } from '@/lib/developer/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,32 +35,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = guardMutation(request)
   if (session instanceof NextResponse) {
+    // 会话/CSRF 守卫失败（401/403）优先于 410
     return session
   }
-
-  // #708 人机验证：敏感写动作必须通过 Turnstile 核验（未配置钥匙时跳过）
-  const turnstile = await assertTurnstileFromRequest(request)
-  if (!turnstile.ok) {
-    return NextResponse.json(
-      { error: 'turnstile_failed', message: turnstile.message },
-      { status: 400, headers: noStoreJsonHeaders() },
-    )
-  }
-  let raw: unknown
-  try {
-    raw = await request.json()
-  } catch {
-    return errorJson(400, 'invalid_request')
-  }
-  const sanitized = sanitizeCreateAppInput(raw)
-  if (!sanitized.ok) {
-    return errorJson(400, 'invalid_request')
-  }
-  try {
-    const result = await getDeveloperApi().createApp(session.sub, sanitized.value)
-    // 201；client_secret 只出现这一次
-    return jsonOk(result, { status: 201 })
-  } catch (err) {
-    return developerErrorResponse(err)
-  }
+  // P4-4 退役：不再创建应用；固定 410 响应，先于任何 store 调用
+  return registryRetiredResponse()
 }

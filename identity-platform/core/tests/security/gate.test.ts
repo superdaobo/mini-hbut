@@ -332,7 +332,7 @@ describe('Security Test Gate（#626 16 条）', () => {
   })
 
   // ---------------- G9 ----------------
-  it('G9 IDOR：review 必须属于路径中的 app，错配一律 404', async () => {
+  it('G9 IDOR：reject 写接口退役（P4-4 一律 410 Gone，先于归属校验）', async () => {
     const admin = await createAdminUser(db.sql, { role: 'identity_reviewer' })
     const appA = await createClientFixture(db.sql, { status: 'active' })
     const appB = await createClientFixture(db.sql, { status: 'active' })
@@ -359,14 +359,16 @@ describe('Security Test Gate（#626 16 条）', () => {
       ],
     )
     await withServer(buildAdminApp(db.sql), async (baseUrl) => {
-      // 用 B 的 appId 拒绝 A 的 reviewId → 404（IDOR：不泄露存在性）
+      // P4-4 退役：reject 写接口一律 410 Gone（固定响应先于归属校验、先于
+      // 一切 DB 读取；防存在性泄露比原 404 更强，IDOR 面整体消失）
       const wrong = await adminPost(
         baseUrl,
         `/api/v1/admin/apps/${appB.applicationId}/reviews/${reviewId}/reject`,
         { subject: admin.userId, authTime: Math.floor(Date.now() / 1000), body: { reason: 'x' } },
       )
-      expect(wrong.status).toBe(404)
-      // 对照：正确归属下该 review 在列表中可见（归属校验有效而非一律 404）
+      expect(wrong.status).toBe(410)
+      expect(wrong.body.error).toBe('registry_retired')
+      // 对照（只读路径保留）：正确归属下该 review 在列表中可见
       const list = await adminGet(
         baseUrl,
         `/api/v1/admin/apps/${appA.applicationId}/reviews`,

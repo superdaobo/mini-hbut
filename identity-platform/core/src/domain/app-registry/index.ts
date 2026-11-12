@@ -1,4 +1,8 @@
 /**
+ *
+ * 权威源声明（P4-4，mini-hbut#1219）：自建注册表（app_registry_reviews 表）
+ * 不再是权威源；权威源 = 仓库 manifest/apps.json（mini-hbut-ocr-service）
+ * + PR 审核；自建表仅作历史只读快照（只读端点保留，写入口退役为 410 Gone）。
  * T12 应用注册审核生命周期 —— 领域层出口。
  *
  * 本目录只放**纯逻辑**（无 IO、无数据库、无 Koa），便于穷举测试；

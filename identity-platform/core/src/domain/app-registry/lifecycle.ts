@@ -1,4 +1,8 @@
 /**
+ *
+ * 权威源声明（P4-4，mini-hbut#1219）：自建注册表（app_registry_reviews 表）
+ * 不再是权威源；权威源 = 仓库 manifest/apps.json（mini-hbut-ocr-service）
+ * + PR 审核；自建表仅作历史只读快照（只读端点保留，写入口退役为 410 Gone）。
  * T12 审核生命周期状态机与守卫（§3.2 迁移表）。
  *
  * 每个守卫都是**纯函数**：输入记录 + 当前内容 + 操作者，返回 void 或抛 `AppRegistryError`。

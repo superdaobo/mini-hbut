@@ -1,6 +1,13 @@
 /**
  * Developer BFF 路由守卫测试（issue #624：所有 mutation 必须会话 + CSRF + Origin；
- * IDOR 在路由层统一 404；响应一律 no-store）。
+ * 响应一律 no-store）。
+ *
+ * P4-4（mini-hbut#1219）自建注册表退役：
+ * - 会话/CSRF/Origin 守卫仍先于一切：无会话 401、CSRF/Origin 失败 403（顺序不变）；
+ * - 守卫通过后的写路径一律 410 Gone + 固定响应体
+ *   {"error":"registry_retired","message":"应用接入改由清单仓库 + PR 审核（见 manifest/README.md）"}
+ *   （固定响应先于 store 查找/归属校验 → 原 IDOR 404 面整体消失）；
+ * - 只读路径保留：GET 列表/详情 200/404 语义不变。
  *
  * 使用模块级桩（与 BFF 路由同实例），beforeEach 清空隔离。
  */
@@ -18,6 +25,12 @@ import { PUT as scopesPut } from '../app/developer-site/api/v1/developer/apps/[i
 
 const ORIGIN = 'http://localhost:3000'
 const TEST_SECRET = 'test-session-secret-0123456789abcdef'
+
+/** P4-4 冻结契约：410 Gone 固定响应体（与 core retired.ts 一致） */
+const RETIRED_BODY = {
+  error: 'registry_retired',
+  message: '应用接入改由清单仓库 + PR 审核（见 manifest/README.md）',
+}
 
 function env(): Record<string, string | undefined> {
   return {
@@ -69,8 +82,8 @@ function mutationHeaders(cookies: ReturnType<typeof sessionCookies>, withOrigin 
   }
 }
 
-/** 通过桩 store 直接建一个应用（BFF 成功路径由下面专门用例覆盖） */
-async function createAppViaBff(sub: string, name: string): Promise<{ id: string }> {
+/** 通过桩 store 直接建一个应用（供只读路径用例使用） */
+async function createAppViaStore(sub: string, name: string): Promise<{ id: string }> {
   const store = getStubDeveloperStore()
   await store.ensureDeveloper(sub, name)
   const created = await store.createApp(sub, {
@@ -86,21 +99,21 @@ async function createAppViaBff(sub: string, name: string): Promise<{ id: string 
   return { id: created.id }
 }
 
-describe('会话守卫（401）', () => {
-  it('GET 列表/详情/审计 无会话：401 unauthorized', async () => {
+describe('会话守卫（401，先于 410）', () => {
+  it('GET 列表/详情 无会话：401 unauthorized', async () => {
     expect((await appsGet(makeRequest('/api/v1/developer/apps'))).status).toBe(401)
     expect((await appGet(makeRequest('/api/v1/developer/apps/app_1'), params('app_1'))).status).toBe(401)
   })
 
-  it('全部 mutation 无会话：401（不区分接口）', async () => {
+  it('全部 mutation 无会话：401（不区分接口，先于 410）', async () => {
     expect((await appsPost(makeRequest('/api/v1/developer/apps', { method: 'POST' }))).status).toBe(401)
-    expect((await appPatch(makeRequest('/api/v1/developer/apps/app_1', { method: 'PATCH' }), params('app_1'))).status).toBe(401)
-    expect((await appDelete(makeRequest('/api/v1/developer/apps/app_1', { method: 'DELETE' }), params('app_1'))).status).toBe(401)
-    expect((await rotatePost(makeRequest('/api/v1/developer/apps/app_1/credentials/rotate', { method: 'POST' }), params('app_1'))).status).toBe(401)
-    expect((await submitPost(makeRequest('/api/v1/developer/apps/app_1/submit', { method: 'POST' }), params('app_1'))).status).toBe(401)
-    expect((await revokePost(makeRequest('/api/v1/developer/apps/app_1/revoke', { method: 'POST' }), params('app_1'))).status).toBe(401)
-    expect((await redirectPost(makeRequest('/api/v1/developer/apps/app_1/redirect-uris', { method: 'POST' }), params('app_1'))).status).toBe(401)
-    expect((await scopesPut(makeRequest('/api/v1/developer/apps/app_1/scopes', { method: 'PUT' }), params('app_1'))).status).toBe(401)
+    expect((await appPatch(makeRequest('/api/v1/developer/apps/app_1', { method: 'PATCH' }))).status).toBe(401)
+    expect((await appDelete(makeRequest('/api/v1/developer/apps/app_1', { method: 'DELETE' }))).status).toBe(401)
+    expect((await rotatePost(makeRequest('/api/v1/developer/apps/app_1/credentials/rotate', { method: 'POST' }))).status).toBe(401)
+    expect((await submitPost(makeRequest('/api/v1/developer/apps/app_1/submit', { method: 'POST' }))).status).toBe(401)
+    expect((await revokePost(makeRequest('/api/v1/developer/apps/app_1/revoke', { method: 'POST' }))).status).toBe(401)
+    expect((await redirectPost(makeRequest('/api/v1/developer/apps/app_1/redirect-uris', { method: 'POST' }))).status).toBe(401)
+    expect((await scopesPut(makeRequest('/api/v1/developer/apps/app_1/scopes', { method: 'PUT' }))).status).toBe(401)
   })
 
   it('错误响应统一 {error} 且 no-store', async () => {
@@ -110,7 +123,7 @@ describe('会话守卫（401）', () => {
   })
 })
 
-describe('CSRF / Origin 守卫（403）', () => {
+describe('CSRF / Origin 守卫（403，先于 410）', () => {
   it('有会话但缺 CSRF header：403 forbidden', async () => {
     const cookies = sessionCookies()
     const res = await appsPost(
@@ -168,63 +181,9 @@ describe('CSRF / Origin 守卫（403）', () => {
   })
 })
 
-describe('IDOR（路由层统一 404 不泄露存在性）', () => {
-  it('A 的会话读取 B 的应用：404 not_found（与不存在一致）', async () => {
-    const { id } = await createAppViaBff('sub_b', '开发者 B')
-    const cookiesA = sessionCookies('sub_a', '开发者 A')
-    // A 未被 ensureDeveloper 也行：requireOwned 先于开发者状态检查？—— 需建档以走到查找逻辑
-    const store = getStubDeveloperStore()
-    await store.ensureDeveloper('sub_a', '开发者 A')
-    const res = await appGet(
-      makeRequest(`/api/v1/developer/apps/${id}`, { headers: { cookie: cookiesA.cookie } }),
-      params(id),
-    )
-    expect(res.status).toBe(404)
-    expect(await res.json()).toEqual({ error: 'not_found' })
-  })
-
-  it('A 的会话 rotate B 的 secret：404；A 提交 B 的应用：404', async () => {
-    const { id } = await createAppViaBff('sub_b', '开发者 B')
-    const store = getStubDeveloperStore()
-    await store.ensureDeveloper('sub_a', '开发者 A')
-    const cookiesA = sessionCookies('sub_a', '开发者 A')
-    const h = mutationHeaders(cookiesA)
-    expect((await rotatePost(makeRequest(`/api/v1/developer/apps/${id}/credentials/rotate`, { method: 'POST', headers: h }), params(id))).status).toBe(404)
-    expect((await submitPost(makeRequest(`/api/v1/developer/apps/${id}/submit`, { method: 'POST', headers: h }), params(id))).status).toBe(404)
-    expect((await revokePost(makeRequest(`/api/v1/developer/apps/${id}/revoke`, { method: 'POST', headers: h }), params(id))).status).toBe(404)
-    const patchRes = await appPatch(
-      makeRequest(`/api/v1/developer/apps/${id}`, {
-        method: 'PATCH',
-        headers: { ...h, 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '劫持' }),
-      }),
-      params(id),
-    )
-    expect(patchRes.status).toBe(404)
-  })
-
-  it('不存在的 app id 与 B 的 app 返回完全一致（防枚举）', async () => {
-    const { id } = await createAppViaBff('sub_b', '开发者 B')
-    const store = getStubDeveloperStore()
-    await store.ensureDeveloper('sub_a', '开发者 A')
-    const cookiesA = sessionCookies('sub_a', '开发者 A')
-    const missing = await appGet(
-      makeRequest('/api/v1/developer/apps/app_nope', { headers: { cookie: cookiesA.cookie } }),
-      params('app_nope'),
-    )
-    const foreign = await appGet(
-      makeRequest(`/api/v1/developer/apps/${id}`, { headers: { cookie: cookiesA.cookie } }),
-      params(id),
-    )
-    expect(missing.status).toBe(foreign.status)
-    expect(await missing.json()).toEqual(await foreign.json())
-  })
-})
-
-describe('成功路径与响应头', () => {
-  it('带会话+CSRF：创建 201，响应 no-store；GET 列表 200 no-store', async () => {
-    const store = getStubDeveloperStore()
-    await store.ensureDeveloper('sub_a', '开发者 A')
+describe('P4-4 退役：写路径 410 Gone 固定契约', () => {
+  it('创建应用 POST → 410 + 固定响应体 + no-store（守卫通过后、store 调用前）', async () => {
+    await getStubDeveloperStore().ensureDeveloper('sub_a', '开发者 A')
     const cookies = sessionCookies('sub_a', '开发者 A')
     const res = await appsPost(
       makeRequest('/api/v1/developer/apps', {
@@ -247,39 +206,96 @@ describe('成功路径与响应头', () => {
         }),
       }),
     )
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(410)
+    expect(await res.json()).toEqual(RETIRED_BODY)
     expect(res.headers.get('Cache-Control')).toContain('no-store')
-    const body = (await res.json()) as { client_secret: string | null }
-    expect(body.client_secret).toBeTruthy()
-
-    const list = await appsGet(makeRequest('/api/v1/developer/apps', { headers: { cookie: cookies.cookie } }))
-    expect(list.status).toBe(200)
-    expect(list.headers.get('Cache-Control')).toContain('no-store')
   })
 
-  it('提交→批准→启用全流程（BFF 路径 + 管理员 simulateAdminReview）后仍可正常操作', async () => {
-    const store = getStubDeveloperStore()
-    const { id } = await createAppViaBff('sub_a', '开发者 A')
+  it('PATCH/DELETE/submit/rotate/revoke/redirect/scopes 全部写路径 → 410 + 固定响应体', async () => {
+    const { id } = await createAppViaStore('sub_a', '开发者 A')
     const cookies = sessionCookies('sub_a', '开发者 A')
     const h = mutationHeaders(cookies)
 
-    const submitted = await submitPost(
-      makeRequest(`/api/v1/developer/apps/${id}/submit`, { method: 'POST', headers: h }),
+    const patchRes = await appPatch(
+      makeRequest(`/api/v1/developer/apps/${id}`, {
+        method: 'PATCH',
+        headers: { ...h, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '改名' }),
+      }),
+    )
+    expect(patchRes.status).toBe(410)
+    expect(await patchRes.json()).toEqual(RETIRED_BODY)
+
+    const writes: Array<Promise<unknown>> = [
+      appDelete(makeRequest(`/api/v1/developer/apps/${id}`, { method: 'DELETE', headers: h })),
+      submitPost(makeRequest(`/api/v1/developer/apps/${id}/submit`, { method: 'POST', headers: h })),
+      rotatePost(makeRequest(`/api/v1/developer/apps/${id}/credentials/rotate`, { method: 'POST', headers: h })),
+      revokePost(makeRequest(`/api/v1/developer/apps/${id}/revoke`, { method: 'POST', headers: h })),
+      redirectPost(makeRequest(`/api/v1/developer/apps/${id}/redirect-uris`, { method: 'POST', headers: h })),
+      scopesPut(makeRequest(`/api/v1/developer/apps/${id}/scopes`, { method: 'PUT', headers: h })),
+    ]
+    for (const p of writes) {
+      const res = (await p) as { status: number; json: () => Promise<unknown> }
+      expect(res.status).toBe(410)
+      expect(await res.json()).toEqual(RETIRED_BODY)
+    }
+  })
+
+  it('跨账户写路径同样 410（固定响应先于归属校验，原 404 IDOR 面消失）', async () => {
+    const { id } = await createAppViaStore('sub_b', '开发者 B')
+    await getStubDeveloperStore().ensureDeveloper('sub_a', '开发者 A')
+    const cookiesA = sessionCookies('sub_a', '开发者 A')
+    const h = mutationHeaders(cookiesA)
+    expect((await rotatePost(makeRequest(`/api/v1/developer/apps/${id}/credentials/rotate`, { method: 'POST', headers: h }))).status).toBe(410)
+    expect((await submitPost(makeRequest(`/api/v1/developer/apps/${id}/submit`, { method: 'POST', headers: h }))).status).toBe(410)
+    expect((await revokePost(makeRequest(`/api/v1/developer/apps/${id}/revoke`, { method: 'POST', headers: h }))).status).toBe(410)
+    const patchRes = await appPatch(
+      makeRequest(`/api/v1/developer/apps/${id}`, {
+        method: 'PATCH',
+        headers: { ...h, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '劫持' }),
+      }),
+    )
+    expect(patchRes.status).toBe(410)
+  })
+})
+
+describe('P4-4 退役：只读路径保留', () => {
+  it('GET 列表/详情 200（桩数据）；no-store', async () => {
+    const { id } = await createAppViaStore('sub_a', '开发者 A')
+    const cookies = sessionCookies('sub_a', '开发者 A')
+    const list = await appsGet(makeRequest('/api/v1/developer/apps', { headers: { cookie: cookies.cookie } }))
+    expect(list.status).toBe(200)
+    expect(list.headers.get('Cache-Control')).toContain('no-store')
+    const detail = await appGet(makeRequest(`/api/v1/developer/apps/${id}`, { headers: { cookie: cookies.cookie } }), params(id))
+    expect(detail.status).toBe(200)
+  })
+
+  it('GET IDOR：A 读 B 的应用 → 404（只读 404 语义不变）', async () => {
+    const { id } = await createAppViaStore('sub_b', '开发者 B')
+    await getStubDeveloperStore().ensureDeveloper('sub_a', '开发者 A')
+    const cookiesA = sessionCookies('sub_a', '开发者 A')
+    const res = await appGet(
+      makeRequest(`/api/v1/developer/apps/${id}`, { headers: { cookie: cookiesA.cookie } }),
       params(id),
     )
-    expect(submitted.status).toBe(200)
-    const detail = (await submitted.json()) as { app: { status: string } }
-    expect(detail.app.status).toBe('pending_review')
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'not_found' })
+  })
 
-    store.simulateAdminReview(id, { to: 'approved' })
-    store.simulateAdminReview(id, { to: 'active' })
-
-    const rotated = await rotatePost(
-      makeRequest(`/api/v1/developer/apps/${id}/credentials/rotate`, { method: 'POST', headers: h }),
+  it('不存在的 app id 与 B 的 app 返回完全一致（防枚举）', async () => {
+    const { id } = await createAppViaStore('sub_b', '开发者 B')
+    await getStubDeveloperStore().ensureDeveloper('sub_a', '开发者 A')
+    const cookiesA = sessionCookies('sub_a', '开发者 A')
+    const missing = await appGet(
+      makeRequest('/api/v1/developer/apps/app_nope', { headers: { cookie: cookiesA.cookie } }),
+      params('app_nope'),
+    )
+    const foreign = await appGet(
+      makeRequest(`/api/v1/developer/apps/${id}`, { headers: { cookie: cookiesA.cookie } }),
       params(id),
     )
-    expect(rotated.status).toBe(200)
-    const rotBody = (await rotated.json()) as { client_secret: string }
-    expect(rotBody.client_secret).toBeTruthy()
+    expect(missing.status).toBe(foreign.status)
+    expect(await missing.json()).toEqual(await foreign.json())
   })
 })

@@ -9,9 +9,17 @@
  *   SELECT ... FOR UPDATE 锁既有行 + 条件 UPDATE（见 submit 事务）保证。
  * - 'superseded' 是幂等作废标记（§3.2 #1/#4），不是 §3.1 状态机节点，
  *   与旧表 application_reviews.status 的 superseded 约定一致。
+ *
+ * 权威源声明（P4-4，mini-hbut#1219）：
+ * - 本表（app_registry_reviews）**不再是权威源**；权威源 = 仓库
+ *   `manifest/apps.json`（mini-hbut-ocr-service 仓 manifest/ 目录）+ PR 审核；
+ * - 本表仅保留**历史只读快照**：读方法（find* / list* / maxReleaseSeqForApp）保留；
+ *   写方法（insertReview / updateStatus / setReviewDecision /
+ *   updateArtifactReceipts）一律抛 RegistryRetiredError（fail closed）。
  */
 import type { SqlExecutor, QueryResultRow } from '../types.js'
 import { parseJsonb } from '../types.js'
+import { RegistryRetiredError } from '../../domain/app-registry/retired.js'
 import type {
   ArtifactReceipts,
   CasdoorTarget,
@@ -87,33 +95,11 @@ export async function insertReview(
   sql: SqlExecutor,
   input: InsertReviewInput,
 ): Promise<AppRegistryReviewRow> {
-  const result = await sql.query<AppRegistryReviewRow>(
-    `INSERT INTO app_registry_reviews (
-       id, app_id, version, revision, form, entry,
-       redirect_uris, allowed_groups, data_domains, compat, module, casdoor,
-       owner, submitted_by, submitted_at, status
-     ) VALUES ($1, $2, $3, $4, $5, $6,
-       $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb,
-       $13, $14, NOW(), 'submitted')
-     RETURNING *`,
-    [
-      input.id,
-      input.appId,
-      input.version,
-      input.revision,
-      input.form,
-      input.entry,
-      JSON.stringify(input.redirectUris),
-      JSON.stringify(input.allowedGroups),
-      JSON.stringify(input.dataDomains),
-      JSON.stringify(input.compat),
-      input.module ? JSON.stringify(input.module) : null,
-      JSON.stringify(input.casdoor),
-      input.owner,
-      input.submittedBy,
-    ],
-  )
-  return parseRow(result.rows[0] as AppRegistryReviewRow)
+  void sql
+  void input
+  // P4-4（mini-hbut#1219）退役：写方法移除 —— 权威源 = 仓库
+  // manifest/apps.json + PR 审核（本表仅历史只读快照）；兜底抛错，fail closed。
+  throw new RegistryRetiredError()
 }
 
 /** 按主键读取 */
@@ -182,13 +168,11 @@ export async function updateStatus(
   sql: SqlExecutor,
   input: { reviewId: string; from: AppRegistryStoredStatus; to: AppRegistryStoredStatus },
 ): Promise<boolean> {
-  const result = await sql.query(
-    `UPDATE app_registry_reviews
-        SET status = $2, updated_at = NOW()
-      WHERE id = $1 AND status = $3`,
-    [input.reviewId, input.to, input.from],
-  )
-  return (result.rowCount ?? 0) === 1
+  void sql
+  void input
+  // P4-4（mini-hbut#1219）退役：写方法移除 —— 权威源 = 仓库
+  // manifest/apps.json + PR 审核（本表仅历史只读快照）；兜底抛错，fail closed。
+  throw new RegistryRetiredError()
 }
 
 /** 写入审核决定（approve/reject 时；reviewer 与 reviewed_at 一并落地） */
@@ -201,13 +185,11 @@ export async function setReviewDecision(
     decisionReason: string | null
   },
 ): Promise<void> {
-  await sql.query(
-    `UPDATE app_registry_reviews
-        SET reviewer = $2, reviewed_at = NOW(),
-            decision = $3, decision_reason = $4, updated_at = NOW()
-      WHERE id = $1`,
-    [input.reviewId, input.reviewer, input.decision, input.decisionReason],
-  )
+  void sql
+  void input
+  // P4-4（mini-hbut#1219）退役：写方法移除 —— 权威源 = 仓库
+  // manifest/apps.json + PR 审核（本表仅历史只读快照）；兜底抛错，fail closed。
+  throw new RegistryRetiredError()
 }
 
 /** 产物回执写入（provisioner/对账调用；返回是否命中行） */
@@ -216,13 +198,12 @@ export async function updateArtifactReceipts(
   reviewId: string,
   receipts: ArtifactReceipts,
 ): Promise<boolean> {
-  const result = await sql.query(
-    `UPDATE app_registry_reviews
-        SET artifact_receipts = $2::jsonb, updated_at = NOW()
-      WHERE id = $1`,
-    [reviewId, JSON.stringify(receipts)],
-  )
-  return (result.rowCount ?? 0) === 1
+  void sql
+  void reviewId
+  void receipts
+  // P4-4（mini-hbut#1219）退役：写方法移除 —— 权威源 = 仓库
+  // manifest/apps.json + PR 审核（本表仅历史只读快照）；兜底抛错，fail closed。
+  throw new RegistryRetiredError()
 }
 
 /** 按应用列出全部审核记录（管理员视角，全部状态；version 降序） */

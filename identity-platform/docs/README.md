@@ -92,6 +92,37 @@ pnpm --filter @mini-hbut/identity-web run dev    # http://localhost:3000
 
 详见 [docs/runbook.md](runbook.md)。
 
+## 权威源变更（P4-4：自建注册表退役，2026-11-12）
+
+> 应用接入的权威源从「自建注册表 + 门户审核 + provisioner」切换为
+> 「清单仓库 `mini-hbut-ocr-service` 的 `manifest/apps.json` + PR 审核 + 接入程序」。
+> 本仓库（identity-platform）只保留**只读**能力；全部写接口返回
+> **410 Gone** + 固定响应体（core 与 web 两端一致）：
+>
+> ```json
+> {"error":"registry_retired","message":"应用接入改由清单仓库 + PR 审核（见 manifest/README.md）"}
+> ```
+>
+> 顺序契约：会话/CSRF/Origin 守卫（401/403）先于 410；410 先于任何 store 调用（零副作用、
+> 固定响应不泄露资源是否存在）。只读接口（GET 列表/详情/数据域/审核历史/审计）语义不变。
+
+**旧 → 新 入口对照**：
+
+| 旧（已退役，一律 410） | 新（权威源） |
+|---|---|
+| 门户「创建应用」表单（`POST /api/v1/developer/apps`） | 清单仓库 `manifest/apps.json` 新增条目 + PR |
+| 门户「提交审核 / 重新提交」（`POST .../submit`） | PR 审核（1 位 `ops` 批准且非作者） |
+| admin「通过 / 拒绝」决策（`POST .../approve` `.../reject`） | PR merge（或拒绝 PR） |
+| 应用信息 / 回调地址 / 数据域编辑（PATCH / redirect-uris / scopes 写） | 修改 `manifest/apps.json` 后开 PR |
+| Client Secret 查看 / 轮换（`.../credentials/rotate`） | 不再经本仓库；接入程序侧管理（`secrets/`） |
+| 应用撤销 / 删除（`.../revoke` / DELETE） | 清单仓库移除条目 + PR |
+| 账户级 API Key（`/api/v1/developer/keys`） | 不再需要（清单流程不依赖账户级 Key） |
+| core `provision` 写接口 | 清单仓库 + 接入程序（幂等生成） |
+
+**保留**（不 410）：GET 应用列表 / 详情 / 回调地址 / scopes / 审核历史 / 动态 / `me`；
+admin GET 队列 / 详情 / overview / audit / me / session；admin 运行时动作
+`suspend` / `unsuspend` / `revoke`（运行时安全响应，非注册表写操作）。
+
 ## 后续子 Issue 落点
 
 - `core/src/oidc/` → #620（oidc-provider）；`core/src/db/` → #619（数据模型）

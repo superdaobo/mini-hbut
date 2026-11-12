@@ -65,7 +65,7 @@ export function AppsList() {
       <div className="dev-empty">
         还没有应用。
         <a href="/apps/new" style={{ marginLeft: 8 }}>
-          创建第一个应用 →
+          申请接入（开 PR） →
         </a>
       </div>
     )

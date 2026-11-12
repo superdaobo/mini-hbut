@@ -1,4 +1,8 @@
 /**
+ *
+ * 权威源声明（P4-4，mini-hbut#1219）：自建注册表（app_registry_reviews 表）
+ * 不再是权威源；权威源 = 仓库 manifest/apps.json（mini-hbut-ocr-service）
+ * + PR 审核；自建表仅作历史只读快照（只读端点保留，写入口退役为 410 Gone）。
  * T12 内容寻址 revision（§2.2 / §4.1）。
  *
  * 沿用 `src/api/admin/queries.ts:115-130` 的机制（固定键序 JSON + sha256 hex），

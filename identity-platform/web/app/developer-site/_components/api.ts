@@ -1,19 +1,18 @@
 /**
  * 客户端 API 助手（同源 fetch 到 /api/v1/developer/*）。
  *  - 统一错误映射：401 → 跳登录；其余错误码 → 中文提示；
- *  - CSRF：从 /me 获取 csrf_token（与双提交 cookie 同值），mutation 一律带
- *    x-csrf-token header；
  *  - 禁止 localStorage：登录态/令牌只存在于 HttpOnly cookie，本模块不落任何存储。
+ * P4-4（mini-hbut#1219）：自建注册表退役 —— 写助手（createApp/updateApp/
+ * deleteApp/addRedirectUri/removeRedirectUri/putScopes/submitApp/rotateSecret/
+ * revokeApp）移除；只保留只读查询（fetchMe/fetchApps/fetchApp/fetchScopes）。
  */
 'use client'
 
 import type {
-  CreateAppInput,
   DeveloperAppDetailDTO,
   DeveloperAppSummaryDTO,
   DeveloperDTO,
 } from '@/lib/developer/contract'
-import type { RedirectUriKind } from '@/lib/developer/contract'
 
 export interface MeResult {
   developer: DeveloperDTO
@@ -50,18 +49,10 @@ export class ClientApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit & { csrf?: string }): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' }
   if (init?.body !== undefined) {
     headers['content-type'] = 'application/json'
-  }
-  if (init?.csrf) {
-    headers['x-csrf-token'] = init.csrf
-  }
-  // #708：存在未消费的 Turnstile 令牌则自动附带（消费后置空，防重放）
-  const tt = consumeTurnstileToken()
-  if (tt) {
-    headers['x-turnstile-token'] = tt
   }
   const res = await fetch(path, { ...init, headers, credentials: 'same-origin' })
   if (!res.ok) {
@@ -106,69 +97,6 @@ export async function fetchApp(id: string): Promise<DeveloperAppDetailDTO> {
   return data.app
 }
 
-import { consumeTurnstileToken } from '@/lib/developer/turnstile-client'
-
-export async function createApp(input: CreateAppInput, csrf: string): Promise<{ id: string; client_id: string; client_secret: string | null }> {
-  return request<{ id: string; client_id: string; client_secret: string | null }>(
-    '/api/v1/developer/apps',
-    { method: 'POST', body: JSON.stringify(input), csrf },
-  )
-}
-
-export async function updateApp(
-  id: string,
-  input: Partial<Pick<DeveloperAppDetailDTO, 'name' | 'description' | 'homepage_url' | 'privacy_policy_url' | 'contact'>>,
-  csrf: string,
-): Promise<DeveloperAppDetailDTO> {
-  const data = await request<{ app: DeveloperAppDetailDTO }>(`/api/v1/developer/apps/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(input),
-    csrf,
-  })
-  return data.app
-}
-
-export async function deleteApp(id: string, csrf: string): Promise<void> {
-  await request<{ deleted: boolean }>(`/api/v1/developer/apps/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    csrf,
-  })
-}
-
-export async function addRedirectUri(
-  id: string,
-  uri: string,
-  kind: RedirectUriKind,
-  csrf: string,
-): Promise<DeveloperAppDetailDTO> {
-  const data = await request<{ app: DeveloperAppDetailDTO }>(
-    `/api/v1/developer/apps/${encodeURIComponent(id)}/redirect-uris`,
-    { method: 'POST', body: JSON.stringify({ uri, kind }), csrf },
-  )
-  return data.app
-}
-
-export async function removeRedirectUri(id: string, rid: string, csrf: string): Promise<DeveloperAppDetailDTO> {
-  const data = await request<{ app: DeveloperAppDetailDTO }>(
-    `/api/v1/developer/apps/${encodeURIComponent(id)}/redirect-uris/${encodeURIComponent(rid)}`,
-    { method: 'DELETE', csrf },
-  )
-  return data.app
-}
-
-export interface ScopePutInput {
-  scope: string
-  justification: string | null
-}
-
-export async function putScopes(id: string, scopes: ScopePutInput[], csrf: string): Promise<DeveloperAppDetailDTO> {
-  const data = await request<{ app: DeveloperAppDetailDTO }>(
-    `/api/v1/developer/apps/${encodeURIComponent(id)}/scopes`,
-    { method: 'PUT', body: JSON.stringify({ scopes }), csrf },
-  )
-  return data.app
-}
-
 /** 单条 scope（GET /scopes 返回项；justification 对应 core 的 review_note） */
 export interface ScopeEntry {
   scope: string
@@ -176,33 +104,10 @@ export interface ScopeEntry {
   justification: string | null
 }
 
-/** #687：拉取应用的 scope 列表（含审核状态与理由）；权限 Tab 初始化时加载展示 */
+/** 拉取应用的 scope 列表（含审核状态与理由）；权限 Tab 初始化时加载展示 */
 export async function fetchScopes(appId: string): Promise<ScopeEntry[]> {
   const data = await request<{ scopes: ScopeEntry[] }>(
     `/api/v1/developer/apps/${encodeURIComponent(appId)}/scopes`,
   )
   return data.scopes
-}
-
-export async function submitApp(id: string, csrf: string): Promise<DeveloperAppDetailDTO> {
-  const data = await request<{ app: DeveloperAppDetailDTO }>(
-    `/api/v1/developer/apps/${encodeURIComponent(id)}/submit`,
-    { method: 'POST', body: '{}', csrf },
-  )
-  return data.app
-}
-
-export async function rotateSecret(id: string, csrf: string): Promise<{ app: DeveloperAppDetailDTO; client_secret: string }> {
-  return request<{ app: DeveloperAppDetailDTO; client_secret: string }>(
-    `/api/v1/developer/apps/${encodeURIComponent(id)}/credentials/rotate`,
-    { method: 'POST', body: '{}', csrf },
-  )
-}
-
-export async function revokeApp(id: string, csrf: string): Promise<DeveloperAppDetailDTO> {
-  const data = await request<{ app: DeveloperAppDetailDTO }>(
-    `/api/v1/developer/apps/${encodeURIComponent(id)}/revoke`,
-    { method: 'POST', body: '{}', csrf },
-  )
-  return data.app
 }
