@@ -17,6 +17,12 @@
  * 本模块在读取队列/详情时懒物化 pending review 并自动作废过期快照；
  * 未来开发者 API 落地时，其 mutation 应复用本模块的 ensurePendingReview
  * （变更 → supersede 旧快照 → 重新提交）。
+ *
+ * P4-4（mini-hbut#1219）权威源变更：
+ * - 本模块所属的自建审核（application_reviews）不再是权威源；权威源 = 仓库
+ *   manifest/apps.json + PR 审核。approveReview/rejectReview 已退役：HTTP 层
+ *   410 Gone（admin/index.ts），本层兜底抛 RegistryRetiredError（fail closed）；
+ * - ensurePendingReview 保留：供只读端点（队列/详情）懒物化 pending 快照。
  */
 import type { SqlExecutor, QueryResultRow } from '../../db/types.js'
 import {
@@ -42,6 +48,7 @@ import {
   AdminInvalidInputError,
 } from './errors.js'
 import { writeAdminAudit, ADMIN_EVENTS } from './audit.js'
+import { RegistryRetiredError } from '../../domain/app-registry/retired.js'
 
 // ---------------------------------------------------------------------------
 // Scope 风险分级（#625 初版；#902a 起权威定义下沉到 domain/scope-risk.ts）
@@ -353,82 +360,11 @@ export async function approveReview(
   sql: SqlExecutor,
   input: ApproveReviewInput,
 ): Promise<ApproveReviewResult> {
-  const target = await loadReviewTarget(sql, input.reviewId, input.adminUserId)
-  const { review, app, ctx } = target
-  const pending = assertReviewPending(review)
-  const note = assertOptionalNote(input.note, 'note')
-  if (pending.replay) {
-    // 幂等重放：仅 approved 可重放；rejected/superseded 一律 409
-    if (review.status !== 'approved') {
-      throw new ReviewNotPendingError(review.status)
-    }
-    // 返回既有结果（决策来自 scope_decisions_json，绝不复用请求体）
-    const replayed = replayDecisions(review)
-    return {
-      reviewId: review.id,
-      applicationId: review.application_id,
-      status: 'approved',
-      scopeDecisions: replayed,
-      note: review.decision_note,
-    }
-  }
-  const decisions = validateScopeDecisions(review, input.scopeDecisions)
-
-  await sql.withTransaction(async (tx) => {
-    // revision 一致性（内容寻址）
-    await assertRevisionCurrent(tx, review, ctx)
-    // review 迁移（条件更新：pending → approved，并发下只有一个成功）
-    const moved = await transitionReviewStatus(tx, review.id, 'approved', {
-      reviewerUserId: input.adminUserId,
-      decisionNote: note,
-      scopeDecisions: decisions,
-    })
-    if (!moved) {
-      throw new ReviewNotPendingError('approved')
-    }
-    // scope 决策落地
-    for (const d of decisions) {
-      await applyScopeDecision(tx, app.id, d.scope, d.decision, d.note)
-    }
-    // 应用状态迁移：仅 pending_review 且快照时刻未变 → active（approve == activate）
-    const movedApp = await sql.query<QueryResultRow>(
-      `UPDATE oauth_applications
-          SET status = 'active', reviewed_at = NOW(), activated_at = NOW(), updated_at = NOW()
-        WHERE id = $1 AND status = 'pending_review' AND date_trunc('milliseconds', updated_at) = $2::timestamptz`,
-      [app.id, (review.metadata_snapshot_json as Record<string, unknown>).updated_at],
-    )
-    if ((movedApp.rowCount ?? 0) !== 1) {
-      // 并发变更（开发者编辑 / 状态变化）→ 回滚 review 迁移
-      throw new RevisionMismatchError()
-    }
-    // 审计
-    await writeAdminAudit(tx, {
-      eventType: ADMIN_EVENTS.APP_APPROVED,
-      actorId: input.adminUserId,
-      targetType: 'application',
-      targetId: app.id,
-      requestCorrelationId: input.requestCorrelationId ?? null,
-      metadata: { review_id: review.id, revision: review.revision, note },
-    })
-    for (const d of decisions) {
-      await writeAdminAudit(tx, {
-        eventType: d.decision === 'approved' ? ADMIN_EVENTS.SCOPE_APPROVED : ADMIN_EVENTS.SCOPE_REJECTED,
-        actorId: input.adminUserId,
-        targetType: 'application',
-        targetId: app.id,
-        requestCorrelationId: input.requestCorrelationId ?? null,
-        metadata: { review_id: review.id, revision: review.revision, scope: d.scope, note: d.note },
-      })
-    }
-  })
-
-  return {
-    reviewId: review.id,
-    applicationId: review.application_id,
-    status: 'approved',
-    scopeDecisions: decisions,
-    note,
-  }
+  void sql
+  void input
+  // P4-4（mini-hbut#1219）退役：自建注册表不再是权威源，审批改由清单仓库
+  // manifest/apps.json + PR 审核完成；兜底抛错，任何调用链不得再经此写库。
+  throw new RegistryRetiredError()
 }
 
 /** 从已审 review 重放决策（幂等响应，不用请求体） */
@@ -475,47 +411,11 @@ export async function rejectReview(
   sql: SqlExecutor,
   input: RejectReviewInput,
 ): Promise<RejectReviewResult> {
-  const reason = assertReason(input.reason, 'reason')
-  const target = await loadReviewTarget(sql, input.reviewId, input.adminUserId)
-  const { review, app, ctx } = target
-  const pending = assertReviewPending(review)
-  if (pending.replay) {
-    if (review.status === 'rejected') {
-      return { reviewId: review.id, applicationId: review.application_id, status: 'rejected', reason: review.decision_note ?? reason }
-    }
-    throw new ReviewNotPendingError(review.status)
-  }
-
-  await sql.withTransaction(async (tx) => {
-    await assertRevisionCurrent(tx, review, ctx)
-    const moved = await transitionReviewStatus(tx, review.id, 'rejected', {
-      reviewerUserId: input.adminUserId,
-      decisionNote: reason,
-      scopeDecisions: null,
-    })
-    if (!moved) {
-      throw new ReviewNotPendingError('rejected')
-    }
-    const movedApp = await tx.query<QueryResultRow>(
-      `UPDATE oauth_applications
-          SET status = 'rejected', reviewed_at = NOW(), updated_at = NOW()
-        WHERE id = $1 AND status = 'pending_review' AND date_trunc('milliseconds', updated_at) = $2::timestamptz`,
-      [app.id, (review.metadata_snapshot_json as Record<string, unknown>).updated_at],
-    )
-    if ((movedApp.rowCount ?? 0) !== 1) {
-      throw new RevisionMismatchError()
-    }
-    await writeAdminAudit(tx, {
-      eventType: ADMIN_EVENTS.APP_REJECTED,
-      actorId: input.adminUserId,
-      targetType: 'application',
-      targetId: app.id,
-      requestCorrelationId: input.requestCorrelationId ?? null,
-      metadata: { review_id: review.id, revision: review.revision, reason },
-    })
-  })
-
-  return { reviewId: review.id, applicationId: review.application_id, status: 'rejected', reason }
+  void sql
+  void input
+  // P4-4（mini-hbut#1219）退役：自建注册表不再是权威源，驳回改由清单仓库
+  // manifest/apps.json + PR 审核完成；兜底抛错，任何调用链不得再经此写库。
+  throw new RegistryRetiredError()
 }
 
 /** 供未来开发者 API 调用：提交/变更时重建 pending review 快照（导出给写边界外复用） */

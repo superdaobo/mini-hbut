@@ -85,6 +85,22 @@ export function jsonOk(data: unknown, init?: { status?: number }): NextResponse 
   return NextResponse.json(data, { status: init?.status ?? 200, headers: noStoreJsonHeaders() })
 }
 
+/**
+ * P4-4（mini-hbut#1219）自建注册表退役：410 Gone 固定响应体。
+ * 与 core domain/app-registry/retired.ts 的 REGISTRY_RETIRED_BODY 同契约
+ * （{"error":"registry_retired","message":"应用接入改由清单仓库 + PR 审核（见 manifest/README.md）"}）。
+ * BFF 层在会话守卫之后、任何 store/核心调用之前返回（401/403 优先，固定响应不泄露存在性）。
+ */
+export function registryRetiredResponse(): NextResponse {
+  return NextResponse.json(
+    {
+      error: 'registry_retired',
+      message: '应用接入改由清单仓库 + PR 审核（见 manifest/README.md）',
+    },
+    { status: 410, headers: noStoreJsonHeaders() },
+  )
+}
+
 /** 开发者站点公开 origin（Cookie Secure 判定用；host 规范化比较） */
 export function developerPublicOrigin(env: EnvLike = process.env): string {
   return env.DEVELOPER_PUBLIC_ORIGIN?.trim() ?? ''

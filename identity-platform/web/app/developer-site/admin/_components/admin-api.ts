@@ -3,6 +3,8 @@
  *  - 统一错误映射：401 → 跳登录；403 step_up_required → 触发重新认证；
  *  - CSRF：从 /me 获取 csrf_token（与双提交 cookie 同值），mutation 一律带 x-csrf-token；
  *  - 禁止 localStorage：登录态只存在于 HttpOnly cookie。
+ * P4-4（mini-hbut#1219）：approveReview/rejectReview 写助手移除（审批退役，
+ * 审核改由清单仓库 manifest/apps.json + PR 审核）；只读查询与运行时动作保留。
  */
 'use client'
 
@@ -14,7 +16,6 @@ import type {
   AdminOverviewDTO,
   AdminReviewDTO,
   AdminRole,
-  ScopeDecisionInput,
 } from '@/lib/admin/contract'
 
 export interface MeResult {
@@ -148,27 +149,6 @@ async function mutate<T>(path: string, body: unknown, csrf: string): Promise<T> 
     }
     throw err
   }
-}
-
-export async function approveReview(
-  id: string,
-  reviewId: string,
-  input: { scope_decisions: ScopeDecisionInput[]; note?: string | null },
-  csrf: string,
-): Promise<void> {
-  await mutate<{ review: unknown }>(
-    `/api/v1/admin/apps/${encodeURIComponent(id)}/reviews/${encodeURIComponent(reviewId)}/approve`,
-    input,
-    csrf,
-  )
-}
-
-export async function rejectReview(id: string, reviewId: string, reason: string, csrf: string): Promise<void> {
-  await mutate<{ review: unknown }>(
-    `/api/v1/admin/apps/${encodeURIComponent(id)}/reviews/${encodeURIComponent(reviewId)}/reject`,
-    { reason },
-    csrf,
-  )
 }
 
 export async function suspendApp(id: string, reason: string, csrf: string): Promise<void> {

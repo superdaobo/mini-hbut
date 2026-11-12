@@ -1,42 +1,23 @@
 /**
- * Tab 5：Review —— 当前状态 / 提交时间 / 请求 scopes / 管理员反馈 / 拒绝原因 /
- * 需修改项目 / 重新提交按钮。被拒绝时必须展示可行动的 review note（不只红色失败）。
+ * Tab 5：Review —— 当前状态 / 提交时间 / 请求 scopes / 管理员反馈 / 拒绝原因（只读）。
+ * P4-4（mini-hbut#1219）：提交/重新提交按钮移除（自建注册表审核流退役）；
+ * 审核改由清单仓库 manifest/apps.json + PR 审核完成。
  */
 'use client'
-import { TurnstileField } from '../turnstile-field'
 
-import { useState } from 'react'
-import { ClientApiError, submitApp } from '../api'
-import { canSubmit } from '@/lib/developer/status'
 import { StatusBadge } from '../status-badge'
 import type { TabProps } from './types'
 
-export function ReviewTab({ app, me, setApp, reload }: TabProps) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSubmit() {
-    setBusy(true)
-    setError(null)
-    try {
-      const updated = await submitApp(app.id, me.csrf_token)
-      setApp(updated)
-      void reload()
-    } catch (err) {
-      setError(err instanceof ClientApiError ? err.message : '提交失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
+export function ReviewTab({ app }: TabProps) {
   const rejected = app.status === 'rejected'
-  const submittable = canSubmit(app.status)
 
   return (
     <div className="dev-card">
       <h2>审核</h2>
-      <p className="dev-inline-hint">查看审核进度与管理员的反馈；被拒绝时按「需要修改的项目」改完后可重新提交。</p>
-      {error && <div className="dev-error">{error}</div>}
+      <p className="dev-inline-hint">
+        查看审核进度与反馈（只读）。自建注册表已退役：接入与变更的审核统一在
+        清单仓库通过 PR 完成。
+      </p>
 
       <dl className="dev-kv">
         <dt>当前状态</dt>
@@ -100,22 +81,9 @@ export function ReviewTab({ app, me, setApp, reload }: TabProps) {
         </div>
       )}
 
-      {submittable && (
-        <p style={{ marginTop: 16 }}>
-          {app.status === 'rejected' ? (
-            <>
-              已根据反馈修改完成？修改 Redirect URI / Scope / 基本信息后，
-            </>
-          ) : (
-            '确认信息无误后提交审核：'
-          )}
-          {/* #708 人机验证（提交审核属敏感写动作） */}
-          <TurnstileField />
-          <button type="button" className="dev-btn dev-btn-primary" disabled={busy} onClick={() => void handleSubmit()}>
-            {busy ? '提交中…' : app.status === 'rejected' ? '重新提交审核' : '提交审核'}
-          </button>
-        </p>
-      )}
+      <p style={{ marginTop: 16, marginBottom: 0 }} className="dev-inline-hint">
+        如需重新提交或修改申请内容：在清单仓库 <code>manifest/apps.json</code> 更新条目并重新开 PR。
+      </p>
     </div>
   )
 }

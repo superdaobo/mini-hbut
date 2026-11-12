@@ -19,6 +19,13 @@
  * - 幂等：所有 mutation 条件更新，重复提交返回既有状态（不重复审计/副作用）；
  * - 防枚举/IDOR：app/review id 均为 UUIDv7；review 必须属于路径中的 app；
  *   self-review 默认禁止；响应不含学号/secret。
+ *
+ * P4-4（mini-hbut#1219）权威源变更：
+ * - 审核「批准/驳回」写接口（/reviews/:reviewId/approve、/reject）已退役 →
+ *   410 Gone + 固定响应体（domain/app-registry/retired.ts）；审核历史
+ *   列表/详情只读保留；
+ * - 自建注册表不再是权威源，权威源 = 仓库 manifest/apps.json + PR 审核；
+ * - suspend/unsuspend/revoke 属运行时安全动作（非注册表写入），暂保留。
  */
 import Router from '@koa/router'
 import type { RouterContext } from '@koa/router'
@@ -41,24 +48,19 @@ import {
   listRedirectUrisFor,
   listScopesFor,
   listReviewsForApplication,
-  findReviewById,
   listAuditEventsAdmin,
   type AdminAppListFilter,
 } from './queries.js'
 import {
   ensurePendingReview,
-  approveReview,
-  rejectReview,
-  reviewHasSensitiveScope,
-  type AdminReviewRowLike,
 } from './reviews.js'
 import { suspendClient, unsuspendClient, revokeClient } from './runtime.js'
 import { toAppSummary, toAppDetail, toReviewDTO, toAuditDTO, type AdminMeDTO } from './serialize.js'
 import {
   AdminInvalidInputError,
-  ReviewNotFoundError,
   AdminClientNotFoundError,
 } from './errors.js'
+import { REGISTRY_RETIRED_BODY } from '../../domain/app-registry/retired.js'
 
 /** registerAdminRoutes 依赖（与 ApiDeps 形状兼容） */
 export interface AdminApiDeps {
@@ -160,19 +162,6 @@ function readStrParam(ctx: RouterContext, name: string): string | undefined {
     return undefined
   }
   return raw.trim().slice(0, 100)
-}
-
-/** 校验路径中的 review 确实属于该应用（防 IDOR 参数错配） */
-async function loadReviewForApp(
-  sql: SqlExecutor,
-  reviewId: string,
-  applicationId: string,
-): Promise<AdminReviewRowLike> {
-  const review = await findReviewById(sql, reviewId)
-  if (!review || review.application_id !== applicationId) {
-    throw new ReviewNotFoundError()
-  }
-  return review
 }
 
 /** 注册 #625 Admin API 路由（由主 Agent 在 api/index.ts 调用） */
@@ -322,54 +311,20 @@ export function registerAdminRoutes(router: Router, deps: AdminApiDeps): void {
   })
 
   // POST /api/v1/admin/apps/:id/reviews/:reviewId/approve
-  //  - reviewer 及以上；含敏感 scope 的 review 需要近期认证（step-up）；
-  //  - body: { scope_decisions: [{scope, decision, note?}], note? }
-  router.post(`${API_PREFIX}/admin/apps/:id/reviews/:reviewId/approve`, async (ctx) => {
-    try {
-      const subject = readSubject(ctx)
-      const identity = await requireAdminRole(sql, subject, 'identity_reviewer')
-      const applicationId = ctx.params.id as string
-      const reviewId = ctx.params.reviewId as string
-      const review = await loadReviewForApp(sql, reviewId, applicationId)
-      // step-up：仅对 pending 且含敏感 scope 的审核要求近期认证
-      if (review.status === 'pending' && reviewHasSensitiveScope(review)) {
-        assertRecentAuth(readAuthTime(ctx), stepUpSeconds)
-      }
-      const body = await readJsonBody(ctx)
-      const result = await approveReview(sql, {
-        reviewId,
-        adminUserId: identity.userId,
-        scopeDecisions: body.scope_decisions,
-        note: body.note,
-        requestCorrelationId: (ctx.state.requestId as string | undefined) ?? null,
-      })
-      ctx.status = 200
-      ctx.body = { review: result }
-    } catch (err) {
-      respondError(ctx, err)
-    }
+  // P4-4（mini-hbut#1219）退役：自建注册表/审核不再是权威源（权威源 = 仓库
+  // manifest/apps.json + PR 审核）。审批入口退役 → 410 Gone + 固定响应体
+  // （domain/app-registry/retired.ts REGISTRY_RETIRED_BODY）。
+  // 服务层 approveReview 同步改为抛 RegistryRetiredError（reviews.ts，fail closed）。
+  router.post(`${API_PREFIX}/admin/apps/:id/reviews/:reviewId/approve`, (ctx) => {
+    ctx.status = 410
+    ctx.body = REGISTRY_RETIRED_BODY
   })
 
   // POST /api/v1/admin/apps/:id/reviews/:reviewId/reject
-  //  body: { reason }（开发者可读，必填 1..2000）
-  router.post(`${API_PREFIX}/admin/apps/:id/reviews/:reviewId/reject`, async (ctx) => {
-    try {
-      const identity = await requireAdminRole(sql, readSubject(ctx), 'identity_reviewer')
-      const applicationId = ctx.params.id as string
-      const reviewId = ctx.params.reviewId as string
-      await loadReviewForApp(sql, reviewId, applicationId)
-      const body = await readJsonBody(ctx)
-      const result = await rejectReview(sql, {
-        reviewId,
-        adminUserId: identity.userId,
-        reason: typeof body.reason === 'string' ? body.reason : '',
-        requestCorrelationId: (ctx.state.requestId as string | undefined) ?? null,
-      })
-      ctx.status = 200
-      ctx.body = { review: result }
-    } catch (err) {
-      respondError(ctx, err)
-    }
+  // P4-4（mini-hbut#1219）退役：同上，驳回入口 → 410 Gone + 固定响应体。
+  router.post(`${API_PREFIX}/admin/apps/:id/reviews/:reviewId/reject`, (ctx) => {
+    ctx.status = 410
+    ctx.body = REGISTRY_RETIRED_BODY
   })
 
   // POST /api/v1/admin/apps/:id/suspend —— identity_admin + step-up

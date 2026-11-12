@@ -1,31 +1,20 @@
 /**
  * BFF：DELETE /api/v1/developer/apps/[id]/redirect-uris/[rid]
- * 删除单条 redirect URI（Pending 及之后自动重新进入审核）。
+ * P4-4（mini-hbut#1219）退役：删除 redirect URI 的写能力移除 → 410 Gone
+ * （固定响应体；清单仓库 manifest/apps.json + PR 审核为权威源）。
  */
 
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-import { getDeveloperApi } from '@/lib/developer-api/client'
-import { developerErrorResponse, errorJson, guardMutation, jsonOk } from '@/lib/developer-api/bff'
+import { guardMutation, registryRetiredResponse } from '@/lib/developer-api/bff'
 
 export const dynamic = 'force-dynamic'
 
-export async function DELETE(
-  request: NextRequest,
-  ctx: { params: Promise<{ id: string; rid: string }> },
-) {
+export async function DELETE(request: NextRequest) {
   const session = guardMutation(request)
   if (session instanceof NextResponse) {
     return session
   }
-  const { id, rid } = await ctx.params
-  try {
-    const app = await getDeveloperApi().removeRedirectUri(session.sub, id, rid)
-    if (!app) {
-      return errorJson(404, 'not_found')
-    }
-    return jsonOk({ app })
-  } catch (err) {
-    return developerErrorResponse(err)
-  }
+  // P4-4 退役：固定 410 响应，先于任何 store 调用
+  return registryRetiredResponse()
 }

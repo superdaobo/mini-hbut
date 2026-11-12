@@ -19,6 +19,7 @@ import { writeAdminAudit, ADMIN_EVENTS } from '../../../src/api/admin/audit.js'
 import { listAuditEvents } from '../../../src/db/repos/audit.repo.js'
 import { AuditSensitiveFieldError } from '../../../src/observability/audit/index.js'
 import { listAuditEventsAdmin } from '../../../src/api/admin/queries.js'
+import { RegistryRetiredError } from '../../../src/domain/app-registry/retired.js'
 
 describe('#625 审计（9 事件 / 脱敏 / 查询）', () => {
   let db: TestDatabase
@@ -50,32 +51,27 @@ describe('#625 审计（9 事件 / 脱敏 / 查询）', () => {
     await setClientStatus(db.sql, fixture.clientId, 'pending_review')
     const review = await ensurePendingReview(db.sql, fixture.applicationId)
 
-    await approveReview(db.sql, {
-      reviewId: review?.id as string,
-      adminUserId: reviewer.userId,
-      scopeDecisions: [
-        { scope: 'openid', decision: 'approved' },
-        { scope: 'student.identity', decision: 'rejected', note: '理由不足' },
-      ],
-      note: '整体通过',
-      requestCorrelationId: 'corr_0001',
-    })
+    // P4-4 退役：approve 写路径抛 RegistryRetiredError（fail closed）
+    await expect(
+      approveReview(db.sql, {
+        reviewId: review?.id as string,
+        adminUserId: reviewer.userId,
+        scopeDecisions: [
+          { scope: 'openid', decision: 'approved' },
+          { scope: 'student.identity', decision: 'rejected', note: '理由不足' },
+        ],
+        note: '整体通过',
+        requestCorrelationId: 'corr_0001',
+      }),
+    ).rejects.toBeInstanceOf(RegistryRetiredError)
 
+    // 退役后零审计、零写入（ADMIN_APP_APPROVED/ADMIN_SCOPE_* 不再产生）
     const events = await listAuditEvents(db.sql, { actorType: 'admin' })
-    const types = events.map((e) => e.event_type).sort()
-    expect(types).toEqual(['ADMIN_APP_APPROVED', 'ADMIN_SCOPE_APPROVED', 'ADMIN_SCOPE_REJECTED'].sort())
-    for (const e of events) {
-      expect(e.actor_id).toBe(reviewer.userId)
-      expect(e.target_type).toBe('application')
-      expect(e.target_id).toBe(fixture.applicationId)
-      expect(e.request_correlation_id).toBe('corr_0001')
-      const meta = e.metadata_json as Record<string, unknown>
-      expect(meta.review_id).toBe(review?.id)
-      expect(meta.revision).toBe(review?.revision)
-      // 绝不出现敏感键
-      const raw = JSON.stringify(meta)
-      expect(raw).not.toMatch(/secret|token|handoff|password|authorization/i)
-    }
+    expect(events.length).toBe(0)
+    // 审核快照状态不变（pending 原样保留）
+    const after = await ensurePendingReview(db.sql, fixture.applicationId)
+    expect(after?.id).toBe(review?.id)
+    expect(after?.status).toBe('pending')
   })
 
   it('audit 脱敏：metadata 含 client_secret/token 时整体拒绝落库（strict）', async () => {
@@ -100,24 +96,25 @@ describe('#625 审计（9 事件 / 脱敏 / 查询）', () => {
     expect(events.length).toBe(0)
   })
 
-  it('reject / suspend / unsuspend / revoke 各写对应事件', async () => {
+  it('suspend / unsuspend / revoke 各写对应事件（reject 已退役抛错）', async () => {
     const admin = await createAdminUser(db.sql, { role: 'identity_admin' })
     const fixture = await createClientFixture(db.sql, { status: 'active' })
-    const now = Math.floor(Date.now() / 1000)
 
-    // reject（先造 pending review）
+    // reject（先造 pending review）—— P4-4 退役：抛 RegistryRetiredError，
+    // 不再写 ADMIN_APP_REJECTED
     const fixture2 = await createClientFixture(db.sql, { scopes: ['openid'], status: 'draft' })
     await setClientStatus(db.sql, fixture2.clientId, 'pending_review')
     const review = await ensurePendingReview(db.sql, fixture2.applicationId)
-    await rejectReview(db.sql, { reviewId: review?.id as string, adminUserId: admin.userId, reason: 'callback 非 https' })
+    await expect(rejectReview(db.sql, { reviewId: review?.id as string, adminUserId: admin.userId, reason: 'callback 非 https' }))
+      .rejects.toBeInstanceOf(RegistryRetiredError)
 
+    // suspend/unsuspend/revoke 属运行时安全动作（非注册表写入），保留
     await suspendClient(db.sql, { applicationId: fixture.applicationId, adminUserId: admin.userId, reason: 'r1' })
     await unsuspendClient(db.sql, { applicationId: fixture.applicationId, adminUserId: admin.userId, reason: 'r2' })
     await revokeClient(db.sql, { applicationId: fixture.applicationId, adminUserId: admin.userId, reason: 'r3' })
 
     const types = (await listAuditEvents(db.sql, { actorType: 'admin' })).map((e) => e.event_type).sort()
     expect(types).toEqual([
-      'ADMIN_APP_REJECTED',
       'ADMIN_CLIENT_REVOKED',
       'ADMIN_CLIENT_SUSPENDED',
       'ADMIN_CLIENT_UNSUSPENDED',

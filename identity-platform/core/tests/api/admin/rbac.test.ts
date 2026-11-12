@@ -64,7 +64,7 @@ describe('#625 admin RBAC / IDOR / self-review', () => {
     })
   })
 
-  it('reviewer 可查看 + 审核；不能 suspend/revoke/查 audit（角色差异）', async () => {
+  it('reviewer 可查看 + 审核（P4-4 退役 410）；不能 suspend/revoke/查 audit（角色差异）', async () => {
     const reviewer = await createAdminUser(db.sql, { role: 'identity_reviewer' })
     const fixture = await createClientFixture(db.sql, { scopes: ['openid', 'profile'], status: 'draft' })
     await setClientStatus(db.sql, fixture.clientId, 'pending_review')
@@ -72,21 +72,22 @@ describe('#625 admin RBAC / IDOR / self-review', () => {
     const app = buildAdminApp(db.sql)
 
     await withServer(app, async (baseUrl) => {
-      // 查看
+      // 查看（只读路径保留）
       const overview = await adminGet(baseUrl, '/api/v1/admin/overview', { subject: reviewer.userId })
       expect(overview.status).toBe(200)
       const list = await adminGet(baseUrl, '/api/v1/admin/apps', { subject: reviewer.userId })
       expect(list.status).toBe(200)
-      // 审核（approve 无敏感 scope → 无需 step-up）
       const reviews = await adminGet(baseUrl, `/api/v1/admin/apps/${fixture.applicationId}/reviews`, { subject: reviewer.userId })
       const reviewId = (reviews.body.reviews as Array<{ id: string }>)[0]?.id
       expect(reviewId).toBeTruthy()
+      // 审批写接口 P4-4 退役 → 410 Gone（固定响应体，先于 RBAC/归属校验）
       const approved = await adminPost(
         baseUrl,
         `/api/v1/admin/apps/${fixture.applicationId}/reviews/${reviewId}/approve`,
         { subject: reviewer.userId, body: { scope_decisions: [{ scope: 'openid', decision: 'approved' }, { scope: 'profile', decision: 'approved' }] } },
       )
-      expect(approved.status).toBe(200)
+      expect(approved.status).toBe(410)
+      expect(approved.body.error).toBe('registry_retired')
       // reviewer 不能 suspend / revoke / audit
       const suspend = await adminPost(baseUrl, `/api/v1/admin/apps/${fixture.applicationId}/suspend`, {
         subject: reviewer.userId,
@@ -130,7 +131,7 @@ describe('#625 admin RBAC / IDOR / self-review', () => {
     })
   })
 
-  it('self-review 禁止：owner 本人审核 → 403 SELF_REVIEW_FORBIDDEN', async () => {
+  it('self-review 路径 P4-4 退役：410 固定响应先于 self-review 校验', async () => {
     // 管理员同时也是应用 owner
     const owner = await createAdminUser(db.sql, { role: 'identity_reviewer', asDeveloper: true })
     const fixture = await createClientFixture(db.sql, { scopes: ['openid'], status: 'draft' })
@@ -151,12 +152,13 @@ describe('#625 admin RBAC / IDOR / self-review', () => {
         `/api/v1/admin/apps/${fixture.applicationId}/reviews/${reviewId}/approve`,
         { subject: owner.userId, body: { scope_decisions: [{ scope: 'openid', decision: 'approved' }] } },
       )
-      expect(approve.status).toBe(403)
-      expect(approve.body.error).toBe('SELF_REVIEW_FORBIDDEN')
+      // P4-4：写接口一律 410 Gone（固定响应先于 self-review 校验）
+      expect(approve.status).toBe(410)
+      expect(approve.body.error).toBe('registry_retired')
     })
   })
 
-  it('review 不属于路径 app → 404（IDOR 参数错配）', async () => {
+  it('IDOR 参数错配路径 P4-4 退役：一律 410（固定响应先于归属校验）', async () => {
     const reviewer = await createAdminUser(db.sql, { role: 'identity_reviewer' })
     const a = await createClientFixture(db.sql, { status: 'draft' })
     const b = await createClientFixture(db.sql, { status: 'draft' })
@@ -169,14 +171,14 @@ describe('#625 admin RBAC / IDOR / self-review', () => {
     await withServer(app, async (baseUrl) => {
       const reviews = await adminGet(baseUrl, `/api/v1/admin/apps/${a.applicationId}/reviews`, { subject: reviewer.userId })
       const reviewIdOfA = (reviews.body.reviews as Array<{ id: string }>)[0]?.id
-      // 用 B 的 app id + A 的 review id → 404
+      // 用 B 的 app id + A 的 review id → 410（退役后固定响应，不再泄露存在性）
       const res = await adminPost(
         baseUrl,
         `/api/v1/admin/apps/${b.applicationId}/reviews/${reviewIdOfA}/reject`,
         { subject: reviewer.userId, body: { reason: '不匹配' } },
       )
-      expect(res.status).toBe(404)
-      expect(res.body.error).toBe('REVIEW_NOT_FOUND')
+      expect(res.status).toBe(410)
+      expect(res.body.error).toBe('registry_retired')
     })
   })
 

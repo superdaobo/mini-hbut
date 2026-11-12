@@ -1,8 +1,8 @@
 /**
  * BFF：GET/PUT /api/v1/developer/apps/[id]/scopes
- *  - GET：scope 列表（含审核状态与理由）；
- *  - PUT：整体替换 scope 请求（openid 必选；敏感 scope 需理由；
- *    Pending 及之后自动重新进入审核）。
+ *  - GET：scope 列表（只读，保留；含审核状态与理由）；
+ *  - PUT：P4-4（mini-hbut#1219）退役 —— 数据域/scope 请求不再可提交，410 Gone；
+ *    接入与数据域变更改由清单仓库 manifest/apps.json + PR 审核。
  */
 
 import type { NextRequest } from 'next/server'
@@ -13,9 +13,9 @@ import {
   errorJson,
   guardMutation,
   jsonOk,
+  registryRetiredResponse,
   requireSession,
 } from '@/lib/developer-api/bff'
-import { sanitizeScopeRequests } from '@/lib/developer/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,32 +36,11 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   }
 }
 
-export async function PUT(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function PUT(request: NextRequest) {
   const session = guardMutation(request)
   if (session instanceof NextResponse) {
     return session
   }
-  const { id } = await ctx.params
-  let raw: unknown
-  try {
-    raw = await request.json()
-  } catch {
-    return errorJson(400, 'invalid_request')
-  }
-  if (typeof raw !== 'object' || raw === null) {
-    return errorJson(400, 'invalid_request')
-  }
-  const sanitized = sanitizeScopeRequests((raw as Record<string, unknown>).scopes)
-  if (!sanitized.ok) {
-    return errorJson(400, 'invalid_request')
-  }
-  try {
-    const app = await getDeveloperApi().putScopes(session.sub, id, sanitized.value)
-    if (!app) {
-      return errorJson(404, 'not_found')
-    }
-    return jsonOk({ app })
-  } catch (err) {
-    return developerErrorResponse(err)
-  }
+  // P4-4 退役：不再提交 scope 请求；固定 410 响应，先于任何 store 调用
+  return registryRetiredResponse()
 }

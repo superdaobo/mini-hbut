@@ -1,6 +1,7 @@
 /**
- * 应用详情容器（client component）：加载详情 + 7 个 Tab 切换。
- * 持有 app 状态与一次性 secret（create/rotate 响应），Tab 间共享刷新。
+ * 应用详情容器（client component）：加载详情 + 只读 Tab 切换。
+ * P4-4（mini-hbut#1219）：自建注册表退役 —— 凭据/危险操作 Tab 与编辑入口移除，
+ * 保留只读目录（概览 / 回调地址 / 权限 / 审核 / 动态）。
  */
 'use client'
 
@@ -11,10 +12,8 @@ import type { MeResult } from './api'
 import { OverviewTab } from './tabs/overview'
 import { RedirectUrisTab } from './tabs/redirect-uris'
 import { ScopesTab } from './tabs/scopes'
-import { CredentialsTab } from './tabs/credentials'
 import { ReviewTab } from './tabs/review'
 import { AuditTab } from './tabs/audit'
-import { DangerZoneTab } from './tabs/danger'
 
 /** 应用状态中文标签（面向非专业用户，不暴露内部英文状态名） */
 const STATUS_ZH: Record<string, string> = {
@@ -31,38 +30,12 @@ function appStatusZh(status: string): string {
   return STATUS_ZH[status] ?? status
 }
 
-/**
- * #687 显性编辑入口：按应用状态给出按钮形态。
- *  - draft/rejected：可点 → 切到概览 Tab 并自动展开编辑表单；
- *  - 其余状态禁用 + tooltip 说明原因（disabled button 不触发 hover 事件，外包 span 承载 title）。
- */
-function editEntryFor(status: string): { enabled: boolean; tooltip: string } {
-  switch (status) {
-    case 'draft':
-    case 'rejected':
-      return { enabled: true, tooltip: '修改应用的基本信息、回调地址与权限' }
-    case 'pending_review':
-      return { enabled: false, tooltip: '审核中，请耐心等待审核结果' }
-    case 'approved':
-    case 'active':
-      return {
-        enabled: true,
-        tooltip: '可修改名称、简介、主页与隐私政策链接；回调地址与权限范围变更暂不支持在线操作',
-      }
-    default:
-      // suspended / revoked 及未知状态
-      return { enabled: false, tooltip: '当前状态不可修改' }
-  }
-}
-
 const TABS = [
   { id: 'overview', label: '概览' },
   { id: 'redirect-uris', label: '回调地址' },
   { id: 'scopes', label: '权限' },
-  { id: 'credentials', label: '凭据' },
   { id: 'review', label: '审核' },
   { id: 'audit', label: '动态' },
-  { id: 'danger', label: '危险操作' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -72,10 +45,6 @@ export function AppDetail({ appId }: { appId: string }) {
   const [me, setMe] = useState<MeResult | null>(null)
   const [tab, setTab] = useState<TabId>('overview')
   const [error, setError] = useState<string | null>(null)
-  /** 概览 Tab 编辑表单自动展开信号（头部「修改应用」按钮触发；递增计数保证可重复触发） */
-  const [editSignal, setEditSignal] = useState(0)
-  /** 一次性 secret（rotate 响应），仅内存持有，刷新即失 */
-  const [oneTimeSecret, setOneTimeSecret] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     try {
@@ -121,14 +90,7 @@ export function AppDetail({ appId }: { appId: string }) {
     return <div className="dev-empty">加载中…</div>
   }
 
-  const tabProps = {
-    app,
-    me,
-    setApp,
-    oneTimeSecret,
-    setOneTimeSecret,
-    reload,
-  }
+  const tabProps = { app, me, reload }
 
   return (
     <div>
@@ -141,25 +103,7 @@ export function AppDetail({ appId }: { appId: string }) {
         </span>
         <code className="dev-mono">{app.client_id}</code>
         <span className="dev-inline-hint">{app.client_type === 'web_confidential' ? 'Web 应用（服务端）' : '原生 / 移动端应用'}</span>
-        {(() => {
-          const entry = editEntryFor(app.status)
-          const button = (
-            <button
-              type="button"
-              className="dev-btn dev-btn-primary"
-              disabled={!entry.enabled}
-              onClick={() => {
-                // 切到概览 Tab 并自动展开编辑表单（editSignal 递增，重复点击也能再次展开）
-                setTab('overview')
-                setEditSignal((s) => s + 1)
-              }}
-            >
-              修改应用
-            </button>
-          )
-          // disabled 按钮在部分浏览器不响应 hover/title：外包 span 承载 tooltip
-          return <span title={entry.tooltip}>{button}</span>
-        })()}
+        <span className="dev-inline-hint">（只读目录；变更请通过清单仓库 PR）</span>
       </div>
 
       <div className="dev-tabs" role="tablist" aria-label="应用详情">
@@ -176,13 +120,11 @@ export function AppDetail({ appId }: { appId: string }) {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewTab {...tabProps} editSignal={editSignal} />}
+      {tab === 'overview' && <OverviewTab {...tabProps} />}
       {tab === 'redirect-uris' && <RedirectUrisTab {...tabProps} />}
       {tab === 'scopes' && <ScopesTab {...tabProps} />}
-      {tab === 'credentials' && <CredentialsTab {...tabProps} />}
       {tab === 'review' && <ReviewTab {...tabProps} />}
       {tab === 'audit' && <AuditTab {...tabProps} />}
-      {tab === 'danger' && <DangerZoneTab {...tabProps} />}
     </div>
   )
 }

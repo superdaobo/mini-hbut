@@ -1,10 +1,16 @@
 /**
  * Admin BFF 路由守卫测试（issue #625）：
  * - 所有端点要求会话（401）；mutation 要求 CSRF + Origin（403）；
- * - auth_time 从会话 iat 传播（step-up 由 Core 判定）；
  * - 非管理员（无角色）→ 403 forbidden（服务端 RBAC 边界，不只是隐藏菜单）；
- * - step_up_required / revision_mismatch 错误码透传；
  * - 响应一律 no-store。
+ *
+ * P4-4（mini-hbut#1219）自建注册表/审核退役：
+ * - approve/reject 在守卫通过后一律 410 Gone + 固定响应体
+ *   {"error":"registry_retired","message":"应用接入改由清单仓库 + PR 审核（见 manifest/README.md）"}
+ *   （401/403 仍先于 410；固定响应先于任何 store 调用 → revision/step-up 等业务
+ *   错误码不再从 BFF 透出）；
+ * - 只读端点（me/overview/apps/详情/审计）与运行时动作（suspend/unsuspend/revoke）
+ *   语义不变（仍走 stub store）。
  *
  * 使用模块级桩（与 BFF 路由同实例，IDENTITY_CORE_STUB=1）。
  */
@@ -27,6 +33,12 @@ const ORIGIN = 'http://localhost:3000'
 const TEST_SECRET = 'test-session-secret-0123456789abcdef'
 /** 桩模式默认管理员 sub（与 stub-store 默认角色一致） */
 const ADMIN_SUB = 'dev_sub_stub_0001'
+
+/** P4-4 冻结契约：410 Gone 固定响应体（与 core retired.ts 一致） */
+const RETIRED_BODY = {
+  error: 'registry_retired',
+  message: '应用接入改由清单仓库 + PR 审核（见 manifest/README.md）',
+}
 
 function env(): Record<string, string | undefined> {
   return {
@@ -104,6 +116,12 @@ describe('Admin BFF 会话/角色守卫', () => {
     expect(res3.status).toBe(401)
   })
 
+  it('approve/reject 无会话：401（先于 410）', async () => {
+    const { id } = await createSubmittedApp()
+    expect((await approvePost(makeRequest(`/api/v1/admin/apps/${id}/reviews/rev_x/approve`, { method: 'POST' }))).status).toBe(401)
+    expect((await rejectPost(makeRequest(`/api/v1/admin/apps/${id}/reviews/rev_x/reject`, { method: 'POST' }))).status).toBe(401)
+  })
+
   it('非管理员（无角色）→ 403（服务端 RBAC，不因 URL 可访问而放行）', async () => {
     const cookies = sessionCookies('plain_user_0001', '普通用户')
     const res = await meGet(makeRequest('/api/v1/admin/me', { headers: { cookie: cookies.cookie } }))
@@ -124,8 +142,8 @@ describe('Admin BFF 会话/角色守卫', () => {
   })
 })
 
-describe('Admin BFF mutation 守卫（CSRF/Origin）', () => {
-  it('mutation 缺 CSRF → 403；缺 Origin → 403；合法 → 通过', async () => {
+describe('Admin BFF mutation 守卫（CSRF/Origin，先于 410）', () => {
+  it('approve 缺 CSRF → 403；缺 Origin → 403；守卫通过 → 410 固定响应', async () => {
     const { id } = await createSubmittedApp()
     const cookies = sessionCookies()
 
@@ -136,7 +154,6 @@ describe('Admin BFF mutation 守卫（CSRF/Origin）', () => {
         headers: { cookie: cookies.cookie, origin: ORIGIN, 'content-type': 'application/json' },
         body: JSON.stringify({ scope_decisions: [{ scope: 'openid', decision: 'approved' }] }),
       }),
-      params(id),
     )
     expect(noCsrf.status).toBe(403)
 
@@ -147,20 +164,19 @@ describe('Admin BFF mutation 守卫（CSRF/Origin）', () => {
         headers: { ...mutationHeaders(cookies), origin: 'https://evil.example.com' },
         body: JSON.stringify({ scope_decisions: [{ scope: 'openid', decision: 'approved' }] }),
       }),
-      params(id),
     )
     expect(crossOrigin.status).toBe(403)
 
-    // 合法请求 → 通过守卫（错误码来自业务层，此处应为 404 not_found 而非 403）
+    // 合法请求 → 守卫通过；P4-4 退役 → 410 + 固定响应体
     const ok = await approvePost(
       makeRequest(`/api/v1/admin/apps/${id}/reviews/rev_x/approve`, {
         method: 'POST',
         headers: { ...mutationHeaders(cookies), 'content-type': 'application/json' },
         body: JSON.stringify({ scope_decisions: [{ scope: 'openid', decision: 'approved' }] }),
       }),
-      params(id),
     )
-    expect(ok.status).toBe(404)
+    expect(ok.status).toBe(410)
+    expect(await ok.json()).toEqual(RETIRED_BODY)
   })
 
   it('suspend 缺 reason → 400（业务校验在守卫之后）', async () => {
@@ -178,8 +194,8 @@ describe('Admin BFF mutation 守卫（CSRF/Origin）', () => {
   })
 })
 
-describe('Admin BFF 审核/运行时流程（桩，端到端）', () => {
-  it('查看队列 → 审核通过 → 应用激活；重复 approve 幂等', async () => {
+describe('P4-4 退役：approve/reject → 410（固定契约）', () => {
+  it('查看队列/详情保留（只读）；approve → 410 且应用不激活（保持 pending_review）', async () => {
     const { id } = await createSubmittedApp()
     const cookies = sessionCookies()
     const list = await appsGet(makeRequest('/api/v1/admin/apps', { headers: { cookie: cookies.cookie } }))
@@ -189,6 +205,7 @@ describe('Admin BFF 审核/运行时流程（桩，端到端）', () => {
     expect(listBody.apps[0]?.id).toBe(id)
 
     const detail = await appGet(makeRequest(`/api/v1/admin/apps/${id}`, { headers: { cookie: cookies.cookie } }), params(id))
+    expect(detail.status).toBe(200)
     const detailBody = (await detail.json()) as { app: { pending_review: { id: string } } }
     const reviewId = detailBody.app.pending_review.id
 
@@ -198,16 +215,18 @@ describe('Admin BFF 审核/运行时流程（桩，端到端）', () => {
         headers: { ...mutationHeaders(cookies), 'content-type': 'application/json' },
         body: JSON.stringify({ scope_decisions: [{ scope: 'openid', decision: 'approved' }] }),
       }),
-      params(id, reviewId),
     )
-    expect(approve.status).toBe(200)
+    expect(approve.status).toBe(410)
+    expect(await approve.json()).toEqual(RETIRED_BODY)
 
+    // 应用未被激活：仍为 pending_review（410 先于 store 调用，零副作用）
     const after = await appGet(makeRequest(`/api/v1/admin/apps/${id}`, { headers: { cookie: cookies.cookie } }), params(id))
-    const afterBody = (await after.json()) as { app: { application: { status: string } } }
-    expect(afterBody.app.application.status).toBe('active')
+    const afterBody = (await after.json()) as { app: { application: { status: string }; reviews: Array<{ status: string }> } }
+    expect(afterBody.app.application.status).toBe('pending_review')
+    expect(afterBody.app.reviews.every((r) => r.status === 'pending' || r.status === 'superseded')).toBe(true)
   })
 
-  it('revision_mismatch 与 step_up_required 错误码透传', async () => {
+  it('内容已篡改（revision 过期）：approve 仍 410（固定契约先于业务错误码）', async () => {
     const { id } = await createSubmittedApp()
     const cookies = sessionCookies()
     const detail = await appGet(makeRequest(`/api/v1/admin/apps/${id}`, { headers: { cookie: cookies.cookie } }), params(id))
@@ -224,13 +243,35 @@ describe('Admin BFF 审核/运行时流程（桩，端到端）', () => {
         headers: { ...mutationHeaders(cookies), 'content-type': 'application/json' },
         body: JSON.stringify({ scope_decisions: [{ scope: 'openid', decision: 'approved' }] }),
       }),
-      params(id, reviewId),
     )
-    expect(stale.status).toBe(409)
-    expect((await stale.json()) as Record<string, unknown>).toMatchObject({ error: 'revision_mismatch' })
+    expect(stale.status).toBe(410)
+    expect(await stale.json()).toEqual(RETIRED_BODY)
   })
 
-  it('reviewer 角色（无 identity_admin）经 BFF 调 suspend → 403；admin 可 revoke', async () => {
+  it('reject → 410 + 固定响应体（先于 store 调用，零审计写入）', async () => {
+    const { id } = await createSubmittedApp()
+    const cookies = sessionCookies()
+    const detail = await appGet(makeRequest(`/api/v1/admin/apps/${id}`, { headers: { cookie: cookies.cookie } }), params(id))
+    const reviewId = ((await detail.json()) as { app: { pending_review: { id: string } } }).app.pending_review.id
+
+    const reject = await rejectPost(
+      makeRequest(`/api/v1/admin/apps/${id}/reviews/${reviewId}/reject`, {
+        method: 'POST',
+        headers: { ...mutationHeaders(cookies), 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: '不符合要求' }),
+      }),
+    )
+    expect(reject.status).toBe(410)
+    expect(await reject.json()).toEqual(RETIRED_BODY)
+
+    // 零审计写入（审核类事件不存在）
+    const audit = getStubAdminStore()._audit()
+    expect(audit.filter((e) => e.event_type === 'ADMIN_APP_REJECTED').length).toBe(0)
+  })
+})
+
+describe('运行时动作保留（suspend / unsuspend / revoke）', () => {
+  it('reviewer 角色（无 identity_admin）经 BFF 调 suspend → 403；admin 可 revoke（approve 退役后不激活）', async () => {
     const { id } = await createSubmittedApp()
     const reviewerCookies = sessionCookies('reviewer_sub_0001', '审核员')
     // 给 reviewer 角色（默认桩只有 admin_sub 有角色）
@@ -247,18 +288,8 @@ describe('Admin BFF 审核/运行时流程（桩，端到端）', () => {
     expect(denied.status).toBe(403)
     expect((await denied.json()) as Record<string, unknown>).toMatchObject({ error: 'forbidden' })
 
-    // admin 走完整流程：approve → suspend → revoke
+    // P4-4 后 approve 不再激活应用（410），suspend 因此 409 invalid_state（非 active）
     const adminCookies = sessionCookies()
-    const detail = await appGet(makeRequest(`/api/v1/admin/apps/${id}`, { headers: { cookie: adminCookies.cookie } }), params(id))
-    const reviewId = ((await detail.json()) as { app: { pending_review: { id: string } } }).app.pending_review.id
-    await approvePost(
-      makeRequest(`/api/v1/admin/apps/${id}/reviews/${reviewId}/approve`, {
-        method: 'POST',
-        headers: { ...mutationHeaders(adminCookies), 'content-type': 'application/json' },
-        body: JSON.stringify({ scope_decisions: [{ scope: 'openid', decision: 'approved' }] }),
-      }),
-      params(id, reviewId),
-    )
     const suspended = await suspendPost(
       makeRequest(`/api/v1/admin/apps/${id}/suspend`, {
         method: 'POST',
@@ -267,7 +298,9 @@ describe('Admin BFF 审核/运行时流程（桩，端到端）', () => {
       }),
       params(id),
     )
-    expect(suspended.status).toBe(200)
+    expect(suspended.status).toBe(409)
+
+    // revoke 不受状态限制（非 revoked 即可）→ 200
     const revoked = await revokePost(
       makeRequest(`/api/v1/admin/apps/${id}/revoke`, {
         method: 'POST',
@@ -277,14 +310,11 @@ describe('Admin BFF 审核/运行时流程（桩，端到端）', () => {
       params(id),
     )
     expect(revoked.status).toBe(200)
-    // 审计查询（admin）
+    // 审计查询（admin）：只有运行时事件，无审核事件
     const audit = await auditGet(makeRequest('/api/v1/admin/audit', { headers: { cookie: adminCookies.cookie } }))
     expect(audit.status).toBe(200)
     const auditBody = (await audit.json()) as { events: Array<{ event_type: string }> }
-    expect(auditBody.events.map((e) => e.event_type)).toEqual(expect.arrayContaining([
-      'ADMIN_APP_APPROVED',
-      'ADMIN_CLIENT_SUSPENDED',
-      'ADMIN_CLIENT_REVOKED',
-    ]))
+    expect(auditBody.events.map((e) => e.event_type)).toContain('ADMIN_CLIENT_REVOKED')
+    expect(auditBody.events.map((e) => e.event_type)).not.toContain('ADMIN_APP_APPROVED')
   })
 })
