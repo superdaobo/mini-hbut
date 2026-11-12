@@ -102,3 +102,41 @@ identity_oidc_await_callback(60000)   # 在本机回环等回调，收到后走�
 | 真实 Casdoor 联调（issuer/aud/claim 名） | **未实测**（FDL 条件未就绪，见 `P4-1`） |
 | loopback 真回环 HTTP 往返 | **未实测**（本机代理劫持 loopback 明文 HTTP，只覆盖纯函数/绑定/超时） |
 | 登录 UI（发起按钮、回调消费、错误展示） | **未接线**（本任务只交付可调用模块；`NotificationCoordinator` 目前显式忽略 `identity-callback` 深链） |
+
+---
+
+## 7. 【检查 5】生产三方对齐（G6/G7 部署必读）
+
+> 检查 5 分工实测结论：三仓（auth / client / ocr）的默认值互异，**生产必须显式配齐下表**，
+> 否则 authorize → confirm → token → refresh 链路会在某侧 400/401/拒收。dev 回环默认值仅用于本地联调。
+
+### 7.1 三方对齐表
+
+| 侧 | env | 必须与谁一致 |
+|---|---|---|
+| auth | `OIDC_CLIENTS`（客户端必须含 `"public": true` + `redirect_uris: ["minihbut://identity/callback"]`） | client 的 `HBUT_IDENTITY_OIDC_CLIENT_ID` / `HBUT_IDENTITY_OIDC_REDIRECT_URI`（**逐字相等**，含 `minihbut://` 自定义 scheme） |
+| auth | `ISSUER` | client `HBUT_IDENTITY_OIDC_ISSUER`、ocr `MINI_HBUT_IDENTITY_ISSUERS[].issuer`（id_token 的 `iss` 逐字比对） |
+| ocr | `MINI_HBUT_IDENTITY_ISSUERS[].jwks_url` | **必须显式写** `{auth issuer}/jwks.json`（默认推导路径与 auth 实际暴露路径不符，不显式写会取 JWKS 失败 → 验签失败） |
+| client | `VITE_HBUT_IDENTITY_DEVICE_TOKEN_ENABLED`（**构建期** VITE 变量） | 与运行时 `HBUT_IDENTITY_OIDC_*` 的**生效时机不同**（见 7.2），不能假设两边自动同步 |
+
+注意：
+
+- auth 侧客户端必须显式 `public: true`（client 是 PKCE 公有客户端，**不发** `client_secret`）；同一 `client_id` 既 `public` 又配了 secret → auth 直接 `ConfigError`。
+- `/token` 的 `redirect_uri` 必须与 `/authorize` **逐字相等**（尾斜杠/大小写差异仍拒）。
+- G7 深链对齐：auth `/authorize` 返回 `deep_link = minihbut://student-auth?request_id=<32hex>&nonce=<16..128>`，client 深链解析器（`platform/deep_link.ts` 的 `identity-confirm` kind）已接受该 host 并交给 `IdentityCoordinator.submitConfirmIntent` 最小入口（UI 接线在后续任务）。
+
+### 7.2 VITE 构建期 vs 运行时 env 生效时机
+
+| 类别 | 例子 | 生效时机 | 修改后需要 |
+|---|---|---|---|
+| client 构建期（Vite） | `VITE_HBUT_IDENTITY_DEVICE_TOKEN_ENABLED` | **构建时**烧进前端 bundle；运行时 `import.meta.env` 只是读构建期快照 | 重新 `vite build` 并发布新包 |
+| client 运行时（Rust/OS env） | `HBUT_IDENTITY_OIDC_ENABLED` / `…_ISSUER` / `…_CLIENT_ID` / `…_REDIRECT_URI` | 进程启动/命令执行时由 Rust 身份模块**实时读取**当前 env | 重启 App 进程即可（无需重建） |
+| auth / ocr（服务端） | `OIDC_CLIENTS` / `ISSUER` / `MINI_HBUT_IDENTITY_ISSUERS` | 服务进程启动时加载 | 重启对应服务进程 |
+
+> 常见坑：改了 `VITE_*` 变量但只重启 App（不重新构建）→ bundle 里仍是旧值；
+> 改了 `HBUT_IDENTITY_OIDC_*` 但没重启 App → 旧 env 仍生效。两侧必须分别核对。
+
+### 7.3 登出后 AT 在 exp 内仍有效（无吊销）
+
+- auth **没有吊销端点**（无 `revoke`）：用户登出后，已签发的 AT 在其 `exp` 窗口内**仍然有效**（AT 有效期 ≤900s，默认 300s），ocr/client 侧只会在 `exp` 过后才将其视为过期。
+- 若需要登出后尽快失效，只能缩短 AT 的 `exp`（与刷新流程换票频率做权衡）；这是**有意的安全取舍，不是缺陷**。

@@ -39,6 +39,7 @@ vi.mock('../../navigation/app_navigation', () => ({
 
 import { createNotificationCoordinator, msUntilNextDayCrossover } from './NotificationCoordinator'
 import { tryWriteSnapshotFromCache } from '../../utils/widget_bridge'
+import { installMiniHbutDeepLinkListeners } from '../../platform/deep_link'
 
 const mockTryWrite = vi.mocked(tryWriteSnapshotFromCache)
 
@@ -59,10 +60,10 @@ const makeRuntime = (studentId: string) => {
   const runtime = {
     state,
     navigation: { goToView: vi.fn() },
-    identity: { submitIntent: vi.fn() }
+    identity: { submitIntent: vi.fn(), submitConfirmIntent: vi.fn() }
   } as unknown as Parameters<typeof createNotificationCoordinator>[0]
   const coordinator = createNotificationCoordinator(runtime)
-  return { state, coordinator }
+  return { state, coordinator, runtime }
 }
 
 beforeEach(() => {
@@ -119,5 +120,42 @@ describe('#759 小组件跨天定时器', () => {
     coordinator.scheduleWidgetCrossDayTimer()
     vi.advanceTimersByTime((24 * 3600 + 60) * 1000)
     expect(mockTryWrite).not.toHaveBeenCalled()
+  })
+})
+
+// ─── 【检查 5】G7：identity-confirm 深链不再被丢弃 ────────────────────────────
+
+describe('【检查 5】G7 identity-confirm 深链分发', () => {
+  beforeEach(() => {
+    // node 环境无 window：installWidgetDeeplinkListeners 只用 addEventListener，给最小桩
+    vi.stubGlobal('window', { addEventListener: vi.fn() })
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('identity-confirm 不再被丢弃：交给 identity.submitConfirmIntent（identity 与 identity-callback 行为不变）', () => {
+    const mockInstall = vi.mocked(installMiniHbutDeepLinkListeners)
+    const { coordinator, runtime } = makeRuntime(SID)
+    coordinator.installWidgetDeeplinkListeners()
+    expect(mockInstall).toHaveBeenCalledTimes(1)
+    const handler = mockInstall.mock.calls[0][0]
+
+    // G7 修复目标：confirm 深链（auth /authorize 输出形态）被接收，不再静默丢弃
+    const requestId = '0123456789abcdef0123456789abcdef'
+    const nonce = 'Ab0-_.1234567890'
+    handler({ kind: 'identity-confirm', requestId, nonce }, 'warm')
+    expect(runtime.identity.submitConfirmIntent).toHaveBeenCalledTimes(1)
+    expect(runtime.identity.submitConfirmIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId, nonce }),
+      'warm'
+    )
+    // 回归：#619 identity 深链仍走 submitIntent（三字段 + delivery 透传）
+    handler({ kind: 'identity', requestId: 'ar_0123456789abcdef', handoff: 'A'.repeat(32) }, 'warm')
+    expect(runtime.identity.submitIntent).toHaveBeenCalledTimes(1)
+    // 回归：P2-4 identity-callback 仍不交给 submitIntent / submitConfirmIntent
+    handler({ kind: 'identity-callback', code: 'a'.repeat(16), state: 'b'.repeat(16) }, 'warm')
+    expect(runtime.identity.submitIntent).toHaveBeenCalledTimes(1)
+    expect(runtime.identity.submitConfirmIntent).toHaveBeenCalledTimes(1)
   })
 })

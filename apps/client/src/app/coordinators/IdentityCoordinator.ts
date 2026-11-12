@@ -519,6 +519,23 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
     }
   }
 
+  // ── 【检查 5】G7：identity-confirm 最小入口 ─────────────────────────────────
+  /** confirm 深链接收计数（只计数；request_id/nonce 不落日志/存储，与 handoff 同款红线） */
+  let confirmIntentCount = 0
+  const submitConfirmIntent = (
+    intent: { requestId: string; nonce: string; arrivedAt: number },
+    _delivery?: DeepLinkDelivery
+  ): void => {
+    if (!intent || typeof intent.requestId !== 'string' || intent.requestId === '') return
+    if (typeof intent.nonce !== 'string' || intent.nonce === '') return
+    confirmIntentCount += 1
+    // TODO(identity-v2 UI 接线/后续任务)：按 requestId 向 auth 查询待确认请求并展示确认页，
+    // 用户确认后调 auth /authorize/confirm（nonce 逐字回传）。
+    // 当前为最小实现：只做形状校验 + 计数，保证深链可解析且不被静默丢弃。
+    // 日志只含计数，不含任何参数值（request_id/nonce 为短期 opaque 值）。
+    console.info(`[identity] confirm intent received (count=${confirmIntentCount})`)
+  }
+
   const handleLoginResumed = (): void => {
     void resumeAfterLogin()
   }
@@ -570,6 +587,8 @@ export const createIdentityCoordinator = (runtime: AppRuntime): IdentityCoordina
   return {
     // #621 合同（原样保留）
     submitIntent,
+    // 【检查 5】G7：identity-confirm 最小入口（UI 接线在后续任务）
+    submitConfirmIntent,
     flushPendingIntents,
     completeIntent: (requestId, status, error) => {
       coldStartRequestIds.delete(requestId)

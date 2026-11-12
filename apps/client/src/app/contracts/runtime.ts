@@ -223,6 +223,16 @@ export interface IdentityCoordinator {
    * （缺省按 warm）；冷启动死信（过期/不存在/handoff 失效）静默丢弃，不弹阻塞结果页。
    */
   submitIntent(intent: IdentityIntent, delivery?: DeepLinkDelivery): void
+  /**
+   * 【检查 5】G7 最小入口：identity-confirm 深链（auth /authorize → minihbut://student-auth?request_id=..&nonce=..）
+   * 不再被 NotificationCoordinator 静默丢弃。本任务只要求深链可解析且被接收；
+   * UI 接线（展示确认页并调 auth /authorize/confirm）在后续任务。
+   * 安全红线：requestId/nonce 为短期 opaque 值，不得写 console/存储/日志。
+   */
+  submitConfirmIntent?(
+    intent: { requestId: string; nonce: string; arrivedAt: number },
+    delivery?: DeepLinkDelivery
+  ): void
   /** App shell bootstrap 完成后冲刷冷启动缓冲（由 useAppRuntime 调用） */
   flushPendingIntents(): void
   /** 完成/拒绝/过期当前请求：终态（done/error）后自动推进队列中的下一个 */
