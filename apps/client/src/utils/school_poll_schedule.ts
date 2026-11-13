@@ -59,6 +59,11 @@ export interface DecidePollInput {
   manual?: boolean
   /** 学校会话是否有效（失效/维护中 → 不查，避免无效重试） */
   sessionValid?: boolean
+  /**
+   * 周期覆盖（ms）：降频时由调用方传入 `downshiftedInterval(base, tier)`。
+   * 缺省/非法 → 用 `POLL_INTERVALS_MS[domain]`。
+   */
+  intervalOverrideMs?: number
 }
 
 const safeText = (value: unknown): string => String(value ?? '').trim()
@@ -98,7 +103,9 @@ export const decidePoll = (input: DecidePollInput): PollDecision => {
     return { action: 'poll', reason: 'manual', dueInMs: 0 }
   }
   const last = Number(state.lastCheckedAt) || 0
-  const interval = POLL_INTERVALS_MS[domain]
+  const override = Number(input.intervalOverrideMs)
+  const interval =
+    Number.isFinite(override) && override > 0 ? override : POLL_INTERVALS_MS[domain]
   const elapsed = last <= 0 ? interval : now - last
   if (elapsed >= interval) {
     return { action: 'poll', reason: 'due', dueInMs: 0 }
