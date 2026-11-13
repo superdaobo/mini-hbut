@@ -208,3 +208,37 @@ describe('cloud_sync_queue', () => {
     expect(queue.all()).toHaveLength(1)
   })
 })
+
+// ── 审查修复（PR #1280 复审）：429 blocked 到点必须可重试 ─────────────────
+describe('审查修复：blocked 到点可重试（原缺陷：永久卡死）', () => {
+  it('429 → blocked：未到点不发，到点必须可发（否则任务永久丢失）', () => {
+    let entries = add([])
+    const key = entries[0].idempotencyKey
+    entries = markBlocked(entries, key, NOW, 5000)
+
+    expect(entries[0].state).toBe('blocked')
+    expect(entries[0].attempts).toBe(0) // 429 不算失败
+    expect(isSendable(entries[0], NOW)).toBe(false) // 冷却中不发
+    // 关键：Retry-After 到期后必须能再次发送
+    expect(isSendable(entries[0], NOW + 5000)).toBe(true)
+    expect(pickNext(entries, NOW + 5000)?.idempotencyKey).toBe(key)
+  })
+
+  it('blocked 到点后仍受 high 优先级与 nextAt 排序约束', () => {
+    let entries = add([])
+    entries = add(entries, { domain: 'schedule', contentHash: 'h2', priority: 'high' })
+    entries = markBlocked(entries, entries[0].idempotencyKey, NOW, 1000)
+    // 到点后 high 优先
+    expect(pickNext(entries, NOW + 1000)?.domain).toBe('schedule')
+  })
+
+  it('blocked 到点后成功上传 → ack 移除', () => {
+    let entries = add([])
+    const key = entries[0].idempotencyKey
+    entries = markBlocked(entries, key, NOW, 1000)
+    expect(pickNext(entries, NOW + 1000)).not.toBeNull()
+    entries = markInflight(entries, key, NOW + 1000)
+    entries = markAcked(entries, key)
+    expect(entries).toHaveLength(0)
+  })
+})

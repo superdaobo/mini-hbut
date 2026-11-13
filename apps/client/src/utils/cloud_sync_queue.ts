@@ -105,9 +105,19 @@ export const backoffDelay = (
   return Math.min(MAX_BACKOFF_MS, Math.max(withJitter, serverWait))
 }
 
-/** 该条目是否可立即发送（`queued` 且到点；`failed` 到点也视为可重试）。 */
+/**
+ * 该条目是否可立即发送。
+ *
+ * `queued` / `failed` / **`blocked`** 三种状态在到点后都可重试：
+ * - `failed`：失败退避到期 → 重试；
+ * - `blocked`：429 冷却到期 → 重试。
+ *
+ * **`blocked` 必须包含在内**：否则被限流的条目会永久卡死（既不被选中、也不失败），
+ * 等于任务无声丢失（审查 PR #1280 指出的真实缺陷）。
+ */
 export const isSendable = (entry: QueueEntry, now: number): boolean =>
-  (entry.state === 'queued' || entry.state === 'failed') && entry.nextAt <= now
+  (entry.state === 'queued' || entry.state === 'failed' || entry.state === 'blocked') &&
+  entry.nextAt <= now
 
 /**
  * 入队（幂等 + 优先级提升）。
