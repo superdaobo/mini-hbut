@@ -24,6 +24,11 @@ import {
 import { getTestAccountGrades, seedTestAccountCaches } from '../../utils/test_account_fixtures.js'
 import { clearWidgetForLogout } from '../../utils/widget_bridge'
 import { scheduleIdentitySsoBootstrap } from '../../features/identity/sso/identitySsoBootstrap'
+import {
+  bumpAccountEpoch,
+  getAccountEpoch,
+  isCurrentEpoch
+} from '../../features/identity/session/accountEpoch'
 import { startNotificationMonitor, stopNotificationMonitor } from '../../utils/notify_center.js'
 import { ensureRememberedPasswordCached } from '../../utils/credential_storage.js'
 import {
@@ -72,7 +77,9 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   const { state } = runtime
   const hasTauri = isTauriRuntime()
   // 旧账号的异步网络验证可能晚于新账号切换/登出返回；以递增序号阻止迟到结果升级在线态。
-  let accountSwitchEpoch = 0
+  // Epic #1243（G1-05 / mini-hbut#1249）：序号已收敛到 `accountEpoch` 单一事实源——
+  // 登录成功 / 登出 / 切号都走 `bumpAccountEpoch`，其它模块（SSO 初始化、云同步队列、
+  // iframe 票据）用同一个 `isCurrentEpoch` 复核，避免各写一套互相看不见的计数器。
 
   const clearTestAccountRuntimeCaches = () => {
     clearCacheByPrefix(`grades:${TEST_ACCOUNT.studentId}`)
@@ -149,7 +156,7 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
 
   // 处理登录成功
   const handleLoginSuccess = (data: unknown) => {
-    accountSwitchEpoch += 1
+    bumpAccountEpoch('login')
     // 登录成功事件中携带后端账号；禁止反读可能尚未落盘的 localStorage 作为唯一依据。
     const incomingId = data && typeof data === 'object' && !Array.isArray(data)
       ? String((data as { studentId?: unknown }).studentId || '')
@@ -177,18 +184,6 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     // 跳转到 Dashboard 显示所有模块
     runtime.navigation.applyViewState('home')
     runtime.navigation.replaceHistorySnapshot('home')
-
-    // Epic #1243（G1-04 / mini-hbut#1248）：登录成功后**幂等**尝试无感建立 Casdoor 会话。
-    // - fire-and-forget：失败只影响「第三方应用无感登录」，不影响课表/成绩/电费主流程；
-    // - 带 `epoch`：切号后旧结果作废，绝不把 A 学号的会话写进 B；
-    // - 内部做 in-flight 去重与「已有会话则跳过」，不会每次登录都弹授权页。
-    if (state.studentId.value) {
-      scheduleIdentitySsoBootstrap({
-        studentId: state.studentId.value,
-        epoch: accountSwitchEpoch,
-        getEpoch: () => accountSwitchEpoch
-      })
-    }
 
     if (state.studentId.value) runtime.session.markLoginSessionToken()
     // 只允许学生预取学生培养方案；教师工号不应请求学生专属接口。
@@ -266,6 +261,20 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       }, 2500)
     }
     runtime.lifecycle.recoverViewportAfterTransition()
+
+    // Epic #1243（G1-04 / mini-hbut#1248）：登录成功后**幂等**尝试无感建立 Casdoor 会话。
+    // 检查点 B 修：本调用必须放在**登录流程全部落定之后**（会话令牌已 mark、预取已发起），
+    // 否则会和主流程抢同一批网络/原生资源，且 `oidcSessionStatus()` 可能读到尚未落定的状态。
+    // - fire-and-forget：失败只影响「第三方应用无感登录」，不影响课表/成绩/电费主流程；
+    // - 带 `epoch`：切号后旧结果作废（含「发起前已切号」的早退），绝不把 A 的会话写进 B；
+    // - 内部做 in-flight 去重与「已有会话则跳过」，不会每次登录都弹授权页。
+    if (state.studentId.value) {
+      scheduleIdentitySsoBootstrap({
+        studentId: state.studentId.value,
+        epoch: getAccountEpoch(),
+        getEpoch: getAccountEpoch
+      })
+    }
   }
 
   // #932：门户登录成功订阅应用级通道 —— 登录组件在「登录中被切走」时会随视图
@@ -291,7 +300,7 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
 
   // 处理登出
   const handleLogout = async (options: Record<string, unknown> = {}) => {
-    accountSwitchEpoch += 1
+    bumpAccountEpoch('logout')
     const payload = options && typeof options === 'object' ? options : {}
     const manual = payload.manual !== false
     const reason = String(payload.reason || '').trim()
@@ -409,8 +418,8 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     const role = normalizeLoginRole(account?.role)
     const sid = normalizePortalAccountId(account?.studentId, role)
     if (!sid) return
-    const epoch = ++accountSwitchEpoch
-    const isCurrent = () => accountSwitchEpoch === epoch
+    const epoch = bumpAccountEpoch('switch')
+    const isCurrent = () => isCurrentEpoch(epoch)
       && state.studentId.value === sid && state.role.value === role
     const previousSid = String(state.studentId.value || '').trim()
 
