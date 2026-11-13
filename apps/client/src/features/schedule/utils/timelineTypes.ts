@@ -16,7 +16,13 @@
 /** 统一渲染输入（不是持久化模型） */
 export type ScheduleTimelineItem = {
   id: string
-  kind: 'course' | 'event'
+  /**
+   * 条目类别：
+   * - `course`：教务 / 自定义课程（走 grid-row 定位）；
+   * - `exam`：教务考试安排（只读，按真实钟点定位，视觉为实心考试块）；
+   * - `event`：个人日程（按真实钟点定位，轻量卡片）。
+   */
+  kind: 'course' | 'exam' | 'event'
   /** 1..7（周一 = 1） */
   dayIndex: number
   /** 距 00:00 的分钟数 */
@@ -25,7 +31,7 @@ export type ScheduleTimelineItem = {
   title: string
   subtitle?: string
   color?: string
-  source: 'official' | 'custom-course' | 'personal-event'
+  source: 'official' | 'custom-course' | 'personal-event' | 'exam'
   /** 原始记录引用，便于详情弹窗/调试回溯 */
   raw: unknown
 }

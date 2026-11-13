@@ -399,6 +399,17 @@ export const messages: Record<string, string> = {
   'schedule.grid.conflictHint': 'タップして重複する授業の詳細を表示',
   'schedule.grid.conflictOverflowTitle': '授業の衝突（{n}件）',
   'schedule.grid.noTeacher': '教師はマークされていません',
+  // 試験オーバーレイ（教務システムの試験日程を時間割グリッド内に表示）
+  'schedule.exam.badge': '試',
+  'schedule.exam.unnamedCourse': '無題の試験',
+  'schedule.exam.timeTbd': '時間未定',
+  'schedule.exam.detailTitle': '試験の詳細',
+  'schedule.exam.dateLabel': '試験日',
+  'schedule.exam.timeLabel': '試験時間',
+  'schedule.exam.locationLabel': '会場',
+  'schedule.exam.seatTitle': '座席番号',
+  'schedule.exam.allExams': 'すべての試験',
+  'schedule.exam.readonlyHint': '試験情報は教務システムから取得しており、ここでは閲覧のみです。',
   // 抽屉（菜单）
   'schedule.drawer.title': 'タイムテーブルツール',
   'schedule.drawer.section.semester': '学期を選択してください',

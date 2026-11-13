@@ -7,6 +7,7 @@
 import { createApp, h, ref, computed } from 'vue'
 
 import ScheduleGrid from '../src/features/schedule/components/ScheduleGrid.vue'
+import ScheduleExamDetail from '../src/features/schedule/components/ScheduleExamDetail.vue'
 import { getCourseStyle } from '../src/features/schedule/utils/layout'
 import '../src/index.css'
 
@@ -44,7 +45,20 @@ const ev = (id, title, date, startTime, endTime, location, color) => ({
   updatedAt: ''
 })
 
-/** 8 组场景（键与 docs 中的编号一致） */
+/** 考试领域对象（camelCase，与 useScheduleExamData 归一结果同构） */
+const exam = (id, courseName, date, startMinute, endMinute, location, seatNo) => ({
+  id,
+  courseName,
+  date,
+  startMinute,
+  endMinute,
+  timeText: startMinute === null ? '' : `${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')}`,
+  timeTbd: startMinute === null,
+  location,
+  seatNo
+})
+
+/** 12 组场景（键与 docs 中的编号一致；⑨-⑫ 为考试叠加层） */
 const SCENARIOS = {
   '01-none': { label: '① 无 Event', events: [] },
   '02-single': {
@@ -85,6 +99,29 @@ const SCENARIOS = {
       ev('e1', '晨跑', '2026-09-18', '07:30', '08:00', '操场', '#12a37a'),
       ev('e2', '夜谈', '2026-09-18', '22:00', '22:40', '宿舍', '#2f6fed')
     ]
+  },
+  '09-exam-single': {
+    label: '⑨ 单场考试（周三 09:00-11:00，名称 + 地点 + 时间）',
+    events: [],
+    exams: [exam('x1', '高等数学 A', '2026-09-16', 540, 660, '一教 201', '18')]
+  },
+  '10-exam-overlap-course': {
+    label: '⑩ 考试与课程重叠（周四 14:30-16:30 vs 通信原理 14:00-15:35）',
+    events: [],
+    exams: [exam('x2', '通信原理', '2026-09-17', 870, 990, '电气楼 302', '07')]
+  },
+  '11-exam-tbd': {
+    label: '⑪ 时间待定考试（周五，卡片刻度「时间待定」）',
+    events: [],
+    exams: [exam('x3', '大学英语', '2026-09-18', null, null, '二教 305', '')]
+  },
+  '12-exam-multi': {
+    label: '⑫ 同日两场考试（周三 09:00-11:00 / 14:00-16:00）',
+    events: [],
+    exams: [
+      exam('x4', '线性代数', '2026-09-16', 540, 660, '三教 102', '21'),
+      exam('x5', '程序设计基础', '2026-09-16', 840, 960, '实训楼 401', '06')
+    ]
   }
 }
 
@@ -95,7 +132,16 @@ const eventsForDay = (day) => {
   return (SCENARIOS[scenarioKey.value]?.events || []).filter((e) => e.date === iso)
 }
 
+const examsForDay = (day) => {
+  const iso = WEEK_DATES[day - 1]?.iso
+  return (SCENARIOS[scenarioKey.value]?.exams || []).filter((e) => e.date === iso)
+}
+
 const coursesForDay = (day) => baseCourses.filter((c) => Number(c.weekday) === Number(day))
+
+/** 考试详情弹窗状态（供 CDP 脚本点击卡片后截图） */
+const detailExam = ref(null)
+const showExamDetail = ref(false)
 
 const App = {
   setup() {
@@ -124,8 +170,22 @@ const App = {
             getCoursesForDay: coursesForDay,
             getCourseStyle: (course) => getCourseStyle(course, 'modern'),
             getEventsForDay: eventsForDay,
+            getExamsForDay: examsForDay,
             isWidgetHighlighted: () => false,
-            enableBlankCreate: true
+            enableBlankCreate: true,
+            onOpenExamDetail: (exam) => {
+              detailExam.value = exam
+              showExamDetail.value = true
+            }
+          }),
+          h(ScheduleExamDetail, {
+            show: showExamDetail.value,
+            exam: detailExam.value,
+            onClose: () => {
+              showExamDetail.value = false
+              detailExam.value = null
+            },
+            onOpenAllExams: () => {}
           })
         ]
       )

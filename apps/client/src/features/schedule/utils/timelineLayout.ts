@@ -97,18 +97,25 @@ const clampNumber = (value: number, min: number, max: number): number => {
 }
 
 /**
- * 确定性排序：startMinute → endMinute → kind（course 优先）→ id（码位比较，不依赖 locale）。
+ * 确定性排序：startMinute → endMinute → kind（course → exam → event）→ id（码位比较，不依赖 locale）。
  * 这是「同一输入重复调用结果一致 + 打乱输入顺序结果一致」的唯一依据。
  */
 const compareEntries = (a: ScheduleTimelineItem, b: ScheduleTimelineItem): number => {
   if (a.startMinute !== b.startMinute) return a.startMinute - b.startMinute
   if (a.endMinute !== b.endMinute) return a.endMinute - b.endMinute
-  if (a.kind !== b.kind) return a.kind === 'course' ? -1 : 1
+  if (a.kind !== b.kind) return kindRank(a.kind) - kindRank(b.kind)
   const idA = String(a.id ?? '')
   const idB = String(b.id ?? '')
   if (idA < idB) return -1
   if (idA > idB) return 1
   return 0
+}
+
+/** 排序权重：课程优先保留主区，考试次之，个人日程最后（考试是教务事实，不能排到日程后面） */
+const kindRank = (kind: ScheduleTimelineItem['kind']): number => {
+  if (kind === 'course') return 0
+  if (kind === 'exam') return 1
+  return 2
 }
 
 /**
@@ -305,7 +312,9 @@ export function layoutTimelineItems(
   // 3) 逐簇排布
   for (const cluster of clusters) {
     const courseLanes = assignLanes(cluster.entries.filter((entry) => entry.item.kind === 'course'))
-    const eventLanes = assignLanes(cluster.entries.filter((entry) => entry.item.kind === 'event'))
+    // 考试 / 个人日程共用右侧「叠加区」：两者都是真实钟点条目，视觉权重低于课程；
+    // 先按确定性排序分 lane，考试天然排在日程之前，保证教务事实不被个人日程挤掉。
+    const eventLanes = assignLanes(cluster.entries.filter((entry) => entry.item.kind !== 'course'))
 
     // 可见 lane 数：课程 lane 优先保留，日程 lane 先被聚合
     let visibleCourse = Math.min(courseLanes.length, laneLimit)

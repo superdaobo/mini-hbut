@@ -17,8 +17,8 @@ const CLIENT_DIR = path.resolve(__dirname, '..')
 const DIST = path.join(CLIENT_DIR, 'qa-visual-dist')
 const OUT = path.resolve(CLIENT_DIR, '../../docs/parallel-execution/schedule-timeline/visual-smoke')
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const PORT = 9411
-const CDP_PORT = 9412
+const PORT = 9415
+const CDP_PORT = 9416
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' }
 
@@ -209,6 +209,9 @@ const main = async () => {
         scenario: window.__currentScenario(),
         badge: (document.querySelector('[data-qa-scenario]')||{}).textContent || '',
         eventCards: document.querySelectorAll('.event-card').length,
+        examCards: document.querySelectorAll('.exam-card').length,
+        examBadges: document.querySelectorAll('.exam-card__badge').length,
+        examDots: document.querySelectorAll('.day-exam-dot').length,
         overflowChips: document.querySelectorAll('.event-overflow-chip').length,
         edgeIndicators: document.querySelectorAll('.event-edge-indicator').length,
         courseCards: document.querySelectorAll('.course-card').length,
@@ -222,6 +225,40 @@ const main = async () => {
 
       const png = await browser.send('Page.captureScreenshot', { format: 'png' }, sessionId)
       fs.writeFileSync(path.join(OUT, `${name}-${vp.name}.png`), Buffer.from(png.data, 'base64'))
+
+      // 考试卡 → 详情弹窗闭环取证（仅取一组手机视图，避免截图数量膨胀）：
+      // 真实点击 .exam-card，校验只读详情含考场与座位号，再关闭回网格。
+      if (name === '09-exam-single' && vp.name === 'phone') {
+        const clicked = await evaluate(`(() => {
+          const card = document.querySelector('.exam-card');
+          if (!card) return false;
+          card.click();
+          return true;
+        })()`)
+        if (clicked !== true) {
+          problems.push('09-exam-single: exam-card not found for detail capture')
+        } else {
+          await sleep(400)
+          const detailProbe = JSON.parse(await evaluate(`JSON.stringify({
+            modal: !!document.querySelector('.exam-detail-modal'),
+            seat: (document.querySelector('.exam-detail-seat .exam-detail-value') || {}).textContent || '',
+            hasRoom: (document.querySelector('.exam-detail-body') || {}).textContent.includes('一教 201'),
+            hasName: (document.querySelector('.exam-detail-modal h3') || {}).textContent.includes('高等数学')
+          })`))
+          shots.push({ scenario: '09-exam-detail', viewport: vp.name, ...detailProbe })
+          if (!detailProbe.modal || !detailProbe.seat || !detailProbe.hasRoom || !detailProbe.hasName) {
+            problems.push('09-exam-detail: 详情内容不完整 ' + JSON.stringify(detailProbe))
+          }
+          const detailPng = await browser.send('Page.captureScreenshot', { format: 'png' }, sessionId)
+          fs.writeFileSync(path.join(OUT, '09-exam-detail-phone.png'), Buffer.from(detailPng.data, 'base64'))
+          await evaluate(`(() => {
+            const close = document.querySelector('.exam-detail-action.primary');
+            if (close) close.click();
+            return true;
+          })()`)
+          await sleep(250)
+        }
+      }
     }
 
     const slice = logs.slice(mark)

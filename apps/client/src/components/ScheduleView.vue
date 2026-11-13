@@ -34,6 +34,8 @@ import { useScheduleSync } from '../features/schedule/composables/useScheduleSyn
 import { useScheduleTermStart } from '../features/schedule/composables/useScheduleTermStart'
 // #833 Wave2：个人日程（数据层 + 统一「添加安排」编辑器）
 import { useScheduleEventData } from '../features/schedule/composables/useScheduleEventData'
+// 考试叠加层：教务考试安排只读叠加到课表（与「考试安排」页共享数据与缓存）
+import { useScheduleExamData } from '../features/schedule/composables/useScheduleExamData'
 import { useScheduleEvents } from '../features/schedule/composables/useScheduleEvents'
 // #1029：日程 CRUD 后把「今日日程」同步到桌面小组件
 import { writeTodayEventsToWidget } from '../utils/widget_bridge'
@@ -54,6 +56,8 @@ import ScheduleCourseDetail from '../features/schedule/components/ScheduleCourse
 import ScheduleAddArrangementDialog from '../features/schedule/components/ScheduleAddArrangementDialog.vue'
 // #838：日程详情 surface（与课程详情业务类型分离）
 import ScheduleEventDetail from '../features/schedule/components/ScheduleEventDetail.vue'
+// 考试详情（只读：课程 / 时间 / 考场 / 座位号）
+import ScheduleExamDetail from '../features/schedule/components/ScheduleExamDetail.vue'
 import ScheduleCourseImportDialog from '../features/schedule/components/ScheduleCourseImportDialog.vue'
 import ScheduleManageCoursesDialog from '../features/schedule/components/ScheduleManageCoursesDialog.vue'
 import ScheduleWeekPicker from '../features/schedule/components/ScheduleWeekPicker.vue'
@@ -65,7 +69,7 @@ const props = defineProps({
   widgetPeriod: { type: Number, default: 0 },
 })
 
-const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed'])
+const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed', 'open-exams'])
 
 // ============ 组合式状态（按依赖顺序实例化） ============
 const confirmDialog = useConfirmDialog()
@@ -86,6 +90,9 @@ const detail = useScheduleDetail({ data, semester: semesterApi })
 const editor = useScheduleEditor({ props, data, semester: semesterApi, detail, menu, confirmDialog })
 // #833 Wave2：当前周个人日程数据层（按 weekDates 区间拉取；含切周竞态令牌与失败降级）
 const eventData = useScheduleEventData({ props, semester: semesterApi })
+// 考试叠加层：与「考试安排」页同接口同缓存 key（exams:{学号}:{学期}），
+// 整学期只拉一次、切周本地过滤；失败静默降级，不影响课表可用性。
+const examData = useScheduleExamData({ props, semester: semesterApi })
 // #833 Wave2：日程草稿与 CRUD；变更成功后重拉当前周日程，保证网格即时同步
 const events = useScheduleEvents({
   props,
@@ -144,6 +151,27 @@ const eventDetail = useScheduleEventDetail({
     showArrangement.value = true
   }
 })
+// 考试详情（只读 surface）：点考试卡或列顶/列底 indicator 时打开
+const showExamDetail = ref(false)
+const selectedExam = ref<any>(null)
+
+const handleOpenExamDetail = (raw: any) => {
+  if (!raw) return
+  selectedExam.value = raw
+  showExamDetail.value = true
+}
+
+const closeExamDetail = () => {
+  showExamDetail.value = false
+  selectedExam.value = null
+}
+
+/** 考试详情 →「查看全部考试」：关闭详情并交给顶层导航到考试安排页 */
+const handleOpenAllExams = () => {
+  closeExamDetail()
+  emit('open-exams')
+}
+
 const io = useScheduleIO({ props, data, semester: semesterApi, editor, confirmDialog })
 // #815：AI 课表导入（Parser / Merge / Conflict / Colors / Commit 编排）
 const importApi = useScheduleImport({ props, data, semester: semesterApi, editor })
@@ -173,6 +201,7 @@ const anyOverlayOpen = computed(() => {
     menu.showMenu.value ||
     detail.showDetail.value ||
     eventDetail.showEventDetail.value ||
+    showExamDetail.value ||
     showArrangement.value ||
     editor.showAddCourse.value ||
     editor.showManageCourses.value ||
@@ -774,11 +803,13 @@ onBeforeUnmount(() => {
       :get-courses-for-day="grid.getCoursesForDay"
       :get-course-style="grid.getCourseCardStyle"
       :get-events-for-day="eventData.getEventsForDay"
+      :get-exams-for-day="examData.getExamsForDay"
       :view-mode="scheduleViewMode"
       :selection-reset-nonce="gridSelectionResetNonce"
       :is-widget-highlighted="grid.isWidgetHighlighted"
       @open-detail="detail.openDetail"
       @open-event-detail="handleOpenEventDetail"
+      @open-exam-detail="handleOpenExamDetail"
       @confirm-blank-selection="handleConfirmBlankSelection"
     />
 
@@ -807,6 +838,14 @@ onBeforeUnmount(() => {
       @close="eventDetail.closeEventDetail"
       @edit="eventDetail.requestEditEvent"
       @delete="eventDetail.requestDeleteEvent"
+    />
+
+    <!-- 考试详情（只读）：「查看全部考试」由 App 顶层导航到考试安排页 -->
+    <ScheduleExamDetail
+      :show="showExamDetail"
+      :exam="selectedExam"
+      @close="closeExamDetail"
+      @open-all-exams="handleOpenAllExams"
     />
 
     <!-- #836：统一「添加安排」弹窗（创建态可切 课程|日程；编辑态类型锁定） -->

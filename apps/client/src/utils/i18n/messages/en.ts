@@ -399,6 +399,17 @@ export const messages: Record<string, string> = {
   'schedule.grid.conflictHint': 'Tap to view conflicting courses',
   'schedule.grid.conflictOverflowTitle': 'Course conflicts ({n})',
   'schedule.grid.noTeacher': 'No teacher listed',
+  // Exam overlay (academic exam schedule rendered inside the timetable grid)
+  'schedule.exam.badge': 'Exam',
+  'schedule.exam.unnamedCourse': 'Untitled exam',
+  'schedule.exam.timeTbd': 'Time TBD',
+  'schedule.exam.detailTitle': 'Exam details',
+  'schedule.exam.dateLabel': 'Date',
+  'schedule.exam.timeLabel': 'Time',
+  'schedule.exam.locationLabel': 'Room',
+  'schedule.exam.seatTitle': 'Seat',
+  'schedule.exam.allExams': 'All exams',
+  'schedule.exam.readonlyHint': 'Exam schedules come from the academic system and are read-only here.',
   // Drawer (menu)
   'schedule.drawer.title': 'Schedule Tools',
   'schedule.drawer.section.semester': 'Select semester',

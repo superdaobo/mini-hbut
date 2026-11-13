@@ -244,7 +244,6 @@ const {
         @open-notice="handleDashboardAnnouncementOpen"
         @openSettings="openWorkspaceLayoutEditor('home')"
       />
-
       <!-- 课表（Tab） -->
       <ScheduleView 
         v-else-if="currentView === 'schedule'"
@@ -253,6 +252,7 @@ const {
         :widget-period="widgetDeeplinkPeriod"
         @back="handleBackToDashboard"
         @logout="handleLogout"
+        @open-exams="handleNavigate('exams')"
         @widget-deeplink-consumed="widgetDeeplinkDate = ''; widgetDeeplinkPeriod = 0"
       />
 
