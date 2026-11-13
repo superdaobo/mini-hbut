@@ -141,9 +141,10 @@ describe('syncOrchestrator', () => {
   it('手动刷新无视周期；会话失效不查', async () => {
     const h = harness([])
     h.orchestrator.start()
-    // 第一次：从未查过 → 会查
+    // 第一次：从未查过 → 会查；查询成功后 confirmPoll 推进 lastCheckedAt
     const first = await h.orchestrator.tick(['grades'])
     expect(first.polled).toEqual(['grades'])
+    h.orchestrator.confirmPoll('grades', 'ok')
     // 立刻再 tick（未到周期）→ 不查
     const second = await h.orchestrator.tick(['grades'])
     expect(second.polled).toEqual([])
@@ -189,5 +190,76 @@ describe('syncOrchestrator', () => {
     stop()
     // 退订后再触发 epoch 不应清队列（这里只验证不抛）
     expect(() => h.fireEpoch()).not.toThrow()
+  })
+})
+
+// ── 审查修复（PR #1291 复审）：三个真实缺陷 ────────────────────────────────
+describe('审查修复：tick 不得把「计划查」记成「成功」/ 未登录不得扫全队列 / 降频要生效', () => {
+  it('未登录（sid 空）时 drain 不得上传任何学号的条目', async () => {
+    const h = harness([entry({ sid: SID_OLD, idempotencyKey: 'k-old' })])
+    h.switchTo('') // 登出
+    const result = await h.orchestrator.tick([])
+    expect(result.drain.attempted).toBe(0)
+    expect(h.uploads).toEqual([]) // 绝不能上传别人学号的数据
+    expect(h.getQueue()).toHaveLength(1)
+  })
+
+  it('tick 只标记在途，不推进 lastCheckedAt（查询成功后才能推进）', async () => {
+    const h = harness([])
+    await h.orchestrator.tick(['grades'])
+    const state = h.pollStates.get('grades')!
+    expect(state.inflight).toBe(true)
+    expect(state.lastCheckedAt).toBe(0) // ← 关键：未成功前不得记为已检查
+  })
+
+  it('confirmPoll 成功 → 推进 lastCheckedAt；失败 → 不推进且清在途', async () => {
+    const h = harness([])
+    await h.orchestrator.tick(['grades'])
+
+    // 失败：不推进
+    h.orchestrator.confirmPoll('grades', 'network_error')
+    expect(h.pollStates.get('grades')!.lastCheckedAt).toBe(0)
+    expect(h.pollStates.get('grades')!.inflight).toBe(false)
+
+    // 再 tick 一次（仍从未查过 → 会查），然后成功
+    await h.orchestrator.tick(['grades'])
+    h.orchestrator.confirmPoll('grades', 'ok')
+    expect(h.pollStates.get('grades')!.lastCheckedAt).toBe(NOW)
+  })
+
+  it('降频档位必须影响实际查询频率（tier=2 时 30min → 120min）', async () => {
+    let clock = NOW
+    const states = new Map<string, { lastCheckedAt: number; inflight: boolean }>()
+    const orchestrator = createSyncOrchestrator({
+      readQueue: () => [],
+      writeQueue: () => {},
+      upload: async () => ({ ok: true }),
+      now: () => clock,
+      currentSid: () => SID,
+      readPollState: (domain) => states.get(domain),
+      writePollState: (domain, state) => states.set(domain, state)
+    })
+
+    // 正常档位：查一次并成功
+    await orchestrator.tick(['schedule'])
+    orchestrator.confirmPoll('schedule', 'ok')
+    expect(states.get('schedule')!.lastCheckedAt).toBe(NOW)
+
+    // 升到 tier=2 → 有效周期 120min
+    orchestrator.recordSignal('rate_limited')
+    orchestrator.recordSignal('rate_limited')
+    expect(orchestrator.tier()).toBe(2)
+
+    // +31min：按原 30min 周期该查了，但降频后不到点 → 不该查
+    clock = NOW + 31 * MIN
+    const at31 = await orchestrator.tick(['schedule'])
+    expect(at31.polled).toEqual([])
+
+    // +121min：到点 → 该查
+    clock = NOW + 121 * MIN
+    const at121 = await orchestrator.tick(['schedule'])
+    expect(at121.polled).toEqual(['schedule'])
+
+    expect(effectivePollInterval(30 * MIN, 2)).toBe(120 * MIN)
   })
 })

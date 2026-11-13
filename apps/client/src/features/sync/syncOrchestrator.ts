@@ -29,9 +29,11 @@ import {
   type QueueEntry
 } from '../../utils/cloud_sync_queue'
 import {
+  POLL_INTERVALS_MS,
   decidePoll,
   markChecked,
   markInflight as markPollInflight,
+  markInflightDone as markPollInflightDone,
   type PollDomain,
   type PollState
 } from '../../utils/school_poll_schedule'
@@ -79,6 +81,14 @@ export interface SyncOrchestrator {
   start: () => () => void
   /** 一次调度 tick：先上传队列，再判定该查哪些域 */
   tick: (domains: readonly string[], options?: { manual?: boolean; sessionValid?: boolean }) => Promise<TickResult>
+  /**
+   * 学校查询**真正结束后**调用：成功才推进 `lastCheckedAt`，失败只清在途。
+   *
+   * 为什么必须单独一步：`tick()` 只决定「该查哪些域」并标记在途，
+   * **不能**在发起前就记为「已检查」—— 否则失败也会被算成已查，导致下次查询被推迟
+   * （审查 PR #1291 指出的真实缺陷）。
+   */
+  confirmPoll: (domain: string, signal: LoadSignal) => void
   /** 记录一次学校查询结果（成功/限流/繁忙/网络错误）→ 影响降频档位 */
   recordSignal: (signal: LoadSignal) => void
   /** 入队一次本地变更（手动刷新时 priority='high'） */
@@ -128,10 +138,12 @@ export const createSyncOrchestrator = (deps: SyncOrchestratorDeps): SyncOrchestr
     let succeeded = 0
     let failed = 0
     const sid = String(deps.currentSid() || '').trim()
+    // 未登录：**绝不**扫全队列（否则会把登出前别的学号的条目传上去）
+    if (!sid) return { attempted, succeeded, failed, idle: true }
 
     for (;;) {
       const now = deps.now()
-      const entry = pickNext(deps.readQueue(), now, sid || undefined)
+      const entry = pickNext(deps.readQueue(), now, sid)
       if (!entry) return { attempted, succeeded, failed, idle: true }
 
       attempted += 1
@@ -167,21 +179,37 @@ export const createSyncOrchestrator = (deps: SyncOrchestratorDeps): SyncOrchestr
       const domain = String(raw || '').trim()
       if (!domain) continue
       const state = deps.readPollState?.(domain) || { lastCheckedAt: 0, inflight: false }
+      // 降频：把档位倍率乘到该域的基础周期上（审查指出此前完全没生效）
+      const base = POLL_INTERVALS_MS[domain as PollDomain]
+      const effective = base ? downshiftedInterval(base, downshift) : undefined
       const decision = decidePoll({
         domain,
         state,
         now,
         manual: options.manual,
-        sessionValid: options.sessionValid
+        sessionValid: options.sessionValid,
+        intervalOverrideMs: effective
       })
       if (decision.action !== 'poll') continue
       polled.push(domain as PollDomain)
-      // 记录在途 + 成功时刻（这里把「已发起」当作已检查：真正的失败由 recordSignal 降频）
-      const nextState = markChecked(markPollInflight(state), now)
-      deps.writePollState?.(domain, nextState)
+      // **只标记在途**：是否「已检查」要等 confirmPoll 拿到真实结果
+      deps.writePollState?.(domain, markPollInflight(state))
     }
 
     return { polled, drain: drainResult, tier: downshift.tier }
+  }
+
+  const confirmPoll: SyncOrchestrator['confirmPoll'] = (domain, signal) => {
+    const key = String(domain || '').trim()
+    if (!key) return
+    const state = deps.readPollState?.(key) || { lastCheckedAt: 0, inflight: false }
+    if (signal === 'ok') {
+      deps.writePollState?.(key, markChecked(state, deps.now()))
+    } else {
+      // 失败：清在途但**不推进** lastCheckedAt（下次仍算到期）
+      deps.writePollState?.(key, markPollInflightDone(state))
+    }
+    downshift = applyLoadSignal(downshift, signal)
   }
 
   const recordSignal = (signal: LoadSignal): void => {
@@ -206,6 +234,7 @@ export const createSyncOrchestrator = (deps: SyncOrchestratorDeps): SyncOrchestr
   return {
     start,
     tick,
+    confirmPoll,
     recordSignal,
     enqueueChange,
     tier: () => downshift.tier
