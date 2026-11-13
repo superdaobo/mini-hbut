@@ -13,7 +13,8 @@ export default defineConfig({
     }
   },
   test: {
-    include: ['src/**/*.spec.ts'],
+    // Epic #1243：packages 下的示例 SDK 也要进 CI 门禁（此前只跑 src）
+    include: ['src/**/*.spec.ts', 'packages/**/src/**/*.spec.ts'],
     exclude: ['**/node_modules/**']
   }
 })
