@@ -60,6 +60,23 @@ export interface ModuleHostBridgeOptions {
   requestTicket?: (input: { reason: string; requestId: string }) => Promise<HostTicketGrant | null>
   /** 游戏上报当前运行模式（verified/compatibility/standalone） */
   onMode?: (mode: string, trustLevel: string) => void
+  /**
+   * Epic #1243（G2-03 / mini-hbut#1252）**严格模式**：要求每条消息都携带
+   * `instance_nonce` 且等于该值。
+   *
+   * 为什么默认不启用：现有 11 个游戏与 SDK（`_sdk/src/host-bridge.js`）都**不发送**
+   * `instance_nonce`，一旦强制开启，全部握手会被拒（等于把游戏中心打死）。
+   * 因此本项是**可配置的加严**：接线层在 SDK 支持回显后按应用灰度打开；
+   * 未配置时行为与 #905 完全一致（零回归）。
+   */
+  requireInstanceNonce?: string
+  /**
+   * Epic #1243（G2-03）**严格模式**：允许的能力白名单（如 `['launch_ticket']`）。
+   *
+   * 给出时：`request-ticket` 消息里声明的能力必须全部在内，否则拒绝
+   * （`capability_not_allowed`）。未给出时不做能力校验（保持现状）。
+   */
+  allowedCapabilities?: string[]
   /** 注入时钟（测试用） */
   now?: () => number
 }
@@ -94,6 +111,11 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
     .map((item) => safeText(item))
     .filter((item) => item && item !== '*')
   const now = options.now || (() => Date.now())
+  // Epic #1243（G2-03）：严格模式的三个可选配置（默认全部关闭 = #905 现状）
+  const requiredNonce = safeText(options.requireInstanceNonce)
+  const allowedCapabilities = (Array.isArray(options.allowedCapabilities) ? options.allowedCapabilities : [])
+    .map((item) => safeText(item))
+    .filter(Boolean)
   const features: HostBridgeFeatures = {
     game_center_enabled: false,
     game_verified_session_enabled: false,
@@ -205,6 +227,13 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
     }
     const payload = event.data
     if (!isPlainObject(payload)) return
+    // Epic #1243（G2-03）：严格模式下每条消息都必须回显正确的实例 nonce。
+    // 这是「同一 origin 下的另一个实例/另一个页面」不能冒用本桥的关键（origin 相同 ≠ 实例相同）。
+    if (requiredNonce && safeText(payload.instance_nonce) !== requiredNonce) {
+      noteRejection('instance_nonce_mismatch')
+      publishDiag({ event: 'message_ignored', reason: 'instance_nonce_mismatch', origin })
+      return
+    }
     const type = safeText(payload.type)
     if (!type) return
 
@@ -230,6 +259,8 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
         protocol_version: HOST_PROTOCOL_VERSION,
         game_id: moduleId,
         request_id: requestId,
+        // 严格模式下把要求的 nonce 回显给 SDK，供其后续消息带上（未启用时不出现在载荷里）
+        ...(requiredNonce ? { instance_nonce: requiredNonce } : {}),
         features: { ...features },
         // 会话过期时的恢复路径：宿主支持重新签发 ticket（§6.2.3 策略 A）
         capabilities: {
@@ -253,6 +284,20 @@ export const createModuleHostBridge = (options: ModuleHostBridgeOptions): Module
       if (payloadGameId && moduleId && payloadGameId !== moduleId) {
         noteRejection('game_id_mismatch')
         return
+      }
+      // Epic #1243（G2-03）：能力白名单（给出时生效）。未声明的能力不得申请。
+      if (allowedCapabilities.length) {
+        const requested = Array.isArray(payload.capabilities)
+          ? payload.capabilities.map((item) => safeText(item)).filter(Boolean)
+          : safeText(payload.capability)
+            ? [safeText(payload.capability)]
+            : []
+        const notAllowed = requested.filter((cap) => !allowedCapabilities.includes(cap))
+        if (notAllowed.length) {
+          noteRejection('capability_not_allowed')
+          publishDiag({ event: 'ticket_rejected', reason: 'capability_not_allowed' })
+          return
+        }
       }
       const reason = safeText(payload.reason)
       publishDiag({ event: 'ticket_requested', reason })
