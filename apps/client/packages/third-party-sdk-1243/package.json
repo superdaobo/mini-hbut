@@ -1,0 +1,19 @@
+{
+  "name": "@mini-hbut/third-party-sdk-1243",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Epic #1243 G5-03 第三方接入示例 SDK（一次性票据兑换 + 分类只读数据）",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "src/",
+    "README.md"
+  ],
+  "keywords": [
+    "mini-hbut",
+    "sdk",
+    "example",
+    "epic-1243"
+  ]
+}
