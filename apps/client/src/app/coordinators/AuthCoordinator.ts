@@ -23,6 +23,7 @@ import {
 } from '../../utils/test_account.js'
 import { getTestAccountGrades, seedTestAccountCaches } from '../../utils/test_account_fixtures.js'
 import { clearWidgetForLogout } from '../../utils/widget_bridge'
+import { scheduleIdentitySsoBootstrap } from '../../features/identity/sso/identitySsoBootstrap'
 import { startNotificationMonitor, stopNotificationMonitor } from '../../utils/notify_center.js'
 import { ensureRememberedPasswordCached } from '../../utils/credential_storage.js'
 import {
@@ -176,6 +177,18 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     // 跳转到 Dashboard 显示所有模块
     runtime.navigation.applyViewState('home')
     runtime.navigation.replaceHistorySnapshot('home')
+
+    // Epic #1243（G1-04 / mini-hbut#1248）：登录成功后**幂等**尝试无感建立 Casdoor 会话。
+    // - fire-and-forget：失败只影响「第三方应用无感登录」，不影响课表/成绩/电费主流程；
+    // - 带 `epoch`：切号后旧结果作废，绝不把 A 学号的会话写进 B；
+    // - 内部做 in-flight 去重与「已有会话则跳过」，不会每次登录都弹授权页。
+    if (state.studentId.value) {
+      scheduleIdentitySsoBootstrap({
+        studentId: state.studentId.value,
+        epoch: accountSwitchEpoch,
+        getEpoch: () => accountSwitchEpoch
+      })
+    }
 
     if (state.studentId.value) runtime.session.markLoginSessionToken()
     // 只允许学生预取学生培养方案；教师工号不应请求学生专属接口。
