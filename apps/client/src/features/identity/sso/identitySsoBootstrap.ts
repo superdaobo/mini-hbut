@@ -104,6 +104,12 @@ const runBootstrap = async (
   if (!deps.enabled()) return RESULT_SKIPPED_DISABLED
   if (!deps.isTauri()) return RESULT_SKIPPED_NOT_TAURI
 
+  // 0) 发起前先复核代际（检查点 B 修）：若在排队期间已经切号/登出，
+  //    直接放弃——否则会为一个**已经不存在的账号**打开授权页（用户会看到莫名其妙的登录页）。
+  if (params.getEpoch && params.getEpoch() !== params.epoch) {
+    return { ok: false, skipped: false, reason: 'epoch_changed' }
+  }
+
   // 1) 已有会话 → 不需要重开授权页（避免每次登录都弹一次浏览器）
   let sessionOk = false
   try {

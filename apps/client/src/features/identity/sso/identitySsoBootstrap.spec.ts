@@ -116,6 +116,19 @@ describe('bootstrapIdentitySso', () => {
     expect(res).toMatchObject({ ok: false, skipped: false, reason: 'epoch_changed' })
   })
 
+  it('发起前已切号 → 直接放弃，不打开授权页（检查点 B 补）', async () => {
+    // 场景：bootstrap 被排队（微任务/调度）期间用户已经登出或切号
+    let epoch = 5
+    const d = deps()
+    const res = await bootstrapIdentitySso(
+      { studentId: SID, epoch: 1, getEpoch: () => epoch },
+      d
+    )
+    expect(res).toMatchObject({ ok: false, skipped: false, reason: 'epoch_changed' })
+    expect(d.sessionStatus).not.toHaveBeenCalled()
+    expect(d.begin).not.toHaveBeenCalled()
+  })
+
   it('会话查询抛错时不抛，按「无会话」继续尝试', async () => {
     const d = deps({
       sessionStatus: vi.fn(async () => {
