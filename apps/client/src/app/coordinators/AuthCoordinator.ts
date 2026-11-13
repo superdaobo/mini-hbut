@@ -185,18 +185,6 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     runtime.navigation.applyViewState('home')
     runtime.navigation.replaceHistorySnapshot('home')
 
-    // Epic #1243（G1-04 / mini-hbut#1248）：登录成功后**幂等**尝试无感建立 Casdoor 会话。
-    // - fire-and-forget：失败只影响「第三方应用无感登录」，不影响课表/成绩/电费主流程；
-    // - 带 `epoch`：切号后旧结果作废，绝不把 A 学号的会话写进 B；
-    // - 内部做 in-flight 去重与「已有会话则跳过」，不会每次登录都弹授权页。
-    if (state.studentId.value) {
-      scheduleIdentitySsoBootstrap({
-        studentId: state.studentId.value,
-        epoch: getAccountEpoch(),
-        getEpoch: getAccountEpoch
-      })
-    }
-
     if (state.studentId.value) runtime.session.markLoginSessionToken()
     // 只允许学生预取学生培养方案；教师工号不应请求学生专属接口。
     if (state.studentId.value && !isTeacherRoleValue(state.role.value)) {
@@ -273,6 +261,20 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
       }, 2500)
     }
     runtime.lifecycle.recoverViewportAfterTransition()
+
+    // Epic #1243（G1-04 / mini-hbut#1248）：登录成功后**幂等**尝试无感建立 Casdoor 会话。
+    // 检查点 B 修：本调用必须放在**登录流程全部落定之后**（会话令牌已 mark、预取已发起），
+    // 否则会和主流程抢同一批网络/原生资源，且 `oidcSessionStatus()` 可能读到尚未落定的状态。
+    // - fire-and-forget：失败只影响「第三方应用无感登录」，不影响课表/成绩/电费主流程；
+    // - 带 `epoch`：切号后旧结果作废（含「发起前已切号」的早退），绝不把 A 的会话写进 B；
+    // - 内部做 in-flight 去重与「已有会话则跳过」，不会每次登录都弹授权页。
+    if (state.studentId.value) {
+      scheduleIdentitySsoBootstrap({
+        studentId: state.studentId.value,
+        epoch: getAccountEpoch(),
+        getEpoch: getAccountEpoch
+      })
+    }
   }
 
   // #932：门户登录成功订阅应用级通道 —— 登录组件在「登录中被切走」时会随视图
