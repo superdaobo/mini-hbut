@@ -1,0 +1,41 @@
+
+.layout-collision-fx[data-v-27812505] {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 18;
+}
+.layout-collision-fx__node[data-v-27812505] {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: var(--fx-opacity);
+  will-change: transform, opacity;
+}
+.layout-collision-fx__node--spark[data-v-27812505],
+.layout-collision-fx__node--core[data-v-27812505] {
+  width: var(--fx-size);
+  height: var(--fx-size);
+  border-radius: 999px;
+  background: var(--fx-color);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 0 20px color-mix(in oklab, var(--fx-color) 72%, transparent);
+  transform: translate3d(var(--fx-x), var(--fx-y), 0) translate(-50%, -50%);
+}
+.layout-collision-fx__node--core[data-v-27812505] {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 0 28px color-mix(in oklab, var(--fx-color) 82%, transparent);
+}
+.layout-collision-fx__node--ring[data-v-27812505] {
+  width: calc(var(--fx-radius) * 2);
+  height: calc(var(--fx-radius) * 2);
+  border-radius: 999px;
+  border: 2px solid color-mix(in oklab, var(--fx-color) 80%, rgba(255, 255, 255, 0.2));
+  background:
+    radial-gradient(circle, color-mix(in oklab, var(--fx-color) 18%, rgba(255, 255, 255, 0.08)) 0%, transparent 68%);
+  box-shadow: 0 0 26px color-mix(in oklab, var(--fx-color) 32%, transparent);
+  transform: translate3d(calc(var(--fx-x) - var(--fx-radius)), calc(var(--fx-y) - var(--fx-radius)), 0);
+}
