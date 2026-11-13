@@ -91,6 +91,14 @@ const cardStyle = computed(() => {
 })
 
 const openDetail = () => emit('open-detail', exam.value)
+
+/** 键盘可访问：role=button 惯例同时响应 Enter 与 Space（Space 需阻止页面滚动） */
+const onKeydown = (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.stopPropagation()
+  if (event.key === ' ') event.preventDefault()
+  openDetail()
+}
 </script>
 
 <template>
@@ -107,7 +115,7 @@ const openDetail = () => emit('open-detail', exam.value)
     tabindex="0"
     :aria-label="`${t('schedule.exam.badge')} ${titleText}`"
     @click.stop="openDetail"
-    @keydown.enter.stop="openDetail"
+    @keydown.stop="onKeydown"
   >
     <span class="exam-card__badge" aria-hidden="true">{{ t('schedule.exam.badge') }}</span>
     <div class="exam-card__body">

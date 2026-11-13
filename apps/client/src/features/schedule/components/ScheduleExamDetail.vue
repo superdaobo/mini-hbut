@@ -45,10 +45,14 @@ const dateText = computed(() => {
   })
 })
 
-/** 时间文本：缺时间时明确「时间待定」，不编造时段 */
+/** 时间文本：缺时间时明确「时间待定」，不编造时段；
+ * 接口给了时间文本但解析失败（如倒置/非标准写法）时附原文，避免信息静默丢失 */
 const timeText = computed(() => {
   if (!props.exam) return ''
-  if (props.exam.timeTbd) return t('schedule.exam.timeTbd')
+  if (props.exam.timeTbd) {
+    const raw = String(props.exam.timeText || '').trim()
+    return raw ? `${t('schedule.exam.timeTbd')}（${raw}）` : t('schedule.exam.timeTbd')
+  }
   const start = formatMinuteToClock(props.exam.startMinute)
   const end = formatMinuteToClock(props.exam.endMinute)
   if (!start || !end) return t('schedule.exam.timeTbd')
