@@ -85,8 +85,10 @@ export const idempotencyKeyFor = (
   `${safeText(sid)}|${safeText(domain)}|${Number(baseVersion) || 0}|${safeText(contentHash)}`
 
 /**
- * 指数退避 + 抖动。`attempts` 从 0 开始：
- * 第 1 次失败 → 约 1s；第 2 次 → 约 2s；… 上限 `MAX_BACKOFF_MS`。
+ * 指数退避 + 抖动。`attempts` 为**已失败次数**（`markFailed` 先 +1 再调用）：
+ * 第 1 次失败 → 约 2s；第 2 次 → 约 4s；… 上限 `MAX_BACKOFF_MS`（1 小时）。
+ *
+ * 注：早期注释写「第 1 次约 1s」，与实现差一档（实现偏保守）；已按实现修正注释。
  *
  * `retryAfterMs`（服务端 `Retry-After` 折算值）优先：服务端说等多久就等多久，
  * 但不得小于退避值（防止被响应头里的 0 绕过限流）。
