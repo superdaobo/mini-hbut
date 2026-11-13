@@ -111,6 +111,23 @@
 
 **规则**：字段白名单只增不改；新增字段 = **扩权** → 必须提升 `policy_version`，旧同意不得自动覆盖新字段（Epic「新增类别不得继承旧授权」）。
 
+### 3.4 两套「域」集合的关系（**不要混用**，2026-11-13 检查点 A 补）
+
+实现里存在两个**不同**的域集合，名字像但不是一回事：
+
+| 集合 | 出处 | 成员 | 用途 |
+|---|---|---|---|
+| **可同步域**（7） | OCR `modules/cloud_domains_storage.py::DOMAINS` | `profile` / `schedule` / `grades` / `exams` / `rank` / `custom_courses` / `personal_events` | 云快照按域存储、发号、CAS、墓碑 |
+| **可授权域**（8） | OCR `identity_auth/data_authz.py::DOMAIN_REGISTRY` | 上述 5 个学业域 + `cloud_sync` / `forum` / `game` | 第三方数据授权判定（白名单 ∩ 用户同意 ∩ 字段白名单） |
+
+映射规则（冻结）：
+
+- 第三方可申请的**学业域** = 可同步域 ∩ 可授权域 = `{profile, schedule, grades, exams, rank}`（5 个）。
+- `custom_courses` / `personal_events`：**只同步、不对外授权**——用户私有编辑内容，第三方拿不到。
+- `cloud_sync` / `forum` / `game`：**只授权、不可同步**——它们不是学业快照（`cloud_sync` 还是宿主专用，永不对第三方开放）。
+- **新增域时必须同时检查两个集合**：只加进「可同步」不代表可以对外读；只加进「可授权」则没有数据源。
+- 两个集合的一致性由测试守住（OCR 侧各自有契约测试）；本契约是唯一的口径来源，任何一边新增域都要回来更新这张表。
+
 ---
 
 ## 4. 授权模型（`已定目标`，G3-01/G3-02/G5-02）
@@ -498,3 +515,24 @@ class VerifiedSchoolSubject:
 | 日期 | 版本 | 变更 |
 |---|---|---|
 | 2026-11-13 | v1 | 首版：冻结 scope 映射、数据域、授权两层模型、云同步分域、第三方只读 API、应用清单、票据、调度、身份、错误码、废止清单 |
+| 2026-11-13 | v1.1 | 检查点 A：补 §3.4（可同步域 vs 可授权域两个集合的关系）与 §15（跨 PR 合并顺序与冲突处理） |
+
+## 15. 跨 PR 合并顺序与冲突处理（2026-11-13 检查点 A 补）
+
+| 顺序 | PR | 仓库 | 触及的共享文件 |
+|---|---|---|---|
+| 1 | #1273（T01 契约） | mini-hbut | 仅 `docs/**`，无冲突 |
+| 2 | OCR#50（T02 同意层 + 学业域） | OCR-services | `identity_auth/{app_consents,data_authz,store_factory}.py`、`runtime/entrypoint.py`、`manifest/README.md`、`docs/t11-data-authz.md`、`deploy/identity/migrations/0005*` |
+| 3 | OCR#51（T03 分域快照 + 限流） | OCR-services | `runtime/entrypoint.py`、`modules/cloud_domains_storage.py`、`modules/cloud_sync_domains_routes.py`、`modules/rate_limit/policy.py`、`deploy/identity/migrations/0006*` |
+
+**唯一冲突点**：OCR#50 与 OCR#51 都改 `runtime/entrypoint.py`。
+
+- 位置不同（#50 在 data-authz 接线区 ≈221 行与 cloud-sync 中部；#51 在 cloud-sync 上传区 ≈5690 行与文件末尾），git 可自动合并；
+- **合并后必须重跑全量**：`python -m pytest -q -p no:cacheprovider`（两者都新增了启动期接线，单看 diff 无法证明组合后可启动）；
+- 顺序理由：授权层（#50）是分域读取（#51）的上游——分域表的第三方读取必须经过 consent 判定，所以先合 #50。
+
+**合并后必须额外验证的三条**（单 PR 测试覆盖不到）：
+
+1. `import runtime.entrypoint` 成功，且 `len(app.routes)` 增量 = 预期（#51 的 2 条 v2 路由，仅当 `MINI_HBUT_CLOUD_DOMAINS_ENABLED` 为真）；
+2. `MINI_HBUT_CLOUD_DOMAINS_ENABLED=true` 时旧整包上传仍返回 200（投影失败不得改变旧语义）；
+3. 两个迁移 `0005` / `0006` 在同一测试库顺序执行成功（编号不冲突）。
