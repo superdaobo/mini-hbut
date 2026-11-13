@@ -24,6 +24,11 @@ import {
 import { getTestAccountGrades, seedTestAccountCaches } from '../../utils/test_account_fixtures.js'
 import { clearWidgetForLogout } from '../../utils/widget_bridge'
 import { scheduleIdentitySsoBootstrap } from '../../features/identity/sso/identitySsoBootstrap'
+import {
+  bumpAccountEpoch,
+  getAccountEpoch,
+  isCurrentEpoch
+} from '../../features/identity/session/accountEpoch'
 import { startNotificationMonitor, stopNotificationMonitor } from '../../utils/notify_center.js'
 import { ensureRememberedPasswordCached } from '../../utils/credential_storage.js'
 import {
@@ -72,7 +77,9 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
   const { state } = runtime
   const hasTauri = isTauriRuntime()
   // 旧账号的异步网络验证可能晚于新账号切换/登出返回；以递增序号阻止迟到结果升级在线态。
-  let accountSwitchEpoch = 0
+  // Epic #1243（G1-05 / mini-hbut#1249）：序号已收敛到 `accountEpoch` 单一事实源——
+  // 登录成功 / 登出 / 切号都走 `bumpAccountEpoch`，其它模块（SSO 初始化、云同步队列、
+  // iframe 票据）用同一个 `isCurrentEpoch` 复核，避免各写一套互相看不见的计数器。
 
   const clearTestAccountRuntimeCaches = () => {
     clearCacheByPrefix(`grades:${TEST_ACCOUNT.studentId}`)
@@ -149,7 +156,7 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
 
   // 处理登录成功
   const handleLoginSuccess = (data: unknown) => {
-    accountSwitchEpoch += 1
+    bumpAccountEpoch('login')
     // 登录成功事件中携带后端账号；禁止反读可能尚未落盘的 localStorage 作为唯一依据。
     const incomingId = data && typeof data === 'object' && !Array.isArray(data)
       ? String((data as { studentId?: unknown }).studentId || '')
@@ -185,8 +192,8 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     if (state.studentId.value) {
       scheduleIdentitySsoBootstrap({
         studentId: state.studentId.value,
-        epoch: accountSwitchEpoch,
-        getEpoch: () => accountSwitchEpoch
+        epoch: getAccountEpoch(),
+        getEpoch: getAccountEpoch
       })
     }
 
@@ -291,7 +298,7 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
 
   // 处理登出
   const handleLogout = async (options: Record<string, unknown> = {}) => {
-    accountSwitchEpoch += 1
+    bumpAccountEpoch('logout')
     const payload = options && typeof options === 'object' ? options : {}
     const manual = payload.manual !== false
     const reason = String(payload.reason || '').trim()
@@ -409,8 +416,8 @@ export const createAuthCoordinator = (runtime: AppRuntime): AuthCoordinator => {
     const role = normalizeLoginRole(account?.role)
     const sid = normalizePortalAccountId(account?.studentId, role)
     if (!sid) return
-    const epoch = ++accountSwitchEpoch
-    const isCurrent = () => accountSwitchEpoch === epoch
+    const epoch = bumpAccountEpoch('switch')
+    const isCurrent = () => isCurrentEpoch(epoch)
       && state.studentId.value === sid && state.role.value === role
     const previousSid = String(state.studentId.value || '').trim()
 
