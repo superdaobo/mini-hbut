@@ -9,15 +9,19 @@
  * - 课程与日程重叠时课程收窄（lane 布局由 utils/timelineLayout 纯函数计算，复用 #834 的
  *   intervalsOverlap，不自建第二套重叠算法）；
  * - 可见区外（早于第一节 / 晚于最后一节）的日程由列顶 / 列底 indicator 承载，不静默丢失。
+ *
+ * 考试叠加层：教务考试安排与个人日程共用同一时间轴（kind = exam），
+ * 只读、按真实钟点定位；与课程重叠时同样收窄课程，日期头用红点提示当天有考试。
  */
 import { computed, ref, watch } from 'vue'
 import { MAX_PERIOD, timeSchedule } from '../constants'
 // #788 i18n：文案经 useI18n 响应式取词
 import { useI18n } from '../../../utils/app_i18n'
 import ScheduleEventCard from './ScheduleEventCard.vue'
+import ScheduleExamCard from './ScheduleExamCard.vue'
 import { formatMinuteToClock } from '../utils/formatters'
 import { buildScheduleTimeGeometry, getGridTotalHeight } from '../utils/timeGeometry'
-import { courseToTimelineItem, eventToTimelineItem } from '../utils/timelineAdapters'
+import { courseToTimelineItem, eventToTimelineItem, examToTimelineItem } from '../utils/timelineAdapters'
 import { gridYToMinute, layoutTimelineItems, splitOutOfRangeEvents } from '../utils/timelineLayout'
 import { buildOverflowConflictCourse } from '../utils/layout'
 import {
@@ -39,6 +43,8 @@ const props = defineProps({
   isWidgetHighlighted: { type: Function, default: () => false },
   // #837：该天的事件（camelCase 领域对象）。默认返回空数组 → 未接线时零改动
   getEventsForDay: { type: Function, default: () => () => [] },
+  // 考试叠加层：该天的考试（camelCase 领域对象）。默认返回空数组 → 未接线时零改动
+  getExamsForDay: { type: Function, default: () => () => [] },
   // #856：all | courses | events。筛选发生在 lane 输入层，不做 CSS 假隐藏。
   viewMode: { type: String, default: 'all' },
   // #837：是否允许点击空白处快速创建（默认开启）
@@ -46,7 +52,12 @@ const props = defineProps({
   // #857：父层打开抽屉/弹窗时递增，清掉未确认的临时虚线框。
   selectionResetNonce: { type: Number, default: 0 },
 })
-const emit = defineEmits(['open-detail', 'open-event-detail', 'confirm-blank-selection'])
+const emit = defineEmits([
+  'open-detail',
+  'open-event-detail',
+  'open-exam-detail',
+  'confirm-blank-selection'
+])
 
 // 响应式 t：语言切换后网格文案即时生效
 const { t } = useI18n()
@@ -79,6 +90,9 @@ const weekIsoDates = computed(() =>
 
 const showCourses = computed(() => props.viewMode !== 'events')
 const showEvents = computed(() => props.viewMode !== 'courses')
+// 考试是教务事实，默认跟随课程显示；「仅个人日程」视图下让位给日程，避免挤占 lane。
+const showExams = computed(() => props.viewMode !== 'events')
+const showOverlayItems = computed(() => showEvents.value || showExams.value)
 
 const visibleCoursesForDay = (day) => {
   if (!showCourses.value) return []
@@ -91,6 +105,15 @@ const visibleEventsForDay = (day) => {
   const events = props.getEventsForDay(day)
   return Array.isArray(events) ? events : []
 }
+
+const visibleExamsForDay = (day) => {
+  if (!showExams.value) return []
+  const exams = props.getExamsForDay(day)
+  return Array.isArray(exams) ? exams : []
+}
+
+/** 日期头考试红点：当天有考试（且当前视图展示考试）时给出提示 */
+const hasExamOnDay = (day) => visibleExamsForDay(day).length > 0
 
 /** 课程对象 → lane 匹配键（与 courseToTimelineItem 的 id 取值口径保持一致） */
 const courseKeyOf = (course) => String(course?._uid ?? course?.id ?? course?.source_id ?? '')
@@ -127,6 +150,14 @@ const collectTimelineItems = (day) => {
       if (item) items.push(item)
     }
   }
+  // 考试与日程同一条时间轴：重叠时自动分 lane，课程区保持主位
+  const exams = visibleExamsForDay(day)
+  if (Array.isArray(exams)) {
+    for (const exam of exams) {
+      const item = examToTimelineItem(exam, weekIsoDates.value, day)
+      if (item) items.push(item)
+    }
+  }
   return items
 }
 
@@ -154,8 +185,11 @@ const dayTimeline = computed(() => {
 })
 
 const dayLayout = (day) => dayTimeline.value[day]?.layout || EMPTY_LAYOUT
-const eventSlots = (day) => dayLayout(day).slots.filter((slot) => slot.item.kind === 'event')
-const overflowGroups = (day) => showEvents.value ? dayLayout(day).overflowGroups : []
+/** 叠加层可见卡片（考试 + 日程）；课程卡仍走 grid-row 定位，不在此列 */
+const overlaySlots = (day) => dayLayout(day).slots.filter((slot) => slot.item.kind !== 'course')
+const eventSlots = (day) => overlaySlots(day).filter((slot) => slot.item.kind === 'event')
+const examSlots = (day) => overlaySlots(day).filter((slot) => slot.item.kind === 'exam')
+const overflowGroups = (day) => showOverlayItems.value ? dayLayout(day).overflowGroups : []
 const beforeEvents = (day) => dayTimeline.value[day]?.before || []
 const afterEvents = (day) => dayTimeline.value[day]?.after || []
 
@@ -258,7 +292,7 @@ const handleColumnClick = (event, day) => {
   if (!props.enableBlankCreate || tapMoved) return
   const target = event.target
   if (
-    target?.closest?.('.course-card, .event-card, .event-overflow-chip, .event-edge-indicator')
+    target?.closest?.('.course-card, .event-card, .exam-card, .event-overflow-chip, .event-edge-indicator')
   ) {
     clearBlankSelection()
     return
@@ -301,13 +335,16 @@ const edgeHint = (list) => {
   return `${clock} ${first.title || ''}${suffix}`.trim()
 }
 
-/** indicator / 聚合入口统一打开排序最靠前的那一条详情 */
+/** indicator / 聚合入口：按条目类型分发到对应详情（考试 ≠ 个人日程） */
 const openFirstEvent = (list) => {
   const first = Array.isArray(list) ? list[0] : null
-  if (first) {
-    clearBlankSelection()
-    emit('open-event-detail', first.raw)
+  if (!first) return
+  clearBlankSelection()
+  if (first.kind === 'exam') {
+    emit('open-exam-detail', first.raw)
+    return
   }
+  emit('open-event-detail', first.raw)
 }
 
 const openCourseDetail = (course) => {
@@ -340,6 +377,12 @@ const openEventDetail = (raw) => {
   clearBlankSelection()
   emit('open-event-detail', raw)
 }
+
+/** 考试卡点击：只读详情（交换由父层弹窗承载，不改任何教务数据） */
+const openExamDetail = (raw) => {
+  clearBlankSelection()
+  emit('open-exam-detail', raw)
+}
 </script>
 
 <template>
@@ -352,6 +395,11 @@ const openEventDetail = (raw) => {
         </div>
         <div class="days-row">
           <div v-for="day in 7" :key="day" class="day-col" :class="{ 'is-today': isTodayColumn(day) }">
+            <span
+              v-if="hasExamOnDay(day)"
+              class="day-exam-dot"
+              aria-hidden="true"
+            ></span>
             <div class="day-num">{{ weekDates[day - 1]?.date || day }}</div>
             <div class="day-label">{{ weekDates[day - 1]?.dayLabel || '' }}</div>
           </div>
@@ -448,6 +496,14 @@ const openEventDetail = (raw) => {
                 @open-detail="openEventDetail($event)"
               />
 
+              <ScheduleExamCard
+                v-for="slot in examSlots(day)"
+                :key="`exam-${slot.item.id}`"
+                :item="slot.item"
+                :slot="slot"
+                @open-detail="openExamDetail($event)"
+              />
+
               <!-- 超可读阈值的聚合入口：不在该处继续压窄成细条 -->
               <button
                 v-for="group in overflowGroups(day)"
@@ -508,12 +564,26 @@ const openEventDetail = (raw) => {
 }
 
 .day-col {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
   gap: 1px;
+}
+
+/* 日期头考试红点：当天有考试时给出不打断阅读的轻提示 */
+.day-exam-dot {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #dc2626;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+  pointer-events: none;
 }
 
 .day-col.is-today {
@@ -811,6 +881,11 @@ html.dark .event-overflow-chip {
   background: rgba(30, 41, 59, 0.96);
   border-color: rgba(96, 165, 250, 0.4);
   color: #93c5fd;
+}
+
+html.dark .day-exam-dot {
+  background: #f87171;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.8);
 }
 
 .course-card {

@@ -59,6 +59,11 @@ const I18N_MIGRATED_FILES: string[] = [
   'features/schedule/utils/eventTypes.ts',
   // #838：个人日程详情 surface（独立于课程详情语义）与详情状态编排
   'features/schedule/components/ScheduleEventDetail.vue',
+  // 课表考试叠加层：考试卡 / 考试详情 / 数据层 / 领域纯函数（文案全部走 t()，中文仅在注释里）
+  'features/schedule/components/ScheduleExamCard.vue',
+  'features/schedule/components/ScheduleExamDetail.vue',
+  'features/schedule/composables/useScheduleExamData.ts',
+  'features/schedule/utils/examTypes.ts',
   'features/schedule/composables/useScheduleEventDetail.ts',
   'features/schedule/components/ScheduleManageCoursesDialog.vue',
   'features/schedule/components/ScheduleWeekPicker.vue',

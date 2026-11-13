@@ -400,6 +400,17 @@ export const messages: Record<string, string> = {
   'schedule.grid.conflictHint': '点击查看冲突课程详情',
   'schedule.grid.conflictOverflowTitle': '课程冲突（{n}门）',
   'schedule.grid.noTeacher': '未标注教师',
+  // 考试叠加层（教务考试安排显示在课表网格内）
+  'schedule.exam.badge': '考',
+  'schedule.exam.unnamedCourse': '未命名考试',
+  'schedule.exam.timeTbd': '时间待定',
+  'schedule.exam.detailTitle': '考试详情',
+  'schedule.exam.dateLabel': '考试日期',
+  'schedule.exam.timeLabel': '考试时间',
+  'schedule.exam.locationLabel': '考场',
+  'schedule.exam.seatTitle': '座位号',
+  'schedule.exam.allExams': '查看全部考试',
+  'schedule.exam.readonlyHint': '考试安排来自教务系统，课表内仅供查看',
   // 抽屉（菜单）
   'schedule.drawer.title': '课表工具',
   'schedule.drawer.section.semester': '选择学期',

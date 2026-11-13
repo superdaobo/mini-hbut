@@ -7,6 +7,12 @@
  * 安全策略：任何无法换算的记录一律返回 null（不进入渲染），绝不返回半成品。
  */
 import { getCourseRealInterval, parseClockToMinute } from './timeGeometry'
+import {
+  EXAM_TIME_TBD_END_MINUTE,
+  EXAM_TIME_TBD_START_MINUTE,
+  examDayIndexInWeek,
+  type ScheduleExam
+} from './examTypes'
 import type { ScheduleTimeSlot, ScheduleTimelineItem } from './timelineTypes'
 
 /** 把任意输入归一为合法星期序号（1..7）；非法返回 null */
@@ -159,5 +165,49 @@ export function eventToTimelineItem(
     color: toOptionalText(event.color),
     source: 'personal-event',
     raw: event
+  }
+}
+
+/**
+ * 考试安排 → TimelineItem（课表考试叠加层）。
+ *
+ * - 只有日期命中当前渲染周才进入；`weekDates` 为空时才回退 `dayIndexHint`；
+ * - 有时间 → 按真实钟点定位（与个人日程同一条时间轴）；
+ * - 无时间（`timeTbd`）→ 占位当天列顶的固定区间，卡片标注「时间待定」，
+ *   **绝不因为缺时间而丢弃考试**；
+ * - 原始考试对象保留在 `raw`，详情弹窗直接消费。
+ */
+export function examToTimelineItem(
+  exam: ScheduleExam,
+  weekDates: string[],
+  dayIndexHint?: number
+): ScheduleTimelineItem | null {
+  if (!exam || typeof exam !== 'object') return null
+
+  const dates = Array.isArray(weekDates) ? weekDates : []
+  let day: number | null = examDayIndexInWeek(exam.date, dates)
+  // 与 eventToTimelineItem 同口径：weekDates 缺失/为空（单日视图）才回退 hint
+  if (day === null && dates.length === 0) {
+    day = normalizeDayIndex(dayIndexHint)
+  }
+  if (day === null) return null
+
+  const startMinute = exam.timeTbd ? EXAM_TIME_TBD_START_MINUTE : exam.startMinute
+  const endMinute = exam.timeTbd ? EXAM_TIME_TBD_END_MINUTE : exam.endMinute
+  if (startMinute === null || endMinute === null) return null
+  if (endMinute <= startMinute) return null
+
+  const title = toOptionalText(exam.courseName) ?? ''
+
+  return {
+    id: toOptionalText(exam.id) ?? `exam:${exam.date}:${startMinute}:${endMinute}:${title}`,
+    kind: 'exam',
+    dayIndex: day,
+    startMinute,
+    endMinute,
+    title,
+    subtitle: toOptionalText(exam.location),
+    source: 'exam',
+    raw: exam
   }
 }
