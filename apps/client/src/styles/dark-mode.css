@@ -2773,3 +2773,101 @@ html.dark body .course-selection-view .course-selection-test-banner {
 html.dark body .course-selection-view .course-selection-test-banner strong {
   color: #fbbf24 !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   #1305 暗色二度轮调 · 第一批（我的页操作区 / 课表 / 课程详情弹窗）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── 我的页：顶栏胶囊与操作按钮（原本是浅底深字） ─── */
+html.dark .me-view .header-pill {
+  background: color-mix(in oklab, #3b82f6 18%, #0f172a 82%) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .me-view .btn-switch {
+  background: color-mix(in oklab, #6366f1 20%, #0f172a 80%) !important;
+  color: #c7d2fe !important;
+}
+
+html.dark .me-view .btn-logout {
+  background: color-mix(in oklab, #ef4444 18%, #0f172a 82%) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .me-view .account-delete {
+  background: rgba(239, 68, 68, 0.16) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .me-view .profile-avatar {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.42), rgba(79, 70, 229, 0.3)) !important;
+}
+
+/* ─── 课表：课程卡按课程色做暗色染色，避免整块白卡 ─── */
+/* 选择器需要压过 scoped 的 `.courses-grid .day-column > .course-card[data-v]`（4 类） */
+html.dark .schedule-view .courses-grid .day-column > .course-card {
+  background: color-mix(in oklab, var(--course-text, #e2e8f0) 16%, #0f172a 84%) !important;
+  color: color-mix(in oklab, var(--course-text, #e2e8f0) 42%, #ffffff 58%) !important;
+  border-color: color-mix(in oklab, var(--course-border, #334155) 45%, #0f172a 55%) !important;
+}
+
+html.dark .schedule-view .day-col.is-today {
+  background: color-mix(in oklab, #2563eb 22%, #0f172a 78%) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .schedule-view .day-col.is-today .day-num {
+  color: #93c5fd !important;
+}
+
+html.dark .schedule-view .period-num {
+  color: #94a3b8 !important;
+}
+
+/* ─── 课表课程详情弹窗：标题 / 数值 / 关闭按钮 / 冲突与自定义操作 ─── */
+html.dark .modal-header h3 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .close-btn {
+  background: #334155 !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .info-row .label {
+  color: #94a3b8 !important;
+}
+
+html.dark .info-row .value {
+  color: #e2e8f0 !important;
+}
+
+html.dark .conflict-hint,
+html.dark .conflict-item-row {
+  color: #cbd5e1 !important;
+}
+
+html.dark .conflict-item {
+  background: rgba(127, 29, 29, 0.18) !important;
+  border-color: rgba(248, 113, 113, 0.35) !important;
+}
+
+html.dark .conflict-item-title {
+  color: #fca5a5 !important;
+}
+
+html.dark .detail-action-error {
+  background: rgba(127, 29, 29, 0.32) !important;
+  border-color: rgba(248, 113, 113, 0.35) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .custom-delete-btn.week {
+  background: rgba(239, 68, 68, 0.16) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .custom-delete-btn.edit {
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #93c5fd !important;
+}
