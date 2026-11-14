@@ -28,6 +28,22 @@ const SSO_TTL_COOKIE_REUSE: Duration = Duration::from_secs(60 * 60 * 24 * 7);
 const COOKIE_PROBE_TTL: Duration = Duration::from_secs(30 * 60);
 /// 静默重登节流，避免验证码风暴
 const SILENT_RELOGIN_COOLDOWN: Duration = Duration::from_secs(45);
+/// #1296：强制重登的进程级节流（用户连续点目录不能触发连环门户登录）
+const FORCE_RELOGIN_MIN_INTERVAL: Duration = Duration::from_secs(30);
+static LAST_FORCE_RELOGIN_AT: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn force_relogin_throttled(now: Instant) -> bool {
+    let Ok(mut last) = LAST_FORCE_RELOGIN_AT.lock() else {
+        return false;
+    };
+    if let Some(at) = *last {
+        if now.duration_since(at) < FORCE_RELOGIN_MIN_INTERVAL {
+            return true;
+        }
+    }
+    *last = Some(now);
+    false
+}
 
 fn err_box(message: impl Into<String>) -> DynError {
     Box::new(io::Error::other(message.into()))
@@ -615,6 +631,15 @@ pub async fn force_chaoxing_relogin(
     student_id: Option<&str>,
     portal_password: Option<&str>,
 ) -> Result<Value, DynError> {
+    if force_relogin_throttled(Instant::now()) {
+        println!("[SSO] 强制重登节流中（30s 内已尝试），跳过");
+        return Ok(json!({
+            "ok": false,
+            "skipped": "throttled",
+            "retry_after_ms": FORCE_RELOGIN_MIN_INTERVAL.as_millis(),
+        }));
+    }
+
     let sid = prepare_sso_identity(client, student_id);
     inject_portal_password(client, &sid, portal_password);
     hydrate_credentials(client, &sid);
