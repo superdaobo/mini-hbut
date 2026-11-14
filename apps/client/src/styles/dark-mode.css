@@ -2411,12 +2411,45 @@ html.dark .service-stats-view .status-meta span {
 }
 
 html.dark .service-stats-view .status-card,
+html.dark .service-stats-view .usage-card,
+html.dark .service-stats-view .version-card,
 html.dark .service-stats-view .metric-card,
 html.dark .service-stats-view .trend-card,
 html.dark .service-stats-view .archive-item {
   background: #1e293b !important;
   border-color: rgba(148, 163, 184, 0.16) !important;
   color: #e2e8f0 !important;
+}
+
+/* #1297：卡片内部残留的浅底/深字（版本行、趋势项、空态、错误条、图标胶囊） */
+html.dark .service-stats-view .version-row,
+html.dark .service-stats-view .trend-item,
+html.dark .service-stats-view .empty-state {
+  background: rgba(15, 23, 42, 0.55) !important;
+}
+
+html.dark .service-stats-view .section-title,
+html.dark .service-stats-view .version-count,
+html.dark .service-stats-view .trend-head strong {
+  color: #f1f5f9 !important;
+}
+
+html.dark .service-stats-view .version-name,
+html.dark .service-stats-view .trend-head,
+html.dark .service-stats-view .empty-hint,
+html.dark .service-stats-view .empty-state,
+html.dark .service-stats-view .status-meta {
+  color: #94a3b8 !important;
+}
+
+html.dark .service-stats-view .metric-icon {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .service-stats-view .error-banner {
+  background: rgba(127, 29, 29, 0.32) !important;
+  color: #fca5a5 !important;
 }
 
 /* ─── 空教室筛选标签（scoped 固定色优先级问题） ─── */
