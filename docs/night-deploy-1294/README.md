@@ -12,7 +12,7 @@
 | Casdoor 里能建用户 | ✅ 通过管理 API 建号成功（含 `hbut_student_id` 等属性） | `app-built-in` BasicAuth |
 | 能授权登录 | ✅ 浏览器真实走授权码 + PKCE S256，拿到 AT/RT/ID Token | 应用 `mini-hbut-lab`，账号 `9900000001` |
 | 数据不丢 | ✅ 升级前 `5886` → 联调写入后 `5891` → **清理测试数据后 `5883`**；真实用户记录**一条未动**（数量差 = 顺手删掉的 3 条历史遗留测试行） | 备份见 §五 |
-| 服务可用 | ✅ 已升级到 `2026-11-15-main2`（main `5be5121` + 修复 `ed0eee7`），13 条端点全绿、0 错误日志 | `https://mini.hbut.site` |
+| 服务可用 | ✅ 已升级到 `2026-11-15-main3`（main `5be5121` + 修复 `75bed47`），13 条端点全绿、0 错误日志 | `https://mini.hbut.site` |
 
 并且：**在 `origin/main` 上抓到一个会把线上云同步上传打挂的 P0**，已回滚 → 修复 → 开 PR（OCR-services#65）→ 用修复镜像重新上线并全量验证。
 
@@ -101,8 +101,8 @@ JWKS 验签：通过（RS256，kid 来自 /.well-known/jwks）
 
 | 项 | 值 |
 |---|---|
-| 容器镜像 | `fdl-ocr-service:2026-11-15-main2`（= `origin/main` `5be5121` + 修复提交 `ed0eee7`） |
-| `/health` | 200，`build.sha=ed0eee7`，返回体变**轻量**：`{ok, service, version, uptime_seconds, started_at}` |
+| 容器镜像 | `fdl-ocr-service:2026-11-15-main3`（= `origin/main` `5be5121` + 修复提交 `75bed47`） |
+| `/health` | 200，`build.sha=75bed47`，返回体变**轻量**：`{ok, service, version, uptime_seconds, started_at}` |
 | `/health/deps` | 200，完整指标（新增端点） |
 | 云同步记录数 | `5883`（升级前 `5886`；夜间联调/对抗测试写入合成学号后曾到 `5891`，**收工前已按合成学号精确删除**，并连续删掉 3 条历史遗留测试行 `0000000000/0000000096/0000000925`） |
 | 真实用户流量 | 正常：`2510201423@01:14`、`2510661118@01:10` 持续在写云同步 |
@@ -206,7 +206,7 @@ async def cloud_sync_upload(req, request): ...   # ← 真正的处理器没装�
 
 - 修复 PR：**https://github.com/superdaobo/OCR-services/pull/65**
   （含 4 例 OpenAPI 契约回归锁，CI 以前拦不住这种错）
-- 修复镜像：`fdl-ocr-service:2026-11-15-main2`
+- 修复镜像：`fdl-ocr-service:2026-11-15-main3`
 - 已做的自动化回归：**新旧镜像 OpenAPI 契约对比**，80 → 81 条路径，
   除这个 P0 外只有 `POST /api/forum/auth/token` 多了一个**可选** `authorization` 头（非破坏）。
 
@@ -236,7 +236,7 @@ async def cloud_sync_upload(req, request): ...   # ← 真正的处理器没装�
 
 | 验收项 | 结果 |
 |---|---|
-| `/health` 200 且 build sha = 新构建 | ✅ `build.sha=ed0eee7`（`/health/deps`） |
+| `/health` 200 且 build sha = 新构建 | ✅ `build.sha=75bed47`（`/health/deps`） |
 | `POST /identity/bootstrap` 对合成学生返回 2xx + JWT | ❌ **不适用**：该端点已被 main 明确退役；等价能力改为「Casdoor 授权码 + PKCE」并**已实测通过** |
 | Casdoor 库中存在测试学号用户，`hbut_student_id` 正确 | ✅ `fdl-users/9900000001`，4 个 `hbut_*` 属性齐全 |
 | JWT 通过验签，`student_id` 正确 | ✅ RS256 + JWKS 验签通过，`hbut_student_id=9900000001` |
@@ -316,3 +316,62 @@ MINI_HBUT_CORS_ORIGINS=https://mini.hbut.site,https://mini-hbut-ocr-service.hf.s
 7 次失败全部落在 `version=legacy`，且 **`inference_count == success_count == 21`** →
 说明这 7 次**根本没进推理**，是审计代理用 `{}` 空 body 探 `/api/ocr/{recognize,base64}` 的参数校验拒绝。
 **推理链路 0 失败。**
+
+---
+
+## 十一、第三轮上线：#67 缺陷 1/3 的服务端修复（03:10 完成）
+
+PR **OCR-services#65** 追加了两个修复提交，并用新镜像 `2026-11-15-main3`（`build.sha=75bed47`）重新上线验证。
+
+### 11.1 缺陷 1：413 不再烧掉 120 秒上传配额
+
+实现：`_allow_cloud_sync_action_interval` 记的配额，在**响应 ≥ 400 时回滚**
+（新增 `_release_cloud_sync_action_interval`；原 `cloud_sync_upload` 主体改名 `_cloud_sync_upload_impl`，
+路由层改成薄包装，只负责"失败释放、成功保留"）。
+
+**线上实测（`student_id=0000000007`）**：
+
+```
+2MiB 上传        → 413 {"success":false,"error":"payload 过大，最大允许 1048576 字节"}
+立刻小上传(200ms)→ 200 {"success":true,"student_id":"0000000007","size":41,...}
+⇒ 配额未被 413 烧掉: True
+```
+
+修复前同样的序列是 `413 → 429「请 120 秒后再试」`。
+
+### 11.2 缺陷 3：`sections` 未知键 → 400，不再静默覆盖
+
+**线上实测（`student_id=0000000008`）**：
+
+```
+sections={'personal_event':true} → 400 {"success":false,"error":"sections 含未知键：personal_event"}
+下载确认 → 200 settings = null      ← 没有任何域被写入
+⇒ 未知键请求没有写入任何域: True
+```
+
+官方客户端只发 `settings / academic / custom_courses / personal_events` 四个键
+（`apps/client/src/utils/cloud_sync.ts:161`），不受影响；`None`/`{}`/非 dict 仍走原有推断逻辑（向后兼容）。
+
+### 11.3 测试证据
+
+| 范围 | 结果 |
+|---|---|
+| 新增 14 例（路由契约 4 + 配额/`sections` 10） | **14 passed** |
+| 云同步相关全部用例 | **68 passed, 6 skipped** |
+| **全量**（修复分支 `75bed47`） | **2611 passed, 33 skipped, 2 failed** |
+| **全量对照**（`origin/main` 未改动） | **2597 passed, 33 skipped, 2 failed** |
+
+两个失败在**未改动的 `origin/main` 上完全相同**，与本次改动无关：
+- `test_manifest_whitelist_gen::test_sample_manifest_cli_output_byte_equals_committed_example` —— Windows 工作区 `git archive` 出的文件是 CRLF，字节比对必然不等（环境问题）；
+- `test_game_platform_metrics_wiring::TestRunsWiring::test_finish_quarantine_counts_quarantined_run` —— 单跑/整文件跑都通过（34 passed），只在全量批量跑时因用例间状态残留失败（既有的隔离性缺陷）。
+
+### 11.4 上线后回归确认
+
+| 项 | 结果 |
+|---|---|
+| `/health/deps` | 200，`status:"ok"`，`build.sha=75bed47` |
+| 13 条端点冒烟 | 全 200，5xx = 0 |
+| 云同步往返 | `ping 200 → upload 200 → download 200`，`往返一致: True` |
+| OpenAPI 契约 | 81 条路径，**与 main2 完全一致**（无新增/删除/签名变化） |
+| 云同步记录数 | `5883`（验证用的合成学号已清理干净） |
+| 真实用户记录 | `2510201423`、`2510661118`、`2411351125` 等一条未动 |
