@@ -31,7 +31,7 @@
     <template v-else>
       <!-- SSO 状态条（仅异常时强调） -->
       <div
-        v-if="!ssoReady || ssoHint"
+        v-if="(!ssoReady || ssoHint) && !(ssoReady && error)"
         class="cx-sso-chip"
         :class="{ ok: ssoReady, bad: !ssoReady }"
         role="status"

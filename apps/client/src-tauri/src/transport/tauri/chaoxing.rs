@@ -104,6 +104,9 @@ pub struct ChaoxingClassResourcesRequest {
     pub parent_chain: Option<String>,
     /// `tch-courseware` | `afolder`
     pub folder_kind: Option<String>,
+    /// 前端 Web 加密备份里的门户密码（可选；缺失时后端不强制重登）#1296
+    #[serde(default)]
+    pub portal_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -436,6 +439,7 @@ pub(crate) async fn chaoxing_class_list_resources(
             data_name: req.data_name,
             parent_chain: req.parent_chain,
             folder_kind: req.folder_kind,
+            portal_password: req.portal_password,
         },
     )
     .await
