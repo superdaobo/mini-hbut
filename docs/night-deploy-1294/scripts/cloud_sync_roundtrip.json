@@ -1,0 +1,11 @@
+{
+  "student_id": "0000000001",
+  "secret_ref": "kv1-main",
+  "results": {
+    "ping": 200,
+    "upload": 200,
+    "download": 200,
+    "roundtrip_ok": true
+  },
+  "served": {}
+}
