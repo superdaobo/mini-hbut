@@ -12,7 +12,7 @@
 | Casdoor 里能建用户 | ✅ 通过管理 API 建号成功（含 `hbut_student_id` 等属性） | `app-built-in` BasicAuth |
 | 能授权登录 | ✅ 浏览器真实走授权码 + PKCE S256，拿到 AT/RT/ID Token | 应用 `mini-hbut-lab`，账号 `9900000001` |
 | 数据不丢 | ✅ 升级前 `5886` → 联调写入后 `5891` → **清理测试数据后 `5883`**；真实用户记录**一条未动**（数量差 = 顺手删掉的 3 条历史遗留测试行） | 备份见 §五 |
-| 服务可用 | ✅ 已升级到 `2026-11-15-main3`（main `5be5121` + 修复 `75bed47`），13 条端点全绿、0 错误日志 | `https://mini.hbut.site` |
+| 服务可用 | ✅ 已升级到 `2026-11-15-main4`（main `5be5121` + 修复 `1a20e63`），13 条端点全绿、0 错误日志 | `https://mini.hbut.site` |
 
 并且：**在 `origin/main` 上抓到一个会把线上云同步上传打挂的 P0**，已回滚 → 修复 → 开 PR（OCR-services#65）→ 用修复镜像重新上线并全量验证。
 
@@ -101,8 +101,8 @@ JWKS 验签：通过（RS256，kid 来自 /.well-known/jwks）
 
 | 项 | 值 |
 |---|---|
-| 容器镜像 | `fdl-ocr-service:2026-11-15-main3`（= `origin/main` `5be5121` + 修复提交 `75bed47`） |
-| `/health` | 200，`build.sha=75bed47`，返回体变**轻量**：`{ok, service, version, uptime_seconds, started_at}` |
+| 容器镜像 | `fdl-ocr-service:2026-11-15-main4`（= `origin/main` `5be5121` + 修复提交 `1a20e63`） |
+| `/health` | 200，`build.sha=1a20e63`，返回体变**轻量**：`{ok, service, version, uptime_seconds, started_at}` |
 | `/health/deps` | 200，完整指标（新增端点） |
 | 云同步记录数 | `5883`（升级前 `5886`；夜间联调/对抗测试写入合成学号后曾到 `5891`，**收工前已按合成学号精确删除**，并连续删掉 3 条历史遗留测试行 `0000000000/0000000096/0000000925`） |
 | 真实用户流量 | 正常：`2510201423@01:14`、`2510661118@01:10` 持续在写云同步 |
@@ -206,7 +206,7 @@ async def cloud_sync_upload(req, request): ...   # ← 真正的处理器没装�
 
 - 修复 PR：**https://github.com/superdaobo/OCR-services/pull/65**
   （含 4 例 OpenAPI 契约回归锁，CI 以前拦不住这种错）
-- 修复镜像：`fdl-ocr-service:2026-11-15-main3`
+- 修复镜像：`fdl-ocr-service:2026-11-15-main4`
 - 已做的自动化回归：**新旧镜像 OpenAPI 契约对比**，80 → 81 条路径，
   除这个 P0 外只有 `POST /api/forum/auth/token` 多了一个**可选** `authorization` 头（非破坏）。
 
@@ -236,7 +236,7 @@ async def cloud_sync_upload(req, request): ...   # ← 真正的处理器没装�
 
 | 验收项 | 结果 |
 |---|---|
-| `/health` 200 且 build sha = 新构建 | ✅ `build.sha=75bed47`（`/health/deps`） |
+| `/health` 200 且 build sha = 新构建 | ✅ `build.sha=1a20e63`（`/health/deps`） |
 | `POST /identity/bootstrap` 对合成学生返回 2xx + JWT | ❌ **不适用**：该端点已被 main 明确退役；等价能力改为「Casdoor 授权码 + PKCE」并**已实测通过** |
 | Casdoor 库中存在测试学号用户，`hbut_student_id` 正确 | ✅ `fdl-users/9900000001`，4 个 `hbut_*` 属性齐全 |
 | JWT 通过验签，`student_id` 正确 | ✅ RS256 + JWKS 验签通过，`hbut_student_id=9900000001` |
@@ -321,7 +321,7 @@ MINI_HBUT_CORS_ORIGINS=https://mini.hbut.site,https://mini-hbut-ocr-service.hf.s
 
 ## 十一、第三轮上线：#67 缺陷 1/3 的服务端修复（03:10 完成）
 
-PR **OCR-services#65** 追加了两个修复提交，并用新镜像 `2026-11-15-main3`（`build.sha=75bed47`）重新上线验证。
+PR **OCR-services#65** 追加了两个修复提交，并用新镜像 `2026-11-15-main3`（`build.sha=1a20e63`）重新上线验证。
 
 ### 11.1 缺陷 1：413 不再烧掉 120 秒上传配额
 
@@ -369,9 +369,54 @@ sections={'personal_event':true} → 400 {"success":false,"error":"sections 含�
 
 | 项 | 结果 |
 |---|---|
-| `/health/deps` | 200，`status:"ok"`，`build.sha=75bed47` |
+| `/health/deps` | 200，`status:"ok"`，`build.sha=1a20e63` |
 | 13 条端点冒烟 | 全 200，5xx = 0 |
 | 云同步往返 | `ping 200 → upload 200 → download 200`，`往返一致: True` |
 | OpenAPI 契约 | 81 条路径，**与 main2 完全一致**（无新增/删除/签名变化） |
 | 云同步记录数 | `5883`（验证用的合成学号已清理干净） |
 | 真实用户记录 | `2510201423`、`2510661118`、`2411351125` 等一条未动 |
+
+---
+
+## 十二、第四轮上线：#66 止血开关已随镜像上线（默认关，行为零变化）
+
+镜像 `2026-11-15-main4`（`build.sha=1a20e63`）= main3 + 新增
+`MINI_HBUT_CLOUD_SYNC_REQUIRE_IDENTITY` 开关（**默认关**）。
+
+### 12.1 这个开关能干什么
+
+| 端点 | 开关关闭（现在的生产状态） | 开关打开后 |
+|---|---|---|
+| `POST /api/cloud-sync/upload` | 与之前完全一致 | 无 Bearer → **401**「需要身份令牌…请升级客户端」 |
+| `GET /api/cloud-sync/download` | 与之前完全一致 | 无 Bearer → **401**（**先于** challenge 消耗就拒绝） |
+| `GET /api/usage-stats/personal` | 与之前完全一致（该端点原本**没有**身份分支） | 无 Bearer → **401**；带 token 时只准查自己学号，不匹配 → 403 |
+
+打开方式（改一行 env + 重启容器，**不需要重新构建**）：
+
+```bash
+echo 'MINI_HBUT_CLOUD_SYNC_REQUIRE_IDENTITY=1' >> /volume1/services/secrets/ocr-service.env
+docker compose -f /volume1/services/apps/ocr-service/compose.yaml up -d
+```
+
+> ⚠️ 打开即**打断所有未升级客户端的云同步**。建议先灰度、观察 401 曲线，再全量 + 强制升级。
+
+### 12.2 上线核验
+
+```
+容器内（默认无 env）：require_identity(default) = False，paths = 81
+容器内（带 env=1）  ：require_identity(with env) = True
+外网 /health/deps   ：build.sha = 1a20e63，status = "ok"，cloud_sync = 5883
+13 条端点冒烟       ：全 200，5xx = 0
+云同步往返          ：ping 200 → upload 200 → download 200，往返一致: True   ← 开关关闭，行为未变
+清理合成学号记录    ：5883，真实用户记录一条未动
+容器日志            ：0 ERROR / 0 Traceback
+```
+
+### 12.3 测试
+
+| 范围 | 结果 |
+|---|---|
+| 新增 18 例开关测试（含"默认不得改变行为"两条） | **18 passed** |
+| 云同步 + 使用统计 + 数据授权相关全部 | **109 passed, 6 skipped** |
+| **全量**（`1a20e63`） | **2629 passed, 33 skipped, 2 failed** |
+| 全量对照（`origin/main` 未改动） | **2597 passed, 33 skipped, 2 failed** → 两个失败与本改动无关（CRLF 环境 + 既有用例隔离性） |
