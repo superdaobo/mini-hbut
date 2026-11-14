@@ -184,10 +184,10 @@ docker compose -f /volume1/services/apps/ocr-service/compose.yaml up -d
 |---|---|
 | 新建应用 `admin/mini-hbut-lab` | 可删（无用则删） |
 | 新建用户 `fdl-users/9900000001` | 可删 |
-| 早前探测用户 `fdl-users/t9000001` | 可删（无密码、无属性，纯探测残留） |
+| 早前探测用户 `fdl-users/t9000001` | **已删除**（无密码、无属性，纯探测残留，收工前清理） |
 | 给 `app-fdl-users` 试验性加 `grantTypes`/`federatedCredentials` | **已完全还原**（只剩 `authorization_code`+`refresh_token`，`federatedCredentials=null`，`clientSecret` 未变） |
 
-用户总数：40 → 41（+`t9000001`）+ 1（`9900000001`）。原始用户数据一条没动。
+用户总数：**40 → 41**（只多了联调用的 `9900000001`；`t9000001` 已删除）。原始 40 个用户的数据一条没动。
 
 ---
 
@@ -226,7 +226,7 @@ async def cloud_sync_upload(req, request): ...   # ← 真正的处理器没装�
 
 1. 打开 `https://sso.hbut.site` 用组织管理员登录，进 `mini-hbut-lab` 应用确认配置。
 2. 用 §3.3 的 URL 走一遍登录授权，看地址栏 `code=`。
-3. 决定 `mini-hbut-lab` / `9900000001` / `t9000001` 是保留还是删除。
+3. 决定 `mini-hbut-lab` 应用与 `9900000001` 测试账号是保留还是删除（`t9000001` 已清理）。
 4. 评审并合入 **OCR-services#65**（P0 修复）；合入后 `main` 再出镜像就自带这个修复。
 5. 若要继续身份链路：下一步是部署 `student-auth`（建号归它），而不是恢复 `/identity/bootstrap`。
 
