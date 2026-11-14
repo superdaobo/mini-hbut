@@ -5,7 +5,7 @@
  * AppViewHost 与 NavigationCoordinator（prefetch）共同取用。
  * 保持 view → 组件路径映射不变（行为兼容）。
  */
-import { defineAsyncComponent, type Component } from 'vue'
+import { defineAsyncComponent, defineComponent, h, type Component } from 'vue'
 
 type Loader = () => Promise<any>
 
@@ -15,8 +15,54 @@ type Loader = () => Promise<any>
 const excludeHiddenViews = import.meta.env.VITE_EXCLUDE_HIDDEN_VIEWS === '1'
 const noopLoader: Loader = () => Promise.resolve()
 
+const retriedLoaders = new WeakSet<Loader>()
+const retryOnce = (loader: Loader, _error: unknown, retry: () => void, fail: (e?: unknown) => void) => {
+  if (retriedLoaders.has(loader)) {
+    fail(_error)
+    return
+  }
+  retriedLoaders.add(loader)
+  retry()
+}
+
+/**
+ * 异步视图加载失败时的兜底页（#1301）。
+ *
+ * 之前某个视图 import 抛错（如 chat-model 缺导入）会让整页只剩背景色、没有返回入口；
+ * 这里给出可读提示 + 返回按钮，避免「打开即卡死」的观感。
+ */
+const AsyncViewError = defineComponent({
+  name: 'AsyncViewError',
+  emits: ['back'],
+  setup(_props, { emit }) {
+    return () =>
+      h('div', { class: 'async-view-error p-8 text-center', role: 'alert' }, [
+        h('p', { class: 'mb-4 text-sm text-slate-500' }, '页面加载失败，请返回重试'),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'rounded-full border border-slate-300 px-5 py-2 text-sm',
+            onClick: () => emit('back')
+          },
+          '返回'
+        )
+      ])
+  }
+})
+
 const createAsyncPage = (loader: Loader): Component =>
-  defineAsyncComponent({ loader: loader as () => Promise<Component>, delay: 0, suspensible: false })
+  defineAsyncComponent({
+    loader: loader as () => Promise<Component>,
+    delay: 0,
+    suspensible: false,
+    errorComponent: AsyncViewError,
+    onError(error, retry, fail) {
+      // 只自动重试一次（chunk 网络抖动），其余交给兜底 UI
+      retryOnce(loader, error, retry, fail)
+    }
+  })
+
 
 const loadDashboardView: Loader = () => import('../components/Dashboard.vue')
 const loadGradeView: Loader = () => import('../components/GradeView.vue')

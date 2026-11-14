@@ -43,7 +43,8 @@ import {
   renderMessage,
   parseStreamEvents,
   appendDeepSeekChunk,
-  shouldUseThinkingWindow
+  shouldUseThinkingWindow,
+  hasTauriRuntime
 } from '../features/ai/chat-model.js'
 // #1163 T02：桥会话令牌统一注入（AI 走本地 bridge 时必须带凭据）
 import { bridgeFetch } from '../utils/bridge_auth'
@@ -192,6 +193,16 @@ const normalizedModelOptions = computed(() => {
     return mergeLists(fromProps, defaults)
   }
   return defaults
+})
+
+/** 当前可用模型的归一化集合（原在 chat-model.js，依赖本视图的 normalizedModelOptions #1301） */
+const availableModelSet = computed(() => {
+  const set = new Set()
+  for (const option of normalizedModelOptions.value || []) {
+    const val = normalizeModelValue(option?.value)
+    if (val) set.add(val)
+  }
+  return set
 })
 
 const historyKey = computed(() => `hbu_ai_history_v2_${props.studentId || 'guest'}`)
