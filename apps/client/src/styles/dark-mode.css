@@ -1321,6 +1321,20 @@ html.dark .export-module-item.active {
   color: #93c5fd !important;
 }
 
+/* #1298：模块名/学期标签在子元素上写死了浅色主题的深色字，继承不到 item 的 color */
+html.dark .export-module-name {
+  color: #e2e8f0 !important;
+}
+
+html.dark .export-module-item.active .export-module-name {
+  color: #bfdbfe !important;
+}
+
+html.dark .export-semester-tag {
+  background: rgba(99, 102, 241, 0.3) !important;
+  color: #c7d2fe !important;
+}
+
 /* ─── 通用暗色：确保所有白色背景卡片变深 ─── */
 html.dark [style*="background: rgba(255, 255, 255"],
 html.dark [style*="background-color: #ffffff"],
