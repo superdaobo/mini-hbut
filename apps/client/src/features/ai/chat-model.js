@@ -1,5 +1,6 @@
 /** AI 对话的模型、消息、附件与流事件纯逻辑。 */
 
+import { isTauriRuntime } from '../../platform/native'
 import { renderMarkdown } from '../../utils/markdown.js'
 
 
@@ -21,8 +22,6 @@ export const AI_POST_TIMEOUT_MS = 25000
 export const AI_PROBE_TIMEOUT_MS = 3200
 export const AI_RETRY_DELAYS_MS = [0, 220, 520]
 export const hasTauriRuntime = isTauriRuntime()
-let activeBridgeIndex = 0
-let activeBridgeBase = AI_BRIDGE_CANDIDATES[0]
 export const AI_ALLOWED_FILE_EXTENSIONS = ['docx', 'pdf', 'txt', 'md']
 export const AI_UPLOAD_ACCEPT = AI_ALLOWED_FILE_EXTENSIONS.map((ext) => `.${ext}`).join(',')
 export const AI_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -101,15 +100,6 @@ export const modelDisplayName = (value) => {
   const normalized = normalizeModelValue(value)
   return MODEL_DISPLAY_MAP[normalized] || String(value || '').trim() || '未知模型'
 }
-export const availableModelSet = computed(() => {
-  const set = new Set()
-  for (const option of normalizedModelOptions.value || []) {
-    const val = normalizeModelValue(option?.value)
-    if (val) set.add(val)
-  }
-  return set
-})
-
 export const detectRenderMode = (role, content = '') => {
   if (role !== 'assistant') return 'plain'
   const text = String(content || '').trim()

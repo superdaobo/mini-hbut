@@ -44,6 +44,25 @@ export function useGeolocation() {
     )
 
     return new Promise<GeoPosition>((resolve, reject) => {
+      let settled = false
+      let watchdog: number | null = null
+
+      const finish = (settle: () => void) => {
+        if (settled) return
+        settled = true
+        if (watchdog !== null) window.clearTimeout(watchdog)
+        loading.value = false
+        settle()
+      }
+
+      // #1299：iOS/WKWebView 在权限回调缺失时可能既不成功也不失败，
+      // 只依赖浏览器 timeout 会让调用方永久挂起（校园导览卡在「正在加载…」）。
+      watchdog = window.setTimeout(() => {
+        lastError.value = '定位超时，请重试'
+        pushDebugLog('Geo', '定位看门狗触发：浏览器未回调', 'error', { timeout })
+        finish(() => reject(new Error(lastError.value)))
+      }, timeout + 2000)
+
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const result: GeoPosition = {
@@ -51,24 +70,24 @@ export function useGeolocation() {
             longitude: pos.coords.longitude,
             accuracy: pos.coords.accuracy
           }
-          lastPosition.value = result
-          loading.value = false
-          // #370：写入设置调试信息
-          pushDebugLog(
-            'Geo',
-            `定位成功 lat=${result.latitude.toFixed(6)} lng=${result.longitude.toFixed(6)} ±${Math.round(result.accuracy || 0)}m`,
-            'info',
-            {
-              latitude: result.latitude,
-              longitude: result.longitude,
-              accuracy: result.accuracy,
-              source: 'system'
-            }
-          )
-          resolve(result)
+          finish(() => {
+            lastPosition.value = result
+            // #370：写入设置调试信息
+            pushDebugLog(
+              'Geo',
+              `定位成功 lat=${result.latitude.toFixed(6)} lng=${result.longitude.toFixed(6)} ±${Math.round(result.accuracy || 0)}m`,
+              'info',
+              {
+                latitude: result.latitude,
+                longitude: result.longitude,
+                accuracy: result.accuracy,
+                source: 'system'
+              }
+            )
+            resolve(result)
+          })
         },
         (err) => {
-          loading.value = false
           switch (err.code) {
             case err.PERMISSION_DENIED:
               lastError.value = '定位权限被拒绝，请在系统设置中开启位置权限'
@@ -87,7 +106,7 @@ export function useGeolocation() {
             message: err.message,
             enableHighAccuracy
           })
-          reject(new Error(lastError.value))
+          finish(() => reject(new Error(lastError.value)))
         },
         {
           enableHighAccuracy: Boolean(enableHighAccuracy),

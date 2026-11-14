@@ -19,14 +19,11 @@
  * ## 覆盖范围
  *
  * 只覆盖 `CHECKED_FILES` 里列出的文件 —— 目的是**零误报**。
- * 以下文件存在**同类预存问题**（导入了模块但漏导入具体符号），
+ * 以下文件仍存在**同类预存问题**（导入了模块但漏导入具体符号），
  * 需要先修掉才能纳入（建议单独开 issue）：
- *   - `src/components/AiChatView.vue`（hasTauriRuntime / normalizeMathText /
- *     activeBridgeBase / activeBridgeIndex / isAiUnauthorizedText / availableModelSet …）
  *   - `src/components/CampusNetworkView.vue`
  *   - `src/components/SportsVenueView.vue`
  *   - `src/components/CourseSelectionView.vue`
- *   - `src/features/ai/chat-model.js`
  * 修完后把它们加进 `CHECKED_FILES` 即可逐步扩大覆盖面。
  */
 
@@ -44,7 +41,10 @@ export const CHECKED_FILES = [
   // #1099：空教室曾因未闭合注释吞掉脚本声明，导致整页白屏。
   'src/components/ClassroomView.vue',
   // #1057：座位预约查询面板（纯 JS SFC，纳入门禁防「未定义标识符」整页白屏）
-  'src/components/library-reserve/ReserveSeatPanel.vue'
+  'src/components/library-reserve/ReserveSeatPanel.vue',
+  // #1301：校园助手曾因 isTauriRuntime/normalizeMathText 等 5 个未定义标识符整页空白
+  'src/components/AiChatView.vue',
+  'src/features/ai/chat-model.js'
 ]
 
 const CONFIG_NAME = 'tsconfig.js-sfc-check.json'

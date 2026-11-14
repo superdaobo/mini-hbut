@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TPageHeader } from '../../../components/templates'
+import { pushDebugLog } from '../../../utils/debug_logger'
 import { showToast } from '../../../utils/toast'
 import EntranceMenu from '../components/EntranceMenu.vue'
 import NoticeBar from '../components/NoticeBar.vue'
 import PoiCard from '../components/PoiCard.vue'
 import { CAMPUS_GUIDE_CONFIG } from '../config'
 import { CampusMapCore } from '../map/campus-map-core'
+import { resetCampusGuideMapLoader } from '../map/tencent-map-loader'
 import { CAMPUS_GUIDE_VIEWS } from '../navigation'
 import { playCampusSpeech } from '../services/audio-service'
 import { getLastLocationMeta } from '../services/location-service'
@@ -18,6 +20,8 @@ const emit = defineEmits(['back'])
 
 const mapContainerRef = ref<HTMLElement | null>(null)
 const mapCore = ref<CampusMapCore | null>(null)
+/** 地图初始化失败原因（与 store.error 分开，便于单独重试，不影响 POI 列表） #1299 */
+const mapInitError = ref('')
 const locating = ref(false)
 const showEntrance = ref(false)
 const activePoi = ref<CampusSpot | null>(null)
@@ -67,19 +71,51 @@ const initMap = async () => {
   await nextTick()
   const container = mapContainerRef.value
   if (!container || mapCore.value) return
-  const core = new CampusMapCore(container, {
-    center: store.mapCenter,
-    aoiRings: store.scenic?.aoi || [],
-    selectedSpotId: activePoi.value?.spot_id,
-    onMarkerClick: handleMarkerClick,
-    onZoomChange: () => syncMapData()
-  })
-  await core.init()
-  mapCore.value = core
-  await refreshMapMarkers()
-  store.mapReady = true
-  fitSpotsOnMap()
-  requestAnimationFrame(() => mapCore.value?.resize())
+  let core: CampusMapCore | null = null
+  try {
+    core = new CampusMapCore(container, {
+      center: store.mapCenter,
+      aoiRings: store.scenic?.aoi || [],
+      selectedSpotId: activePoi.value?.spot_id,
+      onMarkerClick: handleMarkerClick,
+      onZoomChange: () => syncMapData()
+    })
+    await core.init()
+    mapCore.value = core
+    await refreshMapMarkers()
+    store.mapReady = true
+    mapInitError.value = ''
+    fitSpotsOnMap()
+    requestAnimationFrame(() => mapCore.value?.resize())
+  } catch (error) {
+    // 地图失败不能阻塞 POI 列表（列表走 store.error 之外的状态），给可重试的错误条
+    try {
+      core?.destroy()
+    } catch {
+      /* ignore destroy errors */
+    }
+    mapInitError.value = (error as Error)?.message || '地图加载失败，请重试'
+    store.mapReady = false
+    pushDebugLog(
+      'CampusGuide',
+      `地图初始化失败: ${(error as Error)?.message || error}`,
+      'error'
+    )
+  }
+}
+
+/** 地图脚本/初始化失败后的重试（#1299） */
+const retryMap = async () => {
+  mapInitError.value = ''
+  try {
+    mapCore.value?.destroy()
+  } catch {
+    /* ignore destroy errors */
+  }
+  mapCore.value = null
+  store.mapReady = false
+  resetCampusGuideMapLoader()
+  await initMap()
 }
 
 const handleLocate = async () => {
@@ -233,7 +269,16 @@ onBeforeUnmount(() => {
 
     <div v-if="store.offline" class="campus-guide-status">离线模式 · 缓存更新于 {{ store.cacheUpdatedAt || '未知' }}</div>
     <div v-if="store.error" class="campus-guide-status is-error">{{ store.error }}</div>
-    <div v-else-if="store.loading && !store.mapReady" class="campus-guide-status">正在加载校园地图与 POI 数据…</div>
+    <div v-if="mapInitError" class="campus-guide-status is-error">
+      {{ mapInitError }}
+      <button type="button" class="campus-guide-retry" @click="retryMap">重试加载地图</button>
+    </div>
+    <div
+      v-if="!store.error && !mapInitError && store.loading && !store.mapReady"
+      class="campus-guide-status"
+    >
+      正在加载校园地图与 POI 数据…
+    </div>
 
     <div class="campus-guide-map-stage">
       <div class="campus-guide-map-shell campus-guide-map-shell--immersive">

@@ -101,6 +101,38 @@ pub struct ListResourcesOpts {
     pub parent_chain: Option<String>,
     /// `tch-courseware` 时走 mobilelearn 课件列表 API
     pub folder_kind: Option<String>,
+    /// 前端 Web 加密备份里的门户密码；资料页被判为登录时用于强制重登一次（#1296）
+    pub portal_password: Option<String>,
+    /// 前端声明的学号：强制重登时按它注入密码，避免切号后串号（#1296 复审）
+    pub student_id: Option<String>,
+}
+
+/// 学习通业务接口被判为「跳转登录」时的文案特征（#1296）
+const LOGIN_REDIRECT_HINTS: [&str; 2] = ["资料页跳转登录", "教师课件接口跳转登录"];
+
+fn is_login_redirect_error(err: &DynError) -> bool {
+    let text = err.to_string();
+    LOGIN_REDIRECT_HINTS.iter().any(|hint| text.contains(hint))
+}
+
+/// 有门户密码时强制重登一次；返回是否恢复（节流命中/密码缺失/失败均为 false）
+async fn try_force_relogin(
+    client: &mut HbutClient,
+    portal_password: Option<&str>,
+    student_id: Option<&str>,
+) -> bool {
+    let Some(password) = portal_password.map(str::trim).filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    match crate::modules::chaoxing_sso::force_chaoxing_relogin(client, student_id, Some(password))
+        .await
+    {
+        Ok(value) => value.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        Err(err) => {
+            println!("[ChaoxingClass] 强制重登失败: {err}");
+            false
+        }
+    }
 }
 
 /// 仅从 HTML 启发式推断 membership（会把空壳资料页误判为 ok，需配合 backclazzdata）
@@ -222,7 +254,7 @@ pub async fn list_resources(
             force: false,
             allow_silent_relogin: true,
             preheated: false,
-            portal_password: None,
+            portal_password: opts.portal_password.clone(),
         },
     )
     .await;
@@ -241,6 +273,8 @@ pub async fn list_resources(
             clazz_id,
             opts.parent_data_id.as_deref(),
             opts.cpi.as_deref(),
+            opts.portal_password.as_deref(),
+            opts.student_id.as_deref(),
         )
         .await;
     }
@@ -259,7 +293,7 @@ pub async fn list_resources(
     let parent_chain = opts.parent_chain.as_deref().unwrap_or("").trim();
 
     // 学生 ut=s 优先；失败或空列表时再试教师 ut=t（教师账号无需入班）
-    let (html, list_url, cpi, ut_used) = fetch_datalist_student_or_teacher(
+    let (html, list_url, cpi, ut_used) = match fetch_datalist_student_or_teacher(
         client,
         course_id,
         clazz_id,
@@ -268,7 +302,34 @@ pub async fn list_resources(
         data_name,
         parent_chain,
     )
-    .await?;
+    .await
+    {
+        Ok(value) => value,
+        Err(err) => {
+            // #1296：半失效会话（cookie 在但业务接口跳登录页）→ 有门户密码时强制重登一次再重试
+            let can_retry = is_login_redirect_error(&err)
+                && try_force_relogin(
+                    client,
+                    opts.portal_password.as_deref(),
+                    opts.student_id.as_deref(),
+                )
+                .await;
+            if !can_retry {
+                // 未恢复（节流/密码缺失/无效）：直接回原错误，避免多打一次必然失败的请求
+                return Err(err);
+            }
+            fetch_datalist_student_or_teacher(
+                client,
+                course_id,
+                clazz_id,
+                &cpi,
+                parent_id,
+                data_name,
+                parent_chain,
+            )
+            .await?
+        }
+    };
 
     let resources = parse_stu_datalist_html(&html, course_id, clazz_id, &cpi);
     // 下载链里带上实际 ut，保证教师可下载
@@ -588,6 +649,24 @@ fn parse_stu_datalist_html(
     resources
 }
 
+/// 拉取教师课件列表原始文本；命中登录页时返回统一的登录跳转错误
+async fn fetch_teacher_courseware_text(
+    client: &mut HbutClient,
+    api: &str,
+) -> Result<String, DynError> {
+    let (text, _) = get_text_with_retry(
+        client,
+        api,
+        "https://mobilelearn.chaoxing.com/",
+        "教师课件列表",
+    )
+    .await?;
+    if looks_like_login_html(&text) {
+        return Err(err_box("教师课件接口跳转登录，请重登门户"));
+    }
+    Ok(text)
+}
+
 /// 教师课件列表 API（mobilelearn）
 async fn list_teacher_courseware(
     client: &mut HbutClient,
@@ -595,6 +674,8 @@ async fn list_teacher_courseware(
     clazz_id: &str,
     parent_folder_id: Option<&str>,
     cpi: Option<&str>,
+    portal_password: Option<&str>,
+    student_id: Option<&str>,
 ) -> Result<Value, DynError> {
     let parent = parent_folder_id.unwrap_or("0").trim();
     let parent = if parent.is_empty() { "0" } else { parent };
@@ -605,16 +686,18 @@ async fn list_teacher_courseware(
         urlencoding::encode(parent),
         now_ms()
     );
-    let (text, _) = get_text_with_retry(
-        client,
-        &api,
-        "https://mobilelearn.chaoxing.com/",
-        "教师课件列表",
-    )
-    .await?;
-    if looks_like_login_html(&text) {
-        return Err(err_box("教师课件接口跳转登录，请重登门户"));
-    }
+    let text = match fetch_teacher_courseware_text(client, &api).await {
+        Ok(text) => text,
+        Err(err) => {
+            // #1296：教师课件同样可能踩到半失效会话
+            if !(is_login_redirect_error(&err)
+                && try_force_relogin(client, portal_password, student_id).await)
+            {
+                return Err(err);
+            }
+            fetch_teacher_courseware_text(client, &api).await?
+        }
+    };
     let payload: Value =
         serde_json::from_str(&text).map_err(|e| err_box(format!("教师课件响应非 JSON: {}", e)))?;
     let list = payload
@@ -733,6 +816,7 @@ pub async fn resolve_resource_access(
     cpi: Option<&str>,
     file_name: Option<&str>,
     file_type: Option<&str>,
+    portal_password: Option<&str>,
 ) -> Result<Value, DynError> {
     let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
         client,
@@ -741,7 +825,8 @@ pub async fn resolve_resource_access(
             force: false,
             allow_silent_relogin: true,
             preheated: false,
-            portal_password: None,
+            // #1296：预览/下载同样可能遇到半失效会话，静默重登需要密码
+            portal_password: portal_password.map(str::to_string),
         },
     )
     .await;

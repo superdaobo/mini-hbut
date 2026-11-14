@@ -43,7 +43,10 @@ import {
   renderMessage,
   parseStreamEvents,
   appendDeepSeekChunk,
-  shouldUseThinkingWindow
+  shouldUseThinkingWindow,
+  hasTauriRuntime,
+  normalizeMathText,
+  isAiUnauthorizedText
 } from '../features/ai/chat-model.js'
 // #1163 T02：桥会话令牌统一注入（AI 走本地 bridge 时必须带凭据）
 import { bridgeFetch } from '../utils/bridge_auth'
@@ -148,6 +151,10 @@ const handleInputBlur = () => {
   }, 80)
 }
 
+/** 当前使用的 AI 桥候选（#1301：原本引用 chat-model 里未导出的模块级 let） */
+let activeBridgeIndex = 0
+let activeBridgeBase = AI_BRIDGE_CANDIDATES[0]
+
 const AI_DEBUG = (() => {
   try {
     return localStorage.getItem('hbu_ai_debug') === '1'
@@ -192,6 +199,16 @@ const normalizedModelOptions = computed(() => {
     return mergeLists(fromProps, defaults)
   }
   return defaults
+})
+
+/** 当前可用模型的归一化集合（原在 chat-model.js，依赖本视图的 normalizedModelOptions #1301） */
+const availableModelSet = computed(() => {
+  const set = new Set()
+  for (const option of normalizedModelOptions.value || []) {
+    const val = normalizeModelValue(option?.value)
+    if (val) set.add(val)
+  }
+  return set
 })
 
 const historyKey = computed(() => `hbu_ai_history_v2_${props.studentId || 'guest'}`)
