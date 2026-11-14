@@ -80,7 +80,7 @@
         "sslMode": "Enable",
         "title": "FDL 账号验证码",
         "content": "<p>你好：</p>\n<p>你正在 FDL 账号（sso.hbut.site）进行验证，验证码是：</p>\n<p style=\"font-size:24px;font-weight:bold;letter-spacing:4px\">%s</p>\n<p>验证码 10 分钟内有效。如果不是你本人在操作，请忽略这封邮件。</p>\n<reset-link><p>也可以点这个链接重设密码：<a href=\"%link\">重设密码</a></p></reset-link>\n<p style=\"color:#888\">这封邮件由系统自动发送，请不要回复。</p>",
-        "receiver": "k.luo@hbut.edu.cn",
+        "receiver": "<redacted>",
         "regionId": "",
         "signName": "",
         "templateCode": "",

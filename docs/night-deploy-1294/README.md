@@ -58,7 +58,7 @@
 ### 3.2 测试账号
 
 - 用户名：`9900000001`（合成学号，10 位数字形状合法）
-- 密码：见本机 `D:\Program\DeepSeekHarness\workspace\minihbut-night\lab_credentials.json`
+- 密码：**随机生成、不入库不入文档**（口令只保存在部署机仓库外的凭据文件里；需要时可在 Casdoor 后台重置）
 - 属性：`hbut_student_id=9900000001`、`hbut_student_name=合成学生`、
   `hbut_verification_method=campus_session`、`hbut_verified_at=2026-11-15T00:00:00Z`
 
