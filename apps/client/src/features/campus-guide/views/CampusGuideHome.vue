@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TPageHeader } from '../../../components/templates'
+import { pushDebugLog } from '../../../utils/debug_logger'
 import { showToast } from '../../../utils/toast'
 import EntranceMenu from '../components/EntranceMenu.vue'
 import NoticeBar from '../components/NoticeBar.vue'
@@ -70,8 +71,9 @@ const initMap = async () => {
   await nextTick()
   const container = mapContainerRef.value
   if (!container || mapCore.value) return
+  let core: CampusMapCore | null = null
   try {
-    const core = new CampusMapCore(container, {
+    core = new CampusMapCore(container, {
       center: store.mapCenter,
       aoiRings: store.scenic?.aoi || [],
       selectedSpotId: activePoi.value?.spot_id,
@@ -87,8 +89,18 @@ const initMap = async () => {
     requestAnimationFrame(() => mapCore.value?.resize())
   } catch (error) {
     // 地图失败不能阻塞 POI 列表（列表走 store.error 之外的状态），给可重试的错误条
+    try {
+      core?.destroy()
+    } catch {
+      /* ignore destroy errors */
+    }
     mapInitError.value = (error as Error)?.message || '地图加载失败，请重试'
     store.mapReady = false
+    pushDebugLog(
+      'CampusGuide',
+      `地图初始化失败: ${(error as Error)?.message || error}`,
+      'error'
+    )
   }
 }
 
@@ -257,11 +269,16 @@ onBeforeUnmount(() => {
 
     <div v-if="store.offline" class="campus-guide-status">离线模式 · 缓存更新于 {{ store.cacheUpdatedAt || '未知' }}</div>
     <div v-if="store.error" class="campus-guide-status is-error">{{ store.error }}</div>
-    <div v-else-if="mapInitError" class="campus-guide-status is-error">
+    <div v-if="mapInitError" class="campus-guide-status is-error">
       {{ mapInitError }}
       <button type="button" class="campus-guide-retry" @click="retryMap">重试加载地图</button>
     </div>
-    <div v-else-if="store.loading && !store.mapReady" class="campus-guide-status">正在加载校园地图与 POI 数据…</div>
+    <div
+      v-if="!store.error && !mapInitError && store.loading && !store.mapReady"
+      class="campus-guide-status"
+    >
+      正在加载校园地图与 POI 数据…
+    </div>
 
     <div class="campus-guide-map-stage">
       <div class="campus-guide-map-shell campus-guide-map-shell--immersive">

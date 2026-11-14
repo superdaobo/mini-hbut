@@ -85,6 +85,8 @@ describe('campus guide loading guards contract (#1299)', () => {
     expect(vue).toContain('mapInitError')
     expect(vue).toContain('retryMap')
     expect(vue).toContain('重试加载地图')
-    expect(vue).toContain('v-else-if="mapInitError"')
+    // 错误条与加载文案互斥（#1299 复审：store.error 不再遮蔽地图重试入口）
+    expect(vue).toContain('v-if="mapInitError"')
+    expect(vue).toContain('!store.error && !mapInitError && store.loading')
   })
 })

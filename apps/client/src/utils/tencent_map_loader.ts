@@ -50,17 +50,18 @@ export const resetTencentMapLoader = (): void => {
 const waitForScript = (script: HTMLScriptElement): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     let settled = false
+    let timer: number | null = null
     const finish = (error?: Error) => {
       if (settled) return
       settled = true
-      window.clearTimeout(timer)
+      if (timer !== null) window.clearTimeout(timer)
       script.removeEventListener('load', onLoad)
       script.removeEventListener('error', onError)
       error ? reject(error) : resolve()
     }
     const onLoad = () => finish()
     const onError = () => finish(new Error('腾讯地图脚本加载失败'))
-    const timer = window.setTimeout(
+    timer = window.setTimeout(
       () => finish(new Error('腾讯地图脚本加载超时')),
       TENCENT_MAP_LOAD_TIMEOUT_MS
     )
@@ -74,7 +75,7 @@ export async function loadTencentMap(apiKey: string): Promise<TencentMapNamespac
   if (existing) return existing
   if (inflightLoad) return inflightLoad
 
-  inflightLoad = (async () => {
+  const started = (async () => {
     // 上一次失败的脚本残留不会再触发事件，先清掉再注入
     document
       .querySelectorAll<HTMLScriptElement>(`script[${TENCENT_MAP_SCRIPT_ATTR}]`)
@@ -102,10 +103,12 @@ export async function loadTencentMap(apiKey: string): Promise<TencentMapNamespac
     return loaded
   })()
 
+  inflightLoad = started
   try {
-    return await inflightLoad
+    return await started
   } finally {
-    inflightLoad = null
+    // 只清理自己这次：reset 之后可能已建立新的 inflight，不能误清新 promise
+    if (inflightLoad === started) inflightLoad = null
   }
 }
 

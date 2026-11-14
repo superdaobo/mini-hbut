@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -7,8 +7,8 @@ import { describe, expect, it } from 'vitest'
  * 线上故障根因就是 `script-src` 不含 map.qq.com —— 这里把它钉死。
  */
 const readSource = (path: string) => {
-  const resolved = resolve(process.cwd(), path)
-  return existsSync(resolved) ? readFileSync(resolved, 'utf8') : ''
+  // 直接读：文件缺失/改名时抛错，避免断言静默通过
+  return readFileSync(resolve(process.cwd(), path), 'utf8')
 }
 
 const cspDirective = (csp: string, name: string) => {

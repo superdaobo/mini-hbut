@@ -18,7 +18,11 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 12000
  */
 const createTimeoutScope = (signal: AbortSignal | undefined, timeoutMs: number) => {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
   const onAbort = () => controller.abort()
   if (signal) {
     if (signal.aborted) onAbort()
@@ -28,7 +32,7 @@ const createTimeoutScope = (signal: AbortSignal | undefined, timeoutMs: number) 
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)
   }
-  return { signal: controller.signal, cleanup }
+  return { signal: controller.signal, cleanup, didTimeout: () => timedOut }
 }
 
 const isSuccessCode = (code: unknown) => code === 0 || code === '0'
@@ -67,7 +71,7 @@ export const wisdomPost = async <T = unknown>(
     })
   } catch (error) {
     const message = String((error as Error)?.message || '').toLowerCase()
-    if (scope.signal.aborted) {
+    if (scope.didTimeout()) {
       throw new WisdomApiError('校园导览请求超时，请稍后重试')
     }
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false

@@ -611,14 +611,14 @@ fn inject_portal_password(client: &mut HbutClient, sid: &str, portal_password: O
     if user.is_empty() {
         return;
     }
+    // 同一密码反复注入（每次进目录都会经过这里）不再重复落盘，避免无谓写凭据库
+    if client.last_password.as_deref() == Some(pwd.as_str()) {
+        return;
+    }
     client.set_credentials(user.clone(), pwd.clone());
     let _ = crate::credential_store::save_password(&user, &pwd);
     let _ = crate::credential_store::save_remembered_credential(&format!("hbut:{user}"), &pwd);
-    println!(
-        "[SSO] 已注入前端提供的门户密码 user={} pwd_len={}",
-        user,
-        pwd.len()
-    );
+    println!("[SSO] 已注入前端提供的门户密码 user={user}");
 }
 
 /// #1296：资料页被判为「跳转登录」时的强制自愈。
@@ -657,8 +657,25 @@ pub async fn force_chaoxing_relogin(
     }
     let bridged = client.try_bridge_cas_to_chaoxing().await;
     let ready = probe_chaoxing_ready(client).await;
+    let mut jw_ok = false;
     if ready {
+        let (has_uid, has_jw) = cookie_flags(client);
+        let diag = ChaoxingSsoDiag {
+            ok: true,
+            bridged,
+            has_uid,
+            has_jw,
+            final_url: String::new(),
+            fail_reason: String::new(),
+            fail_kind: String::new(),
+            silent_relogin: relogin,
+            from_cache: false,
+            preheated: false,
+            at_ms: now_unix_ms(),
+        };
+        mark_ready_with_ttl(diag, SSO_TTL_BRIDGE);
         note_cookie_probe_ok();
+        jw_ok = client.ensure_chaoxing_academic_session().await;
     }
     if !sid.is_empty() {
         client.persist_session_cookies(&sid);
@@ -670,6 +687,7 @@ pub async fn force_chaoxing_relogin(
         "silent_relogin": relogin,
         "bridged": bridged,
         "ready": ready,
+        "jw_short_ticket": jw_ok,
     }))
 }
 

@@ -120,6 +120,9 @@ pub struct ChaoxingClassResourceAccessRequest {
     /// 用于判断图片/视频预览模式
     pub file_name: Option<String>,
     pub file_type: Option<String>,
+    /// 前端 Web 加密备份里的门户密码（可选；用于半失效会话自愈）#1296
+    #[serde(default)]
+    pub portal_password: Option<String>,
 }
 
 /// 学习通资料鉴权下载（应用内 cookie，避免系统浏览器 403）
@@ -440,6 +443,7 @@ pub(crate) async fn chaoxing_class_list_resources(
             parent_chain: req.parent_chain,
             folder_kind: req.folder_kind,
             portal_password: req.portal_password,
+            student_id: req.student_id,
         },
     )
     .await
@@ -475,6 +479,7 @@ pub(crate) async fn chaoxing_class_resolve_resource(
         req.cpi.as_deref(),
         req.file_name.as_deref(),
         req.file_type.as_deref(),
+        req.portal_password.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())

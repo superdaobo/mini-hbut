@@ -37,8 +37,10 @@ import type {
 
 const SCENIC_CACHE_KEY = 'campus_guide_scenic_cache_v1'
 
-/** 定位步骤的硬期限：超时就用校区中心继续，绝不让 bootstrap 挂住（#1299） */
+/** 首屏定位的硬期限：超时就用校区中心继续，绝不让 bootstrap 挂住（#1299） */
 const LOCATION_DEADLINE_MS = 9000
+/** bootstrap 整体期限：多个串行请求最坏叠加时仍要收敛（#1299 复审 M11） */
+const BOOTSTRAP_DEADLINE_MS = 30000
 
 const withDeadline = <T>(task: Promise<T>, ms: number, message: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
@@ -79,7 +81,9 @@ export type CampusGuideStore = {
   navParams: CampusGuideNavParams
   mapCenter: GeoPoint
   bootstrap: () => Promise<void>
-  refreshLocation: () => Promise<GeoPoint>
+  /** bootstrap 的实际步骤（外层只负责总期限与 loading 收敛） */
+  runBootstrapSteps: () => Promise<void>
+  refreshLocation: (options?: { deadlineMs?: number }) => Promise<GeoPoint>
   loadSpotsByCategory: (category?: string) => Promise<CampusSpot[]>
   selectTag: (tag: string) => Promise<CampusSpot[]>
   selectSpot: (spot: CampusSpot | null) => Promise<CampusSpot | null>
@@ -325,13 +329,17 @@ const createCampusGuideStore = (): CampusGuideStore => {
       return state.notices
     },
 
-    async refreshLocation() {
+    /**
+     * 解析定位；`deadlineMs` 只在首屏 bootstrap 传入（#1299 复审 M3：
+     * 手动「定位」不能也吃 9s，否则 9–28s 才拿到 GPS 的设备永远拿不到真定位）。
+     */
+    async refreshLocation(options = {}) {
+      const deadlineMs = Number(options.deadlineMs) || 0
       try {
-        state.userLocation = await withDeadline(
-          resolveCampusLocation(),
-          LOCATION_DEADLINE_MS,
-          '定位超时，已使用校区中心'
-        )
+        const task = resolveCampusLocation()
+        state.userLocation = deadlineMs > 0
+          ? await withDeadline(task, deadlineMs, '定位超时，已使用校区中心')
+          : await task
       } catch {
         // 定位失败/超时不能阻塞导览首屏：回落校区中心继续加载 POI
         state.userLocation = { ...HBUT_LOCATION, name: '湖北工业大学' }
@@ -465,33 +473,38 @@ const createCampusGuideStore = (): CampusGuideStore => {
       state.loading = true
       state.error = ''
       try {
-        await store.refreshLocation()
-        try {
-          const openIdResult = await campusGuideApi.getOpenId({ scenic_id: CAMPUS_GUIDE_CONFIG.scenicId })
-          if (openIdResult?.open_id) setCampusGuideOpenId(openIdResult.open_id)
-        } catch {
-          // deviceId 兜底
-        }
-        await store.loadFavorites()
-        try {
-          await store.loadScenic()
-        } catch (err) {
-          if (!state.scenic) throw err
-          state.offline = true
-          state.error = '景区数据加载失败，已使用缓存'
-        }
-        await store.loadNotices()
-        if (state.activeTag) {
-          state.cacheUpdatedAt = getSpotsCacheUpdatedAt(state.activeTag)
-        }
-        await store.loadSpotsByCategory()
-        await store.loadHotSearch()
+        // 整体期限：任何一步异常挂起都不会让首屏永久转圈
+        await withDeadline(store.runBootstrapSteps(), BOOTSTRAP_DEADLINE_MS, '校园导览初始化超时')
       } catch (err) {
         state.error = (err as Error)?.message || '校园导览加载失败'
         throw err
       } finally {
         state.loading = false
       }
+    },
+
+    async runBootstrapSteps() {
+      await store.refreshLocation({ deadlineMs: LOCATION_DEADLINE_MS })
+      try {
+        const openIdResult = await campusGuideApi.getOpenId({ scenic_id: CAMPUS_GUIDE_CONFIG.scenicId })
+        if (openIdResult?.open_id) setCampusGuideOpenId(openIdResult.open_id)
+      } catch {
+        // deviceId 兜底
+      }
+      await store.loadFavorites()
+      try {
+        await store.loadScenic()
+      } catch (err) {
+        if (!state.scenic) throw err
+        state.offline = true
+        state.error = '景区数据加载失败，已使用缓存'
+      }
+      await store.loadNotices()
+      if (state.activeTag) {
+        state.cacheUpdatedAt = getSpotsCacheUpdatedAt(state.activeTag)
+      }
+      await store.loadSpotsByCategory()
+      await store.loadHotSearch()
     },
 
     async selectTag(tag) {

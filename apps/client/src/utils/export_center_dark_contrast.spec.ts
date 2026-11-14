@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest'
  * 暗色主题必须逐类覆盖（父级 `color` 继承不到子元素自带的 color）。
  */
 const readSource = (path: string) => {
-  const resolved = resolve(process.cwd(), path)
-  return existsSync(resolved) ? readFileSync(resolved, 'utf8') : ''
+  // 直接读：文件缺失/改名时抛错，避免断言静默通过
+  return readFileSync(resolve(process.cwd(), path), 'utf8')
 }
 
 const ruleBody = (css: string, selector: string) => {
@@ -28,28 +28,28 @@ describe('export center dark theme contrast contract (#1298)', () => {
     // 浅色主题的深色字仍在（不破坏亮色）
     expect(ruleBody(scoped, '.export-module-name')).toContain('color: #1f2937')
 
-    const body = ruleBody(dark, 'html.dark .export-module-name')
+    const body = ruleBody(dark, 'html.dark .export-view .export-module-name')
     expect(body).toContain('color: #e2e8f0 !important')
   })
 
   it('选中态的模块名与未选中态可区分', () => {
-    const body = ruleBody(dark, 'html.dark .export-module-item.active .export-module-name')
+    const body = ruleBody(dark, 'html.dark .export-view .export-module-item.active .export-module-name')
     expect(body).toContain('color: #bfdbfe !important')
   })
 
   it('学期标签在暗色下有对比度更高的前景/背景', () => {
     expect(ruleBody(scoped, '.export-semester-tag')).toContain('color: #4f46e5')
 
-    const body = ruleBody(dark, 'html.dark .export-semester-tag')
+    const body = ruleBody(dark, 'html.dark .export-view .export-semester-tag')
     expect(body).toContain('background: rgba(99, 102, 241, 0.3) !important')
     expect(body).toContain('color: #c7d2fe !important')
   })
 
   it('所有覆盖都挂在 html.dark 之下且带 !important（对抗 scoped 特异性）', () => {
     for (const selector of [
-      'html.dark .export-module-name',
-      'html.dark .export-module-item.active .export-module-name',
-      'html.dark .export-semester-tag'
+      'html.dark .export-view .export-module-name',
+      'html.dark .export-view .export-module-item.active .export-module-name',
+      'html.dark .export-view .export-semester-tag'
     ]) {
       const body = ruleBody(dark, selector)
       expect(body).toContain('!important')

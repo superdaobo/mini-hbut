@@ -37,16 +37,30 @@ const AsyncViewError = defineComponent({
   setup(_props, { emit }) {
     return () =>
       h('div', { class: 'async-view-error p-8 text-center', role: 'alert' }, [
-        h('p', { class: 'mb-4 text-sm text-slate-500' }, '页面加载失败，请返回重试'),
-        h(
-          'button',
-          {
-            type: 'button',
-            class: 'rounded-full border border-slate-300 px-5 py-2 text-sm',
-            onClick: () => emit('back')
-          },
-          '返回'
-        )
+        h('p', { class: 'mb-4 text-sm text-slate-500 dark:text-slate-400' }, '页面加载失败，请返回重试'),
+        h('div', { class: 'flex items-center justify-center gap-3' }, [
+          h(
+            'button',
+            {
+              type: 'button',
+              class:
+                'rounded-full border border-slate-300 px-5 py-2 text-sm dark:border-slate-600 dark:text-slate-200',
+              onClick: () => emit('back')
+            },
+            '返回'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              class:
+                'rounded-full border border-slate-300 px-5 py-2 text-sm dark:border-slate-600 dark:text-slate-200',
+              // WeakSet 保证每个 loader 只自动重试一次；这里给用户显式恢复入口
+              onClick: () => window.location.reload()
+            },
+            '重新加载'
+          )
+        ])
       ])
   }
 })

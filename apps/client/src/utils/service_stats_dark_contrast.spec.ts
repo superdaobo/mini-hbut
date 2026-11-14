@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest'
  * 避免以后新增卡片（或改名）时再次出现「白底 + 浅字」。
  */
 const readSource = (path: string) => {
-  const resolved = resolve(process.cwd(), path)
-  return existsSync(resolved) ? readFileSync(resolved, 'utf8') : ''
+  // 直接读：文件缺失/改名时抛错，避免 not.toContain 之类断言静默通过
+  return readFileSync(resolve(process.cwd(), path), 'utf8')
 }
 
 /** 取某个选择器片段之后第一个声明块的内容（用于断言 key/value 而非全文） */
@@ -23,20 +23,33 @@ const ruleBody = (css: string, selector: string) => {
   return open < 0 || close < 0 ? '' : css.slice(open + 1, close)
 }
 
-const CARD_CLASSES = ['status-card', 'usage-card', 'version-card', 'trend-card', 'metric-card']
+/**
+ * 从组件模板里提取所有静态 `*-card` 类名（不硬编码清单：
+ * 新增卡片类名而没写暗色覆盖时会自然失败）。
+ */
+const cardClassesFromTemplate = (vueSource: string) => {
+  const template = vueSource.slice(vueSource.indexOf('<template>'), vueSource.indexOf('</template>'))
+  const classes = new Set<string>()
+  for (const match of template.matchAll(/class="([^"]*)"/g)) {
+    for (const token of match[1].split(/\s+/)) {
+      if (/^[a-z][\w-]*-card$/.test(token)) classes.add(token)
+    }
+  }
+  return [...classes].sort()
+}
 
 describe('service stats dark theme contrast contract (#1297)', () => {
   const vue = readSource('src/components/ServiceStatsView.vue')
   const dark = readSource('src/styles/dark-mode.css')
 
   it('模板里用到的每个卡片容器都在暗色样式里被覆盖', () => {
-    const missing = CARD_CLASSES.filter((cls) => {
-      const usedInTemplate = new RegExp(`class="[^"]*\\b${cls}\\b`).test(vue)
-      if (!usedInTemplate) return false
-      return !dark.includes(`html.dark .service-stats-view .${cls}`)
-    })
-
+    const cards = cardClassesFromTemplate(vue)
+    expect(cards.length).toBeGreaterThanOrEqual(3)
     expect(vue).toContain('class="service-stats-view"')
+
+    const missing = cards.filter(
+      (cls) => !dark.includes(`html.dark .service-stats-view .${cls}`)
+    )
     expect(missing).toEqual([])
   })
 

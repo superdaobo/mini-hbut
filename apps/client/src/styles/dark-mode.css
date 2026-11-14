@@ -1322,15 +1322,15 @@ html.dark .export-module-item.active {
 }
 
 /* #1298：模块名/学期标签在子元素上写死了浅色主题的深色字，继承不到 item 的 color */
-html.dark .export-module-name {
+html.dark .export-view .export-module-name {
   color: #e2e8f0 !important;
 }
 
-html.dark .export-module-item.active .export-module-name {
+html.dark .export-view .export-module-item.active .export-module-name {
   color: #bfdbfe !important;
 }
 
-html.dark .export-semester-tag {
+html.dark .export-view .export-semester-tag {
   background: rgba(99, 102, 241, 0.3) !important;
   color: #c7d2fe !important;
 }

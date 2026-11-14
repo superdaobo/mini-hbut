@@ -22,8 +22,6 @@ export const AI_POST_TIMEOUT_MS = 25000
 export const AI_PROBE_TIMEOUT_MS = 3200
 export const AI_RETRY_DELAYS_MS = [0, 220, 520]
 export const hasTauriRuntime = isTauriRuntime()
-let activeBridgeIndex = 0
-let activeBridgeBase = AI_BRIDGE_CANDIDATES[0]
 export const AI_ALLOWED_FILE_EXTENSIONS = ['docx', 'pdf', 'txt', 'md']
 export const AI_UPLOAD_ACCEPT = AI_ALLOWED_FILE_EXTENSIONS.map((ext) => `.${ext}`).join(',')
 export const AI_MAX_UPLOAD_BYTES = 20 * 1024 * 1024

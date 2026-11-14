@@ -321,6 +321,11 @@ const initMap = async (retry = 0): Promise<void> => {
  */
 const retryMap = async () => {
   if (mapScriptState.value === 'loading') return
+  try {
+    mapInstance.value?.destroy?.()
+  } catch {
+    /* ignore destroy errors */
+  }
   mapInstance.value = null
   mapScriptState.value = 'idle'
   mapErrors.value = []

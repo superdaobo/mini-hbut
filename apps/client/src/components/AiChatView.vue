@@ -44,7 +44,9 @@ import {
   parseStreamEvents,
   appendDeepSeekChunk,
   shouldUseThinkingWindow,
-  hasTauriRuntime
+  hasTauriRuntime,
+  normalizeMathText,
+  isAiUnauthorizedText
 } from '../features/ai/chat-model.js'
 // #1163 T02：桥会话令牌统一注入（AI 走本地 bridge 时必须带凭据）
 import { bridgeFetch } from '../utils/bridge_auth'
@@ -148,6 +150,10 @@ const handleInputBlur = () => {
     updateLayoutMetrics()
   }, 80)
 }
+
+/** 当前使用的 AI 桥候选（#1301：原本引用 chat-model 里未导出的模块级 let） */
+let activeBridgeIndex = 0
+let activeBridgeBase = AI_BRIDGE_CANDIDATES[0]
 
 const AI_DEBUG = (() => {
   try {
