@@ -11,7 +11,7 @@
 | 云同步能同步 | ✅ **已实测 upload→download 往返一致**（升级前后各验一次） | 合成学号 `0000000001` |
 | Casdoor 里能建用户 | ✅ 通过管理 API 建号成功（含 `hbut_student_id` 等属性） | `app-built-in` BasicAuth |
 | 能授权登录 | ✅ 浏览器真实走授权码 + PKCE S256，拿到 AT/RT/ID Token | 应用 `mini-hbut-lab`，账号 `9900000001` |
-| 数据不丢 | ✅ 云同步记录 `5886` → `5887`（只多了我的往返测试那条），真实用户记录持续在写 | 备份见 §五 |
+| 数据不丢 | ✅ 升级前 `5886` → 联调写入后 `5891` → **清理测试数据后 `5883`**；真实用户记录**一条未动**（数量差 = 顺手删掉的 3 条历史遗留测试行） | 备份见 §五 |
 | 服务可用 | ✅ 已升级到 `2026-11-15-main2`（main `5be5121` + 修复 `ed0eee7`），13 条端点全绿、0 错误日志 | `https://mini.hbut.site` |
 
 并且：**在 `origin/main` 上抓到一个会把线上云同步上传打挂的 P0**，已回滚 → 修复 → 开 PR（OCR-services#65）→ 用修复镜像重新上线并全量验证。
@@ -104,7 +104,7 @@ JWKS 验签：通过（RS256，kid 来自 /.well-known/jwks）
 | 容器镜像 | `fdl-ocr-service:2026-11-15-main2`（= `origin/main` `5be5121` + 修复提交 `ed0eee7`） |
 | `/health` | 200，`build.sha=ed0eee7`，返回体变**轻量**：`{ok, service, version, uptime_seconds, started_at}` |
 | `/health/deps` | 200，完整指标（新增端点） |
-| 云同步记录数 | `5887` = 原 `5886` + 1 条往返测试记录（`student_id=0000000001`） |
+| 云同步记录数 | `5883`（升级前 `5886`；夜间联调/对抗测试写入合成学号后曾到 `5891`，**收工前已按合成学号精确删除**，并连续删掉 3 条历史遗留测试行 `0000000000/0000000096/0000000925`） |
 | 真实用户流量 | 正常：`2510201423@01:14`、`2510661118@01:10` 持续在写云同步 |
 | OCR | `ocr_stats` 19 次请求 / 19 次成功 / **0 失败**（部署后真实请求） |
 | 容器日志 | 近 10 分钟 **0 ERROR / 0 Traceback**；非 2xx 只有我冒烟打的 3 条 identity 404 |
@@ -243,3 +243,76 @@ async def cloud_sync_upload(req, request): ...   # ← 真正的处理器没装�
 | 云同步 upload/download 往返一致 | ✅ 修复镜像上重跑通过 |
 | 回滚演练 | ✅ 真实回滚过一次，再升级一次 |
 | 所有结论附真实命令输出，未验证项标 BLOCKED | ✅ 见 §3/§4/§5 与 issue 评论 |
+
+---
+
+## 十、并行对抗测试结果（3 个 DeepSeek 子代理，01:51–02:20）
+
+### 10.1 全端点只读回归 —— **升级零回归** ✅
+
+- 线上 `openapi.json`：**81 paths / 84 operations**（GET 43、POST 41），实扫 83 个，另 1 个用 `405 Allow: POST` 证路由存在；
+- 状态分布：2xx=21、4xx=61、5xx=1、skip=1；3xx/超时=0；
+- 服务 01:56 重启过一次，**重启前后各整扫一轮，84/84 状态码完全一致**；
+- 与升级前快照对比：**新增 `/health/deps`，移除 0 个**。
+
+唯一 5xx = `POST /api/admin/service-archive/export` → `503 未配置归档管理密钥`（`HF_ARCHIVE_ADMIN_SECRET` 未配的确定性门禁，
+2026-05-26 引入、升级前后契约一致、客户端不可达）→ **不是本次回归**。
+
+### 10.2 安全面审计 —— 挖出 1 个 P0（升级前后都存在）
+
+🔴 **`/api/cloud-sync/{ping,download}` 与 `/api/usage-stats/personal` 的 legacy challenge 可自助签发，与学号无绑定**：
+
+```
+$ curl -s https://mini.hbut.site/api/cloud-sync/ping          # 无需任何凭据
+{"success":true,"challenge":"G8vdcMk...",...}
+$ curl -s -H "x-cloud-sync-challenge: G8vdcMk..." \
+    "https://mini.hbut.site/api/cloud-sync/download?student_id=0000000001"
+{"success":true,"data":{"academic":{"grades":[{"course":"合成课程","score":95}]},...}}   # 200
+```
+
+→ 带 challenge 就能按学号读任意学生数据；**不带 challenge 才是 401**，所以"有门禁"是假象。
+→ 已开 issue：**superdaobo/OCR-services#66**。
+
+其他：
+- 🟡 `POST /api/grade-distribution/query` 完全公开，261 条里 **76 条 `sample_count=1`** → 等同公开个人精确分；
+- 🟢 **CORS fail-closed 实测通过**（子域/后缀/`null`/`http:`/大写/`:443` 全拒；无 `*`、无 `Allow-Credentials`）；
+- 🟢 `/health`、`/health/deps` 无密码/无 DSN/无 token；
+- 🟡 429 缺 `Retry-After`；`/api/game-rank/ping`、`/api/grade-distribution/health` 未鉴权暴露 `fdl-postgres:5432 / minihbut / minihbut_user`（无密码）；
+- 🟢 仓库密钥扫描：**无泄漏**（`clientSecret` 全 `<redacted>`，脚本走 env）；审计指出的真实邮箱与本机口令路径**已脱敏后重新提交**。
+
+### 10.3 云同步并发与一致性 —— 8 个规定用例全 PASS，另挖出 3 个功能缺陷
+
+规定用例全部通过：分域独立合并（双向）、`events:[]` 显式覆盖、并发同号 4 写（无字段串号，完整单写者快照）、
+不存在学号返回 `{"empty":true}`（不是 500）、非法学号 400、缺/错/重放 challenge 401、1.91MiB → 413、错误类型 422。
+
+3 个缺陷（**升级前后一致，非本次引入**）→ 已开 issue **superdaobo/OCR-services#67**：
+
+| # | 缺陷 | 关键证据 |
+|---|---|---|
+| 1（中高） | **413 会消耗掉 120 秒上传配额** | `02:02:37.098 413` → `02:02:37.258 429「请 120 秒后再试」`；改小 payload 后仍要等 2 分钟 |
+| 2（中） | **`custom_courses_mode=replace` + 空课表 = 静默 no-op，自定义课表永远删不掉** | 清空前后 stored hash 完全不变（`1e703863…`）；`events` 支持 `[]` 覆盖但 `courses` 不支持 |
+| 3（中） | **`sections` 拼错 → 静默回退推断 → 覆盖没打算写的域** | `sections={'personal_event':true}`（少个 s）→ `settings` 被覆盖成 `TYPO-OVERWRITE` |
+
+> 缺陷 2 的根因还在客户端（`customCoursesMode = hasCustomCourseData ? 'replace':'preserve'`，本地清空后根本不发 `replace`），**只改服务端修不好症状**。
+
+另有一次 `01:55:57 502` 突发 —— 那是**我自己为补 CORS origin 重建容器**导致的约 5 秒不可用，不是上游事故。
+
+### 10.4 CORS 补正（本轮已修）
+
+首次上线时我只配了两个 Web origin，**漏了桌面端 WebView 的 origin**。桌面端 WebView 内 JS 直连
+`https://mini.hbut.site`（游戏 SDK / 五子棋 relay）属跨域请求；旧镜像靠 `allow_origins=["*"]` 放行，新镜像会挡掉。已补：
+
+```
+MINI_HBUT_CORS_ORIGINS=https://mini.hbut.site,https://mini-hbut-ocr-service.hf.space,
+  http://tauri.localhost,https://tauri.localhost,tauri://localhost,capacitor://localhost,
+  http://localhost:5173,http://localhost:1420,http://127.0.0.1:1420
+```
+
+实测：上述 origin 全部拿到对应 ACAO；`https://evil.example` 无 ACAO。
+
+### 10.5 OCR 指标里的 7 次 "failure" 是什么
+
+`ocr_stats`: `request_count=28 / inference_count=21 / success_count=21 / failure_count=7`，
+7 次失败全部落在 `version=legacy`，且 **`inference_count == success_count == 21`** →
+说明这 7 次**根本没进推理**，是审计代理用 `{}` 空 body 探 `/api/ocr/{recognize,base64}` 的参数校验拒绝。
+**推理链路 0 失败。**
