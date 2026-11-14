@@ -63,6 +63,25 @@ describe('dark mode round 2 · stage 1 (#1305)', () => {
     expect(missing).toEqual([])
   })
 
+  it('第二批页面里「严重不可读」的类都有暗色覆盖（防止回退）', () => {
+    const critical = [
+      'html.dark .campus-network-view .status-value',
+      'html.dark .campus-network-view .field > span',
+      'html.dark .classroom-page .classroom-result-meta strong',
+      'html.dark .library-view .search-panel .summary',
+      'html.dark .ai-view .debug-pill',
+      'html.dark .electricity-page .ibar-val',
+      'html.dark .cx-hub .hero-row p',
+      'html.dark .cx-inbox-title.unread',
+      'html.dark .grade-view .grade-card .credit',
+      'html.dark .search-btn',
+      'html.dark .towergo-view .tg-tabs--overlay',
+      'html.dark .logo-text'
+    ]
+    const missing = critical.filter((selector) => !dark.includes(selector))
+    expect(missing).toEqual([])
+  })
+
   it('课表课程卡/今日列/节次有暗色覆盖', () => {
     const combined = dark + gridCss
     const missing = lightBackgroundClasses(gridCss).filter((cls) => !darkCovers(combined, cls))

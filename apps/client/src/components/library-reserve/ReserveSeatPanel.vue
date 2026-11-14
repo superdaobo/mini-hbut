@@ -1129,4 +1129,11 @@ onMounted(refresh)
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   }
 }
+
+/* #1305：暗色下链接/已选时段可读 */
+html.dark .link,
+html.dark .grid-block__picked,
+html.dark .cell--on {
+  color: #93c5fd;
+}
 </style>

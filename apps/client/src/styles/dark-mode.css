@@ -211,7 +211,7 @@ html.dark .text-secondary {
 }
 
 html.dark .text-outline {
-  color: #64748b !important;
+  color: #94a3b8 !important;
 }
 
 /* ─── 边框颜色 ─── */
@@ -2779,7 +2779,7 @@ html.dark body .course-selection-view .course-selection-test-banner strong {
    ═══════════════════════════════════════════════════════════════ */
 
 /* ─── 我的页：顶栏胶囊与操作按钮（原本是浅底深字） ─── */
-html.dark .me-view .header-pill {
+html.dark .header-pill {
   background: color-mix(in oklab, #3b82f6 18%, #0f172a 82%) !important;
   color: #93c5fd !important;
 }
@@ -2870,4 +2870,287 @@ html.dark .custom-delete-btn.week {
 html.dark .custom-delete-btn.edit {
   background: rgba(37, 99, 235, 0.2) !important;
   color: #93c5fd !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   #1305 暗色二度轮调 · 第二批（其余页面）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── 设计令牌：主色文字 / 灰色徽标 ─── */
+html.dark .text-primary {
+  color: #93c5fd !important;
+}
+
+html.dark .bg-gray-100 {
+  background-color: #334155 !important;
+}
+
+html.dark .text-gray-500 {
+  color: #cbd5e1 !important;
+}
+
+/* ─── 通用次要文字 / 幽灵按钮 ─── */
+html.dark .ghost-btn,
+html.dark .link-btn {
+  color: #93c5fd !important;
+}
+
+html.dark .panel-forward__text {
+  color: #94a3b8 !important;
+}
+
+/* ─── 电费 ─── */
+html.dark .electricity-page .kpi-row span,
+html.dark .electricity-page .kpi-row small,
+html.dark .electricity-page .kpi-row button {
+  color: #94a3b8 !important;
+}
+
+html.dark .electricity-page .ibar-val {
+  color: #cbd5e1 !important;
+}
+
+html.dark .electricity-page .seg button {
+  color: #94a3b8 !important;
+}
+
+html.dark .electricity-page .seg button.on {
+  background: #047857 !important;
+  color: #ffffff !important;
+}
+
+/* ─── 校园网 ─── */
+html.dark .campus-network-view .status-label,
+html.dark .campus-network-view .toggle-row small,
+html.dark .campus-network-view .option-chip small {
+  color: #94a3b8 !important;
+}
+
+html.dark .campus-network-view .status-value,
+html.dark .campus-network-view .toggle-row strong,
+html.dark .campus-network-view .option-chip strong {
+  color: #e2e8f0 !important;
+}
+
+html.dark .campus-network-view .field > span,
+html.dark .campus-network-view .option-group > label {
+  color: #cbd5e1 !important;
+}
+
+html.dark .campus-network-view .option-chip {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .campus-network-view .option-chip.active {
+  background: rgba(37, 99, 235, 0.22) !important;
+  border-color: #60a5fa !important;
+}
+
+html.dark .campus-network-view .icon-btn {
+  background: #334155 !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .campus-network-view .toggle {
+  background: #475569 !important;
+}
+
+html.dark .campus-network-view .toggle.on {
+  background: #2563eb !important;
+}
+
+/* ─── 学习通收件箱 ─── */
+html.dark .cx-inbox-count {
+  color: #94a3b8 !important;
+}
+
+html.dark .cx-inbox-title.unread {
+  color: #93c5fd !important;
+}
+
+/* ─── 学习通课程中心 ─── */
+html.dark .t-badge--success {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #6ee7b7 !important;
+}
+
+html.dark .sem-chip {
+  background: #1e293b !important;
+  color: #cbd5e1 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .cover {
+  background: #334155 !important;
+}
+
+html.dark .sem-tag {
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .mini-bar {
+  background: #334155 !important;
+}
+
+/* ─── 空教室 ─── */
+html.dark .classroom-period-row-label {
+  color: #94a3b8 !important;
+}
+
+/* ─── 成绩 / 给分记录 ─── */
+html.dark .beta-tag {
+  background: rgba(217, 119, 6, 0.2) !important;
+  color: #fcd34d !important;
+}
+
+html.dark .credit,
+html.dark .nature {
+  background: #334155 !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .grade-tab-btn.active {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .gd-mode-switch {
+  background: #1e293b !important;
+}
+
+html.dark .gd-mode-btn {
+  color: #94a3b8 !important;
+}
+
+html.dark .gd-mode-btn.active {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+/* ─── 校园助手 ─── */
+html.dark .ai-view .debug-pill {
+  background: #334155 !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .ai-view .avatar {
+  background: #334155 !important;
+}
+
+html.dark .ai-view .history-delete {
+  color: #fca5a5 !important;
+}
+
+/* ─── 通知 ─── */
+html.dark .permission-manage-btn {
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+html.dark .sync-feature-hint {
+  color: #94a3b8 !important;
+}
+
+/* ─── 校历 ─── */
+html.dark .day-remark.holiday {
+  color: #fca5a5 !important;
+}
+
+/* ─── 选课 ─── */
+html.dark .entry-badge-selection {
+  background: rgba(245, 158, 11, 0.2) !important;
+  color: #fcd34d !important;
+}
+
+html.dark .entry-badge-info {
+  background: rgba(14, 165, 233, 0.2) !important;
+  color: #7dd3fc !important;
+}
+
+/* ─── 教学评教 ─── */
+html.dark .te-error {
+  color: #fca5a5 !important;
+}
+
+html.dark .te-warn {
+  color: #fcd34d !important;
+}
+
+/* ─── 图书馆 ─── */
+html.dark .search-panel,
+html.dark .result-panel {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+html.dark .search-btn {
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+/* ─── 快捷链接 ─── */
+html.dark .link-icon-box {
+  background: rgba(37, 99, 235, 0.2) !important;
+}
+
+/* ─── 授权记录页脚 ─── */
+html.dark .history-footnote {
+  color: #94a3b8 !important;
+}
+
+
+/* ─── #1305 第二批补充（按实测根类精修） ─── */
+html.dark .cx-hub .hero-row p,
+html.dark .cx-hub .stat-row span,
+html.dark .cx-hub .hint {
+  color: #94a3b8 !important;
+}
+
+html.dark .classroom-page .classroom-result-meta strong {
+  color: #e2e8f0 !important;
+}
+
+html.dark .classroom-page .classroom-result-meta span {
+  color: #94a3b8 !important;
+}
+
+html.dark .cx-inbox-btn.ghost {
+  color: #93c5fd !important;
+}
+
+html.dark .grade-view .grade-card .credit,
+html.dark .grade-view .grade-card .nature {
+  color: #cbd5e1 !important;
+}
+
+html.dark .library-view .search-panel .summary,
+html.dark .library-view .empty-box {
+  color: #94a3b8 !important;
+}
+
+/* ─── #1305 小塔出行：悬浮按钮/页签/统计数字/地图版权 ─── */
+html.dark .towergo-view .tg-icon-btn,
+html.dark .towergo-view .map-toolbar button,
+html.dark .towergo-view .tg-tabs button {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .towergo-view .tg-tabs,
+html.dark .towergo-view .tg-tabs--overlay {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+html.dark .towergo-view em {
+  color: #93c5fd !important;
+}
+
+/* 腾讯地图 SDK 注入的版权文字（浅底主题里是深灰，暗色下不可读） */
+html.dark .logo-text {
+  color: #94a3b8 !important;
 }
