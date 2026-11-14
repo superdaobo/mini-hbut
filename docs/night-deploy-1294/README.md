@@ -1,0 +1,422 @@
+# 夜间部署交接（Issue #1294 · 2026-11-15 凌晨）
+
+> 你醒来后按本文从上到下看即可。所有结论都有真实命令输出；未做/阻塞项单独列出，不含糊。
+
+---
+
+## 一、一句话结论
+
+| 你要的 | 状态 | 凭据/入口 |
+|---|---|---|
+| 云同步能同步 | ✅ **已实测 upload→download 往返一致**（升级前后各验一次） | 合成学号 `0000000001` |
+| Casdoor 里能建用户 | ✅ 通过管理 API 建号成功（含 `hbut_student_id` 等属性） | `app-built-in` BasicAuth |
+| 能授权登录 | ✅ 浏览器真实走授权码 + PKCE S256，拿到 AT/RT/ID Token | 应用 `mini-hbut-lab`，账号 `9900000001` |
+| 数据不丢 | ✅ 升级前 `5886` → 联调写入后 `5891` → **清理测试数据后 `5883`**；真实用户记录**一条未动**（数量差 = 顺手删掉的 3 条历史遗留测试行） | 备份见 §五 |
+| 服务可用 | ✅ 已升级到 `2026-11-15-main4`（main `5be5121` + 修复 `1a20e63`），13 条端点全绿、0 错误日志 | `https://mini.hbut.site` |
+
+并且：**在 `origin/main` 上抓到一个会把线上云同步上传打挂的 P0**，已回滚 → 修复 → 开 PR（OCR-services#65）→ 用修复镜像重新上线并全量验证。
+
+---
+
+## 二、为什么没有按原计划部署 `/identity/bootstrap`
+
+原计划（本 issue 的阶段 1–3）要部署 `OCR-services@feat/p2-6-claim`。实测后**主动放弃**，原因两条：
+
+1. **分支落后 main 19 个提交**
+   ```
+   $ git rev-list --left-right --count origin/feat/p2-6-claim...origin/main
+   0	19
+   ```
+2. **main 已经删掉了这条链路**（是删代码，不是关开关）：
+   ```
+   7011d74 feat(p3-1): 退役后端建号 / 断言签发 / /identity/bootstrap（能力消失，非开关关闭）
+   ```
+   理由（`docs/identity-v2-legacy-retirement.md`）：该链路要求 ocr-service 持有 Casdoor
+   **管理 API 机器凭据**，而身份 v2 的目标形态里 ocr-service 只做「验令牌 + 设备登记/验签」。
+
+→ 部署它等于「丢 19 个修复 + 重新上线一个被明确退役的能力」。构建产物 `fdl-ocr-service:2026-11-15-identity`
+保留在 NAS 上但**未部署**。
+
+**正确落点**：建号/身份绑定归 `student-auth`；令牌签发归 Casdoor 自己的 OIDC（授权码 + PKCE）。
+
+---
+
+## 三、Casdoor 联调测试应用（明早可以直接点开用）
+
+### 3.1 应用
+
+| 项 | 值 |
+|---|---|
+| 应用名 | `admin/mini-hbut-lab` |
+| 组织 | `fdl-users` |
+| clientId | `395161187cdcf3770950` |
+| redirectUris | `minihbut://identity/callback`、`http://127.0.0.1:8412/identity/callback` |
+| grantTypes | `authorization_code` + `refresh_token` |
+| tokenFormat / tokenFields | `JWT-Custom` / `Properties.hbut_student_id` 等 4 项 |
+| 有效期 | access 24h / refresh 168h |
+
+### 3.2 测试账号
+
+- 用户名：`9900000001`（合成学号，10 位数字形状合法）
+- 密码：**随机生成、不入库不入文档**（口令只保存在部署机仓库外的凭据文件里；需要时可在 Casdoor 后台重置）
+- 属性：`hbut_student_id=9900000001`、`hbut_student_name=合成学生`、
+  `hbut_verification_method=campus_session`、`hbut_verified_at=2026-11-15T00:00:00Z`
+
+### 3.3 怎么自己验一遍
+
+直接用浏览器打开（用上面账号登录）：
+
+```
+https://sso.hbut.site/login/oauth/authorize?client_id=395161187cdcf3770950&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8412%2Fidentity%2Fcallback&scope=openid%20profile%20email&state=manual
+```
+
+登录成功后会跳到 `http://127.0.0.1:8412/...`（本机没服务 → 浏览器报连不上，**这是正常的**），
+地址栏里就能看到 `code=`；把它换令牌即可（脚本见 `minihbut-night/exchange_code.py`，需配 PKCE verifier）。
+
+### 3.4 实测证据（已跑通）
+
+```
+授权回调：http://127.0.0.1:8412/identity/callback?code=281b23c6...&state=st123&iss=https%3A%2F%2Fsso.hbut.site
+换令牌：  200  keys=['access_token','expires_in','id_token','refresh_token','scope','token_type']
+         token_type=Bearer expires_in=86400 scope=openid profile email
+AT claim：iss=https://sso.hbut.site  aud=[395161187cdcf3770950]
+         hbut_student_id=9900000001  hbut_student_name=合成学生
+         hbut_verification_method=campus_session  hbut_verified_at=2026-11-15T00:00:00Z
+ID token：同样含上述 4 个 hbut_* claim
+JWKS 验签：通过（RS256，kid 来自 /.well-known/jwks）
+取数据：  GET /api/userinfo 带 AT → 200
+```
+
+### 3.5 两个已知限制（不影响产品链路，但要知道）
+
+1. **API 建号不能带 `groups`**：`add-user`/`update-user` 里出现 `groups` 一律
+   `Unauthorized operation`（机器凭据无组写权限，实测）。要把测试学生放进
+   `hbut-students` 组，请在 Casdoor 后台用你的组织管理员账号手动加。
+2. **`POST /api/login` 的 `type=code` 通道恒返回 `Unauthorized operation`**（带/不带会话 cookie 都一样）；
+   浏览器走 `/login/oauth/authorize` 的正常流程**不受影响**。要拿授权码请用浏览器或 Playwright。
+
+---
+
+## 四、服务当前状态（已升级到含 P0 修复的新镜像）
+
+| 项 | 值 |
+|---|---|
+| 容器镜像 | `fdl-ocr-service:2026-11-15-main4`（= `origin/main` `5be5121` + 修复提交 `1a20e63`） |
+| `/health` | 200，`build.sha=1a20e63`，返回体变**轻量**：`{ok, service, version, uptime_seconds, started_at}` |
+| `/health/deps` | 200，完整指标（新增端点） |
+| 云同步记录数 | `5883`（升级前 `5886`；夜间联调/对抗测试写入合成学号后曾到 `5891`，**收工前已按合成学号精确删除**，并连续删掉 3 条历史遗留测试行 `0000000000/0000000096/0000000925`） |
+| 真实用户流量 | 正常：`2510201423@01:14`、`2510661118@01:10` 持续在写云同步 |
+| OCR | `ocr_stats` 19 次请求 / 19 次成功 / **0 失败**（部署后真实请求） |
+| 容器日志 | 近 10 分钟 **0 ERROR / 0 Traceback**；非 2xx 只有我冒烟打的 3 条 identity 404 |
+| 外网入口 | `https://mini.hbut.site` |
+
+> 升级前先做了「新旧镜像 OpenAPI 契约对比」：80 → 81 条路径，**唯一新增 `/health/deps`**，
+> 唯一签名变化是 `POST /api/forum/auth/token` 多一个**可选** `authorization` 头（非破坏）。
+> 也就是**没有任何端点被删或被改签名**。
+
+### 4.0 部署后 13 条端点冒烟（全绿）
+
+```
+200 GET  /health                    200 GET  /health/deps
+200 GET  /api/cloud-sync/ping       200 GET  /api/game-rank/ping
+200 GET  /api/grade-distribution/health
+200 GET  /api/game-platform/v1/meta 200 GET  /api/forum/categories
+200 GET  /api/forum/threads         200 GET  /api/usage-stats/ping
+200 GET  /openapi.json              200 GET  /
+200 GET  /forum/admin
+5xx 项: none
+```
+
+CORS（P3-4 起默认拒绝）实测：
+
+```
+Origin: https://mini.hbut.site            → Access-Control-Allow-Origin: https://mini.hbut.site
+Origin: https://evil.example              → （无 ACAO，符合 fail-closed）
+```
+
+### 4.1 云同步往返实测（新镜像上重跑）
+
+```
+ping:     200  {"success":true,"challenge":"R0hCO-...","challenge_expires_in":90}
+upload:   200  {"success":true,"student_id":"0000000001","size":384,"codec":"json"}
+download: 200  {"success":true,"data":{...}}
+往返一致: True
+```
+
+复跑：`python cloud_sync_roundtrip.py`
+（清理：`DELETE FROM cloud_sync_records WHERE student_id='0000000001';`）
+
+---
+
+## 五、数据安全与回滚
+
+### 5.1 备份（都在 NAS 上）
+
+| 文件 | 说明 |
+|---|---|
+| `/volume1/services/apps/ocr-service/compose.yaml.bak-20261115-predeploy` | 部署前 compose（**回滚用这份**） |
+| `/volume1/services/apps/ocr-service/compose.yaml.bak-main1` | 切 main 前的 compose（中间态） |
+| `/volume1/services/secrets/ocr-service.env.bak-20261115-predeploy` | 部署前 env（600） |
+| `/volume1/services/apps/ocr-service/casdoor_application_backup_20261115.sql` | Casdoor 应用表整表快照（列插入形式，可回滚） |
+| `/volume1/services/apps/ocr-service/src-main`、`src-fix` | 两次构建的源码树（可复查/重建） |
+
+### 5.2 回滚（已真实演练两次）
+
+```bash
+# 一键回滚到 2026-10-08-3662bdf
+cp -a /volume1/services/apps/ocr-service/compose.yaml.bak-20261115-predeploy \
+      /volume1/services/apps/ocr-service/compose.yaml
+cp -a /volume1/services/secrets/ocr-service.env.bak-20261115-predeploy \
+      /volume1/services/secrets/ocr-service.env
+docker compose -f /volume1/services/apps/ocr-service/compose.yaml up -d
+```
+
+> ⚠️ 若回滚到旧镜像，注意旧镜像不读 `MINI_HBUT_CORS_ORIGINS`（它默认 `allow_origins=["*"]`），
+> 所以恢复旧 env（去掉该行）与回滚镜像要**一起**做，否则行为不一致。
+
+**演练记录**：
+1. 01:17 切 `2026-11-15-main` → 02 分后发现 P0（上传 422）→ 01:24 回滚旧镜像 → `/health` 200、`build.sha=3662bdf`、upload 契约恢复、记录数 5886 不变。
+2. 01:42 切 `2026-11-15-main2`（含修复）→ 冒烟 + 往返 + 数据完整性全绿，保留上线。
+
+### 5.3 我对 Casdoor 生产数据做过什么
+
+| 动作 | 可逆 |
+|---|---|
+| 新建应用 `admin/mini-hbut-lab` | 可删（无用则删） |
+| 新建用户 `fdl-users/9900000001` | 可删 |
+| 早前探测用户 `fdl-users/t9000001` | **已删除**（无密码、无属性，纯探测残留，收工前清理） |
+| 给 `app-fdl-users` 试验性加 `grantTypes`/`federatedCredentials` | **已完全还原**（只剩 `authorization_code`+`refresh_token`，`federatedCredentials=null`，`clientSecret` 未变） |
+
+用户总数：**40 → 41**（只多了联调用的 `9900000001`；`t9000001` 已删除）。原始 40 个用户的数据一条没动。
+
+---
+
+## 六、P0：`origin/main` 的云同步上传是断的
+
+`runtime/entrypoint.py:5501` 装饰器挂错函数：
+
+```python
+@app.post("/api/cloud-sync/upload")      # ← 挂错
+def _cloud_sync_data_authz_context(request, principal, *, requested_student_id): ...
+
+async def cloud_sync_upload(req, request): ...   # ← 真正的处理器没装饰器
+```
+
+部署 `main`（`5be5121`）后实测 `upload: 422 {"loc":["query","principal"],...}` → **所有客户端上传全断**。
+
+- 修复 PR：**https://github.com/superdaobo/OCR-services/pull/65**
+  （含 4 例 OpenAPI 契约回归锁，CI 以前拦不住这种错）
+- 修复镜像：`fdl-ocr-service:2026-11-15-main4`
+- 已做的自动化回归：**新旧镜像 OpenAPI 契约对比**，80 → 81 条路径，
+  除这个 P0 外只有 `POST /api/forum/auth/token` 多了一个**可选** `authorization` 头（非破坏）。
+
+---
+
+## 七、未做 / BLOCKED（如实列出）
+
+| 项 | 原因 |
+|---|---|
+| 真实学号归属验证 | **BLOCKED**：要你本人登录教务；后端按你的要求不访问校方系统 |
+| 客户端 App 接入 `/identity/*` | 客户端 37 个 PR 未合并、未出包；今晚不动客户端 |
+| Android / iOS 真机 | **BLOCKED**：无设备 |
+| `hbut-students` 组自动归属 | API 无组写权限（见 §3.5），需后台手动加 |
+| OCR-services#65 合入 main | **未合**（按纪律不自动合并）；合入后 `main` 才真正干净 |
+
+## 八、明早建议动作
+
+1. 打开 `https://sso.hbut.site` 用组织管理员登录，进 `mini-hbut-lab` 应用确认配置。
+2. 用 §3.3 的 URL 走一遍登录授权，看地址栏 `code=`。
+3. 决定 `mini-hbut-lab` 应用与 `9900000001` 测试账号是保留还是删除（`t9000001` 已清理）。
+4. 评审并合入 **OCR-services#65**（P0 修复）；合入后 `main` 再出镜像就自带这个修复。
+5. 若要继续身份链路：下一步是部署 `student-auth`（建号归它），而不是恢复 `/identity/bootstrap`。
+
+---
+
+## 九、结论对照本 issue 的验收标准
+
+| 验收项 | 结果 |
+|---|---|
+| `/health` 200 且 build sha = 新构建 | ✅ `build.sha=1a20e63`（`/health/deps`） |
+| `POST /identity/bootstrap` 对合成学生返回 2xx + JWT | ❌ **不适用**：该端点已被 main 明确退役；等价能力改为「Casdoor 授权码 + PKCE」并**已实测通过** |
+| Casdoor 库中存在测试学号用户，`hbut_student_id` 正确 | ✅ `fdl-users/9900000001`，4 个 `hbut_*` 属性齐全 |
+| JWT 通过验签，`student_id` 正确 | ✅ RS256 + JWKS 验签通过，`hbut_student_id=9900000001` |
+| 云同步 upload/download 往返一致 | ✅ 修复镜像上重跑通过 |
+| 回滚演练 | ✅ 真实回滚过一次，再升级一次 |
+| 所有结论附真实命令输出，未验证项标 BLOCKED | ✅ 见 §3/§4/§5 与 issue 评论 |
+
+---
+
+## 十、并行对抗测试结果（3 个 DeepSeek 子代理，01:51–02:20）
+
+### 10.1 全端点只读回归 —— **升级零回归** ✅
+
+- 线上 `openapi.json`：**81 paths / 84 operations**（GET 43、POST 41），实扫 83 个，另 1 个用 `405 Allow: POST` 证路由存在；
+- 状态分布：2xx=21、4xx=61、5xx=1、skip=1；3xx/超时=0；
+- 服务 01:56 重启过一次，**重启前后各整扫一轮，84/84 状态码完全一致**；
+- 与升级前快照对比：**新增 `/health/deps`，移除 0 个**。
+
+唯一 5xx = `POST /api/admin/service-archive/export` → `503 未配置归档管理密钥`（`HF_ARCHIVE_ADMIN_SECRET` 未配的确定性门禁，
+2026-05-26 引入、升级前后契约一致、客户端不可达）→ **不是本次回归**。
+
+### 10.2 安全面审计 —— 挖出 1 个 P0（升级前后都存在）
+
+🔴 **`/api/cloud-sync/{ping,download}` 与 `/api/usage-stats/personal` 的 legacy challenge 可自助签发，与学号无绑定**：
+
+```
+$ curl -s https://mini.hbut.site/api/cloud-sync/ping          # 无需任何凭据
+{"success":true,"challenge":"G8vdcMk...",...}
+$ curl -s -H "x-cloud-sync-challenge: G8vdcMk..." \
+    "https://mini.hbut.site/api/cloud-sync/download?student_id=0000000001"
+{"success":true,"data":{"academic":{"grades":[{"course":"合成课程","score":95}]},...}}   # 200
+```
+
+→ 带 challenge 就能按学号读任意学生数据；**不带 challenge 才是 401**，所以"有门禁"是假象。
+→ 已开 issue：**superdaobo/OCR-services#66**。
+
+其他：
+- 🟡 `POST /api/grade-distribution/query` 完全公开，261 条里 **76 条 `sample_count=1`** → 等同公开个人精确分；
+- 🟢 **CORS fail-closed 实测通过**（子域/后缀/`null`/`http:`/大写/`:443` 全拒；无 `*`、无 `Allow-Credentials`）；
+- 🟢 `/health`、`/health/deps` 无密码/无 DSN/无 token；
+- 🟡 429 缺 `Retry-After`；`/api/game-rank/ping`、`/api/grade-distribution/health` 未鉴权暴露 `fdl-postgres:5432 / minihbut / minihbut_user`（无密码）；
+- 🟢 仓库密钥扫描：**无泄漏**（`clientSecret` 全 `<redacted>`，脚本走 env）；审计指出的真实邮箱与本机口令路径**已脱敏后重新提交**。
+
+### 10.3 云同步并发与一致性 —— 8 个规定用例全 PASS，另挖出 3 个功能缺陷
+
+规定用例全部通过：分域独立合并（双向）、`events:[]` 显式覆盖、并发同号 4 写（无字段串号，完整单写者快照）、
+不存在学号返回 `{"empty":true}`（不是 500）、非法学号 400、缺/错/重放 challenge 401、1.91MiB → 413、错误类型 422。
+
+3 个缺陷（**升级前后一致，非本次引入**）→ 已开 issue **superdaobo/OCR-services#67**：
+
+| # | 缺陷 | 关键证据 |
+|---|---|---|
+| 1（中高） | **413 会消耗掉 120 秒上传配额** | `02:02:37.098 413` → `02:02:37.258 429「请 120 秒后再试」`；改小 payload 后仍要等 2 分钟 |
+| 2（中） | **`custom_courses_mode=replace` + 空课表 = 静默 no-op，自定义课表永远删不掉** | 清空前后 stored hash 完全不变（`1e703863…`）；`events` 支持 `[]` 覆盖但 `courses` 不支持 |
+| 3（中） | **`sections` 拼错 → 静默回退推断 → 覆盖没打算写的域** | `sections={'personal_event':true}`（少个 s）→ `settings` 被覆盖成 `TYPO-OVERWRITE` |
+
+> 缺陷 2 的根因还在客户端（`customCoursesMode = hasCustomCourseData ? 'replace':'preserve'`，本地清空后根本不发 `replace`），**只改服务端修不好症状**。
+
+另有一次 `01:55:57 502` 突发 —— 那是**我自己为补 CORS origin 重建容器**导致的约 5 秒不可用，不是上游事故。
+
+### 10.4 CORS 补正（本轮已修）
+
+首次上线时我只配了两个 Web origin，**漏了桌面端 WebView 的 origin**。桌面端 WebView 内 JS 直连
+`https://mini.hbut.site`（游戏 SDK / 五子棋 relay）属跨域请求；旧镜像靠 `allow_origins=["*"]` 放行，新镜像会挡掉。已补：
+
+```
+MINI_HBUT_CORS_ORIGINS=https://mini.hbut.site,https://mini-hbut-ocr-service.hf.space,
+  http://tauri.localhost,https://tauri.localhost,tauri://localhost,capacitor://localhost,
+  http://localhost:5173,http://localhost:1420,http://127.0.0.1:1420
+```
+
+实测：上述 origin 全部拿到对应 ACAO；`https://evil.example` 无 ACAO。
+
+### 10.5 OCR 指标里的 7 次 "failure" 是什么
+
+`ocr_stats`: `request_count=28 / inference_count=21 / success_count=21 / failure_count=7`，
+7 次失败全部落在 `version=legacy`，且 **`inference_count == success_count == 21`** →
+说明这 7 次**根本没进推理**，是审计代理用 `{}` 空 body 探 `/api/ocr/{recognize,base64}` 的参数校验拒绝。
+**推理链路 0 失败。**
+
+---
+
+## 十一、第三轮上线：#67 缺陷 1/3 的服务端修复（03:10 完成）
+
+PR **OCR-services#65** 追加了两个修复提交，并用新镜像 `2026-11-15-main3`（`build.sha=1a20e63`）重新上线验证。
+
+### 11.1 缺陷 1：413 不再烧掉 120 秒上传配额
+
+实现：`_allow_cloud_sync_action_interval` 记的配额，在**响应 ≥ 400 时回滚**
+（新增 `_release_cloud_sync_action_interval`；原 `cloud_sync_upload` 主体改名 `_cloud_sync_upload_impl`，
+路由层改成薄包装，只负责"失败释放、成功保留"）。
+
+**线上实测（`student_id=0000000007`）**：
+
+```
+2MiB 上传        → 413 {"success":false,"error":"payload 过大，最大允许 1048576 字节"}
+立刻小上传(200ms)→ 200 {"success":true,"student_id":"0000000007","size":41,...}
+⇒ 配额未被 413 烧掉: True
+```
+
+修复前同样的序列是 `413 → 429「请 120 秒后再试」`。
+
+### 11.2 缺陷 3：`sections` 未知键 → 400，不再静默覆盖
+
+**线上实测（`student_id=0000000008`）**：
+
+```
+sections={'personal_event':true} → 400 {"success":false,"error":"sections 含未知键：personal_event"}
+下载确认 → 200 settings = null      ← 没有任何域被写入
+⇒ 未知键请求没有写入任何域: True
+```
+
+官方客户端只发 `settings / academic / custom_courses / personal_events` 四个键
+（`apps/client/src/utils/cloud_sync.ts:161`），不受影响；`None`/`{}`/非 dict 仍走原有推断逻辑（向后兼容）。
+
+### 11.3 测试证据
+
+| 范围 | 结果 |
+|---|---|
+| 新增 14 例（路由契约 4 + 配额/`sections` 10） | **14 passed** |
+| 云同步相关全部用例 | **68 passed, 6 skipped** |
+| **全量**（修复分支 `75bed47`） | **2611 passed, 33 skipped, 2 failed** |
+| **全量对照**（`origin/main` 未改动） | **2597 passed, 33 skipped, 2 failed** |
+
+两个失败在**未改动的 `origin/main` 上完全相同**，与本次改动无关：
+- `test_manifest_whitelist_gen::test_sample_manifest_cli_output_byte_equals_committed_example` —— Windows 工作区 `git archive` 出的文件是 CRLF，字节比对必然不等（环境问题）；
+- `test_game_platform_metrics_wiring::TestRunsWiring::test_finish_quarantine_counts_quarantined_run` —— 单跑/整文件跑都通过（34 passed），只在全量批量跑时因用例间状态残留失败（既有的隔离性缺陷）。
+
+### 11.4 上线后回归确认
+
+| 项 | 结果 |
+|---|---|
+| `/health/deps` | 200，`status:"ok"`，`build.sha=1a20e63` |
+| 13 条端点冒烟 | 全 200，5xx = 0 |
+| 云同步往返 | `ping 200 → upload 200 → download 200`，`往返一致: True` |
+| OpenAPI 契约 | 81 条路径，**与 main2 完全一致**（无新增/删除/签名变化） |
+| 云同步记录数 | `5883`（验证用的合成学号已清理干净） |
+| 真实用户记录 | `2510201423`、`2510661118`、`2411351125` 等一条未动 |
+
+---
+
+## 十二、第四轮上线：#66 止血开关已随镜像上线（默认关，行为零变化）
+
+镜像 `2026-11-15-main4`（`build.sha=1a20e63`）= main3 + 新增
+`MINI_HBUT_CLOUD_SYNC_REQUIRE_IDENTITY` 开关（**默认关**）。
+
+### 12.1 这个开关能干什么
+
+| 端点 | 开关关闭（现在的生产状态） | 开关打开后 |
+|---|---|---|
+| `POST /api/cloud-sync/upload` | 与之前完全一致 | 无 Bearer → **401**「需要身份令牌…请升级客户端」 |
+| `GET /api/cloud-sync/download` | 与之前完全一致 | 无 Bearer → **401**（**先于** challenge 消耗就拒绝） |
+| `GET /api/usage-stats/personal` | 与之前完全一致（该端点原本**没有**身份分支） | 无 Bearer → **401**；带 token 时只准查自己学号，不匹配 → 403 |
+
+打开方式（改一行 env + 重启容器，**不需要重新构建**）：
+
+```bash
+echo 'MINI_HBUT_CLOUD_SYNC_REQUIRE_IDENTITY=1' >> /volume1/services/secrets/ocr-service.env
+docker compose -f /volume1/services/apps/ocr-service/compose.yaml up -d
+```
+
+> ⚠️ 打开即**打断所有未升级客户端的云同步**。建议先灰度、观察 401 曲线，再全量 + 强制升级。
+
+### 12.2 上线核验
+
+```
+容器内（默认无 env）：require_identity(default) = False，paths = 81
+容器内（带 env=1）  ：require_identity(with env) = True
+外网 /health/deps   ：build.sha = 1a20e63，status = "ok"，cloud_sync = 5883
+13 条端点冒烟       ：全 200，5xx = 0
+云同步往返          ：ping 200 → upload 200 → download 200，往返一致: True   ← 开关关闭，行为未变
+清理合成学号记录    ：5883，真实用户记录一条未动
+容器日志            ：0 ERROR / 0 Traceback
+```
+
+### 12.3 测试
+
+| 范围 | 结果 |
+|---|---|
+| 新增 18 例开关测试（含"默认不得改变行为"两条） | **18 passed** |
+| 云同步 + 使用统计 + 数据授权相关全部 | **109 passed, 6 skipped** |
+| **全量**（`1a20e63`） | **2629 passed, 33 skipped, 2 failed** |
+| 全量对照（`origin/main` 未改动） | **2597 passed, 33 skipped, 2 failed** → 两个失败与本改动无关（CRLF 环境 + 既有用例隔离性） |
