@@ -139,14 +139,22 @@ pub(super) fn normalize_url(raw: &str) -> String {
 
 pub(super) fn looks_like_login_html(html: &str) -> bool {
     let h = html.to_ascii_lowercase();
-    h.contains("passport2.chaoxing.com")
+    // 明确的登录页特征（任一命中即可判定）
+    if h.contains("passport2.chaoxing.com")
         || h.contains("用户登录")
         || h.contains("id=\"loginname\"")
         || h.contains("name=\"uname\"")
-        || (h.contains("login")
-            && h.contains("password")
-            && h.contains("fid")
-            && !h.contains("courseid"))
+    {
+        return true;
+    }
+    // 宽松组合需要排除资料列表页：页面脚本里同样可能出现 login/password/fid 字样（#1296）
+    let looks_like_datalist =
+        h.contains("databody_td") || h.contains("dataname") || h.contains("dataid");
+    h.contains("login")
+        && h.contains("password")
+        && h.contains("fid")
+        && !h.contains("courseid")
+        && !looks_like_datalist
 }
 
 /// getInviteCode 等接口应返回 JSON；HTML 文档视为会话失效（#375）
@@ -309,6 +317,16 @@ mod tests {
         ));
         assert!(!looks_like_login_html(
             r#"<input id="courseId" value="1" /><div class="course-name">x</div>"#
+        ));
+        // #1296：资料列表页含 login/password/fid 字样（脚本/隐藏域）时不得误判为登录页
+        let datalist = r##"
+            <html><head><script>var login=1; var passwordField=1; jQuery("#fid")</script></head>
+            <body><ul class="dataBody_td" id="1" dataid="9" dataname="大一"></ul></body></html>
+        "##;
+        assert!(!looks_like_login_html(datalist));
+        // 真正的登录页（passport2 域名）仍然命中
+        assert!(looks_like_login_html(
+            r#"<form action="https://passport2.chaoxing.com/login"><input name="uname"></form>"#
         ));
     }
 

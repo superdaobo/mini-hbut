@@ -101,7 +101,12 @@ pub struct ListResourcesOpts {
     pub parent_chain: Option<String>,
     /// `tch-courseware` 时走 mobilelearn 课件列表 API
     pub folder_kind: Option<String>,
+    /// 前端 Web 加密备份里的门户密码；资料页被判为登录时用于强制重登一次（#1296）
+    pub portal_password: Option<String>,
 }
+
+/// 资料列表被判为「跳转登录」时的统一文案前缀；自愈逻辑按此前缀判定（#1296）
+const LOGIN_REDIRECT_HINT: &str = "资料页跳转登录";
 
 /// 仅从 HTML 启发式推断 membership（会把空壳资料页误判为 ok，需配合 backclazzdata）
 fn infer_list_membership_from_html(html: &str, resource_count: usize) -> &'static str {
@@ -222,7 +227,7 @@ pub async fn list_resources(
             force: false,
             allow_silent_relogin: true,
             preheated: false,
-            portal_password: None,
+            portal_password: opts.portal_password.clone(),
         },
     )
     .await;
@@ -259,7 +264,7 @@ pub async fn list_resources(
     let parent_chain = opts.parent_chain.as_deref().unwrap_or("").trim();
 
     // 学生 ut=s 优先；失败或空列表时再试教师 ut=t（教师账号无需入班）
-    let (html, list_url, cpi, ut_used) = fetch_datalist_student_or_teacher(
+    let (html, list_url, cpi, ut_used) = match fetch_datalist_student_or_teacher(
         client,
         course_id,
         clazz_id,
@@ -268,7 +273,44 @@ pub async fn list_resources(
         data_name,
         parent_chain,
     )
-    .await?;
+    .await
+    {
+        Ok(value) => value,
+        Err(err) => {
+            // #1296：半失效会话（cookie 在但业务接口跳登录页）→ 有门户密码时强制重登一次再重试
+            let login_redirect = err.to_string().contains(LOGIN_REDIRECT_HINT);
+            let portal_password = opts
+                .portal_password
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            match (login_redirect, portal_password) {
+                (true, Some(password)) => {
+                    println!("[ChaoxingClass] 资料页跳转登录，尝试强制重登后重试");
+                    if let Err(relogin_err) = crate::modules::chaoxing_sso::force_chaoxing_relogin(
+                        client,
+                        None,
+                        Some(password),
+                    )
+                    .await
+                    {
+                        println!("[ChaoxingClass] 强制重登失败: {relogin_err}");
+                    }
+                    fetch_datalist_student_or_teacher(
+                        client,
+                        course_id,
+                        clazz_id,
+                        &cpi,
+                        parent_id,
+                        data_name,
+                        parent_chain,
+                    )
+                    .await?
+                }
+                _ => return Err(err),
+            }
+        }
+    };
 
     let resources = parse_stu_datalist_html(&html, course_id, clazz_id, &cpi);
     // 下载链里带上实际 ut，保证教师可下载

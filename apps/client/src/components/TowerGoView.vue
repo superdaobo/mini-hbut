@@ -16,7 +16,7 @@ import {
   type TowerGoVehicle
 } from '../utils/towergo_map'
 import { pushDebugLog } from '../utils/debug_logger'
-import { loadTencentMap, toTencentLatLng } from '../utils/tencent_map_loader'
+import { loadTencentMap, resetTencentMapLoader, toTencentLatLng } from '../utils/tencent_map_loader'
 
 defineProps({
   studentId: { type: String, default: '' }
@@ -34,6 +34,8 @@ const serviceInfo = ref<Record<string, unknown> | null>(null)
 const parkingInfo = ref<Record<string, unknown> | null>(null)
 const fences = ref<unknown>(null)
 const mapErrors = ref<string[]>([])
+/** 地图脚本本身的失败原因（与车辆/围栏数据错误分开，避免被后续刷新覆盖） */
+const mapScriptError = ref('')
 const loadingMap = ref(false)
 const locating = ref(false)
 const lastScanAt = ref(0)
@@ -291,6 +293,7 @@ const initMap = async (retry = 0): Promise<void> => {
     ensureUserLocationMarker(currentLocation.value)
     bindMapRegionChange()
     mapScriptState.value = 'ready'
+    mapScriptError.value = ''
     pushDebugLog(
       'TowerGo',
       `地图就绪 size=${container.offsetWidth}x${container.offsetHeight}`,
@@ -306,9 +309,24 @@ const initMap = async (retry = 0): Promise<void> => {
     }, 600)
   } catch (error) {
     mapScriptState.value = 'fallback'
-    mapErrors.value = [(error as Error)?.message || '地图加载失败']
+    mapScriptError.value = (error as Error)?.message || '地图加载失败'
+    mapErrors.value = [mapScriptError.value]
     pushDebugLog('TowerGo', `地图加载失败: ${(error as Error)?.message || error}`, 'error')
   }
+}
+
+/**
+ * 地图脚本失败后的重试入口（#1300）：
+ * 清掉失败脚本与模块内 inflight 状态后再走一次 initMap，避免旧 script 残留导致永久 loading。
+ */
+const retryMap = async () => {
+  if (mapScriptState.value === 'loading') return
+  mapInstance.value = null
+  mapScriptState.value = 'idle'
+  mapErrors.value = []
+  mapScriptError.value = ''
+  resetTencentMapLoader()
+  await initMap()
 }
 
 const updateMapCenter = (point: TowerGoPoint) => {
@@ -828,11 +846,19 @@ onBeforeUnmount(() => {
       >
         <span class="material-symbols-outlined">electric_bike</span>
         <strong>{{ currentLocation.name || '湖北工业大学' }}</strong>
-        <p>{{ mapErrors[0] || '地图加载中，车辆数据会继续刷新。' }}</p>
+        <p>{{ mapScriptError || mapErrors[0] || '地图加载中，车辆数据会继续刷新。' }}</p>
         <small v-if="currentLocation.latitude">
           定位 {{ currentLocation.latitude.toFixed(5) }}, {{ currentLocation.longitude.toFixed(5) }}
           <template v-if="currentLocation.source"> · {{ currentLocation.source }}</template>
         </small>
+        <button
+          v-if="mapScriptState === 'fallback'"
+          type="button"
+          class="map-fallback__retry"
+          @click="retryMap"
+        >
+          重试加载地图
+        </button>
       </div>
       <div class="map-toolbar map-toolbar--fs">
         <button :disabled="locating || loadingMap" @click="refreshBySystemLocation">

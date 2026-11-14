@@ -28,6 +28,22 @@ const SSO_TTL_COOKIE_REUSE: Duration = Duration::from_secs(60 * 60 * 24 * 7);
 const COOKIE_PROBE_TTL: Duration = Duration::from_secs(30 * 60);
 /// 静默重登节流，避免验证码风暴
 const SILENT_RELOGIN_COOLDOWN: Duration = Duration::from_secs(45);
+/// #1296：强制重登的进程级节流（用户连续点目录不能触发连环门户登录）
+const FORCE_RELOGIN_MIN_INTERVAL: Duration = Duration::from_secs(30);
+static LAST_FORCE_RELOGIN_AT: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn force_relogin_throttled(now: Instant) -> bool {
+    let Ok(mut last) = LAST_FORCE_RELOGIN_AT.lock() else {
+        return false;
+    };
+    if let Some(at) = *last {
+        if now.duration_since(at) < FORCE_RELOGIN_MIN_INTERVAL {
+            return true;
+        }
+    }
+    *last = Some(now);
+    false
+}
 
 fn err_box(message: impl Into<String>) -> DynError {
     Box::new(io::Error::other(message.into()))
@@ -535,12 +551,8 @@ pub struct EnsureSsoOptions {
     pub portal_password: Option<String>,
 }
 
-/// 统一确保：缓存命中 → 桥接 →（可选）静默重登 → 再桥接
-pub async fn ensure_chaoxing_sso(
-    client: &mut HbutClient,
-    student_id: Option<&str>,
-    opts: EnsureSsoOptions,
-) -> Result<Value, DynError> {
+/// 解析 SSO 目标学号（显式入参 → 用户信息 → 最近登录 → 数据库最近会话），并恢复多域 cookie。
+fn prepare_sso_identity(client: &mut HbutClient, student_id: Option<&str>) -> String {
     let mut sid = student_id
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -575,34 +587,102 @@ pub async fn ensure_chaoxing_sso(
         Some(sid.as_str())
     });
 
-    // 前端传入的门户密码优先（iOS 密钥环空时 Web 加密备份仍有）
-    if let Some(pwd) = opts
-        .portal_password
-        .as_ref()
-        .map(|s| s.trim().to_string())
+    sid
+}
+
+/// 注入前端提供的门户密码（iOS 密钥环空时 Web 加密备份仍有），用于静默重登。
+fn inject_portal_password(client: &mut HbutClient, sid: &str, portal_password: Option<&str>) {
+    let Some(pwd) = portal_password
+        .map(str::trim)
         .filter(|s| !s.is_empty())
-    {
-        let user = if !sid.is_empty() {
-            sid.clone()
-        } else {
-            client
-                .last_username
-                .clone()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| sid.clone())
-        };
-        if !user.is_empty() {
-            client.set_credentials(user.clone(), pwd.clone());
-            let _ = crate::credential_store::save_password(&user, &pwd);
-            let _ =
-                crate::credential_store::save_remembered_credential(&format!("hbut:{user}"), &pwd);
-            println!(
-                "[SSO] 已注入前端提供的门户密码 user={} pwd_len={}",
-                user,
-                pwd.len()
-            );
-        }
+        .map(|s| s.to_string())
+    else {
+        return;
+    };
+    let user = if !sid.is_empty() {
+        sid.to_string()
+    } else {
+        client
+            .last_username
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_default()
+    };
+    if user.is_empty() {
+        return;
     }
+    client.set_credentials(user.clone(), pwd.clone());
+    let _ = crate::credential_store::save_password(&user, &pwd);
+    let _ = crate::credential_store::save_remembered_credential(&format!("hbut:{user}"), &pwd);
+    println!(
+        "[SSO] 已注入前端提供的门户密码 user={} pwd_len={}",
+        user,
+        pwd.len()
+    );
+}
+
+/// #1296：资料页被判为「跳转登录」时的强制自愈。
+///
+/// 与 `ensure_chaoxing_sso(force=false)` 不同：这里**跳过所有复用捷径**，
+/// 清空 SSO 缓存、解除静默重登冷却，直接重登门户再重新桥接——用于
+/// 「cookie 仍在但业务接口返回登录页」的半失效会话。
+pub async fn force_chaoxing_relogin(
+    client: &mut HbutClient,
+    student_id: Option<&str>,
+    portal_password: Option<&str>,
+) -> Result<Value, DynError> {
+    if force_relogin_throttled(Instant::now()) {
+        println!("[SSO] 强制重登节流中（30s 内已尝试），跳过");
+        return Ok(json!({
+            "ok": false,
+            "skipped": "throttled",
+            "retry_after_ms": FORCE_RELOGIN_MIN_INTERVAL.as_millis(),
+        }));
+    }
+
+    let sid = prepare_sso_identity(client, student_id);
+    inject_portal_password(client, &sid, portal_password);
+    hydrate_credentials(client, &sid);
+
+    invalidate_sso_cache();
+    if let Ok(mut rt) = SSO_RUNTIME.lock() {
+        // 用户显式重试时不受 45s 冷却限制
+        rt.last_silent_relogin_at = None;
+    }
+
+    let mut relogin = false;
+    match try_silent_portal_relogin(client, &sid).await {
+        Ok(done) => relogin = done,
+        Err(e) => println!("[SSO] 强制重登异常: {e}"),
+    }
+    let bridged = client.try_bridge_cas_to_chaoxing().await;
+    let ready = probe_chaoxing_ready(client).await;
+    if ready {
+        note_cookie_probe_ok();
+    }
+    if !sid.is_empty() {
+        client.persist_session_cookies(&sid);
+    }
+
+    Ok(json!({
+        "ok": ready,
+        "student_id": sid,
+        "silent_relogin": relogin,
+        "bridged": bridged,
+        "ready": ready,
+    }))
+}
+
+/// 统一确保：缓存命中 → 桥接 →（可选）静默重登 → 再桥接
+pub async fn ensure_chaoxing_sso(
+    client: &mut HbutClient,
+    student_id: Option<&str>,
+    opts: EnsureSsoOptions,
+) -> Result<Value, DynError> {
+    let sid = prepare_sso_identity(client, student_id);
+
+    // 前端传入的门户密码优先（iOS 密钥环空时 Web 加密备份仍有）
+    inject_portal_password(client, &sid, opts.portal_password.as_deref());
 
     // 关键：回填密码，否则静默续期必失败
     hydrate_credentials(client, &sid);

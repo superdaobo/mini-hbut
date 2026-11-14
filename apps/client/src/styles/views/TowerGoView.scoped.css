@@ -317,6 +317,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* #1300：地图脚本失败后的重试入口（overlay 默认 pointer-events:none） */
+.map-fallback__retry {
+  pointer-events: auto;
+  margin-top: 6px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ui-primary, #2563eb) 40%, transparent);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 12%, var(--ui-surface, #fff));
+  color: var(--ui-primary, #2563eb);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .map-toolbar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

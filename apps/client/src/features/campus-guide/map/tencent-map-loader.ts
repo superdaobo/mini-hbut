@@ -1,4 +1,9 @@
 import { CAMPUS_GUIDE_CONFIG } from '../config'
+import {
+  loadTencentMap as loadSharedTencentMap,
+  resetTencentMapLoader,
+  type TencentMapNamespace as SharedTencentMapNamespace
+} from '../../../utils/tencent_map_loader'
 
 export type TencentMapNamespace = {
   Map: new (container: HTMLElement, options: Record<string, unknown>) => TencentMapInstance
@@ -29,51 +34,22 @@ export type TencentLayer = {
   destroy?: () => void
 }
 
-const SCRIPT_ATTR = 'data-campus-guide-map'
+/**
+ * 校园导览的腾讯地图加载入口。
+ *
+ * 统一走 `utils/tencent_map_loader`（#1299）：那边已有 15s 超时、失败脚本清理与
+ * 并发去重；此处只保留导览侧的 key 默认值与更严格的命名空间类型。
+ */
+export const loadTencentMap = async (
+  key = CAMPUS_GUIDE_CONFIG.qqMapKey
+): Promise<TencentMapNamespace> => {
+  const shared = (await loadSharedTencentMap(key)) as unknown as SharedTencentMapNamespace
+  return shared as unknown as TencentMapNamespace
+}
 
-let loadPromise: Promise<TencentMapNamespace> | null = null
-
-export const loadTencentMap = async (key = CAMPUS_GUIDE_CONFIG.qqMapKey) => {
-  if (typeof window === 'undefined') {
-    throw new Error('当前环境无法加载地图')
-  }
-
-  const globalWindow = window as Window & { TMap?: TencentMapNamespace }
-  if (globalWindow.TMap) return globalWindow.TMap
-  if (loadPromise) return loadPromise
-
-  loadPromise = new Promise<TencentMapNamespace>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[${SCRIPT_ATTR}="1"]`)
-    const handleReady = () => {
-      if (globalWindow.TMap) {
-        resolve(globalWindow.TMap)
-        return
-      }
-      reject(new Error('腾讯地图脚本已加载但未暴露 TMap'))
-    }
-
-    if (existing) {
-      existing.addEventListener('load', handleReady, { once: true })
-      existing.addEventListener('error', () => reject(new Error('腾讯地图脚本加载失败')), { once: true })
-      if (globalWindow.TMap) handleReady()
-      return
-    }
-
-    const script = document.createElement('script')
-    script.setAttribute(SCRIPT_ATTR, '1')
-    script.async = true
-    script.src = `https://map.qq.com/api/gljs?v=1.exp&key=${encodeURIComponent(key)}`
-    script.onload = handleReady
-    script.onerror = () => reject(new Error('腾讯地图脚本加载失败'))
-    document.head.appendChild(script)
-  })
-
-  try {
-    return await loadPromise
-  } catch (error) {
-    loadPromise = null
-    throw error
-  }
+/** 地图加载失败后的重试入口：清掉共享加载器里的失败脚本与 inflight 状态。 */
+export const resetCampusGuideMapLoader = (): void => {
+  resetTencentMapLoader()
 }
 
 export const toLatLng = (TMap: TencentMapNamespace, point: { latitude: number; longitude: number }) =>

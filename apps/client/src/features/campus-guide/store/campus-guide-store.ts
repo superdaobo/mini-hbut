@@ -37,6 +37,24 @@ import type {
 
 const SCENIC_CACHE_KEY = 'campus_guide_scenic_cache_v1'
 
+/** 定位步骤的硬期限：超时就用校区中心继续，绝不让 bootstrap 挂住（#1299） */
+const LOCATION_DEADLINE_MS = 9000
+
+const withDeadline = <T>(task: Promise<T>, ms: number, message: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    task.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+
 export type CampusGuideStore = {
   scenic: ScenicInfo | null
   tags: ScenicTag[]
@@ -308,7 +326,16 @@ const createCampusGuideStore = (): CampusGuideStore => {
     },
 
     async refreshLocation() {
-      state.userLocation = await resolveCampusLocation()
+      try {
+        state.userLocation = await withDeadline(
+          resolveCampusLocation(),
+          LOCATION_DEADLINE_MS,
+          '定位超时，已使用校区中心'
+        )
+      } catch {
+        // 定位失败/超时不能阻塞导览首屏：回落校区中心继续加载 POI
+        state.userLocation = { ...HBUT_LOCATION, name: '湖北工业大学' }
+      }
       state.insideScenic = resolveInsideScenic(state.userLocation, state.scenic?.aoi || [])
       return state.userLocation
     },

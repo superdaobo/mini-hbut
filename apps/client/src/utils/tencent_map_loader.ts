@@ -23,36 +23,90 @@ const getGlobalTMap = (): TencentMapNamespace | null => {
   return (window as Window & { TMap?: TencentMapNamespace }).TMap || null
 }
 
+/** GL JS 地址：生产 CSP 的 script-src 必须放行 map.qq.com（#1300） */
+const TENCENT_MAP_SCRIPT_SRC = (apiKey: string) =>
+  `https://map.qq.com/api/gljs?v=1.exp&key=${encodeURIComponent(apiKey)}`
+
+/**
+ * 脚本加载总超时：CSP 拦截 / 网络挂起时 `load`/`error` 都可能不来，
+ * 没有兜底会让调用方永久停在 loading（#1300）。
+ */
+const TENCENT_MAP_LOAD_TIMEOUT_MS = 15000
+
+let inflightLoad: Promise<TencentMapNamespace> | null = null
+
+/**
+ * 清除加载状态与已注入的脚本（失败后的「重试」入口用）。
+ * 失败的 script 元素留在 DOM 里不会再触发 load/error，必须移除。
+ */
+export const resetTencentMapLoader = (): void => {
+  inflightLoad = null
+  if (typeof document === 'undefined') return
+  document
+    .querySelectorAll<HTMLScriptElement>(`script[${TENCENT_MAP_SCRIPT_ATTR}]`)
+    .forEach((el) => el.remove())
+}
+
+const waitForScript = (script: HTMLScriptElement): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      script.removeEventListener('load', onLoad)
+      script.removeEventListener('error', onError)
+      error ? reject(error) : resolve()
+    }
+    const onLoad = () => finish()
+    const onError = () => finish(new Error('腾讯地图脚本加载失败'))
+    const timer = window.setTimeout(
+      () => finish(new Error('腾讯地图脚本加载超时')),
+      TENCENT_MAP_LOAD_TIMEOUT_MS
+    )
+    script.addEventListener('load', onLoad)
+    script.addEventListener('error', onError)
+  })
+
 export async function loadTencentMap(apiKey: string): Promise<TencentMapNamespace> {
   if (typeof window === 'undefined') throw new Error('当前环境无法加载地图')
   const existing = getGlobalTMap()
   if (existing) return existing
+  if (inflightLoad) return inflightLoad
 
-  const scriptSelector = `script[${TENCENT_MAP_SCRIPT_ATTR}="1"]`
-  const scriptEl = document.querySelector<HTMLScriptElement>(scriptSelector)
-  if (scriptEl) {
-    await new Promise<void>((resolve, reject) => {
-      scriptEl.addEventListener('load', () => resolve(), { once: true })
-      scriptEl.addEventListener('error', () => reject(new Error('腾讯地图脚本加载失败')), { once: true })
-    })
-    const loaded = getGlobalTMap()
-    if (!loaded) throw new Error('腾讯地图脚本已加载但未暴露 TMap')
-    return loaded
-  }
+  inflightLoad = (async () => {
+    // 上一次失败的脚本残留不会再触发事件，先清掉再注入
+    document
+      .querySelectorAll<HTMLScriptElement>(`script[${TENCENT_MAP_SCRIPT_ATTR}]`)
+      .forEach((el) => el.remove())
 
-  await new Promise<void>((resolve, reject) => {
     const script = document.createElement('script')
     script.setAttribute(TENCENT_MAP_SCRIPT_ATTR, '1')
-    script.src = `https://map.qq.com/api/gljs?v=1.exp&key=${encodeURIComponent(apiKey)}`
+    script.src = TENCENT_MAP_SCRIPT_SRC(apiKey)
     script.async = true
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('腾讯地图脚本加载失败'))
-    document.head.appendChild(script)
-  })
 
-  const loaded = getGlobalTMap()
-  if (!loaded) throw new Error('腾讯地图脚本已加载但未暴露 TMap')
-  return loaded
+    const ready = waitForScript(script)
+    document.head.appendChild(script)
+    try {
+      await ready
+    } catch (error) {
+      script.remove()
+      throw error
+    }
+
+    const loaded = getGlobalTMap()
+    if (!loaded) {
+      script.remove()
+      throw new Error('腾讯地图脚本已加载但未暴露 TMap')
+    }
+    return loaded
+  })()
+
+  try {
+    return await inflightLoad
+  } finally {
+    inflightLoad = null
+  }
 }
 
 export const toTencentLatLng = (

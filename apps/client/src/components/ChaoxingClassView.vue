@@ -588,6 +588,8 @@ const loadResources = async (opts = {}) => {
     : null
   loadingResources.value = true
   error.value = ''
+  // #1296：把门户密码一并带给后端，资料页被判为登录时后端可强制重登一次再重试
+  const ssoReq = await ssoPayload()
   const invokeOnce = () =>
     invokeNative('chaoxing_class_list_resources', {
       req: {
@@ -598,7 +600,8 @@ const loadResources = async (opts = {}) => {
         data_name: folderSnap?.data_name || null,
         parent_chain: folderSnap?.parent_chain || null,
         folder_kind: folderSnap?.folder_kind || null,
-        ...studentPayload()
+        ...studentPayload(),
+        portal_password: ssoReq.portal_password ?? null
       }
     })
 

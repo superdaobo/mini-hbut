@@ -6,6 +6,29 @@ import { CAMPUS_GUIDE_ENDPOINTS } from './endpoints'
 
 export interface WisdomRequestOptions {
   signal?: AbortSignal
+  /** 单次请求超时（默认 12s）：桥接层无响应时不能让调用方永久挂起（#1299） */
+  timeoutMs?: number
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 12000
+
+/**
+ * 为请求创建「超时 + 上游 signal」的合并取消域。
+ * 返回 cleanup 以便在 fetch 结束后释放定时器。
+ */
+const createTimeoutScope = (signal: AbortSignal | undefined, timeoutMs: number) => {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const onAbort = () => controller.abort()
+  if (signal) {
+    if (signal.aborted) onAbort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+  }
+  const cleanup = () => {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
+  }
+  return { signal: controller.signal, cleanup }
 }
 
 const isSuccessCode = (code: unknown) => code === 0 || code === '0'
@@ -31,6 +54,7 @@ export const wisdomPost = async <T = unknown>(
   options: WisdomRequestOptions = {}
 ): Promise<T> => {
   let response: Response
+  const scope = createTimeoutScope(options.signal, options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
   try {
     response = await bridgeFetch(joinUrl(path), {
       method: 'POST',
@@ -39,15 +63,20 @@ export const wisdomPost = async <T = unknown>(
         accept: 'application/json, text/plain, */*'
       },
       body: JSON.stringify(body),
-      signal: options.signal
+      signal: scope.signal
     })
   } catch (error) {
     const message = String((error as Error)?.message || '').toLowerCase()
+    if (scope.signal.aborted) {
+      throw new WisdomApiError('校园导览请求超时，请稍后重试')
+    }
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false
     if (offline || message.includes('failed to fetch') || message.includes('network')) {
       throw new WisdomApiError('校园导览网络连接失败，请检查网络或稍后重试')
     }
     throw new WisdomApiError('校园导览服务暂时不可用，请稍后重试')
+  } finally {
+    scope.cleanup()
   }
 
   const text = await response.text()
