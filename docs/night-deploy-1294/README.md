@@ -89,9 +89,18 @@ JWKS 验签：通过（RS256，kid 来自 /.well-known/jwks）
 
 ### 3.5 两个已知限制（不影响产品链路，但要知道）
 
-1. **API 建号不能带 `groups`**：`add-user`/`update-user` 里出现 `groups` 一律
-   `Unauthorized operation`（机器凭据无组写权限，实测）。要把测试学生放进
-   `hbut-students` 组，请在 Casdoor 后台用你的组织管理员账号手动加。
+1. ~~API 建号不能带 `groups`~~ → **这条结论是错的，已更正**（2026-11-15 05:30 复查）。
+   真实原因不是"没有组写权限"，而是**组名格式**：Casdoor 要 `owner/groupName`。
+   用裸名 `hbut-students` 会返回误导性的 `Unauthorized operation`；用 `fdl-users/hbut-students` 就成功：
+
+   ```
+   groups=['hbut-students']           -> http=200 status=error msg=Unauthorized operation
+   groups=['fdl-users/hbut-students'] -> http=200 status=ok    msg=
+   回读 groups = ['fdl-users/hbut-students']
+   ```
+
+   现网已生效：`fdl-users/9900000001` 已在 `fdl-users/hbut-students` 组里（DB 复核 `hbut-students|1`）。
+
 2. **`POST /api/login` 的 `type=code` 通道恒返回 `Unauthorized operation`**（带/不带会话 cookie 都一样）；
    浏览器走 `/login/oauth/authorize` 的正常流程**不受影响**。要拿授权码请用浏览器或 Playwright。
 
@@ -219,7 +228,7 @@ async def cloud_sync_upload(req, request): ...   # ← 真正的处理器没装�
 | 真实学号归属验证 | **BLOCKED**：要你本人登录教务；后端按你的要求不访问校方系统 |
 | 客户端 App 接入 `/identity/*` | 客户端 37 个 PR 未合并、未出包；今晚不动客户端 |
 | Android / iOS 真机 | **BLOCKED**：无设备 |
-| `hbut-students` 组自动归属 | API 无组写权限（见 §3.5），需后台手动加 |
+| ~~`hbut-students` 组自动归属~~ | **已解决**：不是权限问题，是组名必须写 `fdl-users/hbut-students`（见 §3.5） |
 | OCR-services#65 合入 main | **未合**（按纪律不自动合并）；合入后 `main` 才真正干净 |
 
 ## 八、明早建议动作
@@ -420,3 +429,50 @@ docker compose -f /volume1/services/apps/ocr-service/compose.yaml up -d
 | 云同步 + 使用统计 + 数据授权相关全部 | **109 passed, 6 skipped** |
 | **全量**（`1a20e63`） | **2629 passed, 33 skipped, 2 failed** |
 | 全量对照（`origin/main` 未改动） | **2597 passed, 33 skipped, 2 failed** → 两个失败与本改动无关（CRLF 环境 + 既有用例隔离性） |
+
+---
+
+## 十三、组织（organization）与组（group）怎么选 —— 客观分析
+
+### 13.1 先澄清概念
+
+Casdoor 的模型是 **organization（组织） ⊃ group（组） ⊃ user（用户）**：
+组织是"租户"，组只是组织内部的标签/授权单位。**`fdl-users` 是组织，不是组。**
+
+现网实际情况（2026-11-15 05:30 实测）：
+
+| 组织 | 用户数 | 用途 |
+|---|---|---|
+| `fdl-users` | 41 | FDL 用户主租户（Panda 社团等） |
+| `fdl-guests` | — | 访客 |
+| `built-in` | 1 | 平台管理（app-built-in 机器凭据所在） |
+
+`fdl-users` 下的组：
+
+| 组 | 显示名 | 人数 | 说明 |
+|---|---|---|---|
+| `hbut-students` | 湖工学生 | **1（刚加入的测试号）** | **就是"专门的学生组"，早就存在，之前一直是 0 人** |
+| `hbut-teachers` | 湖工教师 | 0 | 教师组，同样空着 |
+| `panda` | panda社团成员 | 39 | 现有真实用户都在这 |
+| `ops` | FDL 运维 | 4 | |
+| `slot-apps` | 插槽应用账号 | 1 | |
+| `other-users` | 其他用户 | 0 | |
+
+### 13.2 三个选项的客观对比
+
+| 方案 | 结论 | 理由 |
+|---|---|---|
+| **A. 继续用组织 `fdl-users` + 已有组 `hbut-students`** | ✅ **推荐** | 组已存在、语义正确（"湖工学生"）；成员现在能自动加了；所有既有应用（`app-fdl-users` 等）都绑在这个组织，令牌跨服务通吃；零迁移成本 |
+| **B. 在 `fdl-users` 里再新建一个组** | ⚠️ 可以做但没必要 | 我用机器凭据实测 `add-group` / `delete-group` 都返回 `Affected`（能建能删）。但 `hbut-students` 已经就是"专门的学生组"，再建一个只会分裂语义 |
+| **C. 新建一个独立组织（例如 `hbut`）** | 🟡 技术上可行，但**代价大** | 实测 `add-organization` / `delete-organization` 也能成功。但：① Casdoor 的组是**组织内**的，新组织要重建组；② 所有既有应用都属 `fdl-users`，新组织的用户登录不了这些 app；③ 41 个存量用户要迁移或双写；④ 登录页/品牌/策略要重配。这是"迁移项目"，不是今晚能安全做完的事 |
+
+### 13.3 我的建议
+
+**用 A**：组织保持 `fdl-users`，学生身份用组 `hbut-students`（已存在）。
+如果将来确实要"学生和社团用户彻底隔离"，再单独立项把组织拆出去 —— 那时的正确做法是
+新建组织 + 新建专属应用 + 用户迁移脚本，配套一次客户端发版，而不是现在顺手改。
+
+### 13.4 顺带更正的自动化能力
+
+`add-user` / `update-user` 只要 `groups` 写成 `fdl-users/hbut-students` 就能成功 →
+**建号时自动入学生组这件事，服务端可以全自动做，不需要你手动在后台点。**
