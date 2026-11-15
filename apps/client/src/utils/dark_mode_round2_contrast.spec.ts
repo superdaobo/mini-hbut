@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -37,6 +37,20 @@ const lightBackgroundClasses = (css: string) => {
 const darkCovers = (darkCss: string, cls: string) =>
   new RegExp(`html\\.dark[^{}]*\\.${cls}(?![\\w-])`).test(darkCss)
 
+/** 递归收集 src 下的 .vue/.css（排除测试与 node_modules） */
+const collectStyleSources = (dir: string, out: string[] = []): string[] => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = resolve(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules') continue
+      collectStyleSources(full, out)
+    } else if (/\.(vue|css)$/.test(entry.name) && !/\.spec\./.test(entry.name)) {
+      out.push(full)
+    }
+  }
+  return out
+}
+
 describe('dark mode round 2 · stage 1 (#1305)', () => {
   const dark = readSource('src/styles/dark-mode.css')
   const meCss = readSource('src/components/MeView.scoped.css')
@@ -61,6 +75,16 @@ describe('dark mode round 2 · stage 1 (#1305)', () => {
       ...lightBackgroundClasses(modalCss)
     ].filter((cls) => !darkCovers(combined, cls))
     expect(missing).toEqual([])
+  })
+
+  it('禁止再用 :global(html.dark)：scoped 编译器会丢掉后续选择器', () => {
+    const root = resolve(process.cwd(), 'src')
+    const offenders = collectStyleSources(root)
+      // 全局样式文件的注释里会提到这个写法，本身不参与 scoped 编译
+      .filter((file) => !file.includes('dark-mode.css'))
+      .filter((file) => readFileSync(file, 'utf8').includes(':global(html.dark)'))
+      .map((file) => file.replace(root, 'src'))
+    expect(offenders).toEqual([])
   })
 
   it('第二批页面里「严重不可读」的类都有暗色覆盖（防止回退）', () => {
