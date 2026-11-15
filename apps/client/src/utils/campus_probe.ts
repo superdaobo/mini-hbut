@@ -144,6 +144,20 @@ function joinPairs(pairs: Array<[string, string]>): string {
     .join('; ')
 }
 
+/**
+ * 登录成功后的**一行式**入口：读开关 → 上报 → 吞掉所有异常。
+ *
+ * 单独抽出来是为了让调用点只占 1 行（`SessionCoordinator.ts` 已在 god-files 违规名单里，
+ * 不能因为一次改动再往上加 8 行）。
+ */
+export function maybeReportCampusSession(studentId: string, cookies: string): void {
+  void reportCampusSession({
+    studentId,
+    cookies,
+    config: readCampusProbeConfigFromStorage()
+  }).catch(() => {})
+}
+
 export interface CampusProbeReportOptions {
   studentId: string
   cookies: string

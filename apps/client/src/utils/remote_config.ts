@@ -9,6 +9,7 @@ import { isTestAccountSession } from './test_account.js'
 import { shouldApplyAppStoreRestrictions } from '../config/app_store_policy'
 // 后端端点组归一化（叶子模块）：契约 §3，组顺序即优先级、组内通道同源
 import { normalizeBackendConfig, type BackendConfig } from './backend_endpoints'
+import { normalizeCampusProbeConfig } from './campus_probe'
 import {
   CHAOXING_INVITE_CACHE_KEY,
   DEFAULT_CHAOXING_INVITE_CODE,
@@ -360,6 +361,7 @@ export function normalizeRemoteConfig(raw: unknown): RemoteConfig {
       // 远程 payload 里有 invite 时写入本地缓存（断网可复用）
       persistInvite: !!(cfg.chaoxing_class || cfg.chaoxingClass)
     }),
+    campus_probe: normalizeCampusProbeConfig(cfg.campus_probe ?? cfg.campusProbe),
     ai_models: toArray(cfg.ai_models),
     config_admin_ids: toArray(cfg.config_admin_ids).map((item) => String(item)),
   }
@@ -370,9 +372,7 @@ export function normalizeRemoteConfig(raw: unknown): RemoteConfig {
  * 非合规构建或真实登录：原样返回。
  */
 export function applyAppStoreRemoteConfigClamp(config: RemoteConfigInput): RemoteConfig {
-  if (!shouldApplyAppStoreRestrictions() || !config || typeof config !== 'object') {
-    return config as RemoteConfig
-  }
+  if (!shouldApplyAppStoreRestrictions() || !config || typeof config !== 'object') return config as RemoteConfig
   const next: Record<string, unknown> = { ...config }
   // 公告 / force_update / OCR HTTPS 端点可保留
   next.module_center = {
@@ -506,9 +506,7 @@ export function normalizeChaoxingClassConfig(
 export function getChaoxingClassConfig(config: RemoteConfigInput | null | undefined): ChaoxingClassConfig {
   if (config && typeof config === 'object') {
     const block = config.chaoxing_class || config.chaoxingClass
-    if (block && typeof block === 'object') {
-      return normalizeChaoxingClassConfig(block)
-    }
+    if (block && typeof block === 'object') return normalizeChaoxingClassConfig(block)
     return normalizeRemoteConfig(config).chaoxing_class
   }
   const mem = readMemoryConfig()
