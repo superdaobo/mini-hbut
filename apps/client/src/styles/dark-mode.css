@@ -1659,6 +1659,20 @@ html.dark .ios26-select-overlay {
   --ios-select-shadow: 0 13px 29px rgba(2, 6, 23, 0.29);
 }
 
+html[data-theme='graphite_night'] .ios26-select,
+html[data-theme='graphite_night'] .ios26-select-overlay {
+  --ios-select-accent: #60a5fa;
+  --ios-select-accent-2: #22d3ee;
+  --ios-select-text: #e2e8f0;
+  --ios-select-muted: #94a3b8;
+  --ios-select-border: color-mix(in oklab, var(--ios-select-accent) 28%, rgba(148, 163, 184, 0.34));
+  --ios-select-trigger-bg: #111827;
+  --ios-select-panel: #0f172a;
+  --ios-select-item: #1e293b;
+  --ios-select-active: #2563eb;
+  --ios-select-shadow: 0 13px 29px rgba(2, 6, 23, 0.29);
+}
+
 html.dark .ios26-select-sheet {
   background: var(--ios-select-panel) !important;
   border-color: var(--ios-select-border) !important;
@@ -2829,7 +2843,8 @@ html.dark .modal-header h3 {
   color: #e2e8f0 !important;
 }
 
-html.dark .close-btn {
+/* 只覆盖弹窗头部里的关闭钮；LibraryView 等处的文字型 .close-btn 不在范围内 */
+html.dark .modal-header .close-btn {
   background: #334155 !important;
   color: #cbd5e1 !important;
 }
@@ -3170,14 +3185,6 @@ html.dark .classroom-result-meta-time {
   color: #64748b;
 }
 
-html.dark .classroom-filter-label {
-  color: #cbd5e1;
-}
-
-html.dark .classroom-period-row-label {
-  color: #94a3b8;
-}
-
 html.dark .classroom-result-meta {
   color: #94a3b8;
 }
@@ -3217,19 +3224,6 @@ html.dark .ccp-preset-cell.active {
   border-color: #e2e8f0;
 }
 
-html.dark .ios26-select,
-html.dark .ios26-select-overlay {
-  --ios-select-accent: #60a5fa;
-  --ios-select-accent-2: #22d3ee;
-  --ios-select-text: #e2e8f0;
-  --ios-select-muted: #94a3b8;
-  --ios-select-border: color-mix(in oklab, var(--ios-select-accent) 28%, rgba(148, 163, 184, 0.34));
-  --ios-select-trigger-bg: #111827;
-  --ios-select-panel: #0f172a;
-  --ios-select-item: #1e293b;
-  --ios-select-active: #2563eb;
-  --ios-select-shadow: 0 13px 29px rgba(2, 6, 23, 0.29);
-}
 
 html.dark .ios26-select-trigger,
 html[data-theme='graphite_night'] .ios26-select-trigger {
@@ -3719,8 +3713,8 @@ html[data-theme='graphite_night'] .ai-view .input-area input[type='text']::place
   color: #9fb0cb !important;
 }
 
-html[data-theme='graphite_night'] .ai-view .rich-text :deep(pre),
-html[data-theme='graphite_night'] .ai-view .rich-text :deep(code) {
+html[data-theme='graphite_night'] .ai-view .rich-text pre,
+html[data-theme='graphite_night'] .ai-view .rich-text code {
   background: rgba(8, 15, 28, 0.72) !important;
   color: #e2e8f0 !important;
 }
@@ -3909,4 +3903,10 @@ html:is(.dark, [data-theme='graphite_night']) .cx-secure-note {
 html:is(.dark, [data-theme='graphite_night']) .cx-trail-btn:hover:not(:disabled) {
   background: var(--cx-surface-high);
   color: var(--cx-primary);
+}
+
+/* ─── #1305 管理课程弹窗：加载/空态浅底 ─── */
+html.dark .manage-course-empty {
+  background: #1e293b !important;
+  color: #94a3b8 !important;
 }

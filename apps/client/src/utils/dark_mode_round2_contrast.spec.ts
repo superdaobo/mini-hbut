@@ -9,6 +9,9 @@ import { describe, expect, it } from 'vitest'
  */
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8')
 
+/** `:global(html…)` / `::v-global(html…)` 的所有常见变体（scoped 编译都会被降级） */
+const GLOBAL_HTML_SELECTOR = /(?:::v-global|:global)\(\s*html(?![A-Za-z0-9_-])/
+
 const LIGHT_BG =
   /background(?:-color)?:\s*(#fff(?:fff)?|#f8fafc|#f3f4f6|#f1f5f9|#f0f4f8|#f6f8fb|#e8eaf6|#fce8e6|#fff7ed|#fff1f2|#fff7f7|#fee2e2|#dbeafe|#eef6ff|rgba?\(\s*255\s*,\s*255\s*,\s*255)/i
 
@@ -77,15 +80,33 @@ describe('dark mode round 2 · stage 1 (#1305)', () => {
     expect(missing).toEqual([])
   })
 
-  it('禁止再用 :global(html.dark)：scoped 编译器会丢掉后续选择器', () => {
+  it('禁止再用 :global(html…)：scoped 编译器会丢掉后续选择器', () => {
     const root = resolve(process.cwd(), 'src')
     const offenders = collectStyleSources(root)
       // 全局样式文件的注释里会提到这个写法，本身不参与 scoped 编译
       .filter((file) => !file.includes('dark-mode.css'))
-      // 所有 `:global(html…)` 变体（含 data-theme 预设）都会被 scoped 编译器降级
-      .filter((file) => /:global\(html[\s.]|:global\(html\[/.test(readFileSync(file, 'utf8')))
+      .filter((file) => GLOBAL_HTML_SELECTOR.test(readFileSync(file, 'utf8')))
       .map((file) => file.replace(root, 'src'))
     expect(offenders).toEqual([])
+  })
+
+  it('门禁正则覆盖 :global(html…) 的常见变体', () => {
+    const samples = [
+      ':global(html.dark) .x { color: red }',
+      ":global(html[data-theme='graphite_night']) .x { color: red }",
+      ":global(html:is(.dark, [data-theme='graphite_night'])) .x { color: red }",
+      ':global( html.dark) .x { color: red }',
+      ':global(\nhtml.dark) .x { color: red }',
+      '::v-global(html.dark) .x { color: red }',
+      ':global(html:not(.dark)) .x { color: red }'
+    ]
+    for (const sample of samples) {
+      expect(GLOBAL_HTML_SELECTOR.test(sample), sample).toBe(true)
+    }
+  })
+
+  it('全局样式不得出现 :deep()/:slotted()（非 SFC CSS 中是无效伪类）', () => {
+    expect(dark).not.toMatch(/:deep\(|:slotted\(/)
   })
 
   it('第二批页面里「严重不可读」的类都有暗色覆盖（防止回退）', () => {

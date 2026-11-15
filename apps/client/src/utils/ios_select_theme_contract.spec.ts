@@ -33,8 +33,12 @@ describe('IOSSelect theme contract', () => {
     const darkModeSource = readText('src/styles/dark-mode.css')
 
     // #1305：`:global(html…)` 在 scoped 样式里会被降级，规则已迁到 dark-mode.css
-    expect(darkModeSource).toContain('html.dark .ios26-select')
-    expect(darkModeSource).toContain("html[data-theme='graphite_night'] .ios26-select")
+    expect(darkModeSource).toMatch(
+      /html\.dark \.ios26-select,\s*html\.dark \.ios26-select-overlay\s*\{/
+    )
+    expect(darkModeSource).toMatch(
+      /html\[data-theme='graphite_night'\] \.ios26-select,\s*html\[data-theme='graphite_night'\] \.ios26-select-overlay\s*\{/
+    )
     expect(source).toContain('prefers-reduced-motion: reduce')
     expect(source).toContain('backdrop-filter: blur(14px)')
 
