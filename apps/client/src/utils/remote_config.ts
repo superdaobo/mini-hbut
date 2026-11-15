@@ -9,7 +9,6 @@ import { isTestAccountSession } from './test_account.js'
 import { shouldApplyAppStoreRestrictions } from '../config/app_store_policy'
 // 后端端点组归一化（叶子模块）：契约 §3，组顺序即优先级、组内通道同源
 import { normalizeBackendConfig, type BackendConfig } from './backend_endpoints'
-import { normalizeCampusProbeConfig } from './campus_probe'
 import {
   CHAOXING_INVITE_CACHE_KEY,
   DEFAULT_CHAOXING_INVITE_CODE,
@@ -105,8 +104,6 @@ export interface RemoteConfig {
   /** 后端端点组（契约 §3）：组顺序即优先级，组内所有通道同源 */
   backend: BackendConfig
   chaoxing_class: ChaoxingClassConfig
-  /** Issue #1307：教务会话上报（学号核验）的灰度开关，默认关 */
-  campus_probe: { enabled: boolean; sampleRate: number }
   ai_models: unknown[]
   config_admin_ids: string[]
   [key: string]: unknown
@@ -363,7 +360,6 @@ export function normalizeRemoteConfig(raw: unknown): RemoteConfig {
       // 远程 payload 里有 invite 时写入本地缓存（断网可复用）
       persistInvite: !!(cfg.chaoxing_class || cfg.chaoxingClass)
     }),
-    campus_probe: normalizeCampusProbeConfig(cfg.campus_probe ?? cfg.campusProbe),
     ai_models: toArray(cfg.ai_models),
     config_admin_ids: toArray(cfg.config_admin_ids).map((item) => String(item)),
   }

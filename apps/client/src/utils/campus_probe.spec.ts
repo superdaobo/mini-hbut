@@ -15,6 +15,7 @@ import {
   DEFAULT_CAMPUS_PROBE_CONFIG,
   buildCampusProbeCookieHeader,
   normalizeCampusProbeConfig,
+  readCampusProbeConfigFromStorage,
   reportCampusSession,
   shouldReportCampusSession
 } from './campus_probe'
@@ -190,5 +191,25 @@ describe('campus_probe · 上报', () => {
     expect(result.sent).toBe(false)
     expect(result.reason).toBe('not_sampled')
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('campus_probe · 从本地快照读开关', () => {
+  it('无快照时默认关闭', () => {
+    const storage = { getItem: () => null } as unknown as Storage
+    ;(globalThis as any).localStorage = storage
+    expect(readCampusProbeConfigFromStorage()).toEqual(DEFAULT_CAMPUS_PROBE_CONFIG)
+  })
+
+  it('快照里 enabled=true 且采样率生效', () => {
+    const payload = JSON.stringify({ campus_probe: { enabled: true, sample_rate: 0.05 } })
+    ;(globalThis as any).localStorage = { getItem: () => payload } as unknown as Storage
+    expect(readCampusProbeConfigFromStorage()).toEqual({ enabled: true, sampleRate: 0.05 })
+  })
+
+  it('快照损坏时回落默认关（不抛）', () => {
+    ;(globalThis as any).localStorage = { getItem: () => '{not json' } as unknown as Storage
+    expect(readCampusProbeConfigFromStorage()).toEqual(DEFAULT_CAMPUS_PROBE_CONFIG)
   })
 })

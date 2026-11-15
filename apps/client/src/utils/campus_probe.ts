@@ -15,6 +15,7 @@
  */
 
 import { PRIMARY_BACKEND_ORIGIN } from './backend_endpoints'
+import { REMOTE_CONFIG_SNAPSHOT_KEY } from './remote_config_defaults'
 
 /** 上报端点（走主域，不新增域名常量） */
 export const CAMPUS_PROBE_ENDPOINT = `${PRIMARY_BACKEND_ORIGIN}/api/identity/campus-probe`
@@ -54,6 +55,29 @@ export function normalizeCampusProbeConfig(raw: unknown): CampusProbeConfig {
   if (sampleRate > 1) sampleRate = sampleRate / 100
   sampleRate = Math.min(1, Math.max(0, sampleRate))
   return { enabled, sampleRate }
+}
+
+/**
+ * 从本地 remote_config 快照直接读 `campus_probe` 块。
+ *
+ * 为什么不加进 `normalizeRemoteConfig`：`remote_config.ts` 已经在 1000 行上限边缘，
+ * 任何新增都会触发 `god-files` 检查。这里只读快照，不动那个文件。
+ * 仓库里快照本身就是远端 JSON 原文（`JSON.parse` 后直接归一化），所以顶层就有 `campus_probe`。
+ */
+export function readCampusProbeConfigFromStorage(): CampusProbeConfig {
+  try {
+    const storage =
+      typeof localStorage !== 'undefined' && localStorage
+        ? localStorage
+        : (globalThis as { localStorage?: Storage }).localStorage
+    const raw = storage?.getItem(REMOTE_CONFIG_SNAPSHOT_KEY)
+    if (!raw) return { ...DEFAULT_CAMPUS_PROBE_CONFIG }
+    const parsed = JSON.parse(String(raw)) as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_CAMPUS_PROBE_CONFIG }
+    return normalizeCampusProbeConfig(parsed.campus_probe ?? parsed.campusProbe)
+  } catch {
+    return { ...DEFAULT_CAMPUS_PROBE_CONFIG }
+  }
 }
 
 /** 确定性采样：同一 (学号, 日期) 结论稳定。 */
