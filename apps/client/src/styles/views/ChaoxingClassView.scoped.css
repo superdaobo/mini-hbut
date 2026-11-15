@@ -34,36 +34,6 @@
   --cx-glass-border: rgba(255, 255, 255, 0.55);
 }
 
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-page,
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-root,
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-dialog-root {
-  --cx-bg: #0e1012;
-  --cx-surface: #1a1d21;
-  --cx-surface-low: #22262b;
-  --cx-surface-high: #2c3136;
-  --cx-surface-highest: #383e44;
-  --cx-on: #f0f2f4;
-  --cx-on-var: #c4c8d4;
-  --cx-outline: #9aa0b0;
-  --cx-outline-var: #3d424a;
-  --cx-primary: #aec1ff;
-  --cx-primary-soft: #8aa4ff;
-  --cx-primary-fixed: #1e2f5c;
-  --cx-primary-on: #0b1224;
-  --cx-tertiary-fixed: #1e2a3a;
-  --cx-error: #ffb4ab;
-  --cx-error-container: #7a0f14;
-  --cx-shadow-soft: 0 12px 36px rgba(0, 0, 0, 0.45);
-  --cx-scrim: rgba(0, 0, 0, 0.62);
-  --cx-ios-label: #f5f5f7;
-  --cx-ios-secondary: rgba(235, 235, 245, 0.5);
-  --cx-ios-separator: rgba(84, 84, 88, 0.65);
-  --cx-ios-fill: rgba(120, 120, 128, 0.28);
-  --cx-ios-blue: #0a84ff;
-  --cx-glass: rgba(44, 44, 46, 0.72);
-  --cx-glass-border: rgba(255, 255, 255, 0.14);
-}
-
 .cx-page {
   position: relative;
   min-height: 100%;
@@ -310,11 +280,6 @@
   color: var(--cx-bg);
 }
 
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip.active {
-  background: var(--cx-primary-fixed);
-  color: var(--cx-primary);
-}
-
 .cx-toolbar {
   display: flex;
   align-items: center;
@@ -448,13 +413,6 @@
 .cx-thumb[data-kind='ppt'],
 .cx-thumb[data-kind='xls'] {
   background: color-mix(in srgb, var(--cx-primary) 12%, var(--cx-tertiary-fixed));
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-thumb[data-kind='video'] {
-  color: #c4b5fd;
-}
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-thumb[data-kind='image'] {
-  color: #7dd3fc;
 }
 
 .cx-row-main {
@@ -626,11 +584,6 @@
 
 .cx-btn.primary {
   background: var(--cx-primary);
-  color: var(--cx-primary-on);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.primary {
-  background: var(--cx-primary-soft);
   color: var(--cx-primary-on);
 }
 
@@ -936,11 +889,6 @@
   color: var(--cx-primary-on);
 }
 
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.download {
-  background: var(--cx-primary-soft);
-  color: var(--cx-primary-on);
-}
-
 .cx-toolbar-btn.download:hover:not(:disabled) {
   filter: brightness(0.96);
 }
@@ -1017,13 +965,6 @@
     inset 0 0.5px 0 rgba(255, 255, 255, 0.45);
   -webkit-backdrop-filter: saturate(180%) blur(40px);
   backdrop-filter: saturate(180%) blur(40px);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-open-method-menu {
-  box-shadow:
-    0 14px 44px rgba(0, 0, 0, 0.48),
-    0 0 0 0.5px rgba(255, 255, 255, 0.08),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
 }
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
@@ -1207,10 +1148,6 @@
   text-align: center;
 }
 
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-dialog {
-  box-shadow: var(--cx-shadow-soft), 0 24px 56px rgba(0, 0, 0, 0.5);
-}
-
 .cx-dialog-cover {
   width: 72px;
   height: 72px;
@@ -1300,129 +1237,9 @@
   border: 1px solid transparent;
 }
 
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.dialog-primary {
-  background: var(--cx-primary-soft);
-  color: var(--cx-primary-on);
-}
-
 .cx-btn.dialog-primary:hover:not(:disabled) {
   filter: brightness(0.96);
 }
 
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.dialog-secondary {
-  background: var(--cx-surface-high);
-  color: var(--cx-on);
-  border-color: var(--cx-outline-var);
-}
-
 /* —— 暗色模式：列表/欢迎页/状态条等细节补强 —— */
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-nimbus-head {
-  background: color-mix(in srgb, var(--cx-bg) 88%, transparent);
-  border-bottom-color: var(--cx-outline-var);
-}
 
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-row:hover {
-  background: var(--cx-surface-low);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-row:active {
-  background: var(--cx-surface-high);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-welcome-card {
-  background: var(--cx-surface);
-  border-color: var(--cx-outline-var);
-  box-shadow: var(--cx-shadow-soft);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-welcome-badge {
-  background: var(--cx-primary-fixed);
-  color: var(--cx-primary);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-sso-chip.ok {
-  background: color-mix(in srgb, #16a34a 18%, var(--cx-surface-low));
-  border-color: color-mix(in srgb, #16a34a 40%, var(--cx-outline-var));
-  color: #86efac;
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-sso-chip.bad {
-  background: var(--cx-error-container);
-  color: var(--cx-error);
-  border-color: color-mix(in srgb, var(--cx-error) 35%, var(--cx-outline-var));
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-alert {
-  background: var(--cx-error-container);
-  color: var(--cx-error);
-  border: 1px solid color-mix(in srgb, var(--cx-error) 30%, transparent);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-sheet {
-  background: var(--cx-surface);
-  border-color: var(--cx-outline-var);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-head {
-  background: var(--cx-bg);
-  border-bottom-color: var(--cx-outline-var);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-body {
-  background: #0b0d10;
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-toolbar {
-  background: var(--cx-surface);
-  border-top-color: var(--cx-outline-var);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn {
-  background: var(--cx-surface-low);
-  border-color: var(--cx-outline-var);
-  color: var(--cx-on);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.method.open {
-  border-color: color-mix(in srgb, var(--cx-primary) 50%, var(--cx-outline-var));
-  background: color-mix(in srgb, var(--cx-primary) 14%, var(--cx-surface));
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.browser:hover:not(:disabled),
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.method:hover:not(:disabled) {
-  background: var(--cx-surface-high);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip {
-  background: var(--cx-surface-high);
-  color: var(--cx-on-var);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip.active {
-  background: var(--cx-primary-fixed);
-  color: var(--cx-primary);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-skeleton-row {
-  background: linear-gradient(
-    90deg,
-    var(--cx-surface-low) 25%,
-    var(--cx-surface-high) 50%,
-    var(--cx-surface-low) 75%
-  );
-  background-size: 200% 100%;
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-empty {
-  color: var(--cx-outline);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-secure-note {
-  color: var(--cx-outline);
-}
-
-:global(html:is(.dark, [data-theme='graphite_night'])) .cx-trail-btn:hover:not(:disabled) {
-  background: var(--cx-surface-high);
-  color: var(--cx-primary);
-}

@@ -9,6 +9,7 @@
  */
 import { computed, ref } from 'vue'
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { useScheduleEvents } from '../composables/useScheduleEvents'
 
@@ -207,8 +208,10 @@ describe('ScheduleDrawer #836 入口升级契约', () => {
     expect(source).toContain('v-for="item in viewModeOptions"')
     expect(source).toContain(':class="{ active: scheduleViewMode === item.key }"')
     expect(source).toContain("emit('set-view-mode', item.key)")
-    expect(source).toContain(':global(html.dark) .drawer-view-switch')
-    expect(source).toContain(':global(html.dark) .drawer-view-chip.active')
+    // #1305：暗色规则已迁到 dark-mode.css（scoped 里的 :global(html.dark) 会失效）
+    const darkCss = readFileSync(resolve(process.cwd(), 'src/styles/dark-mode.css'), 'utf8')
+    expect(darkCss).toContain('html.dark .drawer-view-switch')
+    expect(darkCss).toContain('html.dark .drawer-view-chip.active')
     expect(source).toContain('data-step="3">{{ t(\'schedule.drawer.section.style\') }}')
   })
 

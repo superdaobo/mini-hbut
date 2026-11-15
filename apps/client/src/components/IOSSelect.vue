@@ -519,9 +519,6 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
-:global(html[data-theme='graphite_night']) .ios26-select,
-:global(html[data-theme='graphite_night']) .ios26-select-overlay,
-
 @media (prefers-color-scheme: dark) {
   :global(.ios26-select),
   :global(.ios26-select-overlay) {
@@ -590,11 +587,4 @@ onBeforeUnmount(() => {
   }
 }
 
-:global(html.window-resizing) .ios26-select-trigger,
-:global(html.window-resizing) .ios26-select-overlay,
-:global(html.window-resizing) .ios26-select-sheet {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  transition: none !important;
-}
 </style>
