@@ -82,7 +82,8 @@ describe('dark mode round 2 · stage 1 (#1305)', () => {
     const offenders = collectStyleSources(root)
       // 全局样式文件的注释里会提到这个写法，本身不参与 scoped 编译
       .filter((file) => !file.includes('dark-mode.css'))
-      .filter((file) => readFileSync(file, 'utf8').includes(':global(html.dark)'))
+      // 所有 `:global(html…)` 变体（含 data-theme 预设）都会被 scoped 编译器降级
+      .filter((file) => /:global\(html[\s.]|:global\(html\[/.test(readFileSync(file, 'utf8')))
       .map((file) => file.replace(root, 'src'))
     expect(offenders).toEqual([])
   })
