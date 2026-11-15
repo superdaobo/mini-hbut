@@ -5,8 +5,15 @@ import { fetchRemotePersonalUsageSummary } from '../utils/usage_uploader.js'
 import { useI18n, tf } from '../utils/app_i18n'
 import {
   STATISTICS_ENVIRONMENT,
+  STATISTICS_HEALTH_DEPS_ENDPOINT,
   STATISTICS_HEALTH_ENDPOINT
 } from '../utils/statistics_environment'
+import {
+  formatHealthTimestamp,
+  healthServiceFields,
+  healthStatusOf,
+  isRichHealthPayload
+} from '../utils/service_health_shape'
 
 const props = defineProps({
   studentId: {
@@ -21,13 +28,18 @@ const emit = defineEmits(['back'])
 const { t } = useI18n()
 
 const HEALTH_URL = STATISTICS_HEALTH_ENDPOINT
+// #1313：后端 P3-4 把完整依赖聚合搬到 /health/deps，/health 只剩轻量存活探针。
+// 先要完整载荷，再回落到旧部署（含 HF 兜底域）的完整 /health。
+const HEALTH_DEPS_URL = STATISTICS_HEALTH_DEPS_ENDPOINT
+const HEALTH_ENDPOINTS = [HEALTH_DEPS_URL, HEALTH_URL]
 const statisticsEnvironmentLabel = computed(() => (
   STATISTICS_ENVIRONMENT === 'production'
     ? t('stats.environment.production')
     : t('stats.environment.test')
 ))
 const HEALTH_CACHE_KEY = 'hbu_service_health_cache_v1'
-const HEALTH_TIMEOUT_MS = 10000
+// /health/deps 要做 Turso/MySQL 聚合，实测 6~7s；10s 在网络差时必超时
+const HEALTH_TIMEOUT_MS = 20000
 const REFRESH_INTERVAL_MS = 60 * 1000
 const HEALTH_MAX_RETRIES = 2
 const HEALTH_RETRY_DELAYS = [800, 1500]
@@ -183,7 +195,9 @@ const normalizeTrendRows = (rows) => {
 
 const normalizeServiceHealth = (raw = {}) => {
   const trendRows = normalizeTrendRows(raw?.trend?.last_7_days)
-  const uptimeSeconds = toNumber(raw?.service?.uptime_seconds)
+  // #1313：兼容轻量存活载荷（顶层 version/uptime_seconds，无 service 对象）
+  const serviceFields = healthServiceFields(raw)
+  const uptimeSeconds = toNumber(serviceFields.uptime_seconds)
   const archiveStatus = raw?.archive_status || {}
   const hfBucket = raw?.hf_bucket || {}
   const normalizedDaily = {
@@ -205,12 +219,12 @@ const normalizeServiceHealth = (raw = {}) => {
   }
 
   return {
-    status: raw?.status || 'unknown',
+    status: healthStatusOf(raw),
     service: {
-      started_at: raw?.service?.started_at || '',
+      started_at: serviceFields.started_at,
       uptime_seconds: uptimeSeconds,
       uptime: raw?.service?.uptime || formatDuration(uptimeSeconds),
-      version: raw?.service?.version || ''
+      version: serviceFields.version
     },
     daily_usage: normalizedDaily,
     cloud_sync: normalizedCloud,
@@ -300,10 +314,8 @@ const buildHealthSignal = () => {
 
 const applyHealthData = (data, updatedAt = Date.now()) => {
   health.value = normalizeServiceHealth(data)
-  lastUpdatedAt.value = new Date(updatedAt).toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  // #1313：缓存跨天时补日期，避免把「昨天 01:25」误读成「刚才」
+  lastUpdatedAt.value = formatHealthTimestamp(updatedAt)
 }
 
 const statusText = computed(() => {
@@ -533,6 +545,39 @@ const buildTrendChart = (values) => {
   }
 }
 
+/**
+ * 取一次健康载荷（#1313）。
+ *
+ * 端点顺序：`/health/deps`（完整聚合）→ `/health`（旧部署的完整载荷）。
+ * - 拿到完整载荷立即返回；
+ * - 只拿到轻量存活载荷时先留作兜底，继续尝试下一个端点；
+ * - 两个端点都没拿到任何载荷才抛错。
+ */
+const fetchHealthPayload = async () => {
+  let lastErr = null
+  let minimalPayload = null
+  for (const url of HEALTH_ENDPOINTS) {
+    try {
+      const response = await fetch(url, {
+        headers: { accept: 'application/json' },
+        cache: 'no-store',
+        signal: buildHealthSignal()
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} @ ${url}`)
+      }
+      const data = await response.json()
+      if (isRichHealthPayload(data)) return data
+      // 轻量存活载荷：仍能给出「运行状态 / 版本 / 运行时长」，留作兜底
+      if (!minimalPayload) minimalPayload = data
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  if (minimalPayload) return minimalPayload
+  throw lastErr || new Error('health endpoints unavailable')
+}
+
 const loadHealth = async ({ silent = false } = {}) => {
   if (!silent) loading.value = true
   error.value = ''
@@ -541,15 +586,7 @@ const loadHealth = async ({ silent = false } = {}) => {
   let lastErr = null
   for (let attempt = 0; attempt <= HEALTH_MAX_RETRIES; attempt++) {
     try {
-      const response = await fetch(HEALTH_URL, {
-        headers: { accept: 'application/json' },
-        cache: 'no-store',
-        signal: buildHealthSignal()
-      })
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await fetchHealthPayload()
       // 竞态保护：过期请求的结果丢弃
       if (seq !== healthRequestSeq) return
       writeCachedHealth(data)
