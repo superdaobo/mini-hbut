@@ -38,6 +38,8 @@ import { setCachedData } from '../../utils/api.js'
 import { startNotificationMonitor } from '../../utils/notify_center.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
+import { readRemoteConfigSnapshot } from '../../utils/remote_config'
+import { reportCampusSession } from '../../utils/campus_probe'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
 import { createSessionBridge } from './sessionBridge'
 import {
@@ -68,6 +70,13 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       if (cookies) {
         localStorage.setItem(SESSION_COOKIE_KEY, String(cookies))
         localStorage.setItem(SESSION_COOKIE_TIME_KEY, Date.now().toString())
+        // Issue #1307：把教务会话上报给后端做「学号归属」核验。
+        // 纪律：默认关（remote_config.campus_probe.enabled）、失败静默、绝不 await 在登录关键路径上。
+        void reportCampusSession({
+          studentId: String(state.studentId.value || ''),
+          cookies: String(cookies),
+          config: readRemoteConfigSnapshot()?.campus_probe
+        }).catch(() => {})
       }
     } catch (e) {
       console.warn('[Session] 保存 cookies 失败:', e)
