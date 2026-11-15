@@ -579,34 +579,4 @@ const presetMatchLabel = computed(() => {
   }
 }
 
-:global(html.dark) .ccp-entry {
-  background: #1e293b;
-  border-color: #334155;
-  color: #e2e8f0;
-}
-
-:global(html.dark) .ccp-entry-label,
-:global(html.dark) .ccp-entry-meta {
-  color: #94a3b8;
-}
-
-:global(html.dark) .ccp-sheet {
-  background: rgba(15, 23, 42, 0.98);
-  border-color: #334155;
-}
-
-:global(html.dark) .ccp-sheet-title,
-:global(html.dark) .ccp-hex {
-  color: #e2e8f0;
-}
-
-:global(html.dark) .ccp-secondary {
-  background: #1e293b;
-  border-color: #475569;
-  color: #e2e8f0;
-}
-
-:global(html.dark) .ccp-preset-cell.active {
-  border-color: #e2e8f0;
-}
 </style>

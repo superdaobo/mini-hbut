@@ -32,8 +32,13 @@ describe('IOSSelect theme contract', () => {
     const source = readText('src/components/IOSSelect.vue')
     const darkModeSource = readText('src/styles/dark-mode.css')
 
-    expect(source).toContain(":global(html.dark) .ios26-select")
-    expect(source).toContain(":global(html[data-theme='graphite_night']) .ios26-select")
+    // #1305：`:global(html…)` 在 scoped 样式里会被降级，规则已迁到 dark-mode.css
+    expect(darkModeSource).toMatch(
+      /html\.dark \.ios26-select,\s*html\.dark \.ios26-select-overlay\s*\{/
+    )
+    expect(darkModeSource).toMatch(
+      /html\[data-theme='graphite_night'\] \.ios26-select,\s*html\[data-theme='graphite_night'\] \.ios26-select-overlay\s*\{/
+    )
     expect(source).toContain('prefers-reduced-motion: reduce')
     expect(source).toContain('backdrop-filter: blur(14px)')
 

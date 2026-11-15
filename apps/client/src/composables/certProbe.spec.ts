@@ -3,6 +3,8 @@
 // 2. 会话内防重复探测（模块级 Promise 缓存）
 // 3. MeView.vue 展示位与挂载触发的源码契约
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readVueContractSource } from '../utils/contract_source_test'
 
@@ -190,11 +192,12 @@ describe('MeView.vue 证书提示展示契约', () => {
 
   it('黄色样式覆盖亮色与暗色两套取色', () => {
     const source = vue()
-    // 亮色 amber-700、暗色经 :global(html.dark) 提亮为 amber-400
+    const darkCss = readFileSync(resolve(process.cwd(), 'src/styles/dark-mode.css'), 'utf8')
+    // 亮色 amber-700；暗色规则已迁到 dark-mode.css，提亮为 amber-400
     expect(source).toContain('.cert-probe-warning {')
     expect(source).toContain('#b45309')
-    expect(source).toContain(':global(html.dark) .cert-probe-warning')
-    expect(source).toContain('#fbbf24')
+    expect(darkCss).toContain('html.dark .cert-probe-warning')
+    expect(darkCss).toContain('#fbbf24')
   })
 
   it('#1001：圆点由 connectionStatus 驱动，不再是静态绿点', () => {
