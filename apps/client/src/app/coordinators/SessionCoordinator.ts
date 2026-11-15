@@ -38,8 +38,7 @@ import { setCachedData } from '../../utils/api.js'
 import { startNotificationMonitor } from '../../utils/notify_center.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
-import { readRemoteConfigSnapshot } from '../../utils/remote_config'
-import { reportCampusSession } from '../../utils/campus_probe'
+import { readCampusProbeConfigFromStorage, reportCampusSession } from '../../utils/campus_probe'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
 import { createSessionBridge } from './sessionBridge'
 import {
@@ -75,7 +74,7 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
         void reportCampusSession({
           studentId: String(state.studentId.value || ''),
           cookies: String(cookies),
-          config: readRemoteConfigSnapshot()?.campus_probe
+          config: readCampusProbeConfigFromStorage()
         }).catch(() => {})
       }
     } catch (e) {
