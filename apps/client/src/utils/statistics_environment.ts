@@ -45,6 +45,14 @@ export const STATISTICS_ENVIRONMENT: StatisticsEnvironment = resolveStatisticsEn
 export const STATISTICS_SERVICE_BASE_URL = PRIMARY_BACKEND_ORIGIN
 
 export const STATISTICS_HEALTH_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/health`
+/**
+ * 完整依赖聚合端点（后端 P3-4 起）。
+ *
+ * `/health` 已降级为**零 IO 轻量存活探针**，只回 `ok / version / uptime_seconds / started_at`；
+ * 「服务统计」页需要的 `status / daily_usage / cloud_sync / trend …` 全部搬到了这里。
+ * 旧部署（以及 HF 兜底域）没有该路径（404），客户端必须能回落到 `/health`。
+ */
+export const STATISTICS_HEALTH_DEPS_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/health/deps`
 export const STATISTICS_CLOUD_SYNC_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/api/cloud-sync`
 export const STATISTICS_OCR_ENDPOINT = `${STATISTICS_SERVICE_BASE_URL}/api/ocr/recognize`
 

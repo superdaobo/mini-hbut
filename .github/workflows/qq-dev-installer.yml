@@ -70,8 +70,8 @@ jobs:
           # 构建时间/Commit 从 Release 正文里取（dev-build.yml 生成）；构建时间缺失时回退到 release 创建时间。
           BUILD_TIME="$(sed -n 's/^\*\*构建时间\*\*:[[:space:]]*//p' "${RUNNER_TEMP}/dev-latest-body.md" | head -n 1)"
           if [ -z "${BUILD_TIME}" ]; then
-            BUILD_TIME="${CREATED_AT}"
-            echo "::warning::Release 正文缺少「构建时间」，已回退到 dev-latest 创建时间：${CREATED_AT}"
+            BUILD_TIME="$(date -u -d "${CREATED_AT} +8 hours" '+%Y-%m-%d %H:%M')（北京时间，UTC+8）"
+            echo "::warning::Release 正文缺少「构建时间」，已回退到 dev-latest 创建时间（北京时间）：${BUILD_TIME}"
           fi
           COMMIT="$(sed -n 's/^\*\*Commit\*\*:[[:space:]]*//p' "${RUNNER_TEMP}/dev-latest-body.md" | head -n 1)"
           if [ -z "${COMMIT}" ]; then

@@ -121,6 +121,20 @@ jobs:
           echo "body_path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
           echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Append Beijing build time to release notes
+        shell: bash
+        env:
+          NOTES_FILE: ${{ steps.release_notes.outputs.body_path }}
+        run: |
+          set -euo pipefail
+          BUILD_TIME="$(date -u -d '+8 hours' '+%Y-%m-%d %H:%M')"
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "**构建时间**: ${BUILD_TIME}（北京时间，UTC+8）"
+          } >> "${NOTES_FILE}"
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1

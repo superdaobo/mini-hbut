@@ -2583,6 +2583,7 @@ export const messages: Record<string, string> = {
   'electricity.usage.today': 'Today',
   'electricity.usage.total': 'Total',
   'electricity.usage.kwh': 'kWh',
+  'electricity.usage.monthMissingCurrent': 'No usage data for this month yet (chart shows earlier months)',
   'electricity.usage.chartAria': 'Electricity usage bar chart',
   'electricity.usage.sourceSelected': 'Usage trend: currently selected room',
   'electricity.usage.sourceBound': 'Usage trend: room bound via i Hubut (one-code)',
