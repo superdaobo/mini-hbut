@@ -13,6 +13,7 @@ import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { showToast } from '../utils/toast'
 // #791：t 为 JS 逻辑内取词 / tf 整句插值（模板响应式取词用下方 useI18n 的 t）
 import { t, tf } from '../utils/app_i18n'
+import { normalizeMonthSeries } from '../utils/electricity_month_series'
 import {
   containsMisleadingRoomHint,
   isUsageSnapshotOnly,
@@ -546,8 +547,17 @@ const mapPoints = (pts, short = true) => {
 }
 
 const weekPoints = computed(() => mapPoints(usageStats.value?.points))
-const monthPoints = computed(() =>
-  mapPoints(usageStats.value?.month_points || usageStats.value?.monthPoints, false)
+
+// #1310：月序列按月解析/去重/升序；「本月」只认当前自然月
+const monthSeries = computed(() =>
+  normalizeMonthSeries(usageStats.value?.month_points || usageStats.value?.monthPoints)
+)
+const monthPoints = computed(() => monthSeries.value.points)
+const monthMissingCurrent = computed(
+  () =>
+    usageTab.value === 'month' &&
+    monthPoints.value.length > 0 &&
+    !monthSeries.value.currentMonthPoint
 )
 
 const activePoints = computed(() =>
@@ -569,13 +579,23 @@ const chartMax = computed(() => {
   return m > 0 ? m : 1
 })
 
+const activePointIndex = computed(() => {
+  const pts = activePoints.value
+  if (!pts.length) return -1
+  if (selectedBarIdx.value >= 0 && selectedBarIdx.value < pts.length) {
+    return selectedBarIdx.value
+  }
+  if (usageTab.value === 'month') {
+    const currentIdx = pts.findIndex((p) => p.isCurrentMonth)
+    if (currentIdx >= 0) return currentIdx
+  }
+  return pts.length - 1
+})
+
 const selectedPoint = computed(() => {
   const pts = activePoints.value
-  if (!pts.length) return null
-  const i =
-    selectedBarIdx.value >= 0 && selectedBarIdx.value < pts.length
-      ? selectedBarIdx.value
-      : pts.length - 1
+  const i = activePointIndex.value
+  if (!pts.length || i < 0) return null
   return { ...pts[i], index: i }
 })
 
@@ -1142,6 +1162,10 @@ watch(
             </div>
           </div>
 
+          <div v-if="monthMissingCurrent" class="util-muted" data-testid="month-missing-current">
+            {{ tLocale('electricity.usage.monthMissingCurrent') }}
+          </div>
+
           <div
             class="ibar"
             :class="{ ready: chartReady }"
@@ -1156,8 +1180,8 @@ watch(
               class="ibar-col"
               role="option"
               :style="{ '--i': i }"
-              :aria-selected="(selectedBarIdx < 0 ? i === activePoints.length - 1 : selectedBarIdx === i)"
-              :class="{ active: selectedBarIdx < 0 ? i === activePoints.length - 1 : selectedBarIdx === i }"
+              :aria-selected="i === activePointIndex"
+              :class="{ active: i === activePointIndex }"
               @click="selectBar(i)"
             >
               <div class="ibar-track">

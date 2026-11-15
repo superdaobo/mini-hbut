@@ -2582,6 +2582,7 @@ export const messages: Record<string, string> = {
   'electricity.usage.today': '今日',
   'electricity.usage.total': '合計',
   'electricity.usage.kwh': '過ごす',
+  'electricity.usage.monthMissingCurrent': '今月のデータはまだありません（グラフは過去の月のみ）',
   'electricity.usage.chartAria': '電気柱図',
   'electricity.usage.sourceSelected': '電気使用量推移：現在選択されているお部屋',
   'electricity.usage.sourceBound': '電力消費量の傾向: 1 つのコード リンクで部屋をバインドする',
