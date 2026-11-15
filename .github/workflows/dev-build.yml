@@ -991,7 +991,7 @@ jobs:
             --title "测试版 ${BETA_VERSION}" \
             --notes "自动构建的测试版本 \`${BETA_VERSION}\`，仅用于开发测试。
 
-          **构建时间**: $(date -u '+%Y-%m-%d %H:%M UTC')
+          **构建时间**: $(date -u -d '+8 hours' '+%Y-%m-%d %H:%M')（北京时间，UTC+8）
           **Commit**: ${GITHUB_SHA::7}
 
           > ⚠️ 此版本为自动生成的开发测试版，可能存在未完成的功能或已知问题。" \
