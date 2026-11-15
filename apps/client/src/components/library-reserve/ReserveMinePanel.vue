@@ -431,4 +431,9 @@ onMounted(load)
     grid-column: 1 / -1;
   }
 }
+
+/* #1305：暗色下链接/已选时段可读 */
+html.dark .link {
+  color: #93c5fd;
+}
 </style>

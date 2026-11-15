@@ -183,10 +183,7 @@ const emit = defineEmits<{
   font-size: 14px;
   margin-top: 16px;
 }
-:global(html.dark) .announcement-fullscreen-card,
-:global(html[data-theme='graphite_night']) .announcement-fullscreen-card {
-  background: var(--ui-modal-surface, #1e293b);
-}
+
 .announcement-fullscreen-enter-active,
 .announcement-fullscreen-leave-active { transition: opacity 0.22s ease; }
 .announcement-fullscreen-enter-active .announcement-fullscreen-card,

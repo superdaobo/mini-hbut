@@ -824,4 +824,9 @@ html.dark .user-bar strong,
 html.dark .back-link {
   color: #e2e8f0;
 }
+
+/* #1305：暗色下错误提示可读 */
+html.dark .err {
+  color: #fca5a5;
+}
 </style>

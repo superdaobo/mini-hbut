@@ -214,10 +214,6 @@
   color: #b45309;
 }
 
-:global(html.dark) .cert-probe-warning {
-  color: #fbbf24;
-}
-
 .status-dot {
   width: 10px;
   height: 10px;
@@ -239,10 +235,6 @@
   font-size: 12px;
   line-height: 1.5;
   color: #b91c1c;
-}
-
-:global(html.dark) .connection-warning {
-  color: #f87171;
 }
 
 /* Functional Grid */

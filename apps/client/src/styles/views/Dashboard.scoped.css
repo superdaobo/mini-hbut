@@ -59,7 +59,6 @@
   }
 }
 
-
 /* 与 NotificationView / MeView 的 .logo-img 一致：圆形裁切整图 */
 .home-logo-img {
   width: 32px;
@@ -220,7 +219,6 @@
   box-sizing: border-box;
 }
 
-
 /* #1089：首页绿点通知中心。一级面板固定位置并内部滚动，不挤压今日安排。 */
 .home-notice-overlay {
   position: fixed;
@@ -360,10 +358,7 @@
 .home-notice-fade-leave-active { transition: opacity 0.2s ease; }
 .home-notice-fade-enter-from,
 .home-notice-fade-leave-to { opacity: 0; }
-:global(html.dark) .home-notice-panel,
-:global(html[data-theme='graphite_night']) .home-notice-panel {
-  background: var(--ui-modal-surface, #1e293b);
-}
+
 @media (prefers-reduced-motion: reduce) {
   .home-notice-fade-enter-active,
   .home-notice-fade-leave-active { transition: none; }

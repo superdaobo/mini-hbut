@@ -34,7 +34,9 @@ describe('#854 schedule interaction integration contract', () => {
   it('#856 dark mode 对 view switch 有高优先级规则', () => {
     const drawer = drawerSource()
     const dark = darkModeSource()
-    expect(drawer).toContain(':global(html.dark) .drawer-view-switch')
+    // #1305：`:global(html.dark)` 在 scoped 样式里会被降级，规则已迁到 dark-mode.css
+    expect(drawer).toContain('drawer-view-switch')
+    expect(dark).toContain('html.dark .drawer-view-switch')
     expect(dark).toContain('html.dark .schedule-view .drawer-view-chip')
     expect(dark).toContain('html.dark .schedule-view .drawer-view-chip.active')
     expect(dark).toContain(':is(.drawer-view-switch, .drawer-style-switch)')

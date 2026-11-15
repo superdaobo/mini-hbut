@@ -77,7 +77,8 @@ describe('academic views surface polish contract (#465)', () => {
     // 仍在同一 :is 组里带蓝径向 = 回归
     const blueWashGroup =
       dark.match(
-        /html\.dark body :is\(([^)]*)\)\s*\{[\s\S]*?radial-gradient\([^)]*rgba\(37,\s*99,\s*235/g,
+        // 只在同一个规则体内判断（[\s\S]* 会跨规则误伤后面新增的渐变）
+        /html\.dark body :is\(([^)]*)\)\s*\{[^{}]*?radial-gradient\([^)]*rgba\(37,\s*99,\s*235/g,
       ) || []
     for (const block of blueWashGroup) {
       expect(block).not.toMatch(/\.calendar-view/)
