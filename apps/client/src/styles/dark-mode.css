@@ -3154,3 +3154,385 @@ html.dark .towergo-view em {
 html.dark .logo-text {
   color: #94a3b8 !important;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   #1305 收编：组件里 `:global(html.dark)` 写法被 scoped 编译器降级为
+   `html.dark`（丢掉后面的选择器），规则实际从未生效。统一迁到全局样式。
+   ═══════════════════════════════════════════════════════════════ */
+
+html.dark .announcement-fullscreen-card,
+:global(html[data-theme='graphite_night']) .announcement-fullscreen-card {
+  background: var(--ui-modal-surface, #1e293b);
+}
+
+html.dark .classroom-result-meta-time {
+  color: #64748b;
+}
+
+html.dark .classroom-filter-label {
+  color: #cbd5e1;
+}
+
+html.dark .classroom-period-row-label {
+  color: #94a3b8;
+}
+
+html.dark .classroom-result-meta {
+  color: #94a3b8;
+}
+
+html.dark .classroom-result-meta strong {
+  color: #e2e8f0;
+}
+
+html.dark .ccp-entry {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html.dark .ccp-entry-label,
+html.dark .ccp-entry-meta {
+  color: #94a3b8;
+}
+
+html.dark .ccp-sheet {
+  background: rgba(15, 23, 42, 0.98);
+  border-color: #334155;
+}
+
+html.dark .ccp-sheet-title,
+html.dark .ccp-hex {
+  color: #e2e8f0;
+}
+
+html.dark .ccp-secondary {
+  background: #1e293b;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+html.dark .ccp-preset-cell.active {
+  border-color: #e2e8f0;
+}
+
+html.dark .ios26-select,
+html.dark .ios26-select-overlay {
+  --ios-select-accent: #60a5fa;
+  --ios-select-accent-2: #22d3ee;
+  --ios-select-text: #e2e8f0;
+  --ios-select-muted: #94a3b8;
+  --ios-select-border: color-mix(in oklab, var(--ios-select-accent) 28%, rgba(148, 163, 184, 0.34));
+  --ios-select-trigger-bg: #111827;
+  --ios-select-panel: #0f172a;
+  --ios-select-item: #1e293b;
+  --ios-select-active: #2563eb;
+  --ios-select-shadow: 0 13px 29px rgba(2, 6, 23, 0.29);
+}
+
+html.dark .ios26-select-trigger,
+:global(html[data-theme='graphite_night']) .ios26-select-trigger {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 5px 12px rgba(2, 6, 23, 0.14) !important;
+}
+
+html.dark .ios26-select-overlay,
+:global(html[data-theme='graphite_night']) .ios26-select-overlay {
+  background: rgba(2, 6, 23, 0.58) !important;
+}
+
+html.dark .ios26-select-sheet,
+:global(html[data-theme='graphite_night']) .ios26-select-sheet,
+html.dark .ios26-select-item,
+:global(html[data-theme='graphite_night']) .ios26-select-item {
+  box-shadow:
+    var(--ios-select-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .cert-probe-warning {
+  color: #fbbf24;
+}
+
+html.dark .connection-warning {
+  color: #f87171;
+}
+
+html.dark .sci-panel {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+html.dark .sci-title,
+html.dark .sci-item-name {
+  color: #e2e8f0;
+}
+
+html.dark .sci-select,
+html.dark .sci-textarea {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html.dark .sci-item {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+html.dark .sci-btn.ghost {
+  background: #1e293b;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+html.dark .sci-mode-switch {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+html.dark .sci-mode-btn {
+  color: #cbd5e1;
+}
+
+html.dark .sci-mode-btn.active {
+  background: #334155;
+  color: #93c5fd;
+}
+
+html.dark .sci-grid-scroll {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+html.dark .sci-conflict-panel {
+  background: #3f2d0b;
+  border-color: #a16207;
+}
+
+html.dark .sci-conflict-course {
+  color: #f1f5f9;
+}
+
+html.dark .sci-week-note {
+  color: #64748b;
+}
+
+html.dark .sci-item-diag {
+  color: #94a3b8;
+}
+
+html.dark .sci-diag-badge--warning {
+  background: #3f2d0b;
+  color: #fbbf24;
+}
+
+html.dark .sci-diag-badge--error {
+  background: #450a0a;
+  color: #f87171;
+}
+
+html.dark .sci-diag-badge--info {
+  background: #0c4a6e;
+  color: #7dd3fc;
+}
+
+html.dark .sci-failed {
+  background: #450a0a;
+  border-color: #7f1d1d;
+}
+
+html.dark .sci-failed-title,
+html.dark .sci-failed-reason {
+  color: #f87171;
+}
+
+html.dark .sci-failed-name {
+  color: #f1f5f9;
+}
+
+html.dark .drawer-conflict-switch {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+html.dark .drawer-conflict-chip {
+  color: #94a3b8;
+}
+
+html.dark .drawer-conflict-chip.active {
+  color: #ffffff;
+  background: var(--ui-primary, #3b82f6);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #3b82f6) 38%, transparent 62%);
+}
+
+html.dark .drawer-conflict-hint {
+  color: #94a3b8;
+}
+
+html.dark .drawer-view-switch {
+  border-color: #0f172a;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+html.dark .drawer-view-chip {
+  color: #94a3b8;
+}
+
+html.dark .drawer-view-chip.active {
+  color: #ffffff;
+  background: var(--ui-primary, #3b82f6);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #3b82f6) 38%, transparent 62%);
+}
+
+html.dark .home-notice-panel,
+:global(html[data-theme='graphite_night']) .home-notice-panel {
+  background: var(--ui-modal-surface, #1e293b);
+}
+
+/* ─── #1305 添加日程弹窗：分段页签 / 次要说明 ─── */
+html.dark .arrangement-tabs {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .arrangement-tab {
+  color: #94a3b8 !important;
+}
+
+html.dark .arrangement-tab.active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+html.dark .sci-desc {
+  color: #94a3b8 !important;
+}
+
+html.dark .sci-field-label {
+  color: #cbd5e1 !important;
+}
+
+/* ─── #1305 设置页：后端/安全/调试三个 tab 的浅底面板与状态胶囊 ─── */
+html.dark .settings-view .boot-diag-card,
+html.dark .settings-view .debug-log-panel {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .settings-view .boot-diag-output {
+  background: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .settings-view .debug-log-item {
+  background: rgba(15, 23, 42, 0.55) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .settings-view .debug-time,
+html.dark .settings-view .boot-diag-hint {
+  color: #94a3b8 !important;
+}
+
+html.dark .settings-view .debug-scope {
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .settings-view .debug-level {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #6ee7b7 !important;
+}
+
+html.dark .settings-view .debug-log-item.lvl-debug .debug-level {
+  background: #334155 !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .settings-view .debug-log-item.lvl-warn .debug-level {
+  background: rgba(245, 158, 11, 0.2) !important;
+  color: #fcd34d !important;
+}
+
+html.dark .settings-view .debug-log-item.lvl-error .debug-level {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .settings-view .status-pill {
+  background: rgba(37, 99, 235, 0.18) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .settings-view .cloud-sync-status-item .ok {
+  color: #86efac !important;
+}
+
+html.dark .settings-view .cloud-sync-status-item .error,
+html.dark .settings-view .probe-state.error {
+  color: #fca5a5 !important;
+}
+
+html.dark .settings-view .toggle-badge.inactive {
+  background: rgba(37, 99, 235, 0.2) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .settings-view .toggle-badge.active {
+  background: rgba(251, 146, 60, 0.2) !important;
+  border-color: rgba(249, 115, 22, 0.4) !important;
+  color: #fdba74 !important;
+}
+
+html.dark .settings-view .identity-device-pill {
+  background: #334155 !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .settings-view .debug-filter-btn {
+  background: #1e293b !important;
+  color: #94a3b8 !important;
+}
+
+html.dark .settings-view .debug-filter-btn.active {
+  color: #ffffff !important;
+}
+
+/* ─── #1305 签到页：warning 徽标浅底 ─── */
+html.dark .t-badge--warning {
+  background: rgba(245, 158, 11, 0.2) !important;
+  color: #fcd34d !important;
+}
+
+/* ─── #1305 Toast：白字压亮色底（light 模式本身也偏低，暗色下统一提对比） ─── */
+html.dark .toast-container.info {
+  background: rgba(30, 41, 59, 0.95) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .toast-container.success {
+  background: #065f46 !important;
+  color: #d1fae5 !important;
+}
+
+html.dark .toast-container.warning {
+  background: #92400e !important;
+  color: #fef3c7 !important;
+}
+
+html.dark .toast-container.error {
+  background: #991b1b !important;
+  color: #fee2e2 !important;
+}
+
+/* ─── #1305 首页分类页签选中态：白字压 #3b82f6 仅 3.68:1 ─── */
+html.dark .home-feature-tab.is-active {
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+}

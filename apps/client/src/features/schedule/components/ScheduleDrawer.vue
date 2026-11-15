@@ -486,40 +486,6 @@ const { t } = useI18n()
   color: #64748b;
 }
 
-:global(html.dark) .drawer-conflict-switch {
-  border-color: rgba(148, 163, 184, 0.24);
-  background: rgba(15, 23, 42, 0.72);
-}
-
-:global(html.dark) .drawer-conflict-chip {
-  color: #94a3b8;
-}
-
-:global(html.dark) .drawer-conflict-chip.active {
-  color: #ffffff;
-  background: var(--ui-primary, #3b82f6);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #3b82f6) 38%, transparent 62%);
-}
-
-:global(html.dark) .drawer-conflict-hint {
-  color: #94a3b8;
-}
-
-:global(html.dark) .drawer-view-switch {
-  border-color: #0f172a;
-  background: rgba(15, 23, 42, 0.72);
-}
-
-:global(html.dark) .drawer-view-chip {
-  color: #94a3b8;
-}
-
-:global(html.dark) .drawer-view-chip.active {
-  color: #ffffff;
-  background: var(--ui-primary, #3b82f6);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #3b82f6) 38%, transparent 62%);
-}
-
 .drawer-action {
   padding: 14px 16px;
   border-radius: 14px;

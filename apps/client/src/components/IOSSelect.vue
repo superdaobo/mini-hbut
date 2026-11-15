@@ -521,19 +521,6 @@ onBeforeUnmount(() => {
 
 :global(html[data-theme='graphite_night']) .ios26-select,
 :global(html[data-theme='graphite_night']) .ios26-select-overlay,
-:global(html.dark) .ios26-select,
-:global(html.dark) .ios26-select-overlay {
-  --ios-select-accent: #60a5fa;
-  --ios-select-accent-2: #22d3ee;
-  --ios-select-text: #e2e8f0;
-  --ios-select-muted: #94a3b8;
-  --ios-select-border: color-mix(in oklab, var(--ios-select-accent) 28%, rgba(148, 163, 184, 0.34));
-  --ios-select-trigger-bg: #111827;
-  --ios-select-panel: #0f172a;
-  --ios-select-item: #1e293b;
-  --ios-select-active: #2563eb;
-  --ios-select-shadow: 0 13px 29px rgba(2, 6, 23, 0.29);
-}
 
 @media (prefers-color-scheme: dark) {
   :global(.ios26-select),
@@ -549,27 +536,6 @@ onBeforeUnmount(() => {
     --ios-select-active: #2563eb;
     --ios-select-shadow: 0 13px 29px rgba(2, 6, 23, 0.29);
   }
-}
-
-:global(html.dark) .ios26-select-trigger,
-:global(html[data-theme='graphite_night']) .ios26-select-trigger {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 5px 12px rgba(2, 6, 23, 0.14) !important;
-}
-
-:global(html.dark) .ios26-select-overlay,
-:global(html[data-theme='graphite_night']) .ios26-select-overlay {
-  background: rgba(2, 6, 23, 0.58) !important;
-}
-
-:global(html.dark) .ios26-select-sheet,
-:global(html[data-theme='graphite_night']) .ios26-select-sheet,
-:global(html.dark) .ios26-select-item,
-:global(html[data-theme='graphite_night']) .ios26-select-item {
-  box-shadow:
-    var(--ios-select-shadow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
 
 @media (min-width: 769px) {

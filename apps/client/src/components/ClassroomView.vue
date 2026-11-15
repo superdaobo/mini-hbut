@@ -1113,26 +1113,6 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
-:global(html.dark) .classroom-result-meta-time {
-  color: #64748b;
-}
-
-:global(html.dark) .classroom-filter-label {
-  color: #cbd5e1;
-}
-
-:global(html.dark) .classroom-period-row-label {
-  color: #94a3b8;
-}
-
-:global(html.dark) .classroom-result-meta {
-  color: #94a3b8;
-}
-
-:global(html.dark) .classroom-result-meta strong {
-  color: #e2e8f0;
-}
-
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

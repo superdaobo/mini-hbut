@@ -1113,99 +1113,10 @@ const hasFailedItems = computed(() => failedDetails.value.length > 0)
   }
 }
 
-:global(html.dark) .sci-panel {
-  background: #0f172a;
-  border-color: #334155;
-}
-
-:global(html.dark) .sci-title,
-:global(html.dark) .sci-item-name {
-  color: #e2e8f0;
-}
-
-:global(html.dark) .sci-select,
-:global(html.dark) .sci-textarea {
-  background: #1e293b;
-  border-color: #334155;
-  color: #e2e8f0;
-}
-
-:global(html.dark) .sci-item {
-  background: #1e293b;
-  border-color: #334155;
-}
-
-:global(html.dark) .sci-btn.ghost {
-  background: #1e293b;
-  border-color: #475569;
-  color: #e2e8f0;
-}
-
 /* #821 课表预览深色适配 */
-:global(html.dark) .sci-mode-switch {
-  background: #1e293b;
-  border-color: #334155;
-}
-
-:global(html.dark) .sci-mode-btn {
-  color: #cbd5e1;
-}
-
-:global(html.dark) .sci-mode-btn.active {
-  background: #334155;
-  color: #93c5fd;
-}
-
-:global(html.dark) .sci-grid-scroll {
-  background: #0f172a;
-  border-color: #334155;
-}
-
-:global(html.dark) .sci-conflict-panel {
-  background: #3f2d0b;
-  border-color: #a16207;
-}
-
-:global(html.dark) .sci-conflict-course {
-  color: #f1f5f9;
-}
-
-:global(html.dark) .sci-week-note {
-  color: #64748b;
-}
 
 /* #819 诊断徽标深色适配 */
-:global(html.dark) .sci-item-diag {
-  color: #94a3b8;
-}
-
-:global(html.dark) .sci-diag-badge--warning {
-  background: #3f2d0b;
-  color: #fbbf24;
-}
-
-:global(html.dark) .sci-diag-badge--error {
-  background: #450a0a;
-  color: #f87171;
-}
-
-:global(html.dark) .sci-diag-badge--info {
-  background: #0c4a6e;
-  color: #7dd3fc;
-}
 
 /* #820 失败明细深色适配 */
-:global(html.dark) .sci-failed {
-  background: #450a0a;
-  border-color: #7f1d1d;
-}
 
-:global(html.dark) .sci-failed-title,
-:global(html.dark) .sci-failed-reason {
-  color: #f87171;
-}
-
-:global(html.dark) .sci-failed-name {
-  color: #f1f5f9;
-}
 </style>
