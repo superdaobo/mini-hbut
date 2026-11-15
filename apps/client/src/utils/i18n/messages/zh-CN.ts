@@ -2584,6 +2584,7 @@ export const messages: Record<string, string> = {
   'electricity.usage.today': '今日',
   'electricity.usage.total': '合计',
   'electricity.usage.kwh': '度',
+  'electricity.usage.monthMissingCurrent': '本月暂无数据（图表仅含历史月份）',
   'electricity.usage.chartAria': '用电柱图',
   'electricity.usage.sourceSelected': '用电趋势：当前所选房间',
   'electricity.usage.sourceBound': '用电趋势：一码通绑定房间',

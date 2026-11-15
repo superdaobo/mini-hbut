@@ -478,6 +478,102 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_month_label_accepts_common_formats() {
+        assert_eq!(parse_month_label("2024.08"), Some((2024, 8)));
+        assert_eq!(parse_month_label("2024-8"), Some((2024, 8)));
+        assert_eq!(parse_month_label("2024/12"), Some((2024, 12)));
+        assert_eq!(parse_month_label("202411"), Some((2024, 11)));
+        assert_eq!(parse_month_label("2024年8月"), Some((2024, 8)));
+        assert_eq!(parse_month_label("2024.13"), None);
+        assert_eq!(parse_month_label("1999.12"), None);
+        assert_eq!(parse_month_label(""), None);
+    }
+
+    #[test]
+    fn months_before_wraps_across_year() {
+        assert_eq!(months_before(2026, 11, 5), (2026, 6));
+        assert_eq!(months_before(2026, 2, 3), (2025, 11));
+        assert_eq!(months_before(2026, 1, 0), (2026, 1));
+    }
+
+    #[test]
+    fn normalize_month_entries_keeps_consistent_server_labels() {
+        let month = vec![
+            json!({"yearmonth": "2026.09", "monthuse": 69.0}),
+            json!({"yearmonth": "2026.10", "monthuse": 66.9}),
+            json!({"yearmonth": "2026.11", "monthuse": 78.9}),
+        ];
+        let (points, source) = normalize_month_entries(&month, 2026, 11);
+        assert_eq!(source, "server");
+        let labels: Vec<String> = points
+            .iter()
+            .map(|p| p["label"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert_eq!(labels, vec!["2026.09", "2026.10", "2026.11"]);
+    }
+
+    #[test]
+    fn normalize_month_entries_derives_on_duplicate_labels() {
+        // 实测服务端数据：首项 2024.08 重复且整体滞后，应派生为近 6 个月
+        let month = vec![
+            json!({"yearmonth": "2024.08", "monthuse": 3.2}),
+            json!({"yearmonth": "2024.08", "monthuse": 0.0}),
+            json!({"yearmonth": "2024.09", "monthuse": 126.9}),
+            json!({"yearmonth": "2024.10", "monthuse": 69.0}),
+            json!({"yearmonth": "2024.11", "monthuse": 66.9}),
+            json!({"yearmonth": "2024.12", "monthuse": 78.9}),
+        ];
+        let (points, source) = normalize_month_entries(&month, 2026, 11);
+        assert_eq!(source, "derived");
+        let labels: Vec<String> = points
+            .iter()
+            .map(|p| p["label"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert_eq!(
+            labels,
+            vec!["2026.06", "2026.07", "2026.08", "2026.09", "2026.10", "2026.11"]
+        );
+        assert_eq!(points.last().unwrap()["value"].as_f64(), Some(78.9));
+    }
+
+    #[test]
+    fn normalize_month_entries_derives_on_invalid_labels() {
+        let month = vec![
+            json!({"yearmonth": "", "monthuse": 1.0}),
+            json!({"yearmonth": "2026.10", "monthuse": 2.0}),
+        ];
+        let (points, source) = normalize_month_entries(&month, 2026, 11);
+        assert_eq!(source, "derived");
+        let labels: Vec<String> = points
+            .iter()
+            .map(|p| p["label"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert_eq!(labels, vec!["2026.10", "2026.11"]);
+    }
+
+    #[test]
+    fn normalize_month_entries_derives_on_non_increasing_labels() {
+        let month = vec![
+            json!({"yearmonth": "2026.11", "monthuse": 1.0}),
+            json!({"yearmonth": "2026.10", "monthuse": 2.0}),
+        ];
+        let (points, source) = normalize_month_entries(&month, 2026, 11);
+        assert_eq!(source, "derived");
+        let labels: Vec<String> = points
+            .iter()
+            .map(|p| p["label"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert_eq!(labels, vec!["2026.10", "2026.11"]);
+    }
+
+    #[test]
+    fn normalize_month_entries_empty_stays_empty() {
+        let (points, source) = normalize_month_entries(&[], 2026, 11);
+        assert!(points.is_empty());
+        assert_eq!(source, "server");
+    }
+
+    #[test]
     fn synthesize_roomverify_replaces_trailing_room_no() {
         assert_eq!(
             synthesize_roomverify_from_bound("101-7--254-101", "102").as_deref(),
@@ -1411,7 +1507,26 @@ async fn fetch_usage_for_room(
     }
 
     let points = map_day_points(&best_week);
-    let month_points = map_month_points(&best_month);
+    let (month_points, month_label_source) = map_month_points(&best_month);
+    if month_label_source == "derived" && !month_points.is_empty() {
+        crate::runtime_log::log_info(
+            "ElectricityUsage",
+            format!(
+                "month_labels_derived n={} first={} last={}",
+                month_points.len(),
+                month_points
+                    .first()
+                    .and_then(|p| p.get("label"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
+                month_points
+                    .last()
+                    .and_then(|p| p.get("label"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
+            ),
+        );
+    }
 
     let today_use = best_mod.get("todayuse").cloned();
     let quantity = best_mod
@@ -1469,6 +1584,7 @@ async fn fetch_usage_for_room(
         "summary": summary,
         "points": points,
         "month_points": month_points,
+        "month_label_source": month_label_source,
         "today_use": today_use,
         "quantity": quantity,
         "price": price,
@@ -1650,21 +1766,109 @@ fn map_day_points(week: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-fn map_month_points(month: &[Value]) -> Vec<Value> {
+fn map_month_points(month: &[Value]) -> (Vec<Value>, &'static str) {
+    use chrono::Datelike;
+    let now = chrono::Local::now();
+    normalize_month_entries(month, now.year(), now.month())
+}
+
+/// 解析服务端年月标签：`YYYY.MM` / `YYYY-MM` / `YYYY/MM` / `YYYYMM` / `YYYY年M月`
+fn parse_month_label(raw: &str) -> Option<(i32, u32)> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = text
+        .split(|c: char| c == '.' || c == '-' || c == '/' || c == '年' || c == '月')
+        .filter(|p| !p.is_empty())
+        .collect();
+    let (year, month) = match parts.as_slice() {
+        [y, m] => (y.parse::<i32>().ok()?, m.parse::<u32>().ok()?),
+        [ym] if ym.len() == 6 => (ym[..4].parse::<i32>().ok()?, ym[4..].parse::<u32>().ok()?),
+        _ => return None,
+    };
+    if !(2000..=2100).contains(&year) || !(1..=12).contains(&month) {
+        return None;
+    }
+    Some((year, month))
+}
+
+/// `year-month` 往前推 `back` 个月（跨年安全）
+fn months_before(year: i32, month: u32, back: i32) -> (i32, u32) {
+    let total = year * 12 + (month as i32 - 1) - back;
+    let y = total.div_euclid(12);
+    let m = total.rem_euclid(12) + 1;
+    (y, m as u32)
+}
+
+fn month_entry_value(p: &Value) -> Value {
+    p.get("monthuse")
+        .or_else(|| p.get("use"))
+        .or_else(|| p.get("yl"))
+        .or_else(|| p.get("value"))
+        .cloned()
+        .unwrap_or(json!(0))
+}
+
+fn month_points_with_labels(month: &[Value], labels: &[(i32, u32)]) -> Vec<Value> {
     month
         .iter()
-        .map(|p| {
+        .zip(labels.iter())
+        .map(|(p, (year, mon))| {
             json!({
-                "label": p.get("yearmonth").or_else(|| p.get("month")).or_else(|| p.get("rq")).cloned().unwrap_or(json!("")),
-                "value": p.get("monthuse").or_else(|| p.get("use")).or_else(|| p.get("yl")).or_else(|| p.get("value")).cloned().unwrap_or(json!(0)),
+                "label": format!("{}.{:02}", year, mon),
+                "value": month_entry_value(p),
                 "unit": "度"
             })
         })
-        .filter(|p| {
-            let label = p.get("label").and_then(|v| v.as_str()).unwrap_or("");
-            !label.is_empty()
-        })
         .collect()
+}
+
+/// 归一化月度序列（#1310）：
+/// - 标签全部可解析、无重复且严格递增 → 原样使用（来源 `server`）；
+/// - 否则服务端标签不可信（实测首项重复、整体滞后 27 个月），
+///   按位置重标：最后一条 = 当前自然月（来源 `derived`）。
+fn normalize_month_entries(
+    month: &[Value],
+    now_year: i32,
+    now_month: u32,
+) -> (Vec<Value>, &'static str) {
+    if month.is_empty() {
+        return (Vec::new(), "server");
+    }
+    let mut parsed: Vec<Option<(i32, u32)>> = Vec::with_capacity(month.len());
+    for p in month {
+        let label = p
+            .get("yearmonth")
+            .or_else(|| p.get("month"))
+            .or_else(|| p.get("rq"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        parsed.push(parse_month_label(label));
+    }
+    let all_valid = parsed.iter().all(|p| p.is_some());
+    let months: Vec<(i32, u32)> = parsed.iter().flatten().copied().collect();
+    let mut unique = true;
+    {
+        let mut seen = std::collections::HashSet::new();
+        for item in &months {
+            if !seen.insert(*item) {
+                unique = false;
+                break;
+            }
+        }
+    }
+    let increasing = months.windows(2).all(|w| w[0] < w[1]);
+
+    if all_valid && unique && increasing {
+        return (month_points_with_labels(month, &months), "server");
+    }
+
+    let len = month.len() as i32;
+    let derived: Vec<(i32, u32)> = (0..len)
+        .map(|i| months_before(now_year, now_month, len - 1 - i))
+        .collect();
+    (month_points_with_labels(month, &derived), "derived")
 }
 
 async fn swae_post(
