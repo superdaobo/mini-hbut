@@ -174,10 +174,14 @@ export default function Navbar({ variant = 'default', pastHero = false }: Navbar
     );
   };
 
+  // 导航栏居中：禁止用 `left-1/2 -translate-x-1/2`。
+  // 下方 GSAP 入场动画会写入内联 `translate: none`，覆盖 Tailwind v4 由
+  // -translate-x-1/2 生成的 translate 属性，导致导航栏从视口中心开始向右溢出半个屏幕。
+  // 改用 left/right + mx-auto 居中，与 transform 动画互不干扰。
   return (
     <nav
       ref={navRef}
-      className={`fixed top-4 left-1/2 z-50 -translate-x-1/2 transition-all duration-500 ${
+      className={`fixed top-4 left-0 right-0 z-50 mx-auto transition-all duration-500 ${
         isHomeVariant && !showSolidNav
           ? 'w-[95%] max-w-6xl rounded-2xl border border-white/5 bg-black/20 backdrop-blur-md'
           : showSolidNav
