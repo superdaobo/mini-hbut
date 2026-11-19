@@ -143,6 +143,7 @@ const normalizeScheduleRenderSnapshot = (raw, studentId = '', semester = '') => 
       ? {
           semester: toSafeText(raw.meta.semester || sem),
           start_date: toSafeText(raw.meta.start_date),
+          end_date: toSafeText(raw.meta.end_date),
           current_week: toPositiveInt(raw.meta.current_week, 1),
           total_weeks: toPositiveInt(raw.meta.total_weeks, 25),
           vacation_notice: toSafeText(raw.meta.vacation_notice)
@@ -150,6 +151,7 @@ const normalizeScheduleRenderSnapshot = (raw, studentId = '', semester = '') => 
       : {
           semester: sem,
           start_date: '',
+          end_date: '',
           current_week: 1,
           total_weeks: 25,
           vacation_notice: ''

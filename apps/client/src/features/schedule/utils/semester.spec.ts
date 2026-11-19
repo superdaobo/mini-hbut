@@ -12,12 +12,40 @@ import { describe, expect, it } from 'vitest'
 import {
   SEMESTER_SWITCH_LEAD_DAYS,
   getNextSemesterString,
+  isDateInSemester,
   isSemesterStartWithinLeadWindow,
   parseSemesterLocalDate,
   resolveSemesterByStartDate
 } from './semester'
 
 const at = (y: number, m: number, d: number) => new Date(y, m - 1, d, 12, 0, 0)
+
+describe('isDateInSemester（按校园日期判断学期区间）', () => {
+  const inSemester = (now: string) =>
+    isDateInSemester('2026-08-31', '2026-12-31', 20, new Date(now))
+
+  it('学期内返回 true，开学前和结束后返回 false', () => {
+    expect(inSemester('2026-10-03T12:00:00+08:00')).toBe(true)
+    expect(inSemester('2026-08-30T23:59:59+08:00')).toBe(false)
+    expect(inSemester('2027-01-01T00:00:00+08:00')).toBe(false)
+  })
+
+  it('使用包含起止日的上海日期，并优先使用明确的结束日', () => {
+    expect(inSemester('2026-08-30T16:00:00Z')).toBe(true)
+    expect(inSemester('2026-12-31T15:59:59Z')).toBe(true)
+    expect(inSemester('2026-12-31T16:00:00Z')).toBe(false)
+  })
+
+  it('旧缓存缺少结束日时按有效周数计算，缺少开学日时无法判定', () => {
+    const lastDay = new Date('2026-09-06T12:00:00+08:00')
+    const nextDay = new Date('2026-09-07T12:00:00+08:00')
+    expect(isDateInSemester('2026-08-31', '', 1, lastDay)).toBe(true)
+    expect(isDateInSemester('2026-08-31', '', 1, nextDay)).toBe(false)
+    expect(isDateInSemester('2026-08-31', '', 0, lastDay)).toBe(false)
+    expect(isDateInSemester('', '2026-12-31', 20, lastDay)).toBe(false)
+    expect(isDateInSemester('2026-08-31', '2026-09-31', 20, lastDay)).toBe(false)
+  })
+})
 
 describe('SEMESTER_SWITCH_LEAD_DAYS（#750 提前量契约）', () => {
   it('提前量为 3 天', () => {

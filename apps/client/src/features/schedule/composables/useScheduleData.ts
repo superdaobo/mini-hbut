@@ -316,6 +316,7 @@ export const useScheduleData = (props: any, emit: any, options: ScheduleDataOpti
       meta: {
         semester: sem,
         start_date: String(semester.startDateStr.value || '').trim(),
+        end_date: semester.calendarEndDate.value,
         current_week: Number(semester.currentWeek.value || 1),
         total_weeks: Number(semester.totalWeeks.value || 25),
         vacation_notice: String(semester.vacationNotice.value || '').trim()

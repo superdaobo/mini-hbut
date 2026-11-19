@@ -14,8 +14,7 @@ defineProps({
   offlineBannerText: { type: String, default: '' },
   vacationNotice: { type: String, default: '' },
   errorMsg: { type: String, default: '' },
-  currentWeek: { type: Number, default: 0 },
-  selectedWeek: { type: Number, default: 0 },
+  canJumpToCurrentWeek: { type: Boolean, default: false },
   termStartNotice: { type: String, default: '' },
 })
 const emit = defineEmits(['jump-current'])
@@ -44,7 +43,7 @@ const { t } = useI18n()
   </div>
 
   <button
-    v-if="currentWeek && selectedWeek && selectedWeek !== currentWeek"
+    v-if="canJumpToCurrentWeek"
     class="jump-current-btn"
     @click="emit('jump-current')"
     :title="t('schedule.banners.jumpToCurrentWeekTitle')"
