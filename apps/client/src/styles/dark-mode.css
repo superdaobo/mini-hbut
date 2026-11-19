@@ -348,12 +348,6 @@ html.dark .schedule-view [class*="weekday"] {
   color: #94a3b8 !important;
 }
 
-/* 课表 - 今天高亮的日期 */
-html.dark .schedule-view [class*="today"] [class*="day-num"],
-html.dark .schedule-view [class*="active"] [class*="day-num"] {
-  color: #60a5fa !important;
-}
-
 /* 课表 - 主体网格区域背景 */
 html.dark .schedule-view [class*="grid-container"],
 html.dark .schedule-view [class*="courses-grid"],

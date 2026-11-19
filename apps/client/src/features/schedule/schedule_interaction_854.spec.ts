@@ -42,6 +42,16 @@ describe('#854 schedule interaction integration contract', () => {
     expect(dark).toContain(':is(.drawer-view-switch, .drawer-style-switch)')
   })
 
+  it('#1323 暗色日期高亮只匹配今日列，不匹配翻周过渡类', () => {
+    const dark = darkModeSource()
+
+    const broadSelector = /\.schedule-view[^{};,]*\[\s*class\s*\*=\s*['"]?(?:active|today|enter|leave|slide|fade)\b[^{};,]*day-num/
+    const todayRule = /html\.dark\s+\.schedule-view\s+\.day-col\.is-today\s+\.day-num\s*\{[^}]*color:\s*#93c5fd\s*!important/
+
+    expect(dark.match(broadSelector)?.[0]).toBeUndefined()
+    expect(dark.match(todayRule)?.[0]).toBeDefined()
+  })
+
   it('#857 网格确认会同时预填 Course / Event 两份草稿', () => {
     const view = viewSource()
     const editor = editorSource()
