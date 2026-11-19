@@ -989,6 +989,22 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   padding-top: 0;
   position: relative;
+  /* 滑动翻周时禁止浏览器把日期文字当作文本选中（否则会画出默认蓝色选区）；
+     子组件里的课程表单输入框由下方 :deep() 规则单独恢复可选中 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 恢复输入类元素的可选中：课程表单的 input/textarea 位于子组件（ScheduleAddArrangementDialog 等）内，
+   带子组件的 scoped 属性，普通后代选择器跨不到，必须用 :deep()。
+   Chrome 中祖先 user-select: none 不影响 input 内部文字选中，但 Safari/WKWebView 历史上会继承，
+   此规则为 iOS 兜底。 */
+.schedule-view :deep(input),
+.schedule-view :deep(textarea),
+.schedule-view :deep([contenteditable='true']) {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* 语义化占位（原 semester-badge 无对应 DOM，保留选择器兼容外部样式覆盖） */
