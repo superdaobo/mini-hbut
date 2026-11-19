@@ -479,6 +479,10 @@ export const messages: Record<string, string> = {
   'schedule.detail.deleteAllWeeks': '删除全部周次',
   'schedule.detail.copyDetail': '复制课程详情',
   'schedule.detail.conflictPeriod': '周{n} 第{s}-{e}节',
+  // #1321：教师快捷跳转给分记录
+  'schedule.detail.gradeDistribution': '给分记录',
+  'schedule.detail.gradeDistributionTitle': '查看 {name} 的给分记录',
+  'schedule.detail.teacherPickerTitle': '选择要查询的教师',
   // 添加/修改课程弹窗
   'schedule.addCourse.titleAdd': '添加课程',
   'schedule.addCourse.titleEdit': '修改课程',

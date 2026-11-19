@@ -69,7 +69,7 @@ const props = defineProps({
   widgetPeriod: { type: Number, default: 0 },
 })
 
-const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed', 'open-exams'])
+const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed', 'open-exams', 'open-grade-distribution'])
 
 // ============ 组合式状态（按依赖顺序实例化） ============
 const confirmDialog = useConfirmDialog()
@@ -273,6 +273,11 @@ const {
 } = data
 // 详情
 const { showDetail, selectedCourse, detailActionError } = detail
+// #1321：课程详情教师快捷跳转给分记录 —— 先关闭详情弹窗，再把 payload 转发给父层
+const handleOpenGradeDistribution = (payload: { teacher: string }) => {
+  showDetail.value = false
+  emit('open-grade-distribution', payload)
+}
 // 编辑
 const {
   courseDialogSemester,
@@ -825,6 +830,7 @@ onBeforeUnmount(() => {
       @delete-custom-course="editor.deleteCustomCourse"
       @remove-official-course="editor.removeOfficialCourse"
       @copy-detail="detail.copySelectedCourseDetail"
+      @open-grade-distribution="handleOpenGradeDistribution"
     />
 
     <!-- 添加/修改课程弹窗 -->

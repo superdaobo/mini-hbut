@@ -40,6 +40,7 @@ import { isDesktopLike as detectDesktopLike, isIOSLike as detectIOSLike } from '
 import { MODULE_HOST_SESSION_KEY, HOME_SCROLL_STORAGE_KEY } from '../state/constants'
 import { useUiSettings } from '../../utils/ui_settings'
 import { resetBootMetrics, hasBootMetric, markBootMetric } from '../../utils/boot_metrics'
+import { writePendingGradeTeacher } from '../../utils/grade_distribution_pending'
 
 export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoordinator => {
   const { state } = runtime
@@ -548,6 +549,15 @@ export const createNavigationCoordinator = (runtime: AppRuntime): NavigationCoor
 
   const handleNavigate = async (target: unknown) => {
     const normalized = normalizeNavigateTarget(target)
+    // #1321：给分记录的教师一次性预填（GradeDistributionView 挂载时消费并立即查询）。
+    // 在 goToView 之前写入；若导航被登录/权限拦截，预填会随 TTL 过期失效，无副作用。
+    if (normalized.view === 'grade_distribution') {
+      const payload = normalized.payload as Record<string, unknown> | null
+      const teacher = payload?.teacher
+      if (typeof teacher === 'string' && teacher.trim()) {
+        writePendingGradeTeacher(teacher)
+      }
+    }
     if (normalized.view === 'more_module_host') {
       const session = persistModuleHostSession((normalized.payload as Record<string, unknown>) || {})
       const repairedSession = await repairModuleHostSession(session)
