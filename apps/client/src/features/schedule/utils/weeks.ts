@@ -52,6 +52,45 @@ export const normalizeCourseCardStyle = (value: any): ScheduleCourseCardStyle =>
     : 'modern'
 }
 
+/**
+ * 今天在指定学期中的教学周次（1..totalWeeks）。
+ * 今天早于开学日、晚于学期最后一天、或开学日/总周数非法时返回 0。
+ * #1322：供「回到当前周」按钮门控——往期学期/未开学/已结束时返回 0。
+ */
+export const resolveWeekOfToday = (
+  startDate: string,
+  totalWeeks: number,
+  today: Date = new Date()
+): number => {
+  // 手动按 ISO 拆分后按本地时区构造，避免 new Date('YYYY-MM-DD') 被按 UTC 解析导致时区差一天
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(startDate ?? '').trim())
+  if (!m) return 0
+  const year = Number(m[1])
+  const month = Number(m[2])
+  const day = Number(m[3])
+  const start = new Date(year, month - 1, day)
+  // 防御 2026-02-31 这类溢出日期（构造后回滚到下一月）
+  if (
+    Number.isNaN(start.getTime()) ||
+    start.getFullYear() !== year ||
+    start.getMonth() !== month - 1 ||
+    start.getDate() !== day
+  ) {
+    return 0
+  }
+
+  const safeTotal = Number(totalWeeks)
+  if (!Number.isFinite(safeTotal) || safeTotal <= 0) return 0
+
+  const safeToday = today instanceof Date && !Number.isNaN(today.getTime()) ? today : new Date()
+  // 归一化到「当地 00:00」再按天差计算；Math.round 抵御夏令时切换导致的天差 ±1 小时
+  const normalizedToday = new Date(safeToday.getFullYear(), safeToday.getMonth(), safeToday.getDate())
+  const diffDays = Math.round((normalizedToday.getTime() - start.getTime()) / 86400000)
+  if (diffDays < 0) return 0
+  const week = Math.floor(diffDays / 7) + 1
+  return week >= 1 && week <= safeTotal ? week : 0
+}
+
 /** 全局唯一 ID 生成（轻量，避免引入依赖） */
 let uidSeed = 0
 export const nextUid = (): number => {

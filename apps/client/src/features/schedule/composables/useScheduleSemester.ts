@@ -8,6 +8,7 @@ import { isTestAccountSession } from '../../../utils/test_account.js'
 import { recordSemesterStartDate } from '../../../utils/schedule_prefetch.js'
 import { SCHEDULE_META_KEY, getWeekDays } from '../constants'
 import { readStoredSemester } from '../utils/semester'
+import { resolveWeekOfToday } from '../utils/weeks'
 
 export interface ScheduleSemesterOptions {
   /** 任一弹层打开时为 true（滑动/键盘翻周将被忽略）；惰性求值避免 composable 初始化顺序耦合 */
@@ -65,6 +66,9 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
     if (weekDates.value.length > 0) return weekDates.value[0].month
     return new Date().getMonth() + 1
   })
+
+  // #1322：今天在当前学期内的教学周次；0 = 今天不在学期区间内（往期/未开学/已结束/无开学日）
+  const weekOfToday = computed(() => resolveWeekOfToday(startDateStr.value, totalWeeks.value))
 
   const isTodayColumn = (dayIndex: any): boolean => {
     const idx = Number(dayIndex) - 1
@@ -238,6 +242,8 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
   }
 
   const jumpToCurrentWeek = () => {
+    // #1322：今天不在当前学期区间内（往期/未开学/已结束/无开学日）时禁止跳转
+    if (!weekOfToday.value) return
     if (currentWeek.value) {
       weekTransitionName.value =
         Number(currentWeek.value) >= Number(selectedWeek.value) ? 'week-slide-left' : 'week-slide-right'
@@ -269,6 +275,7 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
     semester,
     semesterDraft,
     currentWeek,
+    weekOfToday,
     selectedWeek,
     totalWeeks,
     startDateStr,
