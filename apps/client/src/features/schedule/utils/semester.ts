@@ -4,6 +4,7 @@
  * #750：新增开学日期驱动的应选学期纯函数（resolveSemesterByStartDate）。
  */
 import { SCHEDULE_META_KEY } from '../constants'
+import { formatLocalDate } from '../../../utils/widget_snapshot'
 
 /** 按当前日期推算所在学期（9月=第一学期，3月/2月15日后=第二学期） */
 export const deriveSemesterByDate = (date = new Date()): string => {
@@ -102,6 +103,26 @@ export const parseSemesterLocalDate = (text?: string | null): Date | null => {
     return null
   }
   return date
+}
+
+/** 按上海校园日期比较，包含开学日和结束日。旧缓存只有开学日和周数时按教学周推算。 */
+export const isDateInSemester = (
+  startDate: string,
+  endDate: string,
+  totalWeeks: number,
+  now = new Date()
+): boolean => {
+  const start = parseSemesterLocalDate(startDate)
+  if (!start || !Number.isFinite(now.getTime())) return false
+  const startMs = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
+  const todayMs = Date.parse(formatLocalDate(now) + 'T00:00:00Z')
+  if (todayMs < startMs) return false
+  if (endDate) {
+    const end = parseSemesterLocalDate(endDate)
+    return !!end && todayMs <= Date.UTC(end.getFullYear(), end.getMonth(), end.getDate())
+  }
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+  return Number.isSafeInteger(totalWeeks) && totalWeeks > 0 && todayMs - startMs < totalWeeks * WEEK_MS
 }
 
 const startOfDay = (date: Date): Date => {

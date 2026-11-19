@@ -7,7 +7,7 @@ import { computed, ref, watch } from 'vue'
 import { isTestAccountSession } from '../../../utils/test_account.js'
 import { recordSemesterStartDate } from '../../../utils/schedule_prefetch.js'
 import { SCHEDULE_META_KEY, getWeekDays } from '../constants'
-import { readStoredSemester } from '../utils/semester'
+import { isDateInSemester, readStoredSemester } from '../utils/semester'
 
 export interface ScheduleSemesterOptions {
   /** 任一弹层打开时为 true（滑动/键盘翻周将被忽略）；惰性求值避免 composable 初始化顺序耦合 */
@@ -23,6 +23,7 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
   const selectedWeek = ref(0)
   const totalWeeks = ref(25)
   const startDateStr = ref('')
+  const calendar = ref({ semester: '', endDate: '', totalWeeks: 0 })
   const vacationNotice = ref('')
   const weekTransitionName = ref('week-slide-left')
 
@@ -92,6 +93,11 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
 
     const parsedWeeks = Number(safeMeta.total_weeks || 0)
     totalWeeks.value = Number.isFinite(parsedWeeks) && parsedWeeks > 0 ? parsedWeeks : 25
+    calendar.value = {
+      semester: resolvedSemester,
+      endDate: String(safeMeta.end_date || '').trim(),
+      totalWeeks: parsedWeeks
+    }
 
     const parsedCurrentWeek = Number(safeMeta.current_week || 0)
     const safeWeek = Number.isFinite(parsedCurrentWeek) && parsedCurrentWeek > 0
@@ -237,12 +243,22 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
     }
   }
 
+  // 自动换学期先更新学期键，再加载日期。期间不可沿用旧学期的日历。
+  const hasCalendarForSemester = () => !!semester.value && calendar.value.semester === semester.value
+  const calendarEndDate = computed(() => hasCalendarForSemester() && startDateStr.value
+    ? calendar.value.endDate
+    : '')
+
+  const canJumpToCurrentWeek = () => {
+    if (!currentWeek.value || !selectedWeek.value || currentWeek.value === selectedWeek.value) return false
+    return hasCalendarForSemester() &&
+      isDateInSemester(startDateStr.value, calendar.value.endDate, calendar.value.totalWeeks)
+  }
+
   const jumpToCurrentWeek = () => {
-    if (currentWeek.value) {
-      weekTransitionName.value =
-        Number(currentWeek.value) >= Number(selectedWeek.value) ? 'week-slide-left' : 'week-slide-right'
-      selectedWeek.value = currentWeek.value
-    }
+    if (!canJumpToCurrentWeek()) return
+    weekTransitionName.value = currentWeek.value >= selectedWeek.value ? 'week-slide-left' : 'week-slide-right'
+    selectedWeek.value = currentWeek.value
   }
 
   /** 滚动到 Widget 深链接指定的日/节次位置 */
@@ -272,6 +288,7 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
     selectedWeek,
     totalWeeks,
     startDateStr,
+    calendarEndDate,
     vacationNotice,
     weekTransitionName,
     weekDates,
@@ -284,6 +301,7 @@ export const useScheduleSemester = (options: ScheduleSemesterOptions) => {
     handleTouchMove,
     handleTouchEnd,
     handleWeekKeydown,
+    canJumpToCurrentWeek,
     jumpToCurrentWeek,
     scrollToWidgetTarget
   }

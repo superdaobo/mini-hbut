@@ -229,7 +229,6 @@ watch(
 const {
   semester,
   semesterDraft,
-  currentWeek,
   selectedWeek,
   totalWeeks,
 
@@ -238,6 +237,7 @@ const {
   currentMonth,
   semesterWeekOptions,
   weekTransitionName,
+  canJumpToCurrentWeek,
   jumpToCurrentWeek,
 } = semesterApi
 // 菜单/样式
@@ -786,8 +786,7 @@ onBeforeUnmount(() => {
       :offline-banner-text="offlineBannerText"
       :vacation-notice="vacationNotice"
       :error-msg="errorMsg"
-      :current-week="currentWeek"
-      :selected-week="selectedWeek"
+      :can-jump-to-current-week="canJumpToCurrentWeek()"
       :term-start-notice="termStart.termStartNotice.value"
       @jump-current="jumpToCurrentWeek"
     />
