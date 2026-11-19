@@ -230,6 +230,7 @@ const {
   semester,
   semesterDraft,
   currentWeek,
+  weekOfToday,
   selectedWeek,
   totalWeeks,
 
@@ -787,6 +788,7 @@ onBeforeUnmount(() => {
       :vacation-notice="vacationNotice"
       :error-msg="errorMsg"
       :current-week="currentWeek"
+      :has-current-week="weekOfToday > 0"
       :selected-week="selectedWeek"
       :term-start-notice="termStart.termStartNotice.value"
       @jump-current="jumpToCurrentWeek"
