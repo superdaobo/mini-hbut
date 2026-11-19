@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { fetchGradeDistribution } from '../utils/grade_distribution.js'
 import { buildGradeDistributionQuery, isGradeSearchActive } from '../utils/grade_distribution_query'
+import { consumePendingGradeTeacher } from '../utils/grade_distribution_pending'
 import { t, useLocale } from '../utils/app_i18n'
 
 // i18n：响应式 locale（语言切换即时生效），t() 按当前语言取词
@@ -157,6 +158,17 @@ const segmentCount = (item, key) => item.score_segments?.[key] || 0
 
 watch(page, () => {
   if (hasQuery.value) loadData()
+})
+
+// #1321：消费来自课表课程详情的一次性教师预填 —— 先赋值再立即查询
+// （不走 400ms 防抖；loadData 在关键词为空时 early-return，必须先赋值再调用）
+onMounted(() => {
+  const teacher = consumePendingGradeTeacher()
+  if (!teacher) return
+  searchMode.value = 'teacher'
+  searchQuery.value = teacher
+  page.value = 1
+  void loadData()
 })
 </script>
 
