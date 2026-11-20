@@ -279,7 +279,35 @@ const signBuckets = computed(() => {
 })
 const signMax = computed(() => Math.max(1, ...signBuckets.value.map((item) => item.value)))
 
-/* ── 作业 / 测验 / 视频 / 其他 ────────────────────────────────── */
+/* ── 视频 ────────────────────────────────────────────────────── */
+/**
+ * 视频口径（审计结论）：
+ * - stat2 的 `live` / `cxclass` 是**直播/回放**时长，不是视频任务点观看时长；
+ * - 真正的「视频完成情况」在 `score.data.score.video`（得分）与 `score.data.weight.video`（权重）；
+ * - stat2 没有「观看分钟数」字段，所以不编造，只用得分率表达完成度。
+ */
+const videoScore = computed(() => num(scoreDetail.value.video))
+const videoWeight = computed(() => num(scoreWeight.value.video))
+const hasLiveData = computed(
+  () =>
+    num(liveData.value.livingTime) +
+      num(liveData.value.playbackTime) +
+      num(cxclassData.value.watchTimeMinutes) +
+      num(cxclassData.value.lookBackTime) >
+    0
+)
+
+/* ── 访问视图（7 天 / 30 天）───────────────────────────────────── */
+/**
+ * 审计结论：`weekPv` **只返回 7 个点**，加 `days/type/week/period` 参数都无变化，
+ * 也没有 `monthPv` 等 30 天维度（11 个候选名全部 404）。因此「30 天」不画假图，
+ * 改为展示真实可得的口径：访问得分（score.visitTime / weight.visitTime）+ 说明。
+ */
+const visitView = ref<'7d' | '30d'>('7d')
+const visitScore = computed(() => num(scoreDetail.value.visitTime))
+const visitWeight = computed(() => num(scoreWeight.value.visitTime))
+
+/* ── 其他 ────────────────────────────────────────────────────── */
 const behindTasks = computed(() => listOf('behindTask').filter((item) => item && item.name).slice(0, 8))
 const weekTasks = computed(() => listOf('importWeekTask').filter((item) => item && item.name).slice(0, 8))
 const nearTasks = computed(() => listOf('nearTask').filter((item) => item && item.name).slice(0, 8))
@@ -288,7 +316,6 @@ const liveData = computed(() => payloadOf('live'))
 const pointData = computed(() => payloadOf('point'))
 const cxclassData = computed(() => payloadOf('cxclass'))
 const aiData = computed(() => payloadOf('ai-evaluate-stat'))
-const weekTaskStat = computed(() => payloadOf('weekTask'))
 
 /* ── 环形（SVG 渐变 + stroke-dasharray）──────────────────────── */
 const RING_SIZE = 160
@@ -452,20 +479,41 @@ onBeforeUnmount(() => {
             </p>
           </div>
           <div class="sr-seg" role="group">
-            <button type="button" class="is-active">{{ t('chaoxing.study.visit.days7') }}</button>
-            <button type="button" disabled :title="t('chaoxing.study.visit.days30Hint')">
+            <button
+              type="button"
+              :class="{ 'is-active': visitView === '7d' }"
+              @click="visitView = '7d'"
+            >
+              {{ t('chaoxing.study.visit.days7') }}
+            </button>
+            <button
+              type="button"
+              :class="{ 'is-active': visitView === '30d' }"
+              @click="visitView = '30d'"
+            >
               {{ t('chaoxing.study.visit.days30') }}
             </button>
           </div>
         </div>
 
-        <div class="sr-bars">
+        <div v-if="visitView === '7d'" class="sr-bars">
           <div class="sr-bars__grid" aria-hidden="true"><i /><i /><i /><i /></div>
           <div v-for="item in weekPv" :key="item.date" class="sr-bar" :class="{ 'is-peak': item.peak }">
             <span class="sr-bar__value">{{ item.count }}<i v-if="item.peak" /></span>
             <b :style="{ height: item.height + 'px' }" />
             <span class="sr-bar__date">{{ item.date }}</span>
           </div>
+        </div>
+        <!-- 30 天视图：学习通只提供 7 天明细，这里展示真实可得的「访问得分」口径 -->
+        <div v-else class="sr-visit30">
+          <div class="sr-visit30__row">
+            <span>{{ t('chaoxing.study.visit.score') }}</span>
+            <strong>{{ visitScore }} / {{ visitWeight }}</strong>
+          </div>
+          <i class="sr-dist__track">
+            <b :class="`is-${visitRate >= 70 ? 'emerald' : visitRate >= 30 ? 'amber' : 'rose'}`" :style="{ width: visitRate + '%' }" />
+          </i>
+          <p class="sr-visit30__hint">{{ t('chaoxing.study.visit.days30Hint') }}</p>
         </div>
 
         <div class="sr-chart__foot">
@@ -514,7 +562,10 @@ onBeforeUnmount(() => {
         <div class="sr-panel__head">
           <h3>{{ t('chaoxing.study.sign.distribution') }}</h3>
         </div>
-        <div class="sr-dist">
+        <p v-if="num(payloadOf('sign').allCount) === 0" class="sr-empty">
+          {{ t('chaoxing.study.sign.empty') }}
+        </p>
+        <div v-else class="sr-dist">
           <div v-for="bucket in signBuckets" :key="bucket.key" class="sr-dist__row">
             <span class="sr-dist__label">{{ bucket.label }}</span>
             <i class="sr-dist__track"><b :class="`is-${bucket.tone}`" :style="{ width: (bucket.value / signMax) * 100 + '%' }" /></i>
@@ -641,45 +692,76 @@ onBeforeUnmount(() => {
         <article class="sr-metric">
           <div class="sr-metric__top">
             <span class="sr-metric__icon is-emerald"><span class="material-symbols-outlined">play_lesson</span></span>
-            <span class="sr-metric__badge is-emerald">{{ pct(videoTestData.finishPer).toFixed(0) }}%</span>
+            <span v-if="num(videoTestData.count) > 0" class="sr-metric__badge is-emerald">
+              {{ pct(videoTestData.finishPer).toFixed(0) }}%
+            </span>
+            <span v-else class="sr-metric__badge is-muted">{{ t('chaoxing.study.badge.none') }}</span>
           </div>
-          <strong class="sr-metric__value">{{ num(videoTestData.finishCount) }}/{{ num(videoTestData.count) }}</strong>
+          <strong class="sr-metric__value">
+            {{ num(videoTestData.count) > 0 ? `${num(videoTestData.finishCount)}/${num(videoTestData.count)}` : '—' }}
+          </strong>
           <span class="sr-metric__label">{{ t('chaoxing.study.test.video') }}</span>
           <i class="sr-metric__bar"><b class="is-emerald" :style="{ width: pct(videoTestData.finishPer) + '%' }" /></i>
         </article>
       </section>
     </template>
 
-    <!-- ⑤ 视频 -->
+    <!-- ⑤ 视频（口径：得分率来自 score.video/weight.video；live/cxclass 是直播/回放） -->
     <template v-else-if="activeTab === 'video'">
+      <section class="sr-card sr-gauge">
+        <div class="sr-gauge__ring">
+          <svg :viewBox="`0 0 ${RING_SIZE} ${RING_SIZE}`" class="sr-gauge__svg">
+            <defs>
+              <linearGradient id="srRingVideo" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#34D399" />
+                <stop offset="100%" stop-color="#059669" />
+              </linearGradient>
+            </defs>
+            <circle :cx="RING_SIZE / 2" :cy="RING_SIZE / 2" :r="RING_RADIUS" fill="none" stroke="var(--md-sys-color-surface-variant, #F1F5F9)" :stroke-width="12" stroke-linecap="round" />
+            <circle
+              class="sr-gauge__arc"
+              :cx="RING_SIZE / 2"
+              :cy="RING_SIZE / 2"
+              :r="RING_RADIUS"
+              fill="none"
+              stroke="url(#srRingVideo)"
+              :stroke-width="13"
+              stroke-linecap="round"
+              :stroke-dasharray="RING_CIRC"
+              :stroke-dashoffset="ringOffset(videoRate)"
+            />
+          </svg>
+          <div class="sr-gauge__center">
+            <strong>{{ videoRate.toFixed(1) }}%</strong>
+            <span>{{ t('chaoxing.study.video.rate') }}</span>
+          </div>
+        </div>
+        <div class="sr-gauge__foot">
+          <span class="sr-gauge__foot-left"><i />{{ tf('chaoxing.study.video.scoreLine', { a: videoScore, b: videoWeight }) }}</span>
+          <span class="sr-gauge__foot-right">{{ t('chaoxing.study.video.noMinutes') }}</span>
+        </div>
+      </section>
+
       <section class="sr-grid">
         <article class="sr-metric">
           <div class="sr-metric__top">
-            <span class="sr-metric__icon is-rose"><span class="material-symbols-outlined">live_tv</span></span>
+            <span class="sr-metric__icon is-emerald"><span class="material-symbols-outlined">smart_display</span></span>
           </div>
-          <strong class="sr-metric__value">{{ num(liveData.livingTime) }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.video.live') }}</span>
+          <strong class="sr-metric__value">{{ videoScore }}/{{ videoWeight }}</strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.video.score') }}</span>
+          <i class="sr-metric__bar"><b class="is-emerald" :style="{ width: videoRate + '%' }" /></i>
         </article>
         <article class="sr-metric">
           <div class="sr-metric__top">
-            <span class="sr-metric__icon is-sky"><span class="material-symbols-outlined">replay</span></span>
+            <span class="sr-metric__icon is-indigo"><span class="material-symbols-outlined">play_lesson</span></span>
+            <span v-if="num(videoTestData.count) > 0" class="sr-metric__badge is-emerald">{{ pct(videoTestData.finishPer).toFixed(0) }}%</span>
+            <span v-else class="sr-metric__badge is-muted">{{ t('chaoxing.study.badge.none') }}</span>
           </div>
-          <strong class="sr-metric__value">{{ num(liveData.playbackTime) }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.video.playback') }}</span>
-        </article>
-        <article class="sr-metric">
-          <div class="sr-metric__top">
-            <span class="sr-metric__icon is-emerald"><span class="material-symbols-outlined">schedule</span></span>
-          </div>
-          <strong class="sr-metric__value">{{ num(cxclassData.watchTimeMinutes) }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.video.watch') }}</span>
-        </article>
-        <article class="sr-metric">
-          <div class="sr-metric__top">
-            <span class="sr-metric__icon is-indigo"><span class="material-symbols-outlined">history</span></span>
-          </div>
-          <strong class="sr-metric__value">{{ num(cxclassData.lookBackTime) }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.video.lookback') }}</span>
+          <strong class="sr-metric__value">
+            {{ num(videoTestData.count) > 0 ? `${num(videoTestData.finishCount)}/${num(videoTestData.count)}` : '—' }}
+          </strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.video.videoTest') }}</span>
+          <i class="sr-metric__bar"><b class="is-indigo" :style="{ width: pct(videoTestData.finishPer) + '%' }" /></i>
         </article>
         <article class="sr-metric">
           <div class="sr-metric__top">
@@ -689,27 +771,38 @@ onBeforeUnmount(() => {
           <span class="sr-metric__label">{{ t('chaoxing.study.video.points') }}</span>
           <i class="sr-metric__bar"><b class="is-amber" :style="{ width: Math.min(100, (num(pointData.ponits) / Math.max(1, num(pointData.activeLimit))) * 100) + '%' }" /></i>
         </article>
-        <article class="sr-metric">
-          <div class="sr-metric__top">
-            <span class="sr-metric__icon is-teal"><span class="material-symbols-outlined">local_fire_department</span></span>
+      </section>
+
+      <section class="sr-card sr-panel">
+        <div class="sr-panel__head">
+          <h3>{{ t('chaoxing.study.video.liveSection') }}</h3>
+          <span class="sr-panel__count">{{ hasLiveData ? t('chaoxing.study.badge.done') : t('chaoxing.study.badge.none') }}</span>
+        </div>
+        <p v-if="!hasLiveData" class="sr-empty">{{ t('chaoxing.study.video.noLive') }}</p>
+        <div v-else class="sr-dist">
+          <div class="sr-dist__row">
+            <span class="sr-dist__label">{{ t('chaoxing.study.video.live') }}</span>
+            <span class="sr-dist__value">{{ num(liveData.livingTime) }}</span>
           </div>
-          <strong class="sr-metric__value">{{ pct(pointData.activityParticipationRate).toFixed(0) }}%</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.video.activity') }}</span>
-          <i class="sr-metric__bar"><b class="is-teal" :style="{ width: pct(pointData.activityParticipationRate) + '%' }" /></i>
-        </article>
+          <div class="sr-dist__row">
+            <span class="sr-dist__label">{{ t('chaoxing.study.video.playback') }}</span>
+            <span class="sr-dist__value">{{ num(liveData.playbackTime) }}</span>
+          </div>
+          <div class="sr-dist__row">
+            <span class="sr-dist__label">{{ t('chaoxing.study.video.watch') }}</span>
+            <span class="sr-dist__value">{{ num(cxclassData.watchTimeMinutes) }}</span>
+          </div>
+          <div class="sr-dist__row">
+            <span class="sr-dist__label">{{ t('chaoxing.study.video.lookback') }}</span>
+            <span class="sr-dist__value">{{ num(cxclassData.lookBackTime) }}</span>
+          </div>
+        </div>
       </section>
     </template>
 
     <!-- ⑥ 其他 -->
     <template v-else>
       <section class="sr-grid">
-        <article class="sr-metric">
-          <div class="sr-metric__top">
-            <span class="sr-metric__icon is-blue"><span class="material-symbols-outlined">flag</span></span>
-          </div>
-          <strong class="sr-metric__value">{{ num(weekTaskStat.finishCount) }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.other.finished') }}</span>
-        </article>
         <article class="sr-metric">
           <div class="sr-metric__top">
             <span class="sr-metric__icon is-violet"><span class="material-symbols-outlined">psychology</span></span>
@@ -721,10 +814,17 @@ onBeforeUnmount(() => {
         </article>
         <article class="sr-metric">
           <div class="sr-metric__top">
-            <span class="sr-metric__icon is-sky"><span class="material-symbols-outlined">menu_book</span></span>
+            <span class="sr-metric__icon is-emerald"><span class="material-symbols-outlined">task_alt</span></span>
           </div>
-          <strong class="sr-metric__value">{{ num(aiData.publishLibraryNum) }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.other.library') }}</span>
+          <strong class="sr-metric__value">{{ num(aiData.aiEvaluateReachCount) }}</strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.other.aiReach') }}</span>
+        </article>
+        <article class="sr-metric">
+          <div class="sr-metric__top">
+            <span class="sr-metric__icon is-blue"><span class="material-symbols-outlined">edit_note</span></span>
+          </div>
+          <strong class="sr-metric__value">{{ num(aiData.practiceCount) }}</strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.other.practice') }}</span>
         </article>
       </section>
 
@@ -759,681 +859,4 @@ onBeforeUnmount(() => {
   </section>
 </template>
 
-<style scoped>
-.sr {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  color: var(--md-sys-color-on-surface, #1e293b);
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', Inter, sans-serif;
-}
-
-/* ── 通用卡片 ── */
-.sr-card {
-  background: var(--md-sys-color-surface-container-lowest, #fff);
-  border: 1px solid var(--md-sys-color-surface-variant, #f1f5f9);
-  border-radius: 24px;
-  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.05);
-}
-
-/* ── 课程英雄卡 ── */
-.sr-hero {
-  position: relative;
-  overflow: hidden;
-  background: var(--md-sys-color-surface-container-lowest, #fff);
-  border: 1px solid var(--md-sys-color-surface-variant, #f1f5f9);
-  border-radius: 24px;
-  padding: 20px;
-  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.05);
-}
-.sr-hero__glow {
-  position: absolute;
-  right: -32px;
-  top: -32px;
-  width: 112px;
-  height: 112px;
-  border-radius: 999px;
-  background: radial-gradient(circle, rgba(96, 165, 250, 0.28), rgba(99, 102, 241, 0.06));
-  filter: blur(18px);
-  pointer-events: none;
-}
-.sr-hero__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.sr-hero__main {
-  min-width: 0;
-}
-.sr-hero__title {
-  margin: 6px 0 0;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--md-sys-color-on-surface, #0f172a);
-  line-height: 1.25;
-}
-.sr-hero__meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 6px 0 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-}
-.sr-hero__meta .material-symbols-outlined {
-  font-size: 15px;
-}
-
-.sr-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-.sr-pill i {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentColor;
-  animation: srPulse 1.8s ease-in-out infinite;
-}
-.sr-pill--blue {
-  background: rgba(37, 99, 235, 0.12);
-  color: #2563eb;
-  border: 1px solid rgba(37, 99, 235, 0.25);
-}
-.sr-pill--blue-soft {
-  background: rgba(37, 99, 235, 0.12);
-  color: #2563eb;
-  font-size: 10px;
-}
-.sr-tag {
-  flex-shrink: 0;
-  padding: 4px 8px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-}
-.sr-tag--amber {
-  background: rgba(217, 119, 6, 0.14);
-  color: #b45309;
-  border: 1px solid rgba(217, 119, 6, 0.3);
-}
-
-/* ── Tab ── */
-.sr-tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 2px 0;
-}
-.sr-tabs::-webkit-scrollbar {
-  display: none;
-}
-.sr-tab {
-  flex: 0 0 auto;
-  padding: 10px 18px;
-  border-radius: 16px;
-  border: 1px solid var(--md-sys-color-surface-variant, #e2e8f0);
-  background: var(--md-sys-color-surface-container-lowest, #fff);
-  color: var(--md-sys-color-on-surface-variant, #475569);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
-.sr-tab:active {
-  transform: scale(0.96);
-}
-.sr-tab.is-active {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
-  font-weight: 700;
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.25);
-}
-
-.sr-tip {
-  padding: 14px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-}
-.sr-tip.is-error {
-  color: #ef4444;
-}
-
-/* ── 成绩环 ── */
-.sr-gauge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 20px;
-}
-.sr-gauge__ring {
-  position: relative;
-  width: 192px;
-  height: 192px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.sr-gauge__svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-.sr-gauge__arc {
-  transition: stroke-dashoffset 1s ease-out;
-  filter: drop-shadow(0 4px 14px rgba(245, 158, 11, 0.22));
-}
-.sr-gauge__center {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  text-align: center;
-}
-.sr-gauge__center strong {
-  font-size: 42px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: var(--md-sys-color-on-surface, #1e293b);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-.sr-gauge__center span {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-  letter-spacing: 0.08em;
-}
-.sr-gauge__badge {
-  margin-top: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 700;
-}
-.sr-gauge__badge.is-high {
-  background: rgba(5, 150, 105, 0.12);
-  color: #059669;
-  border: 1px solid rgba(5, 150, 105, 0.25);
-}
-.sr-gauge__badge.is-mid {
-  background: rgba(217, 119, 6, 0.14);
-  color: #b45309;
-  border: 1px solid rgba(217, 119, 6, 0.3);
-}
-.sr-gauge__badge.is-low {
-  background: rgba(220, 38, 38, 0.12);
-  color: #dc2626;
-  border: 1px solid rgba(220, 38, 38, 0.25);
-}
-.sr-gauge__foot {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--md-sys-color-surface-variant, #f1f5f9);
-  font-size: 11px;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-}
-.sr-gauge__foot-left {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.sr-gauge__foot-left i {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #f59e0b;
-}
-.sr-gauge__foot-right {
-  font-weight: 600;
-  color: var(--md-sys-color-on-surface-variant, #64748b);
-}
-
-/* ── 6 宫格 ── */
-.sr-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-.sr-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 14px;
-  background: var(--md-sys-color-surface-container-lowest, #fff);
-  border: 1px solid var(--md-sys-color-surface-variant, #f1f5f9);
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-  min-width: 0;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.sr-metric:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 28px -6px rgba(37, 99, 235, 0.12);
-}
-.sr-metric__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.sr-metric__icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.sr-metric__icon .material-symbols-outlined {
-  font-size: 16px;
-}
-.sr-metric__badge {
-  font-size: 10px;
-  font-weight: 700;
-}
-.sr-metric__value {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--md-sys-color-on-surface, #1e293b);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sr-metric__label {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-  margin-top: 1px;
-}
-.sr-metric__bar {
-  display: block;
-  width: 100%;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.18);
-  overflow: hidden;
-  margin-top: 10px;
-}
-.sr-metric__bar b {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  transition: width 0.7s cubic-bezier(0.34, 1.2, 0.64, 1);
-}
-
-/* 色板 */
-.sr-metric__icon.is-blue { background: rgba(37, 99, 235, 0.12); color: #2563eb; }
-.sr-metric__icon.is-indigo { background: rgba(79, 70, 229, 0.12); color: #4f46e5; }
-.sr-metric__icon.is-sky { background: rgba(2, 132, 199, 0.12); color: #0284c7; }
-.sr-metric__icon.is-amber { background: rgba(217, 119, 6, 0.14); color: #d97706; }
-.sr-metric__icon.is-emerald { background: rgba(5, 150, 105, 0.12); color: #059669; }
-.sr-metric__icon.is-teal { background: rgba(13, 148, 136, 0.12); color: #0d9488; }
-.sr-metric__icon.is-rose { background: rgba(225, 29, 72, 0.12); color: #e11d48; }
-.sr-metric__icon.is-violet { background: rgba(124, 58, 237, 0.12); color: #7c3aed; }
-.sr-metric__badge.is-muted { color: var(--md-sys-color-outline, #cbd5e1); }
-.sr-metric__badge.is-emerald { color: #059669; }
-.sr-metric__badge.is-amber { color: #d97706; }
-.sr-metric__badge.is-teal { color: #0d9488; }
-.sr-metric__bar b.is-blue { background: #3b82f6; }
-.sr-metric__bar b.is-indigo { background: #6366f1; }
-.sr-metric__bar b.is-sky { background: #0ea5e9; }
-.sr-metric__bar b.is-amber { background: #f59e0b; }
-.sr-metric__bar b.is-emerald { background: #10b981; }
-.sr-metric__bar b.is-teal { background: #14b8a6; }
-.sr-metric__bar b.is-violet { background: #8b5cf6; }
-
-/* ── 柱状图 ── */
-.sr-chart {
-  padding: 20px;
-}
-.sr-chart__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-.sr-chart__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.sr-chart__title h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--md-sys-color-on-surface, #1e293b);
-  letter-spacing: -0.01em;
-}
-.sr-chart__sub {
-  margin: 6px 0 0;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-}
-.sr-chart__sub b {
-  color: #2563eb;
-  font-weight: 700;
-}
-.sr-chart__sub-strong {
-  color: #334155 !important;
-}
-.sr-seg {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 12px;
-  background: rgba(148, 163, 184, 0.18);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--md-sys-color-on-surface-variant, #64748b);
-  flex-shrink: 0;
-}
-.sr-seg button {
-  padding: 4px 10px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.sr-seg button.is-active {
-  background: var(--md-sys-color-surface-container-lowest, #fff);
-  color: #2563eb;
-  font-weight: 700;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
-}
-.sr-seg button:disabled {
-  color: var(--md-sys-color-outline, #cbd5e1);
-  cursor: not-allowed;
-}
-
-.sr-bars {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 4px;
-  height: 190px;
-  padding: 18px 4px 0;
-  margin-top: 6px;
-}
-.sr-bars__grid {
-  position: absolute;
-  inset: 18px 4px 26px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  pointer-events: none;
-  opacity: 0.55;
-}
-.sr-bars__grid i {
-  display: block;
-  border-bottom: 1px dashed var(--md-sys-color-surface-variant, #e2e8f0);
-}
-.sr-bars__grid i:last-child {
-  border-bottom: 1px solid var(--md-sys-color-surface-variant, #e2e8f0);
-}
-.sr-bar {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  min-width: 0;
-}
-.sr-bar__value {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--md-sys-color-on-surface-variant, #475569);
-}
-.sr-bar__value i {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: #3b82f6;
-}
-.sr-bar b {
-  display: block;
-  width: 24px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #38bdf8, #2563eb);
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.18);
-  transition: height 0.7s cubic-bezier(0.34, 1.4, 0.64, 1);
-}
-.sr-bar.is-peak b {
-  background: linear-gradient(180deg, #7dd3fc, #2563eb);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
-  outline: 2px solid rgba(96, 165, 250, 0.3);
-  outline-offset: 1px;
-}
-.sr-bar__date {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-  white-space: nowrap;
-}
-.sr-bar.is-peak .sr-bar__date {
-  color: #2563eb;
-  font-weight: 700;
-}
-.sr-chart__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--md-sys-color-surface-variant, #f1f5f9);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-}
-.sr-chart__foot-left {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.sr-chart__foot-left i {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #10b981;
-}
-
-/* ── 面板 / 分布条 / 列表 ── */
-.sr-panel {
-  padding: 18px;
-}
-.sr-panel__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.sr-panel__head h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--md-sys-color-on-surface, #1e293b);
-}
-.sr-panel__count {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-  background: rgba(148, 163, 184, 0.18);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-.sr-dist {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.sr-dist__row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.sr-dist__label {
-  width: 64px;
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--md-sys-color-on-surface-variant, #64748b);
-}
-.sr-dist__track {
-  flex: 1;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.18);
-  overflow: hidden;
-}
-.sr-dist__track b {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  transition: width 0.7s cubic-bezier(0.34, 1.2, 0.64, 1);
-}
-.sr-dist__track b.is-emerald { background: #10b981; }
-.sr-dist__track b.is-amber { background: #f59e0b; }
-.sr-dist__track b.is-orange { background: #fb923c; }
-.sr-dist__track b.is-rose { background: #f43f5e; }
-.sr-dist__track b.is-sky { background: #38bdf8; }
-.sr-dist__track b.is-violet { background: #8b5cf6; }
-.sr-dist__track b.is-slate { background: #94a3b8; }
-.sr-dist__value {
-  width: 30px;
-  text-align: right;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--md-sys-color-on-surface-variant, #334155);
-  font-variant-numeric: tabular-nums;
-}
-.sr-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 12px;
-  margin-bottom: 6px;
-  border: 1px solid var(--md-sys-color-surface-variant, #f1f5f9);
-  border-radius: 14px;
-  background: var(--md-sys-color-surface-container-low, #fbfdff);
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.2s ease;
-}
-.sr-row:hover {
-  background: rgba(148, 163, 184, 0.12);
-}
-.sr-row__main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.sr-row__main strong {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--md-sys-color-on-surface, #1e293b);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sr-row__main small {
-  font-size: 11px;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-}
-.sr-row .material-symbols-outlined {
-  font-size: 18px;
-  color: var(--md-sys-color-outline, #cbd5e1);
-}
-.sr-empty {
-  margin: 0;
-  padding: 10px 0;
-  text-align: center;
-  font-size: 12px;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-}
-
-/* ── 底部建议条 ── */
-.sr-cta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px;
-  border-radius: 18px;
-  background: linear-gradient(90deg, #2563eb, #4f46e5);
-  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.25);
-  color: #fff;
-}
-.sr-cta__text h4 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-.sr-cta__text p {
-  margin: 3px 0 0;
-  font-size: 11px;
-  color: rgba(219, 234, 254, 0.92);
-}
-.sr-cta__btn {
-  flex-shrink: 0;
-  padding: 7px 14px;
-  border: none;
-  border-radius: 12px;
-  background: var(--md-sys-color-surface-container-lowest, #fff);
-  color: #2563eb;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
-}
-.sr-cta__btn:active {
-  transform: scale(0.95);
-}
-
-.sr-foot {
-  margin: 0;
-  padding-bottom: 4px;
-  text-align: center;
-  font-size: 11px;
-  color: var(--md-sys-color-on-surface-variant, #94a3b8);
-}
-
-@keyframes srPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-</style>
+<style src="../../../styles/views/ChaoxingStudyRecord.scoped.css" scoped></style>
