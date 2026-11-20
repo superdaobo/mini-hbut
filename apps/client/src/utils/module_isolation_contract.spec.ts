@@ -19,6 +19,8 @@ const CORE_JS = 'src/utils/more_modules/core.js'
 const RUST_BUNDLE = 'src-tauri/src/modules/module_bundle.rs'
 const RUST_SYSTEM_ROUTES = 'src-tauri/src/http_server/routes/system.rs'
 const HOST_VIEW = 'src/components/MoreModuleHostView.vue'
+//: Epic #1243（G2-02 / mini-hbut#1251）：iframe 能力集搬到这里（纯函数 + 独立 spec）
+const SANDBOX_MODULE = 'src/utils/more_modules/frame_sandbox.ts'
 const TAURI_CONF = 'src-tauri/tauri.conf.json'
 const SECURITY_DOC = 'src-tauri/docs/http_bridge_security.md'
 
@@ -77,8 +79,20 @@ describe('#1165 T04 模块内容隔离契约', () => {
     const body = sandboxLine![0]
       .replace(/\/\/.*$/gm, '')
       .replace(/\/\*[\s\S]*?\*\//g, '')
-    expect(body).toContain('allow-same-origin')
+    expect(body).toContain('decideFrameSandbox')
     expect(body).not.toContain('allow-top-navigation')
+    // 组件自身不得再写死能力集（能力集只在 frame_sandbox.ts 一处）
+    expect(body).not.toContain('allow-same-origin')
+
+    // 能力集的真实位置：纯函数模块（其自身 spec 还有 token 级白名单断言）。
+    // 同样先去注释——模块头注释里会解释「为什么不给 allow-modals」等，属于说明而非能力。
+    const sandboxCode = read(SANDBOX_MODULE)
+      .replace(/\/\/.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(sandboxCode).toContain('allow-same-origin')
+    expect(sandboxCode).not.toContain('allow-top-navigation')
+    expect(sandboxCode).not.toContain('allow-modals')
+    expect(sandboxCode).not.toContain('allow-popups-to-escape-sandbox')
   })
 
   it('组件里不再写死 Bridge 端口，来源判定走 isLocalModuleContentOrigin', () => {
