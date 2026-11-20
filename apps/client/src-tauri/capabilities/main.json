@@ -64,6 +64,7 @@
     "allow-chaoxing-fetch-course-score",
     "allow-chaoxing-fetch-courses",
     "allow-chaoxing-fetch-exams-all-courses",
+    "allow-chaoxing-fetch-study-record",
     "allow-chaoxing-fetch-works-all-courses",
     "allow-chaoxing-get-knowledge-cards",
     "allow-chaoxing-get-launch-url",

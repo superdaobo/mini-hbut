@@ -44,6 +44,7 @@ fn main() {
         "chaoxing_fetch_course_score",
         "chaoxing_fetch_courses",
         "chaoxing_fetch_exams_all_courses",
+        "chaoxing_fetch_study_record",
         "chaoxing_fetch_works_all_courses",
         "chaoxing_get_knowledge_cards",
         "chaoxing_get_launch_url",

@@ -11,6 +11,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { TPageHeader, TEmptyState, TStatusBadge, TModal } from './templates'
 import { showToast } from '../utils/toast'
 import ChaoxingEmbedFrame from '../features/chaoxing/components/ChaoxingEmbedFrame.vue'
+// P4-C（#1344）：学习记录（6 Tab / 16 维度）
+import ChaoxingStudyRecord from '../features/chaoxing/components/ChaoxingStudyRecord.vue'
 import { useChaoxingTasks } from '../features/chaoxing/composables/useChaoxingTasks'
 import { formatDuration } from '../features/chaoxing/utils/normalize'
 import { formatRelativeTime } from '../utils/time.js'
@@ -176,6 +178,31 @@ const copyTaskTitle = async () => {
   } catch {
     showToast(t('chaoxing.tasks.copyFailed'), 'error')
   }
+}
+
+/** 学习记录组件实例（拿 bindCore 注入 core，复用 cxInvoke） */
+const studyRef = ref(null)
+const studyCourse = ref(null)
+
+/** 打开「学习记录」层 */
+const openStudyRecord = (course) => {
+  studyCourse.value = course || current.value?.course || null
+  core.push({ level: 'study' })
+  nextTick(() => {
+    if (studyRef.value && studyCourse.value) studyRef.value.bindCore(core)
+  })
+}
+
+/**
+ * 学习记录里的任务条目（逾期/本周/临近）→ 打开学习通官方页。
+ *
+ * 这些条目来自刚刚的取数，URL 里的 enc 仍是新鲜的；没有 URL 就回落到课程列表。
+ */
+const openStudyTask = async (item) => {
+  const url = String(item?.url || '')
+  embedTitle.value = String(item?.name || '')
+  await nextTick()
+  await embedRef.value?.open(url || 'https://mooc1.chaoxing.com')
 }
 
 const handleHeaderBack = () => pop()
@@ -523,6 +550,10 @@ onUnmounted(() => {
               <span class="material-symbols-outlined">grade</span>
               {{ t('chaoxing.hub.scoreComposition') }}
             </button>
+            <button type="button" class="chip-btn" @click="openStudyRecord(current.course)">
+              <span class="material-symbols-outlined">insights</span>
+              {{ t('chaoxing.hub.studyRecord') }}
+            </button>
             <button
               type="button"
               class="chip-btn ghost"
@@ -759,6 +790,20 @@ onUnmounted(() => {
           </div>
           <p class="hint">{{ t('chaoxing.hub.directLinkHint') }}</p>
         </section>
+      </template>
+
+      <!-- P4-C（#1344）：学习记录（6 Tab / 16 维度，只读） -->
+      <template v-else-if="current.level === 'study'">
+        <section class="panel course-head">
+          <div class="course-head__top">
+            <div class="course-head__meta">
+              <span class="pill">{{ t('chaoxing.hub.studyRecord') }}</span>
+              <strong>{{ studyCourse?.title || current.course?.title }}</strong>
+              <p>{{ studyCourse?.teacher || current.course?.teacher || t('chaoxing.hub.teacherMissing') }}</p>
+            </div>
+          </div>
+        </section>
+        <ChaoxingStudyRecord ref="studyRef" :course="studyCourse" @open-official="openStudyTask" />
       </template>
 
       <!-- 7. 文档/PPT 预览 -->
