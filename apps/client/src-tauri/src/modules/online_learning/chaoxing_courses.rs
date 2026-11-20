@@ -1142,7 +1142,13 @@ pub async fn chaoxing_fetch_courses(
                     count
                 );
                 timer.finish(Some(json!({ "from_cache": true, "count": count })));
-                return Ok(crate::attach_sync_time(cached, &sync_time, true));
+                // 命中缓存 ≠ 离线：网络与会话都正常，只是走了本地快照。
+                // 之前标成 offline=true，界面会永远挂「离线数据」横幅（2026-11-20 修）。
+                let mut payload = crate::attach_sync_time(cached, &sync_time, false);
+                if let Some(obj) = payload.as_object_mut() {
+                    obj.insert("cached".to_string(), serde_json::Value::Bool(true));
+                }
+                return Ok(payload);
             }
             if count > 0 {
                 crate::hbut_session_log!(

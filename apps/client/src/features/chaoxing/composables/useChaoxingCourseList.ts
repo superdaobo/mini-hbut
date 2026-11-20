@@ -13,6 +13,9 @@ import {
 } from './useChaoxingHubCore'
 import type { ChaoxingCourse } from '../types'
 
+/** 课程缓存超过该时长后，进入页面时后台静默刷新（避免一直显示旧快照） */
+const STALE_LIST_MS = 30 * 60 * 1000
+
 export interface ChaoxingCourseList {
   courses: Ref<ChaoxingCourse[]>
   semesterTabs: Ref<string[]>
@@ -170,8 +173,19 @@ export const useChaoxingCourseList = (core: ChaoxingHubCore): ChaoxingCourseList
       if (courseRes?.success === false) throw new Error(courseRes?.error || '课程列表失败')
       statusMeta.value = statusRes || {}
       // 离线降级（E5/#1150）：后端 attach_sync_time 统一注入 offline/sync_time
+      // 注意：命中缓存不再等于离线（后端已修正），这里只认真离线
       listOffline.value = !!courseRes?.offline
       listSyncTime.value = String(courseRes?.sync_time || '')
+      // 缓存超过 STALE_LIST_MS 就后台静默刷新一次：避免「更新于 4 小时前」一直挂着
+      if (!doForce && courseRes?.cached) {
+        const cachedAt = Date.parse(listSyncTime.value)
+        if (Number.isFinite(cachedAt) && Date.now() - cachedAt > STALE_LIST_MS) {
+          pushDebugLog('ChaoxingHub', '课程缓存已过期，后台静默刷新', 'info')
+          window.setTimeout(() => {
+            if (!core.mutable.disposed) void loadList({ silent: true, force: true })
+          }, 300)
+        }
+      }
       let list: Array<Record<string, unknown>> = Array.isArray(courseRes?.courses) ? courseRes.courses : []
       // 数据规模防护：先记录数量摘要，超限截断，避免超大列表拖垮 iOS WebView
       pushDebugLog('ChaoxingHub', `课程原始数据 count=${list.length}`, 'info')
