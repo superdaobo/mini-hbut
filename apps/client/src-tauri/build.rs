@@ -140,6 +140,7 @@ fn main() {
         "identity_rebind_approve_v2",
         "identity_rebind_request_v2",
         "identity_revoke_current_device_local",
+        "identity_school_verify",
         "identity_sign_auth_request",
         "identity_sign_canonical",
         "identity_sign_rebind",

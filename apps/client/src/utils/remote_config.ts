@@ -10,6 +10,7 @@ import { shouldApplyAppStoreRestrictions } from '../config/app_store_policy'
 // 后端端点组归一化（叶子模块）：契约 §3，组顺序即优先级、组内通道同源
 import { normalizeBackendConfig, type BackendConfig } from './backend_endpoints'
 import { normalizeCampusProbeConfig } from './campus_probe'
+import { normalizeSchoolVerifyConfig } from './school_verify'
 import {
   CHAOXING_INVITE_CACHE_KEY,
   DEFAULT_CHAOXING_INVITE_CODE,
@@ -362,6 +363,7 @@ export function normalizeRemoteConfig(raw: unknown): RemoteConfig {
       persistInvite: !!(cfg.chaoxing_class || cfg.chaoxingClass)
     }),
     campus_probe: normalizeCampusProbeConfig(cfg.campus_probe ?? cfg.campusProbe),
+    school_verify: normalizeSchoolVerifyConfig(cfg.school_verify ?? cfg.schoolVerify),
     ai_models: toArray(cfg.ai_models),
     config_admin_ids: toArray(cfg.config_admin_ids).map((item) => String(item)),
   }
