@@ -1019,6 +1019,13 @@ export const messages: Record<string, string> = {
   // Audit fix: video semantics / 30-day view / empty states
   'chaoxing.study.video.rate': 'Video completion',
   'chaoxing.study.video.scoreLine': 'Video score {a}/{b}',
+  'chaoxing.study.video.watchedLine': '{a} of {b} minutes watched',
+  'chaoxing.study.video.readLine': '{n} minutes read',
+  'chaoxing.study.video.watched': 'Watched',
+  'chaoxing.study.video.total': 'Total length',
+  'chaoxing.study.video.read': 'Reading',
+  'chaoxing.study.video.taskPoints': 'Task points',
+  'chaoxing.study.video.minuteUnit': 'min',
   'chaoxing.study.video.noMinutes': 'Watch minutes are not provided',
   'chaoxing.study.video.score': 'Video score',
   'chaoxing.study.video.videoTest': 'In-video quizzes',

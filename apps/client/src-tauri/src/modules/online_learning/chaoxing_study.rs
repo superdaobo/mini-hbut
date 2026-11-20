@@ -40,6 +40,9 @@ const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 const STAT2_INDEX: &str = "https://stat2-ans.chaoxing.com/study-data/index";
 const STAT2_DIM: &str = "https://stat2-ans.chaoxing.com/stat2/study-data";
 
+/// 「章节任务点」统计维度（**唯一提供观看时长的接口**，不在 stat2/study-data 下）。
+pub(crate) const DIM_TASK_SUMMARY: &str = "taskSummary";
+
 /// 支持的学情维度白名单。
 ///
 /// 维度名会直接拼进 URL 路径，必须白名单校验，杜绝「任意路径注入」。
@@ -145,18 +148,43 @@ fn classify_penc_failure(html: &str) -> &'static str {
     }
 }
 
-/// 取 pEnc 与 Referer（两段式的第一步，5 分钟缓存）
-pub(crate) async fn fetch_penc(
+/// 统计首页里的两个票据。
+///
+/// 实测（2026-11-20）：
+/// - `pEnc` 用于 `stat2/study-data/*` 各维度；
+/// - `jobEnc` 用于 `stat2/task/s/index`（章节任务点，**观看时长只在这里**）；
+/// - 两者都在 `study-data/index` 的内联脚本里（`var pEnc = '…'; var jobEnc = '…';`），
+///   用错会返回 403「您长时间没有操作，或没有此页面访问权限…2006」。
+pub(crate) struct StudyEnc {
+    pub penc: String,
+    pub job_enc: String,
+    pub index_url: String,
+}
+
+/// 取 pEnc + jobEnc（5 分钟缓存）
+pub(crate) async fn fetch_study_enc(
     client: &HbutClient,
     course_id: &str,
     clazz_id: &str,
     cpi: &str,
-) -> Result<(String, String), DynError> {
+) -> Result<StudyEnc, DynError> {
     let url = index_url(course_id, clazz_id, cpi);
-    let cache_key = format!("penc:{course_id}:{clazz_id}");
+    let cache_key = format!("enc:{course_id}:{clazz_id}");
     if let Some(cached) = read_cache(&cache_key).await {
-        if let Some(penc) = cached.as_str().filter(|s| !s.is_empty()) {
-            return Ok((penc.to_string(), url));
+        let penc = cached
+            .get("penc")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let job_enc = cached
+            .get("jobEnc")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !penc.is_empty() && !job_enc.is_empty() {
+            return Ok(StudyEnc {
+                penc: penc.to_string(),
+                job_enc: job_enc.to_string(),
+                index_url: url,
+            });
         }
     }
 
@@ -175,8 +203,28 @@ pub(crate) async fn fetch_penc(
     if penc.is_empty() {
         return Err(err_box(classify_penc_failure(&html)));
     }
-    write_cache(cache_key, json!(penc)).await;
-    Ok((penc, url))
+    let job_enc = regex::Regex::new(r#"jobEnc\s*=\s*['"]([a-fA-F0-9]{32})['"]"#)
+        .ok()
+        .and_then(|re| re.captures(&html))
+        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+        .unwrap_or_default();
+    write_cache(cache_key, json!({ "penc": penc, "jobEnc": job_enc })).await;
+    Ok(StudyEnc {
+        penc,
+        job_enc,
+        index_url: url,
+    })
+}
+
+/// 取 pEnc 与 Referer（两段式的第一步，5 分钟缓存）
+pub(crate) async fn fetch_penc(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+) -> Result<(String, String), DynError> {
+    let enc = fetch_study_enc(client, course_id, clazz_id, cpi).await?;
+    Ok((enc.penc, enc.index_url))
 }
 
 /// 取单个维度（两段式的第二步，5 分钟缓存）
@@ -188,6 +236,9 @@ pub(crate) async fn fetch_dimension(
     dimension: &str,
     force: bool,
 ) -> Result<Value, DynError> {
+    if dimension == DIM_TASK_SUMMARY {
+        return fetch_task_summary(client, course_id, clazz_id, cpi, force).await;
+    }
     if !is_supported_dimension(dimension) {
         return Err(err_box(format!("不支持的学情维度: {dimension}")));
     }
@@ -288,6 +339,92 @@ pub async fn chaoxing_fetch_study_record(
     fetch_dimensions(client, course_id, clazz_id, cpi, &dims, force).await
 }
 
+/// 章节任务点统计：**观看/阅读时长唯一来源**（`stat2/task/s/index`）。
+///
+/// 该页是**服务端渲染的 HTML**（不是 JSON），用 `pEnc=jobEnc` 取，Referer 用统计首页。
+pub(crate) async fn fetch_task_summary(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+    force: bool,
+) -> Result<Value, DynError> {
+    let cache_key = format!("dim:{course_id}:{clazz_id}:{DIM_TASK_SUMMARY}");
+    if !force {
+        if let Some(cached) = read_cache(&cache_key).await {
+            return Ok(cached);
+        }
+    }
+    let enc = fetch_study_enc(client, course_id, clazz_id, cpi).await?;
+    if enc.job_enc.is_empty() {
+        return Err(err_box(
+            "统计首页未下发章节任务点票据（jobEnc），无法读取观看时长",
+        ));
+    }
+    let url = format!(
+        "https://stat2-ans.chaoxing.com/stat2/task/s/index?courseid={course_id}&clazzid={clazz_id}&cpi={cpi}&ut=s&pEnc={}",
+        enc.job_enc
+    );
+    let resp = client
+        .client
+        .get(&url)
+        .header("Referer", &enc.index_url)
+        .header("User-Agent", UA)
+        .timeout(REQ_TIMEOUT)
+        .send()
+        .await?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() || !text.contains("累计观看") {
+        return Err(err_box("章节任务点统计页不可用（可能需要重新登录学习通）"));
+    }
+    let summary = parse_task_summary(&text);
+    write_cache(cache_key, summary.clone()).await;
+    Ok(summary)
+}
+
+/// 从「章节任务点」HTML 里抽统计数字（页面是服务端渲染，结构稳定）。
+pub(crate) fn parse_task_summary(html: &str) -> Value {
+    fn cap_f64(html: &str, pattern: &str) -> Option<f64> {
+        regex::Regex::new(pattern)
+            .ok()
+            .and_then(|re| re.captures(html))
+            .and_then(|c| c.get(1))
+            .and_then(|m| m.as_str().trim().parse::<f64>().ok())
+    }
+
+    let resources = cap_f64(html, r"共\s*(\d+)\s*个学习资源");
+    let task_points = cap_f64(html, r"<span>\s*(\d+)\s*</span>\s*个任务点");
+    let completed = cap_f64(html, r"个任务点\s*<span>\s*(\d+)\s*</span>\s*个已完成");
+    let watched = cap_f64(
+        html,
+        r#"累计观看\s*</span>\s*<div class="fl min"><span>([\d.]+)</span>"#,
+    );
+    let total_minutes = cap_f64(html, r"总时长\s*(\d+)\s*分钟");
+    let read_minutes = cap_f64(
+        html,
+        r#"累计阅读\s*</span>\s*<div class="fl min"><span>([\d.]+)</span>"#,
+    );
+    let read_required = cap_f64(html, r"要求时长\s*(\d+)\s*分钟");
+
+    let percent = match (watched, total_minutes) {
+        (Some(w), Some(t)) if t > 0.0 => (w / t * 100.0 * 10.0).round() / 10.0,
+        _ => 0.0,
+    };
+
+    json!({
+        "resources": resources.unwrap_or(0.0) as i64,
+        "task_points": task_points.unwrap_or(0.0) as i64,
+        "completed": completed.unwrap_or(0.0) as i64,
+        "video_watched_minutes": watched.unwrap_or(0.0),
+        "video_total_minutes": total_minutes.unwrap_or(0.0),
+        "video_percent": percent,
+        "read_minutes": read_minutes.unwrap_or(0.0),
+        "read_required_minutes": read_required.unwrap_or(0.0),
+        "status": true,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,6 +451,35 @@ mod tests {
         let single = "<input id='pEnc' value='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'>";
         assert_eq!(extract_penc(single), "a".repeat(32));
         assert!(extract_penc("<html></html>").is_empty());
+    }
+
+    #[test]
+    fn parses_task_summary_html() {
+        let html = r#"
+        <p class="tDec">共 392 个学习资源，包括<span>374</span>个任务点<span>311</span>个已完成</p>
+        <span class="fl fs14 color646873">累计观看</span>
+        <div class="fl min"><span>2059.7</span>分钟</div>
+        <p class="bottomC fs12">总时长 2528 分钟 (包含章节中所有视频、音频)</p>
+        <span class="fl fs14 color646873">累计阅读</span>
+        <div class="fl min"><span>102.8</span>分钟</div>
+        <p class="bottomC fs12"><span class="font-bold">要求时长 0 分钟</span></p>
+        "#;
+        let summary = parse_task_summary(html);
+        assert_eq!(summary["resources"], 392);
+        assert_eq!(summary["task_points"], 374);
+        assert_eq!(summary["completed"], 311);
+        assert_eq!(summary["video_watched_minutes"], 2059.7);
+        assert_eq!(summary["video_total_minutes"], 2528.0);
+        assert_eq!(summary["video_percent"], 81.5);
+        assert_eq!(summary["read_minutes"], 102.8);
+        assert_eq!(summary["read_required_minutes"], 0.0);
+    }
+
+    #[test]
+    fn parses_task_summary_without_numbers() {
+        let summary = parse_task_summary("<html>无数据</html>");
+        assert_eq!(summary["video_watched_minutes"], 0.0);
+        assert_eq!(summary["video_percent"], 0.0);
     }
 
     #[test]

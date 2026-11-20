@@ -1018,6 +1018,13 @@ export const messages: Record<string, string> = {
   // 監査修正：動画の口径 / 30日ビュー / 空状態
   'chaoxing.study.video.rate': '動画完了率',
   'chaoxing.study.video.scoreLine': '動画得点 {a}/{b}',
+  'chaoxing.study.video.watchedLine': '累計視聴 {a} / {b} 分',
+  'chaoxing.study.video.readLine': '累計読書 {n} 分',
+  'chaoxing.study.video.watched': '累計視聴',
+  'chaoxing.study.video.total': '総再生時間',
+  'chaoxing.study.video.read': '累計読書',
+  'chaoxing.study.video.taskPoints': 'タスク完了',
+  'chaoxing.study.video.minuteUnit': '分',
   'chaoxing.study.video.noMinutes': '視聴時間は提供されません',
   'chaoxing.study.video.score': '動画得点',
   'chaoxing.study.video.videoTest': '動画内テスト',

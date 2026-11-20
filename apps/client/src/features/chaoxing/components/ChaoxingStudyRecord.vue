@@ -31,7 +31,7 @@ const TABS: Array<{ key: TabKey; labelKey: string; dims: string[] }> = [
   { key: 'sign', labelKey: 'chaoxing.study.tab.sign', dims: ['sign'] },
   { key: 'work', labelKey: 'chaoxing.study.tab.work', dims: ['job', 'work', 'behindTask', 'importWeekTask'] },
   { key: 'test', labelKey: 'chaoxing.study.tab.test', dims: ['test', 'videoTest'] },
-  { key: 'video', labelKey: 'chaoxing.study.tab.video', dims: ['live', 'point', 'cxclass'] },
+  { key: 'video', labelKey: 'chaoxing.study.tab.video', dims: ['taskSummary', 'videoTest', 'point', 'live', 'cxclass'] },
   { key: 'other', labelKey: 'chaoxing.study.tab.other', dims: ['nearTask', 'weekTask', 'ai-evaluate-stat'] }
 ]
 
@@ -280,6 +280,22 @@ const signBuckets = computed(() => {
 const signMax = computed(() => Math.max(1, ...signBuckets.value.map((item) => item.value)))
 
 /* ── 视频 ────────────────────────────────────────────────────── */
+/**
+ * 观看时长来自 `taskSummary`（`stat2/task/s/index` 服务端渲染页）：
+ * 实测 累计观看 2059.7 分钟 / 总时长 2528 分钟 / 任务点 311/374 / 阅读 102.8 分钟。
+ * 该页用的是统计首页里的 **jobEnc**（不是 pEnc），后端已处理。
+ */
+const taskSummary = computed(() => payloadOf('taskSummary'))
+const watchedMinutes = computed(() => num(taskSummary.value.video_watched_minutes))
+const totalMinutes = computed(() => num(taskSummary.value.video_total_minutes))
+const readMinutes = computed(() => num(taskSummary.value.read_minutes))
+const taskDone = computed(() => num(taskSummary.value.completed))
+const taskTotal = computed(() => num(taskSummary.value.task_points))
+const taskPercent = computed(() =>
+  taskTotal.value > 0 ? (taskDone.value / taskTotal.value) * 100 : 0
+)
+/** 视频观看进度（累计观看 / 总时长），与「视频得分率」是两个不同口径 */
+const videoWatchRate = computed(() => pct(taskSummary.value.video_percent))
 /**
  * 视频口径（审计结论）：
  * - stat2 的 `live` / `cxclass` 是**直播/回放**时长，不是视频任务点观看时长；
@@ -706,7 +722,7 @@ onBeforeUnmount(() => {
       </section>
     </template>
 
-    <!-- ⑤ 视频（口径：得分率来自 score.video/weight.video；live/cxclass 是直播/回放） -->
+    <!-- ⑤ 视频（观看时长来自 taskSummary；直播/回放来自 live/cxclass） -->
     <template v-else-if="activeTab === 'video'">
       <section class="sr-card sr-gauge">
         <div class="sr-gauge__ring">
@@ -728,17 +744,19 @@ onBeforeUnmount(() => {
               :stroke-width="13"
               stroke-linecap="round"
               :stroke-dasharray="RING_CIRC"
-              :stroke-dashoffset="ringOffset(videoRate)"
+              :stroke-dashoffset="ringOffset(videoWatchRate)"
             />
           </svg>
           <div class="sr-gauge__center">
-            <strong>{{ videoRate.toFixed(1) }}%</strong>
+            <strong>{{ videoWatchRate.toFixed(1) }}%</strong>
             <span>{{ t('chaoxing.study.video.rate') }}</span>
           </div>
         </div>
         <div class="sr-gauge__foot">
-          <span class="sr-gauge__foot-left"><i />{{ tf('chaoxing.study.video.scoreLine', { a: videoScore, b: videoWeight }) }}</span>
-          <span class="sr-gauge__foot-right">{{ t('chaoxing.study.video.noMinutes') }}</span>
+          <span class="sr-gauge__foot-left">
+            <i />{{ tf('chaoxing.study.video.watchedLine', { a: watchedMinutes, b: totalMinutes }) }}
+          </span>
+          <span class="sr-gauge__foot-right">{{ tf('chaoxing.study.video.readLine', { n: readMinutes }) }}</span>
         </div>
       </section>
 
@@ -746,14 +764,48 @@ onBeforeUnmount(() => {
         <article class="sr-metric">
           <div class="sr-metric__top">
             <span class="sr-metric__icon is-emerald"><span class="material-symbols-outlined">smart_display</span></span>
+            <span class="sr-metric__badge is-emerald">{{ videoWatchRate.toFixed(0) }}%</span>
           </div>
-          <strong class="sr-metric__value">{{ videoScore }}/{{ videoWeight }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.video.score') }}</span>
-          <i class="sr-metric__bar"><b class="is-emerald" :style="{ width: videoRate + '%' }" /></i>
+          <strong class="sr-metric__value">{{ watchedMinutes }} <small>{{ t('chaoxing.study.video.minuteUnit') }}</small></strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.video.watched') }}</span>
+          <i class="sr-metric__bar"><b class="is-emerald" :style="{ width: videoWatchRate + '%' }" /></i>
         </article>
         <article class="sr-metric">
           <div class="sr-metric__top">
-            <span class="sr-metric__icon is-indigo"><span class="material-symbols-outlined">play_lesson</span></span>
+            <span class="sr-metric__icon is-sky"><span class="material-symbols-outlined">schedule</span></span>
+          </div>
+          <strong class="sr-metric__value">{{ totalMinutes }} <small>{{ t('chaoxing.study.video.minuteUnit') }}</small></strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.video.total') }}</span>
+        </article>
+        <article class="sr-metric">
+          <div class="sr-metric__top">
+            <span class="sr-metric__icon is-indigo"><span class="material-symbols-outlined">menu_book</span></span>
+            <span class="sr-metric__badge is-muted">{{ num(taskSummary.read_required_minutes) }} {{ t('chaoxing.study.video.minuteUnit') }}</span>
+          </div>
+          <strong class="sr-metric__value">{{ readMinutes }} <small>{{ t('chaoxing.study.video.minuteUnit') }}</small></strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.video.read') }}</span>
+        </article>
+        <article class="sr-metric">
+          <div class="sr-metric__top">
+            <span class="sr-metric__icon is-amber"><span class="material-symbols-outlined">task_alt</span></span>
+            <span class="sr-metric__badge" :class="taskPercent >= 70 ? 'is-emerald' : 'is-muted'">{{ taskPercent.toFixed(0) }}%</span>
+          </div>
+          <strong class="sr-metric__value">{{ taskDone }}/{{ taskTotal }}</strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.video.taskPoints') }}</span>
+          <i class="sr-metric__bar"><b class="is-amber" :style="{ width: taskPercent + '%' }" /></i>
+        </article>
+        <article class="sr-metric">
+          <div class="sr-metric__top">
+            <span class="sr-metric__icon is-blue"><span class="material-symbols-outlined">grade</span></span>
+            <span class="sr-metric__badge is-muted">{{ videoRate.toFixed(0) }}%</span>
+          </div>
+          <strong class="sr-metric__value">{{ videoScore }}/{{ videoWeight }}</strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.video.score') }}</span>
+          <i class="sr-metric__bar"><b class="is-blue" :style="{ width: videoRate + '%' }" /></i>
+        </article>
+        <article class="sr-metric">
+          <div class="sr-metric__top">
+            <span class="sr-metric__icon is-violet"><span class="material-symbols-outlined">play_lesson</span></span>
             <span v-if="num(videoTestData.count) > 0" class="sr-metric__badge is-emerald">{{ pct(videoTestData.finishPer).toFixed(0) }}%</span>
             <span v-else class="sr-metric__badge is-muted">{{ t('chaoxing.study.badge.none') }}</span>
           </div>
@@ -761,15 +813,15 @@ onBeforeUnmount(() => {
             {{ num(videoTestData.count) > 0 ? `${num(videoTestData.finishCount)}/${num(videoTestData.count)}` : '—' }}
           </strong>
           <span class="sr-metric__label">{{ t('chaoxing.study.video.videoTest') }}</span>
-          <i class="sr-metric__bar"><b class="is-indigo" :style="{ width: pct(videoTestData.finishPer) + '%' }" /></i>
+          <i class="sr-metric__bar"><b class="is-violet" :style="{ width: pct(videoTestData.finishPer) + '%' }" /></i>
         </article>
         <article class="sr-metric">
           <div class="sr-metric__top">
-            <span class="sr-metric__icon is-amber"><span class="material-symbols-outlined">stars</span></span>
+            <span class="sr-metric__icon is-teal"><span class="material-symbols-outlined">stars</span></span>
           </div>
           <strong class="sr-metric__value">{{ num(pointData.ponits) }}/{{ num(pointData.activeLimit) }}</strong>
           <span class="sr-metric__label">{{ t('chaoxing.study.video.points') }}</span>
-          <i class="sr-metric__bar"><b class="is-amber" :style="{ width: Math.min(100, (num(pointData.ponits) / Math.max(1, num(pointData.activeLimit))) * 100) + '%' }" /></i>
+          <i class="sr-metric__bar"><b class="is-teal" :style="{ width: Math.min(100, (num(pointData.ponits) / Math.max(1, num(pointData.activeLimit))) * 100) + '%' }" /></i>
         </article>
       </section>
 
