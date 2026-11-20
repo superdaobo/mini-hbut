@@ -701,6 +701,8 @@ pub fn run() {
             transport::tauri::chaoxing::chaoxing_fetch_works_all_courses,
             transport::tauri::chaoxing::chaoxing_fetch_exams_all_courses,
             transport::tauri::chaoxing::chaoxing_resolve_task_url,
+            // P4-C（#1344）：学习记录（stat2 学情统计，6 Tab / 16 维度）
+            transport::tauri::chaoxing::chaoxing_fetch_study_record,
             transport::tauri::electricity::campus_code_fetch_config,
             transport::tauri::electricity::campus_code_fetch_qrcode,
             transport::tauri::electricity::campus_code_fetch_order_status,

@@ -21,6 +21,8 @@ pub mod chaoxing_courses;
 pub mod chaoxing_exam;
 pub mod chaoxing_outline;
 pub mod chaoxing_session;
+// P4-C（#1344）：学习记录（stat2 学情统计）通用取数
+pub mod chaoxing_study;
 pub mod chaoxing_work;
 pub mod service;
 mod shared;
@@ -48,8 +50,11 @@ pub use chaoxing_cards::{
     chaoxing_fetch_course_score, chaoxing_get_knowledge_cards, chaoxing_get_video_status,
     chaoxing_video_status_candidate_urls, infer_attachment_kind,
 };
+
+// 学习记录（P4-C，#1344）
 #[cfg(feature = "mobile-full")]
 pub use chaoxing_cards::{chaoxing_get_launch_url, chaoxing_report_progress};
+pub use chaoxing_study::{chaoxing_fetch_study_record, STUDY_RECORD_DEFAULT_DIMENSIONS};
 
 // 雨课堂（刷课/自动化，mobile-slim 关闭，#594）
 #[cfg(feature = "mobile-full")]

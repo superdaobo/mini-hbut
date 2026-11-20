@@ -920,3 +920,42 @@ pub(crate) async fn chaoxing_resolve_task_url(
         Err(e) => Err(e.to_string()),
     }
 }
+
+// ────────────────────────────────────────────────────────────
+// P4-C（#1344）：学习记录（stat2 学情统计，6 Tab / 16 维度）
+// ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingStudyRecordRequest {
+    #[serde(alias = "courseId")]
+    pub course_id: String,
+    #[serde(alias = "clazzId", alias = "classId")]
+    pub clazz_id: String,
+    #[serde(default)]
+    pub cpi: String,
+    /// 要取的维度（白名单校验）；缺省 = 概览那一组
+    #[serde(default)]
+    pub dimensions: Vec<String>,
+    /// 忽略 5 分钟缓存
+    #[serde(default)]
+    pub force: Option<bool>,
+}
+
+/// 学习记录取数：一个命令带 `dimensions` 参数，避免注册 16 个命令。
+#[tauri::command]
+pub(crate) async fn chaoxing_fetch_study_record(
+    state: State<'_, AppState>,
+    req: ChaoxingStudyRecordRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    modules::online_learning::chaoxing_study::chaoxing_fetch_study_record(
+        &client,
+        &req.course_id,
+        &req.clazz_id,
+        &req.cpi,
+        &req.dimensions,
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
