@@ -1,0 +1,42 @@
+[
+ {
+  "cardWid": "21021468792076103",
+  "cardId": "CUS_CARD_TODOTASK",
+  "title": "待办任务"
+ },
+ {
+  "cardWid": "5624209932143497",
+  "cardId": "CUS_CARD_DONETASK",
+  "title": "已办任务"
+ },
+ {
+  "cardWid": "484468705917928",
+  "cardId": "CUS_CARD_MYTASK",
+  "title": "我的申请"
+ },
+ {
+  "cardWid": "7207554905914351",
+  "cardId": "CUS_CARD_COPYME",
+  "title": "抄送我的"
+ },
+ {
+  "cardWid": "30287114549572314",
+  "cardId": "CUS_CARD_HOTAPP",
+  "title": "热门服务"
+ },
+ {
+  "cardWid": "5357818446432585",
+  "cardId": "CUS_CARD_FAVORITEAPP",
+  "title": "我的收藏"
+ },
+ {
+  "cardWid": "13036226013086594",
+  "cardId": "CUS_CARD_MYAPP",
+  "title": "我的服务"
+ },
+ {
+  "cardWid": "9793387617112675",
+  "cardId": "CUS_CARD_ALLSERVICEBUS",
+  "title": "全部业务系统"
+ }
+]

@@ -1,0 +1,398 @@
+[
+ {
+  "name": "安全通报申请",
+  "wid": "1374407857864151040",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extfivwimvg",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extfivwimvg"
+ },
+ {
+  "name": "办公OA系统(新)",
+  "wid": "1371435281393119232",
+  "pc": "https://oanew.hbut.edu.cn/oadt/sys/newoasygl/home.do",
+  "mobile": "https://oanew.hbut.edu.cn/oadt/sys/newoaydapp/Capacity/mobile.do#/"
+ },
+ {
+  "name": "堡垒机账号申请",
+  "wid": "1374400958612443136",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extkzciwjsm",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extkzciwjsm"
+ },
+ {
+  "name": "报告厅借用",
+  "wid": "1455602043174490112",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extzqxqzsua",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extzqxqzsua"
+ },
+ {
+  "name": "财务系统",
+  "wid": "1408434013562335232",
+  "pc": "http://202.114.191.69/enwcnew/caslogin.aspx",
+  "mobile": null
+ },
+ {
+  "name": "采购系统",
+  "wid": "1398364049149833216",
+  "pc": "https://tend.hbut.edu.cn/sso/index.htm",
+  "mobile": "https://tend.hbut.edu.cn/sso/index.htm"
+ },
+ {
+  "name": "大型仪器共享平台",
+  "wid": "1401882301175926784",
+  "pc": "https://yqgx.hbut.edu.cn/caslogin.aspx",
+  "mobile": "https://yqgx.hbut.edu.cn/caslogin.aspx?type=1"
+ },
+ {
+  "name": "档案归档系统",
+  "wid": "1417511724889640960",
+  "pc": "https://file.hbut.edu.cn/archives",
+  "mobile": null
+ },
+ {
+  "name": "电子资源服务",
+  "wid": "1404483109209370624",
+  "pc": "https://www.metaauth.com/131010/login.html?service=https%3A%2F%2Fhbut.metaersp.com%2FpersonalIndex",
+  "mobile": "https://www.metaauth.com/131010/login.html?service=https%3A%2F%2Fhbut.metaersp.com%2FpersonalIndex"
+ },
+ {
+  "name": "读者入馆教育",
+  "wid": "1408411806296223744",
+  "pc": "https://unified-auth.chaoxing.com/login_auth/hbut/init?refer=https://v1.chaoxing.com/mobileSet/redirectUrlMobile?mAppId=20170849&su=57057048&enc=D43070A109A93EE296BC7D30985B1A37&t=1788269760164",
+  "mobile": "https://unified-auth.chaoxing.com/login_auth/hbut/init?refer=https://v1.chaoxing.com/mobileSet/redirectUrlMobile?mAppId=20170849&su=57057048&enc=D43070A109A93EE296BC7D30985B1A37&t=1788269760164"
+ },
+ {
+  "name": "房产信息化管理系统",
+  "wid": "1404536740785467392",
+  "pc": "https://fcxt.hbut.edu.cn/hbutfdc2020",
+  "mobile": null
+ },
+ {
+  "name": "服务需求收集",
+  "wid": "1377944855828099072",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extndxpvyex",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extndxpvyex"
+ },
+ {
+  "name": "高基报表",
+  "wid": "1445799046961033216",
+  "pc": "https://oshall.hbut.edu.cn/HighBaseTable",
+  "mobile": null
+ },
+ {
+  "name": "公文流转",
+  "wid": "1372945707599654912",
+  "pc": "https://docp.hbut.edu.cn",
+  "mobile": "https://docp.hbut.edu.cn/docFlow-v1/cas-auth/login/doc-m"
+ },
+ {
+  "name": "公务邮箱业务办理",
+  "wid": "1402668448575696896",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extmnudtirn",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extmnudtirn"
+ },
+ {
+  "name": "固定IP地址申请",
+  "wid": "1401998795994083328",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extbprsvemn",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extbprsvemn"
+ },
+ {
+  "name": "湖工小易(测试版)",
+  "wid": "1540365163255164928",
+  "pc": "https://aichat.hbut.edu.cn/chat-plus/I2M9bLyqbLsTxHRT",
+  "mobile": "https://aichat.hbut.edu.cn/chat-plus/I2M9bLyqbLsTxHRT"
+ },
+ {
+  "name": "会议室预定",
+  "wid": "1371888149181829120",
+  "pc": "https://oanew.hbut.edu.cn/oadt/sys/newoahysyd/*default/index.do",
+  "mobile": null
+ },
+ {
+  "name": "继续教育学院用印申请",
+  "wid": "1516748751635525632",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extrneqwlpj",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extrneqwlpj"
+ },
+ {
+  "name": "家庭经济困难预警",
+  "wid": "1445799934034681856",
+  "pc": "http://172.16.49.62:8075/webroot/decision/view/duchamp?viewlet=%25E8%25B4%25AB%25E5%259B%25B0%25E7%2594%259F%25E9%25A2%2584%25E8%25AD%25A6.fvs&page_number=1",
+  "mobile": null
+ },
+ {
+  "name": "检索证明",
+  "wid": "1442517416420941824",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extsaptsmcu",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extsaptsmcu"
+ },
+ {
+  "name": "教管一体化平台",
+  "wid": "1394635247029297152",
+  "pc": "https://fysso.chaoxing.com/cassso/tohbutsie?refer=http://i.chaoxing.com/",
+  "mobile": "https://fysso.chaoxing.com/cassso/tohbutsie?refer=http://i.chaoxing.com/"
+ },
+ {
+  "name": "教职工因私出国(境)审批",
+  "wid": "1546846610640572416",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extmoklzuyx#",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extmoklzuyx#"
+ },
+ {
+  "name": "京东慧采",
+  "wid": "1414905511863644160",
+  "pc": "https://vsp.jd.com/strust/tryToLogin?identity=27B7EF4C45738DE576D09B6E6C28DBA6",
+  "mobile": null
+ },
+ {
+  "name": "竞赛系统",
+  "wid": "1565788956749795328",
+  "pc": "https://hbut.racelink.cn/sso/login",
+  "mobile": null
+ },
+ {
+  "name": "喀斯玛(竞价)",
+  "wid": "1390703383567896576",
+  "pc": "https://member.casmart.com.cn/v3/sso_hgd/login.aspx/project/list",
+  "mobile": "https://premember.casmart.com.cn/v3/sso_hgd/login.aspx"
+ },
+ {
+  "name": "喀斯玛(直采)",
+  "wid": "1390703535596085248",
+  "pc": "https://member.casmart.com.cn/v3/sso_hgd/login.aspx",
+  "mobile": "https://member.casmart.com.cn/v3/sso_hgd/login.aspx"
+ },
+ {
+  "name": "科研机构申报",
+  "wid": "1394339632395972608",
+  "pc": "https://kypt.hbut.edu.cn/userAction!do_casLogin.action?targetUrl=https://kypt.hbut.edu.cn/business/researchApplyInfoAction!to_init.action",
+  "mobile": null
+ },
+ {
+  "name": "科研计分",
+  "wid": "1394340159810805760",
+  "pc": "https://kypt.hbut.edu.cn/userAction!do_casLogin.action?targetUrl=https://kypt.hbut.edu.cn/assess/personAssessAction!to_personalYearWork.action",
+  "mobile": null
+ },
+ {
+  "name": "科研系统",
+  "wid": "1394338581906694144",
+  "pc": "https://kypt.hbut.edu.cn/userAction!do_casLogin.action",
+  "mobile": "https://kypt.hbut.edu.cn/userAction!do_casLogin.action?clientType=mobile&beanId=paper"
+ },
+ {
+  "name": "课程分析",
+  "wid": "1445799593857847296",
+  "pc": "http://172.16.49.62:8075/webroot/decision/view/duchamp?viewlet=%25E8%25AF%25BE%25E7%25A8%258B%25E5%2588%2586%25E6%259E%2590.fvs&page_number=1",
+  "mobile": null
+ },
+ {
+  "name": "临时用户校园网服务申请表",
+  "wid": "1371885942003961856",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extrtpobkpu",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extrtpobkpu"
+ },
+ {
+  "name": "领导驾驶舱",
+  "wid": "1445799389053292544",
+  "pc": "http://172.16.49.62:8075/webroot/decision/view/duchamp?viewlet=%25E6%25B5%258B%25E8%25AF%2595%252F%25E9%25A2%2586%25E5%25AF%25BC%25E9%25A9%25BE%25E9%25A9%25B6%25E8%2588%25B1.fvs&page_number=1",
+  "mobile": null
+ },
+ {
+  "name": "人事系统",
+  "wid": "1394343660186734592",
+  "pc": "https://rsxx.hbut.edu.cn/epxing-frame/api/v1/callBack/hall",
+  "mobile": null
+ },
+ {
+  "name": "室外宣传平台建置备案审批",
+  "wid": "1461383166803382272",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extkswpxfuh",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extkswpxfuh"
+ },
+ {
+  "name": "室外宣传审批",
+  "wid": "1461383104911347712",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extgdewrmnb",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extgdewrmnb"
+ },
+ {
+  "name": "数据集市",
+  "wid": "1445799057355149312",
+  "pc": "http://172.16.49.52/data-market",
+  "mobile": null
+ },
+ {
+  "name": "数据中台",
+  "wid": "1445799397985087488",
+  "pc": "http://172.16.49.52/data-center",
+  "mobile": null
+ },
+ {
+  "name": "网络平台账号审批",
+  "wid": "1461382542723616768",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extdwuzhhju",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extdwuzhhju"
+ },
+ {
+  "name": "网站建站/调整申请表",
+  "wid": "1371885999702929408",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extvdcdyhqs",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extvdcdyhqs"
+ },
+ {
+  "name": "微信小程序备案登记",
+  "wid": "1402591925014171648",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extaidlfgpy",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extaidlfgpy"
+ },
+ {
+  "name": "危险化学品全周期管理系统",
+  "wid": "1478712487347818496",
+  "pc": "http://202.114.182.170:8080",
+  "mobile": null
+ },
+ {
+  "name": "文献信息检索",
+  "wid": "1408403599007985664",
+  "pc": "https://www.zhizhen.com/",
+  "mobile": "https://www.zhizhen.com/"
+ },
+ {
+  "name": "校内请示",
+  "wid": "1371887756979965952",
+  "pc": "https://oanew.hbut.edu.cn/oadt/sys/newoaqsqb/*default/index.do",
+  "mobile": null
+ },
+ {
+  "name": "校园思政电影放映申请表",
+  "wid": "1501552624518868992",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extfvrcqdeu",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extfvrcqdeu"
+ },
+ {
+  "name": "校园一码通(PC端)",
+  "wid": "1403335323158573056",
+  "pc": "https://code.hbut.edu.cn/server/auth/host/open?pc=1&org=2&host=28",
+  "mobile": null
+ },
+ {
+  "name": "校园一码通系统金额代发执行申请",
+  "wid": "1437805183923884032",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extdjbagsrb",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extdjbagsrb"
+ },
+ {
+  "name": "心理健康",
+  "wid": "1408090664251469824",
+  "pc": "https://xgxljk.hbut.edu.cn/xlogin/cas",
+  "mobile": "https://xgxljk.hbut.edu.cn/xlogin/cas"
+ },
+ {
+  "name": "信息技术服务",
+  "wid": "1432672609570385920",
+  "pc": "https://e.hbut.edu.cn/default/index.html#/infodo",
+  "mobile": null
+ },
+ {
+  "name": "信息中心办事流程",
+  "wid": "1371885944081588224",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extzdfslojm",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extzdfslojm"
+ },
+ {
+  "name": "学生工作一体化服务平台",
+  "wid": "1428783025318391808",
+  "pc": "https://stu.hbut.edu.cn/manage/door/#/login",
+  "mobile": null
+ },
+ {
+  "name": "研究生信息管理系统",
+  "wid": "1398257597443055616",
+  "pc": "https://yjs.chaoxing.com/api/casLogin/hbut?ref=https://etbum.v.chaoxing.com/manage",
+  "mobile": null
+ },
+ {
+  "name": "研究生招生管理系统（管理员）",
+  "wid": "1398258119314575360",
+  "pc": "https://yjs.chaoxing.com/api/casLogin/hbut?ref=https://vrgvu.v.chaoxing.com/manage",
+  "mobile": null
+ },
+ {
+  "name": "业务构建平台",
+  "wid": "1366419765068795904",
+  "pc": "https://zd.hbut.edu.cn/zd/pubcas/index",
+  "mobile": "https://zd.hbut.edu.cn/zd/pubcas/index"
+ },
+ {
+  "name": "一表通",
+  "wid": "1445799135894937600",
+  "pc": "https://oshall.hbut.edu.cn/TableX",
+  "mobile": null
+ },
+ {
+  "name": "一表通填报平台",
+  "wid": "1396819529088868352",
+  "pc": "https://oshall.hbut.edu.cn",
+  "mobile": null
+ },
+ {
+  "name": "用印申请",
+  "wid": "1371888017619095552",
+  "pc": "https://oanew.hbut.edu.cn/oadt/sys/newoayysp/*default/index.do",
+  "mobile": null
+ },
+ {
+  "name": "邮箱管理",
+  "wid": "1372945805556948992",
+  "pc": "https://tools.hbut.edu.cn/docFlow-v1/cas-auth/login/email",
+  "mobile": null
+ },
+ {
+  "name": "站群管理",
+  "wid": "1413622937168973824",
+  "pc": "http://172.16.46.8:8080/system/caslogin.jsp",
+  "mobile": null
+ },
+ {
+  "name": "站群管理员申请",
+  "wid": "1441387532543979520",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extidprzivd",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extidprzivd"
+ },
+ {
+  "name": "哲学社会科学讲座活动审批",
+  "wid": "1440297207979831296",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extdirbslup",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extdirbslup"
+ },
+ {
+  "name": "职称岗位分析",
+  "wid": "1445800288284831744",
+  "pc": "http://172.16.49.62:8075/webroot/decision/view/duchamp?viewlet=%25E8%2581%258C%25E7%25A7%25B0%25E5%25B2%2597%25E4%25BD%258D%25E5%2588%2586%25E6%259E%2590.fvs&page_number=1",
+  "mobile": null
+ },
+ {
+  "name": "智慧学工",
+  "wid": "1550560440906461184",
+  "pc": "https://fdm.hbut.edu.cn/wec-counselor-extend-apps/homepage-v3/admin/index.html",
+  "mobile": null
+ },
+ {
+  "name": "资产分析",
+  "wid": "1445800117111091200",
+  "pc": "http://172.16.49.62:8075/webroot/decision/view/duchamp?viewlet=%25E8%25B5%2584%25E4%25BA%25A7%25E5%25A4%25A7%25E5%25B1%258F.fvs&page_number=1",
+  "mobile": null
+ },
+ {
+  "name": "资产系统",
+  "wid": "1399319848105848832",
+  "pc": "https://zcgl.hbut.edu.cn/RobeaAssets/sso/cas",
+  "mobile": "https://zcgl.hbut.edu.cn/RobeaAssets/sso/cas"
+ },
+ {
+  "name": "自然科学讲座活动审批",
+  "wid": "1440296806015954944",
+  "pc": "https://zd.hbut.edu.cn/zd/app/extuljdcxsa",
+  "mobile": "https://zd.hbut.edu.cn/zd/app/extuljdcxsa"
+ }
+]

@@ -1,0 +1,1674 @@
+[
+  {
+    "name": "alumuns/getAlumnusConfig",
+    "path": "/server/alumuns/getAlumnusConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 171,
+    "sample": "{\"success\":false,\"message\":\"code:唯一标识不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "alumuns/getAlumnusPlan",
+    "path": "/server/alumuns/getAlumnusPlan",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 12,
+    "sample": "{\"success\":false,\"message\":\"code:唯一标识不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "alumuns/getAlumnusTemplate",
+    "path": "/server/alumuns/getAlumnusTemplate",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 36,
+    "sample": "{\"success\":false,\"message\":\"code:唯一标识不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "alumuns/getTempUserApplyPlan",
+    "path": "/server/alumuns/getTempUserApplyPlan",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"code:唯一标识不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "alumuns/getTempUserDelayPlan",
+    "path": "/server/alumuns/getTempUserDelayPlan",
+    "method": "POST",
+    "body": {},
+    "status": 404,
+    "ms": 39,
+    "sample": "{\"timestamp\":\"2026-11-20T10:55:44.649+00:00\",\"status\":404,\"error\":\"Not Found\",\"path\":\"/server/alumuns/getTempUserDelayPlan\"}"
+  },
+  {
+    "name": "alumuns/getTempUserTemplate",
+    "path": "/server/alumuns/getTempUserTemplate",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 141,
+    "sample": "{\"success\":false,\"message\":\"code:唯一标识不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "apply/queryProgress",
+    "path": "/server/apply/queryProgress",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 39,
+    "sample": "{\"success\":false,\"message\":\"参数不完整\",\"resultData\":null,\"code\":\"CORE20055\"}"
+  },
+  {
+    "name": "auth/casConfig",
+    "path": "/server/auth/casConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"code:不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "auth/getEncrypt",
+    "path": "/server/auth/getEncrypt",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"id\":\"kzyxLSB7xuxz2-OdgtAMy\",\"publicKey\":\"lTLJ1QsucoBPCDD45aXgDmV2hHrl+OX/hgDhGEpHeZQYUWw3DXjdAV8Avkdm6UraQW4S8VANpp0Ybhh5GYleaPPoFOphO3B1c2Ma4wwpEsz9+cxQiAjiwDWyX0BaRKnZv0y7RgOxiCU1ZF8ry5pdgYR3Rr6pkfXpKs0lISaIsX6HTrFD7pHOHWCD6Ivq8i4S\",\"fixed\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "auth/getLoginUser",
+    "path": "/server/auth/getLoginUser",
+    "method": "POST",
+    "body": {},
+    "status": 404,
+    "ms": 11,
+    "sample": "{\"timestamp\":\"2026-11-20T10:55:45.656+00:00\",\"status\":404,\"error\":\"Not Found\",\"path\":\"/server/auth/getLoginUser\"}"
+  },
+  {
+    "name": "auth/getToken",
+    "path": "/server/auth/getToken",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"tid:id不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "auth/getUserInfo",
+    "path": "/server/auth/getUserInfo",
+    "method": "POST",
+    "body": {},
+    "status": 404,
+    "ms": 12,
+    "sample": "{\"timestamp\":\"2026-11-20T10:55:45.998+00:00\",\"status\":404,\"error\":\"Not Found\",\"path\":\"/server/auth/getUserInfo\"}"
+  },
+  {
+    "name": "bllt/queryBathInterestBill",
+    "path": "/server/bllt/queryBathInterestBill",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 21,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryBoilingInterestBill",
+    "path": "/server/bllt/queryBoilingInterestBill",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 14,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryCardSelfTradeList",
+    "path": "/server/bllt/queryCardSelfTradeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 19,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/queryChartList",
+    "path": "/server/bllt/queryChartList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 14,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryConsumeGroupByType",
+    "path": "/server/bllt/queryConsumeGroupByType",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 15,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryConsumeTotalDay",
+    "path": "/server/bllt/queryConsumeTotalDay",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 20,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryConsumeTradeTatol",
+    "path": "/server/bllt/queryConsumeTradeTatol",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 17,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryMealInterestBill",
+    "path": "/server/bllt/queryMealInterestBill",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 14,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryOpenMertypeScene",
+    "path": "/server/bllt/queryOpenMertypeScene",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 43,
+    "sample": "{\"success\":true,\"message\":\"CORE10008\",\"resultData\":[{\"typecode\":\"supermarket\",\"imgUrl\":\"/images/mybill/supermarket.png\",\"inputuserid\":\"792392463183777792\",\"typeconfig\":{\"msg3\":\"\",\"msg2\":\"本月商超消费\",\"msg1\":\"共消费\",\"chartId\":938713735185571840,\"showImgType\":\"LINECHART\",\"title\":\"商超消费\",\"chartInterface\":\"querySuperMarketInterestBill\"},\"majoritem\":\"1\",\"id\":\"937634704088240128\",\"inputdate\":\"2024-07-11 09:53:57\",\"orgid\":2,\"typename\":\"商超消费\",\"status\":\"1\"},{\"typecode\":\"net\",\"imgUrl\":\"/images/mybill/net.png\",\"inputuserid\":\"792392463183777792\",\"typeconfig\":{\"msg3\":\"合理上网,健康成长\",\"msg2\":\"共缴费\",\"msg1\":\"本月上网总缴费\",\"showImgType\":\"IMG\",\"title\":\"上网消费\"},\"majoritem\":\"1\",\"id\":\"937638720658608128\",\"inputdate\":\"2024-07-11 09:53:57\",\"orgid\":2,\"typename\":\"上网消费\",\"status\":\"1\"},{\"typecode\":\"restaurant\",\"imgUrl\":\"/images/mybill/restaurant.png\",\"inputuserid\":\"792392463183777792\",\"typeconfig\":{\"msg3\":\"\",\"msg2\":\"\",\"msg1\":\"本月餐饮总消费\",\"chartId\":938712827831787520,\"showImgType\":\"IMG\",\"title\":\"餐饮消费\",\"chartInterface\":\"queryMealInterestBill\"},\"majoritem\":\"1\",\"id\":\"937638801289908224\",\"inputdate\":\"2024-07-11 09:53:57\",\"orgid\":2,\"typename\":\"餐饮消费\",\"status\":\"1\"},{\"typecode\":\"bath\",\"imgUrl\":\"/images/mybill/bath.png\",\"inputuserid\":\"792392463183777792\",\"typeconfig\":{\"msg3\":\"\",\"msg2\":\"共消费\",\"msg1\":\"本月淋浴总消费\",\"chartId\":938713985359028224,\"showImgType\":\"IMG\",\"title\":\"淋浴消费\",\"chartInterface\":\"queryBathInterestBill\"},\"majoritem\":\"1\",\"id\":\"937638855077662720\",\"inputdate\":\"2024-07-11 09:53:57\",\"orgid\":2,\"typename\":\"淋浴消费\",\"status\":\"1\"},{\"typeco"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"starttime参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/querySuperMarketInterestBill",
+    "path": "/server/bllt/querySuperMarketInterestBill",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 25,
+    "sample": "{\"success\":true,\"message\":\"CORE10008\",\"resultData\":{}}"
+  },
+  {
+    "name": "bllt/queryUserMonthlybillHalfOfYear",
+    "path": "/server/bllt/queryUserMonthlybillHalfOfYear",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 17,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "blueutil/getControlStatus",
+    "path": "/server/blueutil/getControlStatus",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "blueutil/getKey",
+    "path": "/server/blueutil/getKey",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "blueutil/getLog",
+    "path": "/server/blueutil/getLog",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "blueutil/getNotiResult",
+    "path": "/server/blueutil/getNotiResult",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "captcha/get",
+    "path": "/server/captcha/get",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"repCode\":\"0011\",\"repMsg\":\"类型不能为空\",\"repData\":null,\"success\":false}"
+  },
+  {
+    "name": "car/config",
+    "path": "/server/car/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 47,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"defaultX\":null,\"defaultY\":null,\"routeId\":null,\"baiduMapKey\":null,\"tencentMapKey\":null,\"mapType\":\"1\"},\"code\":\"\"}"
+  },
+  {
+    "name": "car/getRoute",
+    "path": "/server/car/getRoute",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"routeId:不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "car/routeList",
+    "path": "/server/car/routeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 17,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "car/shiftList",
+    "path": "/server/car/shiftList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"success\":false,\"message\":\"routeId:不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "card/config",
+    "path": "/server/card/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"type\":\"0\"},\"code\":\"\"}"
+  },
+  {
+    "name": "card/pickupList",
+    "path": "/server/card/pickupList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 38,
+    "sample": "{\"data\":\"CpmQm5hj8G/PPoyFMBfWT8vWpoAeQeLXzTdS9QH0qUCXMKrfLA+N9MqLfgqCIIF/ER0W0uw8nY6S3j5+Hnf0D8ICDQN3qGUK3WyPaFGkqb0RGcFES0ZJsgRRjQCWHwT6pRCbi9VwD+EVrFcCDr79gpEJLRcupJucec6+FHOs1KQ=\"} || decrypted={\"success\":false,\"message\":\"没有查询到历史记录\",\"resultData\":null,\"code\":\"没有查询到历史记录\"}"
+  },
+  {
+    "name": "cardCost/config",
+    "path": "/server/cardCost/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 34,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"cardCost\":\"20\",\"hasCard\":false,\"txDate\":null,\"message\":null,\"pay\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "home/appList",
+    "path": "/server/home/appList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 38,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"id\":\"202208261032001\",\"name\":\"扫一扫\",\"title\":\"扫一扫\",\"code\":\"scan\",\"iconImg\":\"\",\"type\":\"2\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":1,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"scan\"},{\"id\":\"202208261032002\",\"name\":\"校园码\",\"title\":\"校园码\",\"code\":\"campusCode\",\"iconImg\":\"\",\"type\":\"2\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":2,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"campusCode\"},{\"id\":\"202208261032004\",\"name\":\"交易记录\",\"title\":\"交易记录\",\"code\":\"tradeRecord\",\"iconImg\":\"\",\"type\":\"1\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":3,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"tradeRecord\"},{\"id\":\"202208261032003\",\"name\":\"小额充值\",\"title\":\"小额充值\",\"code\":\"recharge\",\"iconImg\":\"\",\"type\":\"0\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":4,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"recharge\"},{\"id\":\"202208261032008\",\"name\":\"密码修改\",\"title\":\"密码修改\",\"code\":\"changePassword\",\"iconImg\":\"\",\"type\":\"1\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":5,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"changePassword\"},{\"id\":\"202208261032009\",\"name\":\"限额修改\",\"title\":\"限额修改\",\"c"
+  },
+  {
+    "name": "home/birthdayMessage",
+    "path": "/server/home/birthdayMessage",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"birthday\":false,\"messageId\":null,\"content\":null,\"link\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "home/cardStyleConfig",
+    "path": "/server/home/cardStyleConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 25,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"logoType\":\"1\",\"logoImg\":null,\"schoolName\":\"湖北工业大学\",\"backgroundType\":\"2\",\"backgroundColor\":\"linear-gradient(90deg, #2566FF 0%, #579FFF 100%)\",\"backgroundImg\":null,\"enablePhoto\":true,\"photoFloat\":\"left\",\"dataMaskingType\":\"3\",\"enablePersonCenter\":true,\"enablePosition\":true,\"isexpcard\":false,\"showBalanceDetail\":true,\"balanceDetailUri\":\"balanceRecord\",\"enableToRecharge\":false,\"personFontColor\":\"#FFFFFF\",\"logoFontColor\":\"#FFFFFF\",\"rechargeFontColor\":\"#389CFF\",\"rechargeBackgroundColor\":\"#FFFFFF\",\"positionFontColor\":\"#FFFFFF\",\"outId\":\"学工号\",\"department\":\"部门\",\"positionInfoFontColor\":\"#FFFFFF\",\"disableBalance\":false,\"balanceFontColor\":\"#FFFFFF\",\"positionTransparency\":\"0.2\",\"tipExpire\":false,\"dialogExpire\":false,\"accStatus\":\"1\",\"expireContent\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "home/config",
+    "path": "/server/home/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 15,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"i18nLabel\":\"0\",\"enableSms\":false,\"enableAutoTel\":false,\"appName\":\"校园一码通\",\"wechatAppletH5PayUrl\":\"/pages_plugins/recharge/webSuccess\",\"debug\":false,\"bindPasswordConfig\":{\"enable\":false,\"reg\":\"^(?=.*[a-zA-Z0-9])(?:(?!.*\\\\\\\\s).){6,18}$\",\"msg\":\"密码可以是数字、字母、特殊字符，长度6-18，不能有空格\",\"tip\":\"初始密码为证件号后6位，X用1代替\"},\"tongJiConfig\":{\"enable\":false,\"id\":\"-\",\"url\":\"-\"},\"enableCheckPhoto\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "home/getAutoFlushQRTime",
+    "path": "/server/home/getAutoFlushQRTime",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 18,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"autoflushqrtime\":\"60\"},\"code\":\"\"}"
+  },
+  {
+    "name": "home/image",
+    "path": "/server/home/image",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "home/imgCode",
+    "path": "/server/home/imgCode",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 12,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "home/mealTimeConfig",
+    "path": "/server/home/mealTimeConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"mealTimeName\":\"早餐\",\"mealTimeCode\":\"0001\",\"fromTime\":\"00:00\",\"toTime\":\"09:00\"},{\"mealTimeName\":\"午餐\",\"mealTimeCode\":\"0002\",\"fromTime\":\"09:01\",\"toTime\":\"15:59\"},{\"mealTimeName\":\"晚餐\",\"mealTimeCode\":\"0003\",\"fromTime\":\"16:00\",\"toTime\":\"20:00\"},{\"mealTimeName\":\"夜宵\",\"mealTimeCode\":\"0004\",\"fromTime\":\"20:01\",\"toTime\":\"23:59\"}],\"code\":\"\"}"
+  },
+  {
+    "name": "home/notice",
+    "path": "/server/home/notice",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"id:id不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "home/noticeList",
+    "path": "/server/home/noticeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"type:type不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "home/noticeTypeList",
+    "path": "/server/home/noticeTypeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 17,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"typeCode\":\"01\",\"typeName\":\"校园公告\"},{\"typeCode\":\"02\",\"typeName\":\"校园新闻\"}],\"code\":\"\"}"
+  },
+  {
+    "name": "home/tip",
+    "path": "/server/home/tip",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"code:code不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "merchant/myList",
+    "path": "/server/merchant/myList",
+    "method": "POST",
+    "body": {},
+    "status": 403,
+    "ms": 11,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "merchant/myPosList",
+    "path": "/server/merchant/myPosList",
+    "method": "POST",
+    "body": {},
+    "status": 403,
+    "ms": 13,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "merchant/sumList",
+    "path": "/server/merchant/sumList",
+    "method": "POST",
+    "body": {},
+    "status": 403,
+    "ms": 11,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "merchant/tradeList",
+    "path": "/server/merchant/tradeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"success\":false,\"message\":\"fromDate:起始日期不能为空 toDate:截止日期不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "relatedUser/list",
+    "path": "/server/relatedUser/list",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 48,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "transFormal/getAuditResult",
+    "path": "/server/transFormal/getAuditResult",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 43,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"idSerial\":null,\"tranStatus\":\"-1\",\"aduitUserName\":null,\"aduitReason\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "user/balanceTradeList",
+    "path": "/server/user/balanceTradeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"toDate:截止日期不能为空 fromDate:起始日期不能为空 tradeType:交易类型不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "user/custom/tradeList",
+    "path": "/server/user/custom/tradeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"fromDate:起始日期不能为空 toDate:截止日期不能为空 tradeType:交易类型不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "user/custom/tradeListConfig",
+    "path": "/server/user/custom/tradeListConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 26,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"tradeTypes\":[{\"type\":\"1\",\"name\":\"消费\"},{\"type\":\"2\",\"name\":\"充值\"}],\"accTypes\":[{\"typeCode\":\"0\",\"typeName\":\"主账户\",\"balance\":\"0.00\"},{\"typeCode\":\"A10004950\",\"typeName\":\"补助钱包\",\"balance\":\"2629.42\"}],\"sumConsumeAmt\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "user/getBankConfig",
+    "path": "/server/user/getBankConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 61,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"bankList\":[{\"bankname\":\"中国建设银行\",\"id\":1,\"bankcode\":\"CBC\",\"orgid\":2,\"status\":\"1\"},{\"bankname\":\"中国银行\",\"id\":2,\"bankcode\":\"BC\",\"orgid\":2,\"status\":\"1\"},{\"bankname\":\"中国农业银行\",\"id\":3,\"bankcode\":\"ABC\",\"orgid\":2,\"status\":\"1\"},{\"bankname\":\"中国工商银行\",\"id\":4,\"bankcode\":\"ICBC\",\"orgid\":2,\"status\":\"1\"},{\"bankname\":\"民生银行\",\"id\":5,\"bankcode\":\"CMSB\",\"orgid\":2,\"status\":\"1\"},{\"bankname\":\"招商银行\",\"id\":6,\"bankcode\":\"CMBC\",\"orgid\":2,\"status\":\"1\"},{\"bankname\":\"兴业银行\",\"id\":7,\"bankcode\":\"CIB\",\"orgid\":2,\"status\":\"1\"},{\"bankname\":\"中国人民银行\",\"id\":8,\"bankcode\":\"PBC\",\"orgid\":2,\"status\":\"1\"},{\"bankname\":\"中国光大银行\",\"id\":9,\"bankcode\":\"CEB\",\"orgid\":2,\"status\":\"1\"}],\"sendSmsEnable\":false,\"bankNo\":null,\"bankName\":null,\"bankCode\":null,\"orgId\":2,\"bindBank\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "user/getFaceAgreement",
+    "path": "/server/user/getFaceAgreement",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 37,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"faceAuthAgreements\":null,\"faceCheckAgreements\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "user/getResetPwdConfig",
+    "path": "/server/user/getResetPwdConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"type\":\"1\",\"orgId\":2},\"code\":\"\"}"
+  },
+  {
+    "name": "user/idtypeList",
+    "path": "/server/user/idtypeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 26,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "user/tradeList",
+    "path": "/server/user/tradeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"fromDate:起始日期不能为空 toDate:截止日期不能为空 tradeType:交易类型不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "user/tradeListConfig",
+    "path": "/server/user/tradeListConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 20,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"tradeTypes\":[{\"type\":\"1,2,3\",\"name\":\"全部\"},{\"type\":\"1\",\"name\":\"消费\"},{\"type\":\"2\",\"name\":\"充值\"},{\"type\":\"3\",\"name\":\"补助\"}],\"accTypes\":[{\"typeCode\":\"0\",\"typeName\":\"主账户\",\"balance\":\"0.00\"},{\"typeCode\":\"A10004950\",\"typeName\":\"补助钱包\",\"balance\":\"2629.42\"}]},\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/config",
+    "path": "/server/utilities/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"success\":false,\"message\":\"utilityType:utilityType必填 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "utilities/packageList",
+    "path": "/server/utilities/packageList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 16,
+    "sample": "{\"success\":false,\"message\":\"返回结果为null\",\"resultData\":null,\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/typeList",
+    "path": "/server/utilities/typeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 16,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"utilityType\":\"water\",\"enable\":true,\"bind\":\"\"},{\"utilityType\":\"electric\",\"enable\":true,\"bind\":\"\"},{\"utilityType\":\"broadband\",\"enable\":true,\"bind\":\"***SID*** 罗*均\"}],\"code\":\"\"}"
+  },
+  {
+    "name": "virtualCard/config",
+    "path": "/server/virtualCard/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 35,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"color\":null,\"backgroundImg\":null,\"enableOffline\":true,\"disableDoc\":false,\"disableOnline\":false,\"plugEnableOnline\":false,\"onlineConfigList\":[],\"doc\":\"<h2>校园码介绍</h2>\\n\\t\\t<p style=\\\"margin-block-start: 1em; text-align: justify;\\\">校园码是电子化的校园卡，您可以使用手机替代实体卡，完成校园卡的充值、付款、缴费、出入、认证等业务。</p>\\n\\t\\t<p style=\\\"margin-block-start: 1em;text-align: justify;\\\">同时，为解决高峰期扫码消费出现过的断网无码、处理码慢等问题，为学校用户提供方便、快捷、安全的扫码支付体验，提供了在线模式和离线码模式两种校园码模式。</p>\\n\\t\\t<p style=\\\"margin-block-start: 1em; text-align: justify;\\\">若学校已开通校园码任意模式功能，绑定校园卡后，即可开启使用。</p>\\n\\t\\t<p style=\\\"margin-block-start: 1em; text-align: justify;\\\"><span style=\\\"color: #ff6600;\\\"><strong style=\\\"font-size: large;\\\">在线码模式</strong></span>：支持联机情况下的消费使用，不支持终端设备脱机使用。</p>\\n\\t\\t<p style=\\\"margin-block-start: 1em; text-align: justify;\\\"><strong style=\\\"font-size: large;\\\"><span style=\\\"color: #ff6600;\\\">离线码模式</span></strong>：是一种在线离线二合一码，支持手机和终端设备都联机情况下的消费使用；支持设备脱机情况下的消费使用；不支持手机离线情况下的消费使用。</p>\",\"enableToRecharge\":false,\"enableScan\":false,\"scanAppCode\":\"scan\",\"scanV8SuccessToHome\":false,\"refreshSecond\":60,\"abnormalDisQrcode\":false,\"displayBalance\":true,\"displayInfo\":true},\"code\":\"\"}"
+  },
+  {
+    "name": "virtualCard/getTicketInfo",
+    "path": "/server/virtualCard/getTicketInfo",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 62,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"transferUsePhone\":false,\"checkUserPhone\":true,\"canUseList\":[],\"overdueList\":[]},\"code\":\"\"}"
+  },
+  {
+    "name": "water/appointList",
+    "path": "/server/water/appointList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 51,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "water/config",
+    "path": "/server/water/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 38,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"enable43\":false,\"type43\":null,\"appointTypes\":null,\"appointList\":true,\"todayAppoint\":true,\"roomAppoint\":true,\"enableScan\":true,\"waterTitle\":\"用水服务\",\"deviceTip\":\"4位设备号请先输入00\",\"isZeroConsume\":\"0\",\"enableBluetooth\":true},\"code\":\"\"}"
+  },
+  {
+    "name": "water/device/myList",
+    "path": "/server/water/device/myList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 45,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "water/freeWatreTradeList",
+    "path": "/server/water/freeWatreTradeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 65,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "water/limitList",
+    "path": "/server/water/limitList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 41,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"hotWater\":{\"maxFare\":\"10\",\"maxTime\":\"30\",\"sysMaxFare\":\"10\",\"sysMaxTime\":\"30\"},\"bathRoom\":{\"maxFare\":\"10\",\"maxTime\":\"30\",\"sysMaxFare\":\"10\",\"sysMaxTime\":\"30\"}},\"code\":\"\"}"
+  },
+  {
+    "name": "water/roomConfig",
+    "path": "/server/water/roomConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 8,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"manClosed\":{\"fromTime\":\"11:00\",\"toTime\":\"14:00\"},\"womanClosed\":{\"fromTime\":\"11:00\",\"toTime\":\"14:00\"},\"manIntervalMinute\":30,\"womanIntervalMinute\":30,\"delayMinute\":0},\"code\":\"\"}"
+  },
+  {
+    "name": "water/roomList",
+    "path": "/server/water/roomList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 24,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "water/tradeList",
+    "path": "/server/water/tradeList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 72,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "water/unstoppedList",
+    "path": "/server/water/unstoppedList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 38,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "user/tradeList#all",
+    "path": "/server/user/tradeList",
+    "method": "POST",
+    "body": {
+      "pageSize": "30",
+      "tradeType": "1,2,3",
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20",
+      "pageNo": 0
+    },
+    "status": 200,
+    "ms": 602,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"西苑一层-超市\",\"date\":\"2026-11-16 17:50:53\",\"amt\":\"-18.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553656981553249\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-超市\",\"date\":\"2026-11-16 17:50:53\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553656918638616\"},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"西苑一层-A12-上海小笼包\",\"date\":\"2026-11-16 17:49:00\",\"amt\":\"-6.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553191644495892\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-A12-上海小笼包\",\"date\":\"2026-11-16 17:49:00\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553191556415518\"},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"楚风苑一层-超市\",\"date\":\"2026-11-11 12:27:46\",\"amt\":\"-3.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437660406289006679\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑一层-超市\",\"date\":\"2026-11-11 12:27:46\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437660406213509178\"},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:12:33\",\"amt\":\"-32.75\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656574905548843\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:12:33\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656574867800126\"},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:12:22\",\"amt\":\"-22.55\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656528894033926\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑二层-"
+  },
+  {
+    "name": "user/tradeList#consume",
+    "path": "/server/user/tradeList",
+    "method": "POST",
+    "body": {
+      "pageSize": "30",
+      "tradeType": "1",
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20",
+      "pageNo": 0
+    },
+    "status": 200,
+    "ms": 311,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-超市\",\"date\":\"2026-11-16 17:50:53\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553656918638616\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-A12-上海小笼包\",\"date\":\"2026-11-16 17:49:00\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553191556415518\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑一层-超市\",\"date\":\"2026-11-11 12:27:46\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437660406213509178\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:12:33\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656574867800126\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:12:22\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656528856285276\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-A09-口留香酱饼\",\"date\":\"2026-11-09 17:53:56\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437017707647074380\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-A17-师生食堂\",\"date\":\"2026-11-05 17:45:50\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1435566115861299251\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"学5绿叶饮品\",\"date\":\"2026-10-30 10:52:51\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1433287851646124061\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"学5家味小炒\",\"date\":\"2026-10-30 10:51:40\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1433287555503095819\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-超市\",\"date\":\"2"
+  },
+  {
+    "name": "user/tradeListConfig#balance",
+    "path": "/server/user/tradeListConfig",
+    "method": "POST",
+    "body": {
+      "balance": true
+    },
+    "status": 200,
+    "ms": 22,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"tradeTypes\":[{\"type\":\"11,12,13\",\"name\":\"全部\"},{\"type\":\"11\",\"name\":\"消费\"},{\"type\":\"12\",\"name\":\"充值\"},{\"type\":\"13\",\"name\":\"补助\"}],\"accTypes\":[{\"typeCode\":\"0\",\"typeName\":\"主账户\",\"balance\":\"0.00\"},{\"typeCode\":\"A10004950\",\"typeName\":\"补助钱包\",\"balance\":\"2629.42\"}]},\"code\":\"\"}"
+  },
+  {
+    "name": "user/balanceTradeList#main",
+    "path": "/server/user/balanceTradeList",
+    "method": "POST",
+    "body": {
+      "pageSize": 20,
+      "tradeType": "11,12,13",
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20",
+      "pageNo": 0,
+      "accType": "0"
+    },
+    "status": 200,
+    "ms": 701,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"page\":0,\"count\":20,\"totalPage\":0,\"totalCount\":0,\"list\":[]},\"code\":\"\"}"
+  },
+  {
+    "name": "user/balanceTradeList#subsidy",
+    "path": "/server/user/balanceTradeList",
+    "method": "POST",
+    "body": {
+      "pageSize": 20,
+      "tradeType": "11,12,13",
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20",
+      "pageNo": 0,
+      "accType": "A10004950"
+    },
+    "status": 200,
+    "ms": 923,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"page\":0,\"count\":20,\"totalPage\":2,\"totalCount\":24,\"list\":[{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"西苑一层-超市\",\"date\":\"2026-11-16 17:50:53\",\"amt\":\"18.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553656981553249\",\"balance\":\"2629.42\",\"delay\":false,\"in\":\"0\",\"txDate\":\"2026-11-16 17:50:53\",\"isV5\":null},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"西苑一层-A12-上海小笼包\",\"date\":\"2026-11-16 17:49:00\",\"amt\":\"6.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553191644495892\",\"balance\":\"2647.42\",\"delay\":false,\"in\":\"0\",\"txDate\":\"2026-11-16 17:49:00\",\"isV5\":null},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"楚风苑一层-超市\",\"date\":\"2026-11-11 12:27:46\",\"amt\":\"3.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437660406289006679\",\"balance\":\"2653.42\",\"delay\":false,\"in\":\"0\",\"txDate\":\"2026-11-11 12:27:46\",\"isV5\":null},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:12:33\",\"amt\":\"32.75\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656574905548843\",\"balance\":\"2656.42\",\"delay\":false,\"in\":\"0\",\"txDate\":\"2026-11-11 12:12:33\",\"isV5\":null},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:12:22\",\"amt\":\"22.55\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656528894033926\",\"balance\":\"2689.17\",\"delay\":false,\"in\":\"0\",\"txDate\":\"2026-11-11 12:12:22\",\"isV5\":null},{\"summary\":\"专款专用金额补贴\",\"merchantName\":\"西苑一层-A09-口留香酱饼\",\"date\":\"2026-11-09 17:53:56\",\"amt\":\"3.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437017707772903470\",\"balance\":\"2711.72\",\"d"
+  },
+  {
+    "name": "user/custom/tradeList#consume",
+    "path": "/server/user/custom/tradeList",
+    "method": "POST",
+    "body": {
+      "pageSize": "30",
+      "tradeType": "1",
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20",
+      "pageNo": 0
+    },
+    "status": 200,
+    "ms": 752,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"data\":{\"page\":0,\"count\":30,\"totalPage\":1,\"totalCount\":20,\"list\":[{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-超市\",\"date\":\"2026-11-16 17:53:09\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553656918638616\",\"balance\":\"0.00\",\"delay\":false,\"in\":\"2\",\"txDate\":\"2026-11-16 17:50:53\",\"tradeType\":\"1\",\"accTypeName\":\"主账户\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-A12-上海小笼包\",\"date\":\"2026-11-16 17:51:18\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1439553191556415518\",\"balance\":\"0.00\",\"delay\":false,\"in\":\"2\",\"txDate\":\"2026-11-16 17:49:00\",\"tradeType\":\"1\",\"accTypeName\":\"主账户\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑一层-超市\",\"date\":\"2026-11-11 12:30:03\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437660406213509178\",\"balance\":\"0.00\",\"delay\":false,\"in\":\"2\",\"txDate\":\"2026-11-11 12:27:46\",\"tradeType\":\"1\",\"accTypeName\":\"主账户\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:14:49\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656574867800126\",\"balance\":\"0.00\",\"delay\":false,\"in\":\"2\",\"txDate\":\"2026-11-11 12:12:33\",\"tradeType\":\"1\",\"accTypeName\":\"主账户\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"楚风苑二层-自选餐\",\"date\":\"2026-11-11 12:14:38\",\"amt\":\"0.00\",\"isRefund\":\"0\",\"operation\":false,\"journo\":\"1437656528856285276\",\"balance\":\"0.00\",\"delay\":false,\"in\":\"2\",\"txDate\":\"2026-11-11 12:12:22\",\"tradeType\":\"1\",\"accTypeName\":\"主账户\"},{\"summary\":\"虚拟卡被扫支付\",\"merchantName\":\"西苑一层-A09-口留香酱饼\",\"date\":\"2026-11-09 17:56"
+  },
+  {
+    "name": "user/tradeListType",
+    "path": "/server/user/tradeListType",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"type\":\"1,2,3\",\"name\":\"全部\"},{\"type\":\"1\",\"name\":\"消费\"},{\"type\":\"2\",\"name\":\"充值\"},{\"type\":\"3\",\"name\":\"补助\"}],\"code\":\"\"}"
+  },
+  {
+    "name": "user/systemMTradeListByPage",
+    "path": "/server/user/systemMTradeListByPage",
+    "method": "POST",
+    "body": {
+      "pageSize": 10,
+      "pageNo": 0
+    },
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"tradeType:交易类型不能为空 fromDate:起始日期不能为空 toDate:截止日期不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "user/payConfig",
+    "path": "/server/user/payConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 37,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"facePayEnable\":true,\"fingerprintPayEnable\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "user/repayList",
+    "path": "/server/user/repayList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 12,
+    "sample": "{\"success\":false,\"message\":\"fromDate:起始日期不能为空 toDate:截止日期不能为空 tradeType:交易类型不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "user/idPhoto",
+    "path": "/server/user/idPhoto",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 277,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"photoImg\":null,\"checkEnable\":false,\"checkStatus\":null,\"checkMsg\":null,\"showCheck\":false,\"photoUploadMethod\":\"2\"},\"code\":\"\"}"
+  },
+  {
+    "name": "user/idFacePhoto",
+    "path": "/server/user/idFacePhoto",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 245,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"photoImg\":null,\"checkEnable\":false,\"checkStatus\":null,\"checkMsg\":null,\"showCheck\":false,\"photoUploadMethod\":null,\"isAuthUserphoto\":null,\"authStatus\":null,\"isExistUserPhoto\":null,\"isExistFacePhoto\":null,\"authTimes\":null,\"authTotalTimes\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/config#water",
+    "path": "/server/utilities/config",
+    "method": "POST",
+    "body": {
+      "utilityType": "water"
+    },
+    "status": 200,
+    "ms": 93,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"templateList\":[{\"code\":\"price\",\"name\":\"水价\",\"unit\":\"吨/元\",\"show\":false},{\"code\":\"balance\",\"name\":\"水费余额\",\"unit\":\"元\",\"show\":true},{\"code\":\"ykt_balance\",\"name\":\"校园卡余额\",\"unit\":\"元\",\"show\":false},{\"code\":\"quantity\",\"name\":\"剩余水量\",\"unit\":\"吨\",\"show\":true}],\"amtGroupList\":[{\"id\":\"1\",\"amt\":\"10\",\"name\":\"10元\"},{\"id\":\"2\",\"amt\":\"20\",\"name\":\"20元\"},{\"id\":\"3\",\"amt\":\"50\",\"name\":\"50元\"}],\"tip\":\"<p><br></p>\",\"payWayList\":[{\"code\":\"06\",\"tradeType\":null,\"name\":\"余额支付\",\"h5\":false,\"successToHome\":true,\"signBind\":null,\"successToUrl\":null,\"iconUrl\":null,\"iconCode\":\"06\"}],\"customFieldList\":null,\"canPayOther\":false,\"needPwd\":true,\"detailConfig\":{\"enabled\":false,\"supportAllRoom\":false,\"lastMonth\":10},\"confirm\":false,\"amtInputDisabled\":false,\"location\":null,\"wapPaySdkJsUrl\":null,\"filterList\":null,\"daLianPayEnable\":false,\"hostApp\":false,\"networkPackage\":false,\"networkAgreement\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/config#electric",
+    "path": "/server/utilities/config",
+    "method": "POST",
+    "body": {
+      "utilityType": "electric"
+    },
+    "status": 200,
+    "ms": 19,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"templateList\":[{\"code\":\"ykt_balance\",\"name\":\"校园卡余额\",\"unit\":\"元\",\"show\":false},{\"code\":\"balance\",\"name\":\"电费余额\",\"unit\":\"元\",\"show\":false},{\"code\":\"quantity\",\"name\":\"剩余电量\",\"unit\":\"度\",\"show\":true},{\"code\":\"price\",\"name\":\"电价\",\"unit\":\"度/元\",\"show\":false}],\"amtGroupList\":[{\"id\":\"1\",\"amt\":\"10\",\"name\":\"10元\"},{\"id\":\"2\",\"amt\":\"20\",\"name\":\"20元\"},{\"id\":\"3\",\"amt\":\"50\",\"name\":\"50元\"}],\"tip\":\"<p>缴费时间为02:00-23:00，其他时间不允许缴电费</p>\",\"payWayList\":[{\"code\":\"02\",\"tradeType\":\"JSAPI\",\"name\":\"微信\",\"h5\":false,\"successToHome\":true,\"signBind\":null,\"successToUrl\":null,\"iconUrl\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAMAAAApWqozAAAAvVBMVEUAAAAAwlAAw1AAw04Aw1AAwlAAw08AwlAAwVAAwlEAwlAAwlEAwVEAxVAAwEgAw1AAwlD////9/v0Gw1Tq+vDX9eOM47CE4qoLxVj7/vz6/fvu+vPg9+qr68V03p9v3Jz2/fjx/PXK8tqy7Mpo25de2JFE0n4ky2kTxl3b9ubS9OC979K37s2g6L2c57uZ5rmU5bV43qJi2pNP1IYxzXIoy2vl+O3B8NSk6cB936ZW1otJ04I3z3UXyGAhyWbBA+umAAAAEHRSTlMA94VH8evX0LqxqFhSIwqVZbZ2GAAAAdpJREFUOMudldeWgjAQhkEEF2wBBVSavfde9/0faxOZYBILZ/0vkuHkIwwzk4kkqKRkdE2VZVXTM0pJ+iTFkBEj2VDeooUcelKu8BIt/qCX+ik+s/kseqNsXmQz6IMyPFtGH1V+vW/63nmUqsTvYjYdztKYMDHrO+19w7OP69pTBCEXiGozNqlarojH2aF5q8xMVv5WyCVhFcp2TF7NK0+TOjHAdvF6w42qhJv0AjxWbxxs4JqEOhs08PICoR55B/u7x/OMg+WSpDAbU7g+RJVqPLNSkuTdA1F3wrsb7XBi+vNTNBDSqIPlmZwm/XUwann2fPOAdUkDq8mi9XBdpbbdp7AmqWDZDGt1j+zTChBVksFaMsszeKDqQjgSeGcla40zsd2NR3aNsN38BVhFICeBOwEZh2iK84LQCNsOuKFRuDKlcNgi49Sp43HpkK/Y8IM6SugFddEU1YTQsSfKj5d6lgh7kBTlwe5w6jq+ZbpjEe5AukkhgU7tC5lutZUI96GQJOOxMzVqPs/OaY"
+  },
+  {
+    "name": "utilities/config#broadband",
+    "path": "/server/utilities/config",
+    "method": "POST",
+    "body": {
+      "utilityType": "broadband"
+    },
+    "status": 200,
+    "ms": 18,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"templateList\":[{\"code\":\"ykt_balance\",\"name\":\"校园卡余额\",\"unit\":\"元\",\"show\":false},{\"code\":\"balance\",\"name\":\"教育网网费缴纳\",\"unit\":\"元\",\"show\":true}],\"amtGroupList\":[{\"id\":\"1\",\"amt\":\"30\",\"name\":\"30元\"}],\"tip\":\"<p>缴费时间为02:00-23:00，其他时间不允许缴网费</p>\",\"payWayList\":[],\"customFieldList\":null,\"canPayOther\":false,\"needPwd\":true,\"detailConfig\":{\"enabled\":false,\"supportAllRoom\":false,\"lastMonth\":10},\"confirm\":false,\"amtInputDisabled\":true,\"location\":null,\"wapPaySdkJsUrl\":null,\"filterList\":null,\"daLianPayEnable\":false,\"hostApp\":false,\"networkPackage\":false,\"networkAgreement\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/location#bigArea",
+    "path": "/server/utilities/location",
+    "method": "POST",
+    "body": {
+      "utilityType": "electric",
+      "locationType": "bigArea",
+      "bigArea": "",
+      "area": "",
+      "building": "",
+      "unit": "",
+      "level": "",
+      "room": "",
+      "subArea": ""
+    },
+    "status": 200,
+    "ms": 31,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"locationType\":\"area\",\"locationList\":[{\"id\":\"101\",\"name\":\"东苑公寓\"},{\"id\":\"99\",\"name\":\"主分区\"},{\"id\":\"104\",\"name\":\"北苑公寓\"},{\"id\":\"102\",\"name\":\"南苑公寓\"},{\"id\":\"103\",\"name\":\"西苑公寓\"}],\"nextLocationType\":\"building\",\"end\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/location#building",
+    "path": "/server/utilities/location",
+    "method": "POST",
+    "body": {
+      "utilityType": "electric",
+      "locationType": "building",
+      "bigArea": "",
+      "area": "101",
+      "building": "",
+      "unit": "",
+      "level": "",
+      "room": "",
+      "subArea": ""
+    },
+    "status": 200,
+    "ms": 25,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"locationType\":\"building\",\"locationList\":[{\"id\":\"1\",\"name\":\"东苑公寓1栋\"},{\"id\":\"2\",\"name\":\"东苑公寓2栋\"},{\"id\":\"3\",\"name\":\"东苑公寓3栋\"},{\"id\":\"4\",\"name\":\"东苑公寓4栋\"},{\"id\":\"5\",\"name\":\"东苑公寓5栋\"},{\"id\":\"6\",\"name\":\"东苑公寓6栋\"},{\"id\":\"7\",\"name\":\"东苑公寓7栋\"},{\"id\":\"8\",\"name\":\"东苑公寓8栋\"}],\"nextLocationType\":\"unit\",\"end\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/location#unit",
+    "path": "/server/utilities/location",
+    "method": "POST",
+    "body": {
+      "utilityType": "electric",
+      "locationType": "unit",
+      "bigArea": "",
+      "area": "101",
+      "building": "1",
+      "unit": "",
+      "level": "",
+      "room": "",
+      "subArea": ""
+    },
+    "status": 200,
+    "ms": 22,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"locationType\":\"level\",\"locationList\":[{\"id\":\"174\",\"name\":\"空调1层\"},{\"id\":\"168\",\"name\":\"空调2层\"},{\"id\":\"169\",\"name\":\"空调3层\"},{\"id\":\"170\",\"name\":\"空调4层\"},{\"id\":\"171\",\"name\":\"空调5层\"},{\"id\":\"172\",\"name\":\"空调6层\"},{\"id\":\"173\",\"name\":\"空调7层\"}],\"nextLocationType\":\"room\",\"end\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/account#unbound",
+    "path": "/server/utilities/account",
+    "method": "POST",
+    "body": {
+      "bigArea": "",
+      "area": "",
+      "building": "",
+      "unit": "",
+      "level": "",
+      "room": "",
+      "subArea": "",
+      "utilityType": "electric"
+    },
+    "status": 200,
+    "ms": 36,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"balance\":\"2629.42\",\"utilityAccount\":\"***SID***\",\"utilityUsername\":\"罗*均\",\"utilityStatus\":\"1\",\"utilityStatusName\":\"正常\",\"accStatus\":\"1\",\"accStatusName\":\"正常\",\"templateList\":[{\"code\":\"ykt_balance\",\"name\":\"校园卡余额\",\"unit\":\"元\",\"show\":false,\"value\":\"2629.42\"},{\"code\":\"balance\",\"name\":\"电费余额\",\"unit\":\"元\",\"show\":false,\"value\":null},{\"code\":\"quantity\",\"name\":\"剩余电量\",\"unit\":\"度\",\"show\":true,\"value\":null},{\"code\":\"price\",\"name\":\"电价\",\"unit\":\"度/元\",\"show\":false,\"value\":null}],\"supportDetails\":false,\"networkPackageList\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/usageDetails#unbound",
+    "path": "/server/utilities/usageDetails",
+    "method": "POST",
+    "body": {
+      "bigArea": "",
+      "area": "",
+      "building": "",
+      "unit": "",
+      "level": "",
+      "room": "",
+      "subArea": "",
+      "utilityType": "electric",
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20",
+      "pageSize": 30,
+      "pageNo": 0
+    },
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"所选房间不支持查询历史用电量\",\"resultData\":null,\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/packageList#electric",
+    "path": "/server/utilities/packageList",
+    "method": "POST",
+    "body": {
+      "utilityType": "electric"
+    },
+    "status": 200,
+    "ms": 18,
+    "sample": "{\"success\":false,\"message\":\"返回结果为null\",\"resultData\":null,\"code\":\"\"}"
+  },
+  {
+    "name": "utilities/packageList#broadband",
+    "path": "/server/utilities/packageList",
+    "method": "POST",
+    "body": {
+      "utilityType": "broadband"
+    },
+    "status": 200,
+    "ms": 15,
+    "sample": "{\"success\":false,\"message\":\"返回结果为null\",\"resultData\":null,\"code\":\"\"}"
+  },
+  {
+    "name": "water/tradeList#paged",
+    "path": "/server/water/tradeList",
+    "method": "POST",
+    "body": {
+      "pageNo": 0,
+      "pageSize": "30"
+    },
+    "status": 200,
+    "ms": 77,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"pageNo\":0,\"pageSize\":30,\"totalPage\":0,\"totalSize\":0,\"list\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "water/freeWaterQuota",
+    "path": "/server/water/freeWaterQuota",
+    "method": "POST",
+    "body": {
+      "txdate": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 49,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"totalQuota\":\"0.00\",\"remainingQuota\":\"0.00\",\"userQuota\":\"0.00\"},\"code\":\"\"}"
+  },
+  {
+    "name": "water/freeWatreTradeList#paged",
+    "path": "/server/water/freeWatreTradeList",
+    "method": "POST",
+    "body": {
+      "pageNo": 0,
+      "pageSize": "30"
+    },
+    "status": 200,
+    "ms": 69,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"pageNo\":0,\"pageSize\":30,\"totalPage\":0,\"totalSize\":0,\"list\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "water/appointCount",
+    "path": "/server/water/appointCount",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"roomCode:房间编号不能为空 timeList:预约时间不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "water/device/info",
+    "path": "/server/water/device/info",
+    "method": "POST",
+    "body": {
+      "deviceNo": "0001"
+    },
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"posCode:设备编号不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#date",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-09-01",
+      "endtime": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"sortOrder参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#month",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "typecode": "restaurant"
+    },
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"success\":false,\"message\":\"sortOrder参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/queryChartList#p",
+    "path": "/server/bllt/queryChartList",
+    "method": "POST",
+    "body": {
+      "month": "2026-11"
+    },
+    "status": 200,
+    "ms": 15,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryConsumeGroupByType#p",
+    "path": "/server/bllt/queryConsumeGroupByType",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-09-01",
+      "endtime": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 18,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryConsumeTotalDay#p",
+    "path": "/server/bllt/queryConsumeTotalDay",
+    "method": "POST",
+    "body": {
+      "txdate": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 17,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryConsumeTradeTatol#p",
+    "path": "/server/bllt/queryConsumeTradeTatol",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-09-01",
+      "endtime": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 17,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryUserMonthlybillHalfOfYear#p",
+    "path": "/server/bllt/queryUserMonthlybillHalfOfYear",
+    "method": "POST",
+    "body": {
+      "month": "2026-11"
+    },
+    "status": 200,
+    "ms": 16,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryMealInterestBill#p",
+    "path": "/server/bllt/queryMealInterestBill",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 16,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":\"CORE10004\"}"
+  },
+  {
+    "name": "bllt/queryCardSelfTradeList#p",
+    "path": "/server/bllt/queryCardSelfTradeList",
+    "method": "POST",
+    "body": {
+      "pageSize": 30,
+      "pageNo": 0,
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 19,
+    "sample": "{\"success\":false,\"message\":\"操作失败\",\"resultData\":null}"
+  },
+  {
+    "name": "refund/getRefundList",
+    "path": "/server/refund/getRefundList",
+    "method": "POST",
+    "body": {
+      "startDate": "2026-09-01",
+      "endDate": "2026-11-20",
+      "pageNo": 0,
+      "pageSize": "30"
+    },
+    "status": 200,
+    "ms": 70,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"page\":0,\"count\":30,\"totalPage\":0,\"totalCount\":0,\"list\":[]},\"code\":\"\"}"
+  },
+  {
+    "name": "refund/page",
+    "path": "/server/refund/page",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 73,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"donateCanInputAmt\":false,\"flag\":0,\"idserial\":\"***SID***\",\"bankTitle\":\"退款到银行卡\",\"serviceName\":\"校园卡中心\",\"donateTitle\":\"捐赠校友会\",\"donateTitleSub\":\"现在就捐赠余额给校友会\",\"bankTitleSub\":\"毕业后将余额退回我的银行卡\",\"manualBankEnabled\":false,\"serviceTel\":\"0372-0996222\",\"iswriteoff\":false,\"refundDes\":\"各位即将离校踏上征程的同学，你们好！学校将于7月1日正式停用毕业生校园卡支付功能，请于6月30日24:00 前，填报校园卡余额处理意向。未填报同学的校园卡余额将统一按捐赠校友基金会处理，请各位同学及时填写。\",\"name\":\"***NAME***\",\"donateEnabled\":false},\"code\":\"\"}"
+  },
+  {
+    "name": "refund/banklist",
+    "path": "/server/refund/banklist",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 18,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"bankname\":\"中国建设银行\",\"id\":1,\"disphone\":false,\"bankcode\":\"CBC\",\"orgid\":2,\"status\":0},{\"bankname\":\"中国银行\",\"id\":2,\"disphone\":false,\"bankcode\":\"BC\",\"orgid\":2,\"status\":0},{\"bankname\":\"中国农业银行\",\"id\":3,\"disphone\":false,\"bankcode\":\"ABC\",\"orgid\":2,\"status\":1},{\"bankname\":\"中国工商银行\",\"id\":4,\"disphone\":false,\"bankcode\":\"ICBC\",\"orgid\":2,\"status\":0},{\"bankname\":\"民生银行\",\"id\":5,\"disphone\":false,\"bankcode\":\"CMSB\",\"orgid\":2,\"status\":0},{\"bankname\":\"招商银行\",\"id\":6,\"disphone\":false,\"bankcode\":\"CMBC\",\"orgid\":2,\"status\":0},{\"bankname\":\"兴业银行\",\"id\":7,\"disphone\":false,\"bankcode\":\"CIB\",\"orgid\":2,\"status\":0},{\"bankname\":\"中国人民银行\",\"id\":8,\"disphone\":false,\"bankcode\":\"PBC\",\"orgid\":2,\"status\":0},{\"bankname\":\"中国光大银行\",\"id\":9,\"disphone\":false,\"bankcode\":\"CEB\",\"orgid\":2,\"status\":0}],\"code\":\"\"}"
+  },
+  {
+    "name": "refund/donateConfig",
+    "path": "/server/refund/donateConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 12,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"style\":\"blue\",\"schoolName\":\"湖北工业大学\",\"title\":\"湖北工业大学爱心捐款\",\"subTitle\":\"涓滴之水成海洋，颗颗爱心变希望\",\"amtList\":[\"1\",\"5\",\"10\"]},\"code\":\"\"}"
+  },
+  {
+    "name": "refund/getRefundMode",
+    "path": "/server/refund/getRefundMode",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 13,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"selfrefund_mode\":\"0\",\"idserial\":\"***SID***\",\"name\":\"***NAME***\"},\"code\":\"\"}"
+  },
+  {
+    "name": "recharge/config",
+    "path": "/server/recharge/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 33,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"balance\":\"2629.42\",\"idSerial\":\"***SID***\",\"username\":\"***NAME***\",\"amtGroupList\":[{\"id\":\"1\",\"amt\":\"20\",\"name\":\"20元\"},{\"id\":\"2\",\"amt\":\"50\",\"name\":\"50元\"},{\"id\":\"3\",\"amt\":\"100\",\"name\":\"100元\"}],\"daLianPayEnable\":true,\"daLianPayList\":[{\"code\":\"02\",\"tradeType\":\"JSAPI\",\"name\":\"微信\",\"h5\":false,\"successToHome\":true,\"signBind\":null,\"successToUrl\":null,\"iconUrl\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAMAAAApWqozAAAAvVBMVEUAAAAAwlAAw1AAw04Aw1AAwlAAw08AwlAAwVAAwlEAwlAAwlEAwVEAxVAAwEgAw1AAwlD////9/v0Gw1Tq+vDX9eOM47CE4qoLxVj7/vz6/fvu+vPg9+qr68V03p9v3Jz2/fjx/PXK8tqy7Mpo25de2JFE0n4ky2kTxl3b9ubS9OC979K37s2g6L2c57uZ5rmU5bV43qJi2pNP1IYxzXIoy2vl+O3B8NSk6cB936ZW1otJ04I3z3UXyGAhyWbBA+umAAAAEHRSTlMA94VH8evX0LqxqFhSIwqVZbZ2GAAAAdpJREFUOMudldeWgjAQhkEEF2wBBVSavfde9/0faxOZYBILZ/0vkuHkIwwzk4kkqKRkdE2VZVXTM0pJ+iTFkBEj2VDeooUcelKu8BIt/qCX+ik+s/kseqNsXmQz6IMyPFtGH1V+vW/63nmUqsTvYjYdztKYMDHrO+19w7OP69pTBCEXiGozNqlarojH2aF5q8xMVv5WyCVhFcp2TF7NK0+TOjHAdvF6w42qhJv0AjxWbxxs4JqEOhs08PICoR55B/u7x/OMg+WSpDAbU7g+RJVqPLNSkuTdA1F3wrsb7XBi+vNTNBDSqIPlmZwm/XUwann2fPOAdUkDq8mi9XBdpbbdp7AmqWDZDGt1j+zTChBVksFaMsszeKDqQjgSeGcla40zsd2NR3aNsN38BVhFICeBOwEZh2iK84LQCNsOuKFRuDKlcNgi49Sp43HpkK/Y8IM6SugFddEU1YTQsSfKj5d6lgh7kBTlwe5w6jq+ZbpjEe5AukkhgU7tC5lutZUI96GQJOOxMzVqPs/OaYmCH7y2LZY9VMALrNwrmsl+ELM55sAKqkWjuDAsM4QDy7UCUYNz1L0MB8GBaQWpTeYKTeYf7eu7xpjecr9v5unXxPcXUPrV9v2lmX4d/wFqz2uScm67gwAAAABJRU5ErkJggg==\",\"iconCode\":\"02\"}],\"hostApp\":false,\"wapPayEnable\":false,\"wapPayCode\""
+  },
+  {
+    "name": "pay/withholdStatus",
+    "path": "/server/pay/withholdStatus",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"dkchannelcode未配置\",\"resultData\":null,\"code\":\"\"}"
+  },
+  {
+    "name": "home/noticeList#01",
+    "path": "/server/home/noticeList",
+    "method": "POST",
+    "body": {
+      "type": "01"
+    },
+    "status": 200,
+    "ms": 38,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"id\":\"1290256558785036316\",\"title\":\"用户帮助的正确使用方法\",\"content\":\"<p>一码通平台的&\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-30 00:00:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1285149499190149212\",\"title\":\"校园一码通关联场景的使用指南\",\"content\":\"<p><strong\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-16 16:00:10\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1285148766382325830\",\"title\":\"关于一码通“小额充值”的温馨提醒\",\"content\":\"<p>目前，校园一码\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-16 16:00:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1285152328063647785\",\"title\":\"校园一码通人脸采集用户操作流程\",\"content\":\"<p><strong\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-16 16:00:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1285141957990940704\",\"title\":\"一码通首页功能展示管理小窍门\",\"content\":\"<p>校园一码通用户\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-16 15:30:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1284806613131067468\",\"title\":\"一码通人脸采集用户操作流程\",\"content\":\"<p><strong\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-15 17:00:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true}],\"code\":\"\"}"
+  },
+  {
+    "name": "home/noticeList#num",
+    "path": "/server/home/noticeList",
+    "method": "POST",
+    "body": {
+      "type": 0,
+      "typeCode": ""
+    },
+    "status": 200,
+    "ms": 17,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"id\":\"1290256558785036316\",\"title\":\"用户帮助的正确使用方法\",\"content\":\"<p>一码通平台的&\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-30 00:00:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1285149499190149212\",\"title\":\"校园一码通关联场景的使用指南\",\"content\":\"<p><strong\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-16 16:00:10\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1285148766382325830\",\"title\":\"关于一码通“小额充值”的温馨提醒\",\"content\":\"<p>目前，校园一码\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-16 16:00:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1285152328063647785\",\"title\":\"校园一码通人脸采集用户操作流程\",\"content\":\"<p><strong\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-16 16:00:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1285141957990940704\",\"title\":\"一码通首页功能展示管理小窍门\",\"content\":\"<p>校园一码通用户\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-16 15:30:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true},{\"id\":\"1284806613131067468\",\"title\":\"一码通人脸采集用户操作流程\",\"content\":\"<p><strong\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"publishAt\":\"2025-09-15 17:00:00\",\"publisher\":\"信息技术中心业务服务部\",\"appCode\":null,\"showOnApp\":false,\"unread\":true}],\"code\":\"\"}"
+  },
+  {
+    "name": "home/tip#home",
+    "path": "/server/home/tip",
+    "method": "POST",
+    "body": {
+      "code": "home"
+    },
+    "status": 200,
+    "ms": 22,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":null,\"code\":\"\"}"
+  },
+  {
+    "name": "auth/organizations",
+    "path": "/server/auth/organizations",
+    "method": "POST",
+    "body": {
+      "code": ""
+    },
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"code:不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "auth/casConfig#empty",
+    "path": "/server/auth/casConfig",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"code:不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "auth/bindCard/config",
+    "path": "/server/auth/bindCard/config",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"code:唯一标识不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "card/lossList",
+    "path": "/server/card/lossList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 12,
+    "sample": "{\"data\":\"CpmQm5hj8G/PPoyFMBfWT7msbmSOly9SuUhMCdmuQVS6744GA8jhK/HMHwMwy+M1xX0knBoYds0WR37GHyo4FE8McEQ9fWJuXeAaP4oG5WAU7jYkYk0FzPvUV0rzcW0beng1xGFTUEQM/VGbDSS03Q==\"} || decrypted={\"success\":false,\"message\":\"idSerial:学工号必填 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "merchant/tradeList#dates",
+    "path": "/server/merchant/tradeList",
+    "method": "POST",
+    "body": {
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20",
+      "pageNo": 0,
+      "pageSize": "30"
+    },
+    "status": 403,
+    "ms": 11,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "iotdevice/devices",
+    "path": "/server/iotdevice/devices",
+    "method": "POST",
+    "body": {},
+    "status": 403,
+    "ms": 11,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "iotdevice/devicescounts",
+    "path": "/server/iotdevice/devicescounts",
+    "method": "POST",
+    "body": {},
+    "status": 403,
+    "ms": 14,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "iotdevice/devicetype",
+    "path": "/server/iotdevice/devicetype",
+    "method": "POST",
+    "body": {},
+    "status": 403,
+    "ms": 14,
+    "sample": "{\"code\":\"\",\"message\":\"失败\",\"success\":false}"
+  },
+  {
+    "name": "virtualCard/config#devCode",
+    "path": "/server/virtualCard/config",
+    "method": "POST",
+    "body": {
+      "devCode": "web"
+    },
+    "status": 200,
+    "ms": 38,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"color\":null,\"backgroundImg\":null,\"enableOffline\":true,\"disableDoc\":false,\"disableOnline\":false,\"plugEnableOnline\":false,\"onlineConfigList\":[],\"doc\":\"<h2>校园码介绍</h2>\\n\\t\\t<p style=\\\"margin-block-start: 1em; text-align: justify;\\\">校园码是电子化的校园卡，您可以使用手机替代实体卡，完成校园卡的充值、付款、缴费、出入、认证等业务。</p>\\n\\t\\t<p style=\\\"margin-block-start: 1em;text-align: justify;\\\">同时，为解决高峰期扫码消费出现过的断网无码、处理码慢等问题，为学校用户提供方便、快捷、安全的扫码支付体验，提供了在线模式和离线码模式两种校园码模式。</p>\\n\\t\\t<p style=\\\"margin-block-start: 1em; text-align: justify;\\\">若学校已开通校园码任意模式功能，绑定校园卡后，即可开启使用。</p>\\n\\t\\t<p style=\\\"margin-block-start: 1em; text-align: justify;\\\"><span style=\\\"color: #ff6600;\\\"><strong style=\\\"font-size: large;\\\">在线码模式</strong></span>：支持联机情况下的消费使用，不支持终端设备脱机使用。</p>\\n\\t\\t<p style=\\\"margin-block-start: 1em; text-align: justify;\\\"><strong style=\\\"font-size: large;\\\"><span style=\\\"color: #ff6600;\\\">离线码模式</span></strong>：是一种在线离线二合一码，支持手机和终端设备都联机情况下的消费使用；支持设备脱机情况下的消费使用；不支持手机离线情况下的消费使用。</p>\",\"enableToRecharge\":false,\"enableScan\":false,\"scanAppCode\":\"scan\",\"scanV8SuccessToHome\":false,\"refreshSecond\":60,\"abnormalDisQrcode\":false,\"displayBalance\":true,\"displayInfo\":true},\"code\":\"\"}"
+  },
+  {
+    "name": "virtualCard/offlineSeq",
+    "path": "/server/virtualCard/offlineSeq",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 67,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"version\":0},\"code\":\"\"}"
+  },
+  {
+    "name": "virtualCard/orderStatus#probe",
+    "path": "/server/virtualCard/orderStatus",
+    "method": "POST",
+    "body": {
+      "orderNo": "0"
+    },
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"qrcode:二维码内容不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "car/getRoute#probe",
+    "path": "/server/car/getRoute",
+    "method": "POST",
+    "body": {
+      "routeId": "1"
+    },
+    "status": 200,
+    "ms": 41,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"routeId\":null,\"startX\":null,\"startY\":null,\"startName\":null,\"endX\":null,\"endY\":null,\"endName\":null,\"stationList\":[]},\"code\":\"\"}"
+  },
+  {
+    "name": "car/shiftList#probe",
+    "path": "/server/car/shiftList",
+    "method": "POST",
+    "body": {
+      "routeId": "1"
+    },
+    "status": 200,
+    "ms": 25,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"shiftList\":[]},\"code\":\"\"}"
+  },
+  {
+    "name": "user/info",
+    "path": "/server/user/info",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 182,
+    "sample": "{\"data\":\"+R70V+/NSr+EZtf0l4raaIK4NUwKU2VtbodTduk2bMhKiEb+MzzpsHCO41sTvmI8+8v8bAc9wREA0bXxIeq5w+42K3O6emV45ubOyGZxHL779/eqsukFyLpoHsfhpweHEM8rKYBf2x3tOB7XLdXP3T5kgiPMxcclv+rQ7m8eu1YMr3q4P8h5UqeCImko38CltpJzAWVRo+ga+2J/NiTln4zHhUPcDG85ut5BqZ2dVB8RJ2oqvOjuOagkvwnPX8GKBsuYPAYlhgj0GJZIqQo3wtvqiyHZs0SdoTU || decrypted={\"success\":true,\"message\":\"成功\",\"resultData\":{\"balanceLessRecharge\":false,\"pwdNotSafe\":false,\"pwdModifyForce\":false,\"pwdModifyTip\":\"您当前的密码为弱密码或初始密码，请及时修改密码！\",\"schoolName\":null,\"groupEnabled\":false,\"user\":{\"username\":\"***NAME***\",\"idSerial\":\"***SID***\",\"balance\":\"2629.42\",\"tel\":\"***PHONE***\",\"positionCode\":\"01\",\"positionName\":\"教职工\",\"accNo\":\"***SID***\",\"accStatus\":\"1\",\"accStatusName\":\"正常\",\"hasCard\":false,\"cardStatus\":null,\"cardStatusName\":null,\"qrcodeStatus\":\"1\",\"qrcodeStatusName\":\"正常\",\"cardType\":null,\"cardId\":null,\"maxAmtTotalCard\":\"0.00\",\"maxAmtCard\":\"0.00\",\"hasVirCard\":true,\"maxAmtTotalQrcode\":\"150.00\",\"identityNo\":\"420************124936\",\"maxAmtQrcode\":\"50.00\",\"maxAmtTotalFace\":\"0.00\",\"maxAmtFace\":\"0.00\",\"effectDate\":\"2099-12-31 00:00:00\",\"effectDay\":26703,\"departName\":\"湖北工业大学-教学单位-土木建筑与环境学院\",\"bankNo\":null,\"sex\":\"1\",\"isalumnus\":false,\"mainblance\":0,\"subblance\":262942,\"schoolCode\":\"10051\",\"accTypes\":[{\"typeCode\":\"0\",\"typeName\":\"主账户\",\"balance\":\"0.00\"},{\"typeCode\":\"A10004950\",\"typeName\":\"补助钱包\",\"balance\":\"2629.42\"}],\"subAccounts\":[],\"deptBegin\":null,\"deptEnd\":null,\"whethershowtop\":\"0\"},\"merchant\":null,\"merchantAdmin\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "home/appList#full",
+    "path": "/server/home/appList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 34,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[{\"id\":\"202208261032001\",\"name\":\"扫一扫\",\"title\":\"扫一扫\",\"code\":\"scan\",\"iconImg\":\"\",\"type\":\"2\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":1,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"scan\"},{\"id\":\"202208261032002\",\"name\":\"校园码\",\"title\":\"校园码\",\"code\":\"campusCode\",\"iconImg\":\"\",\"type\":\"2\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":2,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"campusCode\"},{\"id\":\"202208261032004\",\"name\":\"交易记录\",\"title\":\"交易记录\",\"code\":\"tradeRecord\",\"iconImg\":\"\",\"type\":\"1\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":3,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"tradeRecord\"},{\"id\":\"202208261032003\",\"name\":\"小额充值\",\"title\":\"小额充值\",\"code\":\"recharge\",\"iconImg\":\"\",\"type\":\"0\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":4,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"recharge\"},{\"id\":\"202208261032008\",\"name\":\"密码修改\",\"title\":\"密码修改\",\"code\":\"changePassword\",\"iconImg\":\"\",\"type\":\"1\",\"thirdApp\":false,\"thirdAppToken\":false,\"thirdApplet\":false,\"appletAppId\":\"\",\"allowThirdAccess\":false,\"order\":5,\"columnId\":\"1\",\"columnName\":\"日常应用\",\"linkUrl\":null,\"linkUri\":\"changePassword\"},{\"id\":\"202208261032009\",\"name\":\"限额修改\",\"title\":\"限额修改\",\"c"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#so0",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "sortOrder": "0"
+    },
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"sortName参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#so1",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "sortOrder": "1"
+    },
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"success\":false,\"message\":\"sortName参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#desc",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "sortOrder": "desc"
+    },
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"sortName参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "water/device/info#posCode",
+    "path": "/server/water/device/info",
+    "method": "POST",
+    "body": {
+      "posCode": "0001"
+    },
+    "status": 200,
+    "ms": 52,
+    "sample": "{\"success\":false,\"message\":\"POS设备不存在\",\"resultData\":null,\"code\":\"POS设备不存在\"}"
+  },
+  {
+    "name": "home/notice#id",
+    "path": "/server/home/notice",
+    "method": "POST",
+    "body": {
+      "id": "1290256558785036316"
+    },
+    "status": 200,
+    "ms": 40,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"id\":\"1290256558785036316\",\"title\":\"用户帮助的正确使用方法\",\"typeCode\":\"01\",\"typeName\":\"校园公告\",\"content\":\"<p>一码通平台的&ldquo;用户帮助&rdquo;功能是一个二十四小时在线平台，用户可进行在线业务咨询、意见反馈和故障报修，帮助用户无需跑现场即能发起咨询。</p>\\n<p>一、用户帮助的服务内容</p>\\n<p>目前服务内容主要围绕校园一码通和一卡通相关业务。</p>\\n<p>二、用户帮助的咨询项目</p>\\n<p>具体细分为如下七个咨询项目：</p>\\n<p>1、一卡通业务：限于一卡通使用方法、适用范围、卡务服务等日常业务咨询，以及自助补卡机和领款机的故障报修等；</p>\\n<p>2、一码通业务：限于一码通使用方法、适用范围、业务办理流程等日常业务咨询，以及学校相关场景一码通使用故障报修等；</p>\\n<p>3、人脸采集业务：限于一码通平台&ldquo;人脸采集&rdquo;功能的使用咨询、人脸采集过程中遇到的问题反馈和相关场景人脸认证的故障报修等；</p>\\n<p>4、缴电费业务：限于一码通平台的&ldquo;缴电费&rdquo;使用过程中遇到的问题反馈；</p>\\n<p>5、教育网网费业务：限于一码通平台的&ldquo;教育网网费缴纳&rdquo;使用过程中遇到的问题反馈；</p>\\n<p>6、校园邮箱业务：限于学校邮箱开通和使用过程遇到的问题反馈；</p>\\n<p>7、融合门户业务：限于学校新融合门户使用过程中遇到的问题反馈。</p>\\n<p>三、用户帮助的咨询受理</p>\\n<p>七个项目均有专门的管理员接单受理，用户提交工单后，管理员可看到工单，处理完成后再予回复。未处理完成的工单，若管理员提前回复，会造成实际未处理但工单结束的情况，容易遗漏工单。</p>\\n<p>四、用户帮助的受理时间</p>\\n<p>1、工作日用户提交的工单正常情况下当日能够受理完成并得到回复，</p>\\n<p>2、周末及节假日用户提交的工单受理时间分为以下情况：</p>\\n<p>关于业务流程咨询的工单当日能够得到回复；</p>\\n<p>关于故障报修类的工单，管理员根据故障排查结果及时回复用户解决时限和进度；</p>\\n<p>关于密码重置、账户开通类的工单，管理员工作时间之外不便进行系统操作的，会保留工单至第一个工作日及时解决，并予以回复。</p>\\n<p>因此用户提交的工单后未得到回复，一般是管理员处于周末或节假日。</p>\\n<p>五、用户帮助的报单流程</p>\\n<p>1、点击&ldquo;填单报修&rdquo;；</p>\\n<p>2、报修区域：选择&ldquo;湖北工业大学&rdquo;，此处一定要选择，否则会造成无法正常派单；</p>\\n<p>3、详细地址：可填写故障发生地址；</p>\\n<p>4、报修项目：根据业务选择对应的报修项目，如果报修项目选择错误，会造成工单无法传递到对应的管理人员处，会贻误工单受理时机。</p>\\n<p>5、故障描述：详细描述需求或问题，且符合报修项目的服务范围，否则管理员会拉入误报单，系统认定为无效工单进行取消。</p>\\n<p>6、图片视频：如果能提供截图或照片进行佐证，能够协助管理员快速理解用户诉求或定位故障，有助问题的快速解决。</p>\\n<p>7、是否预约：填否</p>\\n<p>8、联系电话：准确填写报修人电话。</p>\\n<p>9、点击"
+  },
+  {
+    "name": "card/lossList#retry",
+    "path": "/server/card/lossList",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 8,
+    "sample": "{\"data\":\"CpmQm5hj8G/PPoyFMBfWT7msbmSOly9SuUhMCdmuQVS6744GA8jhK/HMHwMwy+M1xX0knBoYds0WR37GHyo4FE8McEQ9fWJuXeAaP4oG5WAU7jYkYk0FzPvUV0rzcW0beng1xGFTUEQM/VGbDSS03Q==\"} || decrypted={\"success\":false,\"message\":\"idSerial:学工号必填 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "user/systemMTradeListByPage#p",
+    "path": "/server/user/systemMTradeListByPage",
+    "method": "POST",
+    "body": {
+      "pageSize": 10,
+      "pageNo": 0,
+      "tradeType": "1,2,3",
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 16,
+    "sample": "{\"success\":false,\"message\":\"未知的业务操作\",\"resultData\":null,\"code\":\"CORE10002\"}"
+  },
+  {
+    "name": "user/repayList#p",
+    "path": "/server/user/repayList",
+    "method": "POST",
+    "body": {
+      "pageSize": 10,
+      "pageNo": 0,
+      "tradeType": "1,2,3",
+      "fromDate": "2026-09-01",
+      "toDate": "2026-11-20"
+    },
+    "status": 200,
+    "ms": 25,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "home/tip#recharge",
+    "path": "/server/home/tip",
+    "method": "POST",
+    "body": {
+      "code": "recharge"
+    },
+    "status": 200,
+    "ms": 16,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":null,\"code\":\"\"}"
+  },
+  {
+    "name": "auth/organizations#hbut",
+    "path": "/server/auth/organizations",
+    "method": "POST",
+    "body": {
+      "code": "hbut"
+    },
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"参数非法\",\"resultData\":null,\"code\":\"\"}"
+  },
+  {
+    "name": "consume/paySuccessInfo",
+    "path": "/server/consume/paySuccessInfo",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 15,
+    "sample": "{\"success\":false,\"message\":\"根据订单号查询商户信息参数缺失\",\"resultData\":null,\"code\":\"根据订单号查询商户信息参数缺失\"}"
+  },
+  {
+    "name": "apply/queryProgress#type",
+    "path": "/server/apply/queryProgress",
+    "method": "POST",
+    "body": {
+      "applyType": "1"
+    },
+    "status": 200,
+    "ms": 18,
+    "sample": "{\"success\":false,\"message\":\"参数不完整\",\"resultData\":null,\"code\":\"CORE20055\"}"
+  },
+  {
+    "name": "merchant/report",
+    "path": "/server/merchant/report",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"toDate:截止日期不能为空 fromDate:起始日期不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "merchant/sum",
+    "path": "/server/merchant/sum",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 9,
+    "sample": "{\"success\":false,\"message\":\"type:type不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "recharge/orderStatus",
+    "path": "/server/recharge/orderStatus",
+    "method": "POST",
+    "body": {
+      "orderNo": "0"
+    },
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"success\":false,\"message\":\"partnerJourno:partnerJourno不能为空 \",\"resultData\":null,\"code\":\"valid_error_1004\"}"
+  },
+  {
+    "name": "transFormal/getAuditResult#retry",
+    "path": "/server/transFormal/getAuditResult",
+    "method": "POST",
+    "body": {},
+    "status": 200,
+    "ms": 23,
+    "sample": "{\"success\":true,\"message\":\"成功\",\"resultData\":{\"idSerial\":null,\"tranStatus\":\"-1\",\"aduitUserName\":null,\"aduitReason\":null},\"code\":\"\"}"
+  },
+  {
+    "name": "card/lossList#idSerial",
+    "path": "/server/card/lossList",
+    "method": "POST",
+    "body": {
+      "idSerial": "***SID***"
+    },
+    "status": 200,
+    "ms": 215,
+    "sample": "{\"data\":\"+R70V+/NSr+EZtf0l4raaIK4NUwKU2VtbodTduk2bMhKiEb+MzzpsHCO41sTvmI8j8MwpVUI5U/5uPDnxI/Rww==\"} || decrypted={\"success\":true,\"message\":\"成功\",\"resultData\":[],\"code\":\"\"}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#sn",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "sortOrder": "0",
+      "sortName": "xfje"
+    },
+    "status": 200,
+    "ms": 17,
+    "sample": "{\"success\":false,\"message\":\"pageNumber参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#sn2",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "sortOrder": "0",
+      "sortName": "consumefare"
+    },
+    "status": 200,
+    "ms": 11,
+    "sample": "{\"success\":false,\"message\":\"pageNumber参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#full",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "sortOrder": "0",
+      "sortName": "xfje",
+      "pageNumber": 1,
+      "pageSize": 10
+    },
+    "status": 200,
+    "ms": 168,
+    "sample": "{\"success\":false,\"message\":\"pageNumber参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#pnum",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "sortOrder": "0",
+      "sortName": "xfje",
+      "pageNum": 1,
+      "pageSize": 10
+    },
+    "status": 200,
+    "ms": 179,
+    "sample": "{\"success\":false,\"message\":\"pageNumber参数为空\",\"resultData\":null}"
+  },
+  {
+    "name": "bllt/querySingleConsumeRank#str",
+    "path": "/server/bllt/querySingleConsumeRank",
+    "method": "POST",
+    "body": {
+      "starttime": "2026-11-01",
+      "endtime": "2026-11-20",
+      "sortOrder": "0",
+      "sortName": "xfje",
+      "pageNumber": "1",
+      "pageSize": "10"
+    },
+    "status": 200,
+    "ms": 10,
+    "sample": "{\"success\":false,\"message\":\"pageNumber参数为空\",\"resultData\":null}"
+  }
+]

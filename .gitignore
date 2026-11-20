@@ -183,3 +183,24 @@ goal8-realmachine-report.json
 # 真机验证的临时报告（goal8 工具产出）
 goal8-games-report.json
 goal8-realmachine-report.json
+
+# ── 教师端接口勘察产物（2026-11-20）────────────────────────────
+# 只提交脱敏文档与结构化记录；原始页面 HTML / 前端 bundle / 中间 scratch
+# 含 PII（教师姓名、工号、学生名单）或体积过大，一律不入库。
+data/teacher-portal-recon-1120/raw/*.html
+data/teacher-portal-recon-1120/raw/*.log
+data/teacher-portal-recon-1120/raw/*.bak77
+data/teacher-portal-recon-1120/raw/fe-chunks/
+data/teacher-portal-recon-1120/raw/fe-index-*.js
+data/teacher-portal-recon-1120/scratch/
+
+tools/teacher-probe/cx-*.html
+tools/teacher-probe/cx-courses.json
+
+# 门户前端 bundle 抓取物（第三方 JS，体积大且非本项目代码）
+tools/teacher-probe/bundle/
+tools/teacher-probe/tmp-index-root.html
+
+# 含真实 cookie/凭据值的探测记录（严禁入库）
+data/teacher-portal-recon-1120/raw/*cookie*.json
+data/teacher-portal-recon-1120/raw/*jar*.json

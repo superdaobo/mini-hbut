@@ -1,0 +1,200 @@
+[
+  {
+    "name": "teachercourse",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/mycourse/teachercourse",
+    "status": 404,
+    "ms": 233,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 735,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "studentcourse",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/mycourse/studentcourse",
+    "status": 404,
+    "ms": 64,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 735,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "courselist-api",
+    "url": "https://mooc1-api.chaoxing.com/mycourse/studentcourse",
+    "status": 302,
+    "ms": 96,
+    "kind": "html",
+    "title": "",
+    "jsonKeys": [],
+    "len": 0,
+    "sample": ""
+  },
+  {
+    "name": "chapter-list",
+    "url": "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudycourselist",
+    "status": 200,
+    "ms": 43,
+    "kind": "html",
+    "title": "",
+    "jsonKeys": [],
+    "len": 5,
+    "sample": "无权限查看"
+  },
+  {
+    "name": "work-list",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/work/list",
+    "status": 404,
+    "ms": 36,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 738,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "work-list-ans",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/work/index",
+    "status": 404,
+    "ms": 87,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 735,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "exam-list",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/exam/test/reVersionTestStartNew",
+    "status": 404,
+    "ms": 37,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 738,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "exam-ans-list",
+    "url": "https://mooc1.chaoxing.com/exam-ans/mooc2/exam/exam-list",
+    "status": 200,
+    "ms": 37,
+    "kind": "html",
+    "title": "提示",
+    "jsonKeys": [],
+    "len": 1150,
+    "sample": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n\n<script>\n    _HOST_ = \"//mooc1.chaoxing.com\";\n    _CP_ = \"/exam-ans\";\n    _HOST_CP1_ = \"//mooc1.chaoxing.com/exam-ans\";\n    // _HOST_"
+  },
+  {
+    "name": "student-list",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/students/studentList",
+    "status": 404,
+    "ms": 37,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 735,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "statistic",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/statistics/statistic",
+    "status": 404,
+    "ms": 35,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 738,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "course-data",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/course/statistics",
+    "status": 404,
+    "ms": 48,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 735,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "sign-history",
+    "url": "https://mobilelearn.chaoxing.com/widget/activeList",
+    "status": 500,
+    "ms": 111,
+    "kind": "html",
+    "title": "500 Internal Server Error",
+    "jsonKeys": [],
+    "len": 224,
+    "sample": "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\r\n<html>\r\n<head><title>500 Internal Server Error</title></head>\r\n<body>\r\n<center><h1>500 Internal Server Error</h1></center>\r\n<hr><center>tengine</center>\r\n</body>\r\n</html>\r\n"
+  },
+  {
+    "name": "ppt-list",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/ppt/list",
+    "status": 404,
+    "ms": 40,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 738,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "notice-list",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/notice/list",
+    "status": 404,
+    "ms": 38,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 738,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "bbs-list",
+    "url": "https://mooc1.chaoxing.com/mooc2-ans/bbs/list",
+    "status": 404,
+    "ms": 40,
+    "kind": "html",
+    "title": "404",
+    "jsonKeys": [],
+    "len": 738,
+    "sample": "<!doctype html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n    <title>404</title>\n    <style>\n        .main{height:255px;margin:0 auto;margin-top:15%;font-size:16px;color:#999; width: 350px;}\n        .font_top{padd"
+  },
+  {
+    "name": "space-index",
+    "url": "https://i.chaoxing.com/base",
+    "status": 200,
+    "ms": 260,
+    "kind": "html",
+    "title": "个人空间",
+    "jsonKeys": [],
+    "len": 92346,
+    "sample": "<!DOCTYPE html>\r\n<html lang=\"en\">\r\n<head>\r\n    <meta charset=\"UTF-8\">\r\n    <title>个人空间</title>\r\n    <meta name=\"referrer\" content=\"origin\">\r\n    <link rel=\"stylesheet\" href=\"/static/space/newSpace/css/layui.css?t=\" type=\"text/css\">\r\n    <link rel=\"stylesheet\" href=\"/static/space/nervous/css/global.c"
+  },
+  {
+    "name": "fanya-portal",
+    "url": "https://hbutsie1.fanya.chaoxing.com/portal",
+    "status": 200,
+    "ms": 175,
+    "kind": "html",
+    "title": "湖北工业大学网络教学平台",
+    "jsonKeys": [],
+    "len": 32426,
+    "sample": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta http-equiv=\"Content-Type\" content=\"text/html; charse"
+  },
+  {
+    "name": "jw-mirror-teacher",
+    "url": "https://hbut.jw.chaoxing.com/admin/login2",
+    "status": 200,
+    "ms": 242,
+    "kind": "html",
+    "title": "报错啦",
+    "jsonKeys": [],
+    "len": 599,
+    "sample": "\r\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\r\n<!DOCTYPE html>\r\n<html lang=\"en\">\r\n<head>\r\n    <meta charset=\"utf-8\">\r\n    <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge,chrome=1\">\r\n    <title>报错啦</title>\r\n    <link rel=\"stylesheet\" href=\"/static/common/css/error/comm.css?_t=1795147314195\" />\r\n    <link rel=\"stylesh"
+  }
+]

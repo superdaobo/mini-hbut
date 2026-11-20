@@ -1,0 +1,22 @@
+[
+ {
+  "page": "pageview-hall",
+  "url": "https://e.hbut.edu.cn/getPageView?_t=1795172383061&pageCode=hall&originalUrl=https%3A%2F%2Fe.hbut.edu.cn%2Findex.html%23%2Fportal%2Fhall&lang=zh_CN",
+  "method": "GET",
+  "status": 200,
+  "ms": 200,
+  "note": "",
+  "fields": "errcode=0",
+  "sample": ""
+ },
+ {
+  "page": "pageview-datacenter",
+  "url": "https://e.hbut.edu.cn/getPageView?_t=1795172383526&pageCode=datacenter&originalUrl=https%3A%2F%2Fe.hbut.edu.cn%2Findex.html%23%2Fportal%2Fdatacenter&lang=zh_CN",
+  "method": "GET",
+  "status": 200,
+  "ms": 98,
+  "note": "",
+  "fields": "errcode=0",
+  "sample": ""
+ }
+]
