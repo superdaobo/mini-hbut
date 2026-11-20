@@ -111,4 +111,184 @@ pub(crate) fn router() -> Router<HttpState> {
         .route("/v2/teacher/teaching", post(teacher_teaching))
         .route("/v2/teacher/exams", post(teacher_exams))
         .route("/v2/teacher/notices", post(teacher_notices))
+        // goal-21：教师端新增只读路由
+        .route("/v2/teacher/attendance", post(teacher_attendance))
+        .route("/v2/teacher/workload", post(teacher_workload))
+        .route("/v2/teacher/workflow", post(teacher_workflow))
+        .route("/v2/teacher/exam-affairs", post(teacher_exam_affairs))
+        .route("/v2/teacher/credits", post(teacher_credits))
+        .route("/v2/teacher/adjustment", post(teacher_adjustment))
+        .route("/v2/teacher/roster", post(teacher_roster))
+        .route("/v2/teacher/grade-entry", post(teacher_grade_entry))
+        .route("/v2/teacher/schedule-lists", post(teacher_schedule_lists))
+        .route("/v2/teacher/portal-cards", post(teacher_portal_cards))
+        .route("/v2/teacher/chaoxing-courses", post(teacher_chaoxing_courses))
+        .route("/v2/teacher/chaoxing-analytics", post(teacher_chaoxing_analytics))
+        .route("/v2/teacher/chaoxing-scores", post(teacher_chaoxing_scores))
+        .route("/v2/teacher/chaoxing-monitor", post(teacher_chaoxing_monitor))
+}
+
+// ────────────────────────────────────────────────────────────────
+// goal-21：教师端新增只读 bridge 路由（与 14 个 Tauri 命令一一对应）
+// ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Default)]
+struct TeacherRosterRequest {
+    bjid: Option<String>,
+    page: Option<u32>,
+    page_size: Option<u32>,
+    keyword: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct TeacherChaoxingRequest {
+    courseid: String,
+    clazzid: String,
+    cpi: String,
+}
+
+/// 生成「只接受 semester 参数」的 bridge 处理函数，避免 10 段重复样板。
+macro_rules! semester_route {
+    ($name:ident, $method:ident) => {
+        async fn $name(
+            State(state): State<HttpState>,
+            headers: HeaderMap,
+            Json(request): Json<TeacherSemesterRequest>,
+        ) -> Result<
+            Json<ApiResponse<serde_json::Value>>,
+            (StatusCode, Json<ApiResponse<serde_json::Value>>),
+        > {
+            ensure_sensitive_bridge_auth(&headers, &state)?;
+            service(&state)
+                .$method(request.semester)
+                .await
+                .map(ok)
+                .map_err(map_error)
+        }
+    };
+}
+
+semester_route!(teacher_attendance, fetch_attendance);
+semester_route!(teacher_workload, fetch_workload);
+semester_route!(teacher_workflow, fetch_workflow);
+semester_route!(teacher_exam_affairs, fetch_exam_affairs);
+semester_route!(teacher_credits, fetch_credits);
+semester_route!(teacher_adjustment, fetch_adjustment);
+semester_route!(teacher_grade_entry, fetch_grade_entry);
+
+/// 课表扩展：班级列表 + 教室列表（semester + keyword）。
+async fn teacher_schedule_lists(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(request): Json<TeacherRosterRequest>,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_schedule_lists(None, request.keyword)
+        .await
+        .map(ok)
+        .map_err(map_error)
+}
+
+/// 学生名册（`bjid` 必填；缺失由服务层拒绝且不发请求）。
+async fn teacher_roster(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(request): Json<TeacherRosterRequest>,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_roster(request.bjid, request.page, request.page_size, request.keyword)
+        .await
+        .map(ok)
+        .map_err(map_error)
+}
+
+/// 融合门户卡片。
+async fn teacher_portal_cards(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_portal_cards()
+        .await
+        .map(ok)
+        .map_err(map_error)
+}
+
+/// 学习通教师侧：课程。
+async fn teacher_chaoxing_courses(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_chaoxing_courses()
+        .await
+        .map(ok)
+        .map_err(map_error)
+}
+
+/// 学习通教师侧：学情。
+async fn teacher_chaoxing_analytics(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(request): Json<TeacherChaoxingRequest>,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_chaoxing_analytics(request.courseid, request.clazzid, request.cpi)
+        .await
+        .map(ok)
+        .map_err(map_error)
+}
+
+/// 学习通教师侧：全班成绩。
+async fn teacher_chaoxing_scores(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(request): Json<TeacherChaoxingRequest>,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_chaoxing_scores(request.courseid, request.clazzid, request.cpi)
+        .await
+        .map(ok)
+        .map_err(map_error)
+}
+
+/// 学习通教师侧：学习监控。
+async fn teacher_chaoxing_monitor(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(request): Json<TeacherChaoxingRequest>,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_chaoxing_monitor(request.courseid, request.clazzid, request.cpi)
+        .await
+        .map(ok)
+        .map_err(map_error)
 }
