@@ -55,7 +55,7 @@ const handleTeacherGradeJump = () => {
 }
 
 /** 选择列表项点击：emit 所选教师并收起列表 */
-const pickTeacherForGrade = (name: string) => {
+const pickTeacherForGrade = (name) => {
   teacherPickerOpen.value = false
   emit('open-grade-distribution', { teacher: name })
 }
@@ -64,6 +64,18 @@ const pickTeacherForGrade = (name: string) => {
 watch(() => props.showDetail, (open) => {
   if (!open) teacherPickerOpen.value = false
 })
+
+/**
+ * 入口的 aria-label / title 文案：
+ * 多教师时点击是「展开选择列表」，若仍念第一位姓名会误导读屏用户，因此改用选择提示。
+ * 用普通函数而非 computed：与模板里其它 t() 一致，每次渲染重新取词。
+ */
+const teacherGradeLabel = () => {
+  const names = teacherNames.value
+  return names.length > 1
+    ? t('schedule.detail.teacherPickerTitle')
+    : t('schedule.detail.gradeDistributionTitle').replace('{name}', names[0] || '')
+}
 </script>
 
 <template>
@@ -109,8 +121,8 @@ watch(() => props.showDetail, (open) => {
                 v-if="hasTeacher"
                 type="button"
                 class="teacher-grade-pill"
-                :aria-label="t('schedule.detail.gradeDistributionTitle').replace('{name}', teacherNames[0])"
-                :title="t('schedule.detail.gradeDistributionTitle').replace('{name}', teacherNames[0])"
+                :aria-label="teacherGradeLabel()"
+                :title="teacherGradeLabel()"
                 @click="handleTeacherGradeJump"
               >📊 {{ t('schedule.detail.gradeDistribution') }}</button>
             </span>

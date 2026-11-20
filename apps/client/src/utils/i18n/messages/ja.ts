@@ -477,7 +477,7 @@ export const messages: Record<string, string> = {
   'schedule.detail.deleteAllWeeks': 'すべての週を削除',
   'schedule.detail.copyDetail': 'コース詳細をコピーする',
   'schedule.detail.conflictPeriod': '第{n}週 {s}～{e}限',
-  // #1321：教师の給点記録（評価分布）へのクイックジャンプ
+  // #1321：教師 → 評価分布へのクイックジャンプ
   'schedule.detail.gradeDistribution': '評価分布',
   'schedule.detail.gradeDistributionTitle': '{name} の評価分布を見る',
   'schedule.detail.teacherPickerTitle': '教師を選択',
