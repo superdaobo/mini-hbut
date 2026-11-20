@@ -17,8 +17,11 @@
 
 pub mod chaoxing_cards;
 pub mod chaoxing_courses;
+// P4-B（#1343）：作业/考试「只查不做」跨课程聚合（共用一份 60s 缓存）
+pub mod chaoxing_exam;
 pub mod chaoxing_outline;
 pub mod chaoxing_session;
+pub mod chaoxing_work;
 pub mod service;
 mod shared;
 #[cfg(feature = "mobile-full")]

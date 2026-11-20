@@ -109,12 +109,12 @@ export const permissionToCommand = (permission) =>
 const syncCapability = (source, commands) => {
   const data = JSON.parse(source)
   const wanted = new Set(commands.map(commandToPermission))
-  // 保留非「应用命令授权」的条目（core:*、插件权限，以及不属于本次清单的 allow-*）。
-  // 注意要按**归一化后的命令名**判定，否则历史上写歪的大小写形态（snake_case）会残留下来。
-  const commandSet = new Set(commands)
-  const kept = (data.permissions || []).filter(
-    (item) => !(item.startsWith('allow-') && commandSet.has(permissionToCommand(item)))
-  )
+  // 保留非「应用命令授权」的条目（core:*、plugin:* 等，全部带冒号前缀）。
+  //
+  // 应用命令授权一律是**无前缀**的 `allow-<kebab>`；因此这里直接丢弃所有无前缀
+  // `allow-*` 再按当前清单重建 —— 否则**删除命令**时旧授权会永久残留，而
+  // `check_tauri_command_grants.mjs` 会把它报成「C-B：授权了但 AppManifest 没有」。
+  const kept = (data.permissions || []).filter((item) => !item.startsWith('allow-'))
   const merged = [...kept, ...wanted]
   data.permissions = merged
   return JSON.stringify(data, null, 2) + '\n'

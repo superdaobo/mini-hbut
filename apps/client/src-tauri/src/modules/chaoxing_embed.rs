@@ -57,12 +57,15 @@ const COOKIE_ORIGINS: [&str; 7] = [
     "https://hbut.jw.chaoxing.com",
 ];
 
-/// 注入时使用的 cookie 域。
+/// 兜底的「全域」cookie 域（用于跨子域跳转）。
 ///
-/// ⚠️ 实测（2026-10-19，`library_reserve_embed` 首次实现时踩到）：
-/// `domain(".chaoxing.com")`（带前导点）会被 WebView2 拒绝/忽略 —— 用**无点**的
-/// `chaoxing.com`（RFC 6265 下同样覆盖全部子域）。学习通会在
-/// `mooc1` / `passport2` / `i` 之间来回跳，所以必须用全域域，而不是逐 host 注入。
+/// ⚠️ 实测（2026-11-20，PR-B 联调）：只注入 `domain=chaoxing.com` 时，
+/// `mooc1.chaoxing.com/mooc2/work/task` 仍然被 302 到 `passport2.chaoxing.com/login`
+/// —— WebView2 把无前导点的域当成 **host-only**，`chaoxing.com` 并不匹配子域。
+/// 而同一个 URL 用 App 的 Rust 会话请求是 200（会话有效），所以问题只在注入方式。
+///
+/// 因此改为**两层注入**：先按目标 host 注入（host-only，保证对当前页面生效），
+/// 再补一份 `chaoxing.com` 域 cookie（跳转到其它子域时用得上，被忽略也无害）。
 const COOKIE_DOMAIN: &str = "chaoxing.com";
 
 /// 子 WebView 的位置与尺寸（逻辑像素，相对主窗口）
@@ -206,7 +209,19 @@ pub async fn chaoxing_embed_open(
         .get_webview(EMBED_LABEL)
         .ok_or_else(|| "内嵌页创建后未能取到句柄".to_string())?;
 
-    // 3) 注入 cookie（同名只注入一次：全域域下各子域共享）
+    // 3) 注入 cookie
+    //
+    // 同名只取一次（cookie jar 里各 origin 返回的是同一套 `.chaoxing.com` cookie），
+    // 但**域要注入两遍**：目标 host（host-only，保证生效）+ chaoxing.com（跨子域兜底）。
+    let target_host = start_url.host_str().unwrap_or_default().to_string();
+    let mut domains: Vec<String> = Vec::new();
+    if !target_host.is_empty() {
+        domains.push(target_host.clone());
+    }
+    if target_host != COOKIE_DOMAIN {
+        domains.push(COOKIE_DOMAIN.to_string());
+    }
+
     let mut injected = 0usize;
     let mut seen = std::collections::HashSet::new();
     for (_host, pairs) in &cookie_rows {
@@ -214,14 +229,20 @@ pub async fn chaoxing_embed_open(
             if name.trim().is_empty() || !seen.insert(name.clone()) {
                 continue;
             }
-            let cookie = tauri::webview::cookie::Cookie::build((name.clone(), value.clone()))
-                .domain(COOKIE_DOMAIN)
-                .path("/")
-                .secure(true)
-                .build();
-            match webview.set_cookie(cookie) {
-                Ok(()) => injected += 1,
-                Err(err) => println!("[ChaoxingEmbed] set_cookie 失败 name={name}: {err}"),
+            for domain in &domains {
+                let cookie = tauri::webview::cookie::Cookie::build((name.clone(), value.clone()))
+                    .domain(domain.clone())
+                    .path("/")
+                    .secure(true)
+                    .build();
+                match webview.set_cookie(cookie) {
+                    Ok(()) => injected += 1,
+                    Err(err) => {
+                        println!(
+                            "[ChaoxingEmbed] set_cookie 失败 name={name} domain={domain}: {err}"
+                        )
+                    }
+                }
             }
         }
     }
@@ -233,13 +254,23 @@ pub async fn chaoxing_embed_open(
         .cookies_for_url(start_url.clone())
         .map(|list| list.len())
         .unwrap_or(0);
+    // 额外回读一次「站点根」，用于区分「注入没生效」与「只是当前路径没带 cookie」
+    let host_root = format!("https://{target_host}/");
+    let visible_root = host_root
+        .parse::<Url>()
+        .ok()
+        .and_then(|url| webview.cookies_for_url(url).ok())
+        .map(|list| list.len())
+        .unwrap_or(0);
     println!(
-        "[ChaoxingEmbed] 已注入 cookie 数={injected} 目标域可见={visible} 目标={}",
+        "[ChaoxingEmbed] 已注入 cookie 数={injected} 目标域可见={visible} 根域可见={visible_root} 目标={}",
         start_url
     );
     crate::runtime_log::log_info(
         "ChaoxingEmbed",
-        format!("cookie 注入完成 提交={injected} 目标域回读={visible}"),
+        format!(
+            "cookie 注入完成 提交={injected} 目标域回读={visible} 根域回读={visible_root} 域={domains:?}"
+        ),
     );
 
     // 4) 带 cookie 重新加载，再搬到真实位置
@@ -310,6 +341,36 @@ pub async fn chaoxing_embed_close(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 跟随前端容器同步内嵌页位置/尺寸（滚动、窗口缩放、输入法弹起）。
+///
+/// 只调整位置尺寸，**不重建 WebView**（重建会重新注入 cookie 并闪一下白屏）。
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn chaoxing_embed_resize(
+    app: AppHandle,
+    bounds: ChaoxingEmbedBounds,
+) -> Result<(), String> {
+    if bounds.width < 8.0 || bounds.height < 8.0 {
+        return Err("内嵌页尺寸过小".to_string());
+    }
+    if bounds.x < -100.0 || bounds.y < -100.0 {
+        return Err("内嵌页位置无效".to_string());
+    }
+    let webview = app
+        .get_webview(EMBED_LABEL)
+        .ok_or_else(|| "学习通内嵌页未打开".to_string())?;
+    webview
+        .set_position(LogicalPosition::new(bounds.x, bounds.y))
+        .map_err(|e| e.to_string())?;
+    webview
+        .set_size(LogicalSize::new(
+            bounds.width.max(1.0),
+            bounds.height.max(1.0),
+        ))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(not(desktop))]
 #[tauri::command]
 pub async fn chaoxing_embed_open(
@@ -325,6 +386,15 @@ pub async fn chaoxing_embed_open(
 #[tauri::command]
 pub async fn chaoxing_embed_close(_app: AppHandle) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(not(desktop))]
+#[tauri::command]
+pub async fn chaoxing_embed_resize(
+    _app: AppHandle,
+    _bounds: ChaoxingEmbedBounds,
+) -> Result<(), String> {
+    Err("当前平台不支持内嵌学习通页面".to_string())
 }
 
 #[cfg(test)]
