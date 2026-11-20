@@ -708,48 +708,12 @@ impl HbutClient {
         }
 
         // 2) 通过已有电费/一码通 token 走 third/open
-        let cached_auth = self.electricity_token.clone().unwrap_or_default();
-        let mut access_token = String::new();
-
-        // 优先用已缓存 Authorization 获取 accessToken，避免触发重新登录
-        if !cached_auth.is_empty() {
-            if let Ok(resp) = self
-                .client
-                .get("https://code.hbut.edu.cn/server/auth/getLoginUser")
-                .header("Authorization", &cached_auth)
-                .header("Origin", "https://code.hbut.edu.cn")
-                .header("Referer", "https://code.hbut.edu.cn/")
-                .send()
-                .await
-            {
-                if let Ok(json) = resp.json::<serde_json::Value>().await {
-                    access_token = json
-                        .get("resultData")
-                        .and_then(|v| v.get("accessToken"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                }
-            }
-        }
-
-        if access_token.is_empty() {
-            if let Ok(resp) = self
-                .client
-                .get("https://code.hbut.edu.cn/server/auth/getLoginUser")
-                .send()
-                .await
-            {
-                if let Ok(json) = resp.json::<serde_json::Value>().await {
-                    access_token = json
-                        .get("resultData")
-                        .and_then(|v| v.get("accessToken"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                }
-            }
-        }
+        //
+        // #1334 BUG-1：原实现用 `GET /server/auth/getLoginUser`（实测**恒 404**）反查 accessToken，
+        // 两处分支都拿不到值，纯属无效请求。
+        // 关键事实：`electricity_token` 就是 code 服务 `POST /server/auth/getToken` 签发的 accessToken，
+        // 与 AI 需要的 `third/open?accessToken=` 是同一个令牌 —— 直接复用即可，无需再探测。
+        let mut access_token = self.electricity_token.clone().unwrap_or_default();
 
         // 备用：尝试 One Code getToken（尽量不触发频繁登录）
         if access_token.is_empty() {

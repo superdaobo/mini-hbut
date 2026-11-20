@@ -1150,8 +1150,15 @@ impl HbutClient {
     }
 
     /// 检查是否已具备 code 服务登录会话
+    ///
+    /// #1334 BUG-1：原实现 `GET /server/auth/getLoginUser` 实测**恒 404**（该端点已下线），
+    /// 导致本函数恒返回 false —— 两处「CAS 已登录但仍停在登录页」的救援路径（L1055/L1082）失效。
+    ///
+    /// 改为轻量重定向探测：访问 code 门户首页，只要**没有**被重定向到 CAS / 门户登录页即视为会话有效。
+    /// 之所以不用 `POST /server/user/info`：本函数在「刚 POST 完 CAS、尚未换取 accessToken」时调用，
+    /// Rust 侧此时没有可用的 Authorization 头。
     async fn check_code_login(&self) -> bool {
-        let url = "https://code.hbut.edu.cn/server/auth/getLoginUser";
+        let url = "https://code.hbut.edu.cn/";
         let resp = self
             .client
             .get(url)
@@ -1160,17 +1167,14 @@ impl HbutClient {
             .header("Referer", "https://code.hbut.edu.cn/")
             .send()
             .await;
-        if let Ok(resp) = resp {
-            if let Ok(text) = resp.text().await {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                    return json
-                        .get("success")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                }
-            }
+        let Ok(resp) = resp else {
+            return false;
+        };
+        if !resp.status().is_success() {
+            return false;
         }
-        false
+        let final_url = resp.url().to_string();
+        !(looks_like_cas_login_url(&final_url) || looks_like_portal_login_url(&final_url))
     }
 
     /// 使用 OCR 识别传入的 base64 图片内容。
