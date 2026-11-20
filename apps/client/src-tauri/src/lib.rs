@@ -696,6 +696,11 @@ pub fn run() {
             // P4-A（#1342）：学习通内嵌页（应用内打开 + 注入会话 cookie）
             modules::chaoxing_embed::chaoxing_embed_open,
             modules::chaoxing_embed::chaoxing_embed_close,
+            modules::chaoxing_embed::chaoxing_embed_resize,
+            // P4-B（#1343）：作业/考试「只查不做」清单
+            transport::tauri::chaoxing::chaoxing_fetch_works_all_courses,
+            transport::tauri::chaoxing::chaoxing_fetch_exams_all_courses,
+            transport::tauri::chaoxing::chaoxing_resolve_task_url,
             transport::tauri::electricity::campus_code_fetch_config,
             transport::tauri::electricity::campus_code_fetch_qrcode,
             transport::tauri::electricity::campus_code_fetch_order_status,

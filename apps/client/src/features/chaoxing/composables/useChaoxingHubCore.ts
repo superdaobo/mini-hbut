@@ -93,6 +93,9 @@ export const createChaoxingHubCore = (props: ChaoxingHubProps, emit: (event: 'ba
       else if (frame.level === 'knowledge')
         items.push({ key: 'knowledge', label: frame.knowledge?.title || '小节' })
       else if (frame.level === 'score') items.push({ key: 'score', label: '成绩' })
+      // P4-B（#1343）：作业 / 考试清单（只查不做）
+      else if (frame.level === 'workList') items.push({ key: 'workList', label: '作业' })
+      else if (frame.level === 'examList') items.push({ key: 'examList', label: '考试' })
       else if (frame.level === 'video')
         items.push({ key: 'video', label: frame.task?.title || '视频' })
       else if (frame.level === 'document')
@@ -108,6 +111,8 @@ export const createChaoxingHubCore = (props: ChaoxingHubProps, emit: (event: 'ba
     if (c.level === 'section') return c.section?.title || '章节'
     if (c.level === 'knowledge') return c.knowledge?.title || '任务'
     if (c.level === 'score') return '成绩组成'
+    if (c.level === 'workList') return '我的作业'
+    if (c.level === 'examList') return '我的考试'
     if (c.level === 'video') return c.task?.title || '视频'
     if (c.level === 'document') return c.task?.title || '文档'
     return '课程中心'
