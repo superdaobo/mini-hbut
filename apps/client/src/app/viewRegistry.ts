@@ -144,6 +144,17 @@ const loadTeacherTeachingView: Loader = () => import('../features/teacher/views/
 const loadTeacherExamsView: Loader = () => import('../features/teacher/views/TeacherExamsView.vue')
 const loadTeacherNotificationView: Loader = () => import('../features/teacher/views/TeacherNotificationView.vue')
 const loadTeacherWorkflowView: Loader = () => import('../features/teacher/views/TeacherWorkflowView.vue')
+const loadTeacherAttendanceView: Loader = () => import('../features/teacher/views/TeacherAttendanceView.vue')
+const loadTeacherWorkloadView: Loader = () => import('../features/teacher/views/TeacherWorkloadView.vue')
+const loadTeacherExamAffairsView: Loader = () => import('../features/teacher/views/TeacherExamAffairsView.vue')
+const loadTeacherCreditsView: Loader = () => import('../features/teacher/views/TeacherCreditsView.vue')
+const loadTeacherAdjustmentView: Loader = () => import('../features/teacher/views/TeacherAdjustmentView.vue')
+const loadTeacherRosterView: Loader = () => import('../features/teacher/views/TeacherRosterView.vue')
+const loadTeacherGradeEntryView: Loader = () => import('../features/teacher/views/TeacherGradeEntryView.vue')
+const loadTeacherChaoxingAnalyticsView: Loader = () => import('../features/teacher/views/TeacherChaoxingAnalyticsView.vue')
+const loadTeacherPortalView: Loader = () => import('../features/teacher/views/TeacherPortalView.vue')
+const loadTeacherClassScheduleView: Loader = () => import('../features/teacher/views/TeacherClassScheduleView.vue')
+const loadTeacherRoomScheduleView: Loader = () => import('../features/teacher/views/TeacherRoomScheduleView.vue')
 
 /** view key → 异步组件（AppViewHost 模板 v-if 分支使用） */
 export const VIEW_COMPONENTS: Record<string, Component> = {
@@ -202,7 +213,18 @@ export const VIEW_COMPONENTS: Record<string, Component> = {
   teacherteaching: createAsyncPage(loadTeacherTeachingView),
   teacherexams: createAsyncPage(loadTeacherExamsView),
   teachernotifications: createAsyncPage(loadTeacherNotificationView),
-  teacherworkflow: createAsyncPage(loadTeacherWorkflowView)
+  teacherworkflow: createAsyncPage(loadTeacherWorkflowView),
+  teacherattendance: createAsyncPage(loadTeacherAttendanceView),
+  teacherworkload: createAsyncPage(loadTeacherWorkloadView),
+  teacherexamaffairs: createAsyncPage(loadTeacherExamAffairsView),
+  teachercredits: createAsyncPage(loadTeacherCreditsView),
+  teacheradjustment: createAsyncPage(loadTeacherAdjustmentView),
+  teacherroster: createAsyncPage(loadTeacherRosterView),
+  teachergradeentry: createAsyncPage(loadTeacherGradeEntryView),
+  teacherchaoxinganalytics: createAsyncPage(loadTeacherChaoxingAnalyticsView),
+  teacherportal: createAsyncPage(loadTeacherPortalView),
+  teacherclassschedule: createAsyncPage(loadTeacherClassScheduleView),
+  teacherroomschedule: createAsyncPage(loadTeacherRoomScheduleView)
 }
 
 /** view key → loader（prefetch 使用） */
@@ -262,5 +284,16 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   teacherteaching: loadTeacherTeachingView,
   teacherexams: loadTeacherExamsView,
   teachernotifications: loadTeacherNotificationView,
-  teacherworkflow: loadTeacherWorkflowView
+  teacherworkflow: loadTeacherWorkflowView,
+  teacherattendance: loadTeacherAttendanceView,
+  teacherworkload: loadTeacherWorkloadView,
+  teacherexamaffairs: loadTeacherExamAffairsView,
+  teachercredits: loadTeacherCreditsView,
+  teacheradjustment: loadTeacherAdjustmentView,
+  teacherroster: loadTeacherRosterView,
+  teachergradeentry: loadTeacherGradeEntryView,
+  teacherchaoxinganalytics: loadTeacherChaoxingAnalyticsView,
+  teacherportal: loadTeacherPortalView,
+  teacherclassschedule: loadTeacherClassScheduleView,
+  teacherroomschedule: loadTeacherRoomScheduleView
 }

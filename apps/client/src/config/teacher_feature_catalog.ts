@@ -129,6 +129,105 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     flagKey: 'teacher.feature.resource_share',
     enabled: true,
     nameKey: 'teacher.home.item.resourceShare'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_attendance',
+    viewId: 'teacherattendance',
+    category: 'academic',
+    flagKey: 'teacher.feature.attendance',
+    enabled: false,
+    nameKey: 'teacher.home.item.attendance'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_workload',
+    viewId: 'teacherworkload',
+    category: 'academic',
+    flagKey: 'teacher.feature.workload',
+    enabled: false,
+    nameKey: 'teacher.home.item.workload'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_exam_affairs',
+    viewId: 'teacherexamaffairs',
+    category: 'academic',
+    flagKey: 'teacher.feature.exam_affairs',
+    enabled: false,
+    nameKey: 'teacher.home.item.examAffairs'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_credits',
+    viewId: 'teachercredits',
+    category: 'academic',
+    flagKey: 'teacher.feature.credits',
+    enabled: false,
+    nameKey: 'teacher.home.item.credits'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_adjustment',
+    viewId: 'teacheradjustment',
+    category: 'academic',
+    flagKey: 'teacher.feature.adjustment',
+    enabled: false,
+    nameKey: 'teacher.home.item.adjustment'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_roster',
+    viewId: 'teacherroster',
+    category: 'academic',
+    flagKey: 'teacher.feature.roster',
+    enabled: false,
+    nameKey: 'teacher.home.item.roster'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_grade_entry',
+    viewId: 'teachergradeentry',
+    category: 'academic',
+    flagKey: 'teacher.feature.grade_entry',
+    enabled: false,
+    nameKey: 'teacher.home.item.gradeEntry'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_chaoxing_analytics',
+    viewId: 'teacherchaoxinganalytics',
+    category: 'academic',
+    flagKey: 'teacher.feature.chaoxing_analytics',
+    enabled: false,
+    nameKey: 'teacher.home.item.chaoxingAnalytics'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_portal',
+    viewId: 'teacherportal',
+    category: 'academic',
+    flagKey: 'teacher.feature.portal',
+    enabled: false,
+    nameKey: 'teacher.home.item.portal'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_class_schedule',
+    viewId: 'teacherclassschedule',
+    category: 'academic',
+    flagKey: 'teacher.feature.class_schedule',
+    enabled: false,
+    nameKey: 'teacher.home.item.classSchedule'
+  },
+  // goal-21：新增入口，默认关闭（fail-closed），验证后由 T15 逐项置 true
+  {
+    id: 'teacher_room_schedule',
+    viewId: 'teacherroomschedule',
+    category: 'academic',
+    flagKey: 'teacher.feature.room_schedule',
+    enabled: false,
+    nameKey: 'teacher.home.item.roomSchedule'
   }
 ])
 
