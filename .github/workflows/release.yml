@@ -839,7 +839,11 @@ jobs:
 
   build-linux:
     needs: create-release
-    runs-on: ubuntu-latest
+    # ⚠️ 必须钉 24.04，不要用 ubuntu-latest：GitHub 已在 2026-11-19~20 把 ubuntu-latest
+    # 滚到 26.04(resolute)，系统 PipeWire 升到 1.6.2，导致 libspa-sys 0.8.0 的 bindgen
+    # 把 spa_pod_builder 生成空结构体（只剩 _address）→ libspa 编译报 E0609，正式版 Linux 包会构建失败。
+    # 解除条件：xcap 升到 0.9.x（依赖 pipewire 0.10 / libspa-sys 0.10.1，已加 clang_macro_fallback）。
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
