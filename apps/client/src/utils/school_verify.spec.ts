@@ -107,7 +107,8 @@ describe('normalizeSchoolVerifyConfig', () => {
     expect(readSchoolVerifyConfigFromStorage()).toEqual(DEFAULT_SCHOOL_VERIFY_CONFIG)
     localStorage.setItem(REMOTE_CONFIG_SNAPSHOT_KEY, '{oops')
     expect(readSchoolVerifyConfigFromStorage()).toEqual(DEFAULT_SCHOOL_VERIFY_CONFIG)
-    localStorage.setItem(REMOTE_CONFIG_SNAPSHOT_KEY, JSON.stringify(normalizeRemoteConfig({ school_verify: { enabled: true } })))
+    // 只写本键的最小快照（快照里存的是归一化形状）；不把整份远程配置写进存储（CodeQL js/clear-text-storage）
+    localStorage.setItem(REMOTE_CONFIG_SNAPSHOT_KEY, JSON.stringify({ school_verify: { enabled: true, sampleRate: 1 } }))
     expect(readSchoolVerifyConfigFromStorage()).toEqual({ enabled: true, sampleRate: 1 })
   })
 })
