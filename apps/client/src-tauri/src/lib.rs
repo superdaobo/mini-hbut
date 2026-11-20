@@ -750,6 +750,9 @@ pub fn run() {
             identity::commands::identity_sign_canonical,
             // goal-18：学号核验（桌面 / iOS；Android 返回 unsupported）
             school_verify::command::identity_school_verify,
+            school_verify::login_command::identity_school_login_detail,
+            school_verify::login_command::identity_school_login_approve,
+            school_verify::login_command::identity_school_login_deny,
             // P1-2（#1213）：首次登记 / 换机（新设备发起 + 旧设备批准）
             identity::commands::identity_sign_rebind,
             identity::commands::identity_enroll_v2,

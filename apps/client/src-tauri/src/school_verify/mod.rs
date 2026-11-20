@@ -14,6 +14,11 @@
 
 pub mod command;
 pub mod flow;
+/// 「用 Mini-HBUT 登录」（goal-20）：扫码 / 深链 → 确认 → 先学号核验再设备签名批准。
+pub mod login;
+pub mod login_command;
 
+#[cfg(test)]
+mod login_tests;
 #[cfg(test)]
 mod tests;

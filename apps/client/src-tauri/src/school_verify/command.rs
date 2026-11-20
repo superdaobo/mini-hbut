@@ -70,14 +70,14 @@ impl V2Transport for SchoolVerifyTransport {
     }
 }
 
-fn allow_local_service() -> bool {
+pub(super) fn allow_local_service() -> bool {
     cfg!(debug_assertions)
         && std::env::var(ALLOW_LOCAL_ENV)
             .map(|v| v.trim() == "1")
             .unwrap_or(false)
 }
 
-fn session_student_id() -> Result<String, IdentityError> {
+pub(super) fn session_student_id() -> Result<String, IdentityError> {
     crate::db::get_latest_user_session(crate::DB_FILENAME)
         .map_err(|e| IdentityError::Internal(format!("读取本地会话失败：{e}")))?
         .map(|s| s.student_id.trim().to_string())
