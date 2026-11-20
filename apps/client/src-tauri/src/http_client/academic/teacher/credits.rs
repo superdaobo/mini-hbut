@@ -45,22 +45,73 @@ pub(crate) fn flatten_wide_row(record: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// 解析学分列表响应 → `[{ id, cells: [{key,value}] }]`。
+/// 解析学分列表响应 → `[{ studentId, majorName, className, cells: [{key,value}] }]`。
+///
+/// ## ⚠️ 隐私边界（2026-11-20 实测确认）
+///
+/// 该接口返回的是**学生个人明细**而非班级汇总：每行 113 个键，除 21 个学分档位数字键外，
+/// 还含 `xm`（姓名）、`xh`（学号）、`sfzjh`（身份证号）、`zzmmdm`（政治面貌）等个人信息。
+///
+/// 本函数**只取三类字段**：
+/// 1. `xh` —— 学号，作为行标识（教师有权看到自己学生的学号）；
+/// 2. `zymc` / `bjmc` —— 专业/班级，用于分组展示；
+/// 3. 数字键 —— 21 个学分档位（`{key,value}`，值为 `"已修/应修"`）。
+///
+/// **绝不透传**：`xm`（姓名）、`sfzjh`（身份证号）、`zzmmdm`（政治面貌）、
+/// `xbdm`（性别）以及 92 个 `{档位}yxxf|yhxf|_wxg` 派生键（前端用不到，少传一份就少一份泄漏面）。
 pub(crate) fn parse_credit_rows(payload: &Value) -> Vec<Value> {
     grid::parse_grid_list(payload)
         .iter()
         .map(|record| {
-            let id = grid::text_field(record, "id")
-                .or_else(|| grid::text_field(record, "kcdm"))
+            // 学号优先；退化到 id（部分学期该接口可能不返回 xh）。
+            let student_id = grid::text_field(record, "xh")
+                .or_else(|| grid::text_field(record, "id"))
                 .unwrap_or_default();
-            json!({ "id": id, "cells": flatten_wide_row(record) })
+            json!({
+                "studentId": student_id,
+                "majorName": grid::text_field(record, "zymc"),
+                "className": grid::text_field(record, "bjmc"),
+                "cells": flatten_wide_row(record),
+            })
         })
         .collect()
 }
 
-/// 解析不及格课程明细（常规 jqGrid，剔除身份字段）。
+/// 解析不及格课程明细。
+///
+/// 该接口（`showBjgKcDetail`）实测 total=0，**无真实样本**，因此字段按 recon 的
+/// `queryFields` 候选链取，并采用**白名单**而非黑名单：只放行课程类字段，
+/// 其余（尤其是可能出现的 `xm`/`xh`/`sfzjh`）一律不传。
+///
+/// 白名单之外一律丢弃 —— 在拿不到真实样本时，白名单是唯一安全的策略。
 pub(crate) fn parse_failed_courses(payload: &Value) -> Vec<Value> {
-    super::workflow::parse_workflow_list(payload)
+    const ALLOWED: &[&str] = &[
+        "kcmc",   // 课程名称
+        "kcdm",   // 课程代码
+        "kcbh",   // 课程编号
+        "xf",     // 学分
+        "cj",     // 成绩
+        "bkcj",   // 补考成绩
+        "ksxs",   // 考试形式
+        "kclb",   // 课程类别
+        "jxbmc",  // 教学班
+        "kkyxmc", // 开课院系
+        "xnxq",   // 学期
+    ];
+    grid::parse_grid_list(payload)
+        .iter()
+        .map(|record| {
+            let mut out = serde_json::Map::new();
+            for field in ALLOWED {
+                if let Some(value) = record.get(*field) {
+                    if !value.is_null() {
+                        out.insert((*field).to_string(), value.clone());
+                    }
+                }
+            }
+            Value::Object(out)
+        })
+        .collect()
 }
 
 /// 拉取学分统计 + 不及格明细，返回 `{ rows, failedCourses }`。
@@ -137,30 +188,60 @@ mod tests {
     }
 
     #[test]
-    fn parse_credit_rows_keeps_id_and_cells() {
+    fn parse_credit_rows_keeps_student_id_and_drops_pii() {
         let payload = json!({
             "ret": 0,
             "total": 1,
-            "results": [{ "id": "r1", "11": "1.0/2.0" }]
+            "results": [{
+                "id": "r1",
+                "xh": "2025001",
+                "zymc": "建筑学",
+                "bjmc": "25建筑学2班",
+                "11": "1.0/2.0",
+                "xm": "张*",
+                "sfzjh": "4201***",
+                "zzmmdm": "01"
+            }]
         });
         let rows = parse_credit_rows(&payload);
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].get("id").and_then(Value::as_str), Some("r1"));
+        // 学号优先于 id
+        assert_eq!(
+            rows[0].get("studentId").and_then(Value::as_str),
+            Some("2025001")
+        );
+        assert_eq!(
+            rows[0].get("majorName").and_then(Value::as_str),
+            Some("建筑学")
+        );
         assert_eq!(
             rows[0].get("cells").and_then(Value::as_array).map(Vec::len),
             Some(1)
         );
+        // PII 绝不能出现在输出里
+        let serialized = rows[0].to_string();
+        assert!(!serialized.contains("张*"), "姓名泄漏: {serialized}");
+        assert!(!serialized.contains("4201"), "身份证泄漏: {serialized}");
+        assert!(!serialized.contains("zzmmdm"), "政治面貌泄漏: {serialized}");
     }
 
     #[test]
-    fn parse_failed_courses_strips_identity() {
+    fn parse_failed_courses_whitelists_fields() {
         let payload = json!({
             "ret": 0,
             "total": 1,
-            "results": [{ "id": "c1", "kcmc": "建筑物理", "currentUserName": "张三" }]
+            "results": [{ "id": "c1", "kcmc": "建筑物理", "xf": "2", "currentUserName": "张三", "xm": "李*", "sfzjh": "4201***" }]
         });
         let out = parse_failed_courses(&payload);
         assert_eq!(out.len(), 1);
         assert!(out[0].get("currentUserName").is_none());
+        // 白名单只放行课程类字段
+        assert_eq!(out[0].get("kcmc").and_then(Value::as_str), Some("建筑物理"));
+        assert_eq!(out[0].get("xf").and_then(Value::as_str), Some("2"));
+        // 白名单之外的字段（含 PII）一律不出现
+        let serialized = out[0].to_string();
+        assert!(!serialized.contains("李*"), "姓名泄漏: {serialized}");
+        assert!(!serialized.contains("4201"), "身份证泄漏: {serialized}");
+        assert!(!serialized.contains("c1"), "内部 id 不应透传: {serialized}");
     }
 }

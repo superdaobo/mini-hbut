@@ -1,0 +1,214 @@
+/* TeacherCreditsView — Academic Minimalist Blue（goal-21 / T09）
+   亮色色值一律用 rgba()（无 #hex 字面量），token 类在模板里；暗色局部规则
+   允许 hex（本文件不在 Lead 约束的 grep 范围内），与 dark-mode.css 末段同风格。
+   类名一律 .tch-cr-* 前缀，避开 dark-mode.css 已注册的 .tch-card 全局规则。 */
+
+.tch-cr {
+  font-family: 'SF Pro Text', system-ui, -apple-system, 'Inter', sans-serif;
+}
+
+/* ── 卡片：设计包 Level 1（白卡 + 细描边 + 微投影，20px 圆角）──────── */
+.tch-cr-card {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 20px;
+  box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+}
+
+/* ── 设计包排版（title-md 15px/600；label-caption/micro）────────────── */
+.tch-cr-title {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: #131b2e;
+}
+.tch-cr-meta {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+.tch-cr-label-caption {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+.tch-cr-label-micro {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+}
+
+/* ── 档位横向滚动表（21 个档位 → 单一滚动容器，表头与数据同步滚动）───── */
+.tch-cr-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+  margin-left: -4px;
+  padding-left: 4px;
+}
+.tch-cr-tierrow {
+  display: flex;
+  gap: 4px;
+  min-width: max-content;
+}
+.tch-cr-tiercol {
+  flex: 0 0 52px;
+  width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 1); /* surface-canvas */
+}
+.tch-cr-tierkey {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tch-cr-tiervalue {
+  font-size: 10px;
+  line-height: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-family: 'SF Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  color: #131b2e;
+  white-space: nowrap;
+}
+
+/* ── 不及格课程卡（左缘 3px 危险色竖条，设计包 course tile 规格）────── */
+.tch-cr-failcard {
+  border-left: 3px solid rgba(239, 68, 68, 1); /* danger */
+}
+
+/* ── 行内徽标（成绩 / 计数）───────────────────────────────────────── */
+.tch-cr-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(241, 245, 249, 1); /* surface-muted */
+  color: rgba(67, 70, 85, 1); /* on-surface-variant */
+}
+.tch-cr-chip--danger {
+  background: rgba(239, 68, 68, 0.08);
+  color: rgba(239, 68, 68, 1); /* danger */
+}
+
+/* ── 空态说明条 / 底部免责小字 ────────────────────────────────────── */
+.tch-cr-note {
+  border-radius: 10px;
+}
+.tch-cr-footnote {
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 500;
+  color: rgba(148, 163, 184, 0.9); /* 极浅灰 */
+}
+
+/* ── 学期胶囊（页头右侧 <details> 下拉）────────────────────────────── */
+.tch-cr-semester {
+  position: relative;
+}
+.tch-cr-semester summary {
+  list-style: none;
+}
+.tch-cr-semester summary::-webkit-details-marker {
+  display: none;
+}
+.tch-cr-semester-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.tch-cr-semester-pill:active {
+  opacity: 0.75;
+}
+.tch-cr-semester-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 9.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px -4px rgba(37, 99, 235, 0.08), 0 4px 12px rgba(15, 23, 42, 0.06);
+  padding: 6px;
+}
+.tch-cr-semester-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tch-cr-semester-option input {
+  accent-color: rgba(37, 99, 235, 1);
+}
+.tch-cr-semester-option:active {
+  background: #f1f5f9;
+}
+
+/* ── 暗色局部规则（token 类由 dark-mode.css 覆盖，这里只补非 token 属性）── */
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-card {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-title {
+  color: #f1f5f9;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-tiercol {
+  background: #0f172a;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-tiervalue {
+  color: #e2e8f0;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-failcard {
+  border-left-color: rgba(248, 113, 113, 1);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-chip {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-chip--danger {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-footnote {
+  color: rgba(100, 116, 139, 0.95);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-semester-pill {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-semester-menu {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cr .tch-cr-semester-option:active {
+  background: #1f2937;
+}
