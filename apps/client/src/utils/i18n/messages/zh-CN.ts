@@ -1020,6 +1020,13 @@ export const messages: Record<string, string> = {
   // 审计修正：视频口径 / 30 天视图 / 空态
   'chaoxing.study.video.rate': '视频完成率',
   'chaoxing.study.video.scoreLine': '视频得分 {a}/{b}',
+  'chaoxing.study.video.watchedLine': '累计观看 {a} / {b} 分钟',
+  'chaoxing.study.video.readLine': '累计阅读 {n} 分钟',
+  'chaoxing.study.video.watched': '累计观看',
+  'chaoxing.study.video.total': '总时长',
+  'chaoxing.study.video.read': '累计阅读',
+  'chaoxing.study.video.taskPoints': '任务点完成',
+  'chaoxing.study.video.minuteUnit': '分钟',
   'chaoxing.study.video.noMinutes': '学习通不提供观看分钟',
   'chaoxing.study.video.score': '视频得分',
   'chaoxing.study.video.videoTest': '视频内测题',
