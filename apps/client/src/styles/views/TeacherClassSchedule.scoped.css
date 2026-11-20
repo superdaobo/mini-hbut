@@ -1,0 +1,300 @@
+/* TeacherClassScheduleView — Academic Minimalist Blue（goal-21 / T12）
+   亮色自定义色值以 rgba() 为主，实体底色沿用同色板 hex；
+   所有含 hex/rgba 的自定义类均在文件末尾补暗色覆盖。
+   类名一律 .tch-cs-* 前缀，避开 dark-mode.css 已注册的 .tch-card 全局规则。 */
+
+.tch-cs {
+  font-family: 'SF Pro Text', system-ui, -apple-system, 'Inter', sans-serif;
+}
+
+/* ── 设计包排版（micro 10px/600）────────────────────────────────────── */
+.tch-cs-label-micro {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+}
+
+/* ── 顶部说明条（课表为服务端渲染页 → 浏览器打开）──────────────────────── */
+.tch-cs-note {
+  border-radius: 14px;
+  background: rgba(219, 234, 254, 0.55); /* accent-soft 55% */
+}
+.tch-cs-note-text {
+  font-size: 11px;
+  line-height: 15px;
+  font-weight: 500;
+  color: rgba(67, 70, 85, 1); /* on-surface-variant */
+}
+
+/* ── 搜索胶囊（白底 + 微投影 + 9999px 圆角，300ms 防抖在视图层）────────── */
+.tch-cs-search {
+  display: flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: #ffffff;
+  padding: 10px 14px;
+  box-shadow: 0 4px 16px -2px rgba(0, 74, 198, 0.06);
+}
+.tch-cs-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0 8px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  color: #131b2e;
+}
+.tch-cs-search-input::placeholder {
+  color: rgba(115, 118, 134, 0.85); /* outline */
+}
+.tch-cs-search-clear {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(241, 245, 249, 1); /* surface-muted */
+  color: rgba(67, 70, 85, 1); /* on-surface-variant */
+  transition: transform 0.15s ease-out;
+}
+.tch-cs-search-clear:active {
+  transform: scale(0.9);
+}
+
+/* ── 最近查看胶囊（横滑，无激活态——点击只回填搜索词）──────────────────── */
+.tch-cs-recents {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 0 -16px;
+  padding: 4px 16px;
+  scrollbar-width: none;
+}
+.tch-cs-recents::-webkit-scrollbar {
+  display: none;
+}
+.tch-cs-recent-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 9999px;
+  padding: 6px 12px;
+  background: #ffffff;
+  color: rgba(37, 99, 235, 1); /* primary 蓝 */
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+  transition: transform 0.15s ease-out;
+}
+.tch-cs-recent-pill:active {
+  transform: scale(0.95);
+}
+
+/* ── 班级卡片（Level 1 白卡 + 细描边 + 微投影，16px 圆角）──────────────── */
+.tch-cs-card {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 20px -4px rgba(37, 99, 235, 0.05),
+    0 2px 6px -1px rgba(15, 23, 42, 0.02);
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.tch-cs-card--clickable {
+  cursor: pointer;
+}
+.tch-cs-card--clickable:active {
+  transform: scale(0.985);
+  box-shadow:
+    0 4px 12px -4px rgba(37, 99, 235, 0.08),
+    0 1px 4px -1px rgba(15, 23, 42, 0.03);
+}
+.tch-cs-card--clickable:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.tch-cs-card--disabled {
+  opacity: 0.62;
+}
+.tch-cs-card-title {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: #131b2e;
+}
+.tch-cs-card-count {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(241, 245, 249, 1); /* surface-muted */
+  color: rgba(115, 118, 134, 1); /* outline */
+}
+.tch-cs-card-meta {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+  color: rgba(115, 118, 134, 1); /* outline */
+}
+.tch-cs-open {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  color: #2563eb;
+}
+.tch-cs-missing {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 500;
+  color: rgba(115, 118, 134, 1); /* outline */
+}
+
+/* ── 底部加载计数 ────────────────────────────────────────────────────── */
+.tch-cs-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+  color: rgba(115, 118, 134, 1); /* outline */
+}
+.tch-cs-footer-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(195, 198, 215, 1); /* outline-variant */
+}
+
+/* ── 学期胶囊（页头右侧 <details> 下拉，与 T07/T10 同款）──────────────── */
+.tch-cs-semester {
+  position: relative;
+}
+.tch-cs-semester summary {
+  list-style: none;
+}
+.tch-cs-semester summary::-webkit-details-marker {
+  display: none;
+}
+.tch-cs-semester-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.tch-cs-semester-pill:active {
+  opacity: 0.75;
+}
+.tch-cs-semester-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 9.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px -4px rgba(37, 99, 235, 0.08), 0 4px 12px rgba(15, 23, 42, 0.06);
+  padding: 6px;
+}
+.tch-cs-semester-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tch-cs-semester-option input {
+  accent-color: rgba(37, 99, 235, 1);
+}
+.tch-cs-semester-option:active {
+  background: #f1f5f9;
+}
+
+/* ── 暗色局部规则（token 类由 dark-mode.css 覆盖，这里只补自定义类）────── */
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-note {
+  background: rgba(37, 99, 235, 0.14);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-note-text {
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-search {
+  background: #111827;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-search-input {
+  color: #f1f5f9;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-search-input::placeholder {
+  color: rgba(148, 163, 184, 0.8);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-search-clear {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-recent-pill {
+  background: #111827;
+  color: #93c5fd;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-card {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-card-title {
+  color: #f1f5f9;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-card-count {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-card-meta,
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-missing,
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-footer {
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-open {
+  color: #93c5fd;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-footer-dot {
+  background: #334155;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-semester-pill {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-semester-menu {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cs .tch-cs-semester-option:active {
+  background: #1f2937;
+}

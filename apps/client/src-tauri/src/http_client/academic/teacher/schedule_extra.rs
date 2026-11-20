@@ -174,8 +174,7 @@ pub(crate) async fn fetch_schedule_lists_with(
                 .unwrap_or("")
                 .to_string();
             if !encode.is_empty() && !class_no.is_empty() && !campus.is_empty() {
-                let url = build_class_schedule_url(
-                    &jwxt_base,
+                let url = build_class_schedule_url(jwxt_base,
                     &encode,
                     &class_semester,
                     &class_no,
