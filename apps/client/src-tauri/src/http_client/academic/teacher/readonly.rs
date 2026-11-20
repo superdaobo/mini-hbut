@@ -128,6 +128,54 @@ pub fn is_teacher_workload_readonly_path(path: &str) -> bool {
         && TEACHER_WORKLOAD_READONLY_PATHS.contains(&candidate)
 }
 
+// ── goal-21 T04b：调停补 / 名册 / 成绩录入（2026-11-20 实测）───────────
+/// 我的调停补申请（jqGrid，实测 total=0）。
+pub const PATH_ADJUSTMENT_MY_APPLY: &str = "/admin/jsd/ttbgl/queryTtbxxList";
+/// 可申请调停补的课程（jqGrid，实测 total=6）。
+pub const PATH_ADJUSTMENT_APPLICABLE: &str = "/admin/jsd/ttbgl/queryJsPkxx";
+/// 学生名册（jqGrid）。
+///
+/// ⚠️ **实测无 `bjid` 时返回全校 56957 条**，`yxdm` 院系过滤不生效。
+/// 调用方必须先确定班级再查询，本模块对缺失 `bjid` 直接拒绝、不发请求。
+pub const PATH_ROSTER_STUDENTS: &str = "/admin/xjgl/xsjbxx/xsxxcxListCustom";
+/// 成绩录入进度（`{index}` 为学期序号，实测 `/1` 返回 8 条）。
+pub const PATH_GRADE_ENTRY_PROGRESS: &str = "/admin/jsd/jsdcjlr/queryCjlrsz/{index}";
+// 成绩教学班状态复用已有的 [`PATH_TEACHING_CLASSES`]（同一条路径，不重复登记）。
+
+// ── goal-21 T04b：融合门户 e.hbut（**非 /admin 前缀**，独立白名单）──────
+/// 门户页面视图（含 `cardLayout` 8 张卡；实测 200）。
+pub const PATH_PORTAL_PAGE_VIEW: &str = "/getPageView";
+/// 门户卡片数据（`{cardWid}/{cardId}` 占位；**POST JSON**，纯查询）。
+///
+/// method 仅限 `renderData` / `getConfig` / `getMarkNumber`（实测），无副作用。
+pub const PATH_PORTAL_CARD_METHOD: &str = "/execCardMethod/{cardWid}/{cardId}";
+/// 门户 CAS 换票入口（会话过期时静默重走，恢复 `errcode=999`）。
+pub const PATH_PORTAL_LOGIN: &str = "/login";
+
+/// 融合门户允许的只读路径（独立白名单；门户网关会话约 10 分钟过期）。
+pub const TEACHER_PORTAL_READONLY_PATHS: &[&str] = &[
+    PATH_PORTAL_PAGE_VIEW,
+    PATH_PORTAL_CARD_METHOD,
+    PATH_PORTAL_LOGIN,
+];
+
+/// 门户路径是否已登记（运行期 fail-closed；模板段按前缀匹配）。
+pub fn is_teacher_portal_readonly_path(path: &str) -> bool {
+    let candidate = path.trim();
+    if candidate.is_empty() || path_has_write_verb(candidate) {
+        return false;
+    }
+    TEACHER_PORTAL_READONLY_PATHS.iter().any(|allowed| {
+        if *allowed == candidate {
+            return true;
+        }
+        match allowed.split_once('{') {
+            Some((prefix, _)) => !prefix.is_empty() && candidate.starts_with(prefix),
+            None => false,
+        }
+    })
+}
+
 /// 教师教务只读路径 allowlist（唯一事实源）。
 pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
@@ -264,6 +312,27 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
         path: PATH_CREDITS_FAILED_COURSES,
         purpose: "不及格课程明细（goal-21 学分页）",
+        post_ok: false,
+    },
+    // ── goal-21 T04b ──────────────────────────────────────────────
+    TeacherReadonlyPath {
+        path: PATH_ADJUSTMENT_MY_APPLY,
+        purpose: "我的调停补申请（goal-21 调停补页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ADJUSTMENT_APPLICABLE,
+        purpose: "可申请调停补的课程（goal-21 调停补页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ROSTER_STUDENTS,
+        purpose: "学生名册（goal-21 名册页；必须带 bjid）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_GRADE_ENTRY_PROGRESS,
+        purpose: "成绩录入进度（goal-21 成绩页）",
         post_ok: false,
     },
 ];
