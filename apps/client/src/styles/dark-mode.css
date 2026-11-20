@@ -3913,3 +3913,72 @@ html.dark .manage-course-empty {
   background: #1e293b !important;
   color: #94a3b8 !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   goal-21 · Academic Minimalist Blue 暗色 token 覆盖
+   ───────────────────────────────────────────────────────────────────────
+   设计包（stitch_dynamic_blue_white_interface）的 token 在亮色下由
+   Tailwind v4 经 @config 生成为**内联 hex**（`.bg-surface-canvas{background:#f8fafc}`），
+   不产出 `--color-*` 变量，因此暗色无法走变量替换，只能用类选择器覆盖。
+
+   本段为**纯追加**，不修改上方任何既有规则；同时覆盖 .dark 与
+   [data-theme='graphite_night'] 两个暗色主题（与上方既有写法一致）。
+   由于本文件是无层（unlayered）CSS，而 Tailwind utilities 在 @layer tailwind 内，
+   无层样式在层叠中恒优先，故无需 !important。
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── 画布与层级（surface 四档） ─────────────────────────────────────── */
+html:is(.dark, [data-theme='graphite_night']) .bg-surface-canvas { background-color: #0B1120; }
+html:is(.dark, [data-theme='graphite_night']) .bg-surface-highlight { background-color: #0F1E36; }
+html:is(.dark, [data-theme='graphite_night']) .bg-surface-track { background-color: #1E293B; }
+html:is(.dark, [data-theme='graphite_night']) .bg-surface-muted { background-color: #111827; }
+
+html:is(.dark, [data-theme='graphite_night']) .border-surface-track { border-color: #1E293B; }
+html:is(.dark, [data-theme='graphite_night']) .border-surface-muted { border-color: #1F2937; }
+
+/* ── 强调色（accent-soft）────────────────────────────────────────────── */
+html:is(.dark, [data-theme='graphite_night']) .bg-accent-soft { background-color: rgba(37, 99, 235, 0.18); }
+html:is(.dark, [data-theme='graphite_night']) .border-accent-soft { border-color: rgba(37, 99, 235, 0.34); }
+html:is(.dark, [data-theme='graphite_night']) .text-accent-soft { color: #93C5FD; }
+
+/* ── 状态色：成功 / 危险 / 警告（暗色提亮，软底降不透明）───────────────── */
+html:is(.dark, [data-theme='graphite_night']) .bg-success { background-color: #059669; }
+html:is(.dark, [data-theme='graphite_night']) .text-success { color: #34D399; }
+html:is(.dark, [data-theme='graphite_night']) .bg-success-soft { background-color: rgba(16, 185, 129, 0.14); }
+html:is(.dark, [data-theme='graphite_night']) .text-success-soft { color: #6EE7B7; }
+
+html:is(.dark, [data-theme='graphite_night']) .bg-danger { background-color: #DC2626; }
+html:is(.dark, [data-theme='graphite_night']) .text-danger { color: #F87171; }
+html:is(.dark, [data-theme='graphite_night']) .bg-danger-soft { background-color: rgba(239, 68, 68, 0.14); }
+html:is(.dark, [data-theme='graphite_night']) .text-danger-soft { color: #FCA5A5; }
+
+html:is(.dark, [data-theme='graphite_night']) .bg-warning { background-color: #D97706; }
+html:is(.dark, [data-theme='graphite_night']) .text-warning { color: #FBBF24; }
+
+/* ── 课程身份色板（暗色提亮 10~15%，避免刺眼）─────────────────────────── */
+html:is(.dark, [data-theme='graphite_night']) .text-course-lake-blue { color: #38BDF8; }
+html:is(.dark, [data-theme='graphite_night']) .bg-course-lake-blue { background-color: #0284C7; }
+html:is(.dark, [data-theme='graphite_night']) .border-course-lake-blue { border-color: #38BDF8; }
+
+html:is(.dark, [data-theme='graphite_night']) .text-course-wisteria { color: #A78BFA; }
+html:is(.dark, [data-theme='graphite_night']) .bg-course-wisteria { background-color: #7C3AED; }
+html:is(.dark, [data-theme='graphite_night']) .border-course-wisteria { border-color: #A78BFA; }
+
+html:is(.dark, [data-theme='graphite_night']) .text-course-teal { color: #2DD4BF; }
+html:is(.dark, [data-theme='graphite_night']) .bg-course-teal { background-color: #0D9488; }
+html:is(.dark, [data-theme='graphite_night']) .border-course-teal { border-color: #2DD4BF; }
+
+html:is(.dark, [data-theme='graphite_night']) .text-course-amber { color: #FBBF24; }
+html:is(.dark, [data-theme='graphite_night']) .bg-course-amber { background-color: #B45309; }
+html:is(.dark, [data-theme='graphite_night']) .border-course-amber { border-color: #FBBF24; }
+
+html:is(.dark, [data-theme='graphite_night']) .text-course-coral { color: #FB7185; }
+html:is(.dark, [data-theme='graphite_night']) .bg-course-coral { background-color: #E11D48; }
+html:is(.dark, [data-theme='graphite_night']) .border-course-coral { border-color: #FB7185; }
+
+/* ── 卡片深度：暗色下投影改为描边 + 微光（设计包 Elevation 规则）──────── */
+html:is(.dark, [data-theme='graphite_night']) .tch-card {
+  background: #111827;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
