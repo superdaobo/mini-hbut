@@ -69,7 +69,7 @@ const props = defineProps({
   widgetPeriod: { type: Number, default: 0 },
 })
 
-const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed', 'open-exams'])
+const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed', 'open-exams', 'open-grade-distribution'])
 
 // ============ 组合式状态（按依赖顺序实例化） ============
 const confirmDialog = useConfirmDialog()
@@ -230,6 +230,7 @@ const {
   semester,
   semesterDraft,
   currentWeek,
+  weekOfToday,
   selectedWeek,
   totalWeeks,
 
@@ -273,6 +274,11 @@ const {
 } = data
 // 详情
 const { showDetail, selectedCourse, detailActionError } = detail
+// #1321：课程详情教师快捷跳转给分记录 —— 先关闭详情弹窗，再把 payload 转发给父层
+const handleOpenGradeDistribution = (payload: { teacher: string }) => {
+  showDetail.value = false
+  emit('open-grade-distribution', payload)
+}
 // 编辑
 const {
   courseDialogSemester,
@@ -787,6 +793,7 @@ onBeforeUnmount(() => {
       :vacation-notice="vacationNotice"
       :error-msg="errorMsg"
       :current-week="currentWeek"
+      :has-current-week="weekOfToday > 0"
       :selected-week="selectedWeek"
       :term-start-notice="termStart.termStartNotice.value"
       @jump-current="jumpToCurrentWeek"
@@ -825,6 +832,7 @@ onBeforeUnmount(() => {
       @delete-custom-course="editor.deleteCustomCourse"
       @remove-official-course="editor.removeOfficialCourse"
       @copy-detail="detail.copySelectedCourseDetail"
+      @open-grade-distribution="handleOpenGradeDistribution"
     />
 
     <!-- 添加/修改课程弹窗 -->
@@ -987,6 +995,22 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   padding-top: 0;
   position: relative;
+  /* 滑动翻周时禁止浏览器把日期文字当作文本选中（否则会画出默认蓝色选区）；
+     子组件里的课程表单输入框由下方 :deep() 规则单独恢复可选中 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 恢复输入类元素的可选中：课程表单的 input/textarea 位于子组件（ScheduleAddArrangementDialog 等）内，
+   带子组件的 scoped 属性，普通后代选择器跨不到，必须用 :deep()。
+   Chrome 中祖先 user-select: none 不影响 input 内部文字选中，但 Safari/WKWebView 历史上会继承，
+   此规则为 iOS 兜底。 */
+.schedule-view :deep(input),
+.schedule-view :deep(textarea),
+.schedule-view :deep([contenteditable='true']) {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* 语义化占位（原 semester-badge 无对应 DOM，保留选择器兼容外部样式覆盖） */

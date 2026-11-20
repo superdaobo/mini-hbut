@@ -4,8 +4,9 @@
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
  * #788 i18n：文案经 useI18n 响应式取词。
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { getCourseEndPeriod } from '../utils/layout'
+import { normalizeTeacherNames } from '../utils/teacherQuery'
 import { useI18n } from '../../../utils/app_i18n'
 
 const props = defineProps({
@@ -21,6 +22,8 @@ const emit = defineEmits([
   'delete-custom-course',
   'remove-official-course',
   'copy-detail',
+  // #1321：教师快捷跳转给分记录（payload：{ teacher: 归一化后的单个教师姓名 }）
+  'open-grade-distribution',
 ])
 
 // 响应式 t：语言切换后详情文案即时生效
@@ -33,6 +36,46 @@ const canRemoveCurrentWeek = computed(() => {
     : []
   return Number.isInteger(week) && week > 0 && weeks.includes(week)
 })
+
+// ============ #1321 教师 → 给分记录快捷跳转 ============
+// 归一化后的教师列表（为空视为教师无效，不渲染入口）
+const teacherNames = computed(() => normalizeTeacherNames(props.selectedCourse?.teacher))
+const hasTeacher = computed(() => teacherNames.value.length > 0)
+// 多教师选择列表是否展开
+const teacherPickerOpen = ref(false)
+
+/** 主按钮点击：单教师 → 直接跳转；多教师 → 展开 / 收起选择列表 */
+const handleTeacherGradeJump = () => {
+  if (!hasTeacher.value) return
+  if (teacherNames.value.length === 1) {
+    emit('open-grade-distribution', { teacher: teacherNames.value[0] })
+    return
+  }
+  teacherPickerOpen.value = !teacherPickerOpen.value
+}
+
+/** 选择列表项点击：emit 所选教师并收起列表 */
+const pickTeacherForGrade = (name) => {
+  teacherPickerOpen.value = false
+  emit('open-grade-distribution', { teacher: name })
+}
+
+// 详情弹窗关闭时重置选择列表状态，避免残留到下一门课程
+watch(() => props.showDetail, (open) => {
+  if (!open) teacherPickerOpen.value = false
+})
+
+/**
+ * 入口的 aria-label / title 文案：
+ * 多教师时点击是「展开选择列表」，若仍念第一位姓名会误导读屏用户，因此改用选择提示。
+ * 用普通函数而非 computed：与模板里其它 t() 一致，每次渲染重新取词。
+ */
+const teacherGradeLabel = () => {
+  const names = teacherNames.value
+  return names.length > 1
+    ? t('schedule.detail.teacherPickerTitle')
+    : t('schedule.detail.gradeDistributionTitle').replace('{name}', names[0] || '')
+}
 </script>
 
 <template>
@@ -72,7 +115,32 @@ const canRemoveCurrentWeek = computed(() => {
           </div>
           <div class="info-row">
             <span class="label">{{ t('schedule.detail.teacher') }}</span>
-            <span class="value">{{ selectedCourse?.teacher }}</span>
+            <span class="value">
+              {{ selectedCourse?.teacher }}
+              <button
+                v-if="hasTeacher"
+                type="button"
+                class="teacher-grade-pill"
+                :aria-label="teacherGradeLabel()"
+                :title="teacherGradeLabel()"
+                @click="handleTeacherGradeJump"
+              >📊 {{ t('schedule.detail.gradeDistribution') }}</button>
+            </span>
+          </div>
+          <!-- #1321：多教师选择列表（信息行下方的普通块，无 portal） -->
+          <div
+            v-if="teacherPickerOpen && teacherNames.length > 1"
+            class="teacher-picker"
+            role="group"
+            :aria-label="t('schedule.detail.teacherPickerTitle')"
+          >
+            <button
+              v-for="name in teacherNames"
+              :key="name"
+              type="button"
+              class="teacher-picker-item"
+              @click="pickTeacherForGrade(name)"
+            >{{ name }}</button>
           </div>
           <div class="info-row">
             <span class="label">{{ t('schedule.detail.classroom') }}</span>
@@ -333,5 +401,78 @@ html.dark .official-remove-hint {
   margin-top: 6px;
   font-size: 12px;
   color: #374151;
+}
+
+/* ============ #1321 教师 → 给分记录快捷入口 ============ */
+.teacher-grade-pill {
+  margin-left: 8px;
+  min-height: 26px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 22px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  cursor: pointer;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.teacher-grade-pill:hover {
+  background: rgba(37, 99, 235, 0.18);
+}
+
+/* 多教师选择列表（信息行下方普通块） */
+.teacher-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  background: #eff6ff;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 10px;
+}
+
+.teacher-picker-item {
+  min-height: 28px;
+  padding: 2px 10px;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #ffffff;
+  color: #1d4ed8;
+  cursor: pointer;
+}
+
+.teacher-picker-item:hover {
+  background: #dbeafe;
+}
+
+/* 暗色模式：与上方亮色规则同优先级，用 html.dark 前缀覆盖 */
+html.dark .teacher-grade-pill {
+  background: rgba(96, 165, 250, 0.16);
+  color: #93c5fd;
+}
+
+html.dark .teacher-grade-pill:hover {
+  background: rgba(96, 165, 250, 0.26);
+}
+
+html.dark .teacher-picker {
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+html.dark .teacher-picker-item {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(148, 163, 184, 0.24);
+  color: #93c5fd;
+}
+
+html.dark .teacher-picker-item:hover {
+  background: rgba(96, 165, 250, 0.16);
 }
 </style>

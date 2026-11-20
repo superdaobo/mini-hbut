@@ -478,6 +478,10 @@ export const messages: Record<string, string> = {
   'schedule.detail.deleteAllWeeks': 'Delete all weeks',
   'schedule.detail.copyDetail': 'Copy course details',
   'schedule.detail.conflictPeriod': 'Day {n}, Period {s}-{e}',
+  // #1321: teacher quick jump to grading stats
+  'schedule.detail.gradeDistribution': 'Grading stats',
+  'schedule.detail.gradeDistributionTitle': 'View grading stats for {name}',
+  'schedule.detail.teacherPickerTitle': 'Choose a teacher',
   // Add/edit course dialog
   'schedule.addCourse.titleAdd': 'Add Course',
   'schedule.addCourse.titleEdit': 'Edit Course',

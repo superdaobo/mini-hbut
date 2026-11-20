@@ -4,6 +4,7 @@
  * 自 ScheduleView.vue 拆分，DOM 结构/class 完全保留。
  * #750：新增学期切换提示横幅（提前窗口内新学期课表未发布时展示）。
  * #788 i18n：文案经 useI18n 响应式取词。
+ * #1322：非本学期（今天不在学期区间内）不展示回当前周。
  */
 import { useI18n } from '../../../utils/app_i18n'
 
@@ -16,6 +17,8 @@ defineProps({
   errorMsg: { type: String, default: '' },
   currentWeek: { type: Number, default: 0 },
   selectedWeek: { type: Number, default: 0 },
+  // #1322：今天是否落在当前显示学期区间内；false 时「回到当前周」按钮整体不渲染
+  hasCurrentWeek: { type: Boolean, default: true },
   termStartNotice: { type: String, default: '' },
 })
 const emit = defineEmits(['jump-current'])
@@ -44,7 +47,7 @@ const { t } = useI18n()
   </div>
 
   <button
-    v-if="currentWeek && selectedWeek && selectedWeek !== currentWeek"
+    v-if="hasCurrentWeek && currentWeek && selectedWeek && selectedWeek !== currentWeek"
     class="jump-current-btn"
     @click="emit('jump-current')"
     :title="t('schedule.banners.jumpToCurrentWeekTitle')"

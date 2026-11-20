@@ -252,7 +252,7 @@ const {
         :widget-period="widgetDeeplinkPeriod"
         @back="handleBackToDashboard"
         @logout="handleLogout"
-        @open-exams="handleNavigate('exams')"
+        @open-exams="handleNavigate('exams')" @open-grade-distribution="handleNavigate({ view: 'grade_distribution', payload: $event })"
         @widget-deeplink-consumed="widgetDeeplinkDate = ''; widgetDeeplinkPeriod = 0"
       />
 
