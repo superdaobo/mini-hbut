@@ -266,6 +266,7 @@ fn arbitrary_server_text_never_reaches_the_frontend() {
         "Some Text",
         "",
         "UPPER",
+        "rate_Limited",
         "a".repeat(65).as_str(),
     ] {
         let t = FakeTransport::new(vec![nonce_ok(NONCE_A), reject(403, weird)]);
@@ -365,6 +366,7 @@ fn base_url_is_pinned_unless_debug_loopback_is_explicitly_allowed() {
     );
     for rejected in [
         "https://evil.example",
+        "http://evil.example:8000",
         "http://127.0.0.1:8000/school",
         "http://127.0.0.1:8000/?a=1",
         "http://u:p@127.0.0.1:8000",

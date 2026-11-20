@@ -10,7 +10,7 @@
  * 3. **绝不阻塞、绝不打扰**：fire-and-forget，吞掉所有异常，不弹窗、不改任何状态；
  * 4. **本地做不了才回退**：平台不支持 / 设备保险箱不可用 / 命令调用异常 → 回退旧上报（等价于改动前）；
  *    服务端已受理但失败（网络、限流、会话失效……）→ **不回退**，避免同一份 cookie 再发往另一个端点；
- * 5. **少打扰服务端**：同一进程内同一学号，成功后 12 小时、失败后 10 分钟内不重复发起
+ * 5. **少打扰服务端**：同一进程内同一学号，成功后 12 小时、失败后 10 分钟内不重复发起，且同一时刻只跑一次
  *    （服务端本来就按「学号 + 设备」复用 180 天，频繁调用没有意义）。
  *
  * 旧版本不认识 `school_verify` 这个远程配置键（`normalizeRemoteConfig` 逐字段归一化），因此零影响。
@@ -121,10 +121,13 @@ export function isLocalInability(payload: SchoolVerifyPayload | null | undefined
 }
 
 const lastAttempt = new Map<string, { at: number; ok: boolean }>()
+/** 同一学号同一时刻只跑一次（登录 / 恢复会话可能连续触发多次 persistSessionCookies）。 */
+const inFlight = new Set<string>()
 
 /** 测试用：清空进程内节流记录。 */
 export function resetSchoolVerifyThrottle(): void {
   lastAttempt.clear()
+  inFlight.clear()
 }
 
 function throttled(studentId: string, now: number): boolean {
@@ -167,13 +170,16 @@ export async function runCampusIdentity(options: CampusIdentityOptions): Promise
     return { route, fellBack: false }
   }
   const now = (options.now || Date.now)()
-  if (throttled(studentId, now)) return { route: 'throttled', fellBack: false }
+  if (throttled(studentId, now) || inFlight.has(studentId)) return { route: 'throttled', fellBack: false }
   const invoke = options.invoke || ((command: string) => invokeNative<SchoolVerifyPayload>(command))
   let payload: SchoolVerifyPayload | undefined
+  inFlight.add(studentId)
   try {
     payload = (await invoke(SCHOOL_VERIFY_COMMAND)) as SchoolVerifyPayload
   } catch {
     payload = undefined
+  } finally {
+    inFlight.delete(studentId)
   }
   if (isLocalInability(payload)) {
     // 本机做不了（含命令调用异常）：不记节流，回退旧上报 = 改动前的行为
