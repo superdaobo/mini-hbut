@@ -47,14 +47,62 @@ pub(crate) fn is_success(payload: &Value) -> bool {
     }
 }
 
-/// 从 `getPageView` 响应里提取卡片布局（`data.cardLayout`）。
+/// 从 `getPageView` 响应里提取卡片列表。
+///
+/// ## 实测结构（2026-11-20，`raw/pageview-default.masked.json`）
+///
+/// 卡片**不在** `data.cardLayout`，而在：
+///
+/// ```text
+/// data.pageContext.pageInfoEntity.cardLayout   ← 这个字段是 **JSON 字符串**，不是数组
+///   └─ 二次解析后形如：
+///      [{ "columns": [ { "width": 14, "cards": { "cards": [ {cardWid, cardId, cardName, …} ] } } ] }]
+/// ```
+///
+/// 因此需要「取字符串 → 二次 `serde_json::from_str` → 按 `columns[].cards.cards[]` 展平」三步。
+/// 任何一步失败都返回空数组（调用方会把它当成「布局为空」并报错，而不是静默显示空页）。
 pub(crate) fn extract_card_layout(payload: &Value) -> Vec<Value> {
-    payload
+    let raw = payload
         .get("data")
-        .and_then(|data| data.get("cardLayout"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
+        .and_then(|data| data.get("pageContext"))
+        .and_then(|context| context.get("pageInfoEntity"))
+        .and_then(|entity| entity.get("cardLayout"));
+
+    // 兼容两种形态：字符串（实测）或已经是数组（将来可能变）。
+    let parsed: Value = match raw {
+        Some(Value::String(text)) => match serde_json::from_str(text) {
+            Ok(value) => value,
+            Err(_) => return Vec::new(),
+        },
+        Some(other) => other.clone(),
+        None => return Vec::new(),
+    };
+
+    let mut cards = Vec::new();
+    let Some(rows) = parsed.as_array() else {
+        return Vec::new();
+    };
+    for row in rows {
+        let Some(columns) = row.get("columns").and_then(Value::as_array) else {
+            continue;
+        };
+        for column in columns {
+            let Some(list) = column
+                .get("cards")
+                .and_then(|cards| cards.get("cards"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for card in list {
+                if card.get("enabled").and_then(Value::as_bool) == Some(false) {
+                    continue;
+                }
+                cards.push(card.clone());
+            }
+        }
+    }
+    cards
 }
 
 /// 归一化一张卡片：只保留前端需要的字段。
@@ -69,12 +117,25 @@ pub(crate) fn normalize_card(card: &Value) -> Value {
 
 /// 发送一次门户 GET 并返回 JSON（非 2xx / 非 JSON 归一为错误）。
 async fn portal_get(client: &HbutClient, path: &str) -> Result<Value, String> {
+    portal_get_with_query(client, path, &[]).await
+}
+
+/// 同 [`portal_get`]，但可附加查询参数。
+async fn portal_get_with_query(
+    client: &HbutClient,
+    path: &str,
+    query: &[(&str, &str)],
+) -> Result<Value, String> {
     assert!(readonly::is_teacher_portal_readonly_path(path));
     let url = format!("{PORTAL_BASE_URL}{path}");
-    let response = client
+    let mut request = client
         .http_client()
         .get(&url)
-        .header("Accept", "application/json, text/plain, */*")
+        .header("Accept", "application/json, text/plain, */*");
+    if !query.is_empty() {
+        request = request.query(query);
+    }
+    let response = request
         .send()
         .await
         .map_err(|e| format!("门户请求失败: {e}"))?;
@@ -130,11 +191,36 @@ pub(crate) async fn fetch_portal_cards_with(client: &HbutClient) -> Result<Value
         readonly::PATH_PORTAL_PAGE_VIEW
     ));
 
-    let mut page_view = portal_get(client, readonly::PATH_PORTAL_PAGE_VIEW).await?;
-    if is_session_expired(&page_view) {
+    // ⚠️ `getPageView` **必须带三个查询参数**（可以为空串）：
+    // 实测不带参数时返回 `{errcode:0, errmsg:"请求成功", data:{}}` —— HTTP 200 + 成功码，
+    // 但 data 是**空对象**，看起来像「教师没有卡片」，实际是参数缺失。
+    // 带上 `pageCode=&originalUrl=&lang=` 后 data 才有 23 个键（含 renderData）。
+    let page_view_query: [(&str, &str); 3] =
+        [("pageCode", ""), ("originalUrl", ""), ("lang", "zh")];
+
+    let mut page_view = portal_get_with_query(
+        client,
+        readonly::PATH_PORTAL_PAGE_VIEW,
+        &page_view_query,
+    )
+    .await?;
+    let mut layout = extract_card_layout(&page_view);
+
+    // ⚠️ 门户会话过期的**第二种表现**（比 999 更隐蔽）：
+    // 返回 `{errcode:0, errmsg:"请求成功", data:{}}` —— 成功码 + 空 data。
+    // 实测网关约 10 分钟后就是这种形态，而不是 errcode=999。
+    // 因此「布局为空」也要触发一次会话恢复，而不是直接报错。
+    if is_session_expired(&page_view) || layout.is_empty() {
         refresh_portal_session(client).await?;
-        page_view = portal_get(client, readonly::PATH_PORTAL_PAGE_VIEW).await?;
+        page_view = portal_get_with_query(
+            client,
+            readonly::PATH_PORTAL_PAGE_VIEW,
+            &page_view_query,
+        )
+        .await?;
+        layout = extract_card_layout(&page_view);
     }
+
     if !is_success(&page_view) {
         let code = page_view.get("errcode").cloned().unwrap_or(Value::Null);
         let msg = page_view
@@ -144,7 +230,13 @@ pub(crate) async fn fetch_portal_cards_with(client: &HbutClient) -> Result<Value
         return Err(format!("门户 getPageView 返回 errcode={code} msg={msg}"));
     }
 
-    let layout = extract_card_layout(&page_view);
+    // 恢复后仍为空 → 是参数/账号问题，必须报错而不是显示空页。
+    if layout.is_empty() {
+        return Err(
+            "门户返回成功但卡片布局为空（已尝试恢复会话）：可能是网关会话失效或该账号无门户页面"
+                .to_string(),
+        );
+    }
     let mut cards = Vec::with_capacity(layout.len());
     for card in &layout {
         let normalized = normalize_card(card);
@@ -207,10 +299,38 @@ mod tests {
     }
 
     #[test]
-    fn extract_layout_from_data() {
-        let payload = json!({ "errcode": 0, "data": { "cardLayout": [{ "cardWid": "1", "cardId": "A" }] } });
-        assert_eq!(extract_card_layout(&payload).len(), 1);
+    fn extract_layout_parses_nested_json_string() {
+        // 实测结构：cardLayout 是 JSON 字符串，内含 columns[].cards.cards[]
+        let inner = json!([{
+            "columns": [{
+                "width": 14,
+                "cards": { "cards": [
+                    { "cardWid": "1", "cardId": "CUS_CARD_TODOTASK", "cardName": "待办任务", "enabled": true },
+                    { "cardWid": "2", "cardId": "CUS_CARD_HIDDEN", "cardName": "禁用卡", "enabled": false }
+                ] }
+            }]
+        }]);
+        let payload = json!({
+            "errcode": 0,
+            "data": { "pageContext": { "pageInfoEntity": { "cardLayout": inner.to_string() } } }
+        });
+        let cards = extract_card_layout(&payload);
+        // enabled=false 的卡被过滤
+        assert_eq!(cards.len(), 1, "应只保留 enabled 卡片");
+        assert_eq!(
+            cards[0].get("cardId").and_then(Value::as_str),
+            Some("CUS_CARD_TODOTASK")
+        );
+    }
+
+    #[test]
+    fn extract_layout_handles_missing_and_bad_json() {
         assert!(extract_card_layout(&json!({ "data": null })).is_empty());
+        assert!(extract_card_layout(&json!({})).is_empty());
+        let bad = json!({
+            "data": { "pageContext": { "pageInfoEntity": { "cardLayout": "not-json" } } }
+        });
+        assert!(extract_card_layout(&bad).is_empty());
     }
 
     #[test]
