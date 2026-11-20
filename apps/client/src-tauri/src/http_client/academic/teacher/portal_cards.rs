@@ -26,9 +26,6 @@ use crate::http_client::HbutClient;
 /// 融合门户基址（与教务域不同）。
 pub(crate) const PORTAL_BASE_URL: &str = "https://e.hbut.edu.cn";
 
-/// 卡片允许的只读 method（实测三种，均为纯查询）。
-pub(crate) const PORTAL_CARD_METHODS: &[&str] = &["renderData", "getConfig", "getMarkNumber"];
-
 /// 门户 `errcode=999` 判定（网关会话过期）。
 pub(crate) fn is_session_expired(payload: &Value) -> bool {
     let code = payload.get("errcode").or_else(|| payload.get("errCode"));

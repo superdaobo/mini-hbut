@@ -13,7 +13,10 @@
 use serde_json::Value;
 
 use super::{ApplicationContext, ApplicationError};
-use crate::http_client::academic::teacher::{exams, not_implemented, profile, readonly, teaching};
+use crate::http_client::academic::teacher::{
+    adjustment, attendance, credits, exam_affairs, exams, grade_entry, not_implemented, portal_cards,
+    profile, readonly, roster, schedule_extra, teaching, workload, workflow,
+};
 
 #[derive(Clone)]
 pub struct TeacherService {
@@ -103,5 +106,200 @@ impl TeacherService {
         Self::ensure_registered_path(readonly::PATH_NOTICE_INBOX)?;
         let _ = (page, page_size, keyword);
         Err(ApplicationError::internal(not_implemented("教务通知")))
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // goal-21：教师端新增只读查询（考勤 / 工作量 / 工作流 / 考试事务 / 学分 /
+    // 调停补 / 名册 / 成绩录入 / 课表列表 / 门户卡 / 学习通教师侧）
+    // ────────────────────────────────────────────────────────────────
+
+    /// 学生考勤统计。
+    pub async fn fetch_attendance(
+        &self,
+        semester: Option<String>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_ATTENDANCE_LIST)?;
+        attendance::fetch_attendance_with(&client, semester)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 教师端工作量（`/twork` 微服务）。
+    pub async fn fetch_workload(&self, semester: Option<String>) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        // `/twork` 不走 `/admin` 前缀，用独立白名单校验。
+        if !readonly::is_teacher_workload_readonly_path(readonly::PATH_WORKLOAD_SUMMARY) {
+            return Err(ApplicationError::internal(
+                "工作量微服务路径未登记，已拒绝调用",
+            ));
+        }
+        workload::fetch_workload_with(&client, semester)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 只读工作流：我的申请 / 经办 / 待办。
+    pub async fn fetch_workflow(&self, semester: Option<String>) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_WORKFLOW_MY_APPLY)?;
+        Self::ensure_registered_path(readonly::PATH_WORKFLOW_MY_HANDLED)?;
+        Self::ensure_registered_path(readonly::PATH_WORKFLOW_MY_TODO)?;
+        workflow::fetch_workflow_with(&client, semester)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 考试事务：缓考 / 剩余试卷 / 评教。
+    pub async fn fetch_exam_affairs(
+        &self,
+        semester: Option<String>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_EXAM_DEFERRED)?;
+        Self::ensure_registered_path(readonly::PATH_EXAM_REMAINING_PAPERS)?;
+        Self::ensure_registered_path(readonly::PATH_EXAM_EVAL_INFO)?;
+        exam_affairs::fetch_exam_affairs_with(&client, semester)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 学分统计（教师视角）。
+    pub async fn fetch_credits(&self, semester: Option<String>) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_CREDITS_LIST)?;
+        Self::ensure_registered_path(readonly::PATH_CREDITS_FAILED_COURSES)?;
+        credits::fetch_credits_with(&client, semester)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 调停补申请（只读）。
+    pub async fn fetch_adjustment(
+        &self,
+        semester: Option<String>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_ADJUSTMENT_MY_APPLY)?;
+        Self::ensure_registered_path(readonly::PATH_ADJUSTMENT_APPLICABLE)?;
+        adjustment::fetch_adjustment_with(&client, semester)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 学生名册（`bjid` 必填；缺失时由 roster 层直接拒绝，不发请求）。
+    pub async fn fetch_roster(
+        &self,
+        bjid: Option<String>,
+        page: Option<u32>,
+        page_size: Option<u32>,
+        keyword: Option<String>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_ROSTER_STUDENTS)?;
+        roster::fetch_roster_with(&client, bjid, page, page_size, keyword)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 成绩录入进度 + 教学班发布状态。
+    pub async fn fetch_grade_entry(
+        &self,
+        semester: Option<String>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_GRADE_ENTRY_PROGRESS)?;
+        Self::ensure_registered_path(readonly::PATH_TEACHING_CLASSES)?;
+        grade_entry::fetch_grade_entry_with(&client, semester)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 课表扩展：班级列表 + 教室列表 + 课表页 URL。
+    pub async fn fetch_schedule_lists(
+        &self,
+        semester: Option<String>,
+        keyword: Option<String>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_CLASS_LIST)?;
+        Self::ensure_registered_path(readonly::PATH_ROOM_LIST)?;
+        schedule_extra::fetch_schedule_lists_with(&client, semester, keyword)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 融合门户卡片（8 张卡 + 角标）。
+    pub async fn fetch_portal_cards(&self) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        if !readonly::is_teacher_portal_readonly_path(readonly::PATH_PORTAL_PAGE_VIEW) {
+            return Err(ApplicationError::internal("门户路径未登记，已拒绝调用"));
+        }
+        portal_cards::fetch_portal_cards_with(&client)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 学习通教师侧：课程与教学班频道。
+    pub async fn fetch_chaoxing_courses(&self) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        crate::modules::chaoxing_teacher::fetch_teacher_courses(&client)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 学习通教师侧：学情（6 个维度）。
+    pub async fn fetch_chaoxing_analytics(
+        &self,
+        courseid: String,
+        clazzid: String,
+        cpi: String,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        crate::modules::chaoxing_teacher::fetch_teacher_analytics(
+            &client, &courseid, &clazzid, &cpi,
+        )
+        .await
+        .map_err(ApplicationError::internal)
+    }
+
+    /// 学习通教师侧：全班成绩明细。
+    pub async fn fetch_chaoxing_scores(
+        &self,
+        courseid: String,
+        clazzid: String,
+        cpi: String,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        crate::modules::chaoxing_teacher::fetch_teacher_scores(&client, &courseid, &clazzid, &cpi)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 学习通教师侧：学习监控。
+    pub async fn fetch_chaoxing_monitor(
+        &self,
+        courseid: String,
+        clazzid: String,
+        cpi: String,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        crate::modules::chaoxing_teacher::fetch_teacher_monitor(&client, &courseid, &clazzid, &cpi)
+            .await
+            .map_err(ApplicationError::internal)
     }
 }

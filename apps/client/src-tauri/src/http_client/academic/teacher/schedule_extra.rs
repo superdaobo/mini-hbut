@@ -146,9 +146,47 @@ pub(crate) async fn fetch_schedule_lists_with(
     let class_payload = class_result?;
     let room_payload = room_result?;
 
+    // 为每个班级直接生成课表页 URL：前端拿到就能交给 WebView，
+    // 不必自己拼四个参数（拼错任何一个都会得到 589B 的错误页）。
+    let jwxt_base = client.jwxt_base_url();
     let classes: Vec<Value> = grid::parse_grid_list(&class_payload)
         .iter()
-        .map(normalize_class)
+        .map(|record| {
+            let mut normalized = normalize_class(record);
+            let encode = normalized
+                .get("encodeId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let class_no = normalized
+                .get("classNo")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let campus = normalized
+                .get("campusId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let class_semester = normalized
+                .get("semester")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if !encode.is_empty() && !class_no.is_empty() && !campus.is_empty() {
+                let url = build_class_schedule_url(
+                    &jwxt_base,
+                    &encode,
+                    &class_semester,
+                    &class_no,
+                    &campus,
+                );
+                if let Some(object) = normalized.as_object_mut() {
+                    object.insert("scheduleUrl".to_string(), json!(url));
+                }
+            }
+            normalized
+        })
         .collect();
     let rooms: Vec<Value> = grid::parse_grid_list(&room_payload)
         .iter()

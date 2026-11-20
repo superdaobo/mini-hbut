@@ -778,6 +778,22 @@ pub fn run() {
             transport::tauri::teacher::teacher_teaching_fetch,
             transport::tauri::teacher::teacher_exams_fetch,
             transport::tauri::teacher::teacher_notices_fetch,
+              // goal-21：教师端新增只读命令（考勤/工作量/工作流/考试事务/学分/
+              // 调停补/名册/成绩录入/课表列表/门户卡/学习通教师侧 4 条）
+              transport::tauri::teacher::teacher_attendance_fetch,
+              transport::tauri::teacher::teacher_workload_fetch,
+              transport::tauri::teacher::teacher_workflow_fetch,
+              transport::tauri::teacher::teacher_exam_affairs_fetch,
+              transport::tauri::teacher::teacher_credits_fetch,
+              transport::tauri::teacher::teacher_adjustment_fetch,
+              transport::tauri::teacher::teacher_roster_fetch,
+              transport::tauri::teacher::teacher_grade_entry_fetch,
+              transport::tauri::teacher::teacher_schedule_lists_fetch,
+              transport::tauri::teacher::teacher_portal_cards_fetch,
+              transport::tauri::teacher::teacher_chaoxing_courses_fetch,
+              transport::tauri::teacher::teacher_chaoxing_analytics_fetch,
+              transport::tauri::teacher::teacher_chaoxing_scores_fetch,
+              transport::tauri::teacher::teacher_chaoxing_monitor_fetch,
             // #1052：图书馆预约（超星 reserve）基础链路——应用目录 + 真实入口/凭证解析
             transport::tauri::library_reserve::library_reserve_list_apps,
             transport::tauri::library_reserve::library_reserve_resolve_entry,

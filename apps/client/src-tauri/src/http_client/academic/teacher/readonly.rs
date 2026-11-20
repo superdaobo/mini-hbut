@@ -432,6 +432,10 @@ pub fn is_teacher_readonly_path(path: &str) -> bool {
 /// - 白名单内的路径必须在 allowlist 中且标记 `post_ok: true`。
 ///
 /// 供开发期断言与单元测试调用；返回 `Err` 表示 allowlist 被误改。
+///
+/// 生产路径不调用它（allowlist 的正确性由 `profile.rs` 的契约测试保证），
+/// 因此这里显式豁免 dead_code —— 它存在的意义就是「测试可调用」。
+#[allow(dead_code)]
 pub fn assert_allowlist_readonly() -> Result<(), String> {
     for entry in TEACHER_READONLY_PATHS {
         if !entry.path.starts_with("/admin/") {
