@@ -3846,6 +3846,10 @@ export const messages: Record<string, string> = {
   'eval.action.refreshing': '刷新中…',
   'eval.action.resetSkip': '重置「不再询问」',
   'eval.warn.protocol': '评教协议尚未完全对接时，列表可能为空。后续版本将补齐抓包路径。',
+  'eval.unsupported.title': '当前版本暂不支持在线评教',
+  'eval.unsupported.body':
+    '评教提交协议尚未对接完成，本页暂无法拉取评教任务或提交。请先使用教管一体化官方「学生评教」完成本学期评教。',
+  'eval.unsupported.openOfficial': '打开教务系统',
   'eval.list.pending': '待评（{n}）',
   'eval.list.done': '已评（{n}）',
   'eval.list.emptyPending': '暂无待评。当前学期若有评教任务会显示在此。',
@@ -3973,6 +3977,7 @@ export const messages: Record<string, string> = {
   'teacher.exams.comingSoon': '考试与监考建设中',
   'teacher.notification.comingSoon': '教师通知建设中',
   'teacher.workflow.comingSoon': '工作流建设中',
+  'teacher.workflow.comingSoonDesc': '审批流功能当前版本暂未开放。如需办理审批，请使用教管一体化官方入口。',
   'teacher.error.empty': '暂无数据',
   'teacher.error.unauthorized': '没有访问该功能的权限',
   'teacher.error.expired': '登录状态已过期，请重新登录',

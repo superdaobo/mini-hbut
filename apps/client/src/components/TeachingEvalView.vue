@@ -7,6 +7,7 @@ import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { showToast } from '../utils/toast'
 import { useI18n, tf } from '../utils/app_i18n'
+import { openExternal } from '../utils/external_link'
 import { TPageHeader, TEmptyState, TModal } from './templates'
 
 const emit = defineEmits(['back'])
@@ -29,6 +30,19 @@ const protocolReady = ref(true)
 
 const pending = computed(() => items.value.filter((i) => i.status !== 'done'))
 const done = computed(() => items.value.filter((i) => i.status === 'done'))
+
+// #1336 P3-A：后端 `modules/teaching_eval.rs` 目前是桩（list/form/submit 均无真实 HTTP，
+// `protocol_ready` 恒 false、提交恒 success=false）。在协议对接前，页面明确标注「暂未支持」
+// 并给出官方入口，避免用户对着占位题目白点提交。
+const OFFICIAL_EVAL_URL = 'https://jwxt.hbut.edu.cn/admin/?loginType=1'
+
+const openOfficialEval = async () => {
+  try {
+    await openExternal(OFFICIAL_EVAL_URL)
+  } catch (e) {
+    showToast(String(e?.message || e || t('eval.error.loadFailed')))
+  }
+}
 
 const loadSkip = () => {
   try {
@@ -162,11 +176,20 @@ onMounted(() => {
       </div>
 
       <p v-if="error" class="te-error">{{ error }}</p>
-      <p v-if="!protocolReady" class="te-warn">
-        {{ t('eval.warn.protocol') }}
-      </p>
 
-      <template v-if="!selected">
+      <!-- #1336 P3-A：后端评教协议未对接（protocol_ready=false）时，明确告知「暂未支持」
+           并提供官方入口；不再展示占位题目与可点提交，避免用户白点后失败。 -->
+      <section v-if="!protocolReady" class="card-surface te-unsupported">
+        <h3 class="te-title">{{ t('eval.unsupported.title') }}</h3>
+        <p class="te-meta">{{ t('eval.unsupported.body') }}</p>
+        <div class="te-actions">
+          <button type="button" class="te-btn primary" @click="openOfficialEval">
+            {{ t('eval.unsupported.openOfficial') }}
+          </button>
+        </div>
+      </section>
+
+      <template v-else-if="!selected">
         <h3 class="te-h">{{ tf('eval.list.pending', { n: pending.length }) }}</h3>
         <TEmptyState
           v-if="!loading && !pending.length"
@@ -294,6 +317,18 @@ onMounted(() => {
 .te-warn {
   color: #b45309;
   font-size: 13px;
+}
+/* #1336 P3-A：协议未对接时的「暂未支持」提示卡 */
+.te-unsupported {
+  border-left: 3px solid #f59e0b;
+  padding: 16px;
+}
+.te-unsupported .te-title {
+  margin: 0 0 6px;
+}
+.te-unsupported .te-meta {
+  margin: 0 0 12px;
+  line-height: 1.6;
 }
 .te-h {
   margin: 8px 0 4px;

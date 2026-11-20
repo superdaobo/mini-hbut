@@ -3846,6 +3846,10 @@ export const messages: Record<string, string> = {
   'eval.action.refreshing': 'Refreshing…',
   'eval.action.resetSkip': 'Reset “don\u2019t ask again”',
   'eval.warn.protocol': 'The evaluation protocol is not fully wired yet, so the list may be empty. A later version will add the capture path.',
+  'eval.unsupported.title': 'Online evaluation is not supported in this version',
+  'eval.unsupported.body':
+    'The evaluation submission protocol is not wired yet, so this page cannot fetch or submit evaluations. Please use the official "Student Evaluation" in the academic system for this term.',
+  'eval.unsupported.openOfficial': 'Open academic system',
   'eval.list.pending': 'Pending ({n})',
   'eval.list.done': 'Done ({n})',
   'eval.list.emptyPending': 'No pending evaluations. Tasks for the current term will appear here.',
@@ -3974,6 +3978,7 @@ export const messages: Record<string, string> = {
   'teacher.exams.comingSoon': 'Exams & Invigilation is coming soon',
   'teacher.notification.comingSoon': 'Teacher notifications are coming soon',
   'teacher.workflow.comingSoon': 'Workflow is coming soon',
+  'teacher.workflow.comingSoonDesc': 'Approval workflows are not available in this version. Please use the official academic-system entry to submit approvals.',
   'teacher.error.empty': 'No data',
   'teacher.error.unauthorized': 'You do not have permission to access this feature',
   'teacher.error.expired': 'Your session has expired. Please sign in again',

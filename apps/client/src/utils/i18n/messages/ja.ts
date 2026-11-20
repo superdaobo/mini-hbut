@@ -3844,6 +3844,10 @@ export const messages: Record<string, string> = {
   'eval.action.refreshing': '爽やか…',
   'eval.action.resetSkip': '「今後質問しない」をリセットする',
   'eval.warn.protocol': '教育評価プロトコルが完全に接続されていない場合、リストは空になることがあります。後続のバージョンでは、パケット キャプチャ パスが完成します。',
+  'eval.unsupported.title': 'このバージョンではオンライン教育評価に対応していません',
+  'eval.unsupported.body':
+    '教育評価の送信プロトコルが未接続のため、このページでは評価タスクの取得・送信ができません。今学期の評価は教務システム公式の「学生評価」をご利用ください。',
+  'eval.unsupported.openOfficial': '教務システムを開く',
   'eval.list.pending': 'レビュー待ち ({n})',
   'eval.list.done': 'レビュー済み ({n})',
   'eval.list.emptyPending': 'コメントはまだありません。今学期に指導評価タスクがある場合、ここに表示されます。',
@@ -3972,6 +3976,7 @@ export const messages: Record<string, string> = {
   'teacher.exams.comingSoon': '試験・監督は準備中です',
   'teacher.notification.comingSoon': '教員お知らせは準備中です',
   'teacher.workflow.comingSoon': 'ワークフローは準備中です',
+  'teacher.workflow.comingSoonDesc': '承認ワークフローはこのバージョンでは利用できません。承認手続きは教務システム公式の入口をご利用ください。',
   'teacher.error.empty': 'データがありません',
   'teacher.error.unauthorized': 'この機能にアクセスする権限がありません',
   'teacher.error.expired': 'セッションの有効期限が切れました。再度ログインしてください',
