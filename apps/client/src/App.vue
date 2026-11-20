@@ -598,6 +598,18 @@ const {
       <component v-else-if="currentView === 'teacherexams'" :is="VIEW_COMPONENTS.teacherexams" @back="handleBackToDashboard" />
       <component v-else-if="currentView === 'teachernotifications'" :is="VIEW_COMPONENTS.teachernotifications" @back="handleBackToDashboard" />
       <component v-else-if="currentView === 'teacherworkflow'" :is="VIEW_COMPONENTS.teacherworkflow" @back="handleBackToMe" />
+  <!-- goal-21：教师端 11 个新视图 -->
+  <component v-else-if="currentView === 'teacherattendance'" :is="VIEW_COMPONENTS.teacherattendance" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teacherworkload'" :is="VIEW_COMPONENTS.teacherworkload" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teacherexamaffairs'" :is="VIEW_COMPONENTS.teacherexamaffairs" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teachercredits'" :is="VIEW_COMPONENTS.teachercredits" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teacheradjustment'" :is="VIEW_COMPONENTS.teacheradjustment" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teacherroster'" :is="VIEW_COMPONENTS.teacherroster" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teachergradeentry'" :is="VIEW_COMPONENTS.teachergradeentry" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teacherchaoxinganalytics'" :is="VIEW_COMPONENTS.teacherchaoxinganalytics" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teacherportal'" :is="VIEW_COMPONENTS.teacherportal" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teacherclassschedule'" :is="VIEW_COMPONENTS.teacherclassschedule" @back="handleBackToMe" />
+  <component v-else-if="currentView === 'teacherroomschedule'" :is="VIEW_COMPONENTS.teacherroomschedule" @back="handleBackToMe" />
       <!-- 其他模块占位 -->
       <div v-else class="coming-soon-page">
         <div class="coming-soon-content">
