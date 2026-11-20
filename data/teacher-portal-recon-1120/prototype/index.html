@@ -142,6 +142,21 @@ body{font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaH
 .tl-foot{margin-top:16px;padding-top:14px;border-top:1px solid #F3F4F6;display:flex;justify-content:space-around;text-align:center}
 .tl-foot .v{font-size:15px;font-weight:800;color:#1F2937}
 .tl-foot .k{font-size:10px;color:var(--ink3);margin-top:2px}
+/* ── 大数字 / 迷你柱状图 / 热力条（15-teacher-ui-spec 的「数字>文字」三件套）── */
+.big{font-size:40px;font-weight:800;letter-spacing:-1.2px;line-height:1;color:#0F172A}
+.big small{font-size:13px;font-weight:600;color:var(--ink3);margin-left:3px;letter-spacing:0}
+.big-hd{font-size:52px;font-weight:800;letter-spacing:-2px;line-height:1;color:#0F172A}
+.big-hd small{font-size:14px;font-weight:600;color:var(--ink3);margin-left:5px;letter-spacing:0}
+.spark{display:flex;align-items:flex-end;gap:4px;height:54px}
+.spark i{flex:1;background:#DBEAFE;border-radius:3px 3px 0 0;min-height:5px;transition:height .3s}
+.spark i.hi{background:var(--pri)}
+.spark-lbl{display:flex;gap:4px;margin-top:7px}
+.spark-lbl span{flex:1;text-align:center;font-size:9px;color:var(--ink3)}
+.heat{display:flex;height:10px;border-radius:6px;overflow:hidden;gap:2px;margin-top:8px}
+.heat i{border-radius:2px}
+.collapse-hd{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;cursor:pointer}
+.collapse-hd .chev{width:16px;height:16px;stroke:var(--ink3);fill:none;stroke-width:2;transition:transform .2s}
+.collapse-hd.open .chev{transform:rotate(90deg)}
 .tl-foot .dv{width:1px;background:#F3F4F6}
 /* ══ 课表页（同 ScheduleTopbar + ScheduleGrid） ══ */
 .sched{--axis-w:40px;--top-h:46px;--dhead-h:50px;--slot:clamp(46px,calc((100dvh - var(--top-h) - var(--dhead-h) - 176px)/11),70px);width:100%;flex:1;min-height:0;display:flex;flex-direction:column;background:#fff}
@@ -288,9 +303,12 @@ body{font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaH
       </div>
     </div>
     <div class="card">
-      <div class="wallet-row"><span class="lbl">主账户</span><span class="amt">0.00</span></div>
-      <div class="wallet-row"><span class="lbl">补助钱包 <span class="tag orange">补助</span></span><span class="amt">2629.42</span></div>
+      <div class="dim" style="font-size:11px">补助钱包 <span class="tag orange">补助</span></div>
+      <div class="big" style="margin-top:6px">2629.42</div>
+      <div class="dim" style="font-size:11px;margin-top:8px">主账户 0.00 · 校园卡未领取</div>
     </div>
+    <div class="sec"><h2>最近消费</h2></div>
+    <div class="card" style="padding-top:6px" id="flowList"></div>
     <div class="sec"><h2>学习通课程</h2></div>
     <div class="card" style="padding-top:6px" id="cxList"></div>
     <div class="card" style="padding-top:6px">
@@ -345,18 +363,33 @@ body{font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaH
   <!-- ════════ 二级页 · 学生考勤 ════════ -->
   <div class="page" id="pg-attend">
     <div class="ph"><button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg></button><h1 class="t">学生考勤</h1><span class="sp"></span></div>
-    <div class="card" style="padding-top:8px" id="attendList"></div>
-    <div class="sec"><h2>异常学生</h2></div>
-    <div class="card" style="padding-top:6px" id="absentList"></div>
+    <div class="card">
+      <div class="dim" style="font-size:11px">本学期出勤</div>
+      <div class="big" style="margin-top:8px">94.2<small>%</small></div>
+      <div class="dim" style="font-size:11px;margin-top:8px">3 个班 · 14 次点名</div>
+    </div>
+    <div class="card" style="padding-top:4px" id="attendList"></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="collapse-hd" id="absentToggle">
+        <span style="font-size:13.5px;font-weight:600">需要关注</span>
+        <span style="display:flex;align-items:center;gap:8px"><span class="tag orange">3 人</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
+      </div>
+      <div id="absentList" style="display:none;padding:0 16px 8px"></div>
+    </div>
   </div>
 
   <!-- ════════ 二级页 · 工作量 ════════ -->
   <div class="page" id="pg-work">
     <div class="ph"><button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg></button><h1 class="t">工作量</h1><span class="sp"></span></div>
-    <div class="stat4" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
-      <div class="stat"><div class="n">80</div><div class="k">折合课时</div></div>
-      <div class="stat"><div class="n">2</div><div class="k">承担课程</div></div>
-      <div class="stat"><div class="n">3</div><div class="k">教学班</div></div>
+    <div class="card">
+      <div class="dim" style="font-size:11px">本学期工作量</div>
+      <div class="big-hd" style="margin-top:6px">320<small>课时</small></div>
+      <div class="dim" style="font-size:11px;margin-top:8px">6 门课 · 4 个班 · 187 名学生</div>
+    </div>
+    <div class="card">
+      <div class="dim" style="font-size:11px;margin-bottom:12px">每周课时分布</div>
+      <div class="spark" id="workSpark"></div>
+      <div class="spark-lbl" id="workWeeks"></div>
     </div>
     <div class="card" style="padding-top:6px" id="workList"></div>
   </div>
@@ -587,6 +620,31 @@ document.getElementById('cxList').innerHTML=[
   ['详细规划设计','2025-2026 第二学期','协作','orange',1],
 ].map(c=>`<div class="li"><div class="avatar" style="width:42px;height:42px;font-size:16px;border-radius:13px;background:${CXBG[c[4]]}18;color:${CXBG[c[4]]}">${c[0][0]}</div><div class="grow"><div class="nm">${c[0]}</div><div class="sub">${c[1]}</div></div><span class="tag ${c[3]}">${c[2]}</span></div>`).join('');
 
+/* ══ 工作量：每周课时迷你柱状图（规格要求：不用表格，用周分布） ══ */
+(function(){
+  const w=[3,4,4,3,4,4,3,2,3,4,4,2];
+  const max=Math.max(...w);
+  const sp=document.getElementById('workSpark'), lb=document.getElementById('workWeeks');
+  if(sp) sp.innerHTML=w.map(v=>`<i class="${v===max?'hi':''}" style="height:${Math.round(v/max*100)}%"></i>`).join('');
+  if(lb) lb.innerHTML=w.map((v,i)=>`<span>${i+1}</span>`).join('');
+})();
+/* ══ 一码通最近消费（只显示 5 笔，正数绿色） ══ */
+(function(){
+  const el=document.getElementById('flowList'); if(!el) return;
+  el.innerHTML=[
+    ['超市','西苑一层-超市','今天 12:05','-12.50',0],
+    ['餐饮','楚风苑二层-自选餐','今天 11:40','-8.00',0],
+    ['补助','补助入账','11-18','+500.00',1],
+    ['校车','校车通勤','11-17','-2.00',0],
+    ['教材','教材代收','11-15','-45.00',0]
+  ].map(r=>`<div class="li"><div class="ico-tile" style="background:${r[4]?'#EAF7EF':'#F1F5F9'};color:${r[4]?'#059669':'#64748B'};font-size:11px;font-weight:700">${r[0]}</div><div class="grow"><div class="nm">${r[1]}</div><div class="sub">${r[2]}</div></div><b style="font-size:14px;color:${r[4]?'#059669':'#0F172A'}">${r[3]}</b></div>`).join('');
+})();
+/* ══ 考勤「需要关注」折叠 ══ */
+(function(){
+  const hd=document.getElementById('absentToggle'), box=document.getElementById('absentList');
+  if(!hd||!box) return;
+  hd.addEventListener('click',()=>{ const on=box.style.display==='none'; box.style.display=on?'block':'none'; hd.classList.toggle('open',on); });
+})();
 /* 初始路由：确保首屏可见 */
 go('home');
 </script>
