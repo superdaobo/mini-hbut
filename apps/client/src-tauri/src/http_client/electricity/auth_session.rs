@@ -803,7 +803,9 @@ impl HbutClient {
                     // 现改为：**有 refreshToken 时主动刷新**（不赌缓存令牌有效性）；
                     // 无 refreshToken 时（无法刷新）才保守保留。
                     if self.electricity_refresh_token.is_some() {
-                        println!("[警告] 令牌校验结果不确定，改为主动刷新（不保留可能失效的缓存令牌）");
+                        println!(
+                            "[警告] 令牌校验结果不确定，改为主动刷新（不保留可能失效的缓存令牌）"
+                        );
                         self.electricity_token = None;
                         self.electricity_token_at = None;
                         self.electricity_token_expires_at = None;

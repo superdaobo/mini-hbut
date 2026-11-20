@@ -23,9 +23,7 @@ const PRESTART_SWITCH_DAYS: i64 = 7;
 ///
 /// 该 memo 跨调用点共享（进程级），同一学期在 TTL 内只打一次上游。
 static CALENDAR_SUMMARY_MEMO: std::sync::OnceLock<
-    std::sync::Mutex<
-        std::collections::HashMap<String, (std::time::Instant, CalendarTermSummary)>,
-    >,
+    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, CalendarTermSummary)>>,
 > = std::sync::OnceLock::new();
 
 /// 校历摘要缓存 TTL：5 分钟（校历一周内不会变，5 分钟足以覆盖一次冷启动的所有调用点）。

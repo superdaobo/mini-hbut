@@ -1413,7 +1413,6 @@ impl HbutClient {
             Err(_) => TeacherWeekDates::Transport("响应不是 JSON".to_string()),
         }
     }
-
 }
 
 #[cfg(test)]
