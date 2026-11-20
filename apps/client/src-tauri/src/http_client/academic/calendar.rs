@@ -48,28 +48,6 @@ pub(crate) fn calendar_data_path_for_role(is_teacher: bool) -> &'static str {
 }
 
 impl HbutClient {
-    pub async fn fetch_calendar(
-        &self,
-    ) -> Result<Vec<CalendarEvent>, Box<dyn std::error::Error + Send + Sync>> {
-        // 校历数据通常是静态的，这里返回示例数据
-        Ok(vec![
-            CalendarEvent {
-                date: "2024-09-02".to_string(),
-                title: "开学日".to_string(),
-                event_type: "event".to_string(),
-            },
-            CalendarEvent {
-                date: "2024-10-01".to_string(),
-                title: "国庆节".to_string(),
-                event_type: "holiday".to_string(),
-            },
-            CalendarEvent {
-                date: "2025-01-13".to_string(),
-                title: "期末考试开始".to_string(),
-                event_type: "exam".to_string(),
-            },
-        ])
-    }
     /// 获取校历数据 (与 Python calendar.py 一致)
     #[allow(unreachable_code)]
     pub async fn fetch_calendar_data(

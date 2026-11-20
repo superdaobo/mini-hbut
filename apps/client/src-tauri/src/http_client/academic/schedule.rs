@@ -1414,24 +1414,6 @@ impl HbutClient {
         }
     }
 
-    pub async fn fetch_classrooms(
-        &self,
-    ) -> Result<Vec<crate::Classroom>, Box<dyn std::error::Error + Send + Sync>> {
-        let classrooms_url = format!(
-            "{}/cdjy/cdjy_cxKxcdlb.html?doType=query&gnmkdm=N2155",
-            self.academic_base_url()
-        );
-
-        let response = self
-            .client
-            .post(&classrooms_url)
-            .form(&[("xnm", "2024"), ("xqm", "12")])
-            .send()
-            .await?;
-
-        let json: serde_json::Value = response.json().await?;
-        parser::parse_classrooms(&json)
-    }
 }
 
 #[cfg(test)]

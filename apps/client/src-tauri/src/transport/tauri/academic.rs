@@ -180,18 +180,6 @@ pub(crate) async fn fetch_training_plan_courses(
 }
 
 #[tauri::command]
-pub(crate) async fn fetch_calendar(
-    state: State<'_, AppState>,
-) -> Result<Vec<CalendarEvent>, String> {
-    // 单端命令（旧校历事件）：快照克隆后调用，避免写锁跨网络 await
-    let client = {
-        let guard = state.client.read().await;
-        guard.clone()
-    };
-    client.fetch_calendar().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub(crate) async fn fetch_calendar_data(
     state: State<'_, AppState>,
     semester: Option<String>,

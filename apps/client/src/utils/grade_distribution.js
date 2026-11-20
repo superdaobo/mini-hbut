@@ -56,19 +56,6 @@ export async function requestJson(url, options = {}, timeoutMs = REQUEST_TIMEOUT
 }
 
 /**
- * 获取所有学期列表
- * @returns {Promise<string[]>}
- */
-export async function fetchGradeDistributionSemesters() {
-  const base = getServiceBaseUrl()
-  const data = await requestJson(`${base}${GRADE_API_PREFIX}/semesters`, {
-    method: 'GET',
-    headers: { 'Accept': 'application/json' },
-  })
-  return data.semesters || []
-}
-
-/**
  * 查询给分记录
  * @param {{ semester?: string, course_name?: string, page?: number, page_size?: number }} params
  * @returns {Promise<{ total: number, page: number, page_size: number, items: Array }>}

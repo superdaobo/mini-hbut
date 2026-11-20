@@ -9,39 +9,6 @@ use crate::transport::tauri::common::{attach_sync_time, persist_electricity_toke
 use crate::DB_FILENAME;
 
 #[tauri::command]
-pub(crate) async fn electricity_query_location(
-    state: State<'_, AppState>,
-    payload: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let mut client = state.client.write().await;
-    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
-    let key_suffix = payload.to_string();
-    let cache_key = uid.as_ref().map(|u| format!("{}:loc:{}", u, key_suffix));
-
-    match client.query_electricity_location(payload).await {
-        Ok(data) => {
-            let sync_time = chrono::Local::now().to_rfc3339();
-            let payload = attach_sync_time(data, &sync_time, false);
-            if let Some(key) = cache_key.as_ref() {
-                let _ = db::save_cache(DB_FILENAME, "electricity_cache", key, &payload);
-            }
-            persist_electricity_tokens(&client);
-            Ok(payload)
-        }
-        Err(e) => {
-            if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) =
-                    db::get_cache(DB_FILENAME, "electricity_cache", key)
-                {
-                    return Ok(attach_sync_time(cached_data, &sync_time, true));
-                }
-            }
-            Err(e.to_string())
-        }
-    }
-}
-
-#[tauri::command]
 pub(crate) async fn electricity_query_account(
     state: State<'_, AppState>,
     payload: serde_json::Value,
