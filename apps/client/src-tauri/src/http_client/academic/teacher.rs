@@ -32,6 +32,26 @@ pub(crate) mod profile;
 pub(crate) mod readonly;
 pub(crate) mod teaching;
 
+// goal-21 T04a：教务侧新增只读模块（考勤 / 工作量 / 工作流 / 考试事务 / 学分）。
+// `grid` 是共享的 jqGrid 查询与错误归一化层，新模块统一复用它，
+// 避免继续复制 `teaching.rs` / `exams.rs` 里的同名实现。
+//
+// ⚠️ `#[allow(dead_code)]` 是**临时豁免**：这些 `fetch_*` 目前只被单测调用，
+// 命令层尚未注册（T05 负责）。T05 完成注册后**必须移除这些 allow**，
+// 让 clippy 恢复对死代码的检查（否则等于给自己留后门）。
+#[allow(dead_code)]
+pub(crate) mod attendance;
+#[allow(dead_code)]
+pub(crate) mod credits;
+#[allow(dead_code)]
+pub(crate) mod exam_affairs;
+#[allow(dead_code)]
+pub(crate) mod grid;
+#[allow(dead_code)]
+pub(crate) mod workload;
+#[allow(dead_code)]
+pub(crate) mod workflow;
+
 /// 教师业务统一「未实现」错误（E0 stub）。
 ///
 /// ⚠️ stub 阶段**绝不返回假数据**；E2/E5/E6 用真实只读实现替换。

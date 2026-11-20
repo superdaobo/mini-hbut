@@ -88,6 +88,46 @@ pub const PATH_QXZKB_QUERY: &str = "/admin/jsd/qxzkb/queryQxkbPage";
 /// 教师校历数据（`{xnxq}` 为学期占位段）。
 pub const PATH_CALENDAR_DATA: &str = "/admin/system/zy/xlgl/getData/{xnxq}";
 
+// ── goal-21 T04a：考勤 / 考试事务 / 学分（2026-11-20 实测）─────────────
+/// 学生考勤统计的教学班列表（jqGrid JSON，实测 total=6，含 `cqzt1..cqzt20`）。
+///
+/// ⚠️ 与 [`PATH_TEACHING_TASKS`]（`/admin/jsd/jxrw/ajaxListJsJxrw`）末段同名但**路径不同**，
+/// 前者是「考勤统计的教学班」，后者是「我的教学任务」，禁止混用。
+pub const PATH_ATTENDANCE_LIST: &str = "/admin/jsd/xskq/ajaxListJsJxrw";
+/// 缓考任务查询（实测 200，本学期为空）。
+pub const PATH_EXAM_DEFERRED: &str = "/admin/kw/kwhkgl/hkmdcxjg";
+/// 剩余试卷（实测 200，本学期为空）。
+pub const PATH_EXAM_REMAINING_PAPERS: &str = "/admin/jsd/sjgl/ajaxSysj";
+/// 评教信息查看（实测 200，本学期为空）。
+///
+/// ⚠️ 同域 `pj/xspjjgcx/checkRefresh` 会触发服务端重算，**不在本 allowlist 内**。
+pub const PATH_EXAM_EVAL_INFO: &str = "/admin/pj/xspjxxcx/acustomList";
+/// 学分统计列表（实测 200，`getxftjlist` 4 条）。
+pub const PATH_CREDITS_LIST: &str = "/admin/xjgl/xftj/getxftjlist";
+/// 不及格课程明细（实测 200）。
+pub const PATH_CREDITS_FAILED_COURSES: &str = "/admin/xjgl/xftj/showBjgKcDetail";
+
+/// 教师工作量汇总（**同 host 微服务 `/twork`，不走 `/admin` 前缀**）。
+///
+/// 该微服务响应形态是 `{code:1,message,data}`（不是 `{ret:0}`），且**只接 GET**：
+/// `POST /twork/jsd/search` 实测返回「数据异常」。
+///
+/// 由于 [`assert_allowlist_readonly`] 强制所有条目以 `/admin/` 开头，本路径**不进入**
+/// [`TEACHER_READONLY_PATHS`]，而由 [`is_teacher_workload_readonly_path`] 独立校验。
+pub const PATH_WORKLOAD_SUMMARY: &str = "/twork/jsd/current-user-gzl";
+
+/// 工作量微服务允许的只读路径（独立白名单，前缀 `/twork/`）。
+pub const TEACHER_WORKLOAD_READONLY_PATHS: &[&str] = &[PATH_WORKLOAD_SUMMARY];
+
+/// 工作量微服务路径是否已登记（运行期 fail-closed）。
+pub fn is_teacher_workload_readonly_path(path: &str) -> bool {
+    let candidate = path.trim();
+    !candidate.is_empty()
+        && candidate.starts_with("/twork/")
+        && !path_has_write_verb(candidate)
+        && TEACHER_WORKLOAD_READONLY_PATHS.contains(&candidate)
+}
+
 /// 教师教务只读路径 allowlist（唯一事实源）。
 pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
@@ -193,6 +233,37 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
         path: PATH_CALENDAR_DATA,
         purpose: "教师校历数据（E4）",
+        post_ok: false,
+    },
+    // ── goal-21 T04a ──────────────────────────────────────────────
+    TeacherReadonlyPath {
+        path: PATH_ATTENDANCE_LIST,
+        purpose: "学生考勤统计的教学班列表（goal-21 考勤页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_EXAM_DEFERRED,
+        purpose: "缓考任务查询（goal-21 考试事务）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_EXAM_REMAINING_PAPERS,
+        purpose: "剩余试卷（goal-21 考试事务）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_EXAM_EVAL_INFO,
+        purpose: "评教信息查看（goal-21 考试事务）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CREDITS_LIST,
+        purpose: "学分统计列表（goal-21 学分页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CREDITS_FAILED_COURSES,
+        purpose: "不及格课程明细（goal-21 学分页）",
         post_ok: false,
     },
 ];
