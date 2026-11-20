@@ -142,6 +142,19 @@ pub const PATH_ROSTER_STUDENTS: &str = "/admin/xjgl/xsjbxx/xsxxcxListCustom";
 pub const PATH_GRADE_ENTRY_PROGRESS: &str = "/admin/jsd/jsdcjlr/queryCjlrsz/{index}";
 // 成绩教学班状态复用已有的 [`PATH_TEACHING_CLASSES`]（同一条路径，不重复登记）。
 
+// ── goal-21 T04b2：课表扩展（班级/教室）────────────────────────────────
+/// 班级列表（jqGrid，实测 **total=3315**）。
+///
+/// ⚠️ **必须带 `qx=1`**：不带时实测恒返回 `total=0`（这是本轮踩到的坑）。
+pub const PATH_CLASS_LIST: &str = "/admin/pkgl/kbcx/bjkb/qryBjxx";
+/// 教室列表（jqGrid，实测 **total=1741**，字段 `jsbh/jsmc/jxldm/xqmc/jslx`）。
+pub const PATH_ROOM_LIST: &str = "/admin/pkgl/pkglcroomkb/ajaxListCustom";
+/// 班级课表页（**服务端渲染 HTML**，需 `id`(encodeId) + `xnxq` + `bjbh` + `xqdm`）。
+///
+/// 课表数据直接渲染在 `<td>` 里，无 JSON 接口 —— 本模块只返回该页 URL 供 WebView 承载，
+/// 不解析 HTML 表格（解析 rowspan 网格的脆弱性远高于收益）。
+pub const PATH_CLASS_SCHEDULE_PAGE: &str = "/admin/pkgl/kbcx/bjkb/ckbjkb";
+
 // ── goal-21 T04b：融合门户 e.hbut（**非 /admin 前缀**，独立白名单）──────
 /// 门户页面视图（含 `cardLayout` 8 张卡；实测 200）。
 pub const PATH_PORTAL_PAGE_VIEW: &str = "/getPageView";
@@ -333,6 +346,22 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
         path: PATH_GRADE_ENTRY_PROGRESS,
         purpose: "成绩录入进度（goal-21 成绩页）",
+        post_ok: false,
+    },
+    // ── goal-21 T04b2 ──────────────────────────────────────────────
+    TeacherReadonlyPath {
+        path: PATH_CLASS_LIST,
+        purpose: "班级列表（goal-21 班级课表选班；必须带 qx=1）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ROOM_LIST,
+        purpose: "教室列表（goal-21 教室课表选教室）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CLASS_SCHEDULE_PAGE,
+        purpose: "班级课表页（服务端渲染 HTML，仅生成 WebView URL）",
         post_ok: false,
     },
 ];

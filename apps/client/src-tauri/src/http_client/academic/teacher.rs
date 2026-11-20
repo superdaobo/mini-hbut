@@ -52,6 +52,19 @@ pub(crate) mod workload;
 #[allow(dead_code)]
 pub(crate) mod workflow;
 
+// goal-21 T04b：调停补 / 名册 / 成绩录入 / 门户卡。
+// 同样带临时 `#[allow(dead_code)]`，T05 注册命令后一并移除。
+#[allow(dead_code)]
+pub(crate) mod adjustment;
+#[allow(dead_code)]
+pub(crate) mod grade_entry;
+#[allow(dead_code)]
+pub(crate) mod portal_cards;
+#[allow(dead_code)]
+pub(crate) mod roster;
+#[allow(dead_code)]
+pub(crate) mod schedule_extra;
+
 /// 教师业务统一「未实现」错误（E0 stub）。
 ///
 /// ⚠️ stub 阶段**绝不返回假数据**；E2/E5/E6 用真实只读实现替换。
