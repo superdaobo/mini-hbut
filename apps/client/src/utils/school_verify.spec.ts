@@ -215,6 +215,20 @@ describe('runCampusIdentity', () => {
     expect(bad.reportProbe).not.toHaveBeenCalled()
   })
 
+  it('同一学号并发触发只跑一次（登录 / 恢复会话可能连续调用）', async () => {
+    let release: (value: unknown) => void = () => {}
+    const invoke = vi.fn(() => new Promise((resolve) => (release = resolve)))
+    const reportProbe = vi.fn()
+    const opts = { studentId: STUDENT, cookies: COOKIES, config: ON, android: false, now: () => 1, invoke, reportProbe }
+    const first = runCampusIdentity(opts)
+    const second = await runCampusIdentity(opts)
+    expect(second.route).toBe('throttled')
+    release(payload({ ok: true, status: 'reused' }))
+    expect((await first).route).toBe('school_verify')
+    expect(invoke).toHaveBeenCalledTimes(1)
+    expect(reportProbe).not.toHaveBeenCalled()
+  })
+
   it('本机做不了时不记节流（下次登录照常尝试）', async () => {
     const h = harness(payload({ reason: 'device_key_unavailable' }))
     const opts = { studentId: STUDENT, cookies: COOKIES, config: ON, android: false, now: () => 5, ...h }
