@@ -266,6 +266,7 @@ fn arbitrary_server_text_never_reaches_the_frontend() {
         "Some Text",
         "",
         "UPPER",
+        "rate_Limited",
         "a".repeat(65).as_str(),
     ] {
         let t = FakeTransport::new(vec![nonce_ok(NONCE_A), reject(403, weird)]);
@@ -365,6 +366,7 @@ fn base_url_is_pinned_unless_debug_loopback_is_explicitly_allowed() {
     );
     for rejected in [
         "https://evil.example",
+        "http://evil.example:8000",
         "http://127.0.0.1:8000/school",
         "http://127.0.0.1:8000/?a=1",
         "http://u:p@127.0.0.1:8000",
@@ -447,4 +449,49 @@ fn audit_line_and_payload_never_carry_secrets() {
     );
     let text = value.to_string();
     assert!(!text.contains("JSESSIONID") && !text.contains(SID) && !text.contains(NONCE_B));
+}
+
+// ── 跨仓 golden（goal-18 T07）────────────────────────────────────────────────────────
+//
+// `golden_v1_request.json` 由**服务端侧的独立实现**（Python cryptography，脚本见 goal 账本）生成；
+// student-auth 仓 `tests/fixtures/client_golden_v1_request.json` 是同一份文件，并在那边原样验签。
+// 这里断言客户端真实流程产出的请求体与之逐字段相等：任何一边改了签名口径，两边测试会同时失败。
+
+const GOLDEN: &str = include_str!("golden_v1_request.json");
+
+#[test]
+fn golden_request_body_matches_the_cross_repo_fixture() {
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let request = &golden["request"];
+    let nonce = request["nonce"].as_str().unwrap().to_string();
+    let ts = request["ts"].as_i64().unwrap();
+    let t = FakeTransport::new(vec![nonce_ok(&nonce), success(STATUS_VERIFIED)]);
+    let input = VerifyInput {
+        student_id: request["student_id"].as_str().unwrap().to_string(),
+        student_name: "张三".to_string(),
+        campus_cookie: String::new(),
+    };
+    let fixed_now = move || ts;
+    let out = tauri::async_runtime::block_on(run_school_verify(&t, &key(), &input, &fixed_now));
+    assert!(out.ok);
+    let reqs = t.requests();
+    assert_eq!(reqs[0].1, json!({"device_id": request["device_id"]}));
+    assert_eq!(
+        &reqs[1].1, request,
+        "客户端请求体必须与跨仓 golden 逐字段相等"
+    );
+    // golden 里记录的 canonical 与设备公钥指纹，也必须与客户端口径一致
+    assert_eq!(
+        golden["device_pubkey_sha256"].as_str().unwrap(),
+        crate::identity::v2_service_client::pubkey_sha256(&key().public_jwk())
+    );
+    let canonical = crate::identity::v2_signature::build_v2_canonical(
+        request["device_id"].as_str().unwrap(),
+        request["student_id"].as_str().unwrap(),
+        "张三",
+        &nonce,
+        ts,
+    )
+    .unwrap();
+    assert_eq!(golden["canonical"].as_str().unwrap(), canonical);
 }

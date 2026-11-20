@@ -1,0 +1,15 @@
+{
+  "_comment": "goal-18 T07 跨仓 golden：种子 0x07x32 / 学号 2510231106 / 姓名 张三 / 固定 nonce 与 ts。客户端 Rust 断言请求体与 request 逐字段相等；student-auth 用它原样验签。改任何一边的签名口径都会让两边测试同时失败。",
+  "canonical": "v1|mhsv-nOo7GxpsCRwvkV1cKtOYYMAbQJhO-oQE|2510231106|1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf|0123456789abcdef0123456789abcdef|1800000000",
+  "device_pubkey_sha256": "9cea3b1b1a6c091c2f915d5c2ad39860c01b40984efa8404e39b059521f7211b",
+  "request": {
+    "alg": "Ed25519",
+    "device_id": "mhsv-nOo7GxpsCRwvkV1cKtOYYMAbQJhO-oQE",
+    "nonce": "0123456789abcdef0123456789abcdef",
+    "public_key_jwk": "{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw\"}",
+    "signature": "X6is-Rz5NFpSW3ePoXysHscSbG7T8qrbljaz9USxrqLx83PKL9H-6tQYeuOusMlRD2ZWtCxL19hQe9gZtKtYAQ",
+    "student_id": "2510231106",
+    "student_name_sha256": "1d841bc0ee98309cb7916670b7f0fdef5f4c35150711a41405ef3633b56322cf",
+    "ts": 1800000000
+  }
+}
