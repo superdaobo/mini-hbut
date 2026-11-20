@@ -1,0 +1,183 @@
+/* TeacherGradeEntryView — Academic Minimalist Blue（goal-21 / T10）
+   亮色自定义色值以 rgba() 为主，实体底色沿用同色板 hex；
+   所有含 hex/rgba 的自定义类均在文件末尾补暗色覆盖。
+   类名一律 .tch-ge-* 前缀，避开 dark-mode.css 已注册的 .tch-card 全局规则。 */
+
+.tch-ge {
+  font-family: 'SF Pro Text', system-ui, -apple-system, 'Inter', sans-serif;
+}
+
+/* ── 卡片：设计包 Level 1（白卡 + 细描边 + 微投影，20px 圆角）──────── */
+.tch-ge-card {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 20px;
+  box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+}
+
+/* ── 设计包排版（title-md 15px/600；meta 11px；micro 10px/600）───────── */
+.tch-ge-title {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: #131b2e;
+}
+.tch-ge-meta {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+.tch-ge-label-caption {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+.tch-ge-label-micro {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+}
+
+/* ── 44px 录入进度环（3.5px 轨道，中心 10px 计数）──────────────────── */
+.tch-ge-ring-track {
+  stroke: rgba(226, 232, 240, 1); /* surface-track */
+}
+.tch-ge-ring-arc {
+  transition: stroke-dashoffset 0.8s ease-out;
+}
+.tch-ge-ring-center {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 状态徽章（11px 高度胶囊 + 6px 圆点；未知值中性灰原样展示）────────── */
+.tch-ge-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tch-ge-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.tch-ge-badge--blue {
+  background: rgba(240, 247, 255, 1); /* surface-highlight */
+  color: rgba(2, 132, 199, 1); /* course-lake-blue */
+}
+.tch-ge-badge--lake {
+  background: rgba(219, 234, 254, 1); /* accent-soft */
+  color: rgba(2, 132, 199, 1); /* course-lake-blue */
+}
+.tch-ge-badge--neutral {
+  background: rgba(241, 245, 249, 1); /* surface-muted */
+  color: rgba(67, 70, 85, 1); /* on-surface-variant */
+}
+.tch-ge-badge--neutral .tch-ge-badge-dot {
+  opacity: 0.55;
+}
+
+/* ── 学期胶囊（页头右侧 <details> 下拉，与 T07/T09 同款）──────────────── */
+.tch-ge-semester {
+  position: relative;
+}
+.tch-ge-semester summary {
+  list-style: none;
+}
+.tch-ge-semester summary::-webkit-details-marker {
+  display: none;
+}
+.tch-ge-semester-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.tch-ge-semester-pill:active {
+  opacity: 0.75;
+}
+.tch-ge-semester-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 9.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px -4px rgba(37, 99, 235, 0.08), 0 4px 12px rgba(15, 23, 42, 0.06);
+  padding: 6px;
+}
+.tch-ge-semester-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tch-ge-semester-option input {
+  accent-color: rgba(37, 99, 235, 1);
+}
+.tch-ge-semester-option:active {
+  background: #f1f5f9;
+}
+
+/* ── 暗色局部规则（token 类由 dark-mode.css 覆盖，这里只补自定义类）────── */
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-card {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-title {
+  color: #f1f5f9;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-ring-track {
+  stroke: #1e293b;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-badge--blue {
+  background: rgba(2, 132, 199, 0.16);
+  color: #38bdf8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-badge--lake {
+  background: rgba(37, 99, 235, 0.18);
+  color: #38bdf8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-badge--neutral {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-semester-pill {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-semester-menu {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ge .tch-ge-semester-option:active {
+  background: #1f2937;
+}
