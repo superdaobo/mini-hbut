@@ -38,7 +38,7 @@ import { setCachedData } from '../../utils/api.js'
 import { startNotificationMonitor } from '../../utils/notify_center.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from '../../utils/cloud_sync.js'
 import { invokeNative, isTauriRuntime } from '../../platform/native'
-import { maybeReportCampusSession } from '../../utils/campus_probe'
+import { maybeVerifyCampusIdentity } from '../../utils/school_verify'
 import { runExclusiveLogin, isLoginInFlight } from './sessionGate'
 import { createSessionBridge } from './sessionBridge'
 import {
@@ -69,8 +69,8 @@ export const createSessionCoordinator = (runtime: AppRuntime): SessionCoordinato
       if (cookies) {
         localStorage.setItem(SESSION_COOKIE_KEY, String(cookies))
         localStorage.setItem(SESSION_COOKIE_TIME_KEY, Date.now().toString())
-        // Issue #1307：上报教务会话供后端核验学号（默认关、失败静默、不阻塞登录）
-        maybeReportCampusSession(String(state.studentId.value || ''), String(cookies))
+        // #1307 + goal-18：新版本走学号核验（远程开关默认关、仅桌面/iOS），否则照旧上报；失败静默、不阻塞登录
+        maybeVerifyCampusIdentity(String(state.studentId.value || ''), String(cookies))
       }
     } catch (e) {
       console.warn('[Session] 保存 cookies 失败:', e)
