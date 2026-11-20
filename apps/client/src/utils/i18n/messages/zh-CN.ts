@@ -3754,6 +3754,13 @@ export const messages: Record<string, string> = {
   'tx.empty': '该月份暂无交易记录',
   'tx.refreshData': '刷新数据',
   'tx.listEnd': '没有更多记录了',
+  // P4-A（#1342）：余额明细 Tab（balanceTradeList，tradeType 11/12/13）
+  'tx.tab.consume': '消费流水',
+  'tx.tab.balance': '余额明细',
+  'tx.balance.detail': '余额变动明细',
+  'tx.balance.empty': '该月份暂无余额变动记录',
+  'tx.balance.typeAll': '全部',
+  'tx.balance.remain': '余额',
   'tx.keyword.canteen': '食堂',
   'tx.keyword.meal': '餐',
   'tx.keyword.supermarket': '超市',

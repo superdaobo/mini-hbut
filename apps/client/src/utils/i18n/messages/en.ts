@@ -3754,6 +3754,13 @@ export const messages: Record<string, string> = {
   'tx.empty': 'No transactions this month',
   'tx.refreshData': 'Refresh data',
   'tx.listEnd': 'No more records',
+  // P4-A (#1342): balance history tab (balanceTradeList, tradeType 11/12/13)
+  'tx.tab.consume': 'Spending',
+  'tx.tab.balance': 'Balance history',
+  'tx.balance.detail': 'Balance changes',
+  'tx.balance.empty': 'No balance changes this month',
+  'tx.balance.typeAll': 'All',
+  'tx.balance.remain': 'Balance',
   'tx.keyword.canteen': 'canteen',
   'tx.keyword.meal': 'meal',
   'tx.keyword.supermarket': 'supermarket',

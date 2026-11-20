@@ -690,6 +690,12 @@ pub fn run() {
             transport::tauri::electricity::electricity_query_account,
             transport::tauri::electricity::refresh_electricity_token,
             transport::tauri::electricity::fetch_transaction_history,
+            // P4-A（#1342）：余额明细（balanceTradeList，tradeType 11/12/13）+ 类型字典
+            transport::tauri::electricity::fetch_balance_trade_list,
+            transport::tauri::electricity::fetch_trade_list_config,
+            // P4-A（#1342）：学习通内嵌页（应用内打开 + 注入会话 cookie）
+            modules::chaoxing_embed::chaoxing_embed_open,
+            modules::chaoxing_embed::chaoxing_embed_close,
             transport::tauri::electricity::campus_code_fetch_config,
             transport::tauri::electricity::campus_code_fetch_qrcode,
             transport::tauri::electricity::campus_code_fetch_order_status,
