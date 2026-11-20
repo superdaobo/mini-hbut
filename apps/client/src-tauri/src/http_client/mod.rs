@@ -68,7 +68,7 @@ use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use base64::Engine;
 use rand::Rng;
 
-use crate::{parser, CalendarEvent, Exam, Grade, LoginPageInfo, ScheduleCourse, UserInfo};
+use crate::{parser, Exam, Grade, LoginPageInfo, ScheduleCourse, UserInfo};
 
 // Teacher Portal V2（#1019）：academic 需对 crate 可见，供 application::TeacherService
 // 复用教师只读路径 allowlist（http_client::academic::teacher::readonly）。

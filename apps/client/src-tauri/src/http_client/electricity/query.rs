@@ -246,37 +246,6 @@ impl HbutClient {
 
         Ok(json)
     }
-    /// 电费余额接口（目前为占位实现）
-    pub async fn fetch_electricity_balance(
-        &mut self,
-        _room_id: &str,
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let bundle = self.get_electricity_token().await?;
-        let refresh = bundle
-            .refresh_token
-            .clone()
-            .or(self.electricity_refresh_token.clone());
-        let expires_at = bundle
-            .expires_in
-            .map(|s| Utc::now() + ChronoDuration::seconds(s));
-        self.set_electricity_session(bundle.access_token.clone(), refresh, expires_at);
-        let token = bundle.access_token;
-
-        // 查询位置信息 (Area -> Building -> Unit -> Room)
-        // 为简化，我们假设用户已经知道 room_id 或者我们先只实现余额查询
-        // Python 版其实也需要层层查询，但这里直接构造 Account 查询
-        // room_id 格式可能是 "area-building-level-room"
-        // TODO: 完整的房间选择逻辑比较复杂，需要多次请求。
-        // 这里先实现 Account API 调用，假设 room_id 透传了必要参数
-        // 用户给的 room_id 可能只是房间号，我们需要先获取层级结构。
-
-        // 既然从前端移植，前端应该会负责层级选择（调用 get_root_areas 等），
-        // 还是说后端直接根据学号查？不，电费通常需要绑定房间。
-        // 为了 "渲染一模一样"，我们需要提供 `get_root_areas`, `get_buildings`, `get_units` 等接口。
-
-        // 暂时只实现 "获取所有层级" 的通用接口
-        Ok(serde_json::json!({ "token": token }))
-    }
 
     /// 查询电费位置层级（区域/楼栋/单元）
     pub async fn query_electricity_location(

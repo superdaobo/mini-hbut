@@ -20,8 +20,6 @@ export interface GradeDistributionResult {
   items: GradeDistributionItem[]
 }
 
-export function fetchGradeDistributionSemesters(): Promise<string[]>
-
 export function fetchGradeDistribution(params?: {
   semester?: string | null
   course_name?: string | null

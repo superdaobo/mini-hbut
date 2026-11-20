@@ -14,6 +14,35 @@ use std::collections::{BTreeMap, HashSet};
 /// 学期切换窗口：距下学期开学 N 天内视为“即将切换”。
 const PRESTART_SWITCH_DAYS: i64 = 7;
 
+/// #1334 BUG-3：校历摘要的进程级 memo。
+///
+/// 背景：`resolve_auto_schedule_context` 会被多个调用点（`/v2/calendar`、
+/// `/v2/schedule/query`、`/v2/semesters`、`/v2/exams`、`/v2/qxzkb/options`）各自触发，
+/// 而每个调用点都会对候选学期逐个请求 `xlgl/getData/{xnxq}`。
+/// 实测单次冷启动同一学期被重复请求 5 次以上、总计约 18 次。
+///
+/// 该 memo 跨调用点共享（进程级），同一学期在 TTL 内只打一次上游。
+static CALENDAR_SUMMARY_MEMO: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, CalendarTermSummary)>>,
+> = std::sync::OnceLock::new();
+
+/// 校历摘要缓存 TTL：5 分钟（校历一周内不会变，5 分钟足以覆盖一次冷启动的所有调用点）。
+const CALENDAR_SUMMARY_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+fn calendar_summary_memo() -> &'static std::sync::Mutex<
+    std::collections::HashMap<String, (std::time::Instant, CalendarTermSummary)>,
+> {
+    CALENDAR_SUMMARY_MEMO.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// 测试用：清空校历摘要 memo，避免跨用例污染。
+#[cfg(test)]
+pub(super) fn clear_calendar_summary_memo() {
+    if let Ok(mut guard) = calendar_summary_memo().lock() {
+        guard.clear();
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct CalendarTermSummary {
     pub(super) semester: String,
@@ -372,6 +401,15 @@ impl HbutClient {
         semester: &str,
         today: NaiveDate,
     ) -> Option<CalendarTermSummary> {
+        // #1334 BUG-3：先查进程级 memo —— 多个调用点会重复请求同一学期。
+        if let Ok(guard) = calendar_summary_memo().lock() {
+            if let Some((at, cached)) = guard.get(semester) {
+                if at.elapsed() < CALENDAR_SUMMARY_TTL {
+                    return Some(cached.clone());
+                }
+            }
+        }
+
         let data = match self.fetch_calendar_raw_for_semester(semester).await {
             Ok(value) => value,
             Err(err) => {
@@ -388,6 +426,14 @@ impl HbutClient {
                 "[调试] 课表上下文候选学期 {} 校历摘要缺失（周次或日期解析失败）",
                 semester
             );
+        } else if let Some(ref value) = summary {
+            // 只缓存成功解析的摘要；解析失败的学期下次仍可重试（不缓存负结果）。
+            if let Ok(mut guard) = calendar_summary_memo().lock() {
+                guard.insert(
+                    semester.to_string(),
+                    (std::time::Instant::now(), value.clone()),
+                );
+            }
         }
         summary
     }
@@ -465,7 +511,10 @@ impl HbutClient {
             .get_current_semester()
             .await
             .unwrap_or_else(|_| crate::semester_catalog::semester_by_date(today));
-        let candidate_semesters = Self::build_candidate_semesters(&fallback_semester, 3);
+        // #1334 BUG-3：radius 3→1。原 radius=3 会生成 7 个候选学期并逐个串行请求，
+        // 配合多调用点导致单次冷启动约 18 次校历请求。降到 1（当前 + 上/下各一学期）
+        // 已足够覆盖「学期切换窗口」判定，配合上面的 memo 可把上游请求压到 ≤3 次。
+        let candidate_semesters = Self::build_candidate_semesters(&fallback_semester, 1);
 
         let mut summaries = Vec::new();
         for sem in candidate_semesters {

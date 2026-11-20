@@ -435,24 +435,23 @@ impl HbutClient {
             };
 
             // 预先创建 URL 字符串，避免临时值借用问题
-            let url_get1 = format!("https://code.hbut.edu.cn/server/auth/getToken?tid={}", tid);
-            let url_get2 = format!(
-                "https://code.hbut.edu.cn/server/auth/getToken?tid={}&orgId=2",
-                tid
-            );
             let url_post = "https://code.hbut.edu.cn/server/auth/getToken".to_string();
 
-            // 方法列表：先GET后POST，不同参数组合
+            // #1334 BUG-2：实测 GET ?tid= 与 GET ?tid=&orgId= 恒返回
+            // {"success":false,"message":"失败"}，只有 POST JSON {tid,orgId} 能换到 token。
+            // 故 tid 分支只走 POST；ticket 分支 POST 优先、GET 仅作兼容兜底。
             let mut token_urls: Vec<(String, Option<serde_json::Value>)> = Vec::new();
             if !tid.is_empty() {
-                token_urls.push((url_get1, None));
-                token_urls.push((url_get2, None));
                 token_urls.push((
                     url_post.clone(),
                     Some(serde_json::json!({"tid": tid, "orgId": 2})),
                 ));
             }
             if !ticket.is_empty() {
+                token_urls.push((
+                    url_post.clone(),
+                    Some(serde_json::json!({"ticket": ticket, "orgId": 2})),
+                ));
                 token_urls.push((
                     format!(
                         "https://code.hbut.edu.cn/server/auth/getToken?ticket={}",
@@ -473,10 +472,6 @@ impl HbutClient {
                         ticket
                     ),
                     None,
-                ));
-                token_urls.push((
-                    url_post.clone(),
-                    Some(serde_json::json!({"ticket": ticket, "orgId": 2})),
                 ));
             }
 
@@ -541,48 +536,10 @@ impl HbutClient {
                 }
             }
 
-            // 尝试 getLoginUser 接口 (此路径常在 session 已建立时返回 token)
-            if auth_token.is_empty() {
-                crate::hbut_debug!("[调试] 尝试 getLoginUser 相关接口");
-                for endpoint in &["getLoginUser", "getUserInfo", "getData"] {
-                    let url = format!("https://code.hbut.edu.cn/server/auth/{}", endpoint);
-                    if let Ok(resp) = self
-                        .client
-                        .get(&url)
-                        .header("Origin", "https://code.hbut.edu.cn")
-                        .header("Referer", &referer_url)
-                        .send()
-                        .await
-                    {
-                        if let Ok(json) = resp.json::<serde_json::Value>().await {
-                            // crate::hbut_debug!("[调试] {} 响应: {:?}", endpoint, json);
-                            if json
-                                .get("success")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false)
-                            {
-                                if let Some(result_data) = json.get("resultData") {
-                                    auth_token = result_data
-                                        .get("accessToken")
-                                        .or(result_data.get("token"))
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string())
-                                        .unwrap_or_default();
-
-                                    if !auth_token.is_empty() {
-                                        println!(
-                                            "[调试] 获取到令牌 {}: {}...",
-                                            endpoint,
-                                            &auth_token.chars().take(20).collect::<String>()
-                                        );
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // #1334 BUG-1：原实现在 getToken 失败后兜底探测
+            // `getLoginUser` / `getUserInfo` / `getData` 三个端点，实测全部 **404**（已下线），
+            // 属纯无效请求（404 时 json 解析失败被静默跳过）。
+            // 已删除该兜底；有效兜底是后面的「从 Cookie 提取 Authorization」与 refreshToken 刷新。
         }
 
         // 3. 获取 code.hbut.edu.cn 的 Cookies
@@ -747,14 +704,15 @@ impl HbutClient {
 
             if within_ttl {
                 // 验证 token 有效性（优先使用官方 App 走的接口）
+                //
+                // #1334 BUG-1：原列表还包含 `GET /server/auth/getLoginUser` 与 `GET /server/auth/getUserInfo`，
+                // 两者实测**恒 404**（已下线）。它们不仅无效，还会在 `user/info` 也 ambiguous 时
+                // 把结果拉成 uncertain，进而触发「保留缓存令牌」——把可能失效的令牌继续留在内存。
+                // 现只保留唯一有效的 `POST /server/user/info`。
                 crate::hbut_debug!("[调试] 检查电费令牌有效性...");
                 let mut invalid = false;
                 let mut uncertain = false;
-                let check_endpoints = vec![
-                    ("POST", "https://code.hbut.edu.cn/server/user/info"),
-                    ("GET", "https://code.hbut.edu.cn/server/auth/getLoginUser"),
-                    ("GET", "https://code.hbut.edu.cn/server/auth/getUserInfo"),
-                ];
+                let check_endpoints = vec![("POST", "https://code.hbut.edu.cn/server/user/info")];
 
                 for (method, check_url) in check_endpoints {
                     let request = if method == "POST" {
@@ -840,8 +798,22 @@ impl HbutClient {
                 }
 
                 if !invalid && uncertain {
-                    println!("[警告] 令牌校验结果不确定，保留缓存令牌");
-                    return Ok(token.clone());
+                    // #1334 BUG-1：原实现「结果不确定 → 保留缓存令牌」会把可能已失效的令牌
+                    // 继续留在内存，表现为「显示已登录但操作失败」。
+                    // 现改为：**有 refreshToken 时主动刷新**（不赌缓存令牌有效性）；
+                    // 无 refreshToken 时（无法刷新）才保守保留。
+                    if self.electricity_refresh_token.is_some() {
+                        println!(
+                            "[警告] 令牌校验结果不确定，改为主动刷新（不保留可能失效的缓存令牌）"
+                        );
+                        self.electricity_token = None;
+                        self.electricity_token_at = None;
+                        self.electricity_token_expires_at = None;
+                        token_expiring = true;
+                    } else {
+                        println!("[警告] 令牌校验结果不确定且无 refreshToken，保守保留缓存令牌");
+                        return Ok(token.clone());
+                    }
                 }
 
                 if invalid {
@@ -1239,25 +1211,19 @@ impl HbutClient {
         };
         let token_url = "https://code.hbut.edu.cn/server/auth/getToken";
 
+        // #1334 BUG-2：同 get_electricity_token —— tid 只走 POST；ticket POST 优先、GET 兜底。
         let mut token_urls: Vec<(String, Option<serde_json::Value>)> = Vec::new();
         if !tid.is_empty() {
-            token_urls.push((
-                format!("https://code.hbut.edu.cn/server/auth/getToken?tid={}", tid),
-                None,
-            ));
-            token_urls.push((
-                format!(
-                    "https://code.hbut.edu.cn/server/auth/getToken?tid={}&orgId=2",
-                    tid
-                ),
-                None,
-            ));
             token_urls.push((
                 token_url.to_string(),
                 Some(serde_json::json!({"tid": tid, "orgId": 2})),
             ));
         }
         if !ticket.is_empty() {
+            token_urls.push((
+                token_url.to_string(),
+                Some(serde_json::json!({"ticket": ticket, "orgId": 2})),
+            ));
             token_urls.push((
                 format!(
                     "https://code.hbut.edu.cn/server/auth/getToken?ticket={}",
@@ -1278,10 +1244,6 @@ impl HbutClient {
                     ticket
                 ),
                 None,
-            ));
-            token_urls.push((
-                token_url.to_string(),
-                Some(serde_json::json!({"ticket": ticket, "orgId": 2})),
             ));
         }
 

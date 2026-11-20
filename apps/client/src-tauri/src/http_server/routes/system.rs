@@ -475,20 +475,6 @@ async fn fetch_library_book_detail(
 }
 
 // ────────────────────────────────────────────────────────────
-async fn electricity_query_location(
-    State(state): State<HttpState>,
-    Json(req): Json<ElectricityRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
-{
-    let mut client = state.client.write().await;
-    client
-        .query_electricity_location(req.payload)
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
-}
-
-// ────────────────────────────────────────────────────────────
 async fn electricity_query_account(
     State(state): State<HttpState>,
     Json(req): Json<ElectricityRequest>,
@@ -606,10 +592,6 @@ pub(crate) fn router() -> Router<HttpState> {
         .route("/library/dict", post(fetch_library_dict))
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
-        .route(
-            "/electricity_query_location",
-            post(electricity_query_location),
-        )
         .route(
             "/electricity_query_account",
             post(electricity_query_account),
