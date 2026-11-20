@@ -47,6 +47,25 @@ const m3Colors = {
   'on-primary-fixed': '#001a42',
   'inverse-surface': '#2c3134',
   'inverse-on-surface': '#edf1f5',
+
+  // ── Academic Minimalist Blue（goal-21 / stitch 设计包）──────────────
+  // 只增不改：下列键名与上方 M3 令牌无重叠，学生端样式零回归。
+  // 来源：data/design-ref/stitch/.../academic_minimalist_blue/DESIGN.md
+  'surface-canvas': '#F8FAFC',
+  'surface-highlight': '#F0F7FF',
+  'surface-track': '#E2E8F0',
+  'surface-muted': '#F1F5F9',
+  'accent-soft': '#DBEAFE',
+  'success': '#10B981',
+  'success-soft': '#ECFDF5',
+  'danger': '#EF4444',
+  'danger-soft': '#FEF2F2',
+  'warning': '#F59E0B',
+  'course-lake-blue': '#0284C7',
+  'course-wisteria': '#8B5CF6',
+  'course-teal': '#0D9488',
+  'course-amber': '#D97706',
+  'course-coral': '#F43F5E',
 } as const
 
 export default {

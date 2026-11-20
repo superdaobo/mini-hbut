@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@100..900&display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-tertiary-container": "#ffeedd", "surface-container-lowest": "#ffffff", "primary-container": "#2563eb", "on-tertiary-fixed": "#2a1700", "outline": "#737686", "surface-highlight": "#F0F7FF", "on-background": "#131b2e", "accent-soft": "#DBEAFE", "outline-variant": "#c3c6d7", "tertiary-fixed-dim": "#ffb95f", "primary": "#004ac6", "course-wisteria": "#8B5CF6", "surface-container-highest": "#dae2fd", "on-tertiary": "#ffffff", "surface-variant": "#dae2fd", "success-soft": "#ECFDF5", "danger-soft": "#FEF2F2", "on-tertiary-fixed-variant": "#653e00", "surface-muted": "#F1F5F9", "surface-tint": "#0053db", "course-lake-blue": "#0284C7", "tertiary": "#784b00", "tertiary-fixed": "#ffddb8", "background": "#faf8ff", "on-primary-fixed": "#00174b", "inverse-surface": "#283044", "on-primary-fixed-variant": "#003ea8", "secondary-fixed-dim": "#adc6ff", "surface-container-low": "#f2f3ff", "inverse-primary": "#b4c5ff", "surface-container": "#eaedff", "course-coral": "#F43F5E", "course-amber": "#D97706", "on-primary-container": "#eeefff", "on-secondary-fixed": "#001a42", "surface": "#faf8ff", "surface-canvas": "#F8FAFC", "on-primary": "#ffffff", "success": "#10B981", "on-secondary-fixed-variant": "#004395", "inverse-on-surface": "#eef0ff", "secondary-container": "#2170e4", "surface-dim": "#d2d9f4", "surface-track": "#E2E8F0", "error-container": "#ffdad6", "on-secondary": "#ffffff", "on-error-container": "#93000a", "secondary": "#0058be", "on-error": "#ffffff", "error": "#ba1a1a", "primary-fixed-dim": "#b4c5ff", "primary-fixed": "#dbe1ff", "on-surface-variant": "#434655", "secondary-fixed": "#d8e2ff", "course-teal": "#0D9488", "on-surface": "#131b2e", "danger": "#EF4444", "on-secondary-container": "#fefcff", "surface-bright": "#faf8ff", "surface-container-high": "#e2e7ff", "tertiary-container": "#996100" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "gutter-desktop": "1.25rem", "space-xl": "1.75rem", "space-md": "0.875rem", "space-lg": "1.25rem", "gutter": "0.75rem", "margin-desktop": "2rem", "margin": "1rem", "space-xs": "0.25rem" }, "fontFamily": { "label-nav": ["Plus Jakarta Sans"], "title-md": ["Plus Jakarta Sans"], "headline-card": ["Plus Jakarta Sans"], "display-kpi-mobile": ["Plus Jakarta Sans"], "metric-hero": ["Plus Jakarta Sans"], "body-subordinate": ["Plus Jakarta Sans"], "headline-sm": ["Plus Jakarta Sans"], "body-default": ["Plus Jakarta Sans"], "label-caption": ["Plus Jakarta Sans"], "label-micro": ["Plus Jakarta Sans"], "metric-badge": ["Plus Jakarta Sans"], "display-kpi": ["Plus Jakarta Sans"], "metric-card": ["Plus Jakarta Sans"], "grid-schedule": ["Plus Jakarta Sans"] }, "fontSize": { "label-nav": ["12px", {"lineHeight": "16px", "fontWeight": "500"}], "title-md": ["15px", {"lineHeight": "20px", "fontWeight": "600"}], "headline-card": ["22px", {"lineHeight": "28px", "fontWeight": "700"}], "display-kpi-mobile": ["40px", {"lineHeight": "44px", "letterSpacing": "-0.03em", "fontWeight": "800"}], "metric-hero": ["32px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "body-subordinate": ["13px", {"lineHeight": "18px", "fontWeight": "400"}], "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}], "body-default": ["14px", {"lineHeight": "20px", "fontWeight": "400"}], "label-caption": ["11px", {"lineHeight": "14px", "fontWeight": "500"}], "label-micro": ["10px", {"lineHeight": "12px", "fontWeight": "600"}], "metric-badge": ["24px", {"lineHeight": "28px", "fontWeight": "700"}], "display-kpi": ["52px", {"lineHeight": "56px", "letterSpacing": "-0.04em", "fontWeight": "800"}], "metric-card": ["28px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "grid-schedule": ["9px", {"lineHeight": "12px", "fontWeight": "500"}] } } } };</script><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface-canvas text-on-surface font-body-default min-h-screen flex flex-col antialiased selection:bg-accent-soft selection:text-primary"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="h-14 px-margin flex items-center justify-between"><div class="flex items-center gap-space-xs"><button class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface active:bg-surface-container transition-colors" onclick="history.back()"><span class="material-symbols-outlined text-[22px]">arrow_back_ios_new</span></button><h1 class="font-title-md text-title-md tracking-tight text-on-surface">Learning Analytics</h1></div><div class="flex items-center gap-space-xs"><button class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">more_horiz</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-14 pb-safe bg-surface-canvas"><div class="flex flex-col w-full pb-8">
+<!-- 顶部课程选择胶囊与学期信息 -->
+<section class="px-margin pt-2 pb-3">
+<div class="flex items-center justify-between">
+<!-- 课程切换器触发胶囊 -->
+<button class="group flex items-center gap-space-xs bg-surface-container-lowest shadow-sm hover:shadow-md active:scale-95 transition-all duration-200 pl-3 pr-2.5 py-1.5 rounded-full text-left" id="course-selector-btn">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<div class="flex items-baseline gap-1.5 min-w-0">
+<span class="font-title-md text-title-md text-on-surface truncate font-semibold">计算机制图与表达-1</span>
+<span class="font-label-caption text-label-caption text-primary bg-surface-highlight px-1.5 py-0.5 rounded-full font-medium">主讲·61人</span>
+</div>
+<span class="material-symbols-outlined text-[18px] text-outline group-hover:text-primary transition-colors">expand_more</span>
+</button>
+<!-- 快速更新状态指示 -->
+<div class="flex items-center gap-1 font-label-micro text-label-micro text-outline">
+<span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+<span>今日 14:30 实时同步</span>
+</div>
+</div>
+</section>
+<!-- 核心数据四宫格方块 (带细腻 Stagger 出现与呼吸光晕) -->
+<section class="px-margin mb-4">
+<div class="grid grid-cols-2 gap-gutter">
+<!-- 1. 签到率 -->
+<div class="relative overflow-hidden bg-surface-container-lowest p-3.5 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 group">
+<div class="flex items-center justify-between mb-1.5">
+<span class="font-label-nav text-label-nav text-on-surface-variant">签到率</span>
+<span class="flex items-center gap-1 font-label-micro text-label-micro text-success bg-success-soft px-1.5 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-success animate-ping"></span>
+            达标
+          </span>
+</div>
+<div class="flex items-baseline gap-1 my-0.5">
+<span class="font-display-kpi-mobile text-display-kpi-mobile text-on-surface font-extrabold tracking-tight">94</span>
+<span class="font-title-md text-title-md text-on-surface-variant font-bold">%</span>
+</div>
+<div class="flex items-center justify-between text-outline font-label-caption text-label-caption mt-1">
+<span>出勤 57/61 人</span>
+<span class="material-symbols-outlined text-[16px] text-success">verified</span>
+</div>
+<!-- 底部微光条 -->
+<div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-success/80 to-accent-soft rounded-b-xl"></div>
+</div>
+<!-- 2. 作业批改进度 -->
+<div class="relative overflow-hidden bg-surface-container-lowest p-3.5 rounded-xl shadow-sm hover:shadow-md transition-all duration-300">
+<div class="flex items-center justify-between mb-1.5">
+<span class="font-label-nav text-label-nav text-on-surface-variant">作业批改进度</span>
+<span class="font-label-micro text-label-micro text-primary bg-surface-highlight px-1.5 py-0.5 rounded-full">进行中</span>
+</div>
+<div class="flex items-baseline gap-1 my-0.5">
+<span class="font-display-kpi-mobile text-display-kpi-mobile text-on-surface font-extrabold tracking-tight">3</span>
+<span class="font-headline-sm text-headline-sm text-outline font-semibold">/ 4 次</span>
+</div>
+<!-- 迷你进度条 -->
+<div class="w-full bg-surface-track h-1.5 rounded-full overflow-hidden mt-2.5">
+<div class="bg-primary h-full rounded-full transition-all duration-1000 ease-out" style="width: 75%"></div>
+</div>
+</div>
+<!-- 3. 待批测验 (带橙色呼吸角标) -->
+<div class="relative overflow-hidden bg-surface-container-lowest p-3.5 rounded-xl shadow-sm hover:shadow-md transition-all duration-300">
+<div class="flex items-center justify-between mb-1.5">
+<span class="font-label-nav text-label-nav text-on-surface-variant">待批测验</span>
+<!-- 橙色呼吸角标 -->
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-course-amber opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-course-amber shadow-[0_0_8px_rgba(217,119,6,0.6)]"></span>
+</span>
+</div>
+<div class="flex items-baseline gap-1 my-0.5">
+<span class="font-display-kpi-mobile text-display-kpi-mobile text-course-amber font-extrabold tracking-tight">2</span>
+<span class="font-body-subordinate text-body-subordinate text-on-surface-variant font-medium">份待核</span>
+</div>
+<div class="flex items-center justify-between font-label-caption text-label-caption text-on-surface-variant mt-1">
+<span class="truncate">单元测验·三视图</span>
+<span class="material-symbols-outlined text-[16px] text-course-amber">pending_actions</span>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-course-amber/60 to-surface-container-lowest rounded-b-xl"></div>
+</div>
+<!-- 4. 近期考试 -->
+<div class="relative overflow-hidden bg-surface-container-lowest p-3.5 rounded-xl shadow-sm hover:shadow-md transition-all duration-300">
+<div class="flex items-center justify-between mb-1.5">
+<span class="font-label-nav text-label-nav text-on-surface-variant">近期考试</span>
+<span class="font-label-micro text-label-micro text-course-lake-blue bg-accent-soft/40 px-1.5 py-0.5 rounded-full">4天后</span>
+</div>
+<div class="flex items-baseline gap-1 my-0.5">
+<span class="font-display-kpi-mobile text-display-kpi-mobile text-on-surface font-extrabold tracking-tight">1</span>
+<span class="font-body-subordinate text-body-subordinate text-on-surface-variant font-medium">场期中排考</span>
+</div>
+<div class="flex items-center justify-between font-label-caption text-label-caption text-outline mt-1">
+<span>周五 09:00 (机房A)</span>
+<span class="material-symbols-outlined text-[16px] text-primary">event_available</span>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-primary/70 to-course-lake-blue/40 rounded-b-xl"></div>
+</div>
+</div>
+</section>
+<!-- 班级活跃度比例热力条卡片 -->
+<section class="px-margin mb-4">
+<div class="bg-surface-container-lowest p-4 rounded-xl shadow-sm">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<div class="w-7 h-7 rounded-lg bg-surface-highlight flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">local_fire_department</span>
+</div>
+<div>
+<h3 class="font-title-md text-title-md text-on-surface font-bold">全班学习活跃度</h3>
+<p class="font-label-caption text-label-caption text-outline">近7日互动、回帖、签到综合加权</p>
+</div>
+</div>
+<div class="flex items-baseline gap-0.5">
+<span class="font-headline-sm text-headline-sm text-primary font-bold">53</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">/61 活跃</span>
+</div>
+</div>
+<!-- 12px 细滑分段热力条 -->
+<div class="w-full h-3 rounded-full bg-surface-track flex overflow-hidden p-[1px] gap-0.5 shadow-inner">
+<!-- 活跃：53/61 ≈ 86.9% -->
+<div class="h-full bg-success rounded-l-full transition-all duration-1000 ease-out" style="width: 86.9%;" title="活跃 53人"></div>
+<!-- 一般：6/61 ≈ 9.8% -->
+<div class="h-full bg-course-amber transition-all duration-1000 ease-out delay-150" style="width: 9.8%;" title="一般 6人"></div>
+<!-- 异常：2/61 ≈ 3.3% -->
+<div class="h-full bg-course-coral rounded-r-full transition-all duration-1000 ease-out delay-300" style="width: 3.3%;" title="异常 2人"></div>
+</div>
+<!-- 热力条图例与细分人数 -->
+<div class="grid grid-cols-3 gap-2 mt-3 pt-2.5 border-t border-surface-container-low text-center">
+<div class="flex flex-col items-center">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-success"></span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">高活跃</span>
+</div>
+<span class="font-title-md text-title-md text-on-surface font-bold mt-0.5">53 <span class="font-label-micro text-label-micro text-outline font-normal">人</span></span>
+</div>
+<div class="flex flex-col items-center">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-course-amber"></span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">常态一般</span>
+</div>
+<span class="font-title-md text-title-md text-on-surface font-bold mt-0.5">6 <span class="font-label-micro text-label-micro text-outline font-normal">人</span></span>
+</div>
+<div class="flex flex-col items-center">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-course-coral"></span>
+<span class="font-label-caption text-label-caption text-course-coral font-medium">潜在预警</span>
+</div>
+<span class="font-title-md text-title-md text-course-coral font-bold mt-0.5">2 <span class="font-label-micro text-label-micro text-course-coral/80 font-normal">人</span></span>
+</div>
+</div>
+</div>
+</section>
+<!-- 成绩分布直方图（阶梯拔高动态效果） -->
+<section class="px-margin mb-4">
+<div class="bg-surface-container-lowest p-4 rounded-xl shadow-sm">
+<div class="flex items-center justify-between mb-4">
+<div>
+<h3 class="font-title-md text-title-md text-on-surface font-bold">阶段成绩分布直方图</h3>
+<p class="font-label-caption text-label-caption text-outline">基于「综合平时考核 1-3」加权测算</p>
+</div>
+<div class="flex items-center gap-1 bg-surface-highlight px-2 py-1 rounded-full">
+<span class="font-label-micro text-label-micro text-primary font-semibold">平均分 82.4</span>
+</div>
+</div>
+<!-- 柱状图展示区 -->
+<div class="relative w-full pt-4 pb-1">
+<!-- 背景横参考线 -->
+<div class="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-20">
+<div class="border-b border-outline-variant w-full"></div>
+<div class="border-b border-outline-variant w-full"></div>
+<div class="border-b border-outline-variant w-full"></div>
+<div class="border-b border-outline-variant w-full"></div>
+</div>
+<!-- 柱形容器 (基准高度 120px) -->
+<div class="relative z-10 flex items-end justify-between gap-2.5 h-36 px-2">
+<!-- 柱1: 90+ 分 (18人, 约 75%) -->
+<div class="flex-1 flex flex-col items-center gap-1 group">
+<span class="font-label-caption text-label-caption text-primary font-bold opacity-90 group-hover:scale-110 transition-transform">18</span>
+<div class="w-full bg-accent-soft rounded-t-lg relative overflow-hidden transition-all duration-700 ease-out hover:brightness-95" style="height: 90px;">
+<div class="absolute inset-0 bg-primary opacity-80"></div>
+</div>
+<span class="font-label-caption text-label-caption text-on-surface-variant font-medium mt-1">90+</span>
+</div>
+<!-- 柱2: 80+ 分 (24人, 最高 100%) -->
+<div class="flex-1 flex flex-col items-center gap-1 group">
+<span class="font-label-caption text-label-caption text-primary font-bold opacity-90 group-hover:scale-110 transition-transform">24</span>
+<div class="w-full bg-primary rounded-t-lg relative overflow-hidden transition-all duration-700 ease-out shadow-[0_4px_12px_rgba(0,74,198,0.25)]" style="height: 120px;">
+<div class="absolute top-0 left-0 right-0 h-1.5 bg-surface-container-highest/60"></div>
+</div>
+<span class="font-label-caption text-label-caption text-on-surface-variant font-medium mt-1">80-89</span>
+</div>
+<!-- 柱3: 70+ 分 (14人, 约 58%) -->
+<div class="flex-1 flex flex-col items-center gap-1 group">
+<span class="font-label-caption text-label-caption text-on-surface-variant font-bold opacity-90 group-hover:scale-110 transition-transform">14</span>
+<div class="w-full bg-surface-container-highest rounded-t-lg relative overflow-hidden transition-all duration-700 ease-out hover:brightness-95" style="height: 70px;">
+<div class="absolute inset-0 bg-course-lake-blue opacity-50"></div>
+</div>
+<span class="font-label-caption text-label-caption text-on-surface-variant font-medium mt-1">70-79</span>
+</div>
+<!-- 柱4: 60+ 分 (5人, 约 20%) -->
+<div class="flex-1 flex flex-col items-center gap-1 group">
+<span class="font-label-caption text-label-caption text-outline font-bold opacity-90 group-hover:scale-110 transition-transform">5</span>
+<div class="w-full bg-surface-muted rounded-t-lg relative overflow-hidden transition-all duration-700 ease-out hover:brightness-95" style="height: 25px;">
+<div class="absolute inset-0 bg-outline-variant opacity-40"></div>
+</div>
+<span class="font-label-caption text-label-caption text-on-surface-variant font-medium mt-1">60-69</span>
+</div>
+<!-- 柱5: <60 分 (2人, 橙色警示, 约 10%) -->
+<div class="flex-1 flex flex-col items-center gap-1 group">
+<div class="flex items-center gap-0.5 text-course-amber">
+<span class="font-label-caption text-label-caption font-bold">2</span>
+<span class="material-symbols-outlined text-[12px]">warning</span>
+</div>
+<div class="w-full bg-course-amber/20 rounded-t-lg relative overflow-hidden transition-all duration-700 ease-out shadow-[0_0_8px_rgba(217,119,6,0.3)]" style="height: 14px;">
+<div class="absolute inset-0 bg-course-amber"></div>
+</div>
+<span class="font-label-caption text-label-caption text-course-amber font-semibold mt-1"><60</span>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-3 pt-2 text-outline font-label-micro text-label-micro bg-surface-canvas/60 px-3 py-1.5 rounded-lg">
+<span>优秀率(80+): 68.8%</span>
+<span>及格率: 96.7%</span>
+<span>不及格: 2人预警</span>
+</div>
+</div>
+</section>
+<!-- 底部「学习异常学生监控 (2人)」卡片 -->
+<section class="px-margin mb-2">
+<div class="bg-surface-container-lowest p-4 rounded-xl shadow-sm border border-danger-soft">
+<!-- 标题栏与一键督促按钮 -->
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<div class="w-7 h-7 rounded-lg bg-danger-soft flex items-center justify-center text-danger">
+<span class="material-symbols-outlined text-[18px]">emergency</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<h3 class="font-title-md text-title-md text-on-surface font-bold">学习异常学生监控</h3>
+<span class="bg-danger-soft text-danger font-label-micro text-label-micro px-1.5 py-0.2 rounded-full font-bold">2人</span>
+</div>
+<p class="font-label-caption text-label-caption text-outline">旷课超 2 次或累计 2 项作业逾期未交</p>
+</div>
+</div>
+</div>
+<!-- 学生异常脱敏列表 -->
+<div class="space-y-2.5 mb-3.5">
+<!-- 学生 1 -->
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-canvas hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-full bg-secondary-fixed flex items-center justify-center text-primary font-bold text-sm">
+              张*
+            </div>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-body-default text-body-default text-on-surface font-semibold">张*华</span>
+<span class="font-label-micro text-label-micro text-outline font-mono">202308***14</span>
+</div>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="font-label-caption text-label-caption text-danger bg-danger-soft px-1.5 py-0.2 rounded font-medium">旷课 3 次</span>
+<span class="font-label-caption text-label-caption text-course-amber bg-on-tertiary-container/30 px-1.5 py-0.2 rounded font-medium">缺交作业 2 次</span>
+</div>
+</div>
+</div>
+<button class="individual-notify-btn text-primary hover:bg-accent-soft/50 p-1.5 rounded-full transition-colors active:scale-95" title="单独私聊">
+<span class="material-symbols-outlined text-[18px]">chat_bubble_outline</span>
+</button>
+</div>
+<!-- 学生 2 -->
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-canvas hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-full bg-tertiary-fixed flex items-center justify-center text-tertiary font-bold text-sm">
+              刘*
+            </div>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-body-default text-body-default text-on-surface font-semibold">刘*晨</span>
+<span class="font-label-micro text-label-micro text-outline font-mono">202308***29</span>
+</div>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="font-label-caption text-label-caption text-danger bg-danger-soft px-1.5 py-0.2 rounded font-medium">旷课 2 次</span>
+<span class="font-label-caption text-label-caption text-course-amber bg-on-tertiary-container/30 px-1.5 py-0.2 rounded font-medium">测验零分待重考</span>
+</div>
+</div>
+</div>
+<button class="individual-notify-btn text-primary hover:bg-accent-soft/50 p-1.5 rounded-full transition-colors active:scale-95" title="单独私聊">
+<span class="material-symbols-outlined text-[18px]">chat_bubble_outline</span>
+</button>
+</div>
+</div>
+<!-- 一键发督促提醒按钮 -->
+<button class="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-container active:scale-[0.98] text-on-primary py-2.5 px-4 rounded-full font-title-md text-title-md font-semibold shadow-[0_4px_14px_rgba(0,74,198,0.3)] transition-all duration-200" id="batch-urge-btn">
+<span class="material-symbols-outlined text-[18px]">send_and_archive</span>
+<span>一键发督促提醒 (2人)</span>
+</button>
+</div>
+</section>
+<!-- 轻量交互弹窗与反馈浮层 (默认隐藏) -->
+<div class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface px-4 py-2 rounded-full font-label-nav text-label-nav shadow-lg opacity-0 pointer-events-none transition-all duration-300 flex items-center gap-1.5 z-50" id="toast-notification">
+<span class="material-symbols-outlined text-[18px] text-success">check_circle</span>
+<span id="toast-text">已向 2 位异常学生下发站内信与学习督促提醒</span>
+</div>
+</div>
+<script>
+  (function() {
+    const urgeBtn = document.getElementById('batch-urge-btn');
+    const toast = document.getElementById('toast-notification');
+    const toastText = document.getElementById('toast-text');
+    const courseBtn = document.getElementById('course-selector-btn');
+    const singleBtns = document.querySelectorAll('.individual-notify-btn');
+
+    function showToast(msg) {
+      if (!toast) return;
+      toastText.textContent = msg;
+      toast.classList.remove('opacity-0', 'pointer-events-none');
+      toast.classList.add('opacity-100');
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'pointer-events-none');
+        toast.classList.remove('opacity-100');
+      }, 2500);
+    }
+
+    if (urgeBtn) {
+      urgeBtn.addEventListener('click', function() {
+        const originalContent = urgeBtn.innerHTML;
+        urgeBtn.disabled = true;
+        urgeBtn.innerHTML = `
+          <span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+          <span>正在智能派发督促通知...</span>
+        `;
+        setTimeout(() => {
+          urgeBtn.disabled = false;
+          urgeBtn.innerHTML = originalContent;
+          showToast('已向 2 位异常学生下发督促提醒与补卡任务');
+        }, 800);
+      });
+    }
+
+    singleBtns.forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showToast('已调起该学生的专属学情沟通会话');
+      });
+    });
+
+    if (courseBtn) {
+      courseBtn.addEventListener('click', function() {
+        showToast('正在加载其他班级学情数据...');
+      });
+    }
+  })();
+</script></main></body></html>

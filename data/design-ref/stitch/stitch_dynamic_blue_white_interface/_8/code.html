@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@100..900&display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-tertiary-container": "#ffeedd", "surface-container-lowest": "#ffffff", "primary-container": "#2563eb", "on-tertiary-fixed": "#2a1700", "outline": "#737686", "surface-highlight": "#F0F7FF", "on-background": "#131b2e", "accent-soft": "#DBEAFE", "outline-variant": "#c3c6d7", "tertiary-fixed-dim": "#ffb95f", "primary": "#004ac6", "course-wisteria": "#8B5CF6", "surface-container-highest": "#dae2fd", "on-tertiary": "#ffffff", "surface-variant": "#dae2fd", "success-soft": "#ECFDF5", "danger-soft": "#FEF2F2", "on-tertiary-fixed-variant": "#653e00", "surface-muted": "#F1F5F9", "surface-tint": "#0053db", "course-lake-blue": "#0284C7", "tertiary": "#784b00", "tertiary-fixed": "#ffddb8", "background": "#faf8ff", "on-primary-fixed": "#00174b", "inverse-surface": "#283044", "on-primary-fixed-variant": "#003ea8", "secondary-fixed-dim": "#adc6ff", "surface-container-low": "#f2f3ff", "inverse-primary": "#b4c5ff", "surface-container": "#eaedff", "course-coral": "#F43F5E", "course-amber": "#D97706", "on-primary-container": "#eeefff", "on-secondary-fixed": "#001a42", "surface": "#faf8ff", "surface-canvas": "#F8FAFC", "on-primary": "#ffffff", "success": "#10B981", "on-secondary-fixed-variant": "#004395", "inverse-on-surface": "#eef0ff", "secondary-container": "#2170e4", "surface-dim": "#d2d9f4", "surface-track": "#E2E8F0", "error-container": "#ffdad6", "on-secondary": "#ffffff", "on-error-container": "#93000a", "secondary": "#0058be", "on-error": "#ffffff", "error": "#ba1a1a", "primary-fixed-dim": "#b4c5ff", "primary-fixed": "#dbe1ff", "on-surface-variant": "#434655", "secondary-fixed": "#d8e2ff", "course-teal": "#0D9488", "on-surface": "#131b2e", "danger": "#EF4444", "on-secondary-container": "#fefcff", "surface-bright": "#faf8ff", "surface-container-high": "#e2e7ff", "tertiary-container": "#996100" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "gutter-desktop": "1.25rem", "space-xl": "1.75rem", "space-md": "0.875rem", "space-lg": "1.25rem", "gutter": "0.75rem", "margin-desktop": "2rem", "margin": "1rem", "space-xs": "0.25rem" }, "fontFamily": { "label-nav": ["Plus Jakarta Sans"], "title-md": ["Plus Jakarta Sans"], "headline-card": ["Plus Jakarta Sans"], "display-kpi-mobile": ["Plus Jakarta Sans"], "metric-hero": ["Plus Jakarta Sans"], "body-subordinate": ["Plus Jakarta Sans"], "headline-sm": ["Plus Jakarta Sans"], "body-default": ["Plus Jakarta Sans"], "label-caption": ["Plus Jakarta Sans"], "label-micro": ["Plus Jakarta Sans"], "metric-badge": ["Plus Jakarta Sans"], "display-kpi": ["Plus Jakarta Sans"], "metric-card": ["Plus Jakarta Sans"], "grid-schedule": ["Plus Jakarta Sans"] }, "fontSize": { "label-nav": ["12px", {"lineHeight": "16px", "fontWeight": "500"}], "title-md": ["15px", {"lineHeight": "20px", "fontWeight": "600"}], "headline-card": ["22px", {"lineHeight": "28px", "fontWeight": "700"}], "display-kpi-mobile": ["40px", {"lineHeight": "44px", "letterSpacing": "-0.03em", "fontWeight": "800"}], "metric-hero": ["32px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "body-subordinate": ["13px", {"lineHeight": "18px", "fontWeight": "400"}], "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}], "body-default": ["14px", {"lineHeight": "20px", "fontWeight": "400"}], "label-caption": ["11px", {"lineHeight": "14px", "fontWeight": "500"}], "label-micro": ["10px", {"lineHeight": "12px", "fontWeight": "600"}], "metric-badge": ["24px", {"lineHeight": "28px", "fontWeight": "700"}], "display-kpi": ["52px", {"lineHeight": "56px", "letterSpacing": "-0.04em", "fontWeight": "800"}], "metric-card": ["28px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "grid-schedule": ["9px", {"lineHeight": "12px", "fontWeight": "500"}] } } } };</script><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface-canvas text-on-surface font-body-default min-h-screen flex flex-col antialiased selection:bg-accent-soft selection:text-primary"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="h-14 px-margin flex items-center justify-between"><div class="flex items-center gap-space-xs"><button class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface active:bg-surface-container transition-colors" onclick="history.back()"><span class="material-symbols-outlined text-[22px]">arrow_back_ios_new</span></button><h1 class="font-title-md text-title-md tracking-tight text-on-surface">Attendance Tracker</h1></div><div class="flex items-center gap-space-xs"><button class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">more_horiz</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-14 pb-safe bg-surface-canvas"><div class="flex flex-col w-full pb-8 select-none">
+<!-- Subtle Ambient Glow Backdrop Layer -->
+<div class="fixed inset-x-0 top-14 h-48 bg-gradient-to-b from-primary-fixed/20 via-surface-highlight/30 to-transparent pointer-events-none -z-10"></div>
+<!-- Main Container -->
+<div class="px-margin flex flex-col gap-space-md pt-space-sm">
+<!-- KPI Summary Hero Card with Rotating Aura -->
+<div class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-lg shadow-sm">
+<!-- Ambient Rotating Breathing Aura -->
+<div class="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-gradient-to-tr from-primary-fixed to-accent-soft opacity-60 blur-2xl animate-pulse pointer-events-none"></div>
+<div class="relative z-10 flex flex-col gap-space-md">
+<!-- Top bar: Context & Term Selector -->
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-success"></span>
+<span class="font-label-nav text-label-nav text-on-surface-variant font-semibold">2023-2024 春季学期</span>
+</div>
+<!-- Term Capsule Switcher -->
+<button class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface-container-low text-primary active:bg-surface-container-high transition-colors" id="termBtn">
+<span class="font-label-caption text-label-caption font-semibold">第12周</span>
+<span class="material-symbols-outlined text-[14px]">expand_more</span>
+</button>
+</div>
+<!-- Big KPI Metric Section -->
+<div class="flex items-baseline justify-between pt-1">
+<div>
+<div class="flex items-baseline gap-1">
+<span class="font-display-kpi-mobile text-display-kpi-mobile text-primary tracking-tight font-extrabold">94.2</span>
+<span class="font-title-md text-title-md text-primary font-bold">%</span>
+</div>
+<p class="font-body-subordinate text-body-subordinate text-on-surface-variant mt-0.5">平均全员到课率 · 稳定优秀</p>
+</div>
+<!-- Circular Halo Indicator -->
+<div class="relative w-14 h-14 flex items-center justify-center">
+<!-- Pulsing outer ring -->
+<div class="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-40"></div>
+<!-- Progress Ring -->
+<svg class="w-14 h-14 transform -rotate-90" viewbox="0 0 56 56">
+<circle class="text-surface-container-high" cx="28" cy="28" fill="none" r="23" stroke="currentColor" stroke-width="4"></circle>
+<circle class="text-primary transition-all duration-1000 ease-out" cx="28" cy="28" fill="none" r="23" stroke="currentColor" stroke-dasharray="144.5" stroke-dashoffset="8.4" stroke-linecap="round" stroke-width="4"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">verified</span>
+</div>
+</div>
+</div>
+<!-- Sub metrics pill chips -->
+<div class="grid grid-cols-2 gap-space-xs pt-1">
+<div class="flex items-center gap-space-xs bg-surface-canvas rounded-lg px-space-sm py-2">
+<div class="w-7 h-7 rounded-full bg-accent-soft flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[16px]">groups</span>
+</div>
+<div>
+<span class="font-label-micro text-label-micro text-outline uppercase block">覆盖班级</span>
+<span class="font-title-md text-title-md font-bold text-on-surface">3 个教学班</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs bg-surface-canvas rounded-lg px-space-sm py-2">
+<div class="w-7 h-7 rounded-full bg-success-soft flex items-center justify-center text-success">
+<span class="material-symbols-outlined text-[16px]">checklist</span>
+</div>
+<div>
+<span class="font-label-micro text-label-micro text-outline uppercase block">点名执行</span>
+<span class="font-title-md text-title-md font-bold text-on-surface">14 次记录</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Class Attendance Breakdown Cards -->
+<div class="flex flex-col gap-space-xs">
+<div class="flex items-center justify-between px-1">
+<h2 class="font-title-md text-title-md text-on-surface font-bold">班级到课达标情况</h2>
+<span class="font-label-caption text-label-caption text-on-surface-variant">按当前考勤率排序</span>
+</div>
+<!-- Card 1: 计算机制图与表达-1 -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-xs transform transition active:scale-[0.99]">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-course-lake-blue"></span>
+<span class="font-title-md text-title-md font-bold text-on-surface">计算机制图与表达-1</span>
+</div>
+<span class="font-title-md text-title-md font-bold text-course-lake-blue">94.2%</span>
+</div>
+<div class="w-full bg-surface-muted h-2 rounded-full overflow-hidden mt-1">
+<div class="h-full rounded-full bg-course-lake-blue transition-all duration-700 ease-out" style="width: 94.2%;"></div>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant font-label-caption text-label-caption pt-0.5">
+<span>教学班规模: 61 人</span>
+<span>已点名 14 次 · 到席 803 人次</span>
+</div>
+</div>
+<!-- Card 2: 建筑数字化设计方法 -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-xs transform transition active:scale-[0.99]">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-course-teal"></span>
+<span class="font-title-md text-title-md font-bold text-on-surface">建筑数字化设计方法</span>
+</div>
+<span class="font-title-md text-title-md font-bold text-course-teal">91.5%</span>
+</div>
+<div class="w-full bg-surface-muted h-2 rounded-full overflow-hidden mt-1">
+<div class="h-full rounded-full bg-course-teal transition-all duration-700 ease-out" style="width: 91.5%;"></div>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant font-label-caption text-label-caption pt-0.5">
+<span>教学班规模: 46 人</span>
+<span>已点名 12 次 · 到席 505 人次</span>
+</div>
+</div>
+<!-- Card 3: 建筑力学与结构 -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-xs transform transition active:scale-[0.99]">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-course-amber"></span>
+<span class="font-title-md text-title-md font-bold text-on-surface">建筑力学与结构</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-1.5 py-0.5 rounded-full bg-on-tertiary-container text-tertiary font-label-micro text-label-micro font-bold">波动预警</span>
+<span class="font-title-md text-title-md font-bold text-course-amber">88.0%</span>
+</div>
+</div>
+<div class="w-full bg-surface-muted h-2 rounded-full overflow-hidden mt-1">
+<div class="h-full rounded-full bg-course-amber transition-all duration-700 ease-out" style="width: 88.0%;"></div>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant font-label-caption text-label-caption pt-0.5">
+<span>教学班规模: 58 人</span>
+<span>已点名 10 次 · 到席 510 人次</span>
+</div>
+</div>
+</div>
+<!-- Interactive Heatmap Matrix Section -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-sm relative">
+<div class="flex items-center justify-between">
+<div>
+<div class="flex items-center gap-1">
+<h2 class="font-title-md text-title-md text-on-surface font-bold">点名热力矩阵</h2>
+<button class="text-on-surface-variant flex items-center" id="matrixInfoBtn">
+<span class="material-symbols-outlined text-[16px]">help_outline</span>
+</button>
+</div>
+<p class="font-label-caption text-label-caption text-on-surface-variant">点击网格方块查看当周课时出勤</p>
+</div>
+<!-- Legend Indicator -->
+<div class="flex items-center gap-1 bg-surface-canvas px-2 py-1 rounded-full">
+<span class="w-2 h-2 rounded-sm bg-danger"></span>
+<span class="font-label-micro text-label-micro text-on-surface-variant mr-1">缺勤</span>
+<span class="w-2 h-2 rounded-sm bg-accent-soft"></span>
+<span class="w-2 h-2 rounded-sm bg-course-teal"></span>
+<span class="w-2 h-2 rounded-sm bg-success"></span>
+<span class="font-label-micro text-label-micro text-on-surface-variant">满勤</span>
+</div>
+</div>
+<!-- Matrix Canvas Area -->
+<div class="overflow-x-auto pb-1 -mx-space-md px-space-md">
+<div class="min-w-[340px] flex flex-col gap-2">
+<!-- Week Header Row -->
+<div class="grid grid-cols-13 gap-1 items-center">
+<div class="col-span-1"></div>
+<!-- W1 - W12 tags -->
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">1</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">2</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">3</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">4</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">5</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">6</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">7</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">8</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">9</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">10</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">11</div>
+<div class="text-center font-label-micro text-label-micro text-outline font-medium">12</div>
+</div>
+<!-- Class Rows Matrix Container -->
+<div class="flex flex-col gap-2" id="heatmapGrid">
+<!-- Populated dynamically via JS for staggered cascade pops -->
+</div>
+</div>
+</div>
+<!-- Popover Detail Floating Sheet (Controlled via JS) -->
+<div class="hidden transition-all duration-300 rounded-lg p-2.5 bg-surface-canvas flex items-center justify-between" id="detailPopover">
+<div class="flex items-center gap-2">
+<div class="w-2.5 h-2.5 rounded-full bg-success" id="popoverDot"></div>
+<div>
+<span class="font-title-md text-title-md font-bold text-on-surface block leading-tight" id="popoverTitle">制图-1 · 第 7 周</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant block mt-0.5" id="popoverDesc">应到 61 人，实到 60 人，缺勤 1 人</span>
+</div>
+</div>
+<button class="w-6 h-6 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant active:bg-surface-variant" id="closePopover">
+<span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+</div>
+</div>
+<!-- Alert / At-Risk Students Collapsible Accordion -->
+<div class="rounded-xl bg-surface-container-lowest shadow-sm overflow-hidden">
+<!-- Toggle Header with Breathing Alert Dot -->
+<button class="w-full p-space-md flex items-center justify-between bg-surface-container-lowest active:bg-surface-canvas transition-colors" id="alertAccordionBtn">
+<div class="flex items-center gap-2">
+<div class="relative flex items-center justify-center w-5 h-5">
+<span class="absolute inline-flex h-full w-full rounded-full bg-course-amber opacity-40 animate-ping"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-course-amber"></span>
+</div>
+<span class="font-title-md text-title-md font-bold text-on-surface">需要重点关注</span>
+<span class="px-2 py-0.5 rounded-full bg-danger-soft text-danger font-label-caption text-label-caption font-bold">3 人</span>
+</div>
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="font-label-caption text-label-caption" id="accordionStatusText">展开名单</span>
+<span class="material-symbols-outlined text-[18px] transition-transform duration-300" id="accordionArrow">expand_more</span>
+</div>
+</button>
+<!-- Collapsible Content -->
+<div class="max-h-0 overflow-hidden transition-all duration-300 ease-in-out bg-surface-canvas" id="alertContent">
+<div class="p-space-md flex flex-col gap-space-xs pt-1">
+<p class="font-label-caption text-label-caption text-outline">以下同学出勤率低于 80% 警戒线，系统已生成辅导预警通知：</p>
+<!-- Student 1 -->
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-container-lowest">
+<div class="flex items-center gap-space-xs">
+<div class="w-8 h-8 rounded-full bg-danger-soft text-danger font-title-md text-title-md flex items-center justify-center font-bold">张</div>
+<div>
+<span class="font-title-md text-title-md font-bold text-on-surface">张*</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant block">建筑力学与结构</span>
+</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded-full bg-danger-soft text-danger font-label-micro text-label-micro font-bold">缺勤 4 次</span>
+<span class="font-label-micro text-label-micro text-outline block mt-0.5">连续缺课 2 次</span>
+</div>
+</div>
+<!-- Student 2 -->
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-container-lowest">
+<div class="flex items-center gap-space-xs">
+<div class="w-8 h-8 rounded-full bg-on-tertiary-container text-tertiary font-title-md text-title-md flex items-center justify-center font-bold">李</div>
+<div>
+<span class="font-title-md text-title-md font-bold text-on-surface">李**</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant block">建筑数字化设计方法</span>
+</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded-full bg-on-tertiary-container text-tertiary font-label-micro text-label-micro font-bold">缺勤 3 次</span>
+<span class="font-label-micro text-label-micro text-outline block mt-0.5">病假待复核 1 次</span>
+</div>
+</div>
+<!-- Student 3 -->
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-container-lowest">
+<div class="flex items-center gap-space-xs">
+<div class="w-8 h-8 rounded-full bg-on-tertiary-container text-tertiary font-title-md text-title-md flex items-center justify-center font-bold">王</div>
+<div>
+<span class="font-title-md text-title-md font-bold text-on-surface">王*</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant block">建筑力学与结构</span>
+</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded-full bg-on-tertiary-container text-tertiary font-label-micro text-label-micro font-bold">缺勤 3 次</span>
+<span class="font-label-micro text-label-micro text-outline block mt-0.5">早退 2 次</span>
+</div>
+</div>
+<!-- Action Button -->
+<button class="mt-1 w-full py-2.5 rounded-full bg-primary text-on-primary font-title-md text-title-md font-semibold flex items-center justify-center gap-1 active:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-[16px]">mail</span>
+<span>一键推送辅导员协同跟进</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Quick Tool Ribbon -->
+<div class="flex items-center justify-between p-space-md rounded-xl bg-surface-container-lowest shadow-sm">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-surface-highlight flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">file_download</span>
+</div>
+<div>
+<span class="font-title-md text-title-md font-bold text-on-surface block">导出考勤分析报表</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">支持教务 Excel 及 PDF 签章格式</span>
+</div>
+</div>
+<button class="px-3 py-1.5 rounded-full bg-surface-container-low text-primary active:bg-surface-container font-label-caption text-label-caption font-bold">
+        下载
+      </button>
+</div>
+</div>
+</div>
+<script>
+  // Heatmap Matrix Data Definition
+  const matrixData = [
+    {
+      code: '制图',
+      name: '计算机制图与表达-1',
+      // 12 weeks: status 0: absent (red), 1: light green, 2: mid green, 3: full (emerald)
+      weeks: [3, 3, 3, 2, 3, 3, 0, 3, 3, 2, 3, 3],
+      rates: ['100%', '100%', '100%', '95%', '100%', '100%', '82%', '100%', '100%', '96%', '100%', '100%']
+    },
+    {
+      code: '数字',
+      name: '建筑数字化设计方法',
+      weeks: [3, 2, 3, 3, 0, 2, 3, 3, 2, 3, 0, 3],
+      rates: ['100%', '93%', '100%', '100%', '84%', '95%', '100%', '100%', '94%', '100%', '80%', '100%']
+    },
+    {
+      code: '力学',
+      name: '建筑力学与结构',
+      weeks: [3, 0, 2, 3, 2, 0, 3, 2, 0, 2, 3, 2],
+      rates: ['100%', '79%', '91%', '100%', '92%', '78%', '100%', '89%', '81%', '90%', '100%', '91%']
+    }
+  ];
+
+  const colorMap = {
+    0: 'bg-danger text-on-primary', // Absent / Warning
+    1: 'bg-accent-soft text-primary',
+    2: 'bg-course-teal text-on-primary',
+    3: 'bg-success text-on-primary' // Full attendance
+  };
+
+  const container = document.getElementById('heatmapGrid');
+  const popover = document.getElementById('detailPopover');
+  const popoverTitle = document.getElementById('popoverTitle');
+  const popoverDesc = document.getElementById('popoverDesc');
+  const popoverDot = document.getElementById('popoverDot');
+  const closePopover = document.getElementById('closePopover');
+
+  // Render Matrix with Cascade Pop-in animation
+  matrixData.forEach((course, rIdx) => {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'grid grid-cols-13 gap-1 items-center';
+
+    // Label column
+    const labelCol = document.createElement('div');
+    labelCol.className = 'col-span-1 font-label-micro text-label-micro font-bold text-on-surface-variant truncate';
+    labelCol.innerText = course.code;
+    rowEl.appendChild(labelCol);
+
+    // Week block columns
+    course.weeks.forEach((status, wIdx) => {
+      const box = document.createElement('button');
+      box.className = `w-full aspect-square rounded-sm ${colorMap[status]} flex items-center justify-center opacity-0 scale-50 transition-all duration-300 active:scale-125 focus:outline-none`;
+      box.title = `${course.name} - 第${wIdx + 1}周`;
+      
+      // Stagger cascade animation calculation
+      const delay = (rIdx * 12 + wIdx) * 22;
+      setTimeout(() => {
+        box.classList.remove('opacity-0', 'scale-50');
+        box.classList.add('opacity-100', 'scale-100');
+      }, delay);
+
+      // Box Click interaction to trigger popover
+      box.addEventListener('click', () => {
+        popover.classList.remove('hidden');
+        popoverTitle.innerText = `${course.name} · 第 ${wIdx + 1} 周`;
+        
+        if (status === 0) {
+          popoverDot.className = 'w-2.5 h-2.5 rounded-full bg-danger';
+          popoverDesc.innerText = `出勤率 ${course.rates[wIdx]} · 发生异常缺勤 (已发提醒)`;
+        } else if (status === 3) {
+          popoverDot.className = 'w-2.5 h-2.5 rounded-full bg-success';
+          popoverDesc.innerText = `出勤率 100% · 全员准时到席`;
+        } else {
+          popoverDot.className = 'w-2.5 h-2.5 rounded-full bg-course-teal';
+          popoverDesc.innerText = `出勤率 ${course.rates[wIdx]} · 个别学生请假/晚到`;
+        }
+      });
+
+      rowEl.appendChild(box);
+    });
+
+    container.appendChild(rowEl);
+  });
+
+  // Close Popover
+  closePopover.addEventListener('click', () => {
+    popover.classList.add('hidden');
+  });
+
+  // Accordion Toggle for At-risk Students
+  const accordionBtn = document.getElementById('alertAccordionBtn');
+  const alertContent = document.getElementById('alertContent');
+  const accordionArrow = document.getElementById('accordionArrow');
+  const accordionStatusText = document.getElementById('accordionStatusText');
+  let isOpen = false;
+
+  accordionBtn.addEventListener('click', () => {
+    isOpen = !isOpen;
+    if (isOpen) {
+      alertContent.style.maxHeight = alertContent.scrollHeight + "px";
+      accordionArrow.style.transform = 'rotate(180deg)';
+      accordionStatusText.innerText = '收起名单';
+    } else {
+      alertContent.style.maxHeight = '0px';
+      accordionArrow.style.transform = 'rotate(0deg)';
+      accordionStatusText.innerText = '展开名单';
+    }
+  });
+
+  // Cycle Term capsule micro-action
+  const termBtn = document.getElementById('termBtn');
+  const terms = ['第12周 (当前)', '第11周', '第10周', '整学期累计'];
+  let termIdx = 0;
+  termBtn.addEventListener('click', () => {
+    termIdx = (termIdx + 1) % terms.length;
+    termBtn.querySelector('span:first-child').innerText = terms[termIdx];
+  });
+</script></main></body></html>
