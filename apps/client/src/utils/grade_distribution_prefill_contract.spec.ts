@@ -64,4 +64,13 @@ describe('grade distribution teacher prefill contract (#1321)', () => {
     expect(source).toContain('open-grade-distribution')
     expect(source).toContain("emit('open-grade-distribution'")
   })
+
+  it('入口图标走首页同一套 Material Symbols，不用 emoji', () => {
+    const source = readSource('src/features/schedule/components/ScheduleCourseDetail.vue')
+    // 与首页模块图标同源（ThemeModuleIcon 的 grade_distribution → bar_chart）
+    expect(source).toContain('class="material-symbols-outlined teacher-grade-pill__icon"')
+    expect(source).toContain('>bar_chart</span>')
+    // 回归保护：入口文案里不允许再出现 emoji 图标
+    expect(source).not.toContain('📊')
+  })
 })

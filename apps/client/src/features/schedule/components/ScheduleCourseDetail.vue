@@ -124,7 +124,11 @@ const teacherGradeLabel = () => {
                 :aria-label="teacherGradeLabel()"
                 :title="teacherGradeLabel()"
                 @click="handleTeacherGradeJump"
-              >📊 {{ t('schedule.detail.gradeDistribution') }}</button>
+              >
+                <!-- 与首页模块图标同一套 Material Symbols（bar_chart 与首页「给分记录」模块一致） -->
+                <span class="material-symbols-outlined teacher-grade-pill__icon" aria-hidden="true">bar_chart</span>
+                <span class="teacher-grade-pill__label">{{ t('schedule.detail.gradeDistribution') }}</span>
+              </button>
             </span>
           </div>
           <!-- #1321：多教师选择列表（信息行下方的普通块，无 portal） -->
@@ -405,19 +409,30 @@ html.dark .official-remove-hint {
 
 /* ============ #1321 教师 → 给分记录快捷入口 ============ */
 .teacher-grade-pill {
+  /* 图标 + 文字用 flex 对齐，避免 ligature 字形的基线把文字顶偏 */
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   margin-left: 8px;
   min-height: 26px;
-  padding: 2px 8px;
+  padding: 2px 9px 2px 7px;
   border: none;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  line-height: 22px;
+  line-height: 20px;
   background: rgba(37, 99, 235, 0.1);
   color: #1d4ed8;
   cursor: pointer;
   white-space: nowrap;
   vertical-align: middle;
+}
+
+/* 与首页模块图标同源：Material Symbols Outlined，实心字重与首页 ThemeModuleIcon 一致 */
+.teacher-grade-pill__icon {
+  font-size: 14px;
+  line-height: 1;
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
 }
 
 .teacher-grade-pill:hover {
