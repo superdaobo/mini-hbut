@@ -792,17 +792,8 @@ onUnmounted(() => {
         </section>
       </template>
 
-      <!-- P4-C（#1344）：学习记录（6 Tab / 16 维度，只读） -->
+      <!-- P4-C（#1344）：学习记录（6 Tab / 16 维度，只读；课程头卡由组件自带） -->
       <template v-else-if="current.level === 'study'">
-        <section class="panel course-head">
-          <div class="course-head__top">
-            <div class="course-head__meta">
-              <span class="pill">{{ t('chaoxing.hub.studyRecord') }}</span>
-              <strong>{{ studyCourse?.title || current.course?.title }}</strong>
-              <p>{{ studyCourse?.teacher || current.course?.teacher || t('chaoxing.hub.teacherMissing') }}</p>
-            </div>
-          </div>
-        </section>
         <ChaoxingStudyRecord ref="studyRef" :course="studyCourse" @open-official="openStudyTask" />
       </template>
 

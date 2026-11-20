@@ -697,6 +697,7 @@ pub fn run() {
             modules::chaoxing_embed::chaoxing_embed_open,
             modules::chaoxing_embed::chaoxing_embed_close,
             modules::chaoxing_embed::chaoxing_embed_resize,
+            modules::chaoxing_embed::chaoxing_embed_zoom,
             // P4-B（#1343）：作业/考试「只查不做」清单
             transport::tauri::chaoxing::chaoxing_fetch_works_all_courses,
             transport::tauri::chaoxing::chaoxing_fetch_exams_all_courses,

@@ -15,7 +15,17 @@
  */
 import { nextTick, onBeforeUnmount, ref } from 'vue'
 import { invokeNative, isTauriDesktopRuntime } from '../../../platform/native'
+import { useLocale } from '../../../utils/app_i18n'
 import { openExternal } from '../../../utils/external_link'
+
+/**
+ * 手机 UA。
+ *
+ * 实测：超星按 UA 下发不同版式 —— 桌面版在 400~600px 宽度下需要横向滚动、字号极小；
+ * 手机版是单列布局，正好适配 App 的窄窗口。因此内嵌页统一用手机 UA。
+ */
+const MOBILE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
 
 const props = defineProps({
   /** 要打开的学习通地址（只允许 *.chaoxing.com，后端会再校验一次） */
@@ -26,8 +36,15 @@ const props = defineProps({
 
 const emit = defineEmits(['close'])
 
+const { t } = useLocale()
+
 const host = ref(null)
 const opened = ref(false)
+/**
+ * 缩放：超星桌面版页面是**固定宽度**（约 1000px），窄窗口下必须整体缩小，
+ * 否则右侧内容被裁掉只能横向滚动。默认「适应宽度」，可一键切 1:1。
+ */
+const zoom = ref(1)
 const busy = ref(false)
 const error = ref('')
 
@@ -79,6 +96,24 @@ const sync = async () => {
   }
 }
 
+/** 适应宽度：按 1000px 版面宽估算（实测超星桌面版容器约 1000px） */
+const fitZoom = () => {
+  const width = window.innerWidth || 420
+  const ratio = Math.round((width / 1000) * 100) / 100
+  return Math.max(0.45, Math.min(1, ratio))
+}
+
+/** 在「适应宽度」与「1:1」之间切换 */
+const toggleZoom = async () => {
+  const next = zoom.value < 0.999 ? 1 : fitZoom()
+  zoom.value = next
+  try {
+    await invokeNative('chaoxing_embed_zoom', { zoom: next })
+  } catch {
+    // 浮层可能已关闭
+  }
+}
+
 const waitForLayout = () =>
   new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))
@@ -106,7 +141,13 @@ const open = async (url) => {
     await waitForLayout()
     const bounds = boundsOf()
     if (!bounds) throw new Error('内嵌容器尺寸无效')
-    await invokeNative('chaoxing_embed_open', { url: target, bounds })
+    zoom.value = fitZoom()
+    await invokeNative('chaoxing_embed_open', {
+      url: target,
+      bounds,
+      userAgent: MOBILE_UA,
+      zoom: zoom.value
+    })
     startSync()
   } catch (e) {
     opened.value = false
@@ -144,17 +185,20 @@ defineExpose({ open, close })
   <Teleport to="body">
     <div v-if="opened" class="cx-embed">
       <header class="cx-embed__bar">
-        <button type="button" class="cx-embed__back" aria-label="返回" @click="close">
+        <button type="button" class="cx-embed__back" :aria-label="t('chaoxing.embed.back')" @click="close">
           <span class="material-symbols-outlined">arrow_back</span>
         </button>
         <div class="cx-embed__title">
-          <strong>{{ title || '学习通' }}</strong>
-          <span>官方页面 · 已自动登录</span>
+          <strong>{{ title || t('chaoxing.embed.title') }}</strong>
+          <span>{{ t('chaoxing.embed.loggedIn') }}</span>
         </div>
-        <button type="button" class="cx-embed__close" @click="close">关闭</button>
+        <button type="button" class="cx-embed__zoom" @click="toggleZoom">
+          {{ zoom < 0.999 ? t('chaoxing.embed.actual') : t('chaoxing.embed.fit') }}
+        </button>
+        <button type="button" class="cx-embed__close" @click="close">{{ t('chaoxing.embed.close') }}</button>
       </header>
       <div ref="host" class="cx-embed__host">
-        <p v-if="busy" class="cx-embed__tip">正在打开学习通…</p>
+        <p v-if="busy" class="cx-embed__tip">{{ t('chaoxing.embed.opening') }}</p>
         <p v-else-if="error" class="cx-embed__tip is-error">{{ error }}</p>
       </div>
     </div>
@@ -212,6 +256,18 @@ defineExpose({ open, close })
 .cx-embed__title span {
   font-size: 11px;
   color: var(--md-sys-color-on-surface-variant, #424754);
+}
+
+.cx-embed__zoom {
+  flex-shrink: 0;
+  border: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+  border-radius: 9999px;
+  cursor: pointer;
 }
 
 .cx-embed__close {

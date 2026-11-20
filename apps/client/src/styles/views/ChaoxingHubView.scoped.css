@@ -727,8 +727,8 @@ html.dark .soft-panel {
   min-width: 0;
   padding: 12px 10px;
   border-radius: 14px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--md-sys-color-surface-variant, #e2e8f0);
+  background: var(--md-sys-color-surface-container-lowest, #fff);
   text-align: left;
   cursor: pointer;
 }
@@ -746,11 +746,11 @@ html.dark .soft-panel {
   flex-shrink: 0;
 }
 .quick-card.work .quick-card__icon {
-  background: rgba(0, 88, 190, 0.1);
+  background: rgba(37, 99, 235, 0.14);
   color: #0058be;
 }
 .quick-card.exam .quick-card__icon {
-  background: rgba(249, 115, 22, 0.12);
+  background: rgba(249, 115, 22, 0.16);
   color: #f97316;
 }
 .quick-card__body {
@@ -759,18 +759,18 @@ html.dark .soft-panel {
 }
 .quick-card__body strong {
   font-size: 13px;
-  color: #0f172a;
+  color: var(--md-sys-color-on-surface, #0f172a);
 }
 .quick-card__body p {
   margin: 2px 0 0;
   font-size: 11px;
-  color: #64748b;
+  color: var(--md-sys-color-on-surface-variant, #64748b);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .quick-card .chev {
-  color: #cbd5e1;
+  color: var(--md-sys-color-outline, #cbd5e1);
   font-size: 18px;
   flex-shrink: 0;
 }
@@ -787,7 +787,7 @@ html.dark .soft-panel {
 }
 .task-stats > div {
   flex: 1;
-  background: #f8fafc;
+  background: rgba(148, 163, 184, 0.14);
   border-radius: 12px;
   padding: 10px;
   display: flex;
@@ -796,11 +796,11 @@ html.dark .soft-panel {
 }
 .task-stats b {
   font-size: 18px;
-  color: #0f172a;
+  color: var(--md-sys-color-on-surface, #0f172a);
 }
 .task-stats span {
   font-size: 11px;
-  color: #64748b;
+  color: var(--md-sys-color-on-surface-variant, #64748b);
 }
 
 /* 待办卡片 */
@@ -812,16 +812,16 @@ html.dark .soft-panel {
   text-align: left;
   padding: 12px;
   border-radius: 14px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--md-sys-color-surface-variant, #e2e8f0);
+  background: var(--md-sys-color-surface-container-lowest, #fff);
   cursor: pointer;
 }
 .task-card:active {
   transform: scale(0.99);
 }
 .task-card.urgent {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(254, 242, 242, 0.7);
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.1);
 }
 .task-card__top {
   display: flex;
@@ -831,7 +831,7 @@ html.dark .soft-panel {
 }
 .task-card__top strong {
   font-size: 14px;
-  color: #0f172a;
+  color: var(--md-sys-color-on-surface, #0f172a);
   line-height: 1.35;
 }
 .task-badge {
@@ -839,7 +839,7 @@ html.dark .soft-panel {
   font-size: 11px;
   font-weight: 700;
   color: #f97316;
-  background: rgba(249, 115, 22, 0.12);
+  background: rgba(249, 115, 22, 0.16);
   border-radius: 999px;
   padding: 2px 8px;
 }
@@ -850,14 +850,14 @@ html.dark .soft-panel {
 .task-card__course {
   margin: 0;
   font-size: 12px;
-  color: #64748b;
+  color: var(--md-sys-color-on-surface-variant, #64748b);
 }
 .task-card__meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--md-sys-color-on-surface-variant, #94a3b8);
 }
 
 /* 底部说明卡 */
@@ -865,8 +865,8 @@ html.dark .soft-panel {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: rgba(255, 247, 237, 0.9);
-  border-color: rgba(251, 211, 141, 0.5);
+  background: rgba(249, 115, 22, 0.1);
+  border-color: rgba(249, 115, 22, 0.28);
 }
 .notice-panel p {
   margin: 0;
@@ -879,14 +879,14 @@ html.dark .soft-panel {
 .notice-line {
   margin: 0 0 6px;
   font-size: 13px;
-  color: #334155;
+  color: var(--md-sys-color-on-surface-variant, #334155);
 }
 .notice-warn {
   margin: 12px 0 0;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(254, 242, 242, 0.9);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
   font-size: 12px;
   line-height: 1.6;
   color: #b91c1c;
