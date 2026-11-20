@@ -160,6 +160,7 @@
     "allow-identity-rebind-approve-v2",
     "allow-identity-rebind-request-v2",
     "allow-identity-revoke-current-device-local",
+    "allow-identity-school-verify",
     "allow-identity-sign-auth-request",
     "allow-identity-sign-canonical",
     "allow-identity-sign-rebind",

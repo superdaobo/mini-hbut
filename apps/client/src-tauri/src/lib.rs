@@ -29,6 +29,8 @@ pub mod runtime_log;
 pub mod secret_envelope;
 // #1044：学期目录（学期键↔序号、按日期推算、最近学期列表），全校课表与日历页共用口径
 pub(crate) mod semester_catalog;
+// goal-18：学号核验（新版本客户端 → student-auth /school/verify；cookie 只在 Rust 侧）
+pub mod school_verify;
 pub mod transport;
 pub mod utils;
 
@@ -748,6 +750,8 @@ pub fn run() {
             // P1-1（#1212）：设备密钥对 v2 canonical 的正式签名路径
             identity::commands::identity_build_v2_canonical,
             identity::commands::identity_sign_canonical,
+            // goal-18：学号核验（桌面 / iOS；Android 返回 unsupported）
+            school_verify::command::identity_school_verify,
             // P1-2（#1213）：首次登记 / 换机（新设备发起 + 旧设备批准）
             identity::commands::identity_sign_rebind,
             identity::commands::identity_enroll_v2,

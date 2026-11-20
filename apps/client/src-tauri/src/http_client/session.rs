@@ -847,6 +847,16 @@ impl HbutClient {
             .unwrap_or_default()
     }
 
+    /// 学号核验（goal-18）：两个教务基址的会话 cookie，合成一个干净的 `k=v; …` 请求头。
+    ///
+    /// 超星域（现行站点）排在前面：服务端先请求它，同名 cookie 必须用它的值。只读 cookie jar，
+    /// 不打印内容；裁剪与过滤规则见 `school_verify::flow::merge_cookie_headers`。
+    pub fn school_session_cookie_header(&self) -> String {
+        let primary = self.cookie_header_for_origin("https://hbut.jw.chaoxing.com");
+        let fallback = self.cookie_header_for_origin("https://jwxt.hbut.edu.cn");
+        crate::school_verify::flow::merge_cookie_headers(&[&primary, &fallback])
+    }
+
     /// 获取当前 Cookie（用于前端存储/调试；保留旧 Code/Auth/Jwxt/ChaoxingJwxt 标签兼容）
     pub fn get_cookies(&self) -> String {
         let mut all_cookies = Vec::new();
