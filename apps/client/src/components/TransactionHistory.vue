@@ -23,6 +23,23 @@ const monthStats = ref({ income: 0, expense: 0 })
 const offline = ref(false)
 const syncTime = ref('')
 
+// ── P4-A（#1342）：余额明细 Tab ─────────────────────────────────────────────
+// 与「消费流水」是**两套接口**：`balanceTradeList` 的 tradeType 是余额域编码 11/12/13，
+// 传消费流水的 1/2/3 会拿到空列表（goal-17 实测）。因此两边各自维护一份数据与筛选状态。
+/** 当前 Tab：consume（消费流水）/ balance（余额明细） */
+const activeTab = ref('consume')
+const balanceLoaded = ref(false)
+const balanceLoading = ref(false)
+const balanceError = ref('')
+const balanceOffline = ref(false)
+const balanceSyncTime = ref('')
+const balanceRaw = ref([])
+const balanceMonth = ref('')
+/** 类型筛选：'' = 全部；否则为 tradeType 编码字符串 */
+const balanceType = ref('')
+/** 类型字典（来自 tradeListConfig{balance:true}；取不到时只有「全部」） */
+const balanceTypes = ref([])
+
 const parseDateString = (value) => {
   if (!value) return ''
   if (typeof value === 'string') {
@@ -73,6 +90,82 @@ const normalizeTransactions = (list) => {
       balance
     }
   }).filter((item) => item.date || item.amt || item.merchantName || item.summary)
+}
+
+/**
+ * 余额明细记录归一化。
+ *
+ * 上游 `balanceTradeList` 的响应结构未在实测笔记里留样，字段名按消费流水同一套
+ * 多别名策略兜底；`tradeType` 保留原始编码，供类型筛选使用。
+ */
+const normalizeBalanceRecords = (list) => {
+  if (!Array.isArray(list)) return []
+  return list
+    .map((item) => {
+      const date = parseDateString(
+        item.date || item.txDate || item.tradeTime || item.time || item.createTime || item.tradeDate
+      )
+      const rawAmt = normalizeAmount(
+        item.amt || item.amount || item.money || item.fee || item.tradeAmount || item.transAmount,
+        item
+      )
+      // 实测（2026-11-20）：`balanceTradeList` 的 amt 恒为正数，方向在 `in` 字段
+      // （`0` = 支出、`1` = 收入）。这里统一补成带符号的字符串，模板与统计都按符号走。
+      const isIncome =
+        String(item.in ?? item.direction ?? '') === '1' ||
+        String(item.in ?? '').toLowerCase() === 'true'
+      const absAmt = String(rawAmt).replace(/^[+-]/, '')
+      const amt = rawAmt === '' ? '' : isIncome ? absAmt : `-${absAmt}`
+      const merchantName = item.merchantName || item.merchant || item.merchant_name || ''
+      const summary =
+        item.summary || item.tradeName || item.remark || item.title || item.description || ''
+      const balance =
+        item.balance ?? item.afterBalance ?? item.leftBalance ?? item.cardBalance ?? item.surplus ?? ''
+      const tradeType =
+        item.tradeType ?? item.tradeTypeCode ?? item.type ?? item.typeCode ?? ''
+      return {
+        ...item,
+        date,
+        amt,
+        merchantName,
+        summary,
+        balance,
+        tradeType: tradeType === '' || tradeType == null ? '' : String(tradeType)
+      }
+    })
+    .filter((item) => item.date || item.amt || item.merchantName || item.summary)
+}
+
+/** 类型字典归一化：兼容 resultData / data / rows / list 与多套字段名。 */
+const normalizeTradeTypes = (res) => {
+  // 实测结构：`{resultData: {accTypes: [...], tradeTypes: [{name:'全部', type:'11,12,13'}, ...]}}`
+  const nested = [res?.resultData, res?.data]
+    .map((box) => (box && typeof box === 'object' ? box.tradeTypes : null))
+    .find((item) => Array.isArray(item))
+  const candidates = [nested, res?.resultData, res?.data, res?.rows, res?.list, res?.result]
+  const raw = candidates.find((item) => Array.isArray(item))
+  if (!Array.isArray(raw)) return []
+  const seen = new Set()
+  return raw
+    .map((item) => {
+      const value = item?.tradeType ?? item?.type ?? item?.code ?? item?.value ?? item?.key
+      const label =
+        item?.tradeTypeName ??
+        item?.typeName ??
+        item?.name ??
+        item?.label ??
+        item?.desc ??
+        item?.title ??
+        ''
+      if (value == null || value === '') return null
+      const key = String(value)
+      // 上游把「全部」也当成一个类型（`11,12,13`）；本页已有「全部」chip，跳过它
+      if (key.includes(',')) return null
+      if (seen.has(key)) return null
+      seen.add(key)
+      return { value: key, label: String(label || key) }
+    })
+    .filter(Boolean)
 }
 
 // Computed: Extract available months from data
@@ -231,6 +324,151 @@ const formatTime = (dateStr) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** 余额展示：能转数字就固定两位小数，否则原样输出（上游可能是字符串或空） */
+const formatBalance = (value) => {
+  if (value == null || value === '') return ''
+  const num = Number(value)
+  if (isNaN(num)) return String(value)
+  return num.toFixed(2)
+}
+
+// ── 余额明细：派生数据 ────────────────────────────────────────────────────
+const balanceMonths = computed(() => {
+  const months = new Set()
+  balanceRaw.value.forEach((item) => {
+    if (item.date) {
+      const m = item.date.substring(0, 7)
+      if (m) months.add(m)
+    }
+  })
+  return Array.from(months).sort((a, b) => b.localeCompare(a))
+})
+
+const balanceMonthRecords = computed(() => {
+  if (!balanceMonth.value) return []
+  return balanceRaw.value.filter((item) => item.date && item.date.startsWith(balanceMonth.value))
+})
+
+/**
+ * 列表与统计使用的记录。
+ *
+ * 实测：余额明细的记录里**没有** `tradeType` 字段（类型编码只在请求侧生效），
+ * 所以「类型」筛选走**服务端**（`tradeType` 请求参数），这里不再做本地过滤。
+ */
+const balanceFilteredRecords = computed(() => balanceMonthRecords.value)
+
+/** 切换类型：服务端重新取一次（类型编码来自 tradeListConfig{balance:true}） */
+const selectBalanceType = (type) => {
+  if (balanceType.value === type) return
+  balanceType.value = type
+  void loadBalance()
+}
+
+const balanceMonthLabel = computed(() => {
+  if (!balanceMonth.value) return t('tx.noData')
+  const [year, month] = balanceMonth.value.split('-')
+  return tf('tx.monthLabel', { year, month: parseInt(month) })
+})
+
+/** 余额变动统计：负数为支出（消费），正数为充值/退款 */
+const balanceStats = computed(() => {
+  let inc = 0
+  let exp = 0
+  balanceFilteredRecords.value.forEach((item) => {
+    const val = parseFloat(item.amt)
+    if (isNaN(val)) return
+    if (val < 0) exp += Math.abs(val)
+    else inc += val
+  })
+  return { income: inc.toFixed(2), expense: exp.toFixed(2) }
+})
+
+const navigateBalanceMonth = (direction) => {
+  const idx = balanceMonths.value.indexOf(balanceMonth.value)
+  if (idx < 0) return
+  const nextIdx = idx - direction
+  if (nextIdx >= 0 && nextIdx < balanceMonths.value.length) {
+    balanceMonth.value = balanceMonths.value[nextIdx]
+  }
+}
+
+const loadBalanceTypes = async () => {
+  if (balanceTypes.value.length > 0) return
+  try {
+    const res = await invoke('fetch_trade_list_config', { balance: true })
+    balanceTypes.value = normalizeTradeTypes(res)
+  } catch (e) {
+    // 只影响「类型」下拉的文案，不阻断明细列表
+    console.warn('Failed to fetch trade list config:', e)
+  }
+}
+
+const loadBalance = async () => {
+  balanceLoading.value = true
+  balanceError.value = ''
+  try {
+    const end = new Date()
+    const start = new Date()
+    start.setMonth(start.getMonth() - 12)
+    const res = await invoke('fetch_balance_trade_list', {
+      startDate: start.toISOString().split('T')[0],
+      endDate: end.toISOString().split('T')[0],
+      pageNo: 1,
+      pageSize: 1000,
+      // 类型编码（11 消费 / 12 充值 / 13 补助）；空 = 后端默认 11,12,13
+      tradeType: balanceType.value || ''
+    })
+
+    const isSuccess =
+      res?.success === true ||
+      res?.code === '' ||
+      Array.isArray(res?.resultData) ||
+      Array.isArray(res?.resultData?.list) ||
+      Array.isArray(res?.data)
+    if (isSuccess) {
+      balanceOffline.value = !!res.offline
+      balanceSyncTime.value = res.sync_time || ''
+      // 实测：余额明细返回 `resultData: {count, list}`，消费流水才是纯数组
+      const rawList =
+        res.resultData?.list ||
+        res.resultData ||
+        res.data?.list ||
+        res.data ||
+        res.rows ||
+        res.result ||
+        res.list ||
+        []
+      balanceRaw.value = normalizeBalanceRecords(rawList)
+      if (balanceMonths.value.length > 0) {
+        balanceMonth.value = balanceMonths.value[0]
+      }
+    } else {
+      balanceError.value = res.message || res.msg || t('tx.error.fetchFailed')
+    }
+  } catch (e) {
+    console.error('Failed to fetch balance trade list:', e)
+    balanceError.value = tf('tx.error.network', { msg: e.toString() })
+  } finally {
+    balanceLoading.value = false
+  }
+}
+
+const retryBalance = () => {
+  loadBalance()
+  loadBalanceTypes()
+}
+
+/** 切换 Tab：余额明细首次进入才请求（懒加载） */
+const selectTab = (tab) => {
+  if (tab === activeTab.value) return
+  activeTab.value = tab
+  if (tab === 'balance' && !balanceLoaded.value) {
+    balanceLoaded.value = true
+    loadBalance()
+    loadBalanceTypes()
+  }
+}
+
 onMounted(() => {
   initLoad()
 })
@@ -248,12 +486,39 @@ onMounted(() => {
       </div>
     </header>
 
+    <!-- Tab：消费流水 / 余额明细（P4-A #1342） -->
+    <nav class="trans-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        class="trans-tab"
+        :class="{ 'is-active': activeTab === 'consume' }"
+        :aria-selected="activeTab === 'consume'"
+        @click="selectTab('consume')"
+      >
+        {{ t('tx.tab.consume') }}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="trans-tab"
+        :class="{ 'is-active': activeTab === 'balance' }"
+        :aria-selected="activeTab === 'balance'"
+        @click="selectTab('balance')"
+      >
+        {{ t('tx.tab.balance') }}
+      </button>
+    </nav>
+
     <!-- Offline Banner -->
-    <div v-if="offline" class="offline-banner">
+    <div v-if="activeTab === 'consume' && offline" class="offline-banner">
       {{ tf('tx.offlineBanner', { time: formatRelativeTime(syncTime) }) }}
     </div>
+    <div v-else-if="activeTab === 'balance' && balanceOffline" class="offline-banner">
+      {{ tf('tx.offlineBanner', { time: formatRelativeTime(balanceSyncTime) }) }}
+    </div>
 
-    <main class="trans-content">
+    <main v-show="activeTab === 'consume'" class="trans-content">
       <!-- Month Selector & Stats Bento -->
       <section class="bento-section">
         <!-- Month Selector -->
@@ -342,6 +607,121 @@ onMounted(() => {
         </div>
       </section>
     </main>
+
+    <!-- ── 余额明细（P4-A #1342）────────────────────────────────────────── -->
+    <main v-show="activeTab === 'balance'" class="trans-content">
+      <section class="bento-section">
+        <div class="month-selector-card">
+          <button class="month-nav-btn" @click="navigateBalanceMonth(-1)">
+            <span class="material-symbols-outlined">chevron_left</span>
+          </button>
+          <div class="month-center">
+            <span class="month-title">{{ balanceMonthLabel }}</span>
+            <span class="month-subtitle">
+              {{ tf('tx.monthCount', { n: balanceFilteredRecords.length }) }}
+            </span>
+          </div>
+          <button class="month-nav-btn" @click="navigateBalanceMonth(1)">
+            <span class="material-symbols-outlined">chevron_right</span>
+          </button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card expense-card">
+            <div class="stat-bg-icon">
+              <span class="material-symbols-outlined fill">outbox</span>
+            </div>
+            <span class="stat-label">{{ t('tx.expense') }}</span>
+            <div class="stat-value-row">
+              <span class="stat-currency expense">¥</span>
+              <span class="stat-amount expense">{{ balanceStats.expense }}</span>
+            </div>
+          </div>
+          <div class="stat-card income-card">
+            <div class="stat-bg-icon">
+              <span class="material-symbols-outlined fill">move_to_inbox</span>
+            </div>
+            <span class="stat-label">{{ t('tx.income') }}</span>
+            <div class="stat-value-row">
+              <span class="stat-currency income">¥</span>
+              <span class="stat-amount income">{{ balanceStats.income }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 类型筛选：字典来自 tradeListConfig{balance:true}（11/12/13） -->
+        <div v-if="balanceTypes.length > 0" class="type-filter">
+          <button
+            type="button"
+            class="type-chip"
+            :class="{ 'is-active': balanceType === '' }"
+            @click="selectBalanceType('')"
+          >
+            {{ t('tx.balance.typeAll') }}
+          </button>
+          <button
+            v-for="item in balanceTypes"
+            :key="item.value"
+            type="button"
+            class="type-chip"
+            :class="{ 'is-active': balanceType === item.value }"
+            @click="selectBalanceType(item.value)"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+      </section>
+
+      <section class="list-section">
+        <h2 class="section-title">{{ t('tx.balance.detail') }}</h2>
+
+        <TEmptyState v-if="balanceLoading" type="loading" :message="t('tx.syncingYear')" />
+
+        <div v-else-if="balanceFilteredRecords.length > 0" class="glass-list-card">
+          <div
+            v-for="(item, index) in balanceFilteredRecords"
+            :key="`balance-${index}`"
+            class="trans-item"
+          >
+            <div class="trans-icon-circle" :class="getIconClass(item)">
+              <span class="material-symbols-outlined fill">{{ getIconName(item) }}</span>
+            </div>
+            <div class="trans-info">
+              <span class="trans-name">
+                {{ item.merchantName || item.summary || t('tx.unknownMerchant') }}
+              </span>
+              <span class="trans-meta">
+                {{ item.date ? item.date.slice(5, 16) : t('tx.unknownDate') }}
+                <template v-if="item.balance !== '' && item.balance != null">
+                  · {{ t('tx.balance.remain') }} {{ formatBalance(item.balance) }}
+                </template>
+              </span>
+            </div>
+            <div
+              class="trans-amount"
+              :class="{
+                'is-expense': String(item.amt).startsWith('-'),
+                'is-income': !String(item.amt).startsWith('-')
+              }"
+            >
+              {{ String(item.amt).startsWith('-') ? item.amt : `+${item.amt}` }}
+            </div>
+          </div>
+        </div>
+
+        <TEmptyState v-else-if="balanceError" type="error" :message="balanceError">
+          <button @click="retryBalance" class="retry-btn">{{ t('common.retry') }}</button>
+        </TEmptyState>
+
+        <TEmptyState v-else :message="t('tx.balance.empty')">
+          <button @click="retryBalance" class="retry-btn">{{ t('tx.refreshData') }}</button>
+        </TEmptyState>
+
+        <div v-if="!balanceLoading && balanceFilteredRecords.length > 0" class="list-end-hint">
+          {{ t('tx.listEnd') }}
+        </div>
+      </section>
+    </main>
   </div>
 </template>
 
@@ -401,6 +781,70 @@ onMounted(() => {
   font-weight: 700;
   color: var(--md-sys-color-on-surface, #171c1f);
   margin: 0;
+}
+
+/* Tab：消费流水 / 余额明细 */
+.trans-tabs {
+  position: sticky;
+  top: 4rem;
+  z-index: 40;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: rgba(246, 250, 254, 0.9);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+}
+
+.trans-tab {
+  flex: 1;
+  height: 2.25rem;
+  border: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+  border-radius: 9999px;
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.trans-tab.is-active {
+  background: var(--md-sys-color-primary, #0058be);
+  border-color: var(--md-sys-color-primary, #0058be);
+  color: #ffffff;
+}
+
+/* 余额明细：类型筛选 */
+.type-filter {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.125rem 0.125rem 0.25rem;
+  scrollbar-width: none;
+}
+
+.type-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.type-chip {
+  flex: 0 0 auto;
+  padding: 0.375rem 0.875rem;
+  border-radius: 9999px;
+  border: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.type-chip.is-active {
+  background: rgba(0, 88, 190, 0.1);
+  border-color: rgba(0, 88, 190, 0.35);
+  color: #0058be;
 }
 
 /* Offline Banner */

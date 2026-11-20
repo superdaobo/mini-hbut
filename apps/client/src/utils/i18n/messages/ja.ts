@@ -3752,6 +3752,13 @@ export const messages: Record<string, string> = {
   'tx.empty': '今月の取引記録はありません',
   'tx.refreshData': 'データを更新する',
   'tx.listEnd': 'これ以上の記録はありません',
+  // P4-A（#1342）：残高明細タブ（balanceTradeList、tradeType 11/12/13）
+  'tx.tab.consume': '利用明細',
+  'tx.tab.balance': '残高明細',
+  'tx.balance.detail': '残高の変動',
+  'tx.balance.empty': 'この月の残高変動はありません',
+  'tx.balance.typeAll': 'すべて',
+  'tx.balance.remain': '残高',
   'tx.keyword.canteen': '食堂',
   'tx.keyword.meal': '食事',
   'tx.keyword.supermarket': 'スーパーマーケット',
