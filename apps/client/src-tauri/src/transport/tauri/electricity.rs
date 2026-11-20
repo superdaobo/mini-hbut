@@ -109,18 +109,20 @@ pub(crate) async fn fetch_balance_trade_list(
     end_date: String,
     page_no: i32,
     page_size: i32,
+    trade_type: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let trade_type = trade_type.unwrap_or_else(|| "11,12,13".to_string());
     let cache_key = uid.as_ref().map(|u| {
         format!(
-            "{}:balance:{}:{}:{}:{}",
-            u, start_date, end_date, page_no, page_size
+            "{}:balance:{}:{}:{}:{}:{}",
+            u, start_date, end_date, page_no, page_size, trade_type
         )
     });
 
     match client
-        .fetch_balance_trade_list(&start_date, &end_date, page_no, page_size)
+        .fetch_balance_trade_list(&start_date, &end_date, page_no, page_size, &trade_type)
         .await
     {
         Ok(data) => {

@@ -103,12 +103,19 @@ const normalizeBalanceRecords = (list) => {
   return list
     .map((item) => {
       const date = parseDateString(
-        item.date || item.tradeTime || item.time || item.createTime || item.tradeDate || item.orderTime
+        item.date || item.txDate || item.tradeTime || item.time || item.createTime || item.tradeDate
       )
-      const amt = normalizeAmount(
+      const rawAmt = normalizeAmount(
         item.amt || item.amount || item.money || item.fee || item.tradeAmount || item.transAmount,
         item
       )
+      // 实测（2026-11-20）：`balanceTradeList` 的 amt 恒为正数，方向在 `in` 字段
+      // （`0` = 支出、`1` = 收入）。这里统一补成带符号的字符串，模板与统计都按符号走。
+      const isIncome =
+        String(item.in ?? item.direction ?? '') === '1' ||
+        String(item.in ?? '').toLowerCase() === 'true'
+      const absAmt = String(rawAmt).replace(/^[+-]/, '')
+      const amt = rawAmt === '' ? '' : isIncome ? absAmt : `-${absAmt}`
       const merchantName = item.merchantName || item.merchant || item.merchant_name || ''
       const summary =
         item.summary || item.tradeName || item.remark || item.title || item.description || ''
@@ -131,7 +138,11 @@ const normalizeBalanceRecords = (list) => {
 
 /** 类型字典归一化：兼容 resultData / data / rows / list 与多套字段名。 */
 const normalizeTradeTypes = (res) => {
-  const candidates = [res?.resultData, res?.data, res?.rows, res?.list, res?.result]
+  // 实测结构：`{resultData: {accTypes: [...], tradeTypes: [{name:'全部', type:'11,12,13'}, ...]}}`
+  const nested = [res?.resultData, res?.data]
+    .map((box) => (box && typeof box === 'object' ? box.tradeTypes : null))
+    .find((item) => Array.isArray(item))
+  const candidates = [nested, res?.resultData, res?.data, res?.rows, res?.list, res?.result]
   const raw = candidates.find((item) => Array.isArray(item))
   if (!Array.isArray(raw)) return []
   const seen = new Set()
@@ -148,6 +159,8 @@ const normalizeTradeTypes = (res) => {
         ''
       if (value == null || value === '') return null
       const key = String(value)
+      // 上游把「全部」也当成一个类型（`11,12,13`）；本页已有「全部」chip，跳过它
+      if (key.includes(',')) return null
       if (seen.has(key)) return null
       seen.add(key)
       return { value: key, label: String(label || key) }
@@ -336,11 +349,20 @@ const balanceMonthRecords = computed(() => {
   return balanceRaw.value.filter((item) => item.date && item.date.startsWith(balanceMonth.value))
 })
 
-/** 应用「类型」筛选后的记录（列表与统计都以它为准） */
-const balanceFilteredRecords = computed(() => {
-  if (!balanceType.value) return balanceMonthRecords.value
-  return balanceMonthRecords.value.filter((item) => item.tradeType === balanceType.value)
-})
+/**
+ * 列表与统计使用的记录。
+ *
+ * 实测：余额明细的记录里**没有** `tradeType` 字段（类型编码只在请求侧生效），
+ * 所以「类型」筛选走**服务端**（`tradeType` 请求参数），这里不再做本地过滤。
+ */
+const balanceFilteredRecords = computed(() => balanceMonthRecords.value)
+
+/** 切换类型：服务端重新取一次（类型编码来自 tradeListConfig{balance:true}） */
+const selectBalanceType = (type) => {
+  if (balanceType.value === type) return
+  balanceType.value = type
+  void loadBalance()
+}
 
 const balanceMonthLabel = computed(() => {
   if (!balanceMonth.value) return t('tx.noData')
@@ -392,18 +414,30 @@ const loadBalance = async () => {
       startDate: start.toISOString().split('T')[0],
       endDate: end.toISOString().split('T')[0],
       pageNo: 1,
-      pageSize: 1000
+      pageSize: 1000,
+      // 类型编码（11 消费 / 12 充值 / 13 补助）；空 = 后端默认 11,12,13
+      tradeType: balanceType.value || ''
     })
 
     const isSuccess =
       res?.success === true ||
       res?.code === '' ||
       Array.isArray(res?.resultData) ||
+      Array.isArray(res?.resultData?.list) ||
       Array.isArray(res?.data)
     if (isSuccess) {
       balanceOffline.value = !!res.offline
       balanceSyncTime.value = res.sync_time || ''
-      const rawList = res.resultData || res.data || res.rows || res.result || res.list || []
+      // 实测：余额明细返回 `resultData: {count, list}`，消费流水才是纯数组
+      const rawList =
+        res.resultData?.list ||
+        res.resultData ||
+        res.data?.list ||
+        res.data ||
+        res.rows ||
+        res.result ||
+        res.list ||
+        []
       balanceRaw.value = normalizeBalanceRecords(rawList)
       if (balanceMonths.value.length > 0) {
         balanceMonth.value = balanceMonths.value[0]
@@ -621,7 +655,7 @@ onMounted(() => {
             type="button"
             class="type-chip"
             :class="{ 'is-active': balanceType === '' }"
-            @click="balanceType = ''"
+            @click="selectBalanceType('')"
           >
             {{ t('tx.balance.typeAll') }}
           </button>
@@ -631,7 +665,7 @@ onMounted(() => {
             type="button"
             class="type-chip"
             :class="{ 'is-active': balanceType === item.value }"
-            @click="balanceType = item.value"
+            @click="selectBalanceType(item.value)"
           >
             {{ item.label }}
           </button>

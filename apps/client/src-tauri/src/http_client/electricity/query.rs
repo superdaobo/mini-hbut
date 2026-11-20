@@ -66,10 +66,22 @@ impl HbutClient {
         end_date: &str,
         page_no: i32,
         page_size: i32,
+        trade_type: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        // 上游 tradeType 是「逗号分隔的数字编码」；这里只放行数字与逗号，
+        // 既兼容 `11,12,13` 也兼容单类型 `11`，同时杜绝把任意串塞进请求体。
+        let sanitized: String = trade_type
+            .chars()
+            .filter(|c| c.is_ascii_digit() || *c == ',')
+            .collect();
+        let effective = if sanitized.trim_matches(',').is_empty() {
+            "11,12,13".to_string()
+        } else {
+            sanitized
+        };
         self.post_trade_list(TradeListQuery {
             url: BALANCE_TRADE_LIST_URL,
-            trade_type: "11,12,13",
+            trade_type: &effective,
             label: "余额明细",
             start_date,
             end_date,
