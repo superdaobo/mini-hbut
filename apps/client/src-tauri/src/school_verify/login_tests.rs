@@ -479,3 +479,46 @@ fn unsupported_results_are_explicit() {
     );
     assert!(!platform_supports_device_signing("android"));
 }
+
+// ── 手动端到端（默认忽略；CI 不跑）──────────────────────────────────────────────────
+//
+// 对着本机真实的 student-auth（开学号核验 + 登录演示）跑客户端真实流程：
+//   SV_E2E_BASE=http://127.0.0.1:<端口> SV_E2E_APPROVE_ID=… SV_E2E_APPROVE_CODE=…
+//   SV_E2E_DENY_ID=… SV_E2E_DENY_CODE=… cargo test … manual_e2e_against_local_server -- --ignored
+// 服务端库里需预置种子 0x09x32 设备对学号 9900000101 的核验绑定（复用路径，不碰学校）。
+
+#[test]
+#[ignore]
+fn manual_e2e_against_local_server() {
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("缺环境变量 {k}"));
+    let transport = super::command::SchoolVerifyTransport::new(&env("SV_E2E_BASE")).unwrap();
+    let key = DeviceKey::from_seed([9u8; 32]);
+    let input = VerifyInput {
+        student_id: SID.to_string(),
+        student_name: String::new(),
+        campus_cookie: String::new(),
+    };
+    let now = crate::identity::v2_signature::now_unix;
+    let approval = tauri::async_runtime::block_on(run_school_login_approve(
+        &transport,
+        &key,
+        &input,
+        &env("SV_E2E_APPROVE_ID"),
+        &env("SV_E2E_APPROVE_CODE"),
+        &now,
+    ));
+    println!(
+        "E2E approve: {} masked={:?}",
+        approval.audit_line(),
+        approval.student_id_masked
+    );
+    assert!(approval.ok, "{approval:?}");
+    assert_eq!(approval.verify.as_ref().unwrap().status, STATUS_REUSED);
+    let denial = tauri::async_runtime::block_on(run_school_login_deny(
+        &transport,
+        &env("SV_E2E_DENY_ID"),
+        &env("SV_E2E_DENY_CODE"),
+    ));
+    println!("E2E deny: ok={} status={}", denial.ok, denial.status);
+    assert!(denial.ok);
+}

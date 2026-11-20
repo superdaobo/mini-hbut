@@ -26,9 +26,11 @@ export const decodeIdentityQrImage = async (
     return null
   }
   try {
+    // Tauri v2 命令参数按 camelCase 取键（image_bytes → imageBytes），且嵌套的 Uint8Array 走 JSON 会变成
+    // {"0":..} 对象、反序列化不成 Vec<u8>：必须传 camelCase 键 + 普通数组（goal-20 C2 实测发现，原写法恒失败）
     const result = await invokeNative<{ url: string }>('chaoxing_checkin_decode_qr_image', {
-      image_bytes: bytes,
-      mime_type: mime || 'image/png'
+      imageBytes: Array.from(bytes),
+      mimeType: mime || 'image/png'
     })
     if (result && typeof result.url === 'string' && result.url) {
       return { url: result.url }
