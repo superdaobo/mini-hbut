@@ -31,6 +31,7 @@ import { detectRuntime, isMobileLike } from '../platform/runtime'
 import { showToast } from '../utils/toast'
 // #623：设置中心「登录与安全」设备管理组件（Identity 状态 + 撤销）
 import IdentityDeviceSettings from '../features/identity/components/IdentityDeviceSettings.vue'
+import SchoolLoginTestEntry from '../features/school_login/SchoolLoginTestEntry.vue'
 // #627：设置中心「登录与安全」扫一扫登录入口（跨设备二维码授权）
 import IdentityQrLoginEntry from '../features/identity/qr/IdentityQrLoginEntry.vue'
 import {

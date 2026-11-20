@@ -9,6 +9,8 @@ import { resolveNotificationActionTarget } from '../../platform/notification_act
 import { tryWriteSnapshotFromCache } from '../../utils/widget_bridge'
 import { isTestAccountSession } from '../../utils/test_account.js'
 import { normalizeViewName } from '../../navigation/app_navigation'
+import { openSchoolLogin } from '../../features/school_login/schoolLoginStore'
+import { ensureSchoolLoginOverlayMounted } from '../../features/school_login/overlayHost'
 
 /** 导出供单测：计算距离下一个「00:01」（Asia/Shanghai）的毫秒数 */
 export const msUntilNextDayCrossover = () => {
@@ -104,6 +106,13 @@ export const createNotificationCoordinator = (runtime: AppRuntime): Notification
         },
         delivery
       )
+      return
+    }
+    // goal-20：新认证测试应用（minihbut://school-login）→ 独立的确认弹窗，与 identity 授权互不影响
+    if (link.kind === 'school-login') {
+      // 不经过 runAfterBoot（它最多等 5 秒）：弹窗与状态都不依赖启动流程，冷启动慢也不会丢掉这次登录
+      ensureSchoolLoginOverlayMounted()
+      void openSchoolLogin({ requestId: link.requestId, code: link.code })
       return
     }
     if (link.kind !== 'identity') return

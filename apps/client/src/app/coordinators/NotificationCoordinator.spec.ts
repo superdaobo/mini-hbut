@@ -37,9 +37,19 @@ vi.mock('../../navigation/app_navigation', () => ({
   normalizeViewName: (view: unknown) => String(view || '')
 }))
 
+vi.mock('../../features/school_login/schoolLoginStore', () => ({
+  openSchoolLogin: vi.fn(async () => {})
+}))
+
+vi.mock('../../features/school_login/overlayHost', () => ({
+  ensureSchoolLoginOverlayMounted: vi.fn()
+}))
+
 import { createNotificationCoordinator, msUntilNextDayCrossover } from './NotificationCoordinator'
 import { tryWriteSnapshotFromCache } from '../../utils/widget_bridge'
 import { installMiniHbutDeepLinkListeners } from '../../platform/deep_link'
+import { openSchoolLogin } from '../../features/school_login/schoolLoginStore'
+import { ensureSchoolLoginOverlayMounted } from '../../features/school_login/overlayHost'
 
 const mockTryWrite = vi.mocked(tryWriteSnapshotFromCache)
 
@@ -157,5 +167,33 @@ describe('【检查 5】G7 identity-confirm 深链分发', () => {
     handler({ kind: 'identity-callback', code: 'a'.repeat(16), state: 'b'.repeat(16) }, 'warm')
     expect(runtime.identity.submitIntent).toHaveBeenCalledTimes(1)
     expect(runtime.identity.submitConfirmIntent).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+// ─── goal-20：school-login 深链交给独立的确认弹窗 ───────────────────────────────
+
+describe('goal-20 school-login 深链分发', () => {
+  beforeEach(() => {
+    vi.stubGlobal('window', { addEventListener: vi.fn(), setInterval: vi.fn(), clearInterval: vi.fn(), setTimeout: vi.fn() })
+    vi.mocked(installMiniHbutDeepLinkListeners).mockClear()
+    vi.mocked(openSchoolLogin).mockClear()
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('school-login 只交给 openSchoolLogin，不进入 identity 授权', () => {
+    const { coordinator, runtime } = makeRuntime(SID)
+    coordinator.installWidgetDeeplinkListeners()
+    const handler = vi.mocked(installMiniHbutDeepLinkListeners).mock.calls[0][0]
+    const requestId = 'slr_' + 'A'.repeat(22)
+    const code = 'B'.repeat(22)
+    handler({ kind: 'school-login', requestId, code }, 'cold-start')
+    expect(openSchoolLogin).toHaveBeenCalledTimes(1)
+    expect(openSchoolLogin).toHaveBeenCalledWith({ requestId, code })
+    expect(ensureSchoolLoginOverlayMounted).toHaveBeenCalled() // 弹窗按需挂载（不改 App.vue）
+    expect(runtime.identity.submitIntent).not.toHaveBeenCalled()
+    expect(runtime.identity.submitConfirmIntent).not.toHaveBeenCalled()
   })
 })

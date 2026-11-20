@@ -9,6 +9,8 @@
 //   - 身份确认（【检查 5】G7）：minihbut://student-auth?request_id=<32hex>&nonce=<16..128>
 //     （auth /authorize 返回的 deep_link 现有输出形态，host=student-auth、path 空或 /）；
 //   - OIDC 回调（P2-4）：minihbut://identity/callback?code=..&state=..（#1208）；
+//   - 新认证测试应用（goal-20）：minihbut://school-login?request_id=slr_<22>&code=<22>
+//     （student-auth docs/school-login-contract.md §9；与上面的 identity 授权互不影响）；
 //   - 无效/恶意链接：只返回通用错误，绝不把 URL 或 secret 回显到 log/UI。
 //
 // 安全边界：
@@ -42,6 +44,11 @@ export const IDENTITY_CALLBACK_STATE_PATTERN = /^[A-Za-z0-9._~-]{16,128}$/
 export const IDENTITY_CONFIRM_REQUEST_ID_PATTERN = /^[0-9a-fA-F]{32}$/
 export const IDENTITY_CONFIRM_NONCE_PATTERN = /^[A-Za-z0-9._~-]{16,128}$/
 
+// goal-20：「用 Mini-HBUT 登录」（新认证测试应用）。形状与服务端 login_contract 一致：
+// request_id = slr_ + 22 位 base64url（16 字节随机），code = 22 位 base64url。只做形状校验、错误不回显。
+export const SCHOOL_LOGIN_REQUEST_ID_PATTERN = /^slr_[A-Za-z0-9_-]{22}$/
+export const SCHOOL_LOGIN_CODE_PATTERN = /^[A-Za-z0-9_-]{22}$/
+
 /** 统一深链解析结果（单一入口的全部业务类型） */
 export type MiniHbutDeepLink =
   | { kind: 'widget-schedule'; date: string; period: number; source: string }
@@ -53,6 +60,8 @@ export type MiniHbutDeepLink =
   // 【检查 5】G7：auth /authorize 返回的 confirm 深链（minihbut://student-auth?request_id=..&nonce=..）；
   // requestId/nonce 仅为短期 opaque 透传，UI 接线（调 auth /authorize/confirm）在后续任务
   | { kind: 'identity-confirm'; requestId: string; nonce: string }
+  // goal-20：新认证测试应用的登录请求；requestId/code 只在内存里交给 Rust 命令，不持久化、不打印
+  | { kind: 'school-login'; requestId: string; code: string }
 
 /**
  * 深链投递时机（#739）：
@@ -145,6 +154,9 @@ export const parseMiniHbutDeepLink = (rawUrl: string): MiniHbutDeepLinkResult =>
     // 【检查 5】G7：auth /authorize 返回的 confirm 深链（path 空或 /）
     return parseIdentityConfirmDeepLink(url)
   }
+  if (host === 'school-login') {
+    return parseSchoolLoginDeepLink(url)
+  }
   return fail('unsupported-host', '不支持的链接')
 }
 
@@ -191,6 +203,22 @@ const parseIdentityConfirmDeepLink = (url: URL): MiniHbutDeepLinkResult => {
     return fail('invalid-identity', '授权确认链接无效')
   }
   return { ok: true, link: { kind: 'identity-confirm', requestId, nonce } }
+}
+
+/**
+ * goal-20：minihbut://school-login?request_id=slr_<22>&code=<22>（path 空或 /）。
+ * 只做形状校验；通用错误：不区分缺哪个参数，不回显参数值。
+ */
+const parseSchoolLoginDeepLink = (url: URL): MiniHbutDeepLinkResult => {
+  if (url.pathname !== '' && url.pathname !== '/') {
+    return fail('invalid-identity', '登录二维码无效')
+  }
+  const requestId = url.searchParams.get('request_id') || ''
+  const code = url.searchParams.get('code') || ''
+  if (!SCHOOL_LOGIN_REQUEST_ID_PATTERN.test(requestId) || !SCHOOL_LOGIN_CODE_PATTERN.test(code)) {
+    return fail('invalid-identity', '登录二维码无效')
+  }
+  return { ok: true, link: { kind: 'school-login', requestId, code } }
 }
 
 export type MiniHbutDeepLinkHandler = (link: MiniHbutDeepLink, delivery: DeepLinkDelivery) => void
