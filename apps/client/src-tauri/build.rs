@@ -39,6 +39,7 @@ fn main() {
         "chaoxing_embed_close",
         "chaoxing_embed_open",
         "chaoxing_embed_resize",
+        "chaoxing_embed_zoom",
         "chaoxing_fetch_course_outline",
         "chaoxing_fetch_course_progress",
         "chaoxing_fetch_course_score",

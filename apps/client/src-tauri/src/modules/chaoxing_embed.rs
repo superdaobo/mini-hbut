@@ -145,6 +145,10 @@ pub async fn chaoxing_embed_open(
     state: State<'_, AppState>,
     url: String,
     bounds: Option<ChaoxingEmbedBounds>,
+    // 可选 UA：传手机 UA 时超星会下发**手机版**页面（桌面版在手机宽度下极难用）
+    user_agent: Option<String>,
+    // 可选缩放：桌面版页面是固定宽度（约 1000px），窄窗口下需要整体缩放才不横向溢出
+    zoom: Option<f64>,
 ) -> Result<(), String> {
     if !is_allowed_chaoxing_url(&url) {
         return Err("只允许在内嵌页打开 *.chaoxing.com 地址".to_string());
@@ -197,6 +201,16 @@ pub async fn chaoxing_embed_open(
             }
         });
 
+    // 手机 UA：超星按 UA 下发手机版页面（桌面版在 400~600px 宽度下需要横向滚动）
+    let builder = match user_agent
+        .as_deref()
+        .map(str::trim)
+        .filter(|ua| !ua.is_empty())
+    {
+        Some(ua) => builder.user_agent(ua),
+        None => builder,
+    };
+
     window
         .add_child(
             builder,
@@ -208,6 +222,11 @@ pub async fn chaoxing_embed_open(
     let webview = app
         .get_webview(EMBED_LABEL)
         .ok_or_else(|| "内嵌页创建后未能取到句柄".to_string())?;
+
+    // 缩放：桌面版超星页面固定宽度，窄窗口下按比例整体缩小（1:1 可随时切回）
+    if let Some(scale) = zoom.filter(|z| (0.3..=3.0).contains(z)) {
+        let _ = webview.set_zoom(scale);
+    }
 
     // 3) 注入 cookie
     //
@@ -263,7 +282,8 @@ pub async fn chaoxing_embed_open(
         .map(|list| list.len())
         .unwrap_or(0);
     println!(
-        "[ChaoxingEmbed] 已注入 cookie 数={injected} 目标域可见={visible} 根域可见={visible_root} 目标={}",
+        "[ChaoxingEmbed] 已注入 cookie 数={injected} 目标域可见={visible} 根域可见={visible_root} ua={} 目标={}",
+        if user_agent.is_some() { "mobile" } else { "default" },
         start_url
     );
     crate::runtime_log::log_info(
@@ -341,6 +361,17 @@ pub async fn chaoxing_embed_close(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 设置内嵌页缩放（桌面版超星页面固定宽度，窄窗口下用它整体适配）。
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn chaoxing_embed_zoom(app: AppHandle, zoom: f64) -> Result<(), String> {
+    let scale = zoom.clamp(0.3, 3.0);
+    let webview = app
+        .get_webview(EMBED_LABEL)
+        .ok_or_else(|| "学习通内嵌页未打开".to_string())?;
+    webview.set_zoom(scale).map_err(|e| e.to_string())
+}
+
 /// 跟随前端容器同步内嵌页位置/尺寸（滚动、窗口缩放、输入法弹起）。
 ///
 /// 只调整位置尺寸，**不重建 WebView**（重建会重新注入 cookie 并闪一下白屏）。
@@ -378,6 +409,8 @@ pub async fn chaoxing_embed_open(
     _state: State<'_, AppState>,
     _url: String,
     _bounds: Option<ChaoxingEmbedBounds>,
+    _user_agent: Option<String>,
+    _zoom: Option<f64>,
 ) -> Result<(), String> {
     Err("当前平台不支持内嵌学习通页面".to_string())
 }
@@ -386,6 +419,12 @@ pub async fn chaoxing_embed_open(
 #[tauri::command]
 pub async fn chaoxing_embed_close(_app: AppHandle) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(not(desktop))]
+#[tauri::command]
+pub async fn chaoxing_embed_zoom(_app: AppHandle, _zoom: f64) -> Result<(), String> {
+    Err("当前平台不支持内嵌学习通页面".to_string())
 }
 
 #[cfg(not(desktop))]

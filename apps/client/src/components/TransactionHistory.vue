@@ -791,7 +791,7 @@ onMounted(() => {
   display: flex;
   gap: 0.5rem;
   padding: 0.625rem 1rem;
-  background: rgba(246, 250, 254, 0.9);
+  background: var(--md-sys-color-surface, rgba(246, 250, 254, 0.9));
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
 }
