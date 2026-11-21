@@ -283,6 +283,7 @@
     "allow-teacher-notices-fetch",
     "allow-teacher-portal-cards-fetch",
     "allow-teacher-profile-fetch",
+    "allow-teacher-room-schedule-fetch",
     "allow-teacher-roster-fetch",
     "allow-teacher-schedule-lists-fetch",
     "allow-teacher-teaching-fetch",

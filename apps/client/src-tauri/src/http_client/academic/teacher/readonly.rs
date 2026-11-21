@@ -166,6 +166,16 @@ pub const PATH_CLASS_SCHEDULE_PAGE: &str = "/admin/pkgl/kbcx/bjkb/ckbjkb";
 ///
 /// **这条路径让班级课表可以在应用内渲染，无需 WebView 或外部浏览器。**
 pub const PATH_CLASS_SCHEDULE_LIST: &str = "/admin/pkgl/kbcx/bjkb/sdpkkbList";
+/// 教室课表**结构化数据**（goal-22 实测：与班级课表同族，字段几乎相同）。
+///
+/// ```text
+/// GET /admin/pkgl/pkglcroomkb/sdpkkbList?xnxq=&id=<教室 encodeId>&xqdm=&…&schoolCode=
+/// → 200，裸数组（「篮球馆303」实测 2 条）
+/// ```
+///
+/// 与班级课表相比多出 `jsmc`(教室名)/`bjdm`(班级代码)/`jxbrs`(教学班人数)/`djs`/`cxrs`，
+/// 末位参数是 `schoolCode` 而非 `kcxz`。解析逻辑复用 `class_schedule::parse_class_schedule`。
+pub const PATH_ROOM_SCHEDULE_LIST: &str = "/admin/pkgl/pkglcroomkb/sdpkkbList";
 
 // ── goal-21 T04b：融合门户 e.hbut（**非 /admin 前缀**，独立白名单）──────
 /// 门户页面视图（含 `cardLayout` 8 张卡；实测 200）。
@@ -379,6 +389,11 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
         path: PATH_CLASS_SCHEDULE_LIST,
         purpose: "班级课表结构化数据（goal-22：应用内网格渲染，替代外部浏览器）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ROOM_SCHEDULE_LIST,
+        purpose: "教室课表结构化数据（goal-22：应用内网格渲染）",
         post_ok: false,
     },
 ];

@@ -122,6 +122,7 @@ pub(crate) fn router() -> Router<HttpState> {
         .route("/v2/teacher/grade-entry", post(teacher_grade_entry))
         .route("/v2/teacher/schedule-lists", post(teacher_schedule_lists))
         .route("/v2/teacher/class-schedule", post(teacher_class_schedule))
+        .route("/v2/teacher/room-schedule", post(teacher_room_schedule))
         .route("/v2/teacher/portal-cards", post(teacher_portal_cards))
         .route("/v2/teacher/chaoxing-courses", post(teacher_chaoxing_courses))
         .route("/v2/teacher/chaoxing-analytics", post(teacher_chaoxing_analytics))
@@ -318,4 +319,21 @@ struct TeacherClassScheduleRequest {
     semester: Option<String>,
     #[serde(alias = "campusId")]
     campus_id: Option<String>,
+}
+
+/// 教室课表结构化数据（goal-22）。
+async fn teacher_room_schedule(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(request): Json<TeacherClassScheduleRequest>,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_room_schedule(request.encode_id, request.semester, request.campus_id)
+        .await
+        .map(ok)
+        .map_err(map_error)
 }

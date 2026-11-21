@@ -240,3 +240,17 @@ pub(crate) async fn teacher_class_schedule_fetch(
         .await
         .map_err(map_error)
 }
+
+/// 教室课表结构化数据（goal-22：应用内网格渲染）。
+#[tauri::command]
+pub(crate) async fn teacher_room_schedule_fetch(
+    state: State<'_, AppState>,
+    encode_id: Option<String>,
+    semester: Option<String>,
+    campus_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    service(&state)
+        .fetch_room_schedule(encode_id, semester, campus_id)
+        .await
+        .map_err(map_error)
+}

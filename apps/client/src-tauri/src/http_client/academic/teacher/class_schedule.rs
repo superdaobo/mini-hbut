@@ -93,9 +93,12 @@ pub(crate) fn parse_weeks(raw: &str) -> Vec<i64> {
 pub(crate) fn normalize_class_schedule(record: &Value) -> Value {
     let raw_teacher = grid::text_field(record, "tmc").unwrap_or_default();
     let raw_room = grid::text_field(record, "croommc").unwrap_or_default();
+    // 班级课表的 `kcmc` 是纯文本，但**教室课表**的 `kcmc` 是 HTML
+    // （`<a onclick="openKckb('…')">课程名</a>`），统一剥离一次，纯文本不受影响。
+    let raw_course = grid::text_field(record, "kcmc").unwrap_or_default();
     let weeks = parse_weeks(&grid::text_field(record, "zcstr").unwrap_or_default());
     json!({
-        "courseName": grid::text_field(record, "kcmc"),
+        "courseName": strip_html_anchor(&raw_course),
         "teacherName": strip_html_anchor(&raw_teacher),
         "roomName": strip_html_anchor(&raw_room),
         "weekday": grid::number_field(record, "xingqi"),
@@ -142,11 +145,63 @@ pub(crate) async fn fetch_class_schedule_with(
     assert!(readonly::is_teacher_readonly_path(
         readonly::PATH_CLASS_SCHEDULE_LIST
     ));
+    fetch_schedule_common(
+        client,
+        readonly::PATH_CLASS_SCHEDULE_LIST,
+        "kcxz",
+        "班级",
+        encode_id,
+        semester,
+        campus_id,
+    )
+    .await
+}
+
+/// 拉取某**教室**的课表（goal-22 / T02 实测接口）。
+///
+/// 与班级课表是同一套解析逻辑，只有两点不同：
+/// 1. 路径是 `pkglcroomkb/sdpkkbList`
+/// 2. 末位参数是 `schoolCode`（班级版是 `kcxz`）
+///
+/// `encode_id` 来自教室列表（`schedule_extra` 的 `rooms[].encodeId`）。
+/// 大部分教室返回 `[]` 属正常 —— 该教室本学期没排课。
+pub(crate) async fn fetch_room_schedule_with(
+    client: &HbutClient,
+    encode_id: Option<String>,
+    semester: Option<String>,
+    campus_id: Option<String>,
+) -> Result<Value, String> {
+    assert!(readonly::is_teacher_readonly_path(
+        readonly::PATH_ROOM_SCHEDULE_LIST
+    ));
+    fetch_schedule_common(
+        client,
+        readonly::PATH_ROOM_SCHEDULE_LIST,
+        "schoolCode",
+        "教室",
+        encode_id,
+        semester,
+        campus_id,
+    )
+    .await
+}
+
+/// 班级/教室课表的公共实现（路径与末位参数名不同，其余一致）。
+async fn fetch_schedule_common(
+    client: &HbutClient,
+    path: &str,
+    tail_param: &str,
+    label: &str,
+    encode_id: Option<String>,
+    semester: Option<String>,
+    campus_id: Option<String>,
+) -> Result<Value, String> {
+    assert!(readonly::is_teacher_readonly_path(path));
 
     let encode_id = encode_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "缺少班级参数 encodeId（来自班级列表的 encodeId 字段）".to_string())?;
+        .ok_or_else(|| format!("缺少{label}参数 encodeId（来自列表的 encodeId 字段）"))?;
 
     let semester = semester
         .map(|value| value.trim().to_string())
@@ -157,12 +212,8 @@ pub(crate) async fn fetch_class_schedule_with(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "1".to_string());
 
-    let url = format!(
-        "{}{}",
-        client.jwxt_base_url(),
-        readonly::PATH_CLASS_SCHEDULE_LIST
-    );
-    let referer = format!("{}/admin/pkgl/kbcx/bjkb?qx=1", client.jwxt_base_url());
+    let url = format!("{}{}", client.jwxt_base_url(), path);
+    let referer = format!("{}/admin/", client.jwxt_base_url());
 
     let response = client
         .http_client()
@@ -180,35 +231,36 @@ pub(crate) async fn fetch_class_schedule_with(
             ("zdjc", ""),
             ("xsqbkb", ""),
             ("xslx", ""),
-            ("kcxz", ""),
+            (tail_param, ""),
         ])
         .header("Accept", "application/json, text/plain, */*")
         .header("X-Requested-With", "XMLHttpRequest")
         .header("Referer", referer)
         .send()
         .await
-        .map_err(|e| format!("班级课表请求失败: {e}"))?;
+        .map_err(|e| format!("{label}课表请求失败: {e}"))?;
     let status = response.status().as_u16();
     let body = response
         .text()
         .await
-        .map_err(|e| format!("读取班级课表响应失败: {e}"))?;
+        .map_err(|e| format!("读取{label}课表响应失败: {e}"))?;
     if !(200..300).contains(&status) {
-        return Err(format!("班级课表接口状态异常: HTTP {status}"));
+        return Err(format!("{label}课表接口状态异常: HTTP {status}"));
     }
     let trimmed = body.trim_start_matches('\u{feff}');
     if trimmed.trim_start().starts_with('<') {
-        return Err("班级课表返回 HTML（会话可能已过期）".to_string());
+        return Err(format!("{label}课表返回 HTML（会话可能已过期）"));
     }
-    let payload: Value =
-        serde_json::from_str(trimmed).map_err(|e| format!("班级课表响应解析失败: {e}"))?;
+    let payload: Value = serde_json::from_str(trimmed)
+        .map_err(|e| format!("{label}课表响应解析失败: {e}"))?;
 
     let entries = parse_class_schedule(&payload);
     crate::hbut_debug!(
-        "[TeacherClassSchedule] encodeId={} 学期={} 课程 {} 条",
+        "[TeacherSchedule] {} {} → {} 条（学期 {}）",
+        label,
         &encode_id[..encode_id.len().min(12)],
-        semester,
-        entries.len()
+        entries.len(),
+        semester
     );
 
     Ok(json!({
@@ -217,6 +269,7 @@ pub(crate) async fn fetch_class_schedule_with(
         "semester": semester,
         "encodeId": encode_id,
         "campusId": campus_id,
+        "kind": if tail_param == "kcxz" { "class" } else { "room" },
     }))
 }
 

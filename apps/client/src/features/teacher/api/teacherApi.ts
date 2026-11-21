@@ -574,3 +574,33 @@ export const fetchTeacherClassSchedule = (
     },
     options
   )
+
+/**
+ * 教室课表结构化数据（`teacher_room_schedule_fetch` / `/v2/teacher/room-schedule`）。
+ *
+ * 与班级课表同一套解析（字段几乎相同），`encodeId` 来自教室列表的 `rooms[].encodeId`。
+ * 大部分教室返回空数组属正常 —— 该教室本学期没排课。
+ */
+export const fetchTeacherRoomSchedule = (
+  params: { encodeId: string; semester?: string; campusId?: string },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_room_schedule_fetch',
+      tauriArgs: {
+        encodeId: params.encodeId,
+        semester: params.semester ?? null,
+        campusId: params.campusId ?? null
+      },
+      bridgePath: '/v2/teacher/room-schedule',
+      bridgePayload: {
+        encodeId: params.encodeId,
+        semester: params.semester ?? null,
+        campusId: params.campusId ?? null
+      },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )

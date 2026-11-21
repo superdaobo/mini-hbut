@@ -254,6 +254,21 @@ impl TeacherService {
             .map_err(ApplicationError::internal)
     }
 
+    /// 教室课表**结构化数据**（goal-22：应用内渲染）。
+    pub async fn fetch_room_schedule(
+        &self,
+        encode_id: Option<String>,
+        semester: Option<String>,
+        campus_id: Option<String>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_ROOM_SCHEDULE_LIST)?;
+        class_schedule::fetch_room_schedule_with(&client, encode_id, semester, campus_id)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
     /// 融合门户卡片（8 张卡 + 角标）。
     pub async fn fetch_portal_cards(&self) -> Result<Value, ApplicationError> {
         self.ensure_teacher_session().await?;
