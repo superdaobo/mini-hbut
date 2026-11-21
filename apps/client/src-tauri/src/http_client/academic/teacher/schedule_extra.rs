@@ -61,6 +61,9 @@ pub(crate) fn normalize_room(record: &Value) -> Value {
         "campusName": grid::text_field(record, "xqmc"),
         "roomType": grid::text_field(record, "jslx"),
         "capacity": grid::number_field(record, "zdskrnrs"),
+        // goal-22：教室课表接口必须要 encodeId，必须透传（否则前端无从发起查询）
+        "encodeId": grid::text_field(record, "encodeId"),
+        "semester": grid::text_field(record, "xnxq"),
     })
 }
 
@@ -115,15 +118,23 @@ pub(crate) async fn fetch_schedule_lists_with(
         ("page.pn", "1"),
         ("page.size", class_size.as_str()),
     ];
-    let mut room_params: Vec<(&str, &str)> =
+    // 教室列表不支持服务端过滤，这里只带分页参数（搜索由前端本地做）
+    let room_params: Vec<(&str, &str)> =
         vec![("page.pn", "1"), ("page.size", room_size.as_str())];
 
     let keyword_owned = keyword
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     if let Some(keyword) = keyword_owned.as_deref() {
-        class_params.push(("query.bjmc||", keyword));
-        room_params.push(("query.jsmc||", keyword));
+        // ⚠️ 实测（2026-11-21）：
+        // - **班级列表**支持服务端过滤，参数是裸 `bjmc`：
+        //     bjmc=25建筑学2   → total=1（命中）
+        //     query.bjmc||=…   → total=3315（无效）
+        // - **教室列表不支持服务端过滤**：
+        //     jsmc=篮球馆303   → total=0（被当精确匹配且不命中）
+        //     query.jsmc||=…   → total=1741（无效）
+        //   所以教室的搜索必须由前端**本地过滤**（`schedule_extra` 不传 keyword）。
+        class_params.push(("bjmc", keyword));
     }
 
     let (class_result, room_result) = tokio::join!(
