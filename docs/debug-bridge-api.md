@@ -7,8 +7,8 @@
 | 平台 | Debug | Release | 备注 |
 |------|-------|---------|------|
 | iOS | 启 | 启 | 官网 proxy / module_bundle 依赖 |
-| Android | 启 | **默认不启** | 不静默依赖 4399 |
-| 桌面 | 启 | 默认不启 | `HBUT_HTTP_BRIDGE_ENABLED=1` 强制 |
+| Android | 启 | 启 | #1368 起默认启用（`mobile-slim+bridge`） |
+| 桌面 | 启 | 启 | #1368 起默认启用；`HBUT_HTTP_BRIDGE_ENABLED=0` 可关闭 |
 
 详见 [`apps/client/src-tauri/docs/http_server.md`](../apps/client/src-tauri/docs/http_server.md)。
 

@@ -96,7 +96,7 @@ node scripts/guard_sensitive_uploads.mjs pre-commit
 
 | 变量 | 用途 |
 |------|------|
-| `HBUT_HTTP_BRIDGE_ENABLED=1` | 桌面 Release 下启动本地 Bridge；Tauri iOS Release 默认已开启 |
+| `HBUT_HTTP_BRIDGE_ENABLED` | 排障开关：`0`/`false` 关闭本地 Bridge；默认**全平台全构建启用**（#1368） |
 | `HBUT_BRIDGE_TOKEN` | CLI/自动化访问 Protected Bridge 路由时使用的兼容 Bearer 令牌；应用内 WebView 走可信 Origin |
 | `HBUT_HTTP_BRIDGE_PORT` | 调整 Loopback Bridge 端口；监听地址始终固定为 `127.0.0.1` |
 
