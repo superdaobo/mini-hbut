@@ -61,6 +61,10 @@ export const toGridCourse = (
 ): GridCourse => {
   const rooms = Array.isArray(entry.roomNames) ? entry.roomNames.filter(Boolean) : []
   const primaryRoom = entry.roomName || rooms[0] || ''
+  // 多教室（同课不同教学班分班上课）时，卡片上只显示首个 + 「等 N 间」，
+  // 避免两个块并排挤在同一时段（用户反馈「排布太丑」）。
+  const roomLabel =
+    rooms.length > 1 ? `${primaryRoom} 等${rooms.length}间` : primaryRoom
   const weekday = Number(entry.weekday) || 1
   const period = Math.min(Math.max(Number(entry.startSection) || 1, 1), 11)
   const span = Math.max(1, Number(entry.spanSections) || 1)
@@ -68,8 +72,8 @@ export const toGridCourse = (
     id: `${entry.classNo || 'x'}-${weekday}-${period}-${index}`,
     name: entry.courseName || '',
     teacher: entry.teacherName || '',
-    room: primaryRoom,
-    room_code: primaryRoom,
+    room: roomLabel,
+    room_code: roomLabel,
     building: entry.buildingName || '',
     weekday,
     period,

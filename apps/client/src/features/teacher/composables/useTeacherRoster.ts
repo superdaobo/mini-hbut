@@ -334,27 +334,29 @@ export const useTeacherRoster = (options: UseTeacherRosterOptions = {}) => {
    * - 过期响应（已换班 / 已有更新请求）一律丢弃。
    */
   const fetchRosterPage = async (page: number): Promise<void> => {
-    const bjid = selectedClassId.value.trim()
-    if (!bjid) return // 🔴 隐私红线：无 bjid 绝不发请求
+    // 🔴 隐私红线（goal-22 实测修正）：该接口**只支持按姓名过滤**
+    // （xm 裸参数有效，bjid/bjbh/bjdm/xh 全部无效，恒返全校 56957 条），
+    // 所以姓名必填，不填绝不发请求。
+    const kw = keyword.value.trim()
+    if (!kw) return
     const seq = ++rosterSeq.value
     const scope = scopeKey.value
     const account = accountId.value
     const term = semester.value
-    const kw = keyword.value.trim()
+    
     rosterState.value = {
       status: 'loading',
       data: rosterState.value.data,
       error: null
     }
     const result = await fetchTeacherRoster(
-      { bjid, page, pageSize: ROSTER_PAGE_SIZE, keyword: kw || undefined },
+      { bjid: '', page, pageSize: ROSTER_PAGE_SIZE, keyword: kw },
       { scope: account }
     )
     // 过期丢弃：换了班级 / 学期 / 关键词 / 账号，或已有更新的请求在飞。
     if (seq !== rosterSeq.value) return
     if (scope !== scopeKey.value || term !== semester.value) return
     if (kw !== keyword.value.trim()) return
-    if (bjid !== selectedClassId.value.trim()) return
 
     if (result.status === 'ready' && result.data) {
       const parsed = normalizeRosterPayload(result.data)

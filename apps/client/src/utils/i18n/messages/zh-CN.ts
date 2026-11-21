@@ -4265,10 +4265,10 @@ export const messages: Record<string, string> = {
   'teacher.roster.footer.loaded': '已加载 {loaded} / 共 {total} 人',
   'teacher.roster.loading': '正在加载名册…',
   'teacher.roster.loadingMore': '正在加载更多…',
-  'teacher.roster.search.aria': '按学号搜索',
+  'teacher.roster.search.aria': '按姓名搜索学生',
   'teacher.roster.search.clear': '清除搜索',
-  'teacher.roster.search.placeholder': '输入学号搜索',
-  'teacher.roster.selectClass': '选择一个班级查看名册',
+  'teacher.roster.search.placeholder': '输入学生姓名',
+  'teacher.roster.selectClass': '输入姓名查询学生',
   'teacher.roster.semester.label': '学期',
   'teacher.roster.title': '学生名册',
 
@@ -4400,4 +4400,5 @@ export const messages: Record<string, string> = {
     'teacher.schedule.scope.mine': '我的课表',
     'teacher.schedule.scope.class': '班级课表',
     'teacher.schedule.scope.room': '教室课表',
+    'teacher.roster.hint': '该接口只支持按姓名查询（不支持按班级/学号过滤）',
 }

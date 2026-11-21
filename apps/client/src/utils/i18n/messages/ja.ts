@@ -4264,10 +4264,10 @@ export const messages: Record<string, string> = {
   'teacher.roster.footer.loaded': '{loaded} / {total} 名を表示中',
   'teacher.roster.loading': '名簿を読み込み中…',
   'teacher.roster.loadingMore': 'さらに読み込み中…',
-  'teacher.roster.search.aria': '学籍番号で検索',
+  'teacher.roster.search.aria': '氏名で学生を検索',
   'teacher.roster.search.clear': '検索をクリア',
-  'teacher.roster.search.placeholder': '学籍番号で検索',
-  'teacher.roster.selectClass': 'クラスを選択すると名簿を表示します',
+  'teacher.roster.search.placeholder': '学生氏名を入力',
+  'teacher.roster.selectClass': '氏名を入力して検索',
   'teacher.roster.semester.label': '学期',
   'teacher.roster.title': '学生名簿',
 
@@ -4399,4 +4399,5 @@ export const messages: Record<string, string> = {
     'teacher.schedule.scope.mine': '自分の時間割',
     'teacher.schedule.scope.class': 'クラス時間割',
     'teacher.schedule.scope.room': '教室時間割',
+    'teacher.roster.hint': 'この機能は氏名検索のみ対応しています',
 }

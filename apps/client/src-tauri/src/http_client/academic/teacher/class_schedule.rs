@@ -145,12 +145,20 @@ pub(crate) fn merge_consecutive(entries: Vec<Value>) -> Vec<Value> {
     // 分组键：courseName|weekday|weekText|classNo
     let mut groups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for entry in entries {
+        // ⚠️ 分组键**不含 classNo**：同一门课在同一时段可能有多个教学班
+        // （实测「建筑构造-1」周一 5-8 节有 5B-707 / 5B-704 两个教学班），
+        // 按 classNo 分组会让它们在网格里并排挤成两条，视觉上非常难看。
+        // 合并成一条，教学班号收集进 classNos，教室收集进 roomNames。
+        // ⚠️ 分组键只有「课程名 + 星期」：
+        // - 不含 classNo：同一门课可能有多个教学班（分班上课）
+        // - 不含 weekText：同一门课不同周次可能换教室
+        //   （实测「建筑构造-1」周一第 2,4,5,6,7 周在 5B-707、第 3 周在 5B-704）
+        // 不合并的话，网格里会在同一格并排挤两个块，用户反馈「排布太丑」。
+        // 周次取并集写回 weeks / weekText，教室与教学班都进数组。
         let key = format!(
-            "{}|{}|{}|{}",
+            "{}|{}",
             entry.get("courseName").and_then(Value::as_str).unwrap_or(""),
             entry.get("weekday").and_then(Value::as_f64).unwrap_or(0.0) as i64,
-            entry.get("weekText").and_then(Value::as_str).unwrap_or(""),
-            entry.get("classNo").and_then(Value::as_str).unwrap_or(""),
         );
         groups.entry(key).or_default().push(entry);
     }
@@ -174,10 +182,16 @@ pub(crate) fn merge_consecutive(entries: Vec<Value>) -> Vec<Value> {
             .fold(f64::NEG_INFINITY, f64::max);
         // 同节多教室去重（保持出现顺序）
         let mut rooms: Vec<String> = Vec::new();
+        let mut class_nos: Vec<String> = Vec::new();
         for row in &rows {
             if let Some(room) = row.get("roomName").and_then(Value::as_str) {
                 if !room.is_empty() && !rooms.iter().any(|r| r == room) {
                     rooms.push(room.to_string());
+                }
+            }
+            if let Some(class_no) = row.get("classNo").and_then(Value::as_str) {
+                if !class_no.is_empty() && !class_nos.iter().any(|c| c == class_no) {
+                    class_nos.push(class_no.to_string());
                 }
             }
         }
@@ -192,7 +206,28 @@ pub(crate) fn merge_consecutive(entries: Vec<Value>) -> Vec<Value> {
             object.insert("startSection".to_string(), json!(min_section));
             object.insert("spanSections".to_string(), json!(span));
             object.insert("roomName".to_string(), json!(rooms.first()));
+            // 周次取并集（同一课程不同周次可能换教室/换教学班）
+            let mut all_weeks: Vec<i64> = Vec::new();
+            for row in &rows {
+                if let Some(list) = row.get("weeks").and_then(Value::as_array) {
+                    for week in list.iter().filter_map(Value::as_i64) {
+                        if !all_weeks.contains(&week) {
+                            all_weeks.push(week);
+                        }
+                    }
+                }
+            }
+            all_weeks.sort_unstable();
+            let week_text = all_weeks
+                .iter()
+                .map(|w| w.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            object.insert("weeks".to_string(), json!(all_weeks));
+            object.insert("weekCount".to_string(), json!(all_weeks.len()));
+            object.insert("weekText".to_string(), json!(week_text));
             object.insert("roomNames".to_string(), json!(rooms));
+            object.insert("classNos".to_string(), json!(class_nos));
             object.insert("rowCount".to_string(), json!(rows.len()));
         }
         out.push(merged);
@@ -454,14 +489,57 @@ mod tests {
     }
 
     #[test]
-    fn merge_consecutive_keeps_different_weeks_separate() {
-        // 同课程同星期但周次不同 → 不能合并
+    fn merge_combines_different_class_nos() {
+        // 同课程、同星期、同周次，但**不同教学班号**（分班上课）→ 应合并成一条，
+        // 教学班号收集进 classNos，教室收集进 roomNames。
+        // 这是用户反馈「同一时段挤了两个课，排布太丑」的修复验证。
         let payload = json!([
-            { "kcmc": "X", "xingqi": 1, "djc": 1, "zcstr": "1,2", "jxbbh": "C" },
-            { "kcmc": "X", "xingqi": 1, "djc": 2, "zcstr": "9,10", "jxbbh": "C" }
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 5, "zcstr": "1,2", "jxbbh": "A", "croommc": "5B-707" },
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 5, "zcstr": "1,2", "jxbbh": "B", "croommc": "5B-704" },
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 6, "zcstr": "1,2", "jxbbh": "A", "croommc": "5B-707" },
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 6, "zcstr": "1,2", "jxbbh": "B", "croommc": "5B-704" }
         ]);
         let out = parse_class_schedule(&payload);
-        assert_eq!(out.len(), 2, "周次不同应保持两条");
+        assert_eq!(out.len(), 1, "不同教学班号也应合并成一条: {out:?}");
+        let rooms = out[0]
+            .get("roomNames")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(rooms.len(), 2, "两个教室都应保留");
+        let class_nos = out[0]
+            .get("classNos")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(class_nos.len(), 2, "两个教学班号都应保留");
+        assert_eq!(out[0].get("startSection").and_then(Value::as_f64), Some(5.0));
+        assert_eq!(out[0].get("spanSections").and_then(Value::as_f64), Some(2.0));
+    }
+
+    #[test]
+    fn merge_consecutive_merges_different_weeks_into_union() {
+        // 同课程同星期但周次不同（可能换教室）→ **合并成一条**，周次取并集。
+        // 这是用户反馈「同一时段挤了两个课」的修复：全学期课程不再堆在同一格。
+        let payload = json!([
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 5, "zcstr": "2,4,5,6,7", "jxbbh": "A", "croommc": "5B-707" },
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 5, "zcstr": "3", "jxbbh": "A", "croommc": "5B-704" }
+        ]);
+        let out = parse_class_schedule(&payload);
+        assert_eq!(out.len(), 1, "不同周次也应合并成一条: {out:?}");
+        let weeks = out[0]
+            .get("weeks")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let values: Vec<i64> = weeks.iter().filter_map(Value::as_i64).collect();
+        assert_eq!(values, vec![2, 3, 4, 5, 6, 7], "周次应为并集");
+        let rooms = out[0]
+            .get("roomNames")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(rooms.len(), 2, "两个教室都应保留");
     }
 
     #[test]

@@ -4266,10 +4266,10 @@ export const messages: Record<string, string> = {
   'teacher.roster.footer.loaded': 'Loaded {loaded} of {total}',
   'teacher.roster.loading': 'Loading roster…',
   'teacher.roster.loadingMore': 'Loading more…',
-  'teacher.roster.search.aria': 'Search by student ID',
+  'teacher.roster.search.aria': 'Search students by name',
   'teacher.roster.search.clear': 'Clear search',
-  'teacher.roster.search.placeholder': 'Search by student ID',
-  'teacher.roster.selectClass': 'Select a class to view its roster',
+  'teacher.roster.search.placeholder': 'Enter student name',
+  'teacher.roster.selectClass': 'Enter a name to search',
   'teacher.roster.semester.label': 'Semester',
   'teacher.roster.title': 'Class Roster',
 
@@ -4401,4 +4401,5 @@ export const messages: Record<string, string> = {
     'teacher.schedule.scope.mine': 'My schedule',
     'teacher.schedule.scope.class': 'Class schedule',
     'teacher.schedule.scope.room': 'Room schedule',
+    'teacher.roster.hint': 'This endpoint only supports searching by name',
 }

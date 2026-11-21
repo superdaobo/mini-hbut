@@ -93,33 +93,85 @@ pub(crate) fn parse_roster(payload: &Value) -> Value {
 /// 后者既浪费带宽，也把一次「查一个班」变成「下载全校名单」，是不可接受的泄漏面。
 ///
 /// 若将来定位到可用接口（例如按教学班查学生），再替换本函数实现。
+/// 按**姓名**查询学生（goal-22 实测：`xm=` 裸参数有效，支持模糊匹配）。
+///
+/// ## 实测结论（2026-11-21，教师账号 20241130）
+///
+/// ```text
+/// xm=杜朝晖      → total=1     ✅ 精确匹配
+/// xm=杜          → total=327   ✅ 模糊匹配（姓氏）
+/// xh=1610200d30  → total=56957 ❌ 学号参数无效（返回全校）
+/// query.xh||=…   → total=56957 ❌
+/// query.bjmc||=… → total=56957 ❌
+/// bjid/bjbh/bjdm → total=56957 ❌
+/// ```
+///
+/// **该接口对教师只开放「按姓名」一个过滤维度**，没有按班级/学号过滤的能力。
+/// 因此本函数**要求 keyword（姓名）必填**：不填就等于拉全校 5.7 万条学生信息。
+///
+/// ## 隐私边界
+///
+/// 上游返回 30+ 字段（含 `xm`/`xh`/`sfzjh`/`zzmmdm`），
+/// 本函数只保留 7 个字段（见 `normalize_student`），其余一律不传。
 pub(crate) async fn fetch_roster_with(
-    _client: &HbutClient,
-    bjid: Option<String>,
-    _page: Option<u32>,
-    _page_size: Option<u32>,
-    _keyword: Option<String>,
+    client: &HbutClient,
+    _bjid: Option<String>,
+    page: Option<u32>,
+    page_size: Option<u32>,
+    keyword: Option<String>,
 ) -> Result<Value, String> {
     assert!(readonly::is_teacher_readonly_path(
         readonly::PATH_ROSTER_STUDENTS
     ));
 
-    // 参数校验保留（将来接入可用接口时直接复用）。
-    let bjid = bjid
+    // ⚠️ keyword（姓名）必填：不填会返回全校 56957 条
+    let name = keyword
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            "缺少班级参数 bjid：学生名册接口不带班级会返回全校 56957 条，已拒绝请求".to_string()
+            "请输入学生姓名再查询：该接口不支持按班级/学号过滤，不填姓名会返回全校 56957 条"
+                .to_string()
         })?;
 
-    crate::hbut_debug!(
-        "[TeacherRoster] 已拒绝调用（接口不支持过滤，bjid={bjid}）—— 见 roster.rs 文档"
-    );
-    Err(
-        "学生名册暂不可用：该接口对教师身份不支持任何过滤（实测 bjid/bjbh/bjmc/xh 全部无效，\
-         恒返回全校 56957 条）。为避免批量返回学生个人信息，已禁用此功能。"
-            .to_string(),
+    let (page, size) = clamp_paging(page, page_size);
+    let referer = format!("{}/admin/xjgl/xsjbxx/xsxxcx", client.jwxt_base_url());
+
+    let page_text = page.to_string();
+    let size_text = size.to_string();
+    // 实测：姓名用**裸参数** `xm`，不是 jqGrid 的 `query.xm||`
+    let extra: Vec<(&str, &str)> = vec![
+        ("page.pn", page_text.as_str()),
+        ("page.size", size_text.as_str()),
+        ("xm", name.as_str()),
+    ];
+
+    let payload = grid::fetch_grid_with_params(
+        client,
+        readonly::PATH_ROSTER_STUDENTS,
+        None,
+        &referer,
+        &extra,
     )
+    .await?;
+
+    let mut result = parse_roster(&payload);
+    if let Some(object) = result.as_object_mut() {
+        object.insert("page".to_string(), json!(page));
+        object.insert("pageSize".to_string(), json!(size));
+        object.insert("keyword".to_string(), json!(name));
+    }
+    crate::hbut_debug!(
+        "[TeacherRoster] 按姓名「{}」第 {} 页，返回 {} 条 / 总计 {}",
+        name,
+        page,
+        result
+            .get("students")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0),
+        result.get("total").and_then(Value::as_i64).unwrap_or(0)
+    );
+    Ok(result)
 }
 
 #[cfg(test)]
