@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "module_id": "hbut_gomoku",
+  "module_name": "湖工五子棋",
+  "version": "1.4.15-beta.683",
+  "package_url": "https://hbut.6661111.xyz/modules/latest/hbut_gomoku/1.4.15-beta.683/bundle.zip",
+  "package_sha256": "b3196b0bc4950a552f9abfa1eb6e2c39acbbc04d8c3e13a724c0716ffe6f0312",
+  "package_size": 25130,
+  "entry_path": "index.html",
+  "published_at": "2026-11-20T13:31:20.524Z",
+  "release_notes": "湖工五子棋模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/latest/hbut_gomoku/1.4.15-beta.683/site/index.html",
+  "channel": "latest",
+  "published_channel": "latest",
+  "source_channel": "dev",
+  "sdk_version": "1.0.0",
+  "sdk_sha256": "99da4e337f11679edabc0a65626080111568f312f25555cdf66e32e8e0e9951c",
+  "sdk_protocol_version": 1
+}

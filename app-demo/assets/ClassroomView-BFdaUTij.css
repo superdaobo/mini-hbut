@@ -1,0 +1,64 @@
+
+.classroom-filter-label[data-v-16af5f7e] {
+  color: #334155;
+}
+.classroom-period-button[data-v-16af5f7e] {
+  width: 42px;
+  min-width: 42px;
+  height: 32px;
+  justify-content: center;
+}
+.classroom-period-groups[data-v-16af5f7e] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.classroom-period-row[data-v-16af5f7e] {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.classroom-period-row-label[data-v-16af5f7e] {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+}
+.classroom-period-row-buttons[data-v-16af5f7e] {
+  display: grid;
+  grid-template-columns: repeat(4, 42px);
+  gap: 8px;
+}
+.classroom-period-row:last-child .classroom-period-row-buttons[data-v-16af5f7e] {
+  grid-template-columns: repeat(3, 42px);
+}
+.classroom-result-meta[data-v-16af5f7e] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.classroom-result-meta strong[data-v-16af5f7e] {
+  color: #0f172a;
+  font-weight: 700;
+}
+.classroom-result-meta-time[data-v-16af5f7e] {
+  color: #94a3b8;
+  font-weight: 500;
+}
+.no-scrollbar[data-v-16af5f7e]::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar[data-v-16af5f7e] {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
