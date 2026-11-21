@@ -600,8 +600,10 @@ onBeforeUnmount(() => {
   box-shadow: var(--ui-shadow-soft);
 }
 
-/* —— 定位 FAB：贴着抽屉 peek 档上方 —— */
+/* —— 定位 FAB：贴着抽屉 peek 档上方；map-theme.css 的 .campus-guide-fab
+   基类没有 position，必须显式 absolute，否则 bottom/right 不生效 —— */
 .campus-guide-fab.campus-guide-locate-fab {
+  position: absolute;
   bottom: calc(112px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
   right: var(--ui-space-md);
   display: inline-flex;

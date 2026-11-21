@@ -286,7 +286,9 @@
 }
 
 .pop-close:hover {
-  background: var(--ui-surface-container-highest, rgba(148, 163, 184, 0.18));
+  /* 半透明中性灰：亮/暗主题下都成立（--ui-surface-container-highest 未定义，
+     直接用固定 fallback 值，避免读未定义变量） */
+  background: rgba(148, 163, 184, 0.18);
 }
 
 /* 图标按钮（标题栏返回/刷新 + 定位 FAB） */
@@ -326,7 +328,9 @@
   min-width: 48px;
   min-height: 48px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92) !important;
+  /* 暗色下 dark-mode.css 的 html.dark .towergo-view .tg-icon-btn（特异性更高）
+     仍负责深玻璃覆盖；这里只保留 token 化浅色底，去掉白底 !important */
+  background: var(--ui-surface, rgba(255, 255, 255, 0.92));
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.2);
 }
 
@@ -408,6 +412,12 @@ button:disabled {
     flex-direction: row;
   }
 
+  /* 分栏后标题栏只盖地图区：right 收回到侧栏左沿，避免 fixed 全宽
+     header（z-index 极高且 pointer-events:auto）拦截侧栏顶部 tab/滚动 */
+  .tg-fs-header {
+    right: 400px;
+  }
+
   .tg-map-panel--fs {
     flex: 1 1 auto;
     min-width: 0;
@@ -438,7 +448,7 @@ button:disabled {
   }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .tg-status-actions {
     flex-direction: column;
   }

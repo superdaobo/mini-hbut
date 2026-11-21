@@ -241,7 +241,8 @@ defineExpose({ currentHeight, snapHeights })
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 var(--ui-space-md) var(--ui-space-lg);
+  /* 底部留出 iPhone Home 指示条安全区，末项内容不被遮挡 */
+  padding: 0 var(--ui-space-md) calc(var(--ui-space-lg) + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
 }
 
 @media (prefers-reduced-motion: reduce) {

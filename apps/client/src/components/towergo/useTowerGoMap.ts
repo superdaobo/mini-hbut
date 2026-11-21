@@ -20,6 +20,25 @@ import { pushDebugLog } from '../../utils/debug_logger'
 import { loadTencentMap, resetTencentMapLoader, toTencentLatLng } from '../../utils/tencent_map_loader'
 
 /**
+ * 把上游返回的错误字段安全转成字符串。
+ *
+ * 塔的接口偶尔会把 `msg` 返回成对象（嵌套 msg/message/error），直接塞进 `mapErrors`
+ * 会在模板里渲染成 `[object Object]`（拆分后暴露的老问题）。这里统一收口，
+ * 保证 `mapErrors` 里永远是可直接展示的字符串。
+ */
+const toErrorMessage = (raw: unknown, fallback: string): string => {
+  if (typeof raw === 'string' && raw.trim()) return raw.trim()
+  if (raw && typeof raw === 'object') {
+    const record = raw as Record<string, unknown>
+    for (const key of ['msg', 'message', 'error'] as const) {
+      const value = record[key]
+      if (typeof value === 'string' && value.trim()) return value.trim()
+    }
+  }
+  return fallback
+}
+
+/**
  * 小塔出行的「地图实例 + 数据编排」组合函数（#1375 拆分自 TowerGoView.vue）。
  * 状态与逻辑仍归壳组件 TowerGoView 持有，子组件只通过 props/emits 拿数据；
  * 地图 DOM 容器 ref 由 TowerGoMapPanel 提供，经 mapContainerRef 传入。
@@ -550,7 +569,7 @@ export const useTowerGoMap = (mapContainerRef: Ref<HTMLElement | null>) => {
         mapErrors.value = mapErrors.value.filter((m) => !m.includes('车辆'))
         renderVehicleMarkers()
       } else if (result.msg) {
-        mapErrors.value = [result.msg]
+        mapErrors.value = [toErrorMessage(result.msg, '车辆数据加载失败')]
       }
     } catch (error) {
       if (token !== activeScanToken) return
@@ -595,7 +614,7 @@ export const useTowerGoMap = (mapContainerRef: Ref<HTMLElement | null>) => {
       parkingInfo.value = parkingResult.ok ? (parkingResult.data as Record<string, unknown>) : null
       mapErrors.value = [bikeResult, fenceResult]
         .filter((item) => !item.ok)
-        .map((item) => item.msg)
+        .map((item) => toErrorMessage(item.msg, '车辆数据加载失败'))
       lastScanAt.value = Date.now()
       lastFetchCenter.value = fetchPoint
       mapDataReady.value = true

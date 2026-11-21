@@ -79,7 +79,9 @@ const onSelect = (vehicle: TowerGoVehicle) => emit('select', vehicle)
           :data-low="Number(vehicle.battery) < 30 ? '1' : '0'"
         >
           <span class="material-symbols-outlined">electric_bike</span>
-          <em>{{ batteryLevelTier(vehicle.battery) }}</em>
+          <!-- 用 b 而非 em：dark-mode.css 里 html.dark .towergo-view em 会把
+               角标文字压成浅蓝（绿底上不可读），改名后脱离该全局规则 -->
+          <b>{{ batteryLevelTier(vehicle.battery) }}</b>
         </span>
         <span class="vehicle-main">
           <strong>NO.{{ vehicle.id || vehicle.imei || '--' }}</strong>
@@ -169,18 +171,19 @@ const onSelect = (vehicle: TowerGoVehicle) => emit('select', vehicle)
   width: 40px;
   height: 40px;
   border-radius: var(--ui-radius-md);
-  background: #ecfdf3;
+  /* 硬编码浅色底在暗色下会发白块：改由状态色 token 淡派生 */
+  background: color-mix(in srgb, var(--ui-success) 12%, var(--ui-surface));
   color: var(--ui-success);
   display: grid;
   place-items: center;
 }
 
 .vehicle-icon--batt[data-low='1'] {
-  background: #fef3f2;
+  background: color-mix(in srgb, var(--ui-danger) 12%, var(--ui-surface));
   color: var(--ui-danger);
 }
 
-.vehicle-icon--batt em {
+.vehicle-icon--batt b {
   position: absolute;
   right: -2px;
   bottom: -2px;
@@ -190,13 +193,12 @@ const onSelect = (vehicle: TowerGoVehicle) => emit('select', vehicle)
   background: var(--ui-success);
   color: #fff;
   font-size: 9px;
-  font-style: normal;
   font-weight: 700;
   line-height: 14px;
   text-align: center;
 }
 
-.vehicle-icon--batt[data-low='1'] em {
+.vehicle-icon--batt[data-low='1'] b {
   background: var(--ui-danger);
 }
 
@@ -249,7 +251,7 @@ button:disabled {
   cursor: not-allowed;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .tg-filter-bar {
     flex-direction: column;
     align-items: stretch;

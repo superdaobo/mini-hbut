@@ -206,6 +206,7 @@ const {
         'ai-full': currentView === 'ai',
         'schedule-full': currentView === 'schedule',
         'module-host-full': currentView === 'more_module_host',
+        'map-full': currentView === 'towergo' || currentView === 'campus_guide',
         'ios-safe': isIOSLike
       }"
     >
