@@ -91,9 +91,13 @@ async fn cx_get(
 
 /// 归一化教师课程记录（`getMyCourseJson` 的每条）。
 ///
-/// 字段映射：`courseid`→`courseId`、`name`→`courseName`、`clazzid`→`classId`、
-/// `clazzname`→`className`、`role`→`role`（1 主讲 / 2 协作）、`cpi`→`cpi`、
-/// `studentcount`→`studentCount`。
+/// ## 字段名实测（2026-11-21 修正）
+///
+/// 该接口返回的是 **camelCase**（`courseId`/`clazzId`/`studentCount`），
+/// 不是 snake_case。此前按 `courseid`/`clazzid` 取值导致三个字段全为 `null`，
+/// 学情页因此显示「该课程缺少查询参数」。
+///
+/// 另外该接口**不返回 `cpi`**（cpi 是账号级参数，需从 `backclazzdata` 的 channel 取）。
 pub(crate) fn normalize_teacher_course(record: &Value) -> Value {
     let text = |field: &str| {
         record
@@ -105,15 +109,22 @@ pub(crate) fn normalize_teacher_course(record: &Value) -> Value {
             })
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
+            // `clazzId: 0` 视为「无班级绑定」，不要当成有效 id
+            .filter(|value| value != "0")
     };
+    // camelCase 优先，snake_case 兜底（兼容将来字段变化）
+    let pick = |camel: &str, snake: &str| text(camel).or_else(|| text(snake));
     json!({
-        "courseId": text("courseid"),
+        "courseId": pick("courseId", "courseid"),
         "courseName": text("name"),
-        "classId": text("clazzid"),
-        "className": text("clazzname"),
+        "classId": pick("clazzId", "clazzid"),
+        "className": pick("clazzName", "clazzname"),
         "role": text("role"),
         "cpi": text("cpi"),
-        "studentCount": record.get("studentcount").and_then(Value::as_f64),
+        "studentCount": record
+            .get("studentCount")
+            .or_else(|| record.get("studentcount"))
+            .and_then(Value::as_f64),
     })
 }
 
@@ -125,13 +136,28 @@ pub(crate) fn parse_teacher_courses(payload: &Value) -> Vec<Value> {
 
 /// 解析 `backclazzdata` → 教学班频道（只保留 `roletype=3` 的教师频道）。
 ///
-/// 实测 `content.roletype=3` 表示教师身份（学生为 1）。
+/// ## 实测结构（2026-11-21）
+///
+/// `channelList[].content` 含 `id`（clazzId）、`cpi`、`name`、`studentcount`，
+/// 以及嵌套的 `course.data[0].id`（**courseId**）与 `course.data[0].name`。
+///
+/// 三参数（courseId + clazzId + cpi）只有从这里才能凑齐：
+/// `getMyCourseJson` 的 `clazzId` 实测恒为 0（课程级，未绑定班级），
+/// 因此学情查询应以 channel 为入口，而不是课程列表。
 pub(crate) fn parse_teacher_channels(payload: &Value) -> Vec<Value> {
     let channels = payload
         .get("channelList")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let as_id = |value: Option<&Value>| -> Option<String> {
+        match value? {
+            Value::Number(number) => Some(number.to_string()),
+            Value::String(text) => Some(text.clone()),
+            _ => None,
+        }
+        .filter(|text| !text.is_empty() && text != "0")
+    };
     channels
         .iter()
         .filter_map(|channel| {
@@ -140,19 +166,24 @@ pub(crate) fn parse_teacher_channels(payload: &Value) -> Vec<Value> {
             if roletype != Some(3) {
                 return None;
             }
+            // `course.data` 是数组（实测长度 1），取首元素的 id 作为 courseId
+            let course_node = content
+                .get("course")
+                .and_then(|course| course.get("data"))
+                .and_then(Value::as_array)
+                .and_then(|list| list.first());
+            let course_id = as_id(course_node.and_then(|node| node.get("id")));
+            let course_name = course_node
+                .and_then(|node| node.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
             Some(json!({
                 "className": content.get("name").and_then(Value::as_str),
                 "studentCount": content.get("studentcount").and_then(Value::as_f64),
-                "clazzId": content.get("id").and_then(|v| match v {
-                    Value::Number(n) => Some(n.to_string()),
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                }),
-                "cpi": content.get("cpi").and_then(|v| match v {
-                    Value::Number(n) => Some(n.to_string()),
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                }),
+                "clazzId": as_id(content.get("id")),
+                "cpi": as_id(content.get("cpi")),
+                "courseId": course_id,
+                "courseName": course_name,
                 "roletype": roletype,
             }))
         })
@@ -175,13 +206,63 @@ pub(crate) async fn fetch_teacher_courses(client: &HbutClient) -> Result<Value, 
         cx_get(client, &channels_url, &channels_query),
     );
 
-    let courses = parse_teacher_courses(&courses_result?);
+    let mut courses = parse_teacher_courses(&courses_result?);
     let channels = parse_teacher_channels(&channels_result?);
+
+    // `getMyCourseJson` **不返回 cpi**（它是账号级参数），而 stat2 的学情接口必须要 cpi。
+    // 实测同一账号下所有 channel 的 cpi 相同（446042523），因此用第一个 channel 的 cpi
+    // 回填到缺失 cpi 的课程上 —— 这是唯一可行的兜底，且不会串号（cpi 是账号维度）。
+    let fallback_cpi = channels
+        .iter()
+        .find_map(|channel| channel.get("cpi").and_then(Value::as_str))
+        .map(str::to_string);
+    if let Some(cpi) = fallback_cpi {
+        for course in courses.iter_mut() {
+            let missing = course
+                .get("cpi")
+                .and_then(Value::as_str)
+                .map(str::is_empty)
+                .unwrap_or(true);
+            if missing {
+                if let Some(object) = course.as_object_mut() {
+                    object.insert("cpi".to_string(), Value::String(cpi.clone()));
+                }
+            }
+        }
+    }
 
     crate::hbut_debug!(
         "[ChaoxingTeacher] 课程 {} 门 / 教学班频道 {} 个",
         courses.len(),
         channels.len()
+    );
+
+    // 学情查询必须同时有 courseId + clazzId + cpi。`getMyCourseJson` 的 `clazzId` 实测恒为 0，
+    // 只有 `backclazzdata` 的 channel 能凑齐三参数 —— 因此把「可查询的教学班」也映射成
+    // 课程条目追加到 `courses` 里（带 `source: "channel"` 标记），前端无需改逻辑即可查询。
+    let mut queryable_channels = 0_usize;
+    for channel in &channels {
+        let course_id = channel.get("courseId").and_then(Value::as_str);
+        let clazz_id = channel.get("clazzId").and_then(Value::as_str);
+        let cpi = channel.get("cpi").and_then(Value::as_str);
+        if course_id.is_none() || clazz_id.is_none() || cpi.is_none() {
+            continue;
+        }
+        queryable_channels += 1;
+        courses.push(json!({
+            "courseId": course_id,
+            "courseName": channel.get("courseName"),
+            "classId": clazz_id,
+            "className": channel.get("className"),
+            "role": "1",
+            "cpi": cpi,
+            "studentCount": channel.get("studentCount"),
+            "source": "channel",
+        }));
+    }
+    crate::hbut_debug!(
+        "[ChaoxingTeacher] 可查询教学班 {} 个（已并入 courses）",
+        queryable_channels
     );
 
     Ok(json!({ "courses": courses, "channels": channels }))
