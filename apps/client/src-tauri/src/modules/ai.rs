@@ -939,9 +939,16 @@ pub(crate) fn extract_upstream_error_msg(value: &Value) -> Option<String> {
         }
     }
     // 无显式失败码：msg 存在但没有任何正文载体 → 同样按软错误处理
-    let has_payload_key = ["content", "answer", "text", "thinking", "finish", "sessionId"]
-        .iter()
-        .any(|key| map.contains_key(*key));
+    let has_payload_key = [
+        "content",
+        "answer",
+        "text",
+        "thinking",
+        "finish",
+        "sessionId",
+    ]
+    .iter()
+    .any(|key| map.contains_key(*key));
     if has_payload_key {
         return None;
     }
