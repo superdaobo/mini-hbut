@@ -1026,6 +1026,12 @@ export const messages: Record<string, string> = {
   'chaoxing.study.video.read': 'Reading',
   'chaoxing.study.video.taskPoints': 'Task points',
   'chaoxing.study.video.minuteUnit': 'min',
+  // Assignment / exam / overall stats
+  'chaoxing.study.work.done': 'Assignments done',
+  'chaoxing.study.work.average': 'Average score',
+  'chaoxing.study.test.examDone': 'Exams done',
+  'chaoxing.study.weights.title': 'Grading scheme',
+  'chaoxing.study.weights.total': 'Total {n}',
   'chaoxing.study.video.noMinutes': 'Watch minutes are not provided',
   'chaoxing.study.video.score': 'Video score',
   'chaoxing.study.video.videoTest': 'In-video quizzes',
