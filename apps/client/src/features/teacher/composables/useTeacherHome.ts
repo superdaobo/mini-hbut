@@ -68,16 +68,38 @@ export interface TodayPanelI18n {
 
 /** 教师首页专属入口的宫格图标（学生侧 FEATURE_ICONS 不含这些视图 id）。 */
 const TEACHER_MODULE_ICONS: Record<string, string> = {
-  teacherteaching: 'fa-chalkboard-teacher',
-  teacherexams: 'fa-clipboard-check',
-  teachernotifications: 'fa-envelope-open-text'
+    teacherteaching: 'fa-chalkboard-teacher',
+    teacherexams: 'fa-clipboard-check',
+    teachernotifications: 'fa-envelope-open-text',
+    teacherattendance: 'fa-user-check',
+    teacherworkload: 'fa-briefcase',
+    teacherexamaffairs: 'fa-file-circle-check',
+    teachercredits: 'fa-graduation-cap',
+    teacheradjustment: 'fa-right-left',
+    teacherroster: 'fa-address-book',
+    teachergradeentry: 'fa-pen-to-square',
+    teacherchaoxinganalytics: 'fa-chart-line',
+    teacherportal: 'fa-table-cells-large',
+    teacherclassschedule: 'fa-calendar-days',
+    teacherroomschedule: 'fa-door-open'
 }
 
 /** 教师首页专属入口的宫格底色。 */
 const TEACHER_MODULE_ICON_COLORS: Record<string, string> = {
-  teacherteaching: 'bg-blue-500',
-  teacherexams: 'bg-teal-500',
-  teachernotifications: 'bg-indigo-500'
+    teacherteaching: 'bg-blue-500',
+    teacherexams: 'bg-teal-500',
+    teachernotifications: 'bg-indigo-500',
+    teacherattendance: 'bg-emerald-500',
+    teacherworkload: 'bg-amber-500',
+    teacherexamaffairs: 'bg-rose-500',
+    teachercredits: 'bg-violet-500',
+    teacheradjustment: 'bg-cyan-500',
+    teacherroster: 'bg-sky-500',
+    teachergradeentry: 'bg-orange-500',
+    teacherchaoxinganalytics: 'bg-blue-500',
+    teacherportal: 'bg-indigo-500',
+    teacherclassschedule: 'bg-teal-500',
+    teacherroomschedule: 'bg-slate-500'
 }
 
 /** 教师首页专属入口的快捷入口元数据（学生侧 QUICK_ENTRY_META 不含这些视图 id）。 */

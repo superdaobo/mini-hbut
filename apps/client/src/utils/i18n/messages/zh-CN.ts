@@ -4378,4 +4378,7 @@ export const messages: Record<string, string> = {
     'teacher.home.item.portal': '办事大厅',
     'teacher.home.item.classSchedule': '班级课表',
     'teacher.home.item.roomSchedule': '教室课表',
+
+    // goal-21：学习通分类
+    'teacher.category.chaoxing': '学习通',
 }

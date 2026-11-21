@@ -14,7 +14,7 @@
 // 消费方：E1（#1021）Dashboard 教师分类/快捷入口；E2–E6 读取自身 flag 决定空态。
 
 /** 教师首页一级分类（只允许这两个）。 */
-export type TeacherFeatureCategory = 'academic' | 'resource'
+export type TeacherFeatureCategory = 'academic' | 'chaoxing' | 'resource'
 
 /** 教师首页功能条目。 */
 export interface TeacherFeatureEntry {
@@ -38,6 +38,8 @@ export const TEACHER_FEATURE_CATEGORIES: ReadonlyArray<{
   labelKey: string
 }> = Object.freeze([
   { id: 'academic', labelKey: 'teacher.category.academic' },
+  // goal-21：学习通独立分类（教师端学情不属于教务系统）
+  { id: 'chaoxing', labelKey: 'teacher.category.chaoxing' },
   { id: 'resource', labelKey: 'teacher.category.resource' }
 ])
 
@@ -197,7 +199,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
   {
     id: 'teacher_chaoxing_analytics',
     viewId: 'teacherchaoxinganalytics',
-    category: 'academic',
+    category: 'chaoxing',
     flagKey: 'teacher.feature.chaoxing_analytics',
     enabled: true,
     nameKey: 'teacher.home.item.chaoxingAnalytics'

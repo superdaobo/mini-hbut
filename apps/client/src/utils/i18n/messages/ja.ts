@@ -4377,4 +4377,7 @@ export const messages: Record<string, string> = {
     'teacher.home.item.portal': 'サービス窓口',
     'teacher.home.item.classSchedule': 'クラス時間割',
     'teacher.home.item.roomSchedule': '教室時間割',
+
+    // goal-21：学习通分类
+    'teacher.category.chaoxing': '学習通',
 }
