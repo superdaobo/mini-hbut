@@ -165,9 +165,9 @@ const teacherScheduleScope = ref('mine')
 const teacherScopeOptions = computed(() =>
   isTeacherUser.value
     ? [
-        { id: 'mine', label: '我的课表' },
-        { id: 'class', label: '班级课表' },
-        { id: 'room', label: '教室课表' }
+        { id: 'mine', labelKey: 'teacher.schedule.scope.mine' },
+        { id: 'class', labelKey: 'teacher.schedule.scope.class' },
+        { id: 'room', labelKey: 'teacher.schedule.scope.room' }
       ]
     : []
 )
@@ -770,7 +770,7 @@ onBeforeUnmount(() => {
         :aria-pressed="teacherScheduleScope === opt.id"
         @click="onTeacherScopeChange(opt.id)"
       >
-        {{ opt.label }}
+        {{ t(opt.labelKey) }}
       </button>
     </div>
 

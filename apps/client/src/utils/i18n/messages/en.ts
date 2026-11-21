@@ -4396,4 +4396,9 @@ export const messages: Record<string, string> = {
     'teacher.schedule.room.courseCount': '{n} entries',
     'teacher.schedule.room.noCourses': 'No classes in this room this semester',
     'teacher.schedule.room.backToList': 'Back to room list',
+
+    // goal-22：课表三档
+    'teacher.schedule.scope.mine': 'My schedule',
+    'teacher.schedule.scope.class': 'Class schedule',
+    'teacher.schedule.scope.room': 'Room schedule',
 }

@@ -4395,4 +4395,9 @@ export const messages: Record<string, string> = {
     'teacher.schedule.room.courseCount': '共 {n} 条排课',
     'teacher.schedule.room.noCourses': '该教室本学期无排课',
     'teacher.schedule.room.backToList': '返回教室列表',
+
+    // goal-22：课表三档
+    'teacher.schedule.scope.mine': '我的课表',
+    'teacher.schedule.scope.class': '班级课表',
+    'teacher.schedule.scope.room': '教室课表',
 }

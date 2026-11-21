@@ -4394,4 +4394,9 @@ export const messages: Record<string, string> = {
     'teacher.schedule.room.courseCount': '全 {n} 件',
     'teacher.schedule.room.noCourses': '今学期の授業はありません',
     'teacher.schedule.room.backToList': '教室一覧に戻る',
+
+    // goal-22：课表三档
+    'teacher.schedule.scope.mine': '自分の時間割',
+    'teacher.schedule.scope.class': 'クラス時間割',
+    'teacher.schedule.scope.room': '教室時間割',
 }
