@@ -27,10 +27,10 @@ const { t } = useLocale()
 type TabKey = 'overview' | 'sign' | 'work' | 'test' | 'video' | 'other'
 
 const TABS: Array<{ key: TabKey; labelKey: string; dims: string[] }> = [
-  { key: 'overview', labelKey: 'chaoxing.study.tab.overview', dims: ['score', 'job', 'test', 'work', 'groupTask', 'point', 'sign', 'weekPv'] },
+  { key: 'overview', labelKey: 'chaoxing.study.tab.overview', dims: ['score', 'job', 'test', 'work', 'groupTask', 'point', 'sign', 'weekPv', 'overallSummary'] },
   { key: 'sign', labelKey: 'chaoxing.study.tab.sign', dims: ['sign'] },
-  { key: 'work', labelKey: 'chaoxing.study.tab.work', dims: ['job', 'work', 'behindTask', 'importWeekTask'] },
-  { key: 'test', labelKey: 'chaoxing.study.tab.test', dims: ['test', 'videoTest'] },
+  { key: 'work', labelKey: 'chaoxing.study.tab.work', dims: ['job', 'work', 'workSummary', 'behindTask', 'importWeekTask'] },
+  { key: 'test', labelKey: 'chaoxing.study.tab.test', dims: ['test', 'videoTest', 'examSummary'] },
   { key: 'video', labelKey: 'chaoxing.study.tab.video', dims: ['taskSummary', 'videoTest', 'point', 'live', 'cxclass'] },
   { key: 'other', labelKey: 'chaoxing.study.tab.other', dims: ['nearTask', 'weekTask', 'ai-evaluate-stat'] }
 ]
@@ -279,6 +279,17 @@ const signBuckets = computed(() => {
 })
 const signMax = computed(() => Math.max(1, ...signBuckets.value.map((item) => item.value)))
 
+/* ── 作业 / 考试 / 综合成绩统计（stat2 HTML 页，jobEnc 票据）────── */
+const workSummary = computed(() => payloadOf('workSummary'))
+const examSummary = computed(() => payloadOf('examSummary'))
+const overallSummary = computed(() => payloadOf('overallSummary'))
+const overallWeights = computed(() => {
+  const raw = (overallSummary.value.weights as Record<string, unknown>) || {}
+  return Object.entries(raw)
+    .map(([name, percent]) => ({ name, percent: num(percent) }))
+    .sort((a, b) => b.percent - a.percent)
+})
+
 /* ── 视频 ────────────────────────────────────────────────────── */
 /**
  * 观看时长来自 `taskSummary`（`stat2/task/s/index` 服务端渲染页）：
@@ -477,6 +488,21 @@ onBeforeUnmount(() => {
         </article>
       </section>
 
+      <!-- 考核标准（综合成绩页的权重明细） -->
+      <section v-if="overallWeights.length" class="sr-card sr-panel">
+        <div class="sr-panel__head">
+          <h3>{{ t('chaoxing.study.weights.title') }}</h3>
+          <span class="sr-panel__count">{{ tf('chaoxing.study.weights.total', { n: num(overallSummary.total_score) }) }}</span>
+        </div>
+        <div class="sr-dist">
+          <div v-for="w in overallWeights" :key="w.name" class="sr-dist__row">
+            <span class="sr-dist__label">{{ w.name }}</span>
+            <i class="sr-dist__track"><b class="is-blue" :style="{ width: w.percent + '%' }" /></i>
+            <span class="sr-dist__value">{{ w.percent }}%</span>
+          </div>
+        </div>
+      </section>
+
       <!-- 近 7 次访问 -->
       <section class="sr-card sr-chart">
         <div class="sr-chart__head">
@@ -597,26 +623,26 @@ onBeforeUnmount(() => {
         <article class="sr-metric">
           <div class="sr-metric__top">
             <span class="sr-metric__icon is-blue"><span class="material-symbols-outlined">assignment_turned_in</span></span>
-            <span class="sr-metric__badge is-muted">{{ workRate.toFixed(0) }}%</span>
+            <span class="sr-metric__badge is-muted">{{ num(workSummary.percent).toFixed(0) }}%</span>
           </div>
-          <strong class="sr-metric__value">{{ num(payloadOf('work').finishCount) }}/{{ num(payloadOf('work').receivedNum) }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.card.work') }}</span>
-          <i class="sr-metric__bar"><b class="is-blue" :style="{ width: workRate + '%' }" /></i>
+          <strong class="sr-metric__value">{{ num(workSummary.done) }}/{{ num(workSummary.total) }}</strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.work.done') }}</span>
+          <i class="sr-metric__bar"><b class="is-blue" :style="{ width: num(workSummary.percent) + '%' }" /></i>
         </article>
         <article class="sr-metric">
           <div class="sr-metric__top">
             <span class="sr-metric__icon is-indigo"><span class="material-symbols-outlined">percent</span></span>
           </div>
-          <strong class="sr-metric__value">{{ pct(payloadOf('work').finishPer).toFixed(0) }}%</strong>
+          <strong class="sr-metric__value">{{ num(workSummary.percent).toFixed(0) }}%</strong>
           <span class="sr-metric__label">{{ t('chaoxing.study.work.rate') }}</span>
-          <i class="sr-metric__bar"><b class="is-indigo" :style="{ width: pct(payloadOf('work').finishPer) + '%' }" /></i>
+          <i class="sr-metric__bar"><b class="is-indigo" :style="{ width: num(workSummary.percent) + '%' }" /></i>
         </article>
         <article class="sr-metric">
           <div class="sr-metric__top">
             <span class="sr-metric__icon is-amber"><span class="material-symbols-outlined">star</span></span>
           </div>
-          <strong class="sr-metric__value">{{ num(payloadOf('work').workScore) }}</strong>
-          <span class="sr-metric__label">{{ t('chaoxing.study.work.score') }}</span>
+          <strong class="sr-metric__value">{{ num(workSummary.average_score) }}</strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.work.average') }}</span>
           <i class="sr-metric__bar"><b class="is-amber" style="width: 100%" /></i>
         </article>
       </section>
@@ -718,6 +744,17 @@ onBeforeUnmount(() => {
           </strong>
           <span class="sr-metric__label">{{ t('chaoxing.study.test.video') }}</span>
           <i class="sr-metric__bar"><b class="is-emerald" :style="{ width: pct(videoTestData.finishPer) + '%' }" /></i>
+        </article>
+        <article class="sr-metric">
+          <div class="sr-metric__top">
+            <span class="sr-metric__icon is-rose"><span class="material-symbols-outlined">history_edu</span></span>
+            <span class="sr-metric__badge" :class="num(examSummary.percent) >= 100 ? 'is-emerald' : 'is-muted'">
+              {{ num(examSummary.percent).toFixed(0) }}%
+            </span>
+          </div>
+          <strong class="sr-metric__value">{{ num(examSummary.done) }}/{{ num(examSummary.total) }}</strong>
+          <span class="sr-metric__label">{{ t('chaoxing.study.test.examDone') }}</span>
+          <i class="sr-metric__bar"><b class="is-rose" :style="{ width: num(examSummary.percent) + '%' }" /></i>
         </article>
       </section>
     </template>

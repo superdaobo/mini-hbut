@@ -1025,6 +1025,12 @@ export const messages: Record<string, string> = {
   'chaoxing.study.video.read': '累計読書',
   'chaoxing.study.video.taskPoints': 'タスク完了',
   'chaoxing.study.video.minuteUnit': '分',
+  // 課題・試験・総合成績の統計
+  'chaoxing.study.work.done': '完了した課題',
+  'chaoxing.study.work.average': '平均点',
+  'chaoxing.study.test.examDone': '試験完了',
+  'chaoxing.study.weights.title': '評価基準',
+  'chaoxing.study.weights.total': '総合 {n}',
   'chaoxing.study.video.noMinutes': '視聴時間は提供されません',
   'chaoxing.study.video.score': '動画得点',
   'chaoxing.study.video.videoTest': '動画内テスト',

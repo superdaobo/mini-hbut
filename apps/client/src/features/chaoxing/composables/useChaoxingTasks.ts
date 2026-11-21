@@ -97,6 +97,13 @@ export const useChaoxingTasks = (core: ChaoxingHubCore): ChaoxingTasksApi => {
       nearestExam.value = (examRes?.nearest as ChaoxingTaskNearest) || null
 
       tasksLoaded.value = true
+      // 磁盘缓存已过期：先把旧数据画出来，再静默刷新一次（避免空白等 20 秒）
+      const stale = Boolean(workRes?.cache_stale || examRes?.cache_stale)
+      if (stale && !force) {
+        window.setTimeout(() => {
+          void loadTasks({ force: true })
+        }, 600)
+      }
     } catch (e) {
       tasksError.value = String((e as Error)?.message || e || '清单加载失败')
     } finally {

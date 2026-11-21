@@ -28,9 +28,12 @@ pub(crate) async fn chaoxing_fetch_exams_all_courses(
     semester: Option<&str>,
     force: bool,
 ) -> Result<Value, DynError> {
-    let payload = super::chaoxing_courses::chaoxing_fetch_courses(client, None, force).await?;
-    let courses = parse_courses(&payload, semester);
-    let (bundle, from_cache) = collect_pending_tasks(client, &courses, force).await?;
+    // ⚠️ 课程列表**不要跟着 force 刷新**：那是远程拉取（实测约 20s），
+    // 而这里的 force 只表示「重新聚合待办」。课程列表由课程中心页的「刷新」负责。
+    let payload = super::chaoxing_courses::chaoxing_fetch_courses(client, None, false).await?;
+    let all_courses = parse_courses(&payload, None);
+    let courses = super::chaoxing_work::default_courses(&all_courses, semester);
+    let (bundle, cache_meta) = collect_pending_tasks(client, &courses, force).await?;
     let exams: Vec<_> = bundle
         .items
         .iter()
@@ -52,7 +55,9 @@ pub(crate) async fn chaoxing_fetch_exams_all_courses(
         "nearest": nearest,
         "courses": courses.len(),
         "failed_courses": bundle.failed_courses,
-        "cached": from_cache,
+        "cached": cache_meta.cached,
+        "cache_age_seconds": cache_meta.age_seconds,
+        "cache_stale": cache_meta.stale,
         "semester": semester.unwrap_or(""),
         "sync_time": now_sync_time(),
         "notice": "本页仅显示考试安排，考试请到学习通官方页",

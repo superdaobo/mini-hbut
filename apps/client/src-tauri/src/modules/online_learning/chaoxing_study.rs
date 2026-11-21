@@ -42,6 +42,12 @@ const STAT2_DIM: &str = "https://stat2-ans.chaoxing.com/stat2/study-data";
 
 /// 「章节任务点」统计维度（**唯一提供观看时长的接口**，不在 stat2/study-data 下）。
 pub(crate) const DIM_TASK_SUMMARY: &str = "taskSummary";
+/// 作业统计页（`stat2/work-stastics/stu-index`，服务端渲染 HTML）
+pub(crate) const DIM_WORK_SUMMARY: &str = "workSummary";
+/// 考试统计页（`stat2/exam-stastics/stu-index`）
+pub(crate) const DIM_EXAM_SUMMARY: &str = "examSummary";
+/// 综合成绩页（`stat2/overall-score/stu-score`，含各维度权重）
+pub(crate) const DIM_OVERALL_SUMMARY: &str = "overallSummary";
 
 /// 支持的学情维度白名单。
 ///
@@ -239,6 +245,12 @@ pub(crate) async fn fetch_dimension(
     if dimension == DIM_TASK_SUMMARY {
         return fetch_task_summary(client, course_id, clazz_id, cpi, force).await;
     }
+    if matches!(
+        dimension,
+        DIM_WORK_SUMMARY | DIM_EXAM_SUMMARY | DIM_OVERALL_SUMMARY
+    ) {
+        return fetch_html_stat(client, course_id, clazz_id, cpi, dimension, force).await;
+    }
     if !is_supported_dimension(dimension) {
         return Err(err_box(format!("不支持的学情维度: {dimension}")));
     }
@@ -383,6 +395,132 @@ pub(crate) async fn fetch_task_summary(
     Ok(summary)
 }
 
+/// 通用：抓 `stat2/{path}` 统计页（服务端渲染 HTML）并按维度解析。
+async fn fetch_html_stat(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+    dimension: &str,
+    force: bool,
+) -> Result<Value, DynError> {
+    let cache_key = format!("dim:{course_id}:{clazz_id}:{dimension}");
+    if !force {
+        if let Some(cached) = read_cache(&cache_key).await {
+            return Ok(cached);
+        }
+    }
+    let (path, marker) = match dimension {
+        DIM_WORK_SUMMARY => ("/work-stastics/stu-index", "完成进度"),
+        DIM_EXAM_SUMMARY => ("/exam-stastics/stu-index", "完成进度"),
+        _ => ("/overall-score/stu-score", "综合成绩"),
+    };
+    let enc = fetch_study_enc(client, course_id, clazz_id, cpi).await?;
+    if enc.job_enc.is_empty() {
+        return Err(err_box("统计首页未下发统计票据（jobEnc）"));
+    }
+    let url = format!(
+        "https://stat2-ans.chaoxing.com/stat2{path}?courseid={course_id}&clazzid={clazz_id}&cpi={cpi}&ut=s&pEnc={}",
+        enc.job_enc
+    );
+    let resp = client
+        .client
+        .get(&url)
+        .header("Referer", &enc.index_url)
+        .header("User-Agent", UA)
+        .timeout(REQ_TIMEOUT)
+        .send()
+        .await?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() || !text.contains(marker) {
+        return Err(err_box("统计页不可用（可能需要重新登录学习通）"));
+    }
+    let value = match dimension {
+        DIM_WORK_SUMMARY => parse_work_summary(&text),
+        DIM_EXAM_SUMMARY => parse_exam_summary(&text),
+        _ => parse_overall_summary(&text),
+    };
+    write_cache(cache_key, value.clone()).await;
+    Ok(value)
+}
+
+/// 取页面里第一处「`<span class="num">X</span>/Y`」（完成进度）
+fn first_progress_pair(html: &str) -> (i64, i64) {
+    let re = regex::Regex::new(r#"<span class="num">\s*([\d.]+)\s*</span>\s*/\s*(\d+)"#).ok();
+    if let Some(re) = re {
+        if let Some(c) = re.captures(html) {
+            let done = c
+                .get(1)
+                .and_then(|m| m.as_str().trim().parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let total = c
+                .get(2)
+                .and_then(|m| m.as_str().trim().parse::<f64>().ok())
+                .unwrap_or(0.0);
+            return (done as i64, total as i64);
+        }
+    }
+    (0, 0)
+}
+
+/// 取「平均分」块的数值（`<span class="num">N</span><span class="fs16">分</span>`）
+fn average_score(html: &str) -> f64 {
+    let re = regex::Regex::new(
+        r#"<span class="num">\s*([\d.]+)\s*</span><span class="fs16">\s*分\s*</span>"#,
+    )
+    .ok();
+    re.and_then(|re| re.captures(html))
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().trim().parse::<f64>().ok())
+        .unwrap_or(0.0)
+}
+
+/// 作业统计：完成进度 done/total + 平均分
+pub(crate) fn parse_work_summary(html: &str) -> Value {
+    let (done, total) = first_progress_pair(html);
+    json!({
+        "status": true,
+        "done": done,
+        "total": total,
+        "percent": if total > 0 { (done as f64 / total as f64 * 1000.0).round() / 10.0 } else { 0.0 },
+        "average_score": average_score(html),
+    })
+}
+
+/// 考试统计：完成进度 done/total
+pub(crate) fn parse_exam_summary(html: &str) -> Value {
+    let (done, total) = first_progress_pair(html);
+    json!({
+        "status": true,
+        "done": done,
+        "total": total,
+        "percent": if total > 0 { (done as f64 / total as f64 * 1000.0).round() / 10.0 } else { 0.0 },
+    })
+}
+
+/// 综合成绩：总分 + 各维度权重
+pub(crate) fn parse_overall_summary(html: &str) -> Value {
+    let total_score = average_score(html);
+    let mut weights = serde_json::Map::new();
+    if let Ok(re) = regex::Regex::new(r"<h2>([^<：:]{1,20})[：:]\s*(\d+(?:\.\d+)?)%</h2>") {
+        for cap in re.captures_iter(html) {
+            let name = cap.get(1).map(|m| m.as_str().trim().to_string());
+            let percent = cap
+                .get(2)
+                .and_then(|m| m.as_str().trim().parse::<f64>().ok());
+            if let (Some(name), Some(percent)) = (name, percent) {
+                weights.insert(name, json!(percent));
+            }
+        }
+    }
+    json!({
+        "status": true,
+        "total_score": total_score,
+        "weights": weights,
+    })
+}
+
 /// 从「章节任务点」HTML 里抽统计数字（页面是服务端渲染，结构稳定）。
 pub(crate) fn parse_task_summary(html: &str) -> Value {
     fn cap_f64(html: &str, pattern: &str) -> Option<f64> {
@@ -473,6 +611,44 @@ mod tests {
         assert_eq!(summary["video_percent"], 81.5);
         assert_eq!(summary["read_minutes"], 102.8);
         assert_eq!(summary["read_required_minutes"], 0.0);
+    }
+
+    #[test]
+    fn parses_work_and_exam_summaries() {
+        let work = r#"
+        <div class="leftC" aria-label="完成进度; 0/25;   平均分;0 分; ">
+          <div class="model"><div class="time"><span class="num">0</span>/25</div><p class="font14">完成进度</p></div>
+          <div class="model"><div class="time"><span class="num">0</span><span class="fs16">分</span></div><p class="font14">平均分</p></div>
+        </div>"#;
+        let w = parse_work_summary(work);
+        assert_eq!(w["done"], 0);
+        assert_eq!(w["total"], 25);
+        assert_eq!(w["percent"], 0.0);
+        assert_eq!(w["average_score"], 0.0);
+
+        let exam = r#"
+        <h2>已完成考试</h2>
+        <div class="leftC"><div class="model"><div class="time"><span class="num">1</span>/2</div><p class="font14">完成进度</p></div></div>"#;
+        let e = parse_exam_summary(exam);
+        assert_eq!(e["done"], 1);
+        assert_eq!(e["total"], 2);
+        assert_eq!(e["percent"], 50.0);
+    }
+
+    #[test]
+    fn parses_overall_summary() {
+        let html = r#"
+        <div class="model"><div class="time"><span class="num">62.8</span><span class="fs16">分</span></div><p class="font14">总分</p></div>
+        <h2>章节任务点：40%</h2><p>...</p>
+        <h2>作业：10%</h2><p>...</p>
+        <h2>考试：30%</h2><p>...</p>
+        <h2>讨论：10%</h2><p>...</p>
+        <h2>章节学习次数：10%</h2><p>...</p>"#;
+        let o = parse_overall_summary(html);
+        assert_eq!(o["total_score"], 62.8);
+        assert_eq!(o["weights"]["章节任务点"], 40.0);
+        assert_eq!(o["weights"]["作业"], 10.0);
+        assert_eq!(o["weights"]["考试"], 30.0);
     }
 
     #[test]

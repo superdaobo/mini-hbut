@@ -1027,6 +1027,12 @@ export const messages: Record<string, string> = {
   'chaoxing.study.video.read': '累计阅读',
   'chaoxing.study.video.taskPoints': '任务点完成',
   'chaoxing.study.video.minuteUnit': '分钟',
+  // 作业/考试/综合成绩统计
+  'chaoxing.study.work.done': '已完成作业',
+  'chaoxing.study.work.average': '平均分',
+  'chaoxing.study.test.examDone': '考试完成',
+  'chaoxing.study.weights.title': '考核标准',
+  'chaoxing.study.weights.total': '总分 {n}',
   'chaoxing.study.video.noMinutes': '学习通不提供观看分钟',
   'chaoxing.study.video.score': '视频得分',
   'chaoxing.study.video.videoTest': '视频内测题',
