@@ -84,15 +84,15 @@ describe('P0 multi-module contracts', () => {
     expect(rustDoc).toContain('LTO')
   })
 
-  it('does not use loopback campus-guide base on Android tauri path', () => {
+  it('uses loopback campus-guide base on all tauri platforms incl. Android (#1368)', () => {
     const config = read('src/features/campus-guide/config.ts')
-    expect(config).toContain('isLikelyAndroidUserAgent')
+    // #1368：http_server 全平台默认启用，Android 不再特判禁 loopback
+    expect(config).not.toContain('isLikelyAndroidUserAgent')
     expect(config).toContain('VITE_CAMPUS_GUIDE_HTTPS_BASE')
-    expect(config).toContain('// Android：绝不走 loopback')
-    // production Android must not hard-require 127.0.0.1
-    expect(config).toMatch(/if \(isLikelyAndroidUserAgent\(\)\) \{[\s\S]*?return CAMPUS_GUIDE_CONFIG\.apiBase/)
-    // iOS still may use local bridge
+    // Tauri（含 Android）默认走 loopback；显式 https 覆盖除外
+    expect(config).toMatch(/if \(!isTauriRuntime\(\)\) return CAMPUS_GUIDE_CONFIG\.apiBase/)
     expect(config).toContain("localBridgeBaseUrl: 'http://127.0.0.1:4399/campus-guide'")
+    expect(config).toMatch(/return CAMPUS_GUIDE_CONFIG\.localBridgeBaseUrl/)
     expect(CAMPUS_GUIDE_CONFIG.localBridgeBaseUrl).toContain('127.0.0.1')
     // default resolve without tauri → relative
     expect(resolveCampusGuideBaseUrl()).toBe('/campus-guide')

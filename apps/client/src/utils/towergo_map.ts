@@ -6,6 +6,10 @@ export interface TowerGoPoint {
   longitude: number
   accuracy?: number
   source?: 'system' | 'fallback'
+  /** 定位有效但距校区中心超过 maxDriftMeters（人在校外），未做回退；调用方应提示而非静默校正 */
+  outOfRange?: boolean
+  /** 与校区中心的实测距离（米），仅在定位成功时给出 */
+  driftMeters?: number
 }
 
 export interface TowerGoVehicle {
@@ -564,15 +568,40 @@ export const resolveTowerGoLocation = async ({
           const gcj = wgs84ToGcj02(rawLat, rawLng)
           const lat = gcj.latitude
           const lng = gcj.longitude
-          // 系统定位可能偏移到校外几公里（桌面端/室内/VPN），超阈值则回退到校区坐标，
-          // 避免用偏移坐标查服务区识别成别的校区
+          // 明显异常值（非法经纬度/Null Island）才回退校区；
+          // 单纯「离校区远」不再静默丢弃真实位置，而是打 outOfRange 标记交给调用方提示
+          const clearlyInvalid =
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lng) ||
+            Math.abs(lat) > 90 ||
+            Math.abs(lng) > 180 ||
+            (Math.abs(lat) < 1e-9 && Math.abs(lng) < 1e-9)
           const drift = distanceMeters(fallback.latitude, fallback.longitude, lat, lng)
-          if (Number.isFinite(drift) && drift > maxDriftMeters) {
+          if (clearlyInvalid || !Number.isFinite(drift)) {
             const { accuracy: _fallbackAccuracy, ...fallbackPoint } = fallback
             const point = { ...fallbackPoint, source: 'fallback' as const, accuracy }
             pushDebugLog(
               'TowerGo',
-              `定位漂移 ${Math.round(drift)}m > ${maxDriftMeters}m，回退校区 lat=${point.latitude} lng=${point.longitude}`,
+              `定位结果异常（lat=${rawLat} lng=${rawLng}），回退校区 lat=${point.latitude} lng=${point.longitude}`,
+              'warn',
+              { rawLat, rawLng, lat, lng, drift, ...point }
+            )
+            resolve(point)
+            return
+          }
+          if (drift > maxDriftMeters) {
+            const point = {
+              name: '当前位置',
+              latitude: lat,
+              longitude: lng,
+              accuracy,
+              source: 'system' as const,
+              outOfRange: true,
+              driftMeters: Math.round(drift)
+            }
+            pushDebugLog(
+              'TowerGo',
+              `定位超出校区范围 ${Math.round(drift)}m > ${maxDriftMeters}m，保留真实位置并标记 outOfRange`,
               'warn',
               { rawLat, rawLng, lat, lng, drift, ...point }
             )

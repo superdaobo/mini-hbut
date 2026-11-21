@@ -31,6 +31,16 @@ describe('tencent map CSP + loader contract (#1300)', () => {
     expect(scriptSrc).not.toMatch(/\shttps:(\s|$)/)
   })
 
+  it('script-src 放行 apikey.map.qq.com（GL JS 运行时 JSONP key 校验，#1367）', () => {
+    const scriptSrc = cspDirective(csp, 'script-src')
+    expect(scriptSrc).toContain('https://apikey.map.qq.com')
+    // 修复手段是精确加源，不是放宽：不得引入独立关键字 'unsafe-eval' 或 *
+    // （'wasm-unsafe-eval' 是既有的独立 token，不在此列）
+    const tokens = scriptSrc.split(/\s+/).filter(Boolean)
+    expect(tokens).not.toContain("'unsafe-eval'")
+    expect(tokens).not.toContain('*')
+  })
+
   it('加载器对 CSP 拦截/网络挂起有超时兜底，并清理失败脚本', () => {
     expect(loader).toContain('TENCENT_MAP_LOAD_TIMEOUT_MS')
     expect(loader).toContain('腾讯地图脚本加载超时')

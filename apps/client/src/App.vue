@@ -166,7 +166,8 @@ const {
   transactions: TransactionHistory,
   campus_code: CampusCodeView,
   ai: AiChatView,
-  campus_map: CampusMapView,
+  campus_map: CampusPhotoMapView,
+  campus_guide: CampusGuideShell,
   library: LibraryView,
   resource_share: ResourceShareView,
   chaoxing_class: ChaoxingClassView,
@@ -511,12 +512,18 @@ const {
         @back="handleBackToDashboard"
       />
 
-      <!-- 校园地图 -->
-      <CampusMapView
+      <!-- 校园地图（照片版，#1372） -->
+      <CampusPhotoMapView
         v-else-if="currentView === 'campus_map'"
         :student-id="studentId"
         @back="handleBackToDashboard"
-        @logout="handleLogout"
+      />
+
+      <!-- 校园导览（腾讯地图版，#1372） -->
+      <CampusGuideShell
+        v-else-if="currentView === 'campus_guide'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
       />
 
       <!-- 图书查询 -->

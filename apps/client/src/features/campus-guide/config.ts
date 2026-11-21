@@ -1,8 +1,4 @@
-import {
-  isLikelyAndroidUserAgent,
-  isLikelyIOSUserAgent,
-  isTauriRuntime
-} from '../../platform/native'
+import { isTauriRuntime } from '../../platform/native'
 
 /** 校园导览模块配置（对齐微信小程序 wx22aea6eb3fe08ad7） */
 export const CAMPUS_GUIDE_CONFIG = Object.freeze({
@@ -14,12 +10,12 @@ export const CAMPUS_GUIDE_CONFIG = Object.freeze({
   customLayerId: '6913dc019029',
   themeColor: '#0074CF',
   apiBase: '/campus-guide',
-  /** iOS / 桌面 Tauri：本地签名代理（http_server） */
+  /** Tauri 运行时（iOS / Android / 桌面）：本地签名代理（http_server，#1368 起全平台默认启用） */
   localBridgeBaseUrl: 'http://127.0.0.1:4399/campus-guide',
   /**
-   * Android Release 默认不启 loopback bridge。
-   * 可通过 VITE_CAMPUS_GUIDE_HTTPS_BASE 或 localStorage `campus_guide_https_base` 覆盖。
-   * 未配置时回退同源相对路径 `/campus-guide`（由宿主注入/远程网关反代时可用）。
+   * Tauri 下 loopback 之外的覆盖入口（排障/网关反代场景）。
+   * 可通过 VITE_CAMPUS_GUIDE_HTTPS_BASE 或 localStorage `campus_guide_https_base` 配置；
+   * 非空时优先于 loopback，未配置时默认走 `localBridgeBaseUrl`。
    */
   httpsProxyBaseDefault: '',
   minZoom: 15,
@@ -52,25 +48,18 @@ const readConfiguredHttpsBase = () => {
 /**
  * 解析校园导览 API base：
  * - Web / Vite dev：相对路径 `/campus-guide`（dev server 反代）
- * - Tauri iOS / 桌面：loopback bridge（Release 已启）
- * - Tauri Android：**禁止** 127.0.0.1，优先 HTTPS 配置，否则相对路径
+ * - Tauri（含 Android）：loopback bridge —— #1368 起 http_server 全平台默认启用，
+ *   「Android Release 不 spawn 4399」前提已失效，不再按 UA 分流；
+ *   排障/网关场景可用 `campus_guide_https_base` / VITE_CAMPUS_GUIDE_HTTPS_BASE 覆盖。
  */
 export const resolveCampusGuideBaseUrl = () => {
   if (!isTauriRuntime()) return CAMPUS_GUIDE_CONFIG.apiBase
 
-  // Android：绝不走 loopback（Release 不 spawn 4399）
-  if (isLikelyAndroidUserAgent()) {
-    const httpsBase = readConfiguredHttpsBase()
-    if (httpsBase) return httpsBase.endsWith('/campus-guide') ? httpsBase : `${httpsBase}/campus-guide`
-    // 相对路径：依赖 Capacitor/Tauri 资产服务器或外部网关；至少不会卡死在 127.0.0.1
-    return CAMPUS_GUIDE_CONFIG.apiBase
-  }
+  // Tauri 下显式覆盖优先于 loopback（否则默认走本地桥签名代理）
+  const httpsBase = readConfiguredHttpsBase()
+  if (httpsBase) return httpsBase.endsWith('/campus-guide') ? httpsBase : `${httpsBase}/campus-guide`
 
-  // iOS 与桌面：loopback 签名代理
-  if (isLikelyIOSUserAgent() || !isLikelyAndroidUserAgent()) {
-    return CAMPUS_GUIDE_CONFIG.localBridgeBaseUrl
-  }
-  return CAMPUS_GUIDE_CONFIG.apiBase
+  return CAMPUS_GUIDE_CONFIG.localBridgeBaseUrl
 }
 
 const GUIDE_MODE_KEY = 'campus_guide_use_tencent'

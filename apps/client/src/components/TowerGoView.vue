@@ -15,6 +15,7 @@ import {
   type TowerGoPoint,
   type TowerGoVehicle
 } from '../utils/towergo_map'
+import { toGcj } from '../utils/coordinate'
 import { pushDebugLog } from '../utils/debug_logger'
 import { loadTencentMap, resetTencentMapLoader, toTencentLatLng } from '../utils/tencent_map_loader'
 
@@ -513,9 +514,11 @@ const startNavigateToSelected = () => {
   if (typeof navigator === 'undefined' || !navigator.geolocation) return
   locationWatchId = navigator.geolocation.watchPosition(
     (pos) => {
+      // 系统定位是 WGS-84，统一转 GCJ-02 再喂给腾讯图/铁塔接口，否则人/车错位
+      const gcj = toGcj(pos.coords.latitude, pos.coords.longitude)
       currentLocation.value = {
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
+        latitude: gcj.latitude,
+        longitude: gcj.longitude,
         accuracy: pos.coords.accuracy,
         name: '当前位置',
         source: 'system'
@@ -685,6 +688,8 @@ const refreshBySystemLocation = async () => {
     updateMapCenter(point)
     if (point.source === 'fallback') {
       mapErrors.value = ['定位不可用或偏移过大，已用校区中心查车']
+    } else if (point.outOfRange) {
+      mapErrors.value = [`当前位置距校区约 ${formatDistance(point.driftMeters)}，可能不在服务区`]
     }
     await loadMapData(point)
   } finally {

@@ -1,6 +1,7 @@
 import { useGeolocation } from '../../../composables/useGeolocation'
 import { isLiveLocationAllowed } from '../../../config/app_store_policy'
 import { pushDebugLog } from '../../../utils/debug_logger'
+import { toGcj } from '../../../utils/coordinate'
 import { HBUT_LOCATION, normalizePoint } from '../../../utils/towergo_map'
 import type { GeoPoint } from '../types'
 import { isPointInAoi } from '../utils/geo'
@@ -115,9 +116,12 @@ export const resolveCampusLocationDetailed = async (): Promise<LocationResolveRe
 
   try {
     const position = await trySystemLocation()
+    // 系统定位为 WGS-84，统一转 GCJ-02 后再写入：后续 AOI 判定、
+    // searchSpots、腾讯图渲染、外部导航 URI 均按 GCJ-02 处理
+    const gcj = toGcj(position.latitude, position.longitude)
     const point: GeoPoint = {
-      latitude: position.latitude,
-      longitude: position.longitude,
+      latitude: gcj.latitude,
+      longitude: gcj.longitude,
       accuracy: position.accuracy,
       name: '当前位置'
     }

@@ -90,7 +90,8 @@ export const resolveLibraryReserveEmbedMode = async (): Promise<LibraryReserveEm
   // 桌面：沿用子 WebView（不要破坏 #1078 的既有行为）
   if (isTauriDesktopRuntime()) return 'native-webview'
 
-  // Android 发布构建默认不启 Bridge（`mobile-slim`），且同样没有 add_child → 只能外开
+  // Android：没有 add_child（Tauri 移动端不支持子 WebView）→ 只能外开。
+  // 注：#1368 之后 Android 也编入 bridge，但 add_child 缺失这一前提没变，故仍走 external-open。
   if (isTauriRuntime() && isLikelyAndroidUserAgent()) return 'external-open'
 
   // iOS：无 add_child，靠 Bridge 反向代理 + iframe

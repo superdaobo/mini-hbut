@@ -288,6 +288,8 @@ export const APP_STORE_ALLOWED_CORE_IDS: ReadonlySet<string> = Object.freeze(
     'calendar',
     'library',
     'campus_map',
+    // #1372：校园导览为只读地图能力（不含定位以外的敏感能力），与 campus_map 同级放行
+    'campus_guide',
     'notifications',
     'me',
     'settings',

@@ -57,6 +57,7 @@ const homeModuleMeta = {
   training: '培养方案',
   library: '图书查询',
   campus_map: '校园地图',
+  campus_guide: '校园导览',
   resource_share: '资料分享',
   chaoxing_class: '学习通',
   ai: '校园助手'

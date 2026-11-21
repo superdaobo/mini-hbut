@@ -264,14 +264,62 @@ const buildModelCandidates = (selected) => {
       if (label) push(label)
     }
   }
-  push('qwen-max')
-  push('qwen-plus')
+  // 其余家族的候选按下拉列表顺序追加在末尾，保证换模型失败时
+  // 能真正轮遍全部选项（不再强制回收到 qwen-max/qwen-plus）。
+  for (const option of normalizedModelOptions.value || []) {
+    const value = String(option?.value || '').trim()
+    const label = String(option?.label || '').trim()
+    const optionFamily = detectModelFamily(value, label)
+    if (family && optionFamily !== family) {
+      push(value)
+      if (label) push(label)
+    }
+  }
   return out
 }
 
+// 上游把「模型不可用/非法/下线」类错误塞在 HTTP 200 响应体里（后端归一化为 error 事件），
+// 这里统一按关键词组合识别，命中即可换下一个候选模型重试。
+// 中文词用 unicode 转义书写，避免源码里出现硬编码中文字面量。
+const MODEL_UNAVAILABLE_MARKERS = [
+  'illegal model',
+  'invalid model',
+  'model unavailable',
+  'model not supported',
+  'unsupported model',
+  'model offline',
+  '\u6a21\u578b\u540d\u975e\u6cd5', // 模型名非法
+  '\u6a21\u578b\u4e0d\u53ef\u7528', // 模型不可用
+  '\u6a21\u578b\u65e0\u6cd5\u4f7f\u7528', // 模型无法使用
+  '\u6a21\u578b\u6682\u4e0d\u53ef\u7528', // 模型暂不可用
+  '\u6a21\u578b\u975e\u6cd5', // 模型非法
+  '\u6a21\u578b\u4e0b\u7ebf', // 模型下线
+  '\u6a21\u578b\u4e0d\u652f\u6301', // 模型不支持
+  '\u6a21\u578b\u4e0d\u5b58\u5728' // 模型不存在
+]
+
 const isIllegalModelError = (err) => {
-  const text = String(err || '').toLowerCase()
-  return text.includes(t('ai.error.illegalModel')) || text.includes('illegal model') || text.includes('model' + t('ai.error.illegal')) || (text.includes(t('ai.error.model')) && text.includes(t('ai.error.illegal')))
+  if (err?.modelKeyword) return true
+  const text = String(err?.message || err || '').toLowerCase()
+  if (!text) return false
+  if (MODEL_UNAVAILABLE_MARKERS.some((marker) => text.includes(marker))) return true
+  const hasModel = text.includes('model') || text.includes('\u6a21\u578b')
+  if (!hasModel) return false
+  const failMarkers = [
+    'unavailable',
+    'invalid',
+    'illegal',
+    'unsupported',
+    'not supported',
+    'offline',
+    '\u4e0d\u53ef\u7528', // 不可用
+    '\u65e0\u6cd5\u4f7f\u7528', // 无法使用
+    '\u975e\u6cd5', // 非法
+    '\u4e0b\u7ebf', // 下线
+    '\u4e0d\u652f\u6301', // 不支持
+    '\u4e0d\u5b58\u5728' // 不存在
+  ]
+  return failMarkers.some((marker) => text.includes(marker))
 }
 
 const unwrapApiData = (resp) => {
@@ -1029,7 +1077,10 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
             }
             if (parsed.event === 'error') {
               streamStats.value.lastEvent = 'error'
-              throw new Error(String(parsed.message || t('ai.error.streamError')))
+              const streamError = new Error(String(parsed.message || t('ai.error.streamError')))
+              // 后端在 error 事件上标注 model_keyword，前端据此直接轮换模型
+              streamError.modelKeyword = Boolean(parsed.model_keyword || parsed.modelKeyword)
+              throw streamError
             }
           }
         },
@@ -1099,6 +1150,9 @@ const fallbackChatRequest = async (payload) => {
     const data = unwrapApiData(response)
     const parsed = normalizeMathText(parseAiResponseText(data?.data ?? data))
     if (isNoiseMessage(parsed)) return ''
+    // 非流式兜底同样会把上游 200 软错误（如「模型不可用」）当文本返回，
+    // 按错误抛出而不是展示成假答案。
+    if (isIllegalModelError(parsed)) throw new Error(parsed)
     return parsed
   } catch (error) {
     if (AI_DEBUG) {

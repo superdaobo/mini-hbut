@@ -768,6 +768,11 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.starts_with('{') || trimmed.starts_with('[') {
         if let Ok(json) = serde_json::from_str::<Value>(trimmed) {
+            // 非流式 /ai_chat 上游也走 streamAnswer，可能整包返回 {code,msg} 软错误；
+            // 识别后按无正文处理（返回空串），让前端走「未获取到有效回答」而不是假答案。
+            if extract_upstream_error_msg(&json).is_some() {
+                return String::new();
+            }
             if let Some(found) = extract_text_from_value(&json) {
                 let decoded = decode_hex_if_needed(&found).unwrap_or(found);
                 let cleaned = strip_noise_prefix(&decoded);
@@ -784,6 +789,9 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
                 let mut parts: Vec<String> = Vec::new();
                 for item in objs {
                     if let Ok(json) = serde_json::from_str::<Value>(&item) {
+                        if extract_upstream_error_msg(&json).is_some() {
+                            continue;
+                        }
                         if let Some(found) = extract_text_from_value(&json) {
                             let cleaned = strip_noise_prefix(&found);
                             if !cleaned.trim().is_empty() && !is_noise_message(&cleaned) {
@@ -822,6 +830,9 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
         }
         if let Ok(json) = serde_json::from_str::<Value>(trimmed) {
             parsed_any = true;
+            if extract_upstream_error_msg(&json).is_some() {
+                continue;
+            }
             if let Some(chunk) = extract_text_from_value(&json) {
                 let cleaned = strip_noise_prefix(&chunk);
                 if !cleaned.trim().is_empty() && !is_noise_message(&cleaned) {
@@ -884,6 +895,104 @@ pub(crate) async fn ensure_stream_upload_url(
         Ok(resp) => resp.link.trim().to_string(),
         Err(_) => String::new(),
     }
+}
+
+/// 数字人上游（完美世界）会把业务错误塞进 HTTP 200 的响应体，
+/// 形态为 `{code, success, msg, data}`，其中 `msg` 承载错误文案（如“模型名非法”）。
+/// 历史上 `extract_stream_fields` 会把这种 `msg` 当正文 delta，错误被当成答案输出。
+/// 这里在结构化解析之前先识别“软错误”：
+/// - `success: false` 且带 msg；
+/// - `code` 存在且不是 0/200 成功码；
+/// - `msg` 存在但整包没有任何正文载体（content/answer/text/thinking/finish/
+///   sessionId，以及 data / processInfo 里提取不到正文）。
+/// 只要出现上述任一结构信号即按错误返回 msg，不再按正文解析；
+/// 带 `type` 的是流协议分片（引用/进度/正文），不属于错误封套，一律放行；
+/// 纯正常流式分片（type/content 等字段齐全）不命中，不会误伤正文里的“模型”字样。
+pub(crate) fn extract_upstream_error_msg(value: &Value) -> Option<String> {
+    let map = value.as_object()?;
+    // 流协议分片由 type 分派逻辑处理（含会带 msg 的引用/元数据块），不是错误封套。
+    if map.contains_key("type") || map.contains_key("event") {
+        return None;
+    }
+    let msg = map
+        .get("msg")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)?;
+    // 显式失败信号：success === false
+    if map.get("success").and_then(|v| v.as_bool()) == Some(false) {
+        return Some(msg);
+    }
+    // 显式失败信号：code 存在且非 0/200 成功码
+    if let Some(code) = map.get("code") {
+        let is_success_code = match code {
+            Value::Number(n) => n.as_i64() == Some(0) || n.as_i64() == Some(200),
+            Value::String(s) => {
+                let t = s.trim();
+                t == "0" || t == "200" || t.eq_ignore_ascii_case("success") || t.is_empty()
+            }
+            _ => true,
+        };
+        if !is_success_code {
+            return Some(msg);
+        }
+    }
+    // 无显式失败码：msg 存在但没有任何正文载体 → 同样按软错误处理
+    let has_payload_key = ["content", "answer", "text", "thinking", "finish", "sessionId"]
+        .iter()
+        .any(|key| map.contains_key(*key));
+    if has_payload_key {
+        return None;
+    }
+    let data_text = map
+        .get("data")
+        .and_then(|data| extract_text_from_value(data))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if data_text.is_some() {
+        return None;
+    }
+    let process_text = map
+        .get("processInfo")
+        .and_then(|p| extract_text_from_value(p))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if process_text.is_some() {
+        return None;
+    }
+    Some(msg)
+}
+
+/// 软错误文案是否指向「模型不可用/非法/下线」这类可换模型重试的错误。
+/// 判据是关键词组合（model/模型 + 不可用/非法/下线/支持/存在），不做整句匹配。
+pub(crate) fn is_upstream_model_error(msg: &str) -> bool {
+    let text = msg.trim().to_lowercase();
+    if text.is_empty() {
+        return false;
+    }
+    let has_model = text.contains("model") || text.contains("模型");
+    if !has_model {
+        return false;
+    }
+    [
+        "illegal",
+        "invalid",
+        "unavailable",
+        "unavailable now",
+        "not supported",
+        "unsupported",
+        "offline",
+        "不可用",
+        "无法使用",
+        "暂不可用",
+        "非法",
+        "下线",
+        "不支持",
+        "不存在",
+    ]
+    .iter()
+    .any(|k| text.contains(k))
 }
 
 pub(crate) fn extract_text_from_value(value: &Value) -> Option<String> {
@@ -1329,4 +1438,68 @@ fn extract_json_objects(raw: &str) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn soft_error_envelope_is_detected() {
+        // 上游 200 + msg 软错误的几种典型形态
+        let cases = [
+            r#"{"code":500,"msg":"模型名非法","data":null,"success":false}"#,
+            r#"{"code":200,"msg":"模型不可用","data":null}"#,
+            r#"{"msg":"模型名非法"}"#,
+            r#"{"success":false,"msg":"系统繁忙"}"#,
+            r#"{"code":0,"msg":"模型不存在"}"#,
+        ];
+        for raw in cases {
+            let json = serde_json::from_str::<Value>(raw).unwrap();
+            assert!(
+                extract_upstream_error_msg(&json).is_some(),
+                "should detect soft error: {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn normal_payloads_are_not_soft_errors() {
+        // 正文含「模型」字样 / 正常流式分片 / 成功封套都不得误判
+        let cases = [
+            r#"{"type":4,"content":"这个模型推理很快"}"#,
+            r#"{"type":1,"content":"模型","thinking":"推理"}"#,
+            r#"{"code":200,"msg":"操作成功","data":"这是正文"}"#,
+            r#"{"finish":1,"msg":"完成"}"#,
+            r#"{"sessionId":"s1","msg":"ok"}"#,
+            r#"{"processInfo":{"content":"正在检索"}}"#,
+            r#"{"type":14,"msg":"引用元数据"}"#,
+        ];
+        for raw in cases {
+            let json = serde_json::from_str::<Value>(raw).unwrap();
+            assert!(
+                extract_upstream_error_msg(&json).is_none(),
+                "should NOT detect soft error: {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_error_keyword_matching() {
+        assert!(is_upstream_model_error("模型名非法"));
+        assert!(is_upstream_model_error("模型不可用"));
+        assert!(is_upstream_model_error("Illegal model name"));
+        assert!(is_upstream_model_error("model unavailable now"));
+        assert!(!is_upstream_model_error("系统繁忙，请稍后重试"));
+        assert!(!is_upstream_model_error("这个模型推理很快"));
+        assert!(!is_upstream_model_error(""));
+    }
+
+    #[test]
+    fn non_stream_parse_drops_soft_error() {
+        // 非流式 /ai_chat 把上游 streamAnswer 响应整包交给 parse_ai_stream_text；
+        // 软错误不得当作答案文本返回。
+        let out = parse_ai_stream_text(r#"{"code":200,"msg":"模型不可用","data":null}"#);
+        assert!(out.trim().is_empty(), "soft error leaked as answer: {out}");
+    }
 }

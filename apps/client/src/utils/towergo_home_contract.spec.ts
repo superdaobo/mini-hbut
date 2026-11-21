@@ -17,9 +17,10 @@ describe('towergo home integration contract', () => {
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('towergo')
     // i18n 迁移（#786）：baseModules 的 name 存 i18n key，渲染时经 t() 取词
     expect(dashboard).toContain("{ id: 'towergo', name: 'home.module.towergo'")
-    // 资料分享 (chaoxing_class) 归入「学习通」分类；资源区含网盘 / 小塔 / AI（智慧迎新已并入个人信息页）
+    // 资料分享 (chaoxing_class) 归入「学习通」分类；资源区含地图 / 导览 / 网盘 / 小塔 / AI（智慧迎新已并入个人信息页）
+    // #1372：campus_guide（校园导览）独立于 campus_map（照片版平面图）加入资源区
     expect(dashboard).toContain(
-      "['library', 'campus_map', 'resource_share', 'towergo', 'ai']"
+      "['library', 'campus_map', 'campus_guide', 'resource_share', 'towergo', 'ai']"
     )
     expect(dashboard).not.toContain("id: 'smart_orientation'")
     expect(dashboard).toContain("id: 'towergo'")
