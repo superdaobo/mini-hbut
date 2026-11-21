@@ -4389,4 +4389,10 @@ export const messages: Record<string, string> = {
 
     // goal-22：班级课表网格说明
     'teacher.schedule.class.gridHint': '选择班级后在下方直接查看课表',
+
+    // goal-22：教室课表网格
+    'teacher.schedule.room.gridHint': '选择教室后在下方直接查看课表',
+    'teacher.schedule.room.courseCount': '共 {n} 条排课',
+    'teacher.schedule.room.noCourses': '该教室本学期无排课',
+    'teacher.schedule.room.backToList': '返回教室列表',
 }

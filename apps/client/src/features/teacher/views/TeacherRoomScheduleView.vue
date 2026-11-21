@@ -16,6 +16,8 @@ import { useTeacherScheduleLists, type TeacherScheduleRoom } from '../composable
 import { resolveTeacherAccountId } from '../utils/teacher_scope'
 import { teacherSemesterOptions } from '../utils/teacher_semesters'
 import TeacherSyncBar from '../components/TeacherSyncBar.vue'
+import ScheduleGrid from '../../../features/schedule/components/ScheduleGrid.vue'
+import { buildWeekDates, useTeacherScheduleGrid } from '../composables/useTeacherScheduleGrid'
 
 const emit = defineEmits<{ back: [] }>()
 const { t } = useI18n()
@@ -84,6 +86,38 @@ const onBuildingPill = (name: string): void => {
   setBuildingFilter(name)
 }
 const isBuildingActive = (name: string): boolean => buildingFilter.value === name
+
+// ── 课表网格（goal-22：选中教室后页内渲染，零浏览器外跳）──
+const scheduleGrid = useTeacherScheduleGrid()
+const activeRoom = ref<TeacherScheduleRoom | null>(null)
+const weekDates = buildWeekDates()
+const activeTitle = computed(() => activeRoom.value?.roomName || activeRoom.value?.roomNo || '')
+const activeCourseCount = computed(() => scheduleGrid.courses.value.length)
+const activeIsEmpty = computed(
+  () => !scheduleGrid.loading.value && !scheduleGrid.error.value && activeCourseCount.value === 0
+)
+
+const viewRoomSchedule = async (item: TeacherScheduleRoom): Promise<void> => {
+  if (!item.encodeId) return
+  activeRoom.value = item
+  await scheduleGrid.load({
+    kind: 'room',
+    encodeId: item.encodeId,
+    semester: item.semester || semester.value,
+    campusId: item.campusId || undefined,
+    displayName: item.roomName || item.roomNo || ''
+  })
+}
+
+const closeSchedule = (): void => {
+  activeRoom.value = null
+  scheduleGrid.reset()
+}
+
+const reloadSchedule = async (): Promise<void> => {
+  if (!activeRoom.value) return
+  await viewRoomSchedule(activeRoom.value)
+}
 
 // ── 卡片文案 ──
 const roomTitle = (item: TeacherScheduleRoom): string =>
@@ -165,9 +199,10 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <!-- 教室卡片流（不可点击：无教室课表 URL） -->
+        <!-- 教室卡片流（goal-22：可点击，页内渲染课表） -->
         <section class="flex flex-col gap-2.5">
-          <article v-for="item in rooms" :key="item.key" class="tch-rs-card p-3.5">
+          <button v-for="item in rooms" :key="item.key" type="button" class="tch-rs-card tch-rs-card--clickable p-3.5 text-left w-full"
+              :disabled="scheduleGrid.loading.value" @click="viewRoomSchedule(item)">
             <div class="flex items-center justify-between gap-2 min-w-0">
               <span class="tch-rs-card-title truncate">{{ roomTitle(item) }}</span>
               <span v-if="item.capacity !== null" class="tch-rs-card-count shrink-0">
@@ -177,7 +212,8 @@ onBeforeUnmount(() => {
             <p v-if="roomMeta(item)" class="tch-rs-card-meta mt-1 truncate" :title="roomMeta(item)">
               {{ roomMeta(item) }}
             </p>
-          </article>
+            <span class="tch-rs-open">查看课表 ›</span>
+          </button>
         </section>
 
         <!-- 底部：已加载 N / 共 total（接口只回第一页） -->
@@ -190,10 +226,55 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <!-- 教室课表说明：单教室课表需到教务系统查（App 无对应接口） -->
+      <!-- 课表网格（goal-22：选中教室后页内渲染） -->
+        <section v-if="activeRoom" class="tch-rs-grid-wrap">
+          <div class="flex items-center justify-between px-1 pb-2">
+            <div class="min-w-0">
+              <p class="text-[15px] font-semibold truncate">{{ activeTitle }}</p>
+              <p class="tch-rs-label-micro text-outline">
+                {{ tf('teacher.schedule.room.courseCount', { n: activeCourseCount }) }}
+              </p>
+            </div>
+            <button type="button" class="text-[13px] font-semibold text-primary shrink-0"
+              :disabled="scheduleGrid.loading.value" @click="reloadSchedule">
+              {{ t('teacher.schedule.action.refresh') }}
+            </button>
+          </div>
+
+          <div v-if="scheduleGrid.loading.value" class="tch-rs-grid-empty">
+            <span class="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>
+            <p class="tch-rs-label-micro">{{ t('teacher.schedule.loading') }}</p>
+          </div>
+          <div v-else-if="scheduleGrid.error.value" class="tch-rs-grid-empty">
+            <span class="material-symbols-outlined text-danger" aria-hidden="true">error</span>
+            <p class="tch-rs-label-micro">{{ scheduleGrid.error.value }}</p>
+            <button type="button" class="text-[13px] font-semibold text-primary mt-1" @click="reloadSchedule">
+              {{ t('teacher.schedule.action.retry') }}
+            </button>
+          </div>
+          <div v-else-if="activeIsEmpty" class="tch-rs-grid-empty">
+            <span class="material-symbols-outlined text-outline" aria-hidden="true">event_busy</span>
+            <p class="tch-rs-label-micro">{{ t('teacher.schedule.room.noCourses') }}</p>
+          </div>
+          <ScheduleGrid v-else
+            :week-dates="weekDates"
+            :current-month="weekDates[0]?.month || 1"
+            :selected-week="0"
+            :get-courses-for-day="scheduleGrid.getCoursesForDay"
+            :get-course-style="scheduleGrid.getCourseStyleFor"
+            :enable-blank-create="false"
+            view-mode="courses"
+          />
+
+          <button type="button" class="tch-rs-back-list" @click="closeSchedule">
+            {{ t('teacher.schedule.room.backToList') }}
+          </button>
+        </section>
+
+        <!-- 教室课表说明：单教室课表需到教务系统查（App 无对应接口） -->
       <div class="tch-rs-note flex items-start gap-2 px-3.5 py-2.5">
-        <span class="material-symbols-outlined text-[16px] text-outline mt-px" aria-hidden="true">info</span>
-        <p class="tch-rs-note-text">{{ t('teacher.schedule.room.notSupported') }}</p>
+        <span class="material-symbols-outlined text-[16px] text-outline mt-px" aria-hidden="true">grid_view</span>
+        <p class="tch-rs-note-text">{{ t('teacher.schedule.room.gridHint') }}</p>
       </div>
 
       <TeacherSyncBar

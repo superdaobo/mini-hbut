@@ -119,6 +119,12 @@ export interface TeacherScheduleRoom {
   roomType: string
   /** 座位容量（zdskrnrs）。 */
   capacity: number | null
+    /** 加密 ID（goal-22：教室课表查询必须要它）。 */
+    encodeId: string
+    /** 学期（xnxq）。 */
+    semester: string
+    /** 校区代码（xqdm）。 */
+    campusId: string
 }
 
 /** 课表来源说明（后端 `scheduleSource`；`reason` 可直接展示）。 */
@@ -186,7 +192,10 @@ export const normalizeScheduleRoom = (
     buildingName,
     campusName: stripTeacherHtml(record.campusName ?? record.xqmc),
     roomType: asString(record.roomType ?? record.jslx),
-    capacity: asNumber(record.capacity ?? record.zdskrnrs) ?? null
+    capacity: asNumber(record.capacity ?? record.zdskrnrs) ?? null,
+    encodeId: asString(record.encodeId),
+    semester: asString(record.semester ?? record.xnxq),
+    campusId: asString(record.campusId ?? record.xqdm),
   }
 }
 
@@ -351,8 +360,21 @@ export const useTeacherScheduleLists = (options: UseTeacherScheduleListsOptions 
   const rooms = computed<TeacherScheduleRoom[]>(() => {
     const list = state.value.data?.rooms ?? []
     const filter = buildingFilter.value
-    if (!filter) return list
-    return list.filter((item) => item.buildingName === filter)
+    // goal-22：教室列表**不支持服务端搜索**（实测 jsmc 精确匹配返 0、query.jsmc|| 无效），
+    // 所以 keyword 由前端本地匹配（教室名 / 编号）。
+    const kw = keyword.value.trim().toLowerCase()
+    let out = list
+    if (kw) {
+      out = out.filter(
+        (item) =>
+          item.roomName.toLowerCase().includes(kw) ||
+          item.roomNo.toLowerCase().includes(kw)
+      )
+    }
+    if (filter) {
+      out = out.filter((item) => item.buildingName === filter)
+    }
+    return out
   })
   /** 未过滤的教室全量（楼栋胶囊据此去重；过滤本身只影响渲染列表）。 */
   const allRooms = computed<TeacherScheduleRoom[]>(() => state.value.data?.rooms ?? [])

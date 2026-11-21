@@ -4390,4 +4390,10 @@ export const messages: Record<string, string> = {
 
     // goal-22：班级课表网格说明
     'teacher.schedule.class.gridHint': 'Pick a class to view its schedule below',
+
+    // goal-22：教室课表网格
+    'teacher.schedule.room.gridHint': 'Pick a room to view its schedule below',
+    'teacher.schedule.room.courseCount': '{n} entries',
+    'teacher.schedule.room.noCourses': 'No classes in this room this semester',
+    'teacher.schedule.room.backToList': 'Back to room list',
 }

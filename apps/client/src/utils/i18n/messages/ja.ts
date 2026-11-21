@@ -4388,4 +4388,10 @@ export const messages: Record<string, string> = {
 
     // goal-22：班级课表网格说明
     'teacher.schedule.class.gridHint': 'クラスを選ぶと下に時間割が表示されます',
+
+    // goal-22：教室课表网格
+    'teacher.schedule.room.gridHint': '教室を選ぶと下に時間割が表示されます',
+    'teacher.schedule.room.courseCount': '全 {n} 件',
+    'teacher.schedule.room.noCourses': '今学期の授業はありません',
+    'teacher.schedule.room.backToList': '教室一覧に戻る',
 }
