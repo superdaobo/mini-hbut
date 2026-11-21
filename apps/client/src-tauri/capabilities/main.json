@@ -275,6 +275,7 @@
     "allow-teacher-chaoxing-courses-fetch",
     "allow-teacher-chaoxing-monitor-fetch",
     "allow-teacher-chaoxing-scores-fetch",
+    "allow-teacher-class-schedule-fetch",
     "allow-teacher-credits-fetch",
     "allow-teacher-exam-affairs-fetch",
     "allow-teacher-exams-fetch",

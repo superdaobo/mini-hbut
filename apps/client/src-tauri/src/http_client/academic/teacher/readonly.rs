@@ -154,6 +154,18 @@ pub const PATH_ROOM_LIST: &str = "/admin/pkgl/pkglcroomkb/ajaxListCustom";
 /// 课表数据直接渲染在 `<td>` 里，无 JSON 接口 —— 本模块只返回该页 URL 供 WebView 承载，
 /// 不解析 HTML 表格（解析 rowspan 网格的脆弱性远高于收益）。
 pub const PATH_CLASS_SCHEDULE_PAGE: &str = "/admin/pkgl/kbcx/bjkb/ckbjkb";
+/// 班级课表**结构化数据**（goal-22 实测：与学生课表同一接口、同一套字段）。
+///
+/// ```text
+/// GET /admin/pkgl/kbcx/bjkb/sdpkkbList?xnxq=&id=<encodeId>&xqdm=&zxzc=&zdzc=&zc=&zxxq=&zdxq=&zxjc=&zdjc=&xsqbkb=&xslx=&kcxz=
+/// → 200，实测「25建筑学2」返回 46 条
+/// ```
+///
+/// 字段：`kcmc`(课程) / `tmc`(教师，HTML) / `croommc`(教室，HTML) / `xingqi`(1-7) /
+/// `zcstr`(周次 "1,2,3,...") / `djc`(起始节次) / `jxbbh`(教学班号) / `xf` / `zongxs` / `kcxz`。
+///
+/// **这条路径让班级课表可以在应用内渲染，无需 WebView 或外部浏览器。**
+pub const PATH_CLASS_SCHEDULE_LIST: &str = "/admin/pkgl/kbcx/bjkb/sdpkkbList";
 
 // ── goal-21 T04b：融合门户 e.hbut（**非 /admin 前缀**，独立白名单）──────
 /// 门户页面视图（含 `cardLayout` 8 张卡；实测 200）。
@@ -362,6 +374,11 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
         path: PATH_CLASS_SCHEDULE_PAGE,
         purpose: "班级课表页（服务端渲染 HTML，仅生成 WebView URL）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CLASS_SCHEDULE_LIST,
+        purpose: "班级课表结构化数据（goal-22：应用内网格渲染，替代外部浏览器）",
         post_ok: false,
     },
 ];

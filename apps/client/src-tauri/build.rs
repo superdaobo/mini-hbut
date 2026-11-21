@@ -255,6 +255,7 @@ fn main() {
         "teacher_chaoxing_courses_fetch",
         "teacher_chaoxing_monitor_fetch",
         "teacher_chaoxing_scores_fetch",
+        "teacher_class_schedule_fetch",
         "teacher_credits_fetch",
         "teacher_exam_affairs_fetch",
         "teacher_exams_fetch",

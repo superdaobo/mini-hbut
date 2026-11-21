@@ -542,3 +542,35 @@ export const fetchTeacherChaoxingMonitor = (
     },
     options
   )
+
+/**
+ * 班级课表结构化数据（`teacher_class_schedule_fetch` / `/v2/teacher/class-schedule`）。
+ *
+ * goal-22：返回 46 条量级的课程条目（kcmc/xingqi/djc/zcstr/croommc…），
+ * 供课表 Tab 在**应用内**用网格渲染 —— 不再打开外部浏览器。
+ *
+ * `encodeId` 来自班级列表（`fetchTeacherScheduleLists` 的 `classes[].encodeId`）。
+ */
+export const fetchTeacherClassSchedule = (
+  params: { encodeId: string; semester?: string; campusId?: string },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_class_schedule_fetch',
+      tauriArgs: {
+        encodeId: params.encodeId,
+        semester: params.semester ?? null,
+        campusId: params.campusId ?? null
+      },
+      bridgePath: '/v2/teacher/class-schedule',
+      bridgePayload: {
+        encodeId: params.encodeId,
+        semester: params.semester ?? null,
+        campusId: params.campusId ?? null
+      },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )

@@ -226,3 +226,17 @@ pub(crate) async fn teacher_chaoxing_monitor_fetch(
         .await
         .map_err(map_error)
 }
+
+/// 班级课表结构化数据（goal-22：应用内网格渲染，不再外跳浏览器）。
+#[tauri::command]
+pub(crate) async fn teacher_class_schedule_fetch(
+    state: State<'_, AppState>,
+    encode_id: Option<String>,
+    semester: Option<String>,
+    campus_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    service(&state)
+        .fetch_class_schedule(encode_id, semester, campus_id)
+        .await
+        .map_err(map_error)
+}

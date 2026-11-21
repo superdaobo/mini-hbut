@@ -789,6 +789,7 @@ pub fn run() {
               transport::tauri::teacher::teacher_roster_fetch,
               transport::tauri::teacher::teacher_grade_entry_fetch,
               transport::tauri::teacher::teacher_schedule_lists_fetch,
+              transport::tauri::teacher::teacher_class_schedule_fetch,
               transport::tauri::teacher::teacher_portal_cards_fetch,
               transport::tauri::teacher::teacher_chaoxing_courses_fetch,
               transport::tauri::teacher::teacher_chaoxing_analytics_fetch,

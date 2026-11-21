@@ -14,8 +14,9 @@ use serde_json::Value;
 
 use super::{ApplicationContext, ApplicationError};
 use crate::http_client::academic::teacher::{
-    adjustment, attendance, credits, exam_affairs, exams, grade_entry, not_implemented, portal_cards,
-    profile, readonly, roster, schedule_extra, teaching, workload, workflow,
+    adjustment, attendance, class_schedule, credits, exam_affairs, exams, grade_entry,
+    not_implemented, portal_cards, profile, readonly, roster, schedule_extra, teaching, workload,
+    workflow,
 };
 
 #[derive(Clone)]
@@ -234,6 +235,21 @@ impl TeacherService {
         Self::ensure_registered_path(readonly::PATH_CLASS_LIST)?;
         Self::ensure_registered_path(readonly::PATH_ROOM_LIST)?;
         schedule_extra::fetch_schedule_lists_with(&client, semester, keyword)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
+    /// 班级课表**结构化数据**（goal-22：应用内渲染，不再外跳浏览器）。
+    pub async fn fetch_class_schedule(
+        &self,
+        encode_id: Option<String>,
+        semester: Option<String>,
+        campus_id: Option<String>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_CLASS_SCHEDULE_LIST)?;
+        class_schedule::fetch_class_schedule_with(&client, encode_id, semester, campus_id)
             .await
             .map_err(ApplicationError::internal)
     }
