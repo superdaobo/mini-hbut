@@ -19,6 +19,7 @@ import TeacherSyncBar from '../components/TeacherSyncBar.vue'
 import ScheduleGrid from '../../../features/schedule/components/ScheduleGrid.vue'
 import { buildWeekDates, useTeacherScheduleGrid } from '../composables/useTeacherScheduleGrid'
 
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 const emit = defineEmits<{ back: [] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -141,8 +142,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-surface-canvas text-on-surface max-w-[448px] mx-auto pb-24 tch-rs">
-    <TPageHeader :title="t('teacher.schedule.room.title')" icon="meeting_room" @back="emit('back')">
+  <div :class="props.embedded ? 'tch-rs tch-embedded' : 'min-h-screen bg-surface-canvas text-on-surface max-w-[448px] mx-auto pb-24 tch-rs'">
+    <TPageHeader v-if="!props.embedded" :title="t('teacher.schedule.room.title')" icon="meeting_room" @back="emit('back')">
       <template #actions>
         <details ref="semesterDetails" class="tch-rs-semester" @toggle="onSemesterToggle">
           <summary class="tch-rs-semester-pill" :title="t('teacher.schedule.semester.label')">

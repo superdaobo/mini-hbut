@@ -26,6 +26,7 @@ import {
   useTeacherScheduleGrid
 } from '../composables/useTeacherScheduleGrid'
 
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 const emit = defineEmits<{ back: [] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -156,8 +157,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-surface-canvas text-on-surface max-w-[448px] mx-auto pb-24 tch-cs">
-    <TPageHeader :title="t('teacher.schedule.class.title')" icon="calendar_month" @back="emit('back')">
+  <div :class="props.embedded ? 'tch-cs tch-embedded' : 'min-h-screen bg-surface-canvas text-on-surface max-w-[448px] mx-auto pb-24 tch-cs'">
+    <TPageHeader v-if="!props.embedded" :title="t('teacher.schedule.class.title')" icon="calendar_month" @back="emit('back')">
       <template #actions>
         <details ref="semesterDetails" class="tch-cs-semester" @toggle="onSemesterToggle">
           <summary class="tch-cs-semester-pill" :title="t('teacher.schedule.semester.label')">

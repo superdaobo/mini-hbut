@@ -21,6 +21,10 @@ import { CLOUD_SYNC_UPDATED_EVENT } from '../utils/cloud_sync.js'
 import { pushDebugLog } from '../utils/debug_logger'
 import { formatRelativeTime } from '../utils/time.js'
 
+import { useAuthStore } from '../stores/auth'
+import { isTeacherRole } from '../config/role_capabilities.js'
+import TeacherClassScheduleView from '../features/teacher/views/TeacherClassScheduleView.vue'
+import TeacherRoomScheduleView from '../features/teacher/views/TeacherRoomScheduleView.vue'
 import { useConfirmDialog } from '../features/schedule/composables/useConfirmDialog'
 import { useScheduleMenu } from '../features/schedule/composables/useScheduleMenu'
 import { useScheduleSemester } from '../features/schedule/composables/useScheduleSemester'
@@ -153,6 +157,23 @@ const eventDetail = useScheduleEventDetail({
 })
 // 考试详情（只读 surface）：点考试卡或列顶/列底 indicator 时打开
 const showExamDetail = ref(false)
+
+// goal-22：课表 Tab 的教师三档（学生身份恒为 'mine' 且不显示 Tab）
+const authStore = useAuthStore()
+const isTeacherUser = computed(() => isTeacherRole(authStore.role))
+const teacherScheduleScope = ref('mine')
+const teacherScopeOptions = computed(() =>
+  isTeacherUser.value
+    ? [
+        { id: 'mine', label: '我的课表' },
+        { id: 'class', label: '班级课表' },
+        { id: 'room', label: '教室课表' }
+      ]
+    : []
+)
+const onTeacherScopeChange = (id: string) => {
+  teacherScheduleScope.value = id
+}
 const selectedExam = ref<any>(null)
 
 const handleOpenExamDetail = (raw: any) => {
@@ -730,6 +751,7 @@ onBeforeUnmount(() => {
   >
     <!-- 头部导航 -->
     <ScheduleTopbar
+        v-if="teacherScheduleScope === 'mine'"
       :semester="semester"
       :selected-week="selectedWeek"
       :total-weeks="totalWeeks"
@@ -737,8 +759,36 @@ onBeforeUnmount(() => {
       @toggle-menu="handleToggleMenu"
     />
 
+    <!-- goal-22：教师三档（我的课表 / 班级课表 / 教室课表）——学生身份不渲染 -->
+    <div v-if="teacherScopeOptions.length > 1" class="teacher-scope-tabs">
+      <button
+        v-for="opt in teacherScopeOptions"
+        :key="opt.id"
+        type="button"
+        class="teacher-scope-tab"
+        :class="{ 'teacher-scope-tab--active': teacherScheduleScope === opt.id }"
+        :aria-pressed="teacherScheduleScope === opt.id"
+        @click="onTeacherScopeChange(opt.id)"
+      >
+        {{ opt.label }}
+      </button>
+    </div>
+
+    <!-- 班级 / 教室档：复用独立页（embedded 模式，不渲染页头） -->
+    <TeacherClassScheduleView
+      v-if="teacherScheduleScope === 'class'"
+      embedded
+      @back="teacherScheduleScope = 'mine'"
+    />
+    <TeacherRoomScheduleView
+      v-else-if="teacherScheduleScope === 'room'"
+      embedded
+      @back="teacherScheduleScope = 'mine'"
+    />
+
     <!-- 抽屉：学期/样式/课程管理/同步/导出 -->
     <ScheduleDrawer
+        v-if="teacherScheduleScope === 'mine'"
       :show-menu="showMenu"
       :semester-options="semesterOptions"
       :semester-draft="semesterDraft"
@@ -801,6 +851,7 @@ onBeforeUnmount(() => {
 
     <!-- 课表主体 -->
     <ScheduleGrid
+        v-if="teacherScheduleScope === 'mine'"
       :week-dates="weekDates"
       :current-month="currentMonth"
       :selected-week="selectedWeek"
@@ -1081,5 +1132,38 @@ onBeforeUnmount(() => {
     --topbar-height: 42px;
     --date-header-height: 44px;
   }
+}
+
+/* goal-22：课表 Tab 的教师三档 */
+.teacher-scope-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 4px;
+  overflow-x: auto;
+}
+.teacher-scope-tab {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(71, 85, 105);
+  background: rgba(226, 232, 240, 0.6);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.teacher-scope-tab--active {
+  color: #ffffff;
+  background: rgb(37, 99, 235);
+}
+html:is(.dark, [data-theme='graphite_night']) .teacher-scope-tab {
+  color: rgb(148, 163, 184);
+  background: rgba(51, 65, 85, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .teacher-scope-tab--active {
+  color: #ffffff;
+  background: rgb(37, 99, 235);
+}
+.tch-embedded {
+  padding-bottom: 8px;
 }
 </style>
