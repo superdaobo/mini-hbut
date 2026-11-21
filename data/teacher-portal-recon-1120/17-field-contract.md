@@ -18,7 +18,8 @@
 | 成绩录入 | `GET /admin/jsd/jsdcjlr/queryCjlrsz/1 + /jsd/jsdcjcx/jsdQueryJxbList` | 36 | 19 | ✅ |
 | 融合门户卡片 | `GET /getPageView + POST /execCardMethod/{wid}/{cardId}` | 17 | 8 | ⚠️ 1 个待核 |
 | 课表扩展 | `GET /admin/pkgl/kbcx/bjkb/qryBjxx?qx=1 + /pkglcroomkb/ajaxListCustom` | 42 | 38 | ✅ |
-| 学习通教师侧 | `GET fycourse/…/getMyCourseJson + mooc1-api/…/backclazzdata + stat2/teach-data/*` | 20 | 14 | ⚠️ 1 个待核 |
+| 班级/教室课表 | `GET /admin/pkgl/kbcx/bjkb/sdpkkbList（班级）+ /pkglcroomkb/sdpkkbList（教室）` | 37 | 14 | ✅ |
+| 学习通教师侧 | `GET fycourse/…/getMyCourseJson + mooc1-api/…/backclazzdata + stat2/teach-data/*` | 21 | 14 | ⚠️ 1 个待核 |
 
 ## 逐模块明细
 
@@ -92,45 +93,61 @@
 - **后端返回字段**（42）：`bjbh`、`bjmc`、`bjrs`、`buildingId`、`buildingName`、`campusId`、`campusName`、`capacity`、`className`、`classNo`、`classTotal`、`classes`、`currentUserName`、`departmentName`、`encodeId`、`enrollYear`、`jsbh`、`jslx`、`jsmc`、`jxldm`、`jxlmc`、`kind`、`majorName`、`pagePath`、`reason`、`requiresParams`、`roomName`、`roomNo`、`roomTotal`、`roomType`、`rooms`、`rxnf`、`scheduleSource`、`scheduleUrl`、`semester`、`studentCount`、`xnxq`、`xqdm`、`xqmc`、`yxmc`、`zdskrnrs`、`zymc`
 - **前端引用但后端未返回**：无 ✅
 
+### 班级/教室课表（`class_schedule`）
+
+- **上游接口**：`GET /admin/pkgl/kbcx/bjkb/sdpkkbList（班级）+ /pkglcroomkb/sdpkkbList（教室）`
+- **说明**：与学生课表同一接口同一套字段；tmc/croommc/kcmc 是 HTML，已剥离；连堂已合并（46→16）
+- **后端返回字段**（37）：`buildingName`、`campus`、`campusId`、`classNo`、`count`、`courseName`、`courseType`、`credits`、`croommc`、`djc`、`encodeId`、`entries`、`hours`、`jslxmc`、`jxbbh`、`jxlmc`、`kcmc`、`kcxz`、`kind`、`kkxq`、`roomName`、`roomNames`、`roomType`、`rowCount`、`semester`、`spanSections`、`startSection`、`teacherName`、`tmc`、`weekCount`、`weekText`、`weekday`、`weeks`、`xf`、`xingqi`、`zcstr`、`zongxs`
+- **前端引用但后端未返回**：无 ✅
+
 ### 学习通教师侧（`chaoxing_teacher`）
 
 - **上游接口**：`GET fycourse/…/getMyCourseJson + mooc1-api/…/backclazzdata + stat2/teach-data/*`
 - **说明**：ut=t 语义；teach-data 不需要 pEnc
-- **后端返回字段**（20）：`channelList`、`channels`、`classId`、`className`、`clazzId`、`content`、`count`、`courseId`、`courseName`、`courses`、`cpi`、`dimensions`、`id`、`name`、`result`、`role`、`roletype`、`studentCount`、`studentcount`、`students`
+- **后端返回字段**（21）：`channelList`、`channels`、`classId`、`className`、`clazzId`、`content`、`count`、`courseId`、`courseName`、`courses`、`cpi`、`dimensions`、`id`、`name`、`result`、`role`、`roletype`、`source`、`studentCount`、`studentcount`、`students`
 - **前端引用但后端未返回**（1，需人工确认是否误用）：`monitorCount`
 
 ---
 
 ## 生成时间
 
-2026-11-20T16:32:46.433Z
+2026-11-21T04:36:02.001Z
+
 ---
 
-## 人工核对结论（13 个「前端引用但后端未返回」逐条判定）
+## 人工核对结论
 
-> 脚本只能机械比对源码文本，以下 13 条是 Lead 逐条人工核对后的结论。
+> 脚本只能机械比对源码文本，以下逐条是人工核对后的结论。
 > **真正「前端用了但后端没有」的字段：0 个。**
 
-### 1. `workflow` 的 9 个（`status`/`checkstatus`/`shzt`/`clyj`/`createTime`/`endTime`/`definitionName`/`processInstanceId`/`processInstanceIdEnc`）
+### class_schedule（新增，goal-22）
+
+37 个字段全部 OK —— 后端用 `json!({...})` 显式声明，前端 `useTeacherScheduleGrid` 按契约消费。
+
+额外说明两个非字段差异：
+- `roomNames`（数组）与 `roomName`（首个）同时返回：前者用于「同节多教室」，
+  后者是 `ScheduleGrid` 直接消费的字段
+- `spanSections` 是**后端合并连堂后计算**的跨度，不是上游字段
+
+### workflow 的 9 个（`status`/`checkstatus`/`shzt`/`clyj`/`createTime`/`endTime`/`definitionName`/`processInstanceId`/`processInstanceIdEnc`）
 
 **不是缺口，是设计选择**：`workflow.rs` 的 `parse_workflow_list` 对上游 jqGrid 记录做的是
-「剔除 9 个框架注入身份字段后**原样透传**」，没有用 `json!({...})` 显式声明每个字段，
-所以脚本从 Rust 源码里提取不到这些名字。
+「剔除 9 个框架注入身份字段后**原样透传**」，没有用 `json!({...})` 显式声明每个字段。
 
 实测上游确实返回这 9 个字段（`raw/jwxt-teacher-probe.json` 里 myApply 记录共 18 个业务字段）。
 **透传而非显式声明的理由**：教务工作流字段随流程类型变化（调停补/异动/公选课各不相同），
-显式声明会让后端成为瓶颈——新增一种流程就要改 Rust。前端按需取用、取不到就 `—`。
+显式声明会让后端成为瓶颈——新增一种流程就要改 Rust。
 
-### 2. `workload` 的 2 个（`fields`/`hasAnyValue`）
+### workload 的 2 个（`fields`/`hasAnyValue`）
 
 **前端内部变量**：`fields` 是 composable 里 `computed` 的解构结果，
 `hasAnyValue` 是对 `raw` 五个字段做的派生判断。**不是后端字段**。
 
-### 3. `portal_cards` 的 1 个（`taskKind`）
+### portal_cards 的 1 个（`taskKind`）
 
 **前端计算**：由 `cardId` 是否包含 `TODOTASK`/`DONETASK`/`MYTASK`/`COPYME` 推导，后端不返回。
 
-### 4. `chaoxing_teacher` 的 1 个（`monitorCount`）
+### chaoxing_teacher 的 1 个（`monitorCount`）
 
 **前端计算**：从 `fetchTeacherChaoxingMonitor` 返回的 `count` 映射而来，后端字段名是 `count`。
 
@@ -140,8 +157,8 @@
 
 | 项 | 数值 |
 | --- | --- |
-| 模块数 | 11 |
-| 后端显式字段总数 | 234 |
+| 模块数 | **12** |
+| 后端显式字段总数 | **272** |
 | 真正「前端有、后端无」的字段 | **0** |
 | 已禁用的模块 | 1（`roster`，接口不支持过滤） |
 

@@ -82,6 +82,13 @@ const MODULES = [
     note: '班级 3315 / 教室 1741；课表本身无 JSON 接口',
   },
   {
+    key: 'class_schedule', title: '班级/教室课表',
+    be: path.join(BE, 'class_schedule.rs'),
+    fe: path.join(FE, 'composables/useTeacherScheduleGrid.ts'),
+    upstream: 'GET /admin/pkgl/kbcx/bjkb/sdpkkbList（班级）+ /pkglcroomkb/sdpkkbList（教室）',
+    note: '与学生课表同一接口同一套字段；tmc/croommc/kcmc 是 HTML，已剥离；连堂已合并（46→16）',
+  },
+  {
     key: 'chaoxing_teacher', title: '学习通教师侧',
     be: path.join(BE_CX, 'chaoxing_teacher.rs'),
     fe: path.join(FE, 'composables/useTeacherChaoxingAnalytics.ts'),
