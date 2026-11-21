@@ -48,6 +48,22 @@
   --ui-font-scale: 1;
   --ui-space-scale: 1;
   --ui-motion-scale: 1;
+  /* 间距标度（#1375 T10）：三个地图页统一走这套，不再各写 px 字面量。
+     乘 --ui-space-scale 是为了保留「设置里调密度」的能力。 */
+  --ui-space-xs: calc(4px * var(--ui-space-scale));
+  --ui-space-sm: calc(8px * var(--ui-space-scale));
+  --ui-space-md: calc(16px * var(--ui-space-scale));
+  --ui-space-lg: calc(24px * var(--ui-space-scale));
+  --ui-space-xl: calc(32px * var(--ui-space-scale));
+  /* 圆角标度（#1375 T10）：同样乘 --ui-radius-scale。 */
+  --ui-radius-sm: calc(8px * var(--ui-radius-scale));
+  --ui-radius-md: calc(12px * var(--ui-radius-scale));
+  --ui-radius-lg: calc(16px * var(--ui-radius-scale));
+  --ui-radius-xl: calc(24px * var(--ui-radius-scale));
+  /* 主操作强调色（#1375 T10）：设计系统 MASTER.md 的 CTA 橙，用于「查看地图」
+     「重试」这类页面主操作；日常信息色仍用 --ui-primary，避免整屏发橙。 */
+  --ui-cta: #f97316;
+  --ui-cta-soft: rgba(249, 115, 22, 0.12);
   /* 动效规范（iOS 风格：温和缓入 + 轻微弹性） */
   --ui-duration-fast: 0.15s;
   --ui-duration-normal: 0.24s;
