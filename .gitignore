@@ -208,3 +208,8 @@ data/teacher-portal-recon-1120/raw/*jar*.json
 # 设计参考包（goal-21）：只保留规范与源码，截图不入库
 data/design-ref/**/*.png
 data/design-ref/**/*.zip
+
+# goal-22：探针抓取的页面/JSON（可能含学号等个人信息，不入库）
+tools/teacher-probe/page-*.html
+tools/teacher-probe/*.json
+tools/teacher-probe/xskq.html
