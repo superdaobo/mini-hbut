@@ -2,8 +2,8 @@
 # 通过 /debug/frontend-eval 导航 + Win32 PrintWindow 截图，全程不抢焦点。
 param(
   [string]$Token = 'p4verify2026',
-  [string]$OutDir = 'D:\wt\teacher-portal-probe-1120\data\teacher-portal-recon-1120\shots-t15',
-  [int]$ProcId = 22872
+  [string]$OutDir = 'D:\wt\teacher-portal-probe-1120\data\teacher-portal-recon-1120\shots-goal22-live',
+  [int]$ProcId = 57324
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,12 +82,12 @@ foreach ($mode in @('light', 'dark')) {
   } else {
     [void](Invoke-Eval '(() => { const el=document.documentElement; el.classList.remove("dark"); el.removeAttribute("data-theme"); return "light"; })()')
   }
-  Start-Sleep -Milliseconds 900
+  Start-Sleep -Milliseconds 5000
 
   foreach ($v in $views) {
     $js = 'import("/src/stores/navigation.ts").then(m => { m.useNavigationStore().navigate("' + $v.id + '"); return "ok"; })'
     $r = Invoke-Eval $js
-    Start-Sleep -Milliseconds 1400
+    Start-Sleep -Milliseconds 5000
     $file = Join-Path $OutDir ("{0}-{1}.png" -f $v.slug, $mode)
     try {
       $size = Save-WindowShot $hwnd $file
