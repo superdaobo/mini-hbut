@@ -183,7 +183,7 @@ export const TEACHER_FEATURE_CATALOG: ReadonlyArray<TeacherFeatureEntry> = Objec
     viewId: 'teacherroster',
     category: 'academic',
     flagKey: 'teacher.feature.roster',
-    enabled: true,
+    enabled: false,
     nameKey: 'teacher.home.item.roster'
   },
   // goal-21：新增入口（T15 截图验证期间临时置 true）
