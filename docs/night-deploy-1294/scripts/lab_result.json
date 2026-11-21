@@ -1,0 +1,34 @@
+{
+  "app": "mini-hbut-lab",
+  "clientId": "395161187cdcf3770950",
+  "student": "fdl-users/9900000001",
+  "accessToken": true,
+  "refreshToken": true,
+  "idToken": true,
+  "userinfoOk": true,
+  "jwksVerifyOk": true,
+  "accessTokenClaims": {
+    "aud": [
+      "395161187cdcf3770950"
+    ],
+    "exp": 1794762744,
+    "hbut_student_id": "9900000001",
+    "hbut_student_name": "合成学生",
+    "hbut_verification_method": "campus_session",
+    "hbut_verified_at": "2026-11-15T00:00:00Z",
+    "iss": "https://sso.hbut.site",
+    "sub": "c06f8495-f1da-48dc-9a23-91c57414be41"
+  },
+  "idTokenClaims": {
+    "aud": [
+      "395161187cdcf3770950"
+    ],
+    "exp": 1794762744,
+    "hbut_student_id": "9900000001",
+    "hbut_student_name": "合成学生",
+    "hbut_verification_method": "campus_session",
+    "hbut_verified_at": "2026-11-15T00:00:00Z",
+    "iss": "https://sso.hbut.site",
+    "sub": "c06f8495-f1da-48dc-9a23-91c57414be41"
+  }
+}
