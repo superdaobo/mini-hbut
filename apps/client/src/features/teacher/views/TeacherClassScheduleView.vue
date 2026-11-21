@@ -4,8 +4,8 @@
 // ⚠️ 本页**不渲染课表网格**——教务课表 ckbjkb 是服务端渲染 HTML（无 JSON 接口），
 //   App 也没有通用 WebView 命令。页面定位是「查询入口」：
 //     班级列表（服务端 keyword 搜索 + 最近查看胶囊）→
-//     点击卡片用 openExternal 在系统浏览器打开后端拼好的 scheduleUrl。
-//   scheduleUrl 为空（encodeId/classNo/campusId 任一缺失）的班级不可点，
+//     点击卡片在**页内**用 ScheduleGrid 渲染该班级课表（goal-22：不再跳系统浏览器）。
+//   encodeId 为空（后端未返回）的班级不可点，
 //   显示「该班级缺少课表参数」。
 // 视觉：stitch 设计包 `_11`（Schedule）的列表/筛选器部分，token 见
 //   tailwind.config.ts m3Colors；自定义类 .tch-cs-*，暗色覆盖在配套 CSS 末尾。

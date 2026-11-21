@@ -6,7 +6,7 @@
 //   1. 教务课表 `ckbjkb` 是**服务端渲染 HTML**（课表直接渲进 <td> 网格，含
 //      rowspan，页内 kbjcObj 为空对象）——**没有 JSON 课表数据**；
 //   2. App 没有通用 WebView 命令（school_website_embed_open 硬编码官网首页），
-//      课表页只能经 `openExternal` 在系统浏览器打开。
+//      课表已由 `class_schedule` / `sdpkkbList` 提供结构化数据，在应用内网格渲染。
 //   → 因此本 composable 只编排「班级列表 / 教室列表」两个**入口清单**，
 //     绝不产出课表网格所需的任何结构，绝不编造课程数据。
 //
