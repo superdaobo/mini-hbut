@@ -116,20 +116,99 @@ pub(crate) fn normalize_class_schedule(record: &Value) -> Value {
     })
 }
 
-/// 解析 `sdpkkbList` 响应（**裸数组**）→ 归一化课表条目。
+/// 解析 `sdpkkbList` 响应（**裸数组**）→ 归一化课表条目（已合并连堂）。
+///
+/// ## 为什么要合并
+///
+/// 实测上游把**每一节**单独返回一行：
+/// - 「概率论与数理统计」周一 → `djc=3` 和 `djc=4` 两条
+/// - 「建筑构造-1」周一 → `djc=5,6,7,8` 四条，**而且每节还有两个教室**
+///   （`5B-707` / `5B-704`，分班上课）
+///
+/// 直接渲染会出现一堆单节小卡片。所以按 `课程名 + 星期 + 周次 + 教学班号` 分组，
+/// 取最小节次为起点、`max-min+1` 为跨度（`djs`），把同节的多个教室合并成
+/// `roomNames` 数组（前端显示第一个 + 「等 N 间」）。
 pub(crate) fn parse_class_schedule(payload: &Value) -> Vec<Value> {
-    payload
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter(|row| {
-                    // 无课程名的行（如占位/分隔）直接丢弃
-                    grid::text_field(row, "kcmc").is_some()
-                })
-                .map(normalize_class_schedule)
-                .collect()
-        })
-        .unwrap_or_default()
+    let rows = payload.as_array().cloned().unwrap_or_default();
+    let normalized: Vec<Value> = rows
+        .iter()
+        .filter(|row| grid::text_field(row, "kcmc").is_some())
+        .map(normalize_class_schedule)
+        .collect();
+    merge_consecutive(normalized)
+}
+
+/// 把同课程、同星期、同周次、同教学班的连续节次合并成一个课程块。
+pub(crate) fn merge_consecutive(entries: Vec<Value>) -> Vec<Value> {
+    use std::collections::BTreeMap;
+
+    // 分组键：courseName|weekday|weekText|classNo
+    let mut groups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for entry in entries {
+        let key = format!(
+            "{}|{}|{}|{}",
+            entry.get("courseName").and_then(Value::as_str).unwrap_or(""),
+            entry.get("weekday").and_then(Value::as_f64).unwrap_or(0.0) as i64,
+            entry.get("weekText").and_then(Value::as_str).unwrap_or(""),
+            entry.get("classNo").and_then(Value::as_str).unwrap_or(""),
+        );
+        groups.entry(key).or_default().push(entry);
+    }
+
+    let mut out = Vec::new();
+    for (_, mut rows) in groups {
+        // 按起始节次排序，便于取 min/max
+        rows.sort_by(|a, b| {
+            let sa = a.get("startSection").and_then(Value::as_f64).unwrap_or(0.0);
+            let sb = b.get("startSection").and_then(Value::as_f64).unwrap_or(0.0);
+            sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let first = rows.first().cloned().unwrap_or(Value::Null);
+        let min_section = rows
+            .iter()
+            .filter_map(|r| r.get("startSection").and_then(Value::as_f64))
+            .fold(f64::INFINITY, f64::min);
+        let max_section = rows
+            .iter()
+            .filter_map(|r| r.get("startSection").and_then(Value::as_f64))
+            .fold(f64::NEG_INFINITY, f64::max);
+        // 同节多教室去重（保持出现顺序）
+        let mut rooms: Vec<String> = Vec::new();
+        for row in &rows {
+            if let Some(room) = row.get("roomName").and_then(Value::as_str) {
+                if !room.is_empty() && !rooms.iter().any(|r| r == room) {
+                    rooms.push(room.to_string());
+                }
+            }
+        }
+        let span = if min_section.is_finite() && max_section.is_finite() {
+            (max_section - min_section + 1.0).max(1.0)
+        } else {
+            1.0
+        };
+
+        let mut merged = first;
+        if let Some(object) = merged.as_object_mut() {
+            object.insert("startSection".to_string(), json!(min_section));
+            object.insert("spanSections".to_string(), json!(span));
+            object.insert("roomName".to_string(), json!(rooms.first()));
+            object.insert("roomNames".to_string(), json!(rooms));
+            object.insert("rowCount".to_string(), json!(rows.len()));
+        }
+        out.push(merged);
+    }
+
+    // 稳定输出：按 星期 → 起始节 → 课程名 排序
+    out.sort_by(|a, b| {
+        let wa = a.get("weekday").and_then(Value::as_f64).unwrap_or(0.0);
+        let wb = b.get("weekday").and_then(Value::as_f64).unwrap_or(0.0);
+        let sa = a.get("startSection").and_then(Value::as_f64).unwrap_or(0.0);
+        let sb = b.get("startSection").and_then(Value::as_f64).unwrap_or(0.0);
+        wa.partial_cmp(&wb)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    out
 }
 
 /// 拉取某班级的课表。
@@ -337,6 +416,52 @@ mod tests {
         ]);
         let out = parse_class_schedule(&payload);
         assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn merge_consecutive_collapses_multi_section_course() {
+        // 概率论周一 3、4 两节 → 合并成 period=3 span=2
+        let payload = json!([
+            { "kcmc": "概率论与数理统计", "xingqi": 1, "djc": 3, "zcstr": "1,2", "jxbbh": "A", "croommc": "2-412" },
+            { "kcmc": "概率论与数理统计", "xingqi": 1, "djc": 4, "zcstr": "1,2", "jxbbh": "A", "croommc": "2-412" }
+        ]);
+        let out = parse_class_schedule(&payload);
+        assert_eq!(out.len(), 1, "两节应合并成一条");
+        assert_eq!(out[0].get("startSection").and_then(Value::as_f64), Some(3.0));
+        assert_eq!(out[0].get("spanSections").and_then(Value::as_f64), Some(2.0));
+        assert_eq!(out[0].get("rowCount").and_then(Value::as_i64), Some(2));
+    }
+
+    #[test]
+    fn merge_consecutive_collects_multiple_rooms() {
+        // 建筑构造周一 5、6 两节，每节两个教室 → 一条，roomNames 去重
+        let payload = json!([
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 5, "zcstr": "1", "jxbbh": "B", "croommc": "5B-707" },
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 5, "zcstr": "1", "jxbbh": "B", "croommc": "5B-704" },
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 6, "zcstr": "1", "jxbbh": "B", "croommc": "5B-707" },
+            { "kcmc": "建筑构造-1", "xingqi": 1, "djc": 6, "zcstr": "1", "jxbbh": "B", "croommc": "5B-704" }
+        ]);
+        let out = parse_class_schedule(&payload);
+        assert_eq!(out.len(), 1);
+        let rooms = out[0]
+            .get("roomNames")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(rooms.len(), 2, "两个教室应去重成 2 项: {rooms:?}");
+        assert_eq!(out[0].get("startSection").and_then(Value::as_f64), Some(5.0));
+        assert_eq!(out[0].get("spanSections").and_then(Value::as_f64), Some(2.0));
+    }
+
+    #[test]
+    fn merge_consecutive_keeps_different_weeks_separate() {
+        // 同课程同星期但周次不同 → 不能合并
+        let payload = json!([
+            { "kcmc": "X", "xingqi": 1, "djc": 1, "zcstr": "1,2", "jxbbh": "C" },
+            { "kcmc": "X", "xingqi": 1, "djc": 2, "zcstr": "9,10", "jxbbh": "C" }
+        ]);
+        let out = parse_class_schedule(&payload);
+        assert_eq!(out.len(), 2, "周次不同应保持两条");
     }
 
     #[test]
