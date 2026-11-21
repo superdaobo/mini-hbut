@@ -4381,4 +4381,12 @@ export const messages: Record<string, string> = {
 
     // goal-21：学习通分类
     'teacher.category.chaoxing': '学习通',
+
+    // goal-22：班级课表网格
+    'teacher.schedule.class.courseCount': '共 {n} 门课',
+    'teacher.schedule.class.noCourses': '该班级本学期无课程安排',
+    'teacher.schedule.class.backToList': '返回班级列表',
+
+    // goal-22：班级课表网格说明
+    'teacher.schedule.class.gridHint': '选择班级后在下方直接查看课表',
 }

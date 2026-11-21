@@ -4380,4 +4380,12 @@ export const messages: Record<string, string> = {
 
     // goal-21：学习通分类
     'teacher.category.chaoxing': '学習通',
+
+    // goal-22：班级课表网格
+    'teacher.schedule.class.courseCount': '全 {n} 科目',
+    'teacher.schedule.class.noCourses': '今学期の授業はありません',
+    'teacher.schedule.class.backToList': 'クラス一覧に戻る',
+
+    // goal-22：班级课表网格说明
+    'teacher.schedule.class.gridHint': 'クラスを選ぶと下に時間割が表示されます',
 }

@@ -13,8 +13,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from '../../../components/templates'
 import { useI18n, tf } from '../../../utils/app_i18n'
 import { useAuthStore } from '../../../stores/auth'
-import { openExternal } from '../../../utils/external_link'
-import { showToast } from '../../../utils/toast'
 import {
   useTeacherScheduleLists,
   type TeacherScheduleClass
@@ -22,6 +20,11 @@ import {
 import { resolveTeacherAccountId } from '../utils/teacher_scope'
 import { teacherSemesterOptions } from '../utils/teacher_semesters'
 import TeacherSyncBar from '../components/TeacherSyncBar.vue'
+import ScheduleGrid from '../../../features/schedule/components/ScheduleGrid.vue'
+import {
+  buildWeekDates,
+  useTeacherScheduleGrid
+} from '../composables/useTeacherScheduleGrid'
 
 const emit = defineEmits<{ back: [] }>()
 const { t } = useI18n()
@@ -31,7 +34,6 @@ const {
   semester,
   classes,
   classTotal,
-  scheduleSource,
   isLoading,
   isEmpty,
   isError,
@@ -95,29 +97,37 @@ const onRecentPill = (item: TeacherScheduleClass): void => {
   void setKeyword(label)
 }
 
-// ── 打开课表页（系统浏览器；失败 toast，绝不静默）──
-const openingClassKey = ref('')
-const openClassSchedule = async (item: TeacherScheduleClass): Promise<void> => {
-  const url = item.scheduleUrl.trim()
-  if (!url) return // 缺课表参数：卡片本就不可点，双保险
-  if (openingClassKey.value) return
-  openingClassKey.value = item.key
-  try {
-    const opened = await openExternal(url)
-    if (opened) {
-      recordRecentClass(item)
-      showToast(t('teacher.schedule.class.opened'), 'success')
-    } else {
-      showToast(t('teacher.schedule.class.openFailed'), 'error')
-    }
-  } catch {
-    showToast(t('teacher.schedule.class.openFailed'), 'error')
-  } finally {
-    openingClassKey.value = ''
-  }
+// ── 课表网格（goal-22：完全在应用内渲染，不再 openExternal 跳浏览器）──
+const scheduleGrid = useTeacherScheduleGrid()
+const activeClass = ref<TeacherScheduleClass | null>(null)
+const weekDates = buildWeekDates()
+const activeTitle = computed(() => activeClass.value?.className || activeClass.value?.classNo || '')
+const activeCourseCount = computed(() => scheduleGrid.courses.value.length)
+const activeIsEmpty = computed(
+  () => !scheduleGrid.loading.value && !scheduleGrid.error.value && activeCourseCount.value === 0
+)
+
+const viewClassSchedule = async (item: TeacherScheduleClass): Promise<void> => {
+  if (!item.encodeId) return
+  activeClass.value = item
+  recordRecentClass(item)
+  await scheduleGrid.load({
+    kind: 'class',
+    encodeId: item.encodeId,
+    semester: item.semester || semester.value,
+    campusId: item.campusId || undefined,
+    displayName: item.className || item.classNo || ''
+  })
 }
-const onCardClick = (item: TeacherScheduleClass): void => {
-  void openClassSchedule(item)
+
+const closeSchedule = (): void => {
+  activeClass.value = null
+  scheduleGrid.reset()
+}
+
+const reloadSchedule = async (): Promise<void> => {
+  if (!activeClass.value) return
+  await viewClassSchedule(activeClass.value)
 }
 
 // ── 卡片文案 ──
@@ -132,10 +142,6 @@ const classMetaLine2 = (item: TeacherScheduleClass): string =>
   ]
     .filter(Boolean)
     .join(' · ')
-/** 底部说明：后端 reason 存在则直出（后端写的说明文案），否则回退 i18n。 */
-const sourceReason = computed(
-  () => scheduleSource.value?.reason || t('teacher.schedule.source.reason')
-)
 const footerText = computed(() =>
   tf('teacher.schedule.footer.loaded', { loaded: classes.value.length, total: classTotal.value })
 )
@@ -177,18 +183,63 @@ onBeforeUnmount(() => {
     <main class="px-4 pt-3 space-y-3">
       <!-- 课表打开方式说明：服务端渲染 HTML，无 JSON，只能浏览器看 -->
       <div class="tch-cs-note flex items-start gap-2 px-3.5 py-2.5">
-        <span class="material-symbols-outlined text-[16px] text-primary mt-px" aria-hidden="true">open_in_new</span>
-        <p class="tch-cs-note-text">{{ sourceReason || t('teacher.schedule.source.hint') }}</p>
+        <span class="material-symbols-outlined text-[16px] text-primary mt-px" aria-hidden="true">grid_view</span>
+        <p class="tch-cs-note-text">{{ t('teacher.schedule.class.gridHint') }}</p>
       </div>
 
+      <!-- 课表网格（goal-22：选中班级后页内渲染，零浏览器外跳） -->
+      <section v-if="activeClass" class="tch-cs-grid-wrap">
+        <div class="flex items-center justify-between px-1 pb-2">
+          <div class="min-w-0">
+            <p class="text-[15px] font-semibold truncate">{{ activeTitle }}</p>
+            <p class="tch-cs-label-micro text-outline">
+              {{ tf('teacher.schedule.class.courseCount', { n: activeCourseCount }) }}
+            </p>
+          </div>
+          <button type="button" class="text-[13px] font-semibold text-primary shrink-0"
+            :disabled="scheduleGrid.loading.value" @click="reloadSchedule">
+            {{ t('teacher.schedule.action.refresh') }}
+          </button>
+        </div>
+
+        <div v-if="scheduleGrid.loading.value" class="tch-cs-grid-empty">
+          <span class="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>
+          <p class="tch-cs-label-micro">{{ t('teacher.schedule.loading') }}</p>
+        </div>
+        <div v-else-if="scheduleGrid.error.value" class="tch-cs-grid-empty">
+          <span class="material-symbols-outlined text-danger" aria-hidden="true">error</span>
+          <p class="tch-cs-label-micro">{{ scheduleGrid.error.value }}</p>
+          <button type="button" class="text-[13px] font-semibold text-primary mt-1" @click="reloadSchedule">
+            {{ t('teacher.schedule.action.retry') }}
+          </button>
+        </div>
+        <div v-else-if="activeIsEmpty" class="tch-cs-grid-empty">
+          <span class="material-symbols-outlined text-outline" aria-hidden="true">event_busy</span>
+          <p class="tch-cs-label-micro">{{ t('teacher.schedule.class.noCourses') }}</p>
+        </div>
+        <ScheduleGrid v-else
+          :week-dates="weekDates"
+          :current-month="weekDates[0]?.month || 1"
+          :selected-week="0"
+          :get-courses-for-day="scheduleGrid.getCoursesForDay"
+          :get-course-style="scheduleGrid.getCourseStyleFor"
+          :enable-blank-create="false"
+          view-mode="courses"
+        />
+
+        <button type="button" class="tch-cs-back-list" @click="closeSchedule">
+          {{ t('teacher.schedule.class.backToList') }}
+        </button>
+      </section>
+
       <!-- 三态 -->
-      <TEmptyState v-if="isLoading && !hasData" type="loading" :message="t('teacher.schedule.loading')" />
+      <TEmptyState v-if="!activeClass && isLoading && !hasData" type="loading" :message="t('teacher.schedule.loading')" />
       <TEmptyState v-else-if="isError && !hasData" type="error" :message="t(errorKey)">
         <button type="button" class="mt-3 text-primary font-semibold" @click="reload">
           {{ t('teacher.schedule.action.retry') }}
         </button>
       </TEmptyState>
-      <TEmptyState v-else-if="isEmpty || !hasData" :message="t('teacher.schedule.class.empty')" />
+      <TEmptyState v-else-if="!activeClass && (isEmpty || !hasData)" :message="t('teacher.schedule.class.empty')" />
 
       <template v-else>
         <!-- 搜索胶囊（300ms 防抖 → 服务端 keyword） -->
@@ -217,7 +268,7 @@ onBeforeUnmount(() => {
           <template v-for="item in classes" :key="item.key">
             <button v-if="item.scheduleUrl" type="button"
               class="tch-cs-card tch-cs-card--clickable p-3.5 text-left w-full"
-              :disabled="Boolean(openingClassKey)" @click="onCardClick(item)">
+              :disabled="scheduleGrid.loading.value" @click="viewClassSchedule(item)">
               <div class="flex items-center justify-between gap-2 min-w-0">
                 <span class="tch-cs-card-title truncate">{{ classTitle(item) }}</span>
                 <span v-if="item.studentCount !== null" class="tch-cs-card-count shrink-0">
@@ -230,7 +281,7 @@ onBeforeUnmount(() => {
               <div class="flex items-end justify-between gap-2 mt-1">
                 <span class="tch-cs-card-meta truncate" :title="classMetaLine2(item)">{{ classMetaLine2(item) }}</span>
                 <span class="tch-cs-open shrink-0 inline-flex items-center gap-0.5">
-                  <template v-if="openingClassKey === item.key">{{ t('teacher.schedule.class.opening') }}</template>
+                  <template v-if="scheduleGrid.loading.value">{{ t('teacher.schedule.class.opening') }}</template>
                   <template v-else>{{ t('teacher.schedule.class.open') }}</template>
                   <span class="material-symbols-outlined text-[13px]" aria-hidden="true">chevron_right</span>
                 </span>

@@ -4382,4 +4382,12 @@ export const messages: Record<string, string> = {
 
     // goal-21：学习通分类
     'teacher.category.chaoxing': 'Chaoxing',
+
+    // goal-22：班级课表网格
+    'teacher.schedule.class.courseCount': '{n} courses',
+    'teacher.schedule.class.noCourses': 'No courses this semester',
+    'teacher.schedule.class.backToList': 'Back to class list',
+
+    // goal-22：班级课表网格说明
+    'teacher.schedule.class.gridHint': 'Pick a class to view its schedule below',
 }
