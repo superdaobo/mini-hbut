@@ -281,16 +281,24 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* ── 页面侧：颜色/间距/圆角/动效全部走 --ui-* token，无裸色值 ── */
 .campus-photo-map-view {
+  /* 组件级派生色：由 token 混合得出（占位底 + 缓存中徽章） */
+  --card-cover-tint: color-mix(in oklab, var(--ui-primary) 10%, transparent);
+  --badge-bg: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--ui-primary) 80%, black 20%) 82%,
+    transparent 18%
+  );
   min-height: 100vh;
-  padding: 20px 20px 110px;
-  background: var(--ui-bg-gradient, #f5f7fa);
+  padding: var(--ui-space-md) var(--ui-space-md) 100px;
+  background: var(--ui-bg-gradient);
 }
 
 .intro-card {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border-radius: 14px;
+  margin-top: var(--ui-space-md);
+  padding: var(--ui-space-md);
+  border-radius: var(--ui-radius-md);
   background: var(--ui-surface);
   border: 1px solid var(--ui-surface-border);
   color: var(--ui-muted);
@@ -302,20 +310,20 @@ onMounted(() => {
 }
 
 .intro-card p + p {
-  margin-top: 6px;
+  margin-top: var(--ui-space-xs);
 }
 
 .maps-grid {
-  margin-top: 18px;
+  margin-top: var(--ui-space-md);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: var(--ui-space-md);
 }
 
 .map-card {
   background: var(--ui-surface);
   border: 1px solid var(--ui-surface-border);
-  border-radius: 16px;
+  border-radius: var(--ui-radius-lg);
   overflow: hidden;
   box-shadow: var(--ui-shadow-soft);
 }
@@ -323,7 +331,7 @@ onMounted(() => {
 .map-cover {
   position: relative;
   height: 170px;
-  background: rgba(15, 23, 42, 0.07);
+  background: var(--card-cover-tint);
 }
 
 .map-cover img {
@@ -334,18 +342,18 @@ onMounted(() => {
 
 .cover-badge {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  padding: 4px 10px;
+  top: var(--ui-space-sm);
+  right: var(--ui-space-sm);
+  padding: var(--ui-space-xs) var(--ui-space-sm);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  color: #fff;
-  background: rgba(30, 64, 175, 0.82);
+  color: white;
+  background: var(--badge-bg);
 }
 
 .map-meta {
-  padding: 12px 14px 8px;
+  padding: var(--ui-space-sm) var(--ui-space-md) var(--ui-space-xs);
 }
 
 .map-meta h3 {
@@ -355,40 +363,58 @@ onMounted(() => {
 }
 
 .map-meta p {
-  margin: 8px 0 0;
+  margin: var(--ui-space-sm) 0 0;
   color: var(--ui-muted);
   font-size: 14px;
 }
 
 .open-btn {
-  margin: 0 14px 14px;
-  width: calc(100% - 28px);
+  margin: 0 var(--ui-space-md) var(--ui-space-md);
+  width: calc(100% - var(--ui-space-md) * 2);
   border: none;
-  border-radius: 12px;
-  background: linear-gradient(120deg, var(--ui-primary, #2563eb), var(--ui-secondary, #0891b2));
-  color: #fff;
+  border-radius: var(--ui-radius-md);
+  background: linear-gradient(120deg, var(--ui-primary), var(--ui-secondary));
+  color: white;
   font-weight: 700;
-  padding: 10px 12px;
+  padding: var(--ui-space-sm);
   cursor: pointer;
+  transition: filter calc(var(--ui-duration-fast) * var(--ui-motion-scale)) var(--ui-ease-out);
 }
 
+.open-btn:hover {
+  filter: brightness(1.08);
+}
+
+/* ── 查看器：暗色玻璃 ──
+   局部变量全部由 token 派生（--ui-primary 定色相 + black/white 做明暗锚点），
+   不引用会被 html.dark 翻转的 --ui-surface/--ui-text，
+   因此浅/深主题下都保持「深底 + 浅字」的观感。 */
 .viewer-overlay {
+  --viewer-scrim: color-mix(in oklab, var(--ui-primary) 20%, black 80%);
+  --viewer-bg: color-mix(in oklab, var(--ui-primary) 15%, black 85%);
+  --viewer-deep: color-mix(in oklab, var(--ui-primary) 8%, black 92%);
+  --viewer-panel: color-mix(in oklab, var(--ui-primary) 24%, black 76%);
+  --viewer-text: color-mix(in oklab, var(--ui-secondary) 12%, white 88%);
+  --viewer-danger: color-mix(in oklab, var(--ui-danger) 52%, white 48%);
+  --viewer-glow-1: color-mix(in oklab, var(--ui-secondary) 24%, transparent);
+  --viewer-glow-2: color-mix(in oklab, var(--ui-primary) 28%, transparent);
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgba(3, 7, 18, 0.86);
+  overscroll-behavior: none;
+  background: color-mix(in oklab, var(--viewer-scrim) 86%, transparent 14%);
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 12px;
+  padding: var(--ui-space-sm);
 }
 
 .viewer-shell {
   width: min(1100px, 100%);
-  height: min(88vh, 850px);
-  background: #0b1220;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 18px;
+  height: 84vh;
+  background: var(--viewer-bg);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: var(--ui-radius-lg);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -396,12 +422,12 @@ onMounted(() => {
 
 .viewer-toolbar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: rgba(15, 23, 42, 0.9);
-  color: #e2e8f0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ui-space-sm);
+  padding: var(--ui-space-sm) var(--ui-space-md);
+  background: color-mix(in oklab, var(--viewer-panel) 90%, transparent 10%);
+  color: var(--viewer-text);
 }
 
 .viewer-title h3 {
@@ -416,19 +442,26 @@ onMounted(() => {
 
 .viewer-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--ui-space-sm);
 }
 
 .viewer-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.64);
-  color: #e2e8f0;
-  padding: 6px 10px;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: var(--ui-radius-sm);
+  background: color-mix(in oklab, var(--viewer-panel) 64%, transparent 36%);
+  color: var(--viewer-text);
+  padding: var(--ui-space-xs) var(--ui-space-sm);
   cursor: pointer;
+  transition:
+    background calc(var(--ui-duration-fast) * var(--ui-motion-scale)) var(--ui-ease-out),
+    color calc(var(--ui-duration-fast) * var(--ui-motion-scale)) var(--ui-ease-out);
+}
+
+.viewer-actions button:hover {
+  background: color-mix(in oklab, var(--viewer-panel) 84%, transparent 16%);
 }
 
 .viewer-actions button .material-symbols-outlined {
@@ -436,7 +469,7 @@ onMounted(() => {
 }
 
 .viewer-actions .close-btn {
-  color: #fca5a5;
+  color: var(--viewer-danger);
 }
 
 .viewer-viewport {
@@ -444,10 +477,11 @@ onMounted(() => {
   flex: 1;
   overflow: hidden;
   touch-action: none;
+  overscroll-behavior: contain;
   background:
-    radial-gradient(circle at 12% 18%, rgba(56, 189, 248, 0.12), transparent 42%),
-    radial-gradient(circle at 85% 85%, rgba(59, 130, 246, 0.14), transparent 45%),
-    #020617;
+    radial-gradient(circle at 12% 18%, var(--viewer-glow-1), transparent 42%),
+    radial-gradient(circle at 85% 85%, var(--viewer-glow-2), transparent 45%),
+    var(--viewer-deep);
 }
 
 .viewer-image {
@@ -458,25 +492,52 @@ onMounted(() => {
   max-height: 100%;
   user-select: none;
   transform-origin: center center;
-  transition: transform 0.08s linear;
+  /* 图片跟手：duration-fast 的一半（≈0.075s），保证拖拽/缩放零滞手感 */
+  transition: transform calc(var(--ui-duration-fast) * 0.5) linear;
 }
 
-@media (max-width: 768px) {
+/* 焦点态可见：页面按钮用 primary 描边，暗色查看器内改用浅色描边 */
+.open-btn:focus-visible,
+.viewer-actions button:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+.viewer-actions button:focus-visible {
+  outline-color: var(--viewer-text);
+}
+
+/* ── 响应式：375 单列 / 768 双列 / 1024+ 双列且卡片更大 ── */
+@media (min-width: 768px) {
   .campus-photo-map-view {
-    padding: 14px 14px 100px;
+    padding: var(--ui-space-md) var(--ui-space-lg) 110px;
   }
 
   .maps-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .viewer-shell {
-    height: 84vh;
+    height: min(88vh, 850px);
   }
 
   .viewer-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+@media (min-width: 1024px) {
+  .maps-grid {
+    gap: var(--ui-space-lg);
+  }
+
+  .map-cover {
+    height: 220px;
+  }
+
+  .map-meta h3 {
+    font-size: 20px;
   }
 }
 </style>

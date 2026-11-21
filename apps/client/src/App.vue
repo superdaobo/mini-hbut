@@ -512,19 +512,10 @@ const {
         @back="handleBackToDashboard"
       />
 
-      <!-- 校园地图（照片版，#1372） -->
-      <CampusPhotoMapView
-        v-else-if="currentView === 'campus_map'"
-        :student-id="studentId"
-        @back="handleBackToDashboard"
-      />
-
-      <!-- 校园导览（腾讯地图版，#1372） -->
-      <CampusGuideShell
-        v-else-if="currentView === 'campus_guide'"
-        :student-id="studentId"
-        @back="handleBackToDashboard"
-      />
+      <component
+        v-else-if="currentView === 'campus_map' || currentView === 'campus_guide'"
+        :is="currentView === 'campus_map' ? CampusPhotoMapView : CampusGuideShell"
+        :student-id="studentId" @back="handleBackToDashboard" />
 
       <!-- 图书查询 -->
       <LibraryView

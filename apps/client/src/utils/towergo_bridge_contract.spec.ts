@@ -18,7 +18,11 @@ const readTree = (relativePath: string, extensionPattern: RegExp) => {
   return files.sort().map((file) => readFileSync(file, 'utf8')).join('\n')
 }
 const towerGoSources = () =>
-  read('src/components/TowerGoView.vue') + '\n' + readTree('src/features/towergo', /\.(?:ts|vue)$/)
+  read('src/components/TowerGoView.vue') +
+  '\n' +
+  readTree('src/features/towergo', /\.(?:ts|vue)$/) +
+  '\n' +
+  readTree('src/components/towergo', /\.(?:ts|vue)$/)
 
 describe('towergo bridge and location permission contract', () => {
   it('#370 writes location to debug log and keeps map container exclusive', () => {
@@ -36,8 +40,8 @@ describe('towergo bridge and location permission contract', () => {
     expect(view).toContain('svgToDataUrl')
     expect(view).toContain('fetchNearBikesAtCenter')
     expect(view).toContain('officialVehiclePinSvg')
-    // 地图节点必须自闭合独占，fallback 作为兄弟节点
-    expect(view).toMatch(/ref="mapContainerRef" class="tg-map tg-map--fs"\s*\/>/)
+    // 地图节点必须自闭合独占，fallback 作为兄弟节点（#1375：容器在 TowerGoMapPanel）
+    expect(view).toMatch(/ref="mapEl" class="tg-map tg-map--fs"\s*\/>/)
     expect(geo).toContain("pushDebugLog('Geo'")
     expect(guideLoc).toContain("pushDebugLog(")
     expect(guideLoc).toContain('CampusGuide')

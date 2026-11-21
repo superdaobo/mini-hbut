@@ -29,7 +29,11 @@ const readTree = (relativePath: string, extensionPattern: RegExp) => {
 }
 const appSources = () => read('src/App.vue') + '\n' + readTree('src/app', /\.(?:ts|vue)$/)
 const towerGoSources = () =>
-  read('src/components/TowerGoView.vue') + '\n' + readTree('src/features/towergo', /\.(?:ts|vue)$/)
+  read('src/components/TowerGoView.vue') +
+  '\n' +
+  readTree('src/features/towergo', /\.(?:ts|vue)$/) +
+  '\n' +
+  readTree('src/components/towergo', /\.(?:ts|vue)$/)
 
 describe('P0 multi-module contracts', () => {
   it('#490 TowerGo defaults to center single-fetch (no multi-point grid main path)', () => {
