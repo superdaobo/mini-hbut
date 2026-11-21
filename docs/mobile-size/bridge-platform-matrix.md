@@ -36,11 +36,13 @@ pub fn is_http_bridge_enabled() -> bool {
 | 平台 / 构建 | ①debug_assertions | ②target_os=ios | ③env | 结论 |
 |---|---|---|---|---|
 | iOS Debug | true | true | — | **启用** |
-| iOS Release | false | true | — | **启用**（仅靠 ②） |
-| iOS TestFlight | false（TestFlight 为 Release 配置） | true | — | **启用**，与 iOS Release 逻辑一致 |
-| Android Debug | true | false | — | 启用（靠 ①，仅调试包） |
-| Android Release | false | false | 默认未设 | **不启用** |
-| 桌面 Release | false | false | 默认未设 | 不启用；`HBUT_HTTP_BRIDGE_ENABLED=1|true` 可强制开启 |
+| iOS Release | false | true | — | **启用** |
+| iOS TestFlight | false | true | — | **启用**，与 iOS Release 逻辑一致 |
+| Android Debug | true | false | — | 启用 |
+| Android Release | false | false | 默认未设 | **启用**（#1368 起全平台默认启用；`mobile-slim+bridge`） |
+| 桌面 Release | false | false | 默认未设 | **启用**（#1368 起；`HBUT_HTTP_BRIDGE_ENABLED=0|false` 可关闭） |
+
+> **#1368 变更**：`is_http_bridge_enabled()` 已从「debug / iOS / 显式 env 开启」翻转为「默认全平台启用」，`HBUT_HTTP_BRIDGE_ENABLED` 降级为**排障用 kill switch**（`0`/`false` 关闭，`1`/`true` 或未设置均启用）。原因是校园地图 / 小塔出行 / 校园助手的数据链路全部走 loopback 4399，Release 不启桥会导致三者整体不可用。Android 的构建 features 也同步从 `mobile-slim` 改为 `mobile-slim+bridge`，否则 `http_server` 不会编进 APK。
 
 ### 1.2 端口与监听
 
