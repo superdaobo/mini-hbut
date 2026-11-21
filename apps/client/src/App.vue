@@ -166,7 +166,8 @@ const {
   transactions: TransactionHistory,
   campus_code: CampusCodeView,
   ai: AiChatView,
-  campus_map: CampusMapView,
+  campus_map: CampusPhotoMapView,
+  campus_guide: CampusGuideShell,
   library: LibraryView,
   resource_share: ResourceShareView,
   chaoxing_class: ChaoxingClassView,
@@ -205,6 +206,7 @@ const {
         'ai-full': currentView === 'ai',
         'schedule-full': currentView === 'schedule',
         'module-host-full': currentView === 'more_module_host',
+        'map-full': currentView === 'towergo' || currentView === 'campus_guide',
         'ios-safe': isIOSLike
       }"
     >
@@ -511,13 +513,10 @@ const {
         @back="handleBackToDashboard"
       />
 
-      <!-- 校园地图 -->
-      <CampusMapView
-        v-else-if="currentView === 'campus_map'"
-        :student-id="studentId"
-        @back="handleBackToDashboard"
-        @logout="handleLogout"
-      />
+      <component
+        v-else-if="currentView === 'campus_map' || currentView === 'campus_guide'"
+        :is="currentView === 'campus_map' ? CampusPhotoMapView : CampusGuideShell"
+        :student-id="studentId" @back="handleBackToDashboard" />
 
       <!-- 图书查询 -->
       <LibraryView

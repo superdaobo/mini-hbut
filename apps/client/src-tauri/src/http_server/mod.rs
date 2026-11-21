@@ -46,19 +46,29 @@ use auth::{
 };
 use state::HttpState;
 
+/// 解析 `HBUT_HTTP_BRIDGE_ENABLED` 的开关语义（纯函数，便于单测）。
+///
+/// - `0` / `false`（不区分大小写）→ 强制关闭（排障用 kill switch）
+/// - `1` / `true` → 强制开启（兼容旧行为）
+/// - 未设置或其他值 → 默认开启
+fn bridge_enabled_from_env(value: Option<&str>) -> bool {
+    match value {
+        Some(v) => !(v == "0" || v.eq_ignore_ascii_case("false")),
+        None => true,
+    }
+}
+
 /// Bridge 是否在本平台/构建下应启用（与 spawn 策略一致）。
 ///
-/// 矩阵摘要：
-/// - iOS（任何构建）：默认启用（官网 proxy / module_bundle 依赖 loopback）
-/// - debug_assertions（任意 OS）：默认启用（开发调试）
-/// - Android Release：默认**不**启用（前端走 external-open / Capacitor 本地）
-/// - 桌面 Release：默认不启用；`HBUT_HTTP_BRIDGE_ENABLED=1|true` 可强制开启
+/// 矩阵摘要（#1368：校园地图 / 小塔出行 / 校园助手数据链路全走 loopback Bridge，
+/// Release 必须默认启用，否则前端硬编码 127.0.0.1:4399 请求全部失败）：
+/// - 全平台全构建（桌面 / iOS / Android，debug 与 Release）：默认启用
+/// - `HBUT_HTTP_BRIDGE_ENABLED` 保留为排障开关：
+///   `0`/`false` 强制关闭；`1`/`true` 强制开启；未设置 → 默认开启
+/// - 注意：Android 发布构建是否编入本模块还取决于 `bridge` feature
+///   （mobile-slim 未包含时 `spawn_http_server` 不会编译进来）
 pub fn is_http_bridge_enabled() -> bool {
-    cfg!(debug_assertions)
-        || cfg!(target_os = "ios")
-        || std::env::var("HBUT_HTTP_BRIDGE_ENABLED")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
+    bridge_enabled_from_env(std::env::var("HBUT_HTTP_BRIDGE_ENABLED").ok().as_deref())
 }
 
 /// 解析 Bridge 监听地址（固定 Loopback，端口默认 `4399`）。
@@ -169,7 +179,7 @@ async fn request_bridge_shutdown() {
 pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
     println!("[HTTP] spawn_http_server 被调用");
     if !is_http_bridge_enabled() {
-        println!("[HTTP] bridge 未启用（非 debug 构建）");
+        println!("[HTTP] bridge 未启用（HBUT_HTTP_BRIDGE_ENABLED=0/false）");
         return;
     }
     let life = bridge_lifecycle();
@@ -210,8 +220,8 @@ pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
 
 /// 长后台回前台：确保 Bridge `/health` 可达；必要时关闭旧任务并 respawn。
 ///
-/// 前端应在 resume / remount 前 invoke 本命令（iOS / 桌面依赖 loopback 时）。
-/// Android Release 通常 `enabled=false`，调用方应走非 bridge 降级路径。
+/// 前端应在 resume / remount 前 invoke 本命令（各端依赖 loopback 时）。
+/// `HBUT_HTTP_BRIDGE_ENABLED=0/false` 时 `enabled=false`，调用方走非 bridge 降级路径。
 #[tauri::command]
 pub async fn ensure_http_bridge(
     app: AppHandle,
@@ -228,7 +238,7 @@ pub async fn ensure_http_bridge(
             addr: addr_s,
             status: "disabled".into(),
             detail: Some(
-                "Bridge not enabled on this platform/build (Android Release default; desktop Release needs HBUT_HTTP_BRIDGE_ENABLED=1)"
+                "Bridge disabled (HBUT_HTTP_BRIDGE_ENABLED=0/false); default is enabled on all platforms/builds"
                     .into(),
             ),
         });
@@ -506,6 +516,25 @@ mod ensure_http_bridge_tests {
     #[test]
     fn is_http_bridge_enabled_is_deterministic_bool() {
         let _ = is_http_bridge_enabled();
+    }
+
+    #[test]
+    fn bridge_env_kill_switch_disables_and_enable_overrides_default() {
+        use super::bridge_enabled_from_env;
+        // #1368：默认全平台启用；0/false 排障关闭，1/true 显式开启，其余值视为默认
+        assert!(bridge_enabled_from_env(None), "未设置 env 时应默认启用");
+        assert!(bridge_enabled_from_env(Some("1")));
+        assert!(bridge_enabled_from_env(Some("true")));
+        assert!(bridge_enabled_from_env(Some("TRUE")));
+        for off in ["0", "false", "False", "FALSE"] {
+            assert!(
+                !bridge_enabled_from_env(Some(off)),
+                "env={off} 应强制关闭 Bridge"
+            );
+        }
+        // 非标准值不关闭（排障开关只对显式 0/false 生效）
+        assert!(bridge_enabled_from_env(Some("yes")));
+        assert!(bridge_enabled_from_env(Some("2")));
     }
 
     #[test]

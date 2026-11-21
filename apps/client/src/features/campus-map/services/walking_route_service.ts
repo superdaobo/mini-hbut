@@ -1,6 +1,6 @@
 // #1163 T02：Bridge 会话令牌统一注入
 import { bridgeFetch } from '../../../utils/bridge_auth';
-import { isLikelyAndroidUserAgent, isTauriRuntime } from '../../../platform/native'
+import { isTauriRuntime } from '../../../platform/native'
 import { CAMPUS_MAP_DIRECTION_PROXY } from '../constants'
 import type { MapLatLng, WalkingRouteResult } from '../types'
 
@@ -24,14 +24,13 @@ export const decodeTencentPolyline = (coors: number[]): MapLatLng[] => {
 /**
  * 解析步行路线代理 base。
  * - Web / Vite：相对路径 `/campus-map/direction`（dev server 反代）
- * - Tauri iOS / 桌面：loopback bridge（与 campus-guide / towergo 一致）
- * - Tauri Android：相对路径（Release 通常不启 4399）
+ * - Tauri（含 Android）：loopback bridge —— #1368 起 http_server 全平台默认启用，
+ *   原先「Android Release 不启 4399」的前提已失效，不再按 UA 特判
  */
 export const resolveCampusMapDirectionUrl = (proxyPath = CAMPUS_MAP_DIRECTION_PROXY) => {
   const path = String(proxyPath || CAMPUS_MAP_DIRECTION_PROXY).trim() || CAMPUS_MAP_DIRECTION_PROXY
   if (/^https?:\/\//i.test(path)) return path
   if (!isTauriRuntime()) return path
-  if (isLikelyAndroidUserAgent()) return path
   const normalized = path.startsWith('/') ? path : `/${path}`
   return `${LOCAL_BRIDGE_ORIGIN}${normalized}`
 }

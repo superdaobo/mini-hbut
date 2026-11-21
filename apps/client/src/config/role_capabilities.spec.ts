@@ -38,6 +38,8 @@ const ALL_MODULE_IDS = [
   'library_reserve',
   'chaoxing_reserve',
   'campus_map',
+  // #1372：校园导览（腾讯地图版）独立模块；教师端保持隐藏（不在 TEACHER_VISIBLE_MODULE_IDS）
+  'campus_guide',
   'resource_share',
   'towergo',
   'ai'

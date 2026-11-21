@@ -446,6 +446,17 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
     if raw.starts_with('{') || raw.starts_with('[') {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw) {
             let should_emit_done = is_finish_event_payload(&json);
+            // 上游 200 软错误（{code,msg} 形态，如“模型名非法”）转成显式 error 事件，
+            // 前端据 model_keyword 决定是否轮换下一个候选模型，不再混进正文 delta。
+            if let Some(err_msg) = crate::modules::ai::extract_upstream_error_msg(&json) {
+                let model_keyword = crate::modules::ai::is_upstream_model_error(&err_msg);
+                out.push(serde_json::json!({
+                    "event": "error",
+                    "message": err_msg,
+                    "model_keyword": model_keyword,
+                }));
+                return out;
+            }
             if is_reference_payload(&json) {
                 if should_emit_done {
                     out.push(serde_json::json!({"event":"done"}));

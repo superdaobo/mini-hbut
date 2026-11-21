@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -9,6 +9,23 @@ import { describe, expect, it } from 'vitest'
 const readSource = (path: string) => {
   // 直接读：文件缺失/改名时抛错，避免断言静默通过
   return readFileSync(resolve(process.cwd(), path), 'utf8')
+}
+
+// #1375：地图/数据逻辑拆进 components/towergo/（useTowerGoMap + 子组件），
+// 契约读取范围同步扩大到该目录
+const readTowerGoSources = () => {
+  let combined = readSource('src/components/TowerGoView.vue')
+  const dir = resolve(process.cwd(), 'src/components/towergo')
+  try {
+    for (const entry of readdirSync(dir).sort()) {
+      if (/\.(?:ts|vue)$/.test(entry)) {
+        combined += '\n' + readFileSync(resolve(dir, entry), 'utf8')
+      }
+    }
+  } catch {
+    // 目录不存在时只用壳组件源码
+  }
+  return combined
 }
 
 const cspDirective = (csp: string, name: string) => {
@@ -23,12 +40,22 @@ describe('tencent map CSP + loader contract (#1300)', () => {
   const config = JSON.parse(readSource('src-tauri/tauri.conf.json') || '{}')
   const csp = String(config?.app?.security?.csp || '')
   const loader = readSource('src/utils/tencent_map_loader.ts')
-  const towerGo = readSource('src/components/TowerGoView.vue')
+  const towerGo = readTowerGoSources()
 
   it('生产 CSP 的 script-src 放行 map.qq.com（不加 https: 通配）', () => {
     const scriptSrc = cspDirective(csp, 'script-src')
     expect(scriptSrc).toContain('https://map.qq.com')
     expect(scriptSrc).not.toMatch(/\shttps:(\s|$)/)
+  })
+
+  it('script-src 放行 apikey.map.qq.com（GL JS 运行时 JSONP key 校验，#1367）', () => {
+    const scriptSrc = cspDirective(csp, 'script-src')
+    expect(scriptSrc).toContain('https://apikey.map.qq.com')
+    // 修复手段是精确加源，不是放宽：不得引入独立关键字 'unsafe-eval' 或 *
+    // （'wasm-unsafe-eval' 是既有的独立 token，不在此列）
+    const tokens = scriptSrc.split(/\s+/).filter(Boolean)
+    expect(tokens).not.toContain("'unsafe-eval'")
+    expect(tokens).not.toContain('*')
   })
 
   it('加载器对 CSP 拦截/网络挂起有超时兜底，并清理失败脚本', () => {

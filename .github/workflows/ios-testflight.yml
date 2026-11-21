@@ -276,6 +276,13 @@ jobs:
           # 同时跑一遍仓库既有守卫（它此前查的是不存在的 gen/ios，等于从未生效，本次一并修正）
           node scripts/check_mobile_scheme_contract.mjs
 
+          # #1370：NSLocationWhenInUseUsageDescription 与深链 scheme 同理——gen/apple 的
+          # Info.plist 每次 `tauri ios init` 重新生成（gen/ 被 gitignore），Tauri 默认模板
+          # 不含定位 usage 描述；缺失该 key 时 WKWebView 的定位权限框不弹，定位直接失败。
+          # 确定性写入固定文案（幂等），随后立即校验，失败即中断构建。
+          node scripts/patch_ios_location_usage.mjs
+          node scripts/patch_ios_location_usage.mjs --check
+
           npm run build
           node scripts/check_dist_boundary.mjs
           node scripts/report_bundle_sizes.mjs

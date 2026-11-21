@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { readVueContractSource } from '../utils/contract_source_test'
+import { readContractTree, readVueContractSource } from '../utils/contract_source_test'
 
-const source = () => readVueContractSource('src/components/TowerGoView.vue')
+// #1375 拆分：地图/数据逻辑在 components/towergo/ 组合函数，
+// 展示分区在同目录子组件；契约断言覆盖「壳 + towergo 目录 + 外链 CSS」。
+const source = () =>
+  readVueContractSource('src/components/TowerGoView.vue') +
+  '\n' +
+  readContractTree('src/components/towergo')
 
 describe('TowerGoView simplified contract', () => {
   it('no longer contains login, ride-control, or order-processing sections', () => {
