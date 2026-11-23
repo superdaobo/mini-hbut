@@ -83,7 +83,19 @@ export const TEACHER_VIEW_IDS = new Set([
   'teacherteaching',
   'teacherexams',
   'teachernotifications',
-  'teacherworkflow'
+  'teacherworkflow',
+  // goal-21：教师端 11 个新视图（与 viewRegistry 一一对应）
+  'teacherattendance',
+  'teacherworkload',
+  'teacherexamaffairs',
+  'teachercredits',
+  'teacheradjustment',
+  'teacherroster',
+  'teachergradeentry',
+  'teacherchaoxinganalytics',
+  'teacherportal',
+  'teacherclassschedule',
+  'teacherroomschedule'
 ])
 
 /**

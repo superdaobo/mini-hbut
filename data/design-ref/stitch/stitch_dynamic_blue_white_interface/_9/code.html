@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><title>Course Detail - Mini-HBUT</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;min-height:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-primary": "#ffffff", "tertiary": "#784b00", "primary-fixed-dim": "#b4c5ff", "on-primary-fixed": "#00174b", "on-secondary-container": "#fefcff", "surface": "#faf8ff", "primary-container": "#2563eb", "accent-soft": "#DBEAFE", "tertiary-fixed-dim": "#ffb95f", "success": "#10B981", "on-tertiary": "#ffffff", "on-background": "#131b2e", "surface-variant": "#dae2fd", "tertiary-container": "#996100", "on-tertiary-fixed-variant": "#653e00", "on-secondary-fixed": "#001a42", "on-secondary-fixed-variant": "#004395", "course-amber": "#D97706", "course-coral": "#F43F5E", "surface-canvas": "#F8FAFC", "course-wisteria": "#8B5CF6", "on-surface": "#131b2e", "surface-track": "#E2E8F0", "on-error-container": "#93000a", "tertiary-fixed": "#ffddb8", "secondary-fixed": "#d8e2ff", "outline": "#737686", "course-lake-blue": "#0284C7", "surface-muted": "#F1F5F9", "danger": "#EF4444", "on-tertiary-fixed": "#2a1700", "background": "#faf8ff", "course-teal": "#0D9488", "success-soft": "#ECFDF5", "on-secondary": "#ffffff", "primary": "#004ac6", "inverse-on-surface": "#eef0ff", "on-primary-container": "#eeefff", "surface-tint": "#0053db", "primary-fixed": "#dbe1ff", "on-tertiary-container": "#ffeedd", "surface-container-high": "#e2e7ff", "surface-bright": "#faf8ff", "surface-container-lowest": "#ffffff", "secondary-fixed-dim": "#adc6ff", "danger-soft": "#FEF2F2", "inverse-surface": "#283044", "surface-container-highest": "#dae2fd", "secondary": "#0058be", "on-surface-variant": "#434655", "on-error": "#ffffff", "error": "#ba1a1a", "surface-container-low": "#f2f3ff", "surface-container": "#eaedff", "outline-variant": "#c3c6d7", "inverse-primary": "#b4c5ff", "surface-highlight": "#F0F7FF", "error-container": "#ffdad6", "secondary-container": "#2170e4", "on-primary-fixed-variant": "#003ea8", "surface-dim": "#d2d9f4" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "space-xl": "1.75rem", "margin-desktop": "2rem", "gutter": "0.75rem", "gutter-desktop": "1.25rem", "space-md": "0.875rem", "space-lg": "1.25rem", "space-xs": "0.25rem", "margin": "1rem" }, "fontFamily": { "title-md": ["Plus Jakarta Sans"], "headline-sm": ["Plus Jakarta Sans"], "label-caption": ["Plus Jakarta Sans"], "grid-schedule": ["Plus Jakarta Sans"], "display-kpi": ["Plus Jakarta Sans"], "label-micro": ["Plus Jakarta Sans"], "label-nav": ["Plus Jakarta Sans"], "headline-card": ["Plus Jakarta Sans"], "body-subordinate": ["Plus Jakarta Sans"], "metric-hero": ["Plus Jakarta Sans"], "body-default": ["Plus Jakarta Sans"], "metric-badge": ["Plus Jakarta Sans"], "metric-card": ["Plus Jakarta Sans"], "display-kpi-mobile": ["Plus Jakarta Sans"] }, "fontSize": { "title-md": ["15px", {"lineHeight": "20px", "fontWeight": "600"}], "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}], "label-caption": ["11px", {"lineHeight": "14px", "fontWeight": "500"}], "grid-schedule": ["9px", {"lineHeight": "12px", "fontWeight": "500"}], "display-kpi": ["52px", {"lineHeight": "56px", "letterSpacing": "-0.04em", "fontWeight": "800"}], "label-micro": ["10px", {"lineHeight": "12px", "fontWeight": "600"}], "label-nav": ["12px", {"lineHeight": "16px", "fontWeight": "500"}], "headline-card": ["22px", {"lineHeight": "28px", "fontWeight": "700"}], "body-subordinate": ["13px", {"lineHeight": "18px", "fontWeight": "400"}], "metric-hero": ["32px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "body-default": ["14px", {"lineHeight": "20px", "fontWeight": "400"}], "metric-badge": ["24px", {"lineHeight": "28px", "fontWeight": "700"}], "metric-card": ["28px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "display-kpi-mobile": ["40px", {"lineHeight": "44px", "letterSpacing": "-0.03em", "fontWeight": "800"}] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-default text-on-surface antialiased flex flex-col min-h-full"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="h-16 px-margin flex items-center justify-between"><div class="flex items-center gap-space-sm"><button aria-label="返回上一页" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container active:scale-95 transition-all" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[24px]">arrow_back_ios_new</span></button><h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight line-clamp-1">Course Detail</h1></div><div class="flex items-center gap-space-xs"><button aria-label="页面操作" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container active:scale-95 transition-all" type="button"><span class="material-symbols-outlined text-[22px]">more_horiz</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-[0_2px_8px_rgba(0,74,198,0.25)]"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex-1 flex flex-col relative w-full pt-16 pb-safe bg-surface px-margin"><div class="flex flex-col w-full pb-8">
+<!-- 页面顶部氛围与说明 -->
+<div class="flex items-center justify-between pt-2 pb-3">
+<div class="flex flex-col">
+<span class="font-title-md text-title-md text-on-surface">工作流协同中心</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">湖北工业大学 · 教务与行政综合审批</span>
+</div>
+<div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent-soft text-primary shadow-sm">
+<span class="material-symbols-outlined text-[16px] animate-spin" style="animation-duration: 4s;">sync</span>
+<span class="font-label-micro text-label-micro">教务专网在线</span>
+</div>
+</div>
+<!-- 1. 顶部 Segmented Control 极简分段控制器 -->
+<div class="w-full p-1 bg-surface-container rounded-full flex items-center justify-between gap-1 shadow-inner mb-4">
+<!-- 我的申请 (高亮主色蓝) -->
+<button class="flex-1 py-2 px-3 rounded-full bg-primary text-on-primary shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95" type="button">
+<span class="font-title-md text-title-md font-semibold">我的申请</span>
+<span class="px-1.5 py-0.2 rounded-full bg-on-primary/20 text-on-primary font-label-micro text-label-micro backdrop-blur-sm">2</span>
+</button>
+<!-- 待办事项 (带呼吸橙色角标 Badge) -->
+<button class="flex-1 py-2 px-2.5 rounded-full bg-transparent hover:bg-surface-container-high text-on-surface-variant flex items-center justify-center gap-1 transition-all active:scale-95 relative" type="button">
+<span class="font-title-md text-title-md">待办事项</span>
+<span class="relative flex h-5 w-5 items-center justify-center">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-course-amber opacity-75"></span>
+<span class="relative inline-flex rounded-full h-4 min-w-[16px] px-1 bg-course-amber text-on-primary items-center justify-center font-label-micro text-label-micro shadow-[0_0_8px_rgba(217,119,6,0.5)]">4</span>
+</span>
+</button>
+<!-- 我的经办 (灰蓝底) -->
+<button class="flex-1 py-2 px-3 rounded-full bg-transparent hover:bg-surface-container-high text-on-surface-variant flex items-center justify-center gap-1 transition-all active:scale-95" type="button">
+<span class="font-title-md text-title-md">我的经办</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-variant text-on-surface-variant font-label-micro text-label-micro">12</span>
+</button>
+</div>
+<!-- 卡片流转瀑布流 (CSS Stagger 弹入动画) -->
+<div class="flex flex-col gap-4">
+<!-- 卡片 1: 调停补申请 · 审批中 -->
+<div class="w-full bg-surface-container-lowest rounded-[18px] p-4 shadow-[0_8px_24px_-4px_rgba(37,99,235,0.06),0_2px_8px_-1px_rgba(15,23,42,0.03)] flex flex-col gap-3.5 relative overflow-hidden transition-all duration-300 hover:shadow-lg animate-[fadeSlideUp_0.45s_ease-out_both]" style="animation-delay: 60ms;">
+<!-- 右上角极浅徽记光晕装饰 -->
+<div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-tertiary-fixed-dim/15 blur-xl pointer-events-none"></div>
+<!-- 头部：标题与动态光晕徽章 -->
+<div class="flex items-start justify-between gap-2 relative z-10">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-xl bg-accent-soft text-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[19px]">edit_calendar</span>
+</div>
+<div>
+<h3 class="font-title-md text-title-md text-on-surface font-bold tracking-tight">调停补申请</h3>
+<p class="font-label-caption text-label-caption text-on-surface-variant">流水单号: T20261110-0982</p>
+</div>
+</div>
+<!-- 审批中：橙色呼吸徽章 -->
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 shadow-[0_0_12px_rgba(245,158,11,0.28)]">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-course-amber opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-course-amber"></span>
+</span>
+<span class="font-label-nav text-label-nav font-semibold text-course-amber">审批中</span>
+</div>
+</div>
+<!-- 课程元数据信息板 -->
+<div class="bg-surface-canvas rounded-xl p-3 flex flex-col gap-1.5">
+<div class="flex items-center justify-between">
+<span class="font-title-md text-title-md font-semibold text-on-surface">计算机制图与表达-1</span>
+<span class="font-label-caption text-label-caption px-2 py-0.5 rounded-full bg-surface-container text-primary font-medium">第 12 周 · 周五</span>
+</div>
+<div class="flex items-center gap-3 text-on-surface-variant font-body-subordinate text-body-subordinate">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">groups</span>
+            25建筑学2班
+          </span>
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">schedule</span>
+            9-11 节 (连堂)
+          </span>
+</div>
+<div class="flex items-center justify-between pt-1 border-t-0 text-on-surface-variant font-label-caption text-label-caption">
+<span>调至：周日 3-5 节 (工附楼 304)</span>
+<span>提交: 2026-11-10 09:42</span>
+</div>
+</div>
+<!-- 核心动态横向步骤条 (连线能量流动 + 环形旋转呼吸节点) -->
+<div class="pt-1 pb-1">
+<div class="relative flex items-center justify-between px-2">
+<!-- 背景导轨与能量流光 -->
+<div class="absolute left-6 right-6 top-3 h-[3px] bg-surface-track rounded-full -z-0 overflow-hidden">
+<!-- 节点 1 到 2 (已完成能量流光已铺满) -->
+<div class="absolute left-0 top-0 bottom-0 w-1/2 bg-primary"></div>
+<!-- 节点 2 到 3 (流动的能量光束脉冲) -->
+<div class="absolute left-1/2 top-0 bottom-0 w-1/2 bg-gradient-to-r from-primary via-course-amber to-surface-track relative overflow-hidden">
+<div class="absolute inset-0 bg-white/60 w-8 blur-sm animate-[energyPulse_1.8s_infinite]"></div>
+</div>
+</div>
+<!-- 节点 1: 教师提交 (已完成) -->
+<div class="flex flex-col items-center gap-1.5 z-10">
+<div class="w-6 h-6 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[14px] font-bold">check</span>
+</div>
+<div class="flex flex-col items-center">
+<span class="font-label-nav text-label-nav font-semibold text-on-surface">提交申请</span>
+<span class="font-label-micro text-label-micro text-on-surface-variant">11-10 09:42</span>
+</div>
+</div>
+<!-- 节点 2: 学院审核 (已通过) -->
+<div class="flex flex-col items-center gap-1.5 z-10">
+<div class="w-6 h-6 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[14px] font-bold">check</span>
+</div>
+<div class="flex flex-col items-center">
+<span class="font-label-nav text-label-nav font-semibold text-on-surface">学院审核</span>
+<span class="font-label-micro text-label-micro text-success">已通过</span>
+</div>
+</div>
+<!-- 节点 3: 教务处审批 (进行中：旋转环形光圈与呼吸光晕) -->
+<div class="flex flex-col items-center gap-1.5 z-10">
+<div class="relative w-6 h-6 flex items-center justify-center">
+<!-- 旋转光圈 SVG -->
+<svg class="animate-spin absolute inset-0 w-full h-full text-course-amber" fill="none" viewbox="0 0 24 24">
+<circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+<path class="opacity-90" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path>
+</svg>
+<!-- 中心常驻呼吸光圆点 -->
+<span class="w-2.5 h-2.5 rounded-full bg-course-amber shadow-[0_0_8px_rgba(217,119,6,0.8)]"></span>
+</div>
+<div class="flex flex-col items-center">
+<span class="font-label-nav text-label-nav font-bold text-course-amber">教务审批</span>
+<span class="font-label-micro text-label-micro text-course-amber">王主任审批中</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 操作与触达提示栏 -->
+<div class="flex items-center justify-between pt-1">
+<div class="flex items-center gap-1.5 text-on-surface-variant font-label-caption text-label-caption">
+<span class="material-symbols-outlined text-[14px] text-course-amber">hourglass_top</span>
+<span>预计耗时剩余 4 小时</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-3 py-1.5 rounded-full bg-surface-container hover:bg-surface-container-high text-on-surface font-label-nav text-label-nav transition-all active:scale-95" type="button">催办通知</button>
+<button class="px-3 py-1.5 rounded-full bg-accent-soft text-primary font-label-nav text-label-nav font-semibold transition-all active:scale-95" type="button">流转日志</button>
+</div>
+</div>
+</div>
+<!-- 卡片 2: 期末试卷印制申请 · 已办结 -->
+<div class="w-full bg-surface-container-lowest rounded-[18px] p-4 shadow-[0_8px_24px_-4px_rgba(37,99,235,0.06),0_2px_8px_-1px_rgba(15,23,42,0.03)] flex flex-col gap-3.5 relative overflow-hidden transition-all duration-300 hover:shadow-lg animate-[fadeSlideUp_0.45s_ease-out_both]" style="animation-delay: 130ms;">
+<!-- 头部：标题与蔚蓝已办结徽章 -->
+<div class="flex items-start justify-between gap-2">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-xl bg-success-soft text-success flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[19px]">print</span>
+</div>
+<div>
+<h3 class="font-title-md text-title-md text-on-surface font-bold tracking-tight">期末试卷印制申请</h3>
+<p class="font-label-caption text-label-caption text-on-surface-variant">流水单号: P20261108-0417</p>
+</div>
+</div>
+<!-- 蔚蓝徽章 (已办结) -->
+<div class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent-soft text-primary shadow-sm">
+<span class="material-symbols-outlined text-[13px] font-bold">verified</span>
+<span class="font-label-nav text-label-nav font-semibold">已办结</span>
+</div>
+</div>
+<!-- 摘要信息 -->
+<div class="bg-surface-canvas rounded-xl p-3 flex flex-col gap-1.5">
+<div class="flex items-center justify-between">
+<span class="font-title-md text-title-md font-semibold text-on-surface">建筑构造与物理 (A/B 卷)</span>
+<span class="font-label-caption text-label-caption px-2 py-0.5 rounded-full bg-success-soft text-success font-medium">机要密封封装</span>
+</div>
+<div class="flex items-center gap-3 text-on-surface-variant font-body-subordinate text-body-subordinate">
+<span>印数: 124 份</span>
+<span>答题卡: 匹配</span>
+<span>交付点: 一教教务总台</span>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant font-label-caption text-label-caption">
+<span>印制批号: YZ-8849-HBUT</span>
+<span>办结: 2026-11-09 16:30</span>
+</div>
+</div>
+<!-- 4 步全绿已完成步骤条 -->
+<div class="pt-1 pb-1">
+<div class="relative flex items-center justify-between px-1">
+<!-- 背景绿条 -->
+<div class="absolute left-4 right-4 top-3 h-[3px] bg-success rounded-full -z-0"></div>
+<!-- 步骤 1 -->
+<div class="flex flex-col items-center gap-1 z-10">
+<div class="w-6 h-6 rounded-full bg-success text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[13px] font-bold">check</span>
+</div>
+<span class="font-label-micro text-label-micro text-on-surface">系所审题</span>
+</div>
+<!-- 步骤 2 -->
+<div class="flex flex-col items-center gap-1 z-10">
+<div class="w-6 h-6 rounded-full bg-success text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[13px] font-bold">check</span>
+</div>
+<span class="font-label-micro text-label-micro text-on-surface">教学院长批</span>
+</div>
+<!-- 步骤 3 -->
+<div class="flex flex-col items-center gap-1 z-10">
+<div class="w-6 h-6 rounded-full bg-success text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[13px] font-bold">check</span>
+</div>
+<span class="font-label-micro text-label-micro text-on-surface">文印接收</span>
+</div>
+<!-- 步骤 4 -->
+<div class="flex flex-col items-center gap-1 z-10">
+<div class="w-6 h-6 rounded-full bg-success text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[13px] font-bold">done_all</span>
+</div>
+<span class="font-label-micro text-label-micro text-success font-semibold">印制归档</span>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between pt-1">
+<span class="font-label-caption text-label-caption text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-success">task_alt</span>
+          已入库至试卷保密室专柜
+        </span>
+<button class="px-3 py-1.5 rounded-full bg-surface-container hover:bg-surface-container-high text-on-surface font-label-nav text-label-nav transition-all active:scale-95" type="button">调印记录凭证</button>
+</div>
+</div>
+<!-- 3. 待办事项快捷浮卡 (4项快速预览，含紧急标签) -->
+<div class="w-full bg-surface-container-lowest rounded-[18px] p-4 shadow-[0_8px_24px_-4px_rgba(37,99,235,0.06),0_2px_8px_-1px_rgba(15,23,42,0.03)] flex flex-col gap-3 animate-[fadeSlideUp_0.45s_ease-out_both]" style="animation-delay: 200ms;">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-2 h-4 bg-primary rounded-full"></div>
+<h3 class="font-title-md text-title-md text-on-surface font-bold">待办事项快速通道</h3>
+<span class="px-2 py-0.5 rounded-full bg-amber-100 text-course-amber font-label-micro text-label-micro font-semibold">4 项需处理</span>
+</div>
+<button class="font-label-nav text-label-nav text-primary flex items-center gap-0.5 hover:underline active:opacity-70" type="button">
+          全部待办
+          <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</button>
+</div>
+<!-- 4 项待办快捷列表 -->
+<div class="flex flex-col gap-2.5">
+<!-- 待办 1：紧急 -->
+<div class="p-2.5 rounded-xl bg-surface-canvas hover:bg-surface-container-low transition-colors flex items-center justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="w-2 h-2 rounded-full bg-danger shrink-0"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-title-md text-title-md text-on-surface font-medium truncate">毕业论文中期检查成绩录入</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant truncate">截止时间: 今日 18:00 · 智能建造系</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 shrink-0">
+<span class="px-2 py-0.5 rounded-full bg-danger-soft text-danger font-label-micro text-label-micro font-bold">紧急截止</span>
+<span class="material-symbols-outlined text-[18px] text-outline">arrow_forward_ios</span>
+</div>
+</div>
+<!-- 待办 2：高优 -->
+<div class="p-2.5 rounded-xl bg-surface-canvas hover:bg-surface-container-low transition-colors flex items-center justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="w-2 h-2 rounded-full bg-course-amber shrink-0"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-title-md text-title-md text-on-surface font-medium truncate">2026秋季学期教材选用确认书签字</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant truncate">发起人: 教学办公室 李老师 · 2 项待核</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 shrink-0">
+<span class="px-2 py-0.5 rounded-full bg-amber-50 text-course-amber font-label-micro text-label-micro font-semibold">今日待办</span>
+<span class="material-symbols-outlined text-[18px] text-outline">arrow_forward_ios</span>
+</div>
+</div>
+<!-- 待办 3：常规 -->
+<div class="p-2.5 rounded-xl bg-surface-canvas hover:bg-surface-container-low transition-colors flex items-center justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="w-2 h-2 rounded-full bg-primary shrink-0"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-title-md text-title-md text-on-surface font-medium truncate">学术交流会议差旅费报销学院初审</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant truncate">申请人: 张副教授 · 金额 ¥3,420.00</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 shrink-0">
+<span class="px-2 py-0.5 rounded-full bg-accent-soft text-primary font-label-micro text-label-micro font-medium">常规审批</span>
+<span class="material-symbols-outlined text-[18px] text-outline">arrow_forward_ios</span>
+</div>
+</div>
+<!-- 待办 4：常规 -->
+<div class="p-2.5 rounded-xl bg-surface-canvas hover:bg-surface-container-low transition-colors flex items-center justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="w-2 h-2 rounded-full bg-course-teal shrink-0"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-title-md text-title-md text-on-surface font-medium truncate">实验室大型工件加工时段预约复核</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant truncate">机械工程实训中心 · 23研究生组</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 shrink-0">
+<span class="px-2 py-0.5 rounded-full bg-teal-50 text-course-teal font-label-micro text-label-micro font-medium">常规核验</span>
+<span class="material-symbols-outlined text-[18px] text-outline">arrow_forward_ios</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 底部新建申请悬浮触发条 -->
+<div class="w-full flex items-center justify-between p-3.5 rounded-[18px] bg-gradient-to-r from-primary to-primary-container text-on-primary shadow-[0_6px_20px_rgba(0,74,198,0.22)] animate-[fadeSlideUp_0.45s_ease-out_both]" style="animation-delay: 260ms;">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-[22px]">post_add</span>
+</div>
+<div class="flex flex-col">
+<span class="font-title-md text-title-md font-bold">发起新的教务或行政流程</span>
+<span class="font-label-caption text-label-caption text-on-primary/80">包含请假调课、经费报销、场地预约等</span>
+</div>
+</div>
+<button class="px-3.5 py-1.5 rounded-full bg-on-primary text-primary font-title-md text-title-md font-bold shadow-md hover:bg-surface active:scale-95 transition-all" type="button">
+        新建
+      </button>
+</div>
+</div>
+</div>
+<script>
+  // 注入微交互关键帧样式（流光与弹入）
+  (function() {
+    const styleId = 'workflow-animations';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        @keyframes energyPulse {
+          0% { transform: translateX(-100%); opacity: 0; }
+          50% { opacity: 1; }
+          100% { transform: translateX(200%); opacity: 0; }
+        }
+        @keyframes fadeSlideUp {
+          0% { opacity: 0; transform: translateY(14px) scale(0.98); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  })();
+</script></main></body></html>

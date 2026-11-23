@@ -2,7 +2,8 @@
  * Teacher Portal V2（E1 #1021）：教师首页语义契约测试。
  *
  * 覆盖：
- *  - 「所有功能」只呈现教务系统 / 资源两个一级分类（空分类不显示，不新增第三类）；
+ *  - 「所有功能」呈现 TEACHER_FEATURE_CATEGORIES 声明的分类（goal-22 起含「学习通」，
+ *    空分类不显示，不得出现未登记的分类）；
  *  - 未验证教师权限的模块（校园卡 / 学习通 / 游戏等）不出现；
  *  - 教师默认快捷入口固定 5 格、全部可达且可解析出图标/文案；
  *  - 「今日授课」文案不出现「去上课」式学生行动文案；
@@ -54,15 +55,15 @@ const FORBIDDEN_TEACHER_VIEW_IDS = [
 ]
 
 describe('useTeacherHome · 教师首页两分类（#1021）', () => {
-  it('教师「所有功能」只有教务系统 / 资源两个一级分类', () => {
+  it('教师「所有功能」的分类与 TEACHER_FEATURE_CATEGORIES 声明一致（goal-22 起含学习通）', () => {
     const categories = buildTeacherHomeCategories('teacher')
 
     expect(categories.map((category) => category.title)).toEqual(
       TEACHER_FEATURE_CATEGORIES.map((category) => category.labelKey)
     )
-    expect(categories).toHaveLength(2)
+    expect(categories).toHaveLength(TEACHER_FEATURE_CATEGORIES.length)
     // 目录本身只声明这两个分类（不新增第三类）
-    expect(TEACHER_FEATURE_CATEGORIES.map((category) => category.id)).toEqual(['academic', 'resource'])
+    expect(TEACHER_FEATURE_CATEGORIES.map((category) => category.id)).toEqual(['academic', 'chaoxing', 'resource'])
   })
 
   it('空分类不显示：返回的每个分类都至少有一个入口', () => {
@@ -171,7 +172,7 @@ describe('useTeacherHome · 教师默认快捷入口（#1021）', () => {
 
     role.value = 'teacher'
     expect(home.isTeacher.value).toBe(true)
-    expect(home.featureCategories.value).toHaveLength(2)
+    expect(home.featureCategories.value).toHaveLength(TEACHER_FEATURE_CATEGORIES.length)
     expect(home.defaultShortcutIds.value).toHaveLength(TEACHER_QUICK_ENTRY_SLOTS)
 
     role.value = 'student'

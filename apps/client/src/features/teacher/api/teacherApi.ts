@@ -276,3 +276,363 @@ export const fetchTeacherNotices = (
     options
   )
 }
+
+// ────────────────────────────────────────────────────────────────
+// goal-21：教师端新增 14 个只读查询（与后端 14 个 Tauri 命令 / bridge 路由一一对应）
+//
+// 约定与上面四个函数完全一致：
+// - 不抛异常，错误进 `error` 字段（`executeTeacherFetch` 已统一处理）
+// - 走同一份 singleflight（同 command + 同参数并发只发一次）
+// - 数据形状以 `Record<string, unknown>` 承载：后端返回的是教务原始字段的归一化结果，
+//   逐字段建 interface 会让前端契约比后端更脆弱（后端加字段前端就编译错）。
+// ────────────────────────────────────────────────────────────────
+
+/** 教师端只读查询的通用载荷（字段见 `data/teacher-portal-recon-1120/17-field-contract.md`）。 */
+export type TeacherRawPayload = Record<string, unknown>
+
+const emptyWhenNoKeys = (value: TeacherRawPayload): boolean =>
+  Object.keys(value ?? {}).length === 0
+
+/** 学生考勤统计（`teacher_attendance_fetch` / `/v2/teacher/attendance`）。 */
+export const fetchTeacherAttendance = (
+  semester?: string,
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_attendance_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/attendance',
+      bridgePayload: { semester: semester ?? null },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 教师端工作量（`teacher_workload_fetch` / `/v2/teacher/workload`）。 */
+export const fetchTeacherWorkload = (
+  semester?: string,
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_workload_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/workload',
+      bridgePayload: { semester: semester ?? null },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 只读工作流：申请 / 经办 / 待办（`teacher_workflow_fetch` / `/v2/teacher/workflow`）。 */
+export const fetchTeacherWorkflow = (
+  semester?: string,
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_workflow_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/workflow',
+      bridgePayload: { semester: semester ?? null },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 考试事务：缓考 / 剩余试卷 / 评教（`teacher_exam_affairs_fetch`）。 */
+export const fetchTeacherExamAffairs = (
+  semester?: string,
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_exam_affairs_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/exam-affairs',
+      bridgePayload: { semester: semester ?? null },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 学分统计（`teacher_credits_fetch` / `/v2/teacher/credits`）。 */
+export const fetchTeacherCredits = (
+  semester?: string,
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_credits_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/credits',
+      bridgePayload: { semester: semester ?? null },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 调停补申请（`teacher_adjustment_fetch` / `/v2/teacher/adjustment`）。 */
+export const fetchTeacherAdjustment = (
+  semester?: string,
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_adjustment_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/adjustment',
+      bridgePayload: { semester: semester ?? null },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/**
+ * 学生名册（`teacher_roster_fetch` / `/v2/teacher/roster`）。
+ *
+ * ⚠️ `bjid` 必填：缺失时**后端直接拒绝且不发请求**（否则会拉回全校 5.7 万条）。
+ */
+export const fetchTeacherRoster = (
+  params: { bjid: string; page?: number; pageSize?: number; keyword?: string },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_roster_fetch',
+      tauriArgs: {
+        bjid: params.bjid,
+        page: params.page ?? null,
+        pageSize: params.pageSize ?? null,
+        keyword: params.keyword ?? null
+      },
+      bridgePath: '/v2/teacher/roster',
+      bridgePayload: {
+        bjid: params.bjid,
+        page: params.page ?? null,
+        page_size: params.pageSize ?? null,
+        keyword: params.keyword ?? null
+      },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 成绩录入进度 + 教学班发布状态（`teacher_grade_entry_fetch`）。 */
+export const fetchTeacherGradeEntry = (
+  semester?: string,
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_grade_entry_fetch',
+      tauriArgs: { semester: semester ?? null },
+      bridgePath: '/v2/teacher/grade-entry',
+      bridgePayload: { semester: semester ?? null },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 课表扩展：班级列表 + 教室列表 + 每班 `scheduleUrl`（`teacher_schedule_lists_fetch`）。 */
+export const fetchTeacherScheduleLists = (
+  params: { semester?: string; keyword?: string } = {},
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_schedule_lists_fetch',
+      tauriArgs: { semester: params.semester ?? null, keyword: params.keyword ?? null },
+      bridgePath: '/v2/teacher/schedule-lists',
+      bridgePayload: { semester: params.semester ?? null, keyword: params.keyword ?? null },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 融合门户卡片（`teacher_portal_cards_fetch` / `/v2/teacher/portal-cards`）。 */
+export const fetchTeacherPortalCards = (
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_portal_cards_fetch',
+      tauriArgs: {},
+      bridgePath: '/v2/teacher/portal-cards',
+      bridgePayload: {},
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 学习通教师侧：课程与教学班（`teacher_chaoxing_courses_fetch`）。 */
+export const fetchTeacherChaoxingCourses = (
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_chaoxing_courses_fetch',
+      tauriArgs: {},
+      bridgePath: '/v2/teacher/chaoxing-courses',
+      bridgePayload: {},
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 学习通教师侧：学情 6 维度（`teacher_chaoxing_analytics_fetch`）。 */
+export const fetchTeacherChaoxingAnalytics = (
+  params: { courseid: string; clazzid: string; cpi: string },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_chaoxing_analytics_fetch',
+      tauriArgs: { courseid: params.courseid, clazzid: params.clazzid, cpi: params.cpi },
+      bridgePath: '/v2/teacher/chaoxing-analytics',
+      bridgePayload: { courseid: params.courseid, clazzid: params.clazzid, cpi: params.cpi },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 学习通教师侧：全班成绩明细（`teacher_chaoxing_scores_fetch`）。 */
+export const fetchTeacherChaoxingScores = (
+  params: { courseid: string; clazzid: string; cpi: string },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_chaoxing_scores_fetch',
+      tauriArgs: { courseid: params.courseid, clazzid: params.clazzid, cpi: params.cpi },
+      bridgePath: '/v2/teacher/chaoxing-scores',
+      bridgePayload: { courseid: params.courseid, clazzid: params.clazzid, cpi: params.cpi },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/** 学习通教师侧：学习监控（`teacher_chaoxing_monitor_fetch`）。 */
+export const fetchTeacherChaoxingMonitor = (
+  params: { courseid: string; clazzid: string; cpi: string },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_chaoxing_monitor_fetch',
+      tauriArgs: { courseid: params.courseid, clazzid: params.clazzid, cpi: params.cpi },
+      bridgePath: '/v2/teacher/chaoxing-monitor',
+      bridgePayload: { courseid: params.courseid, clazzid: params.clazzid, cpi: params.cpi },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/**
+ * 班级课表结构化数据（`teacher_class_schedule_fetch` / `/v2/teacher/class-schedule`）。
+ *
+ * goal-22：返回 46 条量级的课程条目（kcmc/xingqi/djc/zcstr/croommc…），
+ * 供课表 Tab 在**应用内**用网格渲染 —— 不再打开外部浏览器。
+ *
+ * `encodeId` 来自班级列表（`fetchTeacherScheduleLists` 的 `classes[].encodeId`）。
+ */
+export const fetchTeacherClassSchedule = (
+  params: { encodeId: string; semester?: string; campusId?: string },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_class_schedule_fetch',
+      tauriArgs: {
+        encodeId: params.encodeId,
+        semester: params.semester ?? null,
+        campusId: params.campusId ?? null
+      },
+      bridgePath: '/v2/teacher/class-schedule',
+      bridgePayload: {
+        encodeId: params.encodeId,
+        semester: params.semester ?? null,
+        campusId: params.campusId ?? null
+      },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/**
+ * 教室课表结构化数据（`teacher_room_schedule_fetch` / `/v2/teacher/room-schedule`）。
+ *
+ * 与班级课表同一套解析（字段几乎相同），`encodeId` 来自教室列表的 `rooms[].encodeId`。
+ * 大部分教室返回空数组属正常 —— 该教室本学期没排课。
+ */
+export const fetchTeacherRoomSchedule = (
+  params: { encodeId: string; semester?: string; campusId?: string },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_room_schedule_fetch',
+      tauriArgs: {
+        encodeId: params.encodeId,
+        semester: params.semester ?? null,
+        campusId: params.campusId ?? null
+      },
+      bridgePath: '/v2/teacher/room-schedule',
+      bridgePayload: {
+        encodeId: params.encodeId,
+        semester: params.semester ?? null,
+        campusId: params.campusId ?? null
+      },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )
+
+/**
+ * 按**教学班**列学生（`teacher_roster_by_class_fetch` / `/v2/teacher/roster-by-class`）。
+ *
+ * goal-22：这是唯一能按班列学生的接口（`xsxxcxListCustom` 对教师只支持按姓名查）。
+ * `jxbid` 来自 `fetchTeacherGradeEntry` 返回的 `teachingClasses[].classId`。
+ *
+ * 返回的每个学生含 `weeks`（20 周考勤状态数组）与 `recordedWeeks`（已录入周数）。
+ */
+export const fetchTeacherRosterByClass = (
+  params: { jxbid: string; page?: number; pageSize?: number },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_roster_by_class_fetch',
+      tauriArgs: {
+        jxbid: params.jxbid,
+        page: params.page ?? null,
+        pageSize: params.pageSize ?? null
+      },
+      bridgePath: '/v2/teacher/roster-by-class',
+      bridgePayload: {
+        jxbid: params.jxbid,
+        page: params.page ?? null,
+        page_size: params.pageSize ?? null
+      },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )

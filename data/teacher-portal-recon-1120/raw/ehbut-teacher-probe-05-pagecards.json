@@ -1,0 +1,42 @@
+[
+ {
+  "page": "card-hall-CUS_CARD_ALLSERVICE-renderData",
+  "url": "https://e.hbut.edu.cn/execCardMethod/1809922293628241/CUS_CARD_ALLSERVICE",
+  "method": "POST",
+  "params": "renderData",
+  "status": 200,
+  "ms": 278,
+  "fields": "errcode=0 serviceType,cardWid,navList,cardId,serviceList,config,userId,isMobileDevice",
+  "sample": "{\"errcode\":\"0\",\"errmsg\":\"请求成功\",\"data\":{\"serviceType\":[{\"labelId\":null,\"labelName\":null,\"classifyWid\":\"1362018177426386945\",\"classifyName\":\"主题\",\"parentId\":\"-1\",\"classifyIconUrl\":null,\"classifyInfoList\":[{\"labelId\":null,\"labelName\":null,\"classifyWid\":\"1364631779553546241\",\"classifyName\":\"行政\",\"parentId\":\"1362018177426386945\",\"classifyIconUrl\":null,\"classifyInfoList\":null,\"count\":10},{\"labelId\":null,\"labelName\":null,\"classifyWid\":\"1364557230101229569\",\"classifyName\":\"教学\",\"parentId\":\"1362018177426386945\",\"classifyIconUrl\":null,\"classifyInfoList\":null,\"count\":4},{\"labelId\":null,\"labelName\":null,\"classifyWid\":\"1364631859491479553\",\"classifyName\":\"科研\",\"parentId\":\"1362018177426386945\",\"classifyIconUrl\":null,\"classifyInfoList\":null,\"count\":4},{\"labelId\":null,\"labelName\":null,\"classifyWid\":\"1364631825352597505\",\"classifyName\":\"综合\",\"parentId\":\"1362018177426386945\",\"classifyIconUrl\":null,\"classifyInf"
+ },
+ {
+  "page": "card-hall-CUS_CARD_ALLSERVICE-getConfig",
+  "url": "https://e.hbut.edu.cn/execCardMethod/1809922293628241/CUS_CARD_ALLSERVICE",
+  "method": "POST",
+  "params": "getConfig",
+  "status": 200,
+  "ms": 79,
+  "fields": "errcode=0 \"{\\\"allServerRadioAndBox\\\":{\\\"radiobox\\\":\\\"0\\\",\\\"checkbox\\\":",
+  "sample": "{\"errcode\":\"0\",\"errmsg\":\"请求成功\",\"data\":\"\\\"{\\\\\\\"allServerRadioAndBox\\\\\\\":{\\\\\\\"radiobox\\\\\\\":\\\\\\\"0\\\\\\\",\\\\\\\"checkbox\\\\\\\":[\\\\\\\"1362018138155884545\\\\\\\",\\\\\\\"1362018177426386945\\\\\\\"]},\\\\\\\"serviceAppraise\\\\\\\":\\\\\\\"0\\\\\\\",\\\\\\\"SERVICE_SEARCH_BOX\\\\\\\":\\\\\\\"0\\\\\\\"}\\\"\"}"
+ },
+ {
+  "page": "card-datacenter-SYS_CARD_RECOMMENDSUBJECT-renderData",
+  "url": "https://e.hbut.edu.cn/execCardMethod/2662243601602181/SYS_CARD_RECOMMENDSUBJECT",
+  "method": "POST",
+  "params": "renderData",
+  "status": 200,
+  "ms": 130,
+  "fields": "errcode=0 config,showSubjectList",
+  "sample": "{\"errcode\":\"0\",\"errmsg\":\"请求成功\",\"data\":{\"config\":{\"containerType\":{\"type\":0,\"value\":500},\"listDisplayRadio\":1,\"recommendSubjectConfig\":{\"whRatio\":{\"widthRatio\":3,\"heightRatio\":1},\"subjectList\":[{\"subjectTitles\":[{\"langKey\":\"zh_CN\",\"langValue\":\"数据整合共享，简化填报流程，增强服务水平\",\"langName\":null}],\"imgUrl\":\"https://e.hbut.edu.cn/oss/userIcon/casp-portal/uploadInfos/20251204/17648151039296212.png?sign=12fwy17c5RHXsN4CzZUNEMcGxqjytC9WkHkOieafh7ZYyOdd-5mNskTuGSo4Cw7c7kkMJ0Qc208YhY_iG1fP4w\",\"showContent\":{\"sortConfigList\":[{\"type\":2,\"sort\":null,\"itemWid\":\"1445799397985087488\",\"itemName\":\"数据中台\",\"isShow\":1,\"iconType\":null,\"iconUrl\":null,\"url\":null,\"labelList\":null,\"serviceWid\":\"1445799397985087488\",\"serviceName\":\"数据中台\",\"iconLink\":\"https://e.hbut.edu.cn/oss/iconLab/2025-04-30/会议纪要-1367063796824117248.png?sign=JyOG1ZhGeCnCYGO9P2y4khLCej4kAdhY4kzXytkmg8AG2WrJ40SPMw7xkii7hqOzh3Crx3TIWy49cDqpQZqaWA\"},{\"type\":2,\"so"
+ },
+ {
+  "page": "card-datacenter-SYS_CARD_RECOMMENDSUBJECT-getConfig",
+  "url": "https://e.hbut.edu.cn/execCardMethod/2662243601602181/SYS_CARD_RECOMMENDSUBJECT",
+  "method": "POST",
+  "params": "getConfig",
+  "status": 200,
+  "ms": 82,
+  "fields": "errcode=0 \"{\\\"recommendSubjectConfig\\\":{\\\"subjectList\\\":[{\\\"imgUrl\\\":\\",
+  "sample": "{\"errcode\":\"0\",\"errmsg\":\"请求成功\",\"data\":\"\\\"{\\\\\\\"recommendSubjectConfig\\\\\\\":{\\\\\\\"subjectList\\\\\\\":[{\\\\\\\"imgUrl\\\\\\\":\\\\\\\"https://e.hbut.edu.cn/oss/userIcon/casp-portal/uploadInfos/20251204/17648151039296212.png?sign=12fwy17c5RHXsN4CzZUNEMcGxqjytC9WkHkOieafh7ZYyOdd-5mNskTuGSo4Cw7c7kkMJ0Qc208YhY_iG1fP4w\\\\\\\",\\\\\\\"showContent\\\\\\\":{\\\\\\\"sortConfigList\\\\\\\":[{\\\\\\\"itemName\\\\\\\":\\\\\\\"\\\\u6570\\\\u636E\\\\u4E2D\\\\u53F0\\\\\\\",\\\\\\\"iconLink\\\\\\\":\\\\\\\"https://e.hbut.edu.cn/oss/iconLab/2025-04-30/\\\\u4F1A\\\\u8BAE\\\\u7EAA\\\\u8981-1367063796824117248.png?sign=JyOG1ZhGeCnCYGO9P2y4khLCej4kAdhY4kzXytkmg8AG2WrJ40SPMw7xkii7hqOzh3Crx3TIWy49cDqpQZqaWA\\\\\\\",\\\\\\\"type\\\\\\\":2,\\\\\\\"serviceName\\\\\\\":\\\\\\\"\\\\u6570\\\\u636E\\\\u4E2D\\\\u53F0\\\\\\\",\\\\\\\"itemWid\\\\\\\":\\\\\\\"1445799397985087488\\\\\\\",\\\\\\\"serviceWid\\\\\\\":\\\\\\\"1445799397985087488\\\\\\\"},{\\\\\\\"itemName\\\\\\\":\\\\\\\"\\\\u6570\\\\u636E\\\\u96C6\\\\u5E02\\\\\\\",\\\\\\\"iconLink\\\\\\\":\\\\\\\"https://e.hbut.edu.cn/oss/iconLab/2025-04-30"
+ }
+]

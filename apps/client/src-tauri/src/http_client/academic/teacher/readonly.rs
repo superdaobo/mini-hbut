@@ -88,6 +88,142 @@ pub const PATH_QXZKB_QUERY: &str = "/admin/jsd/qxzkb/queryQxkbPage";
 /// 教师校历数据（`{xnxq}` 为学期占位段）。
 pub const PATH_CALENDAR_DATA: &str = "/admin/system/zy/xlgl/getData/{xnxq}";
 
+// ── goal-21 T04a：考勤 / 考试事务 / 学分（2026-11-20 实测）─────────────
+/// 学生考勤统计的教学班列表（jqGrid JSON，实测 total=6，含 `cqzt1..cqzt20`）。
+///
+/// ⚠️ 与 [`PATH_TEACHING_TASKS`]（`/admin/jsd/jxrw/ajaxListJsJxrw`）末段同名但**路径不同**，
+/// 前者是「考勤统计的教学班」，后者是「我的教学任务」，禁止混用。
+pub const PATH_ATTENDANCE_LIST: &str = "/admin/jsd/xskq/ajaxListJsJxrw";
+/// 缓考任务查询（实测 200，本学期为空）。
+pub const PATH_EXAM_DEFERRED: &str = "/admin/kw/kwhkgl/hkmdcxjg";
+/// 剩余试卷（实测 200，本学期为空）。
+pub const PATH_EXAM_REMAINING_PAPERS: &str = "/admin/jsd/sjgl/ajaxSysj";
+/// 评教信息查看（实测 200，本学期为空）。
+///
+/// ⚠️ 同域 `pj/xspjjgcx/checkRefresh` 会触发服务端重算，**不在本 allowlist 内**。
+pub const PATH_EXAM_EVAL_INFO: &str = "/admin/pj/xspjxxcx/acustomList";
+/// 学分统计列表（实测 200，`getxftjlist` 4 条）。
+pub const PATH_CREDITS_LIST: &str = "/admin/xjgl/xftj/getxftjlist";
+/// 不及格课程明细（实测 200）。
+pub const PATH_CREDITS_FAILED_COURSES: &str = "/admin/xjgl/xftj/showBjgKcDetail";
+
+/// 教师工作量汇总（**同 host 微服务 `/twork`，不走 `/admin` 前缀**）。
+///
+/// 该微服务响应形态是 `{code:1,message,data}`（不是 `{ret:0}`），且**只接 GET**：
+/// `POST /twork/jsd/search` 实测返回「数据异常」。
+///
+/// 由于 [`assert_allowlist_readonly`] 强制所有条目以 `/admin/` 开头，本路径**不进入**
+/// [`TEACHER_READONLY_PATHS`]，而由 [`is_teacher_workload_readonly_path`] 独立校验。
+pub const PATH_WORKLOAD_SUMMARY: &str = "/twork/jsd/current-user-gzl";
+
+/// 工作量微服务允许的只读路径（独立白名单，前缀 `/twork/`）。
+pub const TEACHER_WORKLOAD_READONLY_PATHS: &[&str] = &[PATH_WORKLOAD_SUMMARY];
+
+/// 工作量微服务路径是否已登记（运行期 fail-closed）。
+pub fn is_teacher_workload_readonly_path(path: &str) -> bool {
+    let candidate = path.trim();
+    !candidate.is_empty()
+        && candidate.starts_with("/twork/")
+        && !path_has_write_verb(candidate)
+        && TEACHER_WORKLOAD_READONLY_PATHS.contains(&candidate)
+}
+
+// ── goal-21 T04b：调停补 / 名册 / 成绩录入（2026-11-20 实测）───────────
+/// 我的调停补申请（jqGrid，实测 total=0）。
+pub const PATH_ADJUSTMENT_MY_APPLY: &str = "/admin/jsd/ttbgl/queryTtbxxList";
+/// 可申请调停补的课程（jqGrid，实测 total=6）。
+pub const PATH_ADJUSTMENT_APPLICABLE: &str = "/admin/jsd/ttbgl/queryJsPkxx";
+/// 学生名册（jqGrid）。
+///
+/// ⚠️ **实测无 `bjid` 时返回全校 56957 条**，`yxdm` 院系过滤不生效。
+/// 调用方必须先确定班级再查询，本模块对缺失 `bjid` 直接拒绝、不发请求。
+pub const PATH_ROSTER_STUDENTS: &str = "/admin/xjgl/xsjbxx/xsxxcxListCustom";
+/// 按**教学班**列学生（goal-22 实测：这是唯一能按班列学生的接口）。
+///
+/// ```text
+/// GET /admin/jsd/xskq/xswdxskqListCustom?jxbid=<教学班ID>&gridtype=jqgrid&page=1&rows=N
+/// → total=49（计算机制图与表达-2 的 49 个学生）
+/// ```
+///
+/// 字段：`xh`(学号) / `xm`(姓名) / `kcmc` / `bjmc` / `zymc` / `yxmc` / `sznj` /
+/// `cqzt1..cqzt20`（20 周考勤状态）。
+///
+/// 发现路径：`/admin/jsd/xskq` 主页面只有课程列表，学生明细在
+/// `/admin/jsd/xskq/xswdxskq?id=<jxbid>` 子页面的 AJAX 里。
+pub const PATH_ROSTER_BY_CLASS: &str = "/admin/jsd/xskq/xswdxskqListCustom";
+/// 成绩录入进度（`{index}` 为学期序号，实测 `/1` 返回 8 条）。
+pub const PATH_GRADE_ENTRY_PROGRESS: &str = "/admin/jsd/jsdcjlr/queryCjlrsz/{index}";
+// 成绩教学班状态复用已有的 [`PATH_TEACHING_CLASSES`]（同一条路径，不重复登记）。
+
+// ── goal-21 T04b2：课表扩展（班级/教室）────────────────────────────────
+/// 班级列表（jqGrid，实测 **total=3315**）。
+///
+/// ⚠️ **必须带 `qx=1`**：不带时实测恒返回 `total=0`（这是本轮踩到的坑）。
+pub const PATH_CLASS_LIST: &str = "/admin/pkgl/kbcx/bjkb/qryBjxx";
+/// 教室列表（jqGrid，实测 **total=1741**，字段 `jsbh/jsmc/jxldm/xqmc/jslx`）。
+pub const PATH_ROOM_LIST: &str = "/admin/pkgl/pkglcroomkb/ajaxListCustom";
+/// 班级课表页（**服务端渲染 HTML**，需 `id`(encodeId) + `xnxq` + `bjbh` + `xqdm`）。
+///
+/// 课表数据直接渲染在 `<td>` 里，无 JSON 接口 —— 本模块只返回该页 URL 供 WebView 承载，
+/// 不解析 HTML 表格（解析 rowspan 网格的脆弱性远高于收益）。
+pub const PATH_CLASS_SCHEDULE_PAGE: &str = "/admin/pkgl/kbcx/bjkb/ckbjkb";
+/// 班级课表**结构化数据**（goal-22 实测：与学生课表同一接口、同一套字段）。
+///
+/// ```text
+/// GET /admin/pkgl/kbcx/bjkb/sdpkkbList?xnxq=&id=<encodeId>&xqdm=&zxzc=&zdzc=&zc=&zxxq=&zdxq=&zxjc=&zdjc=&xsqbkb=&xslx=&kcxz=
+/// → 200，实测「25建筑学2」返回 46 条
+/// ```
+///
+/// 字段：`kcmc`(课程) / `tmc`(教师，HTML) / `croommc`(教室，HTML) / `xingqi`(1-7) /
+/// `zcstr`(周次 "1,2,3,...") / `djc`(起始节次) / `jxbbh`(教学班号) / `xf` / `zongxs` / `kcxz`。
+///
+/// **这条路径让班级课表可以在应用内渲染，无需 WebView 或外部浏览器。**
+pub const PATH_CLASS_SCHEDULE_LIST: &str = "/admin/pkgl/kbcx/bjkb/sdpkkbList";
+/// 教室课表**结构化数据**（goal-22 实测：与班级课表同族，字段几乎相同）。
+///
+/// ```text
+/// GET /admin/pkgl/pkglcroomkb/sdpkkbList?xnxq=&id=<教室 encodeId>&xqdm=&…&schoolCode=
+/// → 200，裸数组（「篮球馆303」实测 2 条）
+/// ```
+///
+/// 与班级课表相比多出 `jsmc`(教室名)/`bjdm`(班级代码)/`jxbrs`(教学班人数)/`djs`/`cxrs`，
+/// 末位参数是 `schoolCode` 而非 `kcxz`。解析逻辑复用 `class_schedule::parse_class_schedule`。
+pub const PATH_ROOM_SCHEDULE_LIST: &str = "/admin/pkgl/pkglcroomkb/sdpkkbList";
+
+// ── goal-21 T04b：融合门户 e.hbut（**非 /admin 前缀**，独立白名单）──────
+/// 门户页面视图（含 `cardLayout` 8 张卡；实测 200）。
+pub const PATH_PORTAL_PAGE_VIEW: &str = "/getPageView";
+/// 门户卡片数据（`{cardWid}/{cardId}` 占位；**POST JSON**，纯查询）。
+///
+/// method 仅限 `renderData` / `getConfig` / `getMarkNumber`（实测），无副作用。
+pub const PATH_PORTAL_CARD_METHOD: &str = "/execCardMethod/{cardWid}/{cardId}";
+/// 门户 CAS 换票入口（会话过期时静默重走，恢复 `errcode=999`）。
+pub const PATH_PORTAL_LOGIN: &str = "/login";
+
+/// 融合门户允许的只读路径（独立白名单；门户网关会话约 10 分钟过期）。
+pub const TEACHER_PORTAL_READONLY_PATHS: &[&str] = &[
+    PATH_PORTAL_PAGE_VIEW,
+    PATH_PORTAL_CARD_METHOD,
+    PATH_PORTAL_LOGIN,
+];
+
+/// 门户路径是否已登记（运行期 fail-closed；模板段按前缀匹配）。
+pub fn is_teacher_portal_readonly_path(path: &str) -> bool {
+    let candidate = path.trim();
+    if candidate.is_empty() || path_has_write_verb(candidate) {
+        return false;
+    }
+    TEACHER_PORTAL_READONLY_PATHS.iter().any(|allowed| {
+        if *allowed == candidate {
+            return true;
+        }
+        match allowed.split_once('{') {
+            Some((prefix, _)) => !prefix.is_empty() && candidate.starts_with(prefix),
+            None => false,
+        }
+    })
+}
+
 /// 教师教务只读路径 allowlist（唯一事实源）。
 pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
@@ -195,6 +331,89 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
         purpose: "教师校历数据（E4）",
         post_ok: false,
     },
+    // ── goal-21 T04a ──────────────────────────────────────────────
+    TeacherReadonlyPath {
+        path: PATH_ATTENDANCE_LIST,
+        purpose: "学生考勤统计的教学班列表（goal-21 考勤页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_EXAM_DEFERRED,
+        purpose: "缓考任务查询（goal-21 考试事务）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_EXAM_REMAINING_PAPERS,
+        purpose: "剩余试卷（goal-21 考试事务）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_EXAM_EVAL_INFO,
+        purpose: "评教信息查看（goal-21 考试事务）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CREDITS_LIST,
+        purpose: "学分统计列表（goal-21 学分页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CREDITS_FAILED_COURSES,
+        purpose: "不及格课程明细（goal-21 学分页）",
+        post_ok: false,
+    },
+    // ── goal-21 T04b ──────────────────────────────────────────────
+    TeacherReadonlyPath {
+        path: PATH_ADJUSTMENT_MY_APPLY,
+        purpose: "我的调停补申请（goal-21 调停补页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ADJUSTMENT_APPLICABLE,
+        purpose: "可申请调停补的课程（goal-21 调停补页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ROSTER_BY_CLASS,
+        purpose: "按教学班列学生（goal-22：唯一能按班列学生的接口）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ROSTER_STUDENTS,
+        purpose: "学生名册（goal-21 名册页；必须带 bjid）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_GRADE_ENTRY_PROGRESS,
+        purpose: "成绩录入进度（goal-21 成绩页）",
+        post_ok: false,
+    },
+    // ── goal-21 T04b2 ──────────────────────────────────────────────
+    TeacherReadonlyPath {
+        path: PATH_CLASS_LIST,
+        purpose: "班级列表（goal-21 班级课表选班；必须带 qx=1）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ROOM_LIST,
+        purpose: "教室列表（goal-21 教室课表选教室）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CLASS_SCHEDULE_PAGE,
+        purpose: "班级课表页（服务端渲染 HTML，仅生成 WebView URL）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_CLASS_SCHEDULE_LIST,
+        purpose: "班级课表结构化数据（goal-22：应用内网格渲染，替代外部浏览器）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ROOM_SCHEDULE_LIST,
+        purpose: "教室课表结构化数据（goal-22：应用内网格渲染）",
+        post_ok: false,
+    },
 ];
 
 /// 允许以 POST 调用的**纯查询**路径（fail-closed：不在此集合内一律只允许 GET）。
@@ -263,6 +482,10 @@ pub fn is_teacher_readonly_path(path: &str) -> bool {
 /// - 白名单内的路径必须在 allowlist 中且标记 `post_ok: true`。
 ///
 /// 供开发期断言与单元测试调用；返回 `Err` 表示 allowlist 被误改。
+///
+/// 生产路径不调用它（allowlist 的正确性由 `profile.rs` 的契约测试保证），
+/// 因此这里显式豁免 dead_code —— 它存在的意义就是「测试可调用」。
+#[allow(dead_code)]
 pub fn assert_allowlist_readonly() -> Result<(), String> {
     for entry in TEACHER_READONLY_PATHS {
         if !entry.path.starts_with("/admin/") {

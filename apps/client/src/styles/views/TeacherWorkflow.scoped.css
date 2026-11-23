@@ -1,0 +1,286 @@
+/* TeacherWorkflowView — Academic Minimalist Blue（goal-21 / T08）
+   亮色色值一律用 rgba()（无 #hex 字面量），token 类在模板里；暗色局部规则
+   允许 hex（本文件不在 Lead 约束的 grep 范围内），与 dark-mode.css 末段同风格。
+   类名一律 .tch-wf-* 前缀，避开 dark-mode.css 已注册的 .tch-card 全局规则。 */
+
+.tch-wf {
+  font-family: 'SF Pro Text', system-ui, -apple-system, 'Inter', sans-serif;
+}
+
+/* ── 卡片：设计包 Level 1（白卡 + 细描边 + 微投影，20px 圆角）──────── */
+.tch-wf-card {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 20px;
+  box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+}
+
+/* ── 设计包排版（title-md 15px/600；label-caption/micro）────────────── */
+.tch-wf-title {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: #131b2e;
+}
+.tch-wf-meta {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+.tch-wf-label-caption {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+.tch-wf-label-micro {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+}
+
+/* ── 三分段胶囊（申请 / 待办 / 经办）────────────────────────────────── */
+.tch-wf-seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 9999px;
+  background: rgba(241, 245, 249, 1); /* surface-muted */
+}
+.tch-wf-seg-btn {
+  position: relative;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 9999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: rgba(67, 70, 85, 1); /* on-surface-variant */
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.2s ease-out, color 0.2s ease-out, box-shadow 0.2s ease-out;
+  white-space: nowrap;
+}
+.tch-wf-seg-btn--active {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 2px 6px -1px rgba(15, 23, 42, 0.08);
+}
+.tch-wf-seg-count {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* 待办 >0 时的橙色角标（8px 圆点，吸在按钮右上角） */
+.tch-wf-seg-badge {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: rgba(245, 158, 11, 1); /* warning */
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+/* ── 状态徽章（pill；done 蓝 / rejected 红 / pending 橙 / neutral 灰）───── */
+.tch-wf-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tch-wf-badge--done {
+  background: rgba(219, 234, 254, 1); /* accent-soft */
+  color: #2563eb;
+}
+.tch-wf-badge--rejected {
+  background: rgba(254, 242, 242, 1); /* danger-soft */
+  color: #dc2626;
+}
+.tch-wf-badge--pending {
+  background: rgba(254, 243, 199, 1); /* amber-100 */
+  color: #b45309;
+}
+.tch-wf-badge--neutral {
+  background: rgba(241, 245, 249, 1); /* surface-muted */
+  color: rgba(67, 70, 85, 1); /* on-surface-variant */
+}
+
+/* ── 处理意见折叠（有 clyj 时才渲染）────────────────────────────────── */
+.tch-wf-opinion {
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 1); /* surface-canvas */
+}
+.tch-wf-opinion-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  color: rgba(67, 70, 85, 1);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.tch-wf-opinion-summary::-webkit-details-marker {
+  display: none;
+}
+.tch-wf-opinion-icon {
+  transition: transform 0.2s ease-out;
+}
+.tch-wf-opinion[open] .tch-wf-opinion-icon {
+  transform: rotate(180deg);
+}
+.tch-wf-opinion-body {
+  padding: 0 10px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: rgba(19, 27, 46, 0.85);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── 页尾小字：App 内无详情页（10px 极浅灰）────────────────────────── */
+.tch-wf-footnote {
+  margin-top: 10px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 500;
+  color: rgba(148, 163, 184, 0.9); /* slate-400 */
+}
+
+/* ── 学期胶囊（页头右侧 <details> 下拉）────────────────────────────── */
+.tch-wf-semester {
+  position: relative;
+}
+.tch-wf-semester summary {
+  list-style: none;
+}
+.tch-wf-semester summary::-webkit-details-marker {
+  display: none;
+}
+.tch-wf-semester-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.tch-wf-semester-pill:active {
+  opacity: 0.75;
+}
+.tch-wf-semester-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 9.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px -4px rgba(37, 99, 235, 0.08), 0 4px 12px rgba(15, 23, 42, 0.06);
+  padding: 6px;
+}
+.tch-wf-semester-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tch-wf-semester-option input {
+  accent-color: rgba(37, 99, 235, 1);
+}
+.tch-wf-semester-option:active {
+  background: #f1f5f9;
+}
+
+/* ── 暗色局部规则（token 类由 dark-mode.css 覆盖，这里只补非 token 属性）── */
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-card {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-title {
+  color: #f1f5f9;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-seg {
+  background: #111827; /* surface-muted 暗色映射 */
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-seg-btn {
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-seg-btn--active {
+  background: #1e293b;
+  color: #93c5fd;
+  box-shadow: 0 2px 6px -1px rgba(0, 0, 0, 0.5);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-seg-badge {
+  box-shadow: 0 0 0 2px #111827;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-badge--done {
+  background: rgba(37, 99, 235, 0.18);
+  color: #93c5fd;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-badge--rejected {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-badge--pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-badge--neutral {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-opinion {
+  background: #0b1120;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-opinion-summary {
+  color: #94a3b8;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-opinion-body {
+  color: rgba(241, 245, 249, 0.85);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-footnote {
+  color: rgba(100, 116, 139, 0.9);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-semester-pill {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-semester-menu {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-wf .tch-wf-semester-option:active {
+  background: #1f2937;
+}

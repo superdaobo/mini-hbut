@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@100..900&display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-tertiary-container": "#ffeedd", "surface-container-lowest": "#ffffff", "primary-container": "#2563eb", "on-tertiary-fixed": "#2a1700", "outline": "#737686", "surface-highlight": "#F0F7FF", "on-background": "#131b2e", "accent-soft": "#DBEAFE", "outline-variant": "#c3c6d7", "tertiary-fixed-dim": "#ffb95f", "primary": "#004ac6", "course-wisteria": "#8B5CF6", "surface-container-highest": "#dae2fd", "on-tertiary": "#ffffff", "surface-variant": "#dae2fd", "success-soft": "#ECFDF5", "danger-soft": "#FEF2F2", "on-tertiary-fixed-variant": "#653e00", "surface-muted": "#F1F5F9", "surface-tint": "#0053db", "course-lake-blue": "#0284C7", "tertiary": "#784b00", "tertiary-fixed": "#ffddb8", "background": "#faf8ff", "on-primary-fixed": "#00174b", "inverse-surface": "#283044", "on-primary-fixed-variant": "#003ea8", "secondary-fixed-dim": "#adc6ff", "surface-container-low": "#f2f3ff", "inverse-primary": "#b4c5ff", "surface-container": "#eaedff", "course-coral": "#F43F5E", "course-amber": "#D97706", "on-primary-container": "#eeefff", "on-secondary-fixed": "#001a42", "surface": "#faf8ff", "surface-canvas": "#F8FAFC", "on-primary": "#ffffff", "success": "#10B981", "on-secondary-fixed-variant": "#004395", "inverse-on-surface": "#eef0ff", "secondary-container": "#2170e4", "surface-dim": "#d2d9f4", "surface-track": "#E2E8F0", "error-container": "#ffdad6", "on-secondary": "#ffffff", "on-error-container": "#93000a", "secondary": "#0058be", "on-error": "#ffffff", "error": "#ba1a1a", "primary-fixed-dim": "#b4c5ff", "primary-fixed": "#dbe1ff", "on-surface-variant": "#434655", "secondary-fixed": "#d8e2ff", "course-teal": "#0D9488", "on-surface": "#131b2e", "danger": "#EF4444", "on-secondary-container": "#fefcff", "surface-bright": "#faf8ff", "surface-container-high": "#e2e7ff", "tertiary-container": "#996100" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "gutter-desktop": "1.25rem", "space-xl": "1.75rem", "space-md": "0.875rem", "space-lg": "1.25rem", "gutter": "0.75rem", "margin-desktop": "2rem", "margin": "1rem", "space-xs": "0.25rem" }, "fontFamily": { "label-nav": ["Plus Jakarta Sans"], "title-md": ["Plus Jakarta Sans"], "headline-card": ["Plus Jakarta Sans"], "display-kpi-mobile": ["Plus Jakarta Sans"], "metric-hero": ["Plus Jakarta Sans"], "body-subordinate": ["Plus Jakarta Sans"], "headline-sm": ["Plus Jakarta Sans"], "body-default": ["Plus Jakarta Sans"], "label-caption": ["Plus Jakarta Sans"], "label-micro": ["Plus Jakarta Sans"], "metric-badge": ["Plus Jakarta Sans"], "display-kpi": ["Plus Jakarta Sans"], "metric-card": ["Plus Jakarta Sans"], "grid-schedule": ["Plus Jakarta Sans"] }, "fontSize": { "label-nav": ["12px", {"lineHeight": "16px", "fontWeight": "500"}], "title-md": ["15px", {"lineHeight": "20px", "fontWeight": "600"}], "headline-card": ["22px", {"lineHeight": "28px", "fontWeight": "700"}], "display-kpi-mobile": ["40px", {"lineHeight": "44px", "letterSpacing": "-0.03em", "fontWeight": "800"}], "metric-hero": ["32px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "body-subordinate": ["13px", {"lineHeight": "18px", "fontWeight": "400"}], "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}], "body-default": ["14px", {"lineHeight": "20px", "fontWeight": "400"}], "label-caption": ["11px", {"lineHeight": "14px", "fontWeight": "500"}], "label-micro": ["10px", {"lineHeight": "12px", "fontWeight": "600"}], "metric-badge": ["24px", {"lineHeight": "28px", "fontWeight": "700"}], "display-kpi": ["52px", {"lineHeight": "56px", "letterSpacing": "-0.04em", "fontWeight": "800"}], "metric-card": ["28px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "grid-schedule": ["9px", {"lineHeight": "12px", "fontWeight": "500"}] } } } };</script><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface-canvas text-on-surface font-body-default min-h-screen flex flex-col antialiased selection:bg-accent-soft selection:text-primary"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="h-14 px-margin flex items-center justify-between"><div class="flex items-center gap-space-xs"><button class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface active:bg-surface-container transition-colors" onclick="history.back()"><span class="material-symbols-outlined text-[22px]">arrow_back_ios_new</span></button><h1 class="font-title-md text-title-md tracking-tight text-on-surface">Schedule Adjustment Request</h1></div><div class="flex items-center gap-space-xs"><button class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">more_horiz</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-14 pb-safe bg-surface-canvas"><div class="flex flex-col w-full pb-24">
+<!-- Top Banner / Summary Card -->
+<section class="px-margin pt-space-md">
+<div class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-lg shadow-sm">
+<div class="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-accent-soft/30 blur-2xl pointer-events-none"></div>
+<div class="flex items-start justify-between relative z-10">
+<div>
+<div class="flex items-center gap-space-xs mb-space-xs">
+<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary">
+<span class="material-symbols-outlined text-[14px]">edit_calendar</span>
+</span>
+<span class="font-label-nav text-label-nav text-on-surface-variant">调停补课服务台</span>
+</div>
+<h2 class="font-headline-card text-headline-card text-on-surface tracking-tight">
+            6 <span class="font-body-subordinate text-body-subordinate text-on-surface-variant font-normal">门课</span> · 12 <span class="font-body-subordinate text-body-subordinate text-on-surface-variant font-normal">个教学班可申请</span>
+</h2>
+</div>
+<div class="px-space-sm py-1 rounded-full bg-surface-highlight text-primary flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+<span class="font-label-micro text-label-micro">开放线上办理</span>
+</div>
+</div>
+<!-- Policy pill tip -->
+<div class="mt-space-md pt-space-sm flex items-center gap-space-xs text-on-surface-variant bg-surface-canvas rounded-lg px-space-md py-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">info</span>
+<p class="font-body-subordinate text-body-subordinate">
+          依规程：需在课程开课前 <strong class="font-semibold text-primary">24 小时</strong> 线上提交调课申请
+        </p>
+</div>
+</div>
+</section>
+<!-- Section: Approval Tracker (Micro-glow spinning node) -->
+<section class="px-margin pt-space-lg">
+<div class="flex items-center justify-between mb-space-sm">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[18px]">timeline</span>
+<h3 class="font-title-md text-title-md text-on-surface">最近申请审批动态</h3>
+</div>
+<span class="font-label-caption text-label-caption text-primary">查看全部 (3)</span>
+</div>
+<div class="rounded-xl bg-surface-container-lowest p-space-md shadow-sm">
+<div class="flex items-start justify-between">
+<div>
+<span class="font-label-micro text-label-micro px-2 py-0.5 rounded-full bg-accent-soft text-primary font-semibold">调课流程中</span>
+<h4 class="font-headline-sm text-headline-sm text-on-surface mt-1">周三 3-5 节 ➔ 周日 1-3 节</h4>
+<p class="font-body-subordinate text-body-subordinate text-on-surface-variant mt-0.5">
+            建筑数字化设计方法 · 逸夫建筑馆 302
+          </p>
+</div>
+<span class="font-label-caption text-label-caption text-outline">今日 09:20</span>
+</div>
+<!-- Stepper timeline -->
+<div class="mt-space-lg pt-space-xs">
+<div class="grid grid-cols-3 relative">
+<!-- Connective Track line -->
+<div class="absolute top-3.5 left-[16%] right-[16%] h-[2px] bg-surface-track z-0">
+<div class="h-full bg-primary w-1/2"></div>
+</div>
+<!-- Step 1: Done -->
+<div class="flex flex-col items-center text-center relative z-10">
+<div class="w-7 h-7 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[15px]" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<span class="font-label-nav text-label-nav text-on-surface mt-1.5 font-medium">提交申请</span>
+<span class="font-label-micro text-label-micro text-outline">已完成</span>
+</div>
+<!-- Step 2: Active with Breathing Glow Ring -->
+<div class="flex flex-col items-center text-center relative z-10">
+<div class="relative flex items-center justify-center w-7 h-7">
+<!-- Micro spin glow ring -->
+<span class="absolute inset-0 rounded-full border-2 border-primary border-t-transparent animate-spin"></span>
+<span class="w-3.5 h-3.5 rounded-full bg-primary shadow-[0_0_12px_rgba(37,99,235,0.6)]"></span>
+</div>
+<span class="font-label-nav text-label-nav text-primary mt-1.5 font-semibold">学院教学院长</span>
+<span class="font-label-micro text-label-micro text-primary">审核中 · 待批复</span>
+</div>
+<!-- Step 3: Pending -->
+<div class="flex flex-col items-center text-center relative z-10">
+<div class="w-7 h-7 rounded-full bg-surface-track text-outline flex items-center justify-center">
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+</div>
+<span class="font-label-nav text-label-nav text-outline mt-1.5 font-normal">教务处备案</span>
+<span class="font-label-micro text-label-micro text-outline">等待中</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Section: Available Courses for Adjustment -->
+<section class="px-margin pt-space-lg">
+<div class="flex items-center justify-between mb-space-sm">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[18px]">class</span>
+<h3 class="font-title-md text-title-md text-on-surface">可调整课程班级</h3>
+</div>
+<span class="font-label-caption text-label-caption text-on-surface-variant">点击卡片快捷办理</span>
+</div>
+<div class="flex flex-col gap-space-md">
+<!-- Course Card 1: Interactive Expandable -->
+<article class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-md shadow-sm transition-all duration-300">
+<!-- Left Indigo-blue primary bar -->
+<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-primary rounded-r"></div>
+<div class="pl-2">
+<div class="flex items-start justify-between">
+<div>
+<div class="flex items-center gap-space-xs">
+<h4 class="font-headline-sm text-headline-sm text-on-surface">计算机制图与表达-1</h4>
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-label-micro text-label-micro text-on-surface-variant">必修</span>
+</div>
+<p class="font-body-subordinate text-body-subordinate text-on-surface-variant mt-1">
+                25建筑学2班 · 64人
+              </p>
+</div>
+<span class="font-label-micro text-label-micro px-2 py-1 rounded-full bg-success-soft text-success font-medium flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-success"></span> 可调课
+            </span>
+</div>
+<div class="mt-space-md flex items-center gap-space-lg text-on-surface-variant">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-outline">schedule</span>
+<span class="font-body-subordinate text-body-subordinate">原时段：周五 9-11 节</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-outline">location_on</span>
+<span class="font-body-subordinate text-body-subordinate">机房南-204</span>
+</div>
+</div>
+<!-- Actions Slot -->
+<div class="mt-space-md pt-space-sm grid grid-cols-3 gap-space-xs">
+<button class="h-9 rounded-full bg-primary text-on-primary font-label-nav text-label-nav flex items-center justify-center gap-1 active:scale-95 transition-transform shadow-[0_4px_12px_rgba(37,99,235,0.25)]" onclick="selectAction(this, '调课')">
+<span class="material-symbols-outlined text-[16px]">sync_alt</span>
+              申请调课
+            </button>
+<button class="h-9 rounded-full bg-surface-highlight text-primary font-label-nav text-label-nav flex items-center justify-center gap-1 active:scale-95 transition-transform" onclick="selectAction(this, '停课')">
+<span class="material-symbols-outlined text-[16px]">pause_circle</span>
+              申请停课
+            </button>
+<button class="h-9 rounded-full bg-surface-highlight text-primary font-label-nav text-label-nav flex items-center justify-center gap-1 active:scale-95 transition-transform" onclick="selectAction(this, '补课')">
+<span class="material-symbols-outlined text-[16px]">add_circle</span>
+              申请补课
+            </button>
+</div>
+</div>
+</article>
+<!-- Course Card 2: Conflict Intelligent Detection Warning -->
+<article class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-md shadow-sm transition-all duration-300">
+<!-- Left Amber bar for cautionary notice -->
+<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-course-amber rounded-r"></div>
+<div class="pl-2">
+<div class="flex items-start justify-between gap-space-xs">
+<div>
+<div class="flex items-center gap-space-xs">
+<h4 class="font-headline-sm text-headline-sm text-on-surface">建筑数字化设计方法</h4>
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-label-micro text-label-micro text-on-surface-variant">专业限选</span>
+</div>
+<p class="font-body-subordinate text-body-subordinate text-on-surface-variant mt-1">
+                25建筑学1班 · 48人
+              </p>
+</div>
+</div>
+<!-- Conflict Glowing Pill -->
+<div class="mt-space-sm inline-flex items-center gap-1.5 px-space-sm py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed shadow-[0_0_12px_rgba(245,158,11,0.25)]">
+<span class="material-symbols-outlined text-[15px] text-course-amber">warning</span>
+<span class="font-label-caption text-label-caption font-semibold">拟调时段与实验室占用冲突</span>
+</div>
+<div class="mt-space-md flex items-center gap-space-lg text-on-surface-variant">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-outline">schedule</span>
+<span class="font-body-subordinate text-body-subordinate">原时段：周三 1-2 节</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-outline">computer</span>
+<span class="font-body-subordinate text-body-subordinate">BIM智能模拟实验室</span>
+</div>
+</div>
+<!-- Intelligent prompt container -->
+<div class="mt-space-md p-space-sm rounded-lg bg-surface-canvas flex items-start gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-course-amber mt-0.5">lightbulb</span>
+<div class="text-on-surface-variant">
+<p class="font-body-subordinate text-body-subordinate">
+                检测到该实验室周四 5-6 节空闲，可一键切换推荐空余时段。
+              </p>
+<button class="mt-1 font-label-nav text-label-nav text-primary flex items-center gap-0.5">
+                采纳推荐并调课 <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</article>
+<!-- Course Card 3: Standard normal status -->
+<article class="relative overflow-hidden rounded-xl bg-surface-container-lowest p-space-md shadow-sm transition-all duration-300">
+<!-- Left Lake Blue bar -->
+<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-course-lake-blue rounded-r"></div>
+<div class="pl-2">
+<div class="flex items-start justify-between">
+<div>
+<div class="flex items-center gap-space-xs">
+<h4 class="font-headline-sm text-headline-sm text-on-surface">建筑力学与结构</h4>
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-label-micro text-label-micro text-on-surface-variant">专业基础</span>
+</div>
+<p class="font-body-subordinate text-body-subordinate text-on-surface-variant mt-1">
+                25城市规划1班 · 52人
+              </p>
+</div>
+<span class="font-label-micro text-label-micro px-2 py-1 rounded-full bg-success-soft text-success font-medium flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-success"></span> 正常可调
+            </span>
+</div>
+<div class="mt-space-md flex items-center justify-between text-on-surface-variant">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-outline">schedule</span>
+<span class="font-body-subordinate text-body-subordinate">原时段：周二 5-6 节</span>
+</div>
+<button class="px-space-md py-1.5 rounded-full bg-surface-highlight text-primary font-label-nav text-label-nav flex items-center gap-1 active:bg-accent-soft">
+<span>办理变动</span>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+</button>
+</div>
+</div>
+</article>
+</div>
+</section>
+<!-- Floating Launch Button -->
+<div class="fixed bottom-6 left-0 right-0 px-margin z-40 pointer-events-none flex justify-center">
+<button class="pointer-events-auto w-full max-w-sm h-12 rounded-full bg-primary text-on-primary font-headline-sm text-headline-sm flex items-center justify-center gap-space-xs shadow-[0_8px_24px_rgba(0,74,198,0.35)] active:scale-95 transition-transform" onclick="triggerQuickSheet()">
+<span class="material-symbols-outlined text-[20px]">add_task</span>
+<span>发起新申请</span>
+</button>
+</div>
+<!-- Micro-feedback Toast Slot -->
+<div class="fixed top-16 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface px-space-md py-2 rounded-full font-label-nav text-label-nav shadow-lg opacity-0 transition-opacity duration-300 pointer-events-none z-50 flex items-center gap-1.5" id="toastNotification">
+<span class="material-symbols-outlined text-[16px] text-success">check_circle</span>
+<span id="toastText">已进入调课向导</span>
+</div>
+</div>
+<script>
+  function selectAction(btn, type) {
+    showToast(`已选择「${type}」流程，正载入班级教学日志`);
+  }
+
+  function triggerQuickSheet() {
+    showToast('正在调取学期课表冲突引擎...');
+  }
+
+  function showToast(text) {
+    const toast = document.getElementById('toastNotification');
+    const toastText = document.getElementById('toastText');
+    if (!toast || !toastText) return;
+    toastText.textContent = text;
+    toast.classList.remove('opacity-0');
+    toast.classList.add('opacity-100');
+    setTimeout(() => {
+      toast.classList.remove('opacity-100');
+      toast.classList.add('opacity-0');
+    }, 2000);
+  }
+</script></main></body></html>

@@ -1,0 +1,10 @@
+import { probe } from './probe-lib.mjs';
+const r1 = await probe('https://code.hbut.edu.cn/');
+console.log('code 首页', r1.status, 'len', r1.text.length, r1.location || '');
+console.log('   title:', (r1.text.match(/<title>(.*?)<\/title>/) || [])[1]);
+const r3 = await probe('http://172.16.44.6:31165/?tid=zz&orgId=2');
+console.log('172.16 首页', r3.status, 'len', r3.text.length, r3.location || '');
+console.log('   title:', (r3.text.match(/<title>(.*?)<\/title>/) || [])[1]);
+const f1 = (r1.text.match(/js\/app\.[^"']+/) || [])[0];
+const f3 = (r3.text.match(/js\/app\.[^"']+/) || [])[0];
+console.log('bundle code:', f1, '| 172.16:', f3);

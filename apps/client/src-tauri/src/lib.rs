@@ -690,20 +690,8 @@ pub fn run() {
             transport::tauri::electricity::electricity_query_account,
             transport::tauri::electricity::refresh_electricity_token,
             transport::tauri::electricity::fetch_transaction_history,
-            // P4-A（#1342）：余额明细（balanceTradeList，tradeType 11/12/13）+ 类型字典
             transport::tauri::electricity::fetch_balance_trade_list,
             transport::tauri::electricity::fetch_trade_list_config,
-            // P4-A（#1342）：学习通内嵌页（应用内打开 + 注入会话 cookie）
-            modules::chaoxing_embed::chaoxing_embed_open,
-            modules::chaoxing_embed::chaoxing_embed_close,
-            modules::chaoxing_embed::chaoxing_embed_resize,
-            modules::chaoxing_embed::chaoxing_embed_zoom,
-            // P4-B（#1343）：作业/考试「只查不做」清单
-            transport::tauri::chaoxing::chaoxing_fetch_works_all_courses,
-            transport::tauri::chaoxing::chaoxing_fetch_exams_all_courses,
-            transport::tauri::chaoxing::chaoxing_resolve_task_url,
-            // P4-C（#1344）：学习记录（stat2 学情统计，6 Tab / 16 维度）
-            transport::tauri::chaoxing::chaoxing_fetch_study_record,
             transport::tauri::electricity::campus_code_fetch_config,
             transport::tauri::electricity::campus_code_fetch_qrcode,
             transport::tauri::electricity::campus_code_fetch_order_status,
@@ -792,6 +780,25 @@ pub fn run() {
             transport::tauri::teacher::teacher_teaching_fetch,
             transport::tauri::teacher::teacher_exams_fetch,
             transport::tauri::teacher::teacher_notices_fetch,
+            // goal-21：教师端新增只读命令（考勤/工作量/工作流/考试事务/学分/
+            // 调停补/名册/成绩录入/课表列表/门户卡/学习通教师侧 4 条）
+            transport::tauri::teacher::teacher_attendance_fetch,
+            transport::tauri::teacher::teacher_workload_fetch,
+            transport::tauri::teacher::teacher_workflow_fetch,
+            transport::tauri::teacher::teacher_exam_affairs_fetch,
+            transport::tauri::teacher::teacher_credits_fetch,
+            transport::tauri::teacher::teacher_adjustment_fetch,
+            transport::tauri::teacher::teacher_roster_fetch,
+            transport::tauri::teacher::teacher_roster_by_class_fetch,
+            transport::tauri::teacher::teacher_grade_entry_fetch,
+            transport::tauri::teacher::teacher_schedule_lists_fetch,
+            transport::tauri::teacher::teacher_class_schedule_fetch,
+            transport::tauri::teacher::teacher_room_schedule_fetch,
+            transport::tauri::teacher::teacher_portal_cards_fetch,
+            transport::tauri::teacher::teacher_chaoxing_courses_fetch,
+            transport::tauri::teacher::teacher_chaoxing_analytics_fetch,
+            transport::tauri::teacher::teacher_chaoxing_scores_fetch,
+            transport::tauri::teacher::teacher_chaoxing_monitor_fetch,
             // #1052：图书馆预约（超星 reserve）基础链路——应用目录 + 真实入口/凭证解析
             transport::tauri::library_reserve::library_reserve_list_apps,
             transport::tauri::library_reserve::library_reserve_resolve_entry,
@@ -825,6 +832,10 @@ pub fn run() {
             // #1054：座位预约提交（快速预约链路：验证码 + 提交随机串 + 提交）
             transport::tauri::library_reserve::library_reserve_seat_submit_prepare,
             transport::tauri::library_reserve::library_reserve_seat_submit,
+            transport::tauri::chaoxing::chaoxing_fetch_exams_all_courses,
+            transport::tauri::chaoxing::chaoxing_fetch_study_record,
+            transport::tauri::chaoxing::chaoxing_fetch_works_all_courses,
+            transport::tauri::chaoxing::chaoxing_resolve_task_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

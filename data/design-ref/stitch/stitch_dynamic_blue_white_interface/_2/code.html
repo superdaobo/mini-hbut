@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@100..900&display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-tertiary-container": "#ffeedd", "surface-container-lowest": "#ffffff", "primary-container": "#2563eb", "on-tertiary-fixed": "#2a1700", "outline": "#737686", "surface-highlight": "#F0F7FF", "on-background": "#131b2e", "accent-soft": "#DBEAFE", "outline-variant": "#c3c6d7", "tertiary-fixed-dim": "#ffb95f", "primary": "#004ac6", "course-wisteria": "#8B5CF6", "surface-container-highest": "#dae2fd", "on-tertiary": "#ffffff", "surface-variant": "#dae2fd", "success-soft": "#ECFDF5", "danger-soft": "#FEF2F2", "on-tertiary-fixed-variant": "#653e00", "surface-muted": "#F1F5F9", "surface-tint": "#0053db", "course-lake-blue": "#0284C7", "tertiary": "#784b00", "tertiary-fixed": "#ffddb8", "background": "#faf8ff", "on-primary-fixed": "#00174b", "inverse-surface": "#283044", "on-primary-fixed-variant": "#003ea8", "secondary-fixed-dim": "#adc6ff", "surface-container-low": "#f2f3ff", "inverse-primary": "#b4c5ff", "surface-container": "#eaedff", "course-coral": "#F43F5E", "course-amber": "#D97706", "on-primary-container": "#eeefff", "on-secondary-fixed": "#001a42", "surface": "#faf8ff", "surface-canvas": "#F8FAFC", "on-primary": "#ffffff", "success": "#10B981", "on-secondary-fixed-variant": "#004395", "inverse-on-surface": "#eef0ff", "secondary-container": "#2170e4", "surface-dim": "#d2d9f4", "surface-track": "#E2E8F0", "error-container": "#ffdad6", "on-secondary": "#ffffff", "on-error-container": "#93000a", "secondary": "#0058be", "on-error": "#ffffff", "error": "#ba1a1a", "primary-fixed-dim": "#b4c5ff", "primary-fixed": "#dbe1ff", "on-surface-variant": "#434655", "secondary-fixed": "#d8e2ff", "course-teal": "#0D9488", "on-surface": "#131b2e", "danger": "#EF4444", "on-secondary-container": "#fefcff", "surface-bright": "#faf8ff", "surface-container-high": "#e2e7ff", "tertiary-container": "#996100" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "gutter-desktop": "1.25rem", "space-xl": "1.75rem", "space-md": "0.875rem", "space-lg": "1.25rem", "gutter": "0.75rem", "margin-desktop": "2rem", "margin": "1rem", "space-xs": "0.25rem" }, "fontFamily": { "label-nav": ["Plus Jakarta Sans"], "title-md": ["Plus Jakarta Sans"], "headline-card": ["Plus Jakarta Sans"], "display-kpi-mobile": ["Plus Jakarta Sans"], "metric-hero": ["Plus Jakarta Sans"], "body-subordinate": ["Plus Jakarta Sans"], "headline-sm": ["Plus Jakarta Sans"], "body-default": ["Plus Jakarta Sans"], "label-caption": ["Plus Jakarta Sans"], "label-micro": ["Plus Jakarta Sans"], "metric-badge": ["Plus Jakarta Sans"], "display-kpi": ["Plus Jakarta Sans"], "metric-card": ["Plus Jakarta Sans"], "grid-schedule": ["Plus Jakarta Sans"] }, "fontSize": { "label-nav": ["12px", {"lineHeight": "16px", "fontWeight": "500"}], "title-md": ["15px", {"lineHeight": "20px", "fontWeight": "600"}], "headline-card": ["22px", {"lineHeight": "28px", "fontWeight": "700"}], "display-kpi-mobile": ["40px", {"lineHeight": "44px", "letterSpacing": "-0.03em", "fontWeight": "800"}], "metric-hero": ["32px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "body-subordinate": ["13px", {"lineHeight": "18px", "fontWeight": "400"}], "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}], "body-default": ["14px", {"lineHeight": "20px", "fontWeight": "400"}], "label-caption": ["11px", {"lineHeight": "14px", "fontWeight": "500"}], "label-micro": ["10px", {"lineHeight": "12px", "fontWeight": "600"}], "metric-badge": ["24px", {"lineHeight": "28px", "fontWeight": "700"}], "display-kpi": ["52px", {"lineHeight": "56px", "letterSpacing": "-0.04em", "fontWeight": "800"}], "metric-card": ["28px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "grid-schedule": ["9px", {"lineHeight": "12px", "fontWeight": "500"}] } } } };</script><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface-canvas text-on-surface font-body-default min-h-screen flex flex-col antialiased selection:bg-accent-soft selection:text-primary"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="h-14 px-margin flex items-center justify-between"><div class="flex items-center gap-space-xs"><button class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface active:bg-surface-container transition-colors" onclick="history.back()"><span class="material-symbols-outlined text-[22px]">arrow_back_ios_new</span></button><h1 class="font-title-md text-title-md tracking-tight text-on-surface">Student Directory</h1></div><div class="flex items-center gap-space-xs"><button class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">more_horiz</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-14 pb-safe bg-surface-canvas"><div class="flex flex-col w-full px-margin pb-space-xl space-y-space-md">
+<!-- Search and Class Selector Section -->
+<div class="flex flex-col space-y-space-sm pt-space-xs">
+<!-- Search Bar with Pill Aesthetics -->
+<div class="relative flex items-center w-full bg-surface-container-lowest rounded-full shadow-[0_4px_16px_-2px_rgba(0,74,198,0.06)] px-space-md py-2.5">
+<span class="material-symbols-outlined text-outline text-[20px] mr-2">search</span>
+<input class="w-full bg-transparent font-body-default text-body-default text-on-surface placeholder:text-outline focus:outline-none" id="student-search-input" oninput="handleSearchInput(this.value)" placeholder="输入学生姓名 / 学号 / 宿舍号" type="text"/>
+<button class="hidden w-6 h-6 rounded-full bg-surface-muted text-on-surface-variant flex items-center justify-center transition-transform active:scale-90" id="clear-search-btn" onclick="clearSearch()">
+<span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+</div>
+<!-- Class Switcher Chips (Horizontal Scrollable) -->
+<div class="flex items-center gap-space-xs overflow-x-auto no-scrollbar py-1 -mx-margin px-margin">
+<!-- Active Class Pill -->
+<button class="shrink-0 px-3.5 py-1.5 rounded-full bg-primary text-on-primary font-label-nav text-label-nav shadow-[0_4px_12px_rgba(0,74,198,0.22)] flex items-center gap-1.5 transition-transform active:scale-95">
+<span>25建筑学2班</span>
+<span class="bg-surface-container-lowest/20 px-1.5 py-0.5 rounded-full font-label-micro text-label-micro text-on-primary">61人</span>
+</button>
+<!-- Inactive Class 1 -->
+<button class="shrink-0 px-3.5 py-1.5 rounded-full bg-surface-container-lowest text-on-surface-variant font-label-nav text-label-nav shadow-[0_2px_8px_rgba(15,23,42,0.03)] hover:text-on-surface flex items-center gap-1.5 transition-all active:scale-95">
+<span>25建筑学1班</span>
+<span class="bg-surface-muted text-outline px-1.5 py-0.5 rounded-full font-label-micro text-label-micro">46人</span>
+</button>
+<!-- Inactive Class 2 -->
+<button class="shrink-0 px-3.5 py-1.5 rounded-full bg-surface-container-lowest text-on-surface-variant font-label-nav text-label-nav shadow-[0_2px_8px_rgba(15,23,42,0.03)] hover:text-on-surface flex items-center gap-1.5 transition-all active:scale-95">
+<span>24工业设计3班</span>
+<span class="bg-surface-muted text-outline px-1.5 py-0.5 rounded-full font-label-micro text-label-micro">38人</span>
+</button>
+</div>
+</div>
+<!-- KPI Overview Micro Strip: Quick Health Scan -->
+<div class="grid grid-cols-3 gap-space-xs bg-surface-highlight rounded-xl p-space-sm shadow-[inset_0_1px_2px_rgba(37,99,235,0.04)]">
+<div class="flex flex-col items-center justify-center py-1">
+<span class="font-label-micro text-label-micro text-outline">在册学生</span>
+<span class="font-headline-sm text-headline-sm text-primary mt-0.5">61<span class="font-label-caption text-label-caption text-outline-variant font-normal"> 人</span></span>
+</div>
+<div class="flex flex-col items-center justify-center py-1 bg-surface-container-lowest rounded-lg shadow-sm">
+<span class="font-label-micro text-label-micro text-course-amber flex items-center gap-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-course-amber animate-pulse"></span>重点关注
+      </span>
+<span class="font-headline-sm text-headline-sm text-course-amber mt-0.5">2<span class="font-label-caption text-label-caption text-outline-variant font-normal"> 人</span></span>
+</div>
+<div class="flex flex-col items-center justify-center py-1">
+<span class="font-label-micro text-label-micro text-outline">平均出勤</span>
+<span class="font-headline-sm text-headline-sm text-success mt-0.5">94.2<span class="font-label-caption text-label-caption text-outline-variant font-normal"> %</span></span>
+</div>
+</div>
+<!-- Filter & Ordering Helper -->
+<div class="flex items-center justify-between pt-1">
+<div class="flex items-center gap-1">
+<span class="font-title-md text-title-md text-on-surface">学生风险与档案</span>
+<span class="font-label-caption text-label-caption text-outline">(按学号降序)</span>
+</div>
+<div class="flex items-center gap-1">
+<button class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface-container text-on-surface-variant font-label-caption text-label-caption active:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-[14px]">filter_list</span>
+<span>仅看异常</span>
+</button>
+</div>
+</div>
+<!-- Student Card Waterfall List (Staggered Entrance Animation Container) -->
+<div class="flex flex-col space-y-space-sm" id="student-list">
+<!-- Card 1: Normal Standard Performance -->
+<div class="student-card opacity-0 translate-y-3 transition-all duration-500 ease-out bg-surface-container-lowest rounded-[20px] p-space-md shadow-[0_8px_20px_-4px_rgba(37,99,235,0.05),0_2px_6px_-1px_rgba(15,23,42,0.02)] flex flex-col space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<!-- Monogram Avatar -->
+<div class="w-10 h-10 rounded-[14px] bg-accent-soft text-primary font-title-md text-title-md flex items-center justify-center shadow-sm">
+            张
+          </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-title-md text-title-md text-on-surface">张*</span>
+<span class="font-label-caption text-label-caption text-outline bg-surface-muted px-1.5 py-0.5 rounded-full">2025081102</span>
+</div>
+<span class="font-body-subordinate text-body-subordinate text-outline">25建筑学2班 · 润斋 4-208</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline-variant text-[20px]">chevron_right</span>
+</div>
+<!-- Metric Dual Block -->
+<div class="grid grid-cols-2 gap-space-xs pt-1">
+<div class="flex items-center justify-between bg-surface-muted rounded-xl px-3 py-2">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">fact_check</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">出勤率</span>
+</div>
+<span class="font-title-md text-title-md text-on-surface">96%</span>
+</div>
+<div class="flex items-center justify-between bg-surface-muted rounded-xl px-3 py-2">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">auto_graph</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">综合绩点</span>
+</div>
+<span class="font-title-md text-title-md text-on-surface">82<span class="font-label-micro text-label-micro text-outline font-normal"> 分</span></span>
+</div>
+</div>
+</div>
+<!-- Card 2: Risk Warning State (Attendance Low + Failing Grade Warning Glow) -->
+<div class="student-card opacity-0 translate-y-3 transition-all duration-500 ease-out bg-surface-container-lowest rounded-[20px] p-space-md shadow-[0_8px_24px_-4px_rgba(217,119,6,0.12),0_2px_6px_-1px_rgba(15,23,42,0.03)] flex flex-col space-y-space-sm relative overflow-hidden">
+<!-- Ambient Indicator Glow Bar on Left -->
+<div class="absolute left-0 top-0 bottom-0 w-1.5 bg-course-amber shadow-[0_0_12px_rgba(217,119,6,0.5)]"></div>
+<div class="flex items-center justify-between pl-1">
+<div class="flex items-center gap-space-sm">
+<!-- Monogram Avatar -->
+<div class="w-10 h-10 rounded-[14px] bg-tertiary-fixed text-tertiary-container font-title-md text-title-md flex items-center justify-center shadow-sm">
+            李
+          </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-title-md text-title-md text-on-surface">李*华</span>
+<span class="font-label-caption text-label-caption text-outline bg-surface-muted px-1.5 py-0.5 rounded-full">2025081109</span>
+<span class="bg-tertiary-fixed-dim/30 text-course-amber font-label-micro text-label-micro px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-course-amber"></span>双项告警
+              </span>
+</div>
+<span class="font-body-subordinate text-body-subordinate text-outline">25建筑学2班 · 润斋 4-210</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-course-amber text-[20px]">priority_high</span>
+</div>
+<!-- Metric Dual Block with Warning Ambient Signal -->
+<div class="grid grid-cols-2 gap-space-xs pt-1 pl-1">
+<!-- Attendance Warning -->
+<div class="flex items-center justify-between bg-on-tertiary-container/30 rounded-xl px-3 py-2 shadow-[0_0_10px_rgba(245,158,11,0.08)]">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-course-amber">warning</span>
+<span class="font-label-caption text-label-caption text-course-amber font-semibold">出勤</span>
+</div>
+<span class="font-title-md text-title-md text-course-amber">88% <span class="font-label-micro text-label-micro">⚠</span></span>
+</div>
+<!-- Grade Warning with Beacon Glow Dot -->
+<div class="flex items-center justify-between bg-danger-soft rounded-xl px-3 py-2 shadow-[0_0_12px_rgba(239,68,68,0.12)]">
+<div class="flex items-center gap-1.5">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-danger"></span>
+</span>
+<span class="font-label-caption text-label-caption text-danger font-semibold">成绩</span>
+</div>
+<span class="font-title-md text-title-md text-danger">59 <span class="font-label-micro text-label-micro">不及格</span></span>
+</div>
+</div>
+</div>
+<!-- Card 3: Excellent Academic Standing (Bright Blue Honor Accent) -->
+<div class="student-card opacity-0 translate-y-3 transition-all duration-500 ease-out bg-surface-container-lowest rounded-[20px] p-space-md shadow-[0_8px_20px_-4px_rgba(37,99,235,0.06),0_2px_6px_-1px_rgba(15,23,42,0.02)] flex flex-col space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<!-- Monogram Avatar -->
+<div class="w-10 h-10 rounded-[14px] bg-primary-fixed text-primary font-title-md text-title-md flex items-center justify-center shadow-sm">
+            王
+          </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-title-md text-title-md text-on-surface">王*雪</span>
+<span class="font-label-caption text-label-caption text-outline bg-surface-muted px-1.5 py-0.5 rounded-full">2025081115</span>
+<span class="bg-accent-soft text-primary font-label-micro text-label-micro px-1.5 py-0.5 rounded-full flex items-center gap-0.5 font-semibold">
+<span class="material-symbols-outlined text-[11px]" style="font-variation-settings: 'FILL' 1;">stars</span>学优生
+              </span>
+</div>
+<span class="font-body-subordinate text-body-subordinate text-outline">25建筑学2班 · 德斋 2-105</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline-variant text-[20px]">chevron_right</span>
+</div>
+<!-- Metric Dual Block with Top Performer Polish -->
+<div class="grid grid-cols-2 gap-space-xs pt-1">
+<div class="flex items-center justify-between bg-surface-muted rounded-xl px-3 py-2">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary">verified</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">出勤率</span>
+</div>
+<span class="font-title-md text-title-md text-primary font-bold">98%</span>
+</div>
+<div class="flex items-center justify-between bg-surface-highlight rounded-xl px-3 py-2 shadow-[0_2px_8px_rgba(37,99,235,0.08)]">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary" style="font-variation-settings: 'FILL' 1;">workspace_premium</span>
+<span class="font-label-caption text-label-caption text-primary font-semibold">综合成绩</span>
+</div>
+<span class="font-title-md text-title-md text-primary font-bold">91<span class="font-label-micro text-label-micro text-primary font-normal"> 分</span></span>
+</div>
+</div>
+</div>
+<!-- Card 4: Academic Assistance Period (Severe Attendance Deficit + Support Tag) -->
+<div class="student-card opacity-0 translate-y-3 transition-all duration-500 ease-out bg-surface-container-lowest rounded-[20px] p-space-md shadow-[0_8px_20px_-4px_rgba(239,68,68,0.08),0_2px_6px_-1px_rgba(15,23,42,0.02)] flex flex-col space-y-space-sm relative">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<!-- Monogram Avatar -->
+<div class="w-10 h-10 rounded-[14px] bg-danger-soft text-danger font-title-md text-title-md flex items-center justify-center shadow-sm">
+            陈
+          </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-title-md text-title-md text-on-surface">陈*宇</span>
+<span class="font-label-caption text-label-caption text-outline bg-surface-muted px-1.5 py-0.5 rounded-full">2025081128</span>
+</div>
+<span class="font-body-subordinate text-body-subordinate text-outline">25建筑学2班 · 润斋 4-212</span>
+</div>
+</div>
+<span class="bg-danger-soft text-danger font-label-micro text-label-micro px-2 py-0.5 rounded-full font-semibold">
+          帮扶中
+        </span>
+</div>
+<!-- Metric Dual Block with Academic Support Indicator -->
+<div class="grid grid-cols-2 gap-space-xs pt-1">
+<!-- Low Attendance -->
+<div class="flex items-center justify-between bg-on-tertiary-container/30 rounded-xl px-3 py-2">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-course-amber">timer_off</span>
+<span class="font-label-caption text-label-caption text-course-amber">出勤率</span>
+</div>
+<span class="font-title-md text-title-md text-course-amber font-bold">75% <span class="font-label-micro text-label-micro">⚠</span></span>
+</div>
+<!-- Marginally Passing Grade -->
+<div class="flex items-center justify-between bg-surface-muted rounded-xl px-3 py-2">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-outline">trending_down</span>
+<span class="font-label-caption text-label-caption text-on-surface-variant">综合绩点</span>
+</div>
+<span class="font-title-md text-title-md text-on-surface">62<span class="font-label-micro text-label-micro text-outline font-normal"> 分</span></span>
+</div>
+</div>
+<!-- Academic Assistance Progress Pill Bar -->
+<div class="flex items-center justify-between bg-surface-highlight rounded-xl px-3 py-2">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary text-[15px]">handshake</span>
+<span class="font-label-caption text-label-caption text-primary font-medium">处在学业帮扶期 (第 2 周 / 共 6 周)</span>
+</div>
+<span class="font-label-micro text-label-micro text-outline">责任导师: 汪教授</span>
+</div>
+</div>
+</div>
+<!-- Subtle Load More & Count Footer Indicator -->
+<div class="flex flex-col items-center justify-center pt-space-md space-y-2">
+<div class="flex items-center gap-2 text-outline">
+<span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
+<span class="font-label-caption text-label-caption">已加载 20 / 61 名学生</span>
+<span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
+</div>
+<button class="flex items-center gap-1.5 text-primary font-body-subordinate text-body-subordinate px-4 py-2 rounded-full hover:bg-surface-highlight transition-colors active:scale-95">
+<span class="material-symbols-outlined text-[16px] animate-bounce">expand_more</span>
+<span>轻触或滚动加载更多学生</span>
+</button>
+</div>
+</div>
+<script>
+  // Staggered Waterfall Entrance Micro-Interaction
+  document.addEventListener("DOMContentLoaded", () => {
+    cascadeStudentCards();
+  });
+
+  function cascadeStudentCards() {
+    const cards = document.querySelectorAll(".student-card");
+    cards.forEach((card, index) => {
+      setTimeout(() => {
+        card.classList.remove("opacity-0", "translate-y-3");
+        card.classList.add("opacity-100", "translate-y-0");
+      }, 70 * index);
+    });
+  }
+
+  // Interactive Search Filtering Emulation
+  function handleSearchInput(query) {
+    const clearBtn = document.getElementById("clear-search-btn");
+    if (query.trim().length > 0) {
+      clearBtn.classList.remove("hidden");
+    } else {
+      clearBtn.classList.add("hidden");
+    }
+  }
+
+  function clearSearch() {
+    const input = document.getElementById("student-search-input");
+    input.value = "";
+    document.getElementById("clear-search-btn").classList.add("hidden");
+    input.focus();
+  }
+
+  // Initial trigger for immediate preview
+  cascadeStudentCards();
+</script></main></body></html>

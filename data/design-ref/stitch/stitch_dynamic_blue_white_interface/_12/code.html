@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_tab" name="shell-type"/><title>Schedule - Mini-HBUT</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;min-height:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-primary": "#ffffff", "tertiary": "#784b00", "primary-fixed-dim": "#b4c5ff", "on-primary-fixed": "#00174b", "on-secondary-container": "#fefcff", "surface": "#faf8ff", "primary-container": "#2563eb", "accent-soft": "#DBEAFE", "tertiary-fixed-dim": "#ffb95f", "success": "#10B981", "on-tertiary": "#ffffff", "on-background": "#131b2e", "surface-variant": "#dae2fd", "tertiary-container": "#996100", "on-tertiary-fixed-variant": "#653e00", "on-secondary-fixed": "#001a42", "on-secondary-fixed-variant": "#004395", "course-amber": "#D97706", "course-coral": "#F43F5E", "surface-canvas": "#F8FAFC", "course-wisteria": "#8B5CF6", "on-surface": "#131b2e", "surface-track": "#E2E8F0", "on-error-container": "#93000a", "tertiary-fixed": "#ffddb8", "secondary-fixed": "#d8e2ff", "outline": "#737686", "course-lake-blue": "#0284C7", "surface-muted": "#F1F5F9", "danger": "#EF4444", "on-tertiary-fixed": "#2a1700", "background": "#faf8ff", "course-teal": "#0D9488", "success-soft": "#ECFDF5", "on-secondary": "#ffffff", "primary": "#004ac6", "inverse-on-surface": "#eef0ff", "on-primary-container": "#eeefff", "surface-tint": "#0053db", "primary-fixed": "#dbe1ff", "on-tertiary-container": "#ffeedd", "surface-container-high": "#e2e7ff", "surface-bright": "#faf8ff", "surface-container-lowest": "#ffffff", "secondary-fixed-dim": "#adc6ff", "danger-soft": "#FEF2F2", "inverse-surface": "#283044", "surface-container-highest": "#dae2fd", "secondary": "#0058be", "on-surface-variant": "#434655", "on-error": "#ffffff", "error": "#ba1a1a", "surface-container-low": "#f2f3ff", "surface-container": "#eaedff", "outline-variant": "#c3c6d7", "inverse-primary": "#b4c5ff", "surface-highlight": "#F0F7FF", "error-container": "#ffdad6", "secondary-container": "#2170e4", "on-primary-fixed-variant": "#003ea8", "surface-dim": "#d2d9f4" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "space-sm": "0.5rem", "space-xl": "1.75rem", "margin-desktop": "2rem", "gutter": "0.75rem", "gutter-desktop": "1.25rem", "space-md": "0.875rem", "space-lg": "1.25rem", "space-xs": "0.25rem", "margin": "1rem" }, "fontFamily": { "title-md": ["Plus Jakarta Sans"], "headline-sm": ["Plus Jakarta Sans"], "label-caption": ["Plus Jakarta Sans"], "grid-schedule": ["Plus Jakarta Sans"], "display-kpi": ["Plus Jakarta Sans"], "label-micro": ["Plus Jakarta Sans"], "label-nav": ["Plus Jakarta Sans"], "headline-card": ["Plus Jakarta Sans"], "body-subordinate": ["Plus Jakarta Sans"], "metric-hero": ["Plus Jakarta Sans"], "body-default": ["Plus Jakarta Sans"], "metric-badge": ["Plus Jakarta Sans"], "metric-card": ["Plus Jakarta Sans"], "display-kpi-mobile": ["Plus Jakarta Sans"] }, "fontSize": { "title-md": ["15px", {"lineHeight": "20px", "fontWeight": "600"}], "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}], "label-caption": ["11px", {"lineHeight": "14px", "fontWeight": "500"}], "grid-schedule": ["9px", {"lineHeight": "12px", "fontWeight": "500"}], "display-kpi": ["52px", {"lineHeight": "56px", "letterSpacing": "-0.04em", "fontWeight": "800"}], "label-micro": ["10px", {"lineHeight": "12px", "fontWeight": "600"}], "label-nav": ["12px", {"lineHeight": "16px", "fontWeight": "500"}], "headline-card": ["22px", {"lineHeight": "28px", "fontWeight": "700"}], "body-subordinate": ["13px", {"lineHeight": "18px", "fontWeight": "400"}], "metric-hero": ["32px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "body-default": ["14px", {"lineHeight": "20px", "fontWeight": "400"}], "metric-badge": ["24px", {"lineHeight": "28px", "fontWeight": "700"}], "metric-card": ["28px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700"}], "display-kpi-mobile": ["40px", {"lineHeight": "44px", "letterSpacing": "-0.03em", "fontWeight": "800"}] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-default text-on-surface antialiased flex flex-col min-h-full"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="h-16 px-margin flex items-center justify-between"><div class="flex items-center gap-space-sm"><div class="w-11 h-11 flex items-center justify-center rounded-full bg-accent-soft text-primary"><span class="material-symbols-outlined text-[22px]">school</span></div><div class="flex flex-col"><span class="font-label-caption text-label-caption text-on-surface-variant">湖北工业大学 HBUT</span><h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight">Schedule</h1></div></div><div class="flex items-center gap-space-xs"><button class="min-w-[44px] h-11 px-3 flex items-center justify-center gap-1 rounded-full bg-surface-container-low text-primary hover:bg-surface-container active:scale-95 transition-all" type="button"><span class="material-symbols-outlined text-[18px]">calendar_today</span><span class="font-label-caption text-label-caption font-semibold">第8周</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-[0_2px_8px_rgba(0,74,198,0.25)]"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex-1 flex flex-col relative w-full pt-16 pb-24 bg-surface px-margin"><div class="flex flex-col w-full pb-6 space-y-4">
+<!-- Top Class Search & Quick Switcher -->
+<section class="flex flex-col gap-2.5">
+<div class="flex items-center justify-between gap-2">
+<!-- Search Input Container -->
+<div class="relative flex-1">
+<span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-outline text-[18px] pointer-events-none">search</span>
+<input class="w-full h-10 pl-10 pr-8 bg-surface-container-lowest text-on-surface font-body-default text-body-subordinate rounded-full shadow-sm placeholder:text-outline focus:outline-none focus:ring-0 active:scale-[0.99] transition-all" id="class-search-input" placeholder="输入班级名 / 编号 (如 25建筑学2班)" type="text" value="25建筑学2班"/>
+<button class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-surface-muted text-on-surface-variant flex items-center justify-center text-[12px] hover:bg-surface-variant transition-colors" id="clear-search" type="button">
+<span class="material-symbols-outlined text-[13px]">close</span>
+</button>
+</div>
+<!-- Week Selector Dropdown Pill with Micro-pulse -->
+<button class="h-10 px-3.5 flex items-center gap-1.5 rounded-full bg-surface-container-lowest text-primary font-title-md text-body-subordinate shadow-sm hover:bg-surface-highlight active:scale-95 transition-all relative overflow-hidden group shrink-0" id="week-dropdown-btn" type="button">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+</span>
+<span class="font-semibold tracking-tight">第 12 周</span>
+<span class="material-symbols-outlined text-[16px] text-primary transition-transform duration-200 group-hover:translate-y-0.5">expand_more</span>
+</button>
+</div>
+<!-- Quick Class Pills Carousel with Ripple -->
+<div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 -mx-margin px-margin">
+<button class="class-pill group relative overflow-hidden shrink-0 h-7 px-3 rounded-full bg-primary text-on-primary font-label-caption text-label-caption flex items-center gap-1 shadow-sm active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[13px]">school</span>
+<span>25建筑学2班 (当前)</span>
+<span class="ripple-element absolute inset-0 pointer-events-none rounded-full bg-white/20 opacity-0 transition-opacity"></span>
+</button>
+<button class="class-pill group relative overflow-hidden shrink-0 h-7 px-3 rounded-full bg-surface-container-lowest text-on-surface-variant font-label-caption text-label-caption flex items-center gap-1 shadow-sm hover:text-primary active:scale-95 transition-all" type="button">
+<span>25建筑学1班</span>
+<span class="ripple-element absolute inset-0 pointer-events-none rounded-full bg-primary/10 opacity-0 transition-opacity"></span>
+</button>
+<button class="class-pill group relative overflow-hidden shrink-0 h-7 px-3 rounded-full bg-surface-container-lowest text-on-surface-variant font-label-caption text-label-caption flex items-center gap-1 shadow-sm hover:text-primary active:scale-95 transition-all" type="button">
+<span>24工业设计3班</span>
+<span class="ripple-element absolute inset-0 pointer-events-none rounded-full bg-primary/10 opacity-0 transition-opacity"></span>
+</button>
+<button class="class-pill group relative overflow-hidden shrink-0 h-7 px-3 rounded-full bg-surface-container-lowest text-on-surface-variant font-label-caption text-label-caption flex items-center gap-1 shadow-sm hover:text-primary active:scale-95 transition-all" type="button">
+<span>24环境设计1班</span>
+<span class="ripple-element absolute inset-0 pointer-events-none rounded-full bg-primary/10 opacity-0 transition-opacity"></span>
+</button>
+</div>
+</section>
+<!-- Interactive Timetable Container -->
+<section class="bg-surface-container-lowest rounded-2xl shadow-sm p-2 flex flex-col relative overflow-hidden">
+<!-- Subtle Ambient Specular Background -->
+<div class="absolute -top-12 -right-12 w-48 h-48 bg-primary/5 rounded-full blur-2xl pointer-events-none"></div>
+<!-- 7-Day Header Grid -->
+<div class="grid grid-cols-[34px_repeat(7,1fr)] gap-1 mb-1.5 items-stretch text-center select-none">
+<!-- Month Pill -->
+<div class="flex flex-col items-center justify-center rounded-lg bg-surface-muted/60 py-1 text-on-surface-variant">
+<span class="font-label-micro text-label-micro font-bold text-outline leading-tight">11月</span>
+<span class="material-symbols-outlined text-[14px] text-outline mt-0.5">event</span>
+</div>
+<!-- Mon (16) -->
+<div class="flex flex-col items-center justify-center rounded-lg py-1 bg-surface-muted/30">
+<span class="font-label-micro text-label-micro text-outline font-medium">周一</span>
+<span class="font-label-caption text-label-caption font-bold text-on-surface">16</span>
+</div>
+<!-- Tue (17) -->
+<div class="flex flex-col items-center justify-center rounded-lg py-1 bg-surface-muted/30">
+<span class="font-label-micro text-label-micro text-outline font-medium">周二</span>
+<span class="font-label-caption text-label-caption font-bold text-on-surface">17</span>
+</div>
+<!-- Wed (18) - Today Highlight with Sky Glow -->
+<div class="flex flex-col items-center justify-center rounded-lg py-1 bg-accent-soft/70 shadow-[0_0_12px_rgba(0,74,198,0.18)] relative">
+<span class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary"></span>
+<span class="font-label-micro text-label-micro text-primary font-bold">周三</span>
+<span class="font-label-caption text-label-caption font-extrabold text-primary">18</span>
+</div>
+<!-- Thu (19) -->
+<div class="flex flex-col items-center justify-center rounded-lg py-1 bg-surface-muted/30">
+<span class="font-label-micro text-label-micro text-outline font-medium">周四</span>
+<span class="font-label-caption text-label-caption font-bold text-on-surface">19</span>
+</div>
+<!-- Fri (20) -->
+<div class="flex flex-col items-center justify-center rounded-lg py-1 bg-surface-muted/30">
+<span class="font-label-micro text-label-micro text-outline font-medium">周五</span>
+<span class="font-label-caption text-label-caption font-bold text-on-surface">20</span>
+</div>
+<!-- Sat (21) -->
+<div class="flex flex-col items-center justify-center rounded-lg py-1 bg-surface-muted/10 opacity-75">
+<span class="font-label-micro text-label-micro text-outline">周六</span>
+<span class="font-label-caption text-label-caption font-semibold text-outline">21</span>
+</div>
+<!-- Sun (22) -->
+<div class="flex flex-col items-center justify-center rounded-lg py-1 bg-surface-muted/10 opacity-75">
+<span class="font-label-micro text-label-micro text-outline">周日</span>
+<span class="font-label-caption text-label-caption font-semibold text-outline">22</span>
+</div>
+</div>
+<!-- Main Schedule Grid Canvas -->
+<div class="relative grid grid-cols-[34px_repeat(7,1fr)] gap-1">
+<!-- Left Time & Period Scale Column (11 periods) -->
+<div class="flex flex-col gap-1 select-none text-right">
+<!-- 1 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">1</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">08:20</span>
+</div>
+<!-- 2 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">2</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">09:10</span>
+</div>
+<!-- 3 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">3</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">10:15</span>
+</div>
+<!-- 4 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">4</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">11:05</span>
+</div>
+<!-- 5 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">5</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">14:00</span>
+</div>
+<!-- 6 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">6</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">14:50</span>
+</div>
+<!-- 7 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">7</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">15:55</span>
+</div>
+<!-- 8 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">8</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">16:45</span>
+</div>
+<!-- 9 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">9</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">18:30</span>
+</div>
+<!-- 10 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">10</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">19:20</span>
+</div>
+<!-- 11 -->
+<div class="h-12 flex flex-col justify-center pr-1 text-on-surface-variant/80">
+<span class="font-label-caption text-label-caption font-bold leading-none">11</span>
+<span class="font-grid-schedule text-grid-schedule text-outline scale-90 origin-right">20:10</span>
+</div>
+</div>
+<!-- Day Columns Grid Container -->
+<div class="col-span-7 grid grid-cols-7 gap-1 relative">
+<!-- Background Guide Stripes & Today Glow Track -->
+<div class="col-start-3 col-span-1 absolute inset-y-0 w-full bg-accent-soft/20 pointer-events-none rounded-lg -z-0"></div>
+<!-- 1. Mon (1-2) Lake Blue: 建筑构造概论 -->
+<div class="course-card col-start-1 row-start-1 row-span-2 rounded-[12px] p-1.5 flex flex-col justify-between bg-course-lake-blue/15 text-course-lake-blue shadow-sm cursor-pointer active:scale-95 transition-all z-10 opacity-0 translate-y-3" data-stagger-order="1" style="grid-row: 1 / span 2;">
+<div class="flex flex-col gap-0.5">
+<span class="font-grid-schedule text-grid-schedule font-bold line-clamp-2 leading-tight">建筑构造(上)</span>
+<span class="font-grid-schedule text-grid-schedule opacity-85 truncate">建工东302</span>
+</div>
+<span class="font-label-micro text-label-micro font-semibold opacity-70">1-2节</span>
+</div>
+<!-- 2. Mon (5-7) Teal: 城市规划初步 -->
+<div class="course-card col-start-1 rounded-[12px] p-1.5 flex flex-col justify-between bg-course-teal/15 text-course-teal shadow-sm cursor-pointer active:scale-95 transition-all z-10 opacity-0 translate-y-3" data-stagger-order="2" style="grid-row: 5 / span 3;">
+<div class="flex flex-col gap-0.5">
+<span class="font-grid-schedule text-grid-schedule font-bold line-clamp-2 leading-tight">城市规划初步</span>
+<span class="font-grid-schedule text-grid-schedule opacity-85 truncate">科技楼410</span>
+</div>
+<span class="font-label-micro text-label-micro font-semibold opacity-70">5-7节</span>
+</div>
+<!-- 3. Tue (3-4) Wisteria: 中国古代建筑史 -->
+<div class="course-card col-start-2 rounded-[12px] p-1.5 flex flex-col justify-between bg-course-wisteria/15 text-course-wisteria shadow-sm cursor-pointer active:scale-95 transition-all z-10 opacity-0 translate-y-3" data-stagger-order="3" style="grid-row: 3 / span 2;">
+<div class="flex flex-col gap-0.5">
+<span class="font-grid-schedule text-grid-schedule font-bold line-clamp-2 leading-tight">中国建筑史</span>
+<span class="font-grid-schedule text-grid-schedule opacity-85 truncate">西区阶梯一</span>
+</div>
+<span class="font-label-micro text-label-micro font-semibold opacity-70">3-4节</span>
+</div>
+<!-- 4. Wed (Today) (1-4) Amber: 建筑设计与空间构成 -->
+<div class="course-card col-start-3 rounded-[12px] p-1.5 flex flex-col justify-between bg-course-amber/15 text-course-amber shadow-[0_2px_8px_rgba(217,119,6,0.15)] cursor-pointer active:scale-95 transition-all z-10 opacity-0 translate-y-3" data-stagger-order="4" style="grid-row: 1 / span 4;">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-course-amber shrink-0 animate-ping"></span>
+<span class="font-grid-schedule text-grid-schedule font-extrabold truncate">正在进行</span>
+</div>
+<span class="font-grid-schedule text-grid-schedule font-bold line-clamp-2 leading-tight">建筑设计研讨</span>
+<span class="font-grid-schedule text-grid-schedule opacity-85 truncate">建工实训B</span>
+</div>
+<span class="font-label-micro text-label-micro font-semibold opacity-70">1-4节</span>
+</div>
+<!-- 5. Thu (7-8) Coral: BIM参数化设计基础 -->
+<div class="course-card col-start-4 rounded-[12px] p-1.5 flex flex-col justify-between bg-course-coral/15 text-course-coral shadow-sm cursor-pointer active:scale-95 transition-all z-10 opacity-0 translate-y-3" data-stagger-order="5" style="grid-row: 7 / span 2;">
+<div class="flex flex-col gap-0.5">
+<span class="font-grid-schedule text-grid-schedule font-bold line-clamp-2 leading-tight">BIM参数化建模</span>
+<span class="font-grid-schedule text-grid-schedule opacity-85 truncate">机房C-201</span>
+</div>
+<span class="font-label-micro text-label-micro font-semibold opacity-70">7-8节</span>
+</div>
+<!-- 6. Fri (9-11) CONFLICT & TEACHING HIGHLIGHT TILE -->
+<div class="course-card col-start-5 rounded-[12px] p-1.5 flex flex-col justify-between bg-amber-50 text-course-amber shadow-[0_4px_12px_rgba(217,119,6,0.2)] cursor-pointer active:scale-95 transition-all z-20 opacity-0 translate-y-3 relative group" data-stagger-order="6" id="conflict-course-pill" style="grid-row: 9 / span 3;">
+<!-- Pulsing Beacon Highlight -->
+<div class="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-course-amber opacity-80"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-course-amber"></span>
+</div>
+<div class="flex flex-col gap-0.5">
+<!-- Conflict Micro Capsule Tag -->
+<div class="inline-flex items-center gap-0.5 bg-course-amber text-on-primary rounded px-1 py-0.5 shadow-xs w-fit">
+<span class="material-symbols-outlined text-[9px] leading-none">warning</span>
+<span class="font-label-micro text-label-micro font-bold scale-90 origin-left">本人任教</span>
+</div>
+<span class="font-grid-schedule text-grid-schedule font-extrabold line-clamp-2 leading-tight text-on-surface">建筑物理与环境</span>
+<span class="font-grid-schedule text-grid-schedule text-course-amber font-semibold truncate">工程4楼 106</span>
+</div>
+<div class="flex items-center justify-between mt-1">
+<span class="font-label-micro text-label-micro font-bold text-course-amber">9-11节</span>
+<span class="material-symbols-outlined text-[12px] text-course-amber animate-bounce">priority_high</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Interactive Conflict Tooltip Card (Expands when conflict pill clicked) -->
+<div class="hidden transition-all duration-300 ease-out bg-surface-container-low rounded-xl p-3 shadow-sm" id="conflict-info-card">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-course-amber/20 text-course-amber flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px]">event_busy</span>
+</div>
+<div class="flex flex-col">
+<span class="font-title-md text-title-md text-on-surface">课时冲突关注提醒</span>
+<span class="font-body-subordinate text-body-subordinate text-on-surface-variant">周五 18:30-21:00 (9-11节) · 25建筑学2班</span>
+</div>
+</div>
+<button class="text-outline hover:text-on-surface p-1" id="close-conflict-tip" type="button">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+</div>
+<div class="mt-2 text-on-surface-variant font-label-caption text-label-caption bg-surface-container-lowest p-2 rounded-lg flex items-center justify-between">
+<span>与您的「校级教学督导研讨会」时间重叠 45 分钟</span>
+<button class="text-primary font-semibold hover:underline" type="button">一键报备</button>
+</div>
+</div>
+<!-- Bottom Floating Academic Summary Pill -->
+<aside class="sticky bottom-20 z-40 w-full rounded-2xl bg-surface-container-lowest/85 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,74,198,0.08)] py-3 px-4 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<!-- Attendance Circular Metric Ring -->
+<div class="relative w-9 h-9 flex items-center justify-center shrink-0">
+<svg class="w-full h-full -rotate-90" viewbox="0 0 36 36">
+<path class="text-surface-track" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.5"></path>
+<path class="text-primary" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-dasharray="98, 100" stroke-linecap="round" stroke-width="3.5"></path>
+</svg>
+<span class="absolute font-label-micro text-label-micro font-extrabold text-primary">61</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-1.5 truncate">
+<span class="font-title-md text-title-md text-on-surface truncate">本周 6 节</span>
+<span class="inline-block w-1 h-1 rounded-full bg-outline-variant"></span>
+<span class="font-title-md text-title-md text-on-surface">4 门核心课</span>
+</div>
+<span class="font-label-caption text-label-caption text-on-surface-variant truncate">应到 61 人 · 实到率 98.4%</span>
+</div>
+</div>
+<!-- Actions & Print / Export Action Pill -->
+<button class="h-8 px-3 rounded-full bg-accent-soft text-primary font-label-caption text-label-caption font-semibold flex items-center gap-1 shadow-xs hover:bg-primary hover:text-on-primary active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-[15px]">ios_share</span>
+<span>导出周历</span>
+</button>
+</aside>
+</div>
+<script>
+  (function initScheduleInteraction() {
+    // 1. Cascading Stagger Domino Animation for Course Tiles
+    const cards = Array.from(document.querySelectorAll('.course-card'));
+    cards.sort((a, b) => {
+      const orderA = parseInt(a.getAttribute('data-stagger-order') || '0', 10);
+      const orderB = parseInt(b.getAttribute('data-stagger-order') || '0', 10);
+      return orderA - orderB;
+    });
+
+    cards.forEach((card, index) => {
+      setTimeout(() => {
+        card.classList.remove('opacity-0', 'translate-y-3');
+        card.classList.add('opacity-100', 'translate-y-0');
+      }, 70 * (index + 1));
+    });
+
+    // 2. Ripple Tap Micro-Feedback on Class Carousel
+    const pills = document.querySelectorAll('.class-pill');
+    pills.forEach((pill) => {
+      pill.addEventListener('click', function (e) {
+        pills.forEach(p => {
+          p.classList.remove('bg-primary', 'text-on-primary');
+          p.classList.add('bg-surface-container-lowest', 'text-on-surface-variant');
+        });
+        this.classList.remove('bg-surface-container-lowest', 'text-on-surface-variant');
+        this.classList.add('bg-primary', 'text-on-primary');
+
+        const ripple = this.querySelector('.ripple-element');
+        if (ripple) {
+          ripple.classList.remove('opacity-0');
+          ripple.classList.add('opacity-100');
+          setTimeout(() => {
+            ripple.classList.remove('opacity-100');
+            ripple.classList.add('opacity-0');
+          }, 350);
+        }
+
+        // Re-trigger course stagger for delightful switch sensation
+        cards.forEach((c) => {
+          c.classList.add('opacity-0', 'translate-y-2');
+          c.classList.remove('opacity-100', 'translate-y-0');
+        });
+        setTimeout(() => {
+          cards.forEach((card, idx) => {
+            setTimeout(() => {
+              card.classList.remove('opacity-0', 'translate-y-2');
+              card.classList.add('opacity-100', 'translate-y-0');
+            }, 60 * idx);
+          });
+        }, 150);
+      });
+    });
+
+    // 3. Conflict Card Toggle Micro-Action
+    const conflictPill = document.getElementById('conflict-course-pill');
+    const conflictCard = document.getElementById('conflict-info-card');
+    const closeConflictBtn = document.getElementById('close-conflict-tip');
+
+    if (conflictPill && conflictCard) {
+      conflictPill.addEventListener('click', () => {
+        conflictCard.classList.toggle('hidden');
+        if (!conflictCard.classList.contains('hidden')) {
+          conflictCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
+    }
+
+    if (closeConflictBtn && conflictCard) {
+      closeConflictBtn.addEventListener('click', () => {
+        conflictCard.classList.add('hidden');
+      });
+    }
+
+    // 4. Quick Clear Search Action
+    const searchInput = document.getElementById('class-search-input');
+    const clearBtn = document.getElementById('clear-search');
+    if (clearBtn && searchInput) {
+      clearBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        searchInput.focus();
+      });
+    }
+  })();
+</script></main><nav class="fixed bottom-0 w-full z-50 pb-safe bg-surface/85 backdrop-blur-xl shadow-[0_-2px_16px_rgba(37,99,235,0.06)]" data-active-classes="text-primary font-semibold"><div class="h-16 px-space-sm grid grid-cols-4 items-center"><a class="flex flex-col items-center justify-center min-w-[44px] min-h-[44px] py-1 text-on-surface-variant hover:text-primary transition-all duration-200 active:scale-95" data-path="home" href="#"><span class="material-symbols-outlined text-[24px]">dashboard</span><span class="font-label-nav text-label-nav mt-0.5">首页</span></a><a aria-current="page" class="flex flex-col items-center justify-center min-w-[44px] min-h-[44px] py-1 transition-all duration-200 active:scale-95 text-primary font-semibold" data-path="schedule" href="#"><span class="material-symbols-outlined text-[24px]">calendar_month</span><span class="font-label-nav text-label-nav mt-0.5">课表</span></a><a class="flex flex-col items-center justify-center min-w-[44px] min-h-[44px] py-1 text-on-surface-variant hover:text-primary transition-all duration-200 active:scale-95" data-path="services" href="#"><span class="material-symbols-outlined text-[24px]">assignment_turned_in</span><span class="font-label-nav text-label-nav mt-0.5">事务</span></a><a class="flex flex-col items-center justify-center min-w-[44px] min-h-[44px] py-1 text-on-surface-variant hover:text-primary transition-all duration-200 active:scale-95" data-path="profile" href="#"><span class="material-symbols-outlined text-[24px]">account_circle</span><span class="font-label-nav text-label-nav mt-0.5">我的</span></a></div></nav></body></html>

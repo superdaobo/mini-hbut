@@ -1,0 +1,169 @@
+/* TeacherAttendanceView — Academic Minimalist Blue（goal-21 / T07）
+   亮色色值一律用 rgba()（无 #hex 字面量），token 类在模板里；暗色局部规则
+   允许 hex（本文件不在 Lead 约束的 grep 范围内），与 dark-mode.css 末段同风格。 */
+
+.tch-attendance {
+  font-family: 'SF Pro Text', system-ui, -apple-system, 'Inter', sans-serif;
+}
+
+/* ── 卡片：设计包 Level 1（白卡 + 细描边 + 微投影，20px 圆角）──────── */
+.tch-a-card {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 20px;
+  box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+}
+
+/* ── 设计包排版（display-kpi-mobile 40px / 800 / -0.03em）──────────── */
+.tch-kpi {
+  font-size: 40px;
+  line-height: 44px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.tch-label-caption {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+.tch-label-micro {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+}
+
+/* ── 学期胶囊（页头右侧 <details> 下拉）────────────────────────────── */
+.tch-semester {
+  position: relative;
+}
+.tch-semester summary {
+  list-style: none;
+}
+.tch-semester summary::-webkit-details-marker {
+  display: none;
+}
+.tch-semester-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.tch-semester-pill:active {
+  opacity: 0.75;
+}
+.tch-semester-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 9.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px -4px rgba(37, 99, 235, 0.08), 0 4px 12px rgba(15, 23, 42, 0.06);
+  padding: 6px;
+}
+.tch-semester-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tch-semester-option input {
+  accent-color: rgba(37, 99, 235, 1);
+}
+.tch-semester-option:active {
+  background: #f1f5f9;
+}
+
+/* ── KPI 圆环轨道 ─────────────────────────────────────────────────── */
+.tch-ring-track {
+  stroke: rgba(226, 232, 240, 1);
+}
+.tch-ring-arc {
+  transition: stroke-dashoffset 0.8s ease-out;
+}
+
+/* ── 热力矩阵（36px 行标签 + 20 等宽周格，格 10px 目标/2px 圆角）───────── */
+.tch-matrix-grid {
+  grid-template-columns: 36px repeat(20, minmax(0, 1fr));
+  gap: 3px;
+}
+.tch-heat-cell {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 0;
+  padding: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+}
+.tch-heat-cell:active {
+  transform: scale(1.3);
+}
+.tch-matrix-legend {
+  user-select: none;
+}
+
+/* ── 周详情 popover ──────────────────────────────────────────────── */
+.tch-popover {
+  animation: tch-popover-in 0.2s ease-out;
+}
+@keyframes tch-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── 「需要关注」折叠 ─────────────────────────────────────────────── */
+.tch-collapse {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-in-out;
+}
+.tch-collapse--open {
+  max-height: 480px;
+}
+
+/* ── 暗色局部规则（token 类由 dark-mode.css 覆盖，这里只补非 token 属性）── */
+html:is(.dark, [data-theme='graphite_night']) .tch-attendance .tch-a-card {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-attendance .tch-ring-track {
+  stroke: #1e293b;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-attendance .tch-semester-pill {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-attendance .tch-semester-menu {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-attendance .tch-semester-option:active {
+  background: #1f2937;
+}
