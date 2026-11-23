@@ -364,3 +364,29 @@ html:is(.dark, [data-theme='graphite_night']) .tch-rs-back-list {
   color: #93c5fd;
   background: rgba(96, 165, 250, 0.12);
 }
+
+/* goal-22：周次选择器 */
+.tch-week-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.tch-week-select__label {
+  font-size: 11px;
+  color: rgb(148, 163, 184);
+}
+.tch-week-select select {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #ffffff;
+  color: rgb(37, 99, 235);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-week-select select {
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, 0.2);
+  color: #93c5fd;
+}

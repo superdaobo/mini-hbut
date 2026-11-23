@@ -130,14 +130,32 @@ export const useTeacherScheduleGrid = () => {
   const selectedName = ref('')
   const lastLoadedAt = ref('')
 
+  // goal-22：按周次显示（用户要求「要按周次，不是直接往上一堆」）
+  // 0 = 全部周次；1..20 = 只看该周
+  const selectedWeek = ref(0)
+  const weekOptions = computed(() => {
+    const all = new Set<number>()
+    for (const course of courses.value) {
+      for (const w of course.weeks) all.add(w)
+    }
+    return [...all].sort((a, b) => a - b)
+  })
+
   const courses = computed<GridCourse[]>(() =>
     entries.value.map((entry, index) => toGridCourse(entry, semester.value, index))
   )
 
   /** 按星期分组（1-7 → 该天课程），供 `ScheduleGrid` 的 `getCoursesForDay`。 */
+  /** 按当前周过滤后的课程（selectedWeek=0 时不过滤） */
+  const visibleCourses = computed<GridCourse[]>(() => {
+    const week = selectedWeek.value
+    if (!week) return courses.value
+    return courses.value.filter((course) => course.weeks.includes(week))
+  })
+
   const coursesByDay = computed<Record<number, GridCourse[]>>(() => {
     const map: Record<number, GridCourse[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] }
-    for (const course of courses.value) {
+    for (const course of visibleCourses.value) {
       const day = course.weekday >= 1 && course.weekday <= 7 ? course.weekday : 1
       map[day].push(course)
     }
@@ -223,6 +241,9 @@ export const useTeacherScheduleGrid = () => {
     lastLoadedAt,
     getCoursesForDay,
     getCourseStyleFor,
+    selectedWeek,
+    weekOptions,
+    visibleCourses,
     load,
     reset
   }

@@ -93,7 +93,7 @@ const scheduleGrid = useTeacherScheduleGrid()
 const activeRoom = ref<TeacherScheduleRoom | null>(null)
 const weekDates = buildWeekDates()
 const activeTitle = computed(() => activeRoom.value?.roomName || activeRoom.value?.roomNo || '')
-const activeCourseCount = computed(() => scheduleGrid.courses.value.length)
+const activeCourseCount = computed(() => scheduleGrid.visibleCourses.value.length)
 const activeIsEmpty = computed(
   () => !scheduleGrid.loading.value && !scheduleGrid.error.value && activeCourseCount.value === 0
 )
@@ -108,6 +108,11 @@ const viewRoomSchedule = async (item: TeacherScheduleRoom): Promise<void> => {
     campusId: item.campusId || undefined,
     displayName: item.roomName || item.roomNo || ''
   })
+}
+
+const onWeekChange = (event: Event): void => {
+  const value = Number((event.target as HTMLSelectElement).value) || 0
+  scheduleGrid.selectedWeek.value = value
 }
 
 const closeSchedule = (): void => {
@@ -234,6 +239,20 @@ onBeforeUnmount(() => {
               <p class="text-[15px] font-semibold truncate">{{ activeTitle }}</p>
               <p class="tch-rs-label-micro text-outline">
                 {{ tf('teacher.schedule.room.courseCount', { n: activeCourseCount }) }}
+
+              <div class="tch-week-select">
+
+                <label class="tch-week-select__label">周次</label>
+
+                <select :value="scheduleGrid.selectedWeek.value" @change="onWeekChange">
+
+                  <option :value="0">全部</option>
+
+                  <option v-for="w in scheduleGrid.weekOptions.value" :key="w" :value="w">第 {{ w }} 周</option>
+
+                </select>
+
+              </div>
               </p>
             </div>
             <button type="button" class="text-[13px] font-semibold text-primary shrink-0"
