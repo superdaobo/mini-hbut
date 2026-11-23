@@ -1,0 +1,23 @@
+
+.ranking-refresh-btn[data-v-98be6e13] {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ranking-refresh-btn .material-symbols-outlined[data-v-98be6e13] {
+  font-size: 22px;
+}
+.spinning[data-v-98be6e13] {
+  animation: rankingRefreshSpin-98be6e13 0.8s linear infinite;
+}
+@keyframes rankingRefreshSpin-98be6e13 {
+to {
+    transform: rotate(360deg);
+}
+}

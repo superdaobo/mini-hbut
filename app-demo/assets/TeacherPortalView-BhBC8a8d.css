@@ -1,0 +1,146 @@
+/* TeacherPortalView — Academic Minimalist Blue（goal-21 / T11）
+   亮色色值一律用 rgba()（无 #hex 字面量），token 类在模板里；暗色局部规则
+   允许 hex（本文件不在 Lead 约束的 grep 范围内），与 dark-mode.css 末段同风格。 */
+.tch-pt[data-v-139a9561] {
+  font-family: 'SF Pro Text', system-ui, -apple-system, 'Inter', sans-serif;
+}
+.tch-label-caption[data-v-139a9561] {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+
+/* ── 搜索胶囊（设计包：白底 + 细描边 + 微投影 + 主蓝聚焦光晕）─────── */
+.tch-pt-search[data-v-139a9561] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 9999px;
+  box-shadow: 0 4px 20px -2px rgba(0, 74, 198, 0.06);
+  transition: box-shadow 0.3s ease-out, border-color 0.3s ease-out;
+}
+.tch-pt-search[data-v-139a9561]:focus-within {
+  border-color: rgba(37, 99, 235, 0.4);
+  box-shadow: 0 4px 20px 0 rgba(0, 74, 198, 0.14);
+}
+.tch-pt-search-input[data-v-139a9561] {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-size: 13px;
+  line-height: 18px;
+  color: rgba(19, 27, 46, 1);
+}
+.tch-pt-search-input[data-v-139a9561]::-moz-placeholder {
+  color: rgba(115, 118, 134, 0.8);
+}
+.tch-pt-search-input[data-v-139a9561]::placeholder {
+  color: rgba(115, 118, 134, 0.8);
+}
+.tch-pt-search-input[data-v-139a9561]::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* ── 4 任务卡（headline-card 22px 数字；角标右上橙色）──────────────── */
+.tch-pt-task[data-v-139a9561] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 8px 10px;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px -4px rgba(19, 27, 46, 0.04);
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+.tch-pt-task[data-v-139a9561]:active {
+  transform: scale(0.95);
+}
+.tch-pt-task-num[data-v-139a9561] {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 角标徽标（右上橙色；markNumber>0 时才渲染）───────────────────── */
+.tch-pt-badge[data-v-139a9561] {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  background: rgba(217, 119, 6, 1);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 10px rgba(217, 119, 6, 0.45);
+}
+
+/* ── 全部服务宫格（48px 实色块 + 白图标）────────────────────────── */
+.tch-pt-service[data-v-139a9561] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 8px;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+.tch-pt-service[data-v-139a9561]:active {
+  transform: scale(0.95);
+}
+.tch-pt-service-tile[data-v-139a9561] {
+  box-shadow: 0 4px 14px rgba(0, 74, 198, 0.22);
+}
+
+/* ── 暗色局部规则（token 类由 dark-mode.css 覆盖，这里只补非 token 属性）── */
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-search[data-v-139a9561] {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 4px 20px -8px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-search[data-v-139a9561]:focus-within {
+  border-color: rgba(96, 165, 250, 0.5);
+  box-shadow: 0 4px 20px -6px rgba(0, 0, 0, 0.7);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-search-input[data-v-139a9561] {
+  color: #f8fafc;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-search-input[data-v-139a9561]::-moz-placeholder {
+  color: rgba(148, 163, 184, 0.7);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-search-input[data-v-139a9561]::placeholder {
+  color: rgba(148, 163, 184, 0.7);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-task[data-v-139a9561],
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-service[data-v-139a9561] {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-badge[data-v-139a9561] {
+  box-shadow: 0 0 12px rgba(217, 119, 6, 0.35);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-pt .tch-pt-service-tile[data-v-139a9561] {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}

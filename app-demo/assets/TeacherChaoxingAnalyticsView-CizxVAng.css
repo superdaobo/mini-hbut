@@ -1,0 +1,142 @@
+/* TeacherChaoxingAnalyticsView — Academic Minimalist Blue（goal-21 / T11）
+   亮色色值一律用 rgba()（无 #hex 字面量），token 类在模板里；暗色局部规则
+   允许 hex（本文件不在 Lead 约束的 grep 范围内），与 dark-mode.css 末段同风格。 */
+.tch-cx[data-v-b0e6c345] {
+  font-family: 'SF Pro Text', system-ui, -apple-system, 'Inter', sans-serif;
+}
+
+/* ── 卡片：设计包 Level 1（白卡 + 细描边 + 微投影，20px 圆角）──────── */
+.tch-cx-card[data-v-b0e6c345] {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 20px;
+  box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+}
+
+/* ── 设计包排版（metric-card 28px / 700 / -0.02em）────────────────── */
+.tch-cx-kpi-num[data-v-b0e6c345] {
+  display: block;
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.tch-cx-kpi-hint[data-v-b0e6c345] {
+  display: block;
+  font-size: 9px;
+  line-height: 12px;
+  font-weight: 500;
+  color: rgba(115, 118, 134, 0.9);
+  margin-top: 1px;
+}
+.tch-label-caption[data-v-b0e6c345] {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+.tch-label-micro[data-v-b0e6c345] {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 600;
+}
+
+/* ── 课程选择器：顶部横滑课程胶囊 ─────────────────────────────────── */
+.tch-cx-scroll[data-v-b0e6c345] {
+  scrollbar-width: none;
+}
+.tch-cx-scroll[data-v-b0e6c345]::-webkit-scrollbar {
+  display: none;
+}
+.tch-cx-course-pill[data-v-b0e6c345] {
+  border-radius: 14px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.04);
+  transition: transform 0.15s ease-out, background 0.2s ease-out, border-color 0.2s ease-out;
+}
+.tch-cx-course-pill[data-v-b0e6c345]:active {
+  transform: scale(0.96);
+}
+.tch-cx-course-pill--active[data-v-b0e6c345] {
+  background: rgba(37, 99, 235, 1);
+  border-color: rgba(37, 99, 235, 1);
+  color: rgba(255, 255, 255, 1);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+}
+.tch-cx-course-pill--active .tch-label-micro[data-v-b0e6c345],
+.tch-cx-course-pill--active .text-xs[data-v-b0e6c345] {
+  color: rgba(255, 255, 255, 1);
+}
+.tch-cx-role[data-v-b0e6c345] {
+  flex-shrink: 0;
+  border-radius: 9999px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 12px;
+  background: rgba(37, 99, 235, 0.08);
+  color: rgba(37, 99, 235, 1);
+}
+.tch-cx-role--active[data-v-b0e6c345] {
+  background: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 1);
+}
+
+/* ── 四宫格 KPI：白卡小格，28px 数字 ──────────────────────────────── */
+.tch-cx-kpi[data-v-b0e6c345] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 10px 9px;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px -4px rgba(19, 27, 46, 0.04);
+}
+
+/* ── 「学习监控」折叠（与 TeacherAttendance 同款 max-height 方案）─── */
+.tch-cx-collapse[data-v-b0e6c345] {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-in-out;
+}
+.tch-cx-collapse--open[data-v-b0e6c345] {
+  max-height: 240px;
+}
+.tch-cx-empty-note[data-v-b0e6c345] {
+  border: 1px dashed rgba(226, 232, 240, 0.9);
+}
+
+/* ── 暗色局部规则（token 类由 dark-mode.css 覆盖，这里只补非 token 属性）── */
+html:is(.dark, [data-theme='graphite_night']) .tch-cx .tch-cx-card[data-v-b0e6c345],
+html:is(.dark, [data-theme='graphite_night']) .tch-cx .tch-cx-kpi[data-v-b0e6c345] {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cx .tch-cx-course-pill[data-v-b0e6c345] {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: none;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cx .tch-cx-course-pill--active[data-v-b0e6c345] {
+  background: rgba(96, 165, 250, 0.18);
+  border-color: rgba(96, 165, 250, 0.4);
+  color: #f8fafc;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cx .tch-cx-role[data-v-b0e6c345] {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cx .tch-cx-role--active[data-v-b0e6c345] {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-cx .tch-cx-empty-note[data-v-b0e6c345] {
+  border-color: rgba(148, 163, 184, 0.2);
+}

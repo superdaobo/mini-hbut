@@ -1,0 +1,812 @@
+
+/* 轻 surface + 左侧强调色竖条：与实心课程卡形成一眼可辨的差异 */
+.event-card[data-v-72ae5165] {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  /* 超短事件的视觉最小高度由 CSS 承担（布局层不抬高 heightPercent，避免污染重叠判定） */
+  min-height: var(--event-min-height, 16px);
+  border: 1px solid var(--event-border, rgba(37, 99, 235, 0.32));
+  border-radius: 6px;
+  background: var(--event-surface, rgba(255, 255, 255, 0.94));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  /* 事件层整体 pointer-events: none，卡片单独恢复可点击，避免挡住课程卡 */
+  pointer-events: auto;
+  z-index: 3;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.event-card[data-v-72ae5165]:active {
+  transform: scale(0.99);
+  box-shadow: 0 0 1px rgba(15, 23, 42, 0.12);
+}
+.event-card__bar[data-v-72ae5165] {
+  flex: 0 0 3px;
+  background: var(--event-accent, #2563eb);
+}
+.event-card__body[data-v-72ae5165] {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 2px 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+.event-card__name[data-v-72ae5165] {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: #1e293b;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.event-card__time[data-v-72ae5165] {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  font-size: 9px;
+  line-height: 1.1;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.event-card__clock[data-v-72ae5165] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.event-card__more[data-v-72ae5165] {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--event-accent, #2563eb);
+}
+.event-card__place[data-v-72ae5165] {
+  flex: 0 0 auto;
+  font-size: 9px;
+  line-height: 1.1;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 精简态：只保留色条 + 时间 */
+.event-card--dense .event-card__body[data-v-72ae5165] {
+  padding: 0 2px;
+}
+.event-card--single-line .event-card__time[data-v-72ae5165] {
+  justify-content: center;
+}
+
+/* 暗色模式：仓库的 html.dark 通配规则不覆盖本组件类名（已避开 title / time-slot 等通配片段），
+   因此在此显式给出可读配色 */
+html.dark .event-card[data-v-72ae5165] {
+  background: rgba(30, 41, 59, 0.94);
+  border-color: rgba(148, 163, 184, 0.32);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+html.dark .event-card__name[data-v-72ae5165] {
+  color: #e2e8f0;
+}
+html.dark .event-card__time[data-v-72ae5165] {
+  color: #cbd5e1;
+}
+html.dark .event-card__place[data-v-72ae5165] {
+  color: #94a3b8;
+}
+@media (max-width: 768px) {
+.event-card__name[data-v-72ae5165] {
+    font-size: 9px;
+}
+.event-card__time[data-v-72ae5165],
+  .event-card__place[data-v-72ae5165] {
+    font-size: 8px;
+}
+}
+
+/* 浅红实心底 + 红色描边：与课程卡的彩色系、日程卡的浅 surface 都能一眼区分 */
+.exam-card[data-v-cdb93e33] {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* 超短考试的视觉最小高度由 CSS 承担，布局层不抬高 heightPercent，避免污染重叠判定 */
+  min-height: var(--exam-min-height, 18px);
+  border: 1px solid var(--exam-border, rgba(220, 38, 38, 0.45));
+  border-left: 3px solid var(--exam-accent, #dc2626);
+  border-radius: 6px;
+  background: var(--exam-surface, rgba(254, 226, 226, 0.92));
+  box-shadow: 0 1px 3px rgba(153, 27, 27, 0.12);
+  overflow: hidden;
+  cursor: pointer;
+  /* 事件层整体 pointer-events: none，卡片单独恢复可点击 */
+  pointer-events: auto;
+  z-index: 4;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.exam-card[data-v-cdb93e33]:active {
+  transform: scale(0.99);
+  box-shadow: 0 0 1px rgba(153, 27, 27, 0.2);
+}
+
+/* 「考」角标：绝对定位不占布局，半透明白底 + 红字，压住任何背景都清晰可读 */
+.exam-card__badge[data-v-cdb93e33] {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 1;
+  padding: 0 3px;
+  border-radius: 3px;
+  border: 1px solid rgba(185, 28, 28, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+  color: #b91c1c;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 12px;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+}
+.exam-card__body[data-v-cdb93e33] {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  /* 顶部留出角标高度，标题不会被「考」压住 */
+  padding: 12px 4px 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+.exam-card__name[data-v-cdb93e33] {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #7f1d1d;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.exam-card__place[data-v-cdb93e33] {
+  flex: 0 0 auto;
+  font-size: 9px;
+  line-height: 1.1;
+  font-weight: 500;
+  color: #991b1b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exam-card__time[data-v-cdb93e33] {
+  flex: 0 0 auto;
+  font-size: 8px;
+  line-height: 1.1;
+  color: #b91c1c;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 时间待定：虚线描边 + 更低不透明度，提示「这是占位位置，不是确定时段」 */
+.exam-card--tbd[data-v-cdb93e33] {
+  border-style: dashed;
+  border-left-width: 2px;
+  background: rgba(254, 226, 226, 0.66);
+}
+
+/* 矮卡片：角标与标题同行（标题左缩进让开角标），把有限的纵向空间留给「名称 + 时间」 */
+.exam-card--compact .exam-card__body[data-v-cdb93e33] {
+  padding: 2px 4px 2px 15px;
+}
+.exam-card--compact .exam-card__name[data-v-cdb93e33] {
+  -webkit-line-clamp: 1;
+  font-size: 9px;
+  line-height: 1.1;
+}
+.exam-card--compact .exam-card__time[data-v-cdb93e33] {
+  font-size: 8px;
+}
+
+/* 精简态：只保留角标 + 时间，避免标题被裁成半截 */
+.exam-card--dense .exam-card__body[data-v-cdb93e33] {
+  padding: 2px 2px 2px 14px;
+  justify-content: center;
+}
+.exam-card--dense .exam-card__time[data-v-cdb93e33] {
+  text-align: center;
+}
+
+/* 单行态：只保留标题，角标与其同行排布，不重叠 */
+.exam-card--single-line .exam-card__body[data-v-cdb93e33] {
+  padding: 0 2px 0 14px;
+  justify-content: center;
+}
+.exam-card--single-line .exam-card__name[data-v-cdb93e33] {
+  font-size: 9px;
+}
+
+/* 暗色模式：浅红底改为深红半透明，保证文字对比度 */
+html.dark .exam-card[data-v-cdb93e33] {
+  background: rgba(127, 29, 29, 0.42);
+  border-color: rgba(248, 113, 113, 0.42);
+  border-left-color: #f87171;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.42);
+}
+html.dark .exam-card__badge[data-v-cdb93e33] {
+  background: rgba(15, 23, 42, 0.62);
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #fca5a5;
+}
+html.dark .exam-card__name[data-v-cdb93e33] {
+  color: #fee2e2;
+}
+html.dark .exam-card__place[data-v-cdb93e33] {
+  color: #fecaca;
+}
+html.dark .exam-card__time[data-v-cdb93e33] {
+  color: #fca5a5;
+}
+@media (max-width: 768px) {
+.exam-card__name[data-v-cdb93e33] {
+    font-size: 9px;
+}
+.exam-card__place[data-v-cdb93e33],
+  .exam-card__time[data-v-cdb93e33] {
+    font-size: 8px;
+}
+.exam-card__badge[data-v-cdb93e33] {
+    font-size: 7px;
+    line-height: 11px;
+}
+}
+
+/* 日期头 */
+.date-header[data-v-e37844ff] {
+  height: var(--date-header-height);
+  display: flex;
+  border-bottom: 1px solid #f0f0f0;
+  background: #ffffff;
+  flex-shrink: 0;
+}
+.month-col[data-v-e37844ff] {
+  width: var(--time-axis-width);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #111827;
+  font-size: 14px;
+}
+.month-label[data-v-e37844ff] {
+  font-size: 10px;
+  font-weight: normal;
+  color: #9ca3af;
+}
+.days-row[data-v-e37844ff] {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  align-items: center;
+}
+.day-col[data-v-e37844ff] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 1px;
+}
+
+/* 日期头考试红点：当天有考试时给出不打断阅读的轻提示 */
+.day-exam-dot[data-v-e37844ff] {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #dc2626;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+.day-col.is-today[data-v-e37844ff] {
+  background: #dbeafe;
+  border-radius: 8px;
+  color: #2563eb;
+}
+.day-col.is-today .day-num[data-v-e37844ff] {
+  color: #2563eb;
+  font-weight: 800;
+}
+.day-num[data-v-e37844ff] {
+  font-size: 14px;
+  color: #111827;
+  font-weight: 600;
+}
+.day-label[data-v-e37844ff] {
+  font-size: 10px;
+  color: #9ca3af;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+}
+
+/* 课表主体 */
+.timetable-container[data-v-e37844ff] {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.grid-body[data-v-e37844ff] {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: var(--schedule-bottom-gap);
+  box-sizing: border-box;
+  position: relative;
+  background: #ffffff;
+  /* 隐藏滚动条 */
+  scrollbar-width: none;
+}
+.grid-body[data-v-e37844ff]::-webkit-scrollbar {
+  display: none;
+}
+.time-axis[data-v-e37844ff] {
+  width: var(--time-axis-width);
+  background: #f9fafb;
+  border-right: 1px solid #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
+  height: 100%;
+  padding-bottom: var(--schedule-bottom-gap);
+  overflow: hidden;
+  position: relative;
+  align-self: stretch;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.time-slot[data-v-e37844ff] {
+  /* #749：flex 固定行高，禁止时间轴行被压缩/拉伸，行距恒等于 var(--slot-height) */
+  flex: 0 0 var(--slot-height);
+  height: var(--slot-height);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: #64748b;
+  box-sizing: border-box;
+}
+.time-start[data-v-e37844ff],
+.time-end[data-v-e37844ff] {
+  font-size: 9px;
+  line-height: 1;
+}
+.time-start[data-v-e37844ff] {
+  color: #94a3b8;
+}
+.time-end[data-v-e37844ff] {
+  color: #cbd5e1;
+}
+.period-num[data-v-e37844ff] {
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+}
+.courses-grid[data-v-e37844ff] {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  position: relative;
+  height: 100%;
+  /* #749：恢复 v1.4.6 高度保护——视口不足 11×slot 时容器不再被压缩，
+     课程网格 / 时间轴 / 划分线三套行距在任意视口下保持恒等 */
+  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
+  box-sizing: border-box;
+}
+
+/* 划分线：line-row 虚线（v1.4.6 视觉，用户指定 dashed）。
+   #749 行距对齐的根因修复是两道保护，与线实现解耦：
+   1) .courses-grid 的 min-height 保证 grid-lines 容器 ≥ 11×slot，行不再被压缩
+   2) .line-row / .time-slot 的 flex: 0 0 固定行高，禁止压缩/拉伸 */
+.grid-lines[data-v-e37844ff] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+.line-row[data-v-e37844ff] {
+  height: var(--slot-height);
+  flex: 0 0 var(--slot-height);
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* 稀疏虚线：::after 限定 1px 线高，水平 repeating 渐变控制疏密
+   （8px 实段 / 8px 空，浏览器原生 dashed 约 3px 段太密，用户要求稀松） */
+.line-row[data-v-e37844ff]::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    #e5e7eb 0,
+    #e5e7eb 8px,
+    transparent 8px,
+    transparent 16px
+  );
+}
+.day-column[data-v-e37844ff] {
+  flex: 1;
+  display: grid;
+  grid-template-rows: repeat(11, var(--slot-height));
+  grid-template-columns: 1fr; /* 强制单列 */
+  padding: 0 1px;
+  position: relative;
+  min-height: calc(var(--slot-height) * 11);
+}
+.blank-selection-layer[data-v-e37844ff] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--slot-height) * 11);
+  pointer-events: none;
+  z-index: 4;
+}
+.blank-time-selection[data-v-e37844ff] {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  box-sizing: border-box;
+  border: 2px dashed color-mix(in srgb, var(--ui-primary, #2563eb) 78%, #ffffff 22%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, transparent 90%);
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3px 1px;
+}
+.blank-time-selection-label[data-v-e37844ff] {
+  font-size: 8px;
+  line-height: 1;
+  font-weight: 800;
+  color: var(--ui-primary, #2563eb);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+  padding: 2px 3px;
+  white-space: nowrap;
+}
+html.dark .blank-time-selection[data-v-e37844ff] {
+  border-color: rgba(96, 165, 250, 0.88);
+  background: rgba(59, 130, 246, 0.14);
+}
+html.dark .blank-time-selection-label[data-v-e37844ff] {
+  color: #bfdbfe;
+  background: rgba(15, 23, 42, 0.92);
+}
+.day-column.is-today-column[data-v-e37844ff]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(219, 234, 254, 0.2);
+  border-left: 1px solid rgba(37, 99, 235, 0.08);
+  border-right: 1px solid rgba(37, 99, 235, 0.08);
+}
+
+/* #837 事件层：绝对定位在列顶的 11 行高度内。
+   高度显式绑定 11×slot（而不是 inset: 0）——列被 flex/grid 拉伸得比 11 行更高时，
+   百分比定位仍与 grid-template-rows 严格同源，事件卡不会纵向漂移。
+   层整体 pointer-events: none，只有卡片 / 入口恢复点击。 */
+.event-layer[data-v-e37844ff] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--slot-height) * 11);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* 可见区外日程入口（早于第一节 / 晚于最后一节）：轻量 chip，不新增行 / 区域 */
+.event-edge-indicator[data-v-e37844ff] {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  height: 13px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 4px;
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+  font-size: 8px;
+  line-height: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 5;
+}
+.event-edge-indicator--before[data-v-e37844ff] {
+  top: 0;
+}
+.event-edge-indicator--after[data-v-e37844ff] {
+  bottom: 0;
+}
+
+/* 超可读阈值的聚合入口：贴列右侧，提示该处还有被聚合的日程 */
+.event-overflow-chip[data-v-e37844ff] {
+  position: absolute;
+  right: 1px;
+  min-width: 18px;
+  height: 14px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #1d4ed8;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 12px;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 6;
+}
+html.dark .event-edge-indicator[data-v-e37844ff] {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+html.dark .event-overflow-chip[data-v-e37844ff] {
+  background: rgba(30, 41, 59, 0.96);
+  border-color: rgba(96, 165, 250, 0.4);
+  color: #93c5fd;
+}
+html.dark .day-exam-dot[data-v-e37844ff] {
+  background: #f87171;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.8);
+}
+.course-card[data-v-e37844ff] {
+  margin: 1px;
+  padding: 4px 4px 5px;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  background: var(--course-bg, #ffffff) !important;
+  color: var(--course-text, #0f172a) !important;
+  border-color: var(--course-border, #e5e7eb) !important;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+  border: var(--course-border-width, 1px) solid var(--course-border, #e5e7eb) !important;
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+  z-index: 1;
+}
+.courses-grid .day-column > .course-card[data-v-e37844ff] {
+  border: var(--course-border-width, 1px) solid var(--course-border, #e5e7eb) !important;
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+  background: var(--course-bg, #ffffff) !important;
+  color: var(--course-text, #0f172a) !important;
+}
+.courses-grid .day-column > .course-card.course-card--modern[data-v-e37844ff] {
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+}
+.courses-grid .day-column > .course-card.course-card--traditional[data-v-e37844ff] {
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid var(--course-border, #e5e7eb) !important;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 2px 5px;
+}
+.courses-grid .day-column > .course-card.course-card--traditional .course-name[data-v-e37844ff] {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 2px;
+}
+.courses-grid .day-column > .course-card.course-card--traditional .course-room[data-v-e37844ff],
+.courses-grid .day-column > .course-card.course-card--traditional .course-teacher[data-v-e37844ff] {
+  font-size: 10px;
+  opacity: 0.8;
+  line-height: 1.3;
+}
+.courses-grid .day-column > .course-card.course-card--class[data-v-e37844ff] {
+  border-left: 3px solid var(--course-border, #e5e7eb) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+  padding: 4px 6px 5px;
+  gap: 2px;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+}
+.course-card.conflict .course-name[data-v-e37844ff] {
+  font-weight: 700;
+}
+.course-card.conflict .course-room[data-v-e37844ff] {
+  font-size: 10px;
+}
+.course-card[data-v-e37844ff]:active {
+  transform: scale(0.98);
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+/* Widget 深链接高亮动画 */
+.course-card.widget-highlight[data-v-e37844ff] {
+  animation: widget-highlight-pulse-e37844ff 1.5s ease-in-out 2;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 8px 20px rgba(59, 130, 246, 0.25) !important;
+  z-index: 10 !important;
+}
+@keyframes widget-highlight-pulse-e37844ff {
+0%, 100% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 8px 20px rgba(59, 130, 246, 0.25);
+}
+50% {
+    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.3), 0 12px 28px rgba(59, 130, 246, 0.35);
+}
+}
+.course-name[data-v-e37844ff] {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  font-weight: 700;
+  font-size: 11px;
+  margin-bottom: 2px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* 标题可以收缩，底部信息不能收缩；仍保留卡片的底部内边距。 */
+.course-meta[data-v-e37844ff] {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: inherit;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 单节或最后一节被截断的课程，显示一行标题并优先保证教室可读。 */
+.course-card--single-period .course-name[data-v-e37844ff] {
+  -webkit-line-clamp: 1;
+}
+.course-card--single-period .course-teacher[data-v-e37844ff] {
+  display: none;
+}
+.course-room[data-v-e37844ff] {
+  width: 100%;
+  font-size: 10px;
+  opacity: 0.85;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.course-teacher[data-v-e37844ff] {
+  width: 100%;
+  font-size: 10px;
+  opacity: 0.75;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* 周切换过渡 */
+.week-slide-left-enter-active[data-v-e37844ff],
+.week-slide-left-leave-active[data-v-e37844ff],
+.week-slide-right-enter-active[data-v-e37844ff],
+.week-slide-right-leave-active[data-v-e37844ff] {
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+.week-slide-left-enter-from[data-v-e37844ff] {
+  transform: translateX(24px);
+  opacity: 0;
+}
+.week-slide-left-leave-to[data-v-e37844ff] {
+  transform: translateX(-24px);
+  opacity: 0;
+}
+.week-slide-right-enter-from[data-v-e37844ff] {
+  transform: translateX(-24px);
+  opacity: 0;
+}
+.week-slide-right-leave-to[data-v-e37844ff] {
+  transform: translateX(24px);
+  opacity: 0;
+}
+@media (max-width: 768px) {
+.month-col[data-v-e37844ff],
+  .time-axis[data-v-e37844ff] {
+    width: var(--time-axis-width);
+}
+.time-slot[data-v-e37844ff] {
+    font-size: 9px;
+}
+.period-num[data-v-e37844ff] {
+    font-size: 12px;
+}
+.day-column[data-v-e37844ff] {
+    grid-template-rows: repeat(11, var(--slot-height));
+}
+.course-card[data-v-e37844ff] {
+    padding: 3px 2px 5px;
+    margin: 1px 0;
+    font-size: 10px;
+}
+.course-name[data-v-e37844ff] {
+    font-size: 10px;
+}
+.course-room[data-v-e37844ff] {
+    font-size: 9px;
+}
+.course-teacher[data-v-e37844ff] {
+    font-size: 9px;
+}
+}

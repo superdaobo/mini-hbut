@@ -1,0 +1,232 @@
+
+/* ── 页面侧：颜色/间距/圆角/动效全部走 --ui-* token，无裸色值 ── */
+.campus-photo-map-view[data-v-fb745612] {
+  /* 组件级派生色：由 token 混合得出（占位底 + 缓存中徽章） */
+  --card-cover-tint: color-mix(in oklab, var(--ui-primary) 10%, transparent);
+  --badge-bg: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--ui-primary) 80%, black 20%) 82%,
+    transparent 18%
+  );
+  min-height: 100vh;
+  padding: var(--ui-space-md) var(--ui-space-md) 100px;
+  background: var(--ui-bg-gradient);
+}
+.intro-card[data-v-fb745612] {
+  margin-top: var(--ui-space-md);
+  padding: var(--ui-space-md);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  color: var(--ui-muted);
+}
+.intro-card p[data-v-fb745612] {
+  margin: 0;
+  line-height: 1.6;
+}
+.intro-card p + p[data-v-fb745612] {
+  margin-top: var(--ui-space-xs);
+}
+.maps-grid[data-v-fb745612] {
+  margin-top: var(--ui-space-md);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--ui-space-md);
+}
+.map-card[data-v-fb745612] {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: var(--ui-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--ui-shadow-soft);
+}
+.map-cover[data-v-fb745612] {
+  position: relative;
+  height: 170px;
+  background: var(--card-cover-tint);
+}
+.map-cover img[data-v-fb745612] {
+  width: 100%;
+  height: 100%;
+  -o-object-fit: cover;
+     object-fit: cover;
+}
+.cover-badge[data-v-fb745612] {
+  position: absolute;
+  top: var(--ui-space-sm);
+  right: var(--ui-space-sm);
+  padding: var(--ui-space-xs) var(--ui-space-sm);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: white;
+  background: var(--badge-bg);
+}
+.map-meta[data-v-fb745612] {
+  padding: var(--ui-space-sm) var(--ui-space-md) var(--ui-space-xs);
+}
+.map-meta h3[data-v-fb745612] {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: 18px;
+}
+.map-meta p[data-v-fb745612] {
+  margin: var(--ui-space-sm) 0 0;
+  color: var(--ui-muted);
+  font-size: 14px;
+}
+.open-btn[data-v-fb745612] {
+  margin: 0 var(--ui-space-md) var(--ui-space-md);
+  width: calc(100% - var(--ui-space-md) * 2);
+  border: none;
+  border-radius: var(--ui-radius-md);
+  background: linear-gradient(120deg, var(--ui-primary), var(--ui-secondary));
+  color: white;
+  font-weight: 700;
+  padding: var(--ui-space-sm);
+  cursor: pointer;
+  transition: filter calc(var(--ui-duration-fast) * var(--ui-motion-scale)) var(--ui-ease-out);
+}
+.open-btn[data-v-fb745612]:hover {
+  filter: brightness(1.08);
+}
+
+/* ── 查看器：暗色玻璃 ──
+   局部变量全部由 token 派生（--ui-primary 定色相 + black/white 做明暗锚点），
+   不引用会被 html.dark 翻转的 --ui-surface/--ui-text，
+   因此浅/深主题下都保持「深底 + 浅字」的观感。 */
+.viewer-overlay[data-v-fb745612] {
+  --viewer-scrim: color-mix(in oklab, var(--ui-primary) 20%, black 80%);
+  --viewer-bg: color-mix(in oklab, var(--ui-primary) 15%, black 85%);
+  --viewer-deep: color-mix(in oklab, var(--ui-primary) 8%, black 92%);
+  --viewer-panel: color-mix(in oklab, var(--ui-primary) 24%, black 76%);
+  --viewer-text: color-mix(in oklab, var(--ui-secondary) 12%, white 88%);
+  --viewer-danger: color-mix(in oklab, var(--ui-danger) 52%, white 48%);
+  --viewer-glow-1: color-mix(in oklab, var(--ui-secondary) 24%, transparent);
+  --viewer-glow-2: color-mix(in oklab, var(--ui-primary) 28%, transparent);
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  overscroll-behavior: none;
+  background: color-mix(in oklab, var(--viewer-scrim) 86%, transparent 14%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--ui-space-sm);
+}
+.viewer-shell[data-v-fb745612] {
+  width: min(1100px, 100%);
+  height: 84vh;
+  background: var(--viewer-bg);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: var(--ui-radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.viewer-toolbar[data-v-fb745612] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ui-space-sm);
+  padding: var(--ui-space-sm) var(--ui-space-md);
+  background: color-mix(in oklab, var(--viewer-panel) 90%, transparent 10%);
+  color: var(--viewer-text);
+}
+.viewer-title h3[data-v-fb745612] {
+  margin: 0;
+  font-size: 17px;
+}
+.viewer-title span[data-v-fb745612] {
+  font-size: 12px;
+  opacity: 0.88;
+}
+.viewer-actions[data-v-fb745612] {
+  display: flex;
+  gap: var(--ui-space-sm);
+}
+.viewer-actions button[data-v-fb745612] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: var(--ui-radius-sm);
+  background: color-mix(in oklab, var(--viewer-panel) 64%, transparent 36%);
+  color: var(--viewer-text);
+  padding: var(--ui-space-xs) var(--ui-space-sm);
+  cursor: pointer;
+  transition:
+    background calc(var(--ui-duration-fast) * var(--ui-motion-scale)) var(--ui-ease-out),
+    color calc(var(--ui-duration-fast) * var(--ui-motion-scale)) var(--ui-ease-out);
+}
+.viewer-actions button[data-v-fb745612]:hover {
+  background: color-mix(in oklab, var(--viewer-panel) 84%, transparent 16%);
+}
+.viewer-actions button .material-symbols-outlined[data-v-fb745612] {
+  font-size: 20px;
+}
+.viewer-actions .close-btn[data-v-fb745612] {
+  color: var(--viewer-danger);
+}
+.viewer-viewport[data-v-fb745612] {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: contain;
+  background:
+    radial-gradient(circle at 12% 18%, var(--viewer-glow-1), transparent 42%),
+    radial-gradient(circle at 85% 85%, var(--viewer-glow-2), transparent 45%),
+    var(--viewer-deep);
+}
+.viewer-image[data-v-fb745612] {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: 100%;
+  max-height: 100%;
+  -webkit-user-select: none;
+     -moz-user-select: none;
+          user-select: none;
+  transform-origin: center center;
+  /* 图片跟手：duration-fast 的一半（≈0.075s），保证拖拽/缩放零滞手感 */
+  transition: transform calc(var(--ui-duration-fast) * 0.5) linear;
+}
+
+/* 焦点态可见：页面按钮用 primary 描边，暗色查看器内改用浅色描边 */
+.open-btn[data-v-fb745612]:focus-visible,
+.viewer-actions button[data-v-fb745612]:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+.viewer-actions button[data-v-fb745612]:focus-visible {
+  outline-color: var(--viewer-text);
+}
+
+/* ── 响应式：375 单列 / 768 双列 / 1024+ 双列且卡片更大 ── */
+@media (min-width: 768px) {
+.campus-photo-map-view[data-v-fb745612] {
+    padding: var(--ui-space-md) var(--ui-space-lg) 110px;
+}
+.maps-grid[data-v-fb745612] {
+    grid-template-columns: repeat(2, 1fr);
+}
+.viewer-shell[data-v-fb745612] {
+    height: min(88vh, 850px);
+}
+.viewer-toolbar[data-v-fb745612] {
+    flex-direction: row;
+    align-items: center;
+}
+}
+@media (min-width: 1024px) {
+.maps-grid[data-v-fb745612] {
+    gap: var(--ui-space-lg);
+}
+.map-cover[data-v-fb745612] {
+    height: 220px;
+}
+.map-meta h3[data-v-fb745612] {
+    font-size: 20px;
+}
+}
