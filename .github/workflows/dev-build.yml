@@ -364,9 +364,10 @@ jobs:
           rm -f dist/favicon.svg
           echo "Removed dist/favicon.svg"
 
-      - name: Build Android APK (arm64, mobile-slim)
+      - name: Build Android APK (arm64, mobile-slim+bridge)
         working-directory: apps/client
-        run: npx tauri android build --target aarch64 --config '{"build":{"features":["mobile-slim"]}}'
+        # #1368：Android 也编入 bridge，与 Release 保持一致（数据链路走 loopback 4399）
+        run: npx tauri android build --target aarch64 --config '{"build":{"features":["mobile-slim","bridge"]}}'
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_HOME: ${{ env.NDK_HOME }}

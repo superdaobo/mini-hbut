@@ -11,6 +11,8 @@ pub mod campus_network;
 pub mod cert_probe;
 pub mod chaoxing_checkin;
 pub mod chaoxing_class;
+// P4-A（#1342）：学习通官方页面内嵌子 WebView（应用内打开且已自动登录）
+pub mod chaoxing_embed;
 pub mod chaoxing_sso;
 // goal-21 T04c：学习通**教师侧**只读查询（ut=t 语义，与 online_learning 的学生侧互不影响）
 pub mod chaoxing_teacher;

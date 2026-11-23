@@ -288,6 +288,32 @@
   max-height: 100% !important;
 }
 
+/* #1375：全屏地图页（小塔出行 / 校园导览）豁免宽屏限宽兜底 —
+   ≥1024px 时两页是「地图 + 右侧栏」分栏布局，被 896px 限宽居中后
+   分栏失效（地图缩到 496px、两侧留白条），fixed header 也随之偏离地图区 */
+.app-shell.map-full {
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.app-shell.map-full > .view-transition-root {
+  min-height: 100%;
+  height: 100%;
+  display: flex;
+}
+
+/* 校园导览外壳是 .campus-guide-shell（内部再渲染 .campus-guide-root 与子页），
+   小塔出行根节点是 .towergo-view */
+/* 只解除限宽：两页根组件自带高度策略（100dvh / min-height:100%），
+   这里不强写 height，避免压塌无高度约束的校园导览外壳 */
+.app-shell.map-full > .view-transition-root > .towergo-view,
+.app-shell.map-full > .view-transition-root > .campus-guide-shell {
+  width: 100%;
+  max-width: none !important;
+  margin: 0 !important;
+  min-height: 100%;
+}
+
 .bottom-tab-bar {
   position: fixed;
   top: auto;
@@ -824,6 +850,20 @@
 .notice-confirm-content {
   color: var(--ui-muted);
   line-height: 1.6;
+  /* 公告正文来自远程 v-html，可能含长链接/长串（如加群 URL），
+     没有换行约束会在 375px 窄屏把卡片撑破、右侧按钮被裁切 */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.notice-confirm-content a {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.notice-confirm-content img {
+  max-width: 100%;
+  height: auto;
 }
 
 .notice-confirm-actions {
@@ -831,4 +871,6 @@
   justify-content: flex-end;
   gap: 12px;
   margin-top: 16px;
+  /* 窄屏放不下时换行，避免「我已知晓」被挤出视口 */
+  flex-wrap: wrap;
 }

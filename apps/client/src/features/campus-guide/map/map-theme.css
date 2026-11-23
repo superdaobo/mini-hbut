@@ -99,8 +99,8 @@
   border: none;
   border-radius: 14px;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #64748b;
+  background: var(--ui-surface, rgba(255, 255, 255, 0.94));
+  color: var(--ui-muted, #64748b);
   text-align: left;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   cursor: pointer;
@@ -117,8 +117,8 @@
   border: none;
   border-radius: 999px;
   padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #0074cf;
+  background: var(--ui-surface, rgba(255, 255, 255, 0.9));
+  color: var(--ui-primary, #0074cf);
   font-weight: 600;
   font-size: 13px;
   white-space: nowrap;
@@ -126,7 +126,7 @@
 }
 
 .campus-guide-tabs button.active {
-  background: #0074cf;
+  background: var(--ui-primary, #0074cf);
   color: #fff;
 }
 
@@ -161,15 +161,15 @@
   border: none;
   border-radius: 12px;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--ui-surface, rgba(255, 255, 255, 0.92));
   cursor: pointer;
 }
 
 .campus-notice-tag {
   border-radius: 999px;
   padding: 2px 8px;
-  background: rgba(0, 116, 207, 0.12);
-  color: #0074cf;
+  background: color-mix(in oklab, var(--ui-primary, #0074cf) 12%, transparent);
+  color: var(--ui-primary, #0074cf);
   font-size: 12px;
   font-weight: 700;
 }
@@ -177,7 +177,7 @@
 .campus-notice-text {
   flex: 1;
   text-align: left;
-  color: #334155;
+  color: var(--ui-text, #334155);
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -225,8 +225,8 @@
   height: 44px;
   border: none;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #0074cf;
+  background: var(--ui-surface, rgba(255, 255, 255, 0.92));
+  color: var(--ui-primary, #0074cf);
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
   font-size: 18px;
   cursor: pointer;
@@ -248,8 +248,8 @@
   border: none;
   border-radius: 12px;
   padding: 10px 8px;
-  background: rgba(255, 255, 255, 0.95);
-  color: #0f172a;
+  background: var(--ui-surface, rgba(255, 255, 255, 0.95));
+  color: var(--ui-text, #0f172a);
   font-size: 13px;
   font-weight: 600;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);

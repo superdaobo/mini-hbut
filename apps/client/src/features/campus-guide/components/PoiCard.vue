@@ -27,7 +27,9 @@ const distanceText = computed(() => {
 
 <template>
   <section v-if="spot" class="campus-poi-card">
-    <button class="campus-poi-close" type="button" aria-label="关闭" @click="emit('close')">×</button>
+    <button class="campus-poi-close" type="button" aria-label="关闭" @click="emit('close')">
+      <span class="material-symbols-outlined" aria-hidden="true">close</span>
+    </button>
     <div class="campus-poi-head">
       <h3>{{ spot.name }}</h3>
       <span>{{ distanceText || '距离计算中' }}</span>

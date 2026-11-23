@@ -710,3 +710,184 @@ html.dark .soft-panel {
   background: linear-gradient(145deg, #0f172a, #111827);
   border-color: #334155;
 }
+
+/* ── P4-B（#1343）：作业 / 考试「只查不做」────────────────────────────── */
+
+/* 首页两个入口卡 */
+.quick-entries {
+  display: grid;
+  /* minmax(0, 1fr)：卡片里是 nowrap 文案，纯 1fr 会被 min-content 撑破容器 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.quick-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--md-sys-color-surface-variant, #e2e8f0);
+  background: var(--md-sys-color-surface-container-lowest, #fff);
+  text-align: left;
+  cursor: pointer;
+}
+.quick-card:active {
+  transform: scale(0.985);
+}
+.quick-card__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  flex-shrink: 0;
+}
+.quick-card.work .quick-card__icon {
+  background: rgba(37, 99, 235, 0.14);
+  color: #0058be;
+}
+.quick-card.exam .quick-card__icon {
+  background: rgba(249, 115, 22, 0.16);
+  color: #f97316;
+}
+.quick-card__body {
+  flex: 1;
+  min-width: 0;
+}
+.quick-card__body strong {
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface, #0f172a);
+}
+.quick-card__body p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quick-card .chev {
+  color: var(--md-sys-color-outline, #cbd5e1);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* 作业/考试页头部统计 */
+.task-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-stats {
+  display: flex;
+  gap: 8px;
+}
+.task-stats > div {
+  flex: 1;
+  background: rgba(148, 163, 184, 0.14);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.task-stats b {
+  font-size: 18px;
+  color: var(--md-sys-color-on-surface, #0f172a);
+}
+.task-stats span {
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant, #64748b);
+}
+
+/* 待办卡片 */
+.task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--md-sys-color-surface-variant, #e2e8f0);
+  background: var(--md-sys-color-surface-container-lowest, #fff);
+  cursor: pointer;
+}
+.task-card:active {
+  transform: scale(0.99);
+}
+.task-card.urgent {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.1);
+}
+.task-card__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  justify-content: space-between;
+}
+.task-card__top strong {
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface, #0f172a);
+  line-height: 1.35;
+}
+.task-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #f97316;
+  background: rgba(249, 115, 22, 0.16);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.task-card.urgent .task-badge {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+.task-card__course {
+  margin: 0;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant, #64748b);
+}
+.task-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant, #94a3b8);
+}
+
+/* 底部说明卡 */
+.notice-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(249, 115, 22, 0.1);
+  border-color: rgba(249, 115, 22, 0.28);
+}
+.notice-panel p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #b45309;
+}
+
+/* 「仅提醒」弹窗 */
+.notice-line {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant, #334155);
+}
+.notice-warn {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-size: 12px;
+  line-height: 1.6;
+  color: #b91c1c;
+}

@@ -78,16 +78,19 @@ describe('campus guide bridge contract', () => {
     expect(theme).toContain('html.dark .campus-poi-head h3')
   })
 
-  it('resolves campus-guide API base: iOS/desktop loopback, Android without 127.0.0.1', () => {
+  it('resolves campus-guide API base: Tauri 全平台 loopback, 非 Tauri 相对路径 (#1368)', () => {
     const config = read('src/features/campus-guide/config.ts')
     const client = read('src/features/campus-guide/api/wisdom_client.ts')
 
     expect(config).toContain("localBridgeBaseUrl: 'http://127.0.0.1:4399/campus-guide'")
     expect(config).toContain('resolveCampusGuideBaseUrl')
-    expect(config).toContain('isLikelyAndroidUserAgent')
     expect(config).toContain('VITE_CAMPUS_GUIDE_HTTPS_BASE')
-    // Android must not use loopback
-    expect(config).toMatch(/isLikelyAndroidUserAgent\(\)[\s\S]*?return CAMPUS_GUIDE_CONFIG\.apiBase/)
+    // #1368：http_server 全平台默认启用，Android 不再禁 loopback
+    expect(config).not.toContain('isLikelyAndroidUserAgent')
+    expect(config).not.toContain('isLikelyIOSUserAgent')
+    // Tauri → loopback（显式 https 覆盖除外）；非 Tauri → apiBase
+    expect(config).toMatch(/if \(!isTauriRuntime\(\)\) return CAMPUS_GUIDE_CONFIG\.apiBase/)
+    expect(config).toMatch(/return CAMPUS_GUIDE_CONFIG\.localBridgeBaseUrl/)
     expect(client).toContain('resolveCampusGuideBaseUrl')
     expect(client).not.toContain('CAMPUS_GUIDE_CONFIG.apiBase.replace')
   })

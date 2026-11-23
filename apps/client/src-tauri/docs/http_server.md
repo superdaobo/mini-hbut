@@ -13,12 +13,15 @@
 | 平台 | Debug | Release | 说明 |
 |------|-------|---------|------|
 | **iOS** | ✅ 启 | ✅ 启 | 官网 `proxy-iframe` / 更多本地模块依赖 loopback |
-| **Android** | ✅ 启（debug_assertions） | ❌ 默认不启 | 前端走 `external-open` / Capacitor 本地缓存，**不**静默依赖 4399 |
-| **桌面** | ✅ 启 | ❌ 默认不启 | Release 需 `HBUT_HTTP_BRIDGE_ENABLED=1`（或 `true`） |
+| **Android** | ✅ 启 | ✅ 启 | #1368 起默认启用；构建 features 为 `mobile-slim+bridge` |
+| **桌面** | ✅ 启 | ✅ 启 | #1368 起默认启用 |
 
-强制开关：
+> **#1368 变更**：校园地图 / 小塔出行 / 校园助手的数据链路全部走 loopback 4399，Release 不启桥会让三者整体不可用，因此默认值翻转为「全平台全构建启用」。安全面未变：仍固定 loopback 绑定、令牌仅下发主窗口、CORS 白名单与路由策略不变。
 
-- `HBUT_HTTP_BRIDGE_ENABLED=1|true`：任意平台强制启
+排障开关：
+
+- `HBUT_HTTP_BRIDGE_ENABLED=0|false`：任意平台强制**关闭**（kill switch）
+- `HBUT_HTTP_BRIDGE_ENABLED=1|true` 或未设置：启用
 - `HBUT_HTTP_BRIDGE_PORT`：端口（默认 `4399`）
 - `HBUT_HTTP_BRIDGE_HOST`：绑定地址（默认 `127.0.0.1`）
 

@@ -7,8 +7,13 @@
  * - useChaoxingCourseNav：课程详情/大纲/小节任务卡/视频/文档/成绩
  * 模板与样式保持不变，命令调用与 UI 行为无回归。
  */
-import { onMounted, onUnmounted, watch } from 'vue'
-import { TPageHeader, TEmptyState, TStatusBadge } from './templates'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { TPageHeader, TEmptyState, TStatusBadge, TModal } from './templates'
+import { showToast } from '../utils/toast'
+import ChaoxingEmbedFrame from '../features/chaoxing/components/ChaoxingEmbedFrame.vue'
+// P4-C（#1344）：学习记录（6 Tab / 16 维度）
+import ChaoxingStudyRecord from '../features/chaoxing/components/ChaoxingStudyRecord.vue'
+import { useChaoxingTasks } from '../features/chaoxing/composables/useChaoxingTasks'
 import { formatDuration } from '../features/chaoxing/utils/normalize'
 import { formatRelativeTime } from '../utils/time.js'
 // #792：学习通域文案英文化（t() 响应式取词）
@@ -51,6 +56,8 @@ const core = createChaoxingHubCore(props, emit)
 const list = useChaoxingCourseList(core)
 // 导航领域：课程详情/章/小节/任务点/视频/文档/成绩
 const nav = useChaoxingCourseNav(core)
+// P4-B（#1343）：作业 / 考试「只查不做」清单
+const tasks = useChaoxingTasks(core)
 
 const {
   current,
@@ -102,6 +109,102 @@ const {
   onVideoError
 } = nav
 
+// ── P4-B（#1343）：作业 / 考试「只查不做」────────────────────────────────
+const {
+  works,
+  exams,
+  workStats,
+  examStats,
+  nearestWork,
+  nearestExam,
+  tasksLoading,
+  tasksError,
+  tasksLoaded,
+  loadTasks,
+  openWorkList,
+  openExamList,
+  resolveTaskUrl
+} = tasks
+
+/** 内嵌官方页（Teleport 到 body 的原生浮层宿主） */
+const embedRef = ref(null)
+const embedTitle = ref('')
+/** 「仅提醒」弹窗当前条目（null = 关闭） */
+const noticeItem = ref(null)
+
+/** 剩余时间文案（<1 天显示小时，<1 小时显示「即将」） */
+const remainText = (item) => {
+  const ms = item?.deadline_ms
+  if (!ms) return ''
+  const diff = ms - Date.now()
+  if (diff < 0) return t('chaoxing.tasks.expired')
+  const days = Math.floor(diff / 86400000)
+  if (days >= 1) return tFmt('chaoxing.tasks.remainDays', { n: days })
+  const hours = Math.floor(diff / 3600000)
+  if (hours >= 1) return tFmt('chaoxing.tasks.remainHours', { n: hours })
+  return t('chaoxing.tasks.remainSoon')
+}
+
+/** 3 天内截止标红 */
+const isUrgent = (item) => {
+  const ms = item?.deadline_ms
+  if (!ms) return false
+  const diff = ms - Date.now()
+  return diff > 0 && diff <= 3 * 86400000
+}
+
+/**
+ * 打开学习通官方页（唯一出口）。
+ *
+ * 作业/考试的直达链接带短时 `enc` 票据，点开前先对**单门课**重新取一次；
+ * 取不到就回落到课程列表首页 —— 绝不在这里提供作答/交卷入口。
+ */
+const openOfficial = async (item) => {
+  const target = item || null
+  noticeItem.value = null
+  embedTitle.value = target?.course || t('chaoxing.tasks.chaoxing')
+  const freshUrl = target ? await resolveTaskUrl(target) : ''
+  await nextTick()
+  await embedRef.value?.open(freshUrl || 'https://mooc1.chaoxing.com')
+}
+
+/** 复制标题（提醒弹窗里唯一的「本地」动作，不产生任何提交） */
+const copyTaskTitle = async () => {
+  const item = noticeItem.value
+  if (!item) return
+  try {
+    await navigator.clipboard.writeText(item.name)
+    showToast(t('chaoxing.tasks.copied'), 'success')
+  } catch {
+    showToast(t('chaoxing.tasks.copyFailed'), 'error')
+  }
+}
+
+/** 学习记录组件实例（拿 bindCore 注入 core，复用 cxInvoke） */
+const studyRef = ref(null)
+const studyCourse = ref(null)
+
+/** 打开「学习记录」层 */
+const openStudyRecord = (course) => {
+  studyCourse.value = course || current.value?.course || null
+  core.push({ level: 'study' })
+  nextTick(() => {
+    if (studyRef.value && studyCourse.value) studyRef.value.bindCore(core)
+  })
+}
+
+/**
+ * 学习记录里的任务条目（逾期/本周/临近）→ 打开学习通官方页。
+ *
+ * 这些条目来自刚刚的取数，URL 里的 enc 仍是新鲜的；没有 URL 就回落到课程列表。
+ */
+const openStudyTask = async (item) => {
+  const url = String(item?.url || '')
+  embedTitle.value = String(item?.name || '')
+  await nextTick()
+  await embedRef.value?.open(url || 'https://mooc1.chaoxing.com')
+}
+
 const handleHeaderBack = () => pop()
 
 watch(
@@ -122,6 +225,10 @@ onMounted(() => {
   // 事件名与原生层契约保持一致：iosMemoryWarning
   window.addEventListener('iosMemoryWarning', onIosMemoryWarning)
   void loadList()
+  // 入口卡上的待做/待考数量：课程列表出来后再后台聚合，不阻塞首屏
+  window.setTimeout(() => {
+    if (!tasksLoaded.value && !tasksLoading.value) void loadTasks()
+  }, 1200)
 })
 
 onUnmounted(() => {
@@ -206,6 +313,36 @@ onUnmounted(() => {
           </p>
         </section>
 
+        <!-- P4-B（#1343）：作业 / 考试入口 —— 只查不做 -->
+        <section class="quick-entries">
+          <button type="button" class="quick-card work" @click="openWorkList">
+            <span class="material-symbols-outlined quick-card__icon">assignment</span>
+            <div class="quick-card__body">
+              <strong>{{ t('chaoxing.tasks.workEntry') }}</strong>
+              <p v-if="!tasksLoaded && tasksLoading">{{ t('chaoxing.tasks.loading') }}</p>
+              <p v-else-if="workStats.pending_work > 0">
+                {{ tFmt('chaoxing.tasks.pendingCount', { n: workStats.pending_work }) }}
+                <template v-if="nearestWork">· {{ tFmt('chaoxing.tasks.nearest', { d: nearestWork.deadline_text }) }}</template>
+              </p>
+              <p v-else>{{ t('chaoxing.tasks.noWork') }}</p>
+            </div>
+            <span class="material-symbols-outlined chev">chevron_right</span>
+          </button>
+          <button type="button" class="quick-card exam" @click="openExamList">
+            <span class="material-symbols-outlined quick-card__icon">quiz</span>
+            <div class="quick-card__body">
+              <strong>{{ t('chaoxing.tasks.examEntry') }}</strong>
+              <p v-if="!tasksLoaded && tasksLoading">{{ t('chaoxing.tasks.loading') }}</p>
+              <p v-else-if="examStats.pending_exam > 0">
+                {{ tFmt('chaoxing.tasks.pendingExamCount', { n: examStats.pending_exam }) }}
+                <template v-if="nearestExam">· {{ tFmt('chaoxing.tasks.nearest', { d: nearestExam.deadline_text }) }}</template>
+              </p>
+              <p v-else>{{ t('chaoxing.tasks.noExam') }}</p>
+            </div>
+            <span class="material-symbols-outlined chev">chevron_right</span>
+          </button>
+        </section>
+
         <div v-if="semesterTabs.length > 1" class="sem-scroll" role="tablist">
           <button
             v-for="sem in semesterTabs"
@@ -284,6 +421,120 @@ onUnmounted(() => {
         <div v-if="hasMoreCourses" ref="loadMoreSentinelRef" class="course-load-sentinel" aria-hidden="true" />
       </template>
 
+      <!-- P4-B（#1343）：我的作业（只查不做，作答请到官方页） -->
+      <template v-else-if="current.level === 'workList'">
+        <section class="panel task-head">
+          <div class="task-stats">
+            <div><b>{{ workStats.pending_work }}</b><span>{{ t('chaoxing.tasks.pending') }}</span></div>
+            <div><b>{{ workStats.finished_work }}</b><span>{{ t('chaoxing.tasks.finished') }}</span></div>
+            <div><b>{{ workStats.overdue }}</b><span>{{ t('chaoxing.tasks.overdue') }}</span></div>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="chip-btn ghost" :disabled="tasksLoading" @click="loadTasks({ force: true })">
+              <span class="material-symbols-outlined">refresh</span>
+              {{ t('chaoxing.hub.refresh') }}
+            </button>
+          </div>
+        </section>
+
+        <TEmptyState
+          v-if="tasksLoading && !works.length"
+          type="loading"
+          :message="t('chaoxing.tasks.loading')"
+        />
+        <TEmptyState v-else-if="tasksError && !works.length" type="error" :message="tasksError" />
+        <template v-else-if="works.length">
+          <div class="section-head">
+            <span class="section-head__title">{{ t('chaoxing.tasks.allPending') }}</span>
+            <span class="section-head__count">{{ works.length }}</span>
+          </div>
+          <button
+            v-for="item in works"
+            :key="item.course_id + '-' + item.id"
+            type="button"
+            class="task-card"
+            :class="{ urgent: isUrgent(item) }"
+            @click="noticeItem = item"
+          >
+            <div class="task-card__top">
+              <strong>{{ item.name }}</strong>
+              <span v-if="remainText(item)" class="task-badge">{{ remainText(item) }}</span>
+            </div>
+            <p class="task-card__course">{{ item.course }}</p>
+            <div class="task-card__meta">
+              <span>{{ t('chaoxing.tasks.deadline') }} {{ item.deadline_text || '—' }}</span>
+              <span v-if="item.question_num != null">{{ tFmt('chaoxing.tasks.questionCount', { n: item.question_num }) }}</span>
+              <span v-if="item.avg_finish_rate != null">{{ tFmt('chaoxing.tasks.classRate', { n: Math.round(item.avg_finish_rate) }) }}</span>
+            </div>
+          </button>
+        </template>
+        <TEmptyState v-else type="empty" :message="t('chaoxing.tasks.noWork')" />
+
+        <section class="panel notice-panel">
+          <p>{{ t('chaoxing.tasks.workNotice') }}</p>
+          <button type="button" class="chip-btn" @click="openOfficial(null)">
+            <span class="material-symbols-outlined">open_in_new</span>
+            {{ t('chaoxing.tasks.openChaoxing') }}
+          </button>
+        </section>
+      </template>
+
+      <!-- P4-B（#1343）：我的考试（只查不做，考试请到官方页） -->
+      <template v-else-if="current.level === 'examList'">
+        <section class="panel task-head">
+          <div class="task-stats">
+            <div><b>{{ examStats.pending_exam }}</b><span>{{ t('chaoxing.tasks.pendingExam') }}</span></div>
+            <div><b>{{ examStats.due_within_3d }}</b><span>{{ t('chaoxing.tasks.dueSoon') }}</span></div>
+            <div><b>{{ examStats.overdue }}</b><span>{{ t('chaoxing.tasks.overdue') }}</span></div>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="chip-btn ghost" :disabled="tasksLoading" @click="loadTasks({ force: true })">
+              <span class="material-symbols-outlined">refresh</span>
+              {{ t('chaoxing.hub.refresh') }}
+            </button>
+          </div>
+        </section>
+
+        <TEmptyState
+          v-if="tasksLoading && !exams.length"
+          type="loading"
+          :message="t('chaoxing.tasks.loading')"
+        />
+        <TEmptyState v-else-if="tasksError && !exams.length" type="error" :message="tasksError" />
+        <template v-else-if="exams.length">
+          <div class="section-head">
+            <span class="section-head__title">{{ t('chaoxing.tasks.pendingExam') }}</span>
+            <span class="section-head__count">{{ exams.length }}</span>
+          </div>
+          <button
+            v-for="item in exams"
+            :key="item.course_id + '-' + item.id"
+            type="button"
+            class="task-card exam"
+            :class="{ urgent: isUrgent(item) }"
+            @click="noticeItem = item"
+          >
+            <div class="task-card__top">
+              <strong>{{ item.name }}</strong>
+              <span v-if="remainText(item)" class="task-badge">{{ remainText(item) }}</span>
+            </div>
+            <p class="task-card__course">{{ item.course }}</p>
+            <div class="task-card__meta">
+              <span>{{ t('chaoxing.tasks.examTime') }} {{ item.deadline_text || '—' }}</span>
+            </div>
+          </button>
+        </template>
+        <TEmptyState v-else type="empty" :message="t('chaoxing.tasks.noExam')" />
+
+        <section class="panel notice-panel">
+          <p>{{ t('chaoxing.tasks.examNotice') }}</p>
+          <button type="button" class="chip-btn" @click="openOfficial(null)">
+            <span class="material-symbols-outlined">open_in_new</span>
+            {{ t('chaoxing.tasks.openChaoxing') }}
+          </button>
+        </section>
+      </template>
+
       <!-- 2. 课程 → 章列表 -->
       <template v-else-if="current.level === 'course'">
         <section class="panel course-head">
@@ -298,6 +549,10 @@ onUnmounted(() => {
             <button type="button" class="chip-btn" @click="openScore(current.course)">
               <span class="material-symbols-outlined">grade</span>
               {{ t('chaoxing.hub.scoreComposition') }}
+            </button>
+            <button type="button" class="chip-btn" @click="openStudyRecord(current.course)">
+              <span class="material-symbols-outlined">insights</span>
+              {{ t('chaoxing.hub.studyRecord') }}
             </button>
             <button
               type="button"
@@ -537,6 +792,11 @@ onUnmounted(() => {
         </section>
       </template>
 
+      <!-- P4-C（#1344）：学习记录（6 Tab / 16 维度，只读；课程头卡由组件自带） -->
+      <template v-else-if="current.level === 'study'">
+        <ChaoxingStudyRecord ref="studyRef" :course="studyCourse" @open-official="openStudyTask" />
+      </template>
+
       <!-- 7. 文档/PPT 预览 -->
       <template v-else-if="current.level === 'document'">
         <section class="panel video-panel">
@@ -571,6 +831,39 @@ onUnmounted(() => {
           <p class="hint">{{ t('chaoxing.hub.docPreviewHint') }}</p>
         </section>
       </template>
+
+      <!-- 「仅提醒」弹窗：点作业/考试只提示，不进入作答/考试 -->
+      <TModal
+        :visible="!!noticeItem"
+        :title="noticeItem?.name || ''"
+        @close="noticeItem = null"
+      >
+        <template v-if="noticeItem">
+          <p class="notice-line">{{ noticeItem.course }}</p>
+          <p class="notice-line">
+            {{ noticeItem.event_type === 'exam' ? t('chaoxing.tasks.examTime') : t('chaoxing.tasks.deadline') }}
+            {{ noticeItem.deadline_text || '—' }}
+            <template v-if="remainText(noticeItem)"> · {{ remainText(noticeItem) }}</template>
+          </p>
+          <p v-if="noticeItem.question_num != null" class="notice-line">
+            {{ tFmt('chaoxing.tasks.questionCount', { n: noticeItem.question_num }) }}
+          </p>
+          <p class="notice-warn">
+            {{ noticeItem.event_type === 'exam' ? t('chaoxing.tasks.examWarn') : t('chaoxing.tasks.workWarn') }}
+          </p>
+        </template>
+        <template #footer>
+          <button type="button" class="chip-btn ghost" @click="copyTaskTitle">
+            {{ t('chaoxing.tasks.copyTitle') }}
+          </button>
+          <button type="button" class="chip-btn" @click="openOfficial(noticeItem)">
+            {{ t('chaoxing.tasks.openChaoxing') }}
+          </button>
+        </template>
+      </TModal>
+
+      <!-- 应用内官方页（桌面原生浮层；其它平台降级系统浏览器） -->
+      <ChaoxingEmbedFrame ref="embedRef" :title="embedTitle" />
     </div>
   </div>
 </template>

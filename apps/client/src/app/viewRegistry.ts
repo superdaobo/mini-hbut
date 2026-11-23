@@ -117,12 +117,10 @@ const loadMoreChaoxingCheckinView: Loader = () => import('../components/MoreChao
 const loadTransactionHistoryView: Loader = () => import('../components/TransactionHistory.vue')
 const loadCampusCodeView: Loader = () => import('../components/CampusCodeView.vue')
 const loadAiChatView: Loader = () => import('../components/AiChatView.vue')
-const loadCampusMapView: Loader = async () => {
-  const { readCampusGuideMode } = await import('../features/campus-guide/config.ts')
-  return readCampusGuideMode() === 'tencent'
-    ? import('../features/campus-guide/views/CampusGuideShell.vue')
-    : import('../components/CampusMapView.vue')
-}
+// #1372：校园地图（照片版）与校园导览（腾讯地图版）拆为两个独立模块，
+// 不再按 readCampusGuideMode() 运行时分流
+const loadCampusMapView: Loader = () => import('../components/CampusPhotoMapView.vue')
+const loadCampusGuideView: Loader = () => import('../features/campus-guide/views/CampusGuideShell.vue')
 const loadLibraryView: Loader = () => import('../components/LibraryView.vue')
 // #1055：图书馆预约（座位 / 静音仓 / 研讨室 + 我的预约），与馆藏检索 library 相互独立
 const loadLibraryReserveView: Loader = () => import('../components/LibraryReserveView.vue')
@@ -195,6 +193,7 @@ export const VIEW_COMPONENTS: Record<string, Component> = {
   campus_code: createAsyncPage(loadCampusCodeView),
   ai: createAsyncPage(loadAiChatView),
   campus_map: createAsyncPage(loadCampusMapView),
+  campus_guide: createAsyncPage(loadCampusGuideView),
   library: createAsyncPage(loadLibraryView),
   library_reserve: createAsyncPage(loadLibraryReserveView),
   chaoxing_reserve: createAsyncPage(loadChaoxingReserveView),
@@ -266,6 +265,7 @@ export const VIEW_PREFETCHERS: Record<string, Loader> = {
   forum: excludeHiddenViews ? noopLoader : loadForumView,
   ai: loadAiChatView,
   campus_map: loadCampusMapView,
+  campus_guide: loadCampusGuideView,
   library: loadLibraryView,
   library_reserve: loadLibraryReserveView,
   chaoxing_reserve: loadChaoxingReserveView,

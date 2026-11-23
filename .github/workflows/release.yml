@@ -245,6 +245,12 @@ jobs:
         working-directory: apps/client
         run: npm run tauri android init
 
+      # #1370：tauri android init 全新生成 gen/android（不入库），生成的清单默认没有定位权限；
+      # 必须在 init 之后、构建之前注入，否则正式 APK 的 navigator.geolocation 必然失败
+      - name: Patch Android location permissions (#1370)
+        working-directory: apps/client
+        run: python scripts/patch_android_location_permission.py
+
       - name: Pin Android NDK version in Gradle
         working-directory: apps/client
         run: python scripts/ci/patch_android_ndk.py
@@ -388,9 +394,11 @@ jobs:
           rm -f dist/favicon.svg
           echo "Removed dist/favicon.svg"
 
-      - name: Build Android APK (arm64 only, mobile-slim)
+      - name: Build Android APK (arm64 only, mobile-slim+bridge)
         working-directory: apps/client
-        run: npx tauri android build --target aarch64 --config '{"build":{"features":["mobile-slim"]}}'
+        # #1368：Android Release 也编入 bridge —— 校园地图 / 小塔出行 / 校园助手的数据链路
+        # 全部走 loopback 4399，不编入时前端请求必然失败（移动端能力裁剪见 #594/#595）
+        run: npx tauri android build --target aarch64 --config '{"build":{"features":["mobile-slim","bridge"]}}'
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_HOME: ${{ env.NDK_HOME }}

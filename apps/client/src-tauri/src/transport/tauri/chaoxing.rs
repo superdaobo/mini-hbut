@@ -820,3 +820,142 @@ pub(crate) async fn yuketang_send_heartbeat(
         .await
         .map_err(|e| e.to_string())
 }
+
+// ────────────────────────────────────────────────────────────
+// P4-B（#1343）：作业 / 考试「只查不做」清单
+// ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingTasksRequest {
+    /// 学期筛选（如 `2026-2027-1`）；缺省 = 全部课程
+    #[serde(default)]
+    pub semester: Option<String>,
+    /// 忽略 60s 聚合缓存
+    #[serde(default)]
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingResolveTaskRequest {
+    #[serde(alias = "courseId")]
+    pub course_id: String,
+    #[serde(alias = "clazzId", alias = "classId")]
+    pub clazz_id: String,
+    #[serde(default)]
+    pub cpi: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub semester: String,
+    #[serde(alias = "taskId")]
+    pub task_id: String,
+    /// work / exam
+    #[serde(alias = "eventType")]
+    pub event_type: String,
+}
+
+#[tauri::command]
+pub(crate) async fn chaoxing_fetch_works_all_courses(
+    state: State<'_, AppState>,
+    req: ChaoxingTasksRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    modules::online_learning::chaoxing_work::chaoxing_fetch_works_all_courses(
+        &mut client,
+        req.semester.as_deref(),
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) async fn chaoxing_fetch_exams_all_courses(
+    state: State<'_, AppState>,
+    req: ChaoxingTasksRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    modules::online_learning::chaoxing_exam::chaoxing_fetch_exams_all_courses(
+        &mut client,
+        req.semester.as_deref(),
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// 点击「打开学习通」时**实时**取任务直达链接（enc 票据会过期，不能缓存）。
+#[tauri::command]
+pub(crate) async fn chaoxing_resolve_task_url(
+    state: State<'_, AppState>,
+    req: ChaoxingResolveTaskRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let course = modules::online_learning::chaoxing_work::CourseRef {
+        course_id: req.course_id,
+        clazz_id: req.clazz_id,
+        cpi: req.cpi,
+        name: req.name,
+        semester: req.semester,
+    };
+    match modules::online_learning::chaoxing_work::resolve_course_task(
+        &client,
+        &course,
+        &req.task_id,
+        &req.event_type,
+    )
+    .await
+    {
+        Ok(Some(item)) => Ok(serde_json::json!({
+            "success": true,
+            "url": item.url,
+            "name": item.name,
+            "deadline_text": item.deadline_text,
+        })),
+        Ok(None) => Ok(serde_json::json!({
+            "success": false,
+            "url": "",
+            "message": "任务已不在待办列表中（可能已完成或已过期）",
+        })),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+// ────────────────────────────────────────────────────────────
+// P4-C（#1344）：学习记录（stat2 学情统计，6 Tab / 16 维度）
+// ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingStudyRecordRequest {
+    #[serde(alias = "courseId")]
+    pub course_id: String,
+    #[serde(alias = "clazzId", alias = "classId")]
+    pub clazz_id: String,
+    #[serde(default)]
+    pub cpi: String,
+    /// 要取的维度（白名单校验）；缺省 = 概览那一组
+    #[serde(default)]
+    pub dimensions: Vec<String>,
+    /// 忽略 5 分钟缓存
+    #[serde(default)]
+    pub force: Option<bool>,
+}
+
+/// 学习记录取数：一个命令带 `dimensions` 参数，避免注册 16 个命令。
+#[tauri::command]
+pub(crate) async fn chaoxing_fetch_study_record(
+    state: State<'_, AppState>,
+    req: ChaoxingStudyRecordRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    modules::online_learning::chaoxing_study::chaoxing_fetch_study_record(
+        &client,
+        &req.course_id,
+        &req.clazz_id,
+        &req.cpi,
+        &req.dimensions,
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}

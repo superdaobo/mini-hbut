@@ -41,12 +41,13 @@ describe('towergo map utilities', () => {
     expect(fallback).toEqual({ ...HBUT_LOCATION, source: 'fallback' })
   })
 
-  it('falls back when system location drifts beyond the campus threshold', async () => {
+  it('keeps the real position but marks outOfRange when drifting beyond the campus threshold', async () => {
+    const wgs = { latitude: 30.7, longitude: 114.5 }
     const drifted = await resolveTowerGoLocation({
       geolocation: {
         getCurrentPosition: (success: PositionCallback) =>
           success({
-            coords: { latitude: 30.7, longitude: 114.5, accuracy: 10 } as GeolocationCoordinates,
+            coords: { latitude: wgs.latitude, longitude: wgs.longitude, accuracy: 10 } as GeolocationCoordinates,
             timestamp: Date.now()
           } as GeolocationPosition)
       } as unknown as Geolocation,
@@ -54,9 +55,44 @@ describe('towergo map utilities', () => {
       maxDriftMeters: 2000
     })
 
-    expect(drifted.source).toBe('fallback')
-    expect(drifted.latitude).toBe(HBUT_LOCATION.latitude)
-    expect(drifted.longitude).toBe(HBUT_LOCATION.longitude)
+    // 超阈值不再静默回退校区：保留真实（GCJ）位置并打标记供调用方提示
+    expect(drifted.source).toBe('system')
+    expect(drifted.outOfRange).toBe(true)
+    expect(drifted.driftMeters).toBeGreaterThan(2000)
+    const expected = wgs84ToGcj02(wgs.latitude, wgs.longitude)
+    expect(drifted.latitude).toBeCloseTo(expected.latitude, 6)
+    expect(drifted.longitude).toBeCloseTo(expected.longitude, 6)
+    expect(drifted.latitude).not.toBe(HBUT_LOCATION.latitude)
+  })
+
+  it('still falls back for clearly invalid coordinates (null island / out of range)', async () => {
+    const nullIsland = await resolveTowerGoLocation({
+      geolocation: {
+        getCurrentPosition: (success: PositionCallback) =>
+          success({
+            coords: { latitude: 0, longitude: 0, accuracy: 10 } as GeolocationCoordinates,
+            timestamp: Date.now()
+          } as GeolocationPosition)
+      } as unknown as Geolocation,
+      fallback: HBUT_LOCATION,
+      maxDriftMeters: 2000
+    })
+    expect(nullIsland.source).toBe('fallback')
+    expect(nullIsland.latitude).toBe(HBUT_LOCATION.latitude)
+
+    const insane = await resolveTowerGoLocation({
+      geolocation: {
+        getCurrentPosition: (success: PositionCallback) =>
+          success({
+            coords: { latitude: 999, longitude: 400, accuracy: 10 } as GeolocationCoordinates,
+            timestamp: Date.now()
+          } as GeolocationPosition)
+      } as unknown as Geolocation,
+      fallback: HBUT_LOCATION,
+      maxDriftMeters: 2000
+    })
+    expect(insane.source).toBe('fallback')
+    expect(insane.latitude).toBe(HBUT_LOCATION.latitude)
   })
 
   it('keeps system location when within the campus threshold', async () => {

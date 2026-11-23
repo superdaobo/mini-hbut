@@ -98,6 +98,74 @@ pub(crate) async fn fetch_transaction_history(
     }
 }
 
+/// 余额明细（`balanceTradeList`，tradeType 11/12/13）。
+///
+/// 缓存与消费流水共用 `transaction_cache` 表，但键前缀加 `balance:` 区分，
+/// 避免两套 `tradeType` 编码互相覆盖。
+#[tauri::command]
+pub(crate) async fn fetch_balance_trade_list(
+    state: State<'_, AppState>,
+    start_date: String,
+    end_date: String,
+    page_no: i32,
+    page_size: i32,
+    trade_type: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let trade_type = trade_type.unwrap_or_else(|| "11,12,13".to_string());
+    let cache_key = uid.as_ref().map(|u| {
+        format!(
+            "{}:balance:{}:{}:{}:{}:{}",
+            u, start_date, end_date, page_no, page_size, trade_type
+        )
+    });
+
+    match client
+        .fetch_balance_trade_list(&start_date, &end_date, page_no, page_size, &trade_type)
+        .await
+    {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "transaction_cache", key, &payload);
+            }
+            persist_electricity_tokens(&client);
+            Ok(payload)
+        }
+        Err(e) => {
+            println!("[警告] Balance trade list fetch failed: {}", e);
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "transaction_cache", key)
+                {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+/// 交易类型字典（`balance=true` 拿余额域 11/12/13 的类型名）。
+///
+/// 只影响「类型」下拉的文案，失败时前端降级为「全部」，故不做磁盘缓存。
+#[tauri::command]
+pub(crate) async fn fetch_trade_list_config(
+    state: State<'_, AppState>,
+    balance: bool,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    match client.query_trade_list_config(balance).await {
+        Ok(data) => {
+            persist_electricity_tokens(&client);
+            Ok(data)
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn campus_code_fetch_config(
     state: State<'_, AppState>,

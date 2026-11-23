@@ -690,6 +690,8 @@ pub fn run() {
             transport::tauri::electricity::electricity_query_account,
             transport::tauri::electricity::refresh_electricity_token,
             transport::tauri::electricity::fetch_transaction_history,
+            transport::tauri::electricity::fetch_balance_trade_list,
+            transport::tauri::electricity::fetch_trade_list_config,
             transport::tauri::electricity::campus_code_fetch_config,
             transport::tauri::electricity::campus_code_fetch_qrcode,
             transport::tauri::electricity::campus_code_fetch_order_status,
@@ -830,6 +832,10 @@ pub fn run() {
             // #1054：座位预约提交（快速预约链路：验证码 + 提交随机串 + 提交）
             transport::tauri::library_reserve::library_reserve_seat_submit_prepare,
             transport::tauri::library_reserve::library_reserve_seat_submit,
+            transport::tauri::chaoxing::chaoxing_fetch_exams_all_courses,
+            transport::tauri::chaoxing::chaoxing_fetch_study_record,
+            transport::tauri::chaoxing::chaoxing_fetch_works_all_courses,
+            transport::tauri::chaoxing::chaoxing_resolve_task_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

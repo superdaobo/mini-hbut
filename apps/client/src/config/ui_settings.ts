@@ -35,6 +35,7 @@ export type HomeModuleKey =
   | 'library_reserve'
   | 'chaoxing_reserve'
   | 'campus_map'
+  | 'campus_guide'
   | 'resource_share'
   | 'chaoxing_class'
   | 'chaoxing_hub'
@@ -122,6 +123,8 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   // A15：预约（内嵌超星官方预约页），与原生模块 library_reserve 并列登记
   'chaoxing_reserve',
   'campus_map',
+  // #1372：校园导览（腾讯地图版）独立模块，紧跟校园地图
+  'campus_guide',
   'resource_share',
   'towergo',
   'smart_orientation',
