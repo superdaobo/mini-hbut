@@ -102,12 +102,16 @@ export const buildWeekDates = (anchor: Date = new Date()) => {
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
       d.getDate()
     ).padStart(2, '0')}`
+    const today = new Date()
     return {
       iso,
       date: String(d.getDate()),
       month: d.getMonth() + 1,
       dayOfWeek: index + 1,
-      label: labels[index]
+      // ScheduleGrid 读的是 dayLabel / isToday（见 ScheduleGrid.vue:404/77）
+      dayLabel: labels[index],
+      label: labels[index],
+      isToday: d.toDateString() === today.toDateString()
     }
   })
 }

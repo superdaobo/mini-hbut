@@ -209,6 +209,6 @@ mod tests {
         assert!(!readonly::is_teacher_workload_readonly_path(
             "/twork/jsd/save"
         ));
-        assert!(!readonly::is_teacher_workload_readonly_path("/admin/x"));
+        assert!(!readonly::is_teacher_workload_readonly_path("/other/x"));
     }
 }

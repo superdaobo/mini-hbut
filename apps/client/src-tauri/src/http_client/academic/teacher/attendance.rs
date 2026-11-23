@@ -132,7 +132,7 @@ pub(crate) async fn fetch_attendance_with(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let referer = format!("{}/admin/jsd/xskq", client.jwxt_base_url());
+    let referer = format!("{}/admin/", client.jwxt_base_url());
     let payload = grid::fetch_grid(
         client,
         readonly::PATH_ATTENDANCE_LIST,

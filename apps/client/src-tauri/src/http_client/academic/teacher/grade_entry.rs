@@ -88,7 +88,7 @@ pub(crate) async fn fetch_grade_entry_with(
     let semester = semester
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let referer = format!("{}/admin/jsd/jsdcjlr/list1", client.jwxt_base_url());
+    let referer = format!("{}/admin/", client.jwxt_base_url());
     let progress_path = readonly::PATH_GRADE_ENTRY_PROGRESS.replace(
         "{index}",
         DEFAULT_PROGRESS_INDEX,

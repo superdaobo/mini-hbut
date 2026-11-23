@@ -315,8 +315,22 @@ pub(crate) async fn fetch_teacher_scores(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    crate::hbut_debug!("[ChaoxingTeacher] 成绩明细 {} 条", rows.len());
-    Ok(json!({ "students": rows, "count": rows.len() }))
+    // ⚠️ PII 白名单：上游每行 60+ 字段（含 userid/attend/video 等学生明细），
+    // 前端学情页**只消费聚合维度**，不需要逐人明细。
+    // 这里只保留 4 个数值字段用于聚合，**不返回 userid/姓名/学号**。
+    let aggregated: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            json!({
+                "attend": row.get("attend").and_then(Value::as_f64),
+                "video": row.get("video").and_then(Value::as_f64),
+                "taskEngineScore": row.get("taskEngineScore").and_then(Value::as_f64),
+                "readTime": row.get("readTime").and_then(Value::as_f64),
+            })
+        })
+        .collect();
+    crate::hbut_debug!("[ChaoxingTeacher] 成绩明细 {} 条（已白名单化）", aggregated.len());
+    Ok(json!({ "students": aggregated, "count": aggregated.len() }))
 }
 
 /// 拉取学习监控列表（`study-monitor/v2/studyList`）。
@@ -334,8 +348,9 @@ pub(crate) async fn fetch_teacher_monitor(
         .cloned()
         .unwrap_or_default();
     let count = payload.get("count").and_then(Value::as_i64).unwrap_or(0);
-    crate::hbut_debug!("[ChaoxingTeacher] 监控 {} 条（count={count}）", rows.len());
-    Ok(json!({ "students": rows, "count": count }))
+    // ⚠️ PII：监控明细含学生标识，前端只显示人数（count），不透传逐人数据
+    crate::hbut_debug!("[ChaoxingTeacher] 监控 count={count}（明细不下发）");
+    Ok(json!({ "students": Vec::<Value>::new(), "count": count }))
 }
 
 #[cfg(test)]

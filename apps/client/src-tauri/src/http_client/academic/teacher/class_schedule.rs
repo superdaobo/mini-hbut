@@ -372,7 +372,7 @@ async fn fetch_schedule_common(
     crate::hbut_debug!(
         "[TeacherSchedule] {} {} → {} 条（学期 {}）",
         label,
-        &encode_id[..encode_id.len().min(12)],
+        &encode_id.chars().take(12).collect::<String>(),
         entries.len(),
         semester
     );

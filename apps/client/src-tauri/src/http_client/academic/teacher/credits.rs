@@ -129,7 +129,7 @@ pub(crate) async fn fetch_credits_with(
     let semester = semester
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let referer = format!("{}/admin/xjgl/xftj", client.jwxt_base_url());
+    let referer = format!("{}/admin/", client.jwxt_base_url());
 
     // 不及格明细必须带 `id`（页面自身以 `?id=` 空值调用，按当前登录身份过滤）。
     let (rows_result, failed_result) = tokio::join!(

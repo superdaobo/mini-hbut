@@ -87,7 +87,7 @@ const applySemester = async (): Promise<void> => {
 }
 const reload = async (): Promise<void> => { await retryClasses() }
 
-// ── 学号搜索（300ms 防抖；后端映射到学号查询，前端不过滤）──
+// ── 姓名搜索（300ms 防抖；后端映射到学号查询，前端不过滤）──
 const keywordDraft = ref('')
 let keywordTimer: ReturnType<typeof setTimeout> | null = null
 const onKeywordInput = (): void => {
@@ -194,7 +194,7 @@ onBeforeUnmount(() => {
         <!-- 搜索（300ms 防抖；后端学号查询） -->
         <div class="tch-ro-search">
           <span class="material-symbols-outlined text-[20px] text-outline" aria-hidden="true">search</span>
-          <input v-model="keywordDraft" class="tch-ro-search-input" type="text" inputmode="numeric"
+          <input v-model="keywordDraft" class="tch-ro-search-input" type="text"
             :placeholder="t('teacher.roster.search.placeholder')" :aria-label="t('teacher.roster.search.aria')"
             @input="onKeywordInput" />
           <button v-if="keywordDraft" type="button" class="tch-ro-search-clear"

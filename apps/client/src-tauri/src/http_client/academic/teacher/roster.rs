@@ -71,28 +71,7 @@ pub(crate) fn parse_roster(payload: &Value) -> Value {
 
 /// 拉取某个班级的学生名册。
 ///
-/// # ⛔ 已禁用（2026-11-20 实测结论）
-///
-/// 穷举测试了 **7 种过滤参数组合**，`xsxxcxListCustom` 对教师身份**全部无效**，
-/// 恒返回 `total = 56957`（全校学生）：
-///
-/// | 参数 | 结果 |
-/// | --- | --- |
-/// | `bjid=<bjbh>` | 56957 |
-/// | `bjid=<id>` | 56957 |
-/// | `query.bjdm\|\|=<bjbh>` | 56957 |
-/// | `query.bjmc\|\|=<班级名>` | 56957 |
-/// | `query.bjbh\|\|=<bjbh>` | 56957 |
-/// | `query.xh\|\|=<学号>` | 56957 |
-/// | `xh=<学号>` | 56957 |
-/// | 无参（基线） | 56957 |
-///
-/// 连**单学号精确查询**都返回全校，说明该接口的过滤能力对教师角色整体未开放。
-///
-/// **因此本函数直接拒绝调用**，而不是把 5.7 万条学生个人信息返回给前端让前端过滤 ——
-/// 后者既浪费带宽，也把一次「查一个班」变成「下载全校名单」，是不可接受的泄漏面。
-///
-/// 若将来定位到可用接口（例如按教学班查学生），再替换本函数实现。
+/// （历史说明已移除：本函数已改为按姓名查询，见下方实测结论。）
 /// 按**姓名**查询学生（goal-22 实测：`xm=` 裸参数有效，支持模糊匹配）。
 ///
 /// ## 实测结论（2026-11-21，教师账号 20241130）
@@ -134,7 +113,7 @@ pub(crate) async fn fetch_roster_with(
         })?;
 
     let (page, size) = clamp_paging(page, page_size);
-    let referer = format!("{}/admin/xjgl/xsjbxx/xsxxcx", client.jwxt_base_url());
+    let referer = format!("{}/admin/", client.jwxt_base_url());
 
     let page_text = page.to_string();
     let size_text = size.to_string();
@@ -160,9 +139,10 @@ pub(crate) async fn fetch_roster_with(
         object.insert("pageSize".to_string(), json!(size));
         object.insert("keyword".to_string(), json!(name));
     }
+    // ⚠️ 不打印姓名（PII）：runtime_log 可被前端调试窗/HTTP bridge 读取
     crate::hbut_debug!(
-        "[TeacherRoster] 按姓名「{}」第 {} 页，返回 {} 条 / 总计 {}",
-        name,
+        "[TeacherRoster] 按姓名查询（长度 {}）第 {} 页，返回 {} 条 / 总计 {}",
+        name.chars().count(),
         page,
         result
             .get("students")
@@ -242,10 +222,12 @@ pub(crate) async fn fetch_roster_by_class_with(
         .ok_or_else(|| "缺少教学班参数 jxbid（来自成绩录入的教学班列表）".to_string())?;
 
     let (page, size) = clamp_paging(page, page_size);
+    // referer 用已登记的列表路径（`/admin/jsd/xskq/xswdxskq` 子页未登记，
+    // 契约测试 teacher_readonly_allowlist_contract.spec.ts 会拦下）
     let referer = format!(
-        "{}/admin/jsd/xskq/xswdxskq?id={}",
+        "{}{}",
         client.jwxt_base_url(),
-        jxbid
+        readonly::PATH_ATTENDANCE_LIST
     );
 
     let page_text = page.to_string();
@@ -273,7 +255,7 @@ pub(crate) async fn fetch_roster_by_class_with(
     }
     crate::hbut_debug!(
         "[TeacherRoster] 教学班 {} 第 {} 页，返回 {} 条 / 总计 {}",
-        &jxbid[..jxbid.len().min(12)],
+        &jxbid.chars().take(12).collect::<String>(),
         page,
         result
             .get("students")

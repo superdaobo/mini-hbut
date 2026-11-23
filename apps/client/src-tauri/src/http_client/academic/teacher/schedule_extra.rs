@@ -105,8 +105,8 @@ pub(crate) async fn fetch_schedule_lists_with(
     let semester = semester
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let class_referer = format!("{}/admin/pkgl/kbcx/bjkb?qx=1", client.jwxt_base_url());
-    let room_referer = format!("{}/admin/pkgl/pkglcroomkb", client.jwxt_base_url());
+    let class_referer = format!("{}/admin/", client.jwxt_base_url());
+    let room_referer = format!("{}/admin/", client.jwxt_base_url());
 
     let class_size = CLASS_LIST_PAGE_SIZE.to_string();
     let room_size = ROOM_LIST_PAGE_SIZE.to_string();

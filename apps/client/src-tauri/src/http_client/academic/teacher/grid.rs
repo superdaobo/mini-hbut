@@ -99,7 +99,13 @@ pub(crate) async fn fetch_grid_with_params(
     if !extra.is_empty() {
         request = request.query(extra);
     }
-    let response = request.send().await.map_err(|e| format!("请求失败: {e}"))?;
+    // 教务部分端点极慢（实测 /admin/jsd/xskq/xswdxskqListCustom 耗时 35.9 秒），
+    // 全局 client 超时是 30s 会失败。教师侧只读请求统一放宽到 90s。
+    let response = request
+        .timeout(std::time::Duration::from_secs(90))
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
 
     let status = response.status().as_u16();
     let final_url = response.url().to_string();
