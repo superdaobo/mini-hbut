@@ -65,10 +65,7 @@ pub(crate) fn interpret_workload_response(
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .trim();
-            return Err(format!(
-                "工作量微服务返回 code={} message={message}",
-                code
-            ));
+            return Err(format!("工作量微服务返回 code={} message={message}", code));
         }
     }
     Ok(payload)
@@ -110,10 +107,7 @@ pub(crate) async fn fetch_workload_with(
         .http_client()
         .get(&url)
         .header("Accept", "application/json, text/plain, */*")
-        .header(
-            "Referer",
-            format!("{}/admin/", client.jwxt_base_url()),
-        )
+        .header("Referer", format!("{}/admin/", client.jwxt_base_url()))
         .send()
         .await
         .map_err(|e| format!("请求失败: {e}"))?;
@@ -144,11 +138,17 @@ mod tests {
 
     #[test]
     fn interpret_accepts_numeric_code_one() {
-        let payload =
-            interpret_workload_response(200, "https://jwxt.hbut.edu.cn/twork/x", r#"{"code":1,"data":{"gzl":320}}"#)
-                .expect("应成功");
+        let payload = interpret_workload_response(
+            200,
+            "https://jwxt.hbut.edu.cn/twork/x",
+            r#"{"code":1,"data":{"gzl":320}}"#,
+        )
+        .expect("应成功");
         assert_eq!(
-            payload.get("data").and_then(|d| d.get("gzl")).and_then(Value::as_i64),
+            payload
+                .get("data")
+                .and_then(|d| d.get("gzl"))
+                .and_then(Value::as_i64),
             Some(320)
         );
     }
@@ -196,7 +196,10 @@ mod tests {
         let value = normalize_workload(&json!({ "code": 1, "data": { "gzl": 320 } }));
         assert_eq!(value.get("available").and_then(Value::as_bool), Some(true));
         assert_eq!(
-            value.get("raw").and_then(|r| r.get("gzl")).and_then(Value::as_i64),
+            value
+                .get("raw")
+                .and_then(|r| r.get("gzl"))
+                .and_then(Value::as_i64),
             Some(320)
         );
     }

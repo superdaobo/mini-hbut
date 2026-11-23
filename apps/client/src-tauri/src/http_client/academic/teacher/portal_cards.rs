@@ -198,12 +198,8 @@ pub(crate) async fn fetch_portal_cards_with(client: &HbutClient) -> Result<Value
     let page_view_query: [(&str, &str); 3] =
         [("pageCode", ""), ("originalUrl", ""), ("lang", "zh")];
 
-    let mut page_view = portal_get_with_query(
-        client,
-        readonly::PATH_PORTAL_PAGE_VIEW,
-        &page_view_query,
-    )
-    .await?;
+    let mut page_view =
+        portal_get_with_query(client, readonly::PATH_PORTAL_PAGE_VIEW, &page_view_query).await?;
     let mut layout = extract_card_layout(&page_view);
 
     // ⚠️ 门户会话过期的**第二种表现**（比 999 更隐蔽）：
@@ -212,12 +208,9 @@ pub(crate) async fn fetch_portal_cards_with(client: &HbutClient) -> Result<Value
     // 因此「布局为空」也要触发一次会话恢复，而不是直接报错。
     if is_session_expired(&page_view) || layout.is_empty() {
         refresh_portal_session(client).await?;
-        page_view = portal_get_with_query(
-            client,
-            readonly::PATH_PORTAL_PAGE_VIEW,
-            &page_view_query,
-        )
-        .await?;
+        page_view =
+            portal_get_with_query(client, readonly::PATH_PORTAL_PAGE_VIEW, &page_view_query)
+                .await?;
         layout = extract_card_layout(&page_view);
     }
 
@@ -260,10 +253,9 @@ pub(crate) async fn fetch_portal_cards_with(client: &HbutClient) -> Result<Value
                 .replace("{cardId}", &card_id);
             let body = json!({ "cardId": card_id, "cardWid": card_wid, "method": "getMarkNumber", "param": {}, "n": 1 });
             match portal_post(client, &path, body).await {
-                Ok(payload) if is_success(&payload) => payload
-                    .get("data")
-                    .cloned()
-                    .unwrap_or(Value::Null),
+                Ok(payload) if is_success(&payload) => {
+                    payload.get("data").cloned().unwrap_or(Value::Null)
+                }
                 _ => Value::Null,
             }
         };
@@ -335,11 +327,18 @@ mod tests {
 
     #[test]
     fn normalize_card_maps_alt_keys() {
-        let card = json!({ "wid": "w1", "id": "CUS_CARD_MYTASK", "name": "我的任务", "cardType": "cus" });
+        let card =
+            json!({ "wid": "w1", "id": "CUS_CARD_MYTASK", "name": "我的任务", "cardType": "cus" });
         let out = normalize_card(&card);
         assert_eq!(out.get("cardWid").and_then(Value::as_str), Some("w1"));
-        assert_eq!(out.get("cardId").and_then(Value::as_str), Some("CUS_CARD_MYTASK"));
-        assert_eq!(out.get("cardName").and_then(Value::as_str), Some("我的任务"));
+        assert_eq!(
+            out.get("cardId").and_then(Value::as_str),
+            Some("CUS_CARD_MYTASK")
+        );
+        assert_eq!(
+            out.get("cardName").and_then(Value::as_str),
+            Some("我的任务")
+        );
     }
 
     #[test]
@@ -350,7 +349,11 @@ mod tests {
         assert!(readonly::is_teacher_portal_readonly_path(
             "/execCardMethod/123/CUS_CARD_MYTASK"
         ));
-        assert!(!readonly::is_teacher_portal_readonly_path("/saveSiteitching"));
-        assert!(!readonly::is_teacher_portal_readonly_path("/uploadUserAvatar"));
+        assert!(!readonly::is_teacher_portal_readonly_path(
+            "/saveSiteitching"
+        ));
+        assert!(!readonly::is_teacher_portal_readonly_path(
+            "/uploadUserAvatar"
+        ));
     }
 }

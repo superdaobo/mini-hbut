@@ -125,10 +125,19 @@ pub(crate) fn router() -> Router<HttpState> {
         .route("/v2/teacher/class-schedule", post(teacher_class_schedule))
         .route("/v2/teacher/room-schedule", post(teacher_room_schedule))
         .route("/v2/teacher/portal-cards", post(teacher_portal_cards))
-        .route("/v2/teacher/chaoxing-courses", post(teacher_chaoxing_courses))
-        .route("/v2/teacher/chaoxing-analytics", post(teacher_chaoxing_analytics))
+        .route(
+            "/v2/teacher/chaoxing-courses",
+            post(teacher_chaoxing_courses),
+        )
+        .route(
+            "/v2/teacher/chaoxing-analytics",
+            post(teacher_chaoxing_analytics),
+        )
         .route("/v2/teacher/chaoxing-scores", post(teacher_chaoxing_scores))
-        .route("/v2/teacher/chaoxing-monitor", post(teacher_chaoxing_monitor))
+        .route(
+            "/v2/teacher/chaoxing-monitor",
+            post(teacher_chaoxing_monitor),
+        )
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -184,10 +193,8 @@ async fn teacher_schedule_lists(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(request): Json<TeacherRosterRequest>,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_schedule_lists(None, request.keyword)
@@ -201,13 +208,16 @@ async fn teacher_roster(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(request): Json<TeacherRosterRequest>,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
-        .fetch_roster(request.bjid, request.page, request.page_size, request.keyword)
+        .fetch_roster(
+            request.bjid,
+            request.page,
+            request.page_size,
+            request.keyword,
+        )
         .await
         .map(ok)
         .map_err(map_error)
@@ -217,10 +227,8 @@ async fn teacher_roster(
 async fn teacher_portal_cards(
     State(state): State<HttpState>,
     headers: HeaderMap,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_portal_cards()
@@ -233,10 +241,8 @@ async fn teacher_portal_cards(
 async fn teacher_chaoxing_courses(
     State(state): State<HttpState>,
     headers: HeaderMap,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_chaoxing_courses()
@@ -250,10 +256,8 @@ async fn teacher_chaoxing_analytics(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(request): Json<TeacherChaoxingRequest>,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_chaoxing_analytics(request.courseid, request.clazzid, request.cpi)
@@ -267,10 +271,8 @@ async fn teacher_chaoxing_scores(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(request): Json<TeacherChaoxingRequest>,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_chaoxing_scores(request.courseid, request.clazzid, request.cpi)
@@ -284,10 +286,8 @@ async fn teacher_chaoxing_monitor(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(request): Json<TeacherChaoxingRequest>,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_chaoxing_monitor(request.courseid, request.clazzid, request.cpi)
@@ -301,10 +301,8 @@ async fn teacher_class_schedule(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(request): Json<TeacherClassScheduleRequest>,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_class_schedule(request.encode_id, request.semester, request.campus_id)
@@ -327,10 +325,8 @@ async fn teacher_room_schedule(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(request): Json<TeacherClassScheduleRequest>,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_room_schedule(request.encode_id, request.semester, request.campus_id)
@@ -344,10 +340,8 @@ async fn teacher_roster_by_class(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(request): Json<TeacherRosterByClassRequest>,
-) -> Result<
-    Json<ApiResponse<serde_json::Value>>,
-    (StatusCode, Json<ApiResponse<serde_json::Value>>),
-> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_sensitive_bridge_auth(&headers, &state)?;
     service(&state)
         .fetch_roster_by_class(request.jxbid, request.page, request.page_size)

@@ -39,13 +39,13 @@ pub(crate) mod teaching;
 // ⚠️ `#[allow(dead_code)]` 是**临时豁免**：这些 `fetch_*` 目前只被单测调用，
 // 命令层尚未注册（T05 负责）。T05 完成注册后**必须移除这些 allow**，
 // 让 clippy 恢复对死代码的检查（否则等于给自己留后门）。
-pub(crate) mod class_schedule;
 pub(crate) mod attendance;
+pub(crate) mod class_schedule;
 pub(crate) mod credits;
 pub(crate) mod exam_affairs;
 pub(crate) mod grid;
-pub(crate) mod workload;
 pub(crate) mod workflow;
+pub(crate) mod workload;
 
 // goal-21 T04b：调停补 / 名册 / 成绩录入 / 门户卡。
 // 同样带临时 `#[allow(dead_code)]`，T05 注册命令后一并移除。

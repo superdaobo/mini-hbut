@@ -15,8 +15,8 @@ use serde_json::Value;
 use super::{ApplicationContext, ApplicationError};
 use crate::http_client::academic::teacher::{
     adjustment, attendance, class_schedule, credits, exam_affairs, exams, grade_entry,
-    not_implemented, portal_cards, profile, readonly, roster, schedule_extra, teaching, workload,
-    workflow,
+    not_implemented, portal_cards, profile, readonly, roster, schedule_extra, teaching, workflow,
+    workload,
 };
 
 #[derive(Clone)]
@@ -128,7 +128,10 @@ impl TeacherService {
     }
 
     /// 教师端工作量（`/twork` 微服务）。
-    pub async fn fetch_workload(&self, semester: Option<String>) -> Result<Value, ApplicationError> {
+    pub async fn fetch_workload(
+        &self,
+        semester: Option<String>,
+    ) -> Result<Value, ApplicationError> {
         self.ensure_teacher_session().await?;
         let client = self.context.client_snapshot().await;
         // `/twork` 不走 `/admin` 前缀，用独立白名单校验。
@@ -143,7 +146,10 @@ impl TeacherService {
     }
 
     /// 只读工作流：我的申请 / 经办 / 待办。
-    pub async fn fetch_workflow(&self, semester: Option<String>) -> Result<Value, ApplicationError> {
+    pub async fn fetch_workflow(
+        &self,
+        semester: Option<String>,
+    ) -> Result<Value, ApplicationError> {
         self.ensure_teacher_session().await?;
         let client = self.context.client_snapshot().await;
         Self::ensure_registered_path(readonly::PATH_WORKFLOW_MY_APPLY)?;

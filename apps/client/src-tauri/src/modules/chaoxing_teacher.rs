@@ -41,12 +41,12 @@ pub(crate) const CX_FYCOURSE_BASE: &str = "https://fycourse.fanya.chaoxing.com";
 ///
 /// 实测 16 个端点可用，这里取 UI 实际展示的 6 个核心维度；其余按需追加。
 pub(crate) const ANALYTICS_DIMENSIONS: &[&str] = &[
-    "worknum",   // 作业
-    "examnum",   // 考试
-    "sign",      // 签到
-    "score",     // 成绩
-    "pv",        // 访问量
-    "monitor",   // 学习监控概览
+    "worknum", // 作业
+    "examnum", // 考试
+    "sign",    // 签到
+    "score",   // 成绩
+    "pv",      // 访问量
+    "monitor", // 学习监控概览
 ];
 
 /// 教师请求的统一查询参数（`ut=t` 是身份标识，不能漏）。
@@ -329,7 +329,10 @@ pub(crate) async fn fetch_teacher_scores(
             })
         })
         .collect();
-    crate::hbut_debug!("[ChaoxingTeacher] 成绩明细 {} 条（已白名单化）", aggregated.len());
+    crate::hbut_debug!(
+        "[ChaoxingTeacher] 成绩明细 {} 条（已白名单化）",
+        aggregated.len()
+    );
     Ok(json!({ "students": aggregated, "count": aggregated.len() }))
 }
 
@@ -370,9 +373,18 @@ mod tests {
         }]);
         let out = parse_teacher_courses(&payload);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].get("courseId").and_then(Value::as_str), Some("267998043"));
-        assert_eq!(out[0].get("courseName").and_then(Value::as_str), Some("计算机制图与表达-1"));
-        assert_eq!(out[0].get("studentCount").and_then(Value::as_f64), Some(61.0));
+        assert_eq!(
+            out[0].get("courseId").and_then(Value::as_str),
+            Some("267998043")
+        );
+        assert_eq!(
+            out[0].get("courseName").and_then(Value::as_str),
+            Some("计算机制图与表达-1")
+        );
+        assert_eq!(
+            out[0].get("studentCount").and_then(Value::as_f64),
+            Some(61.0)
+        );
     }
 
     #[test]
@@ -386,7 +398,10 @@ mod tests {
         });
         let out = parse_teacher_channels(&payload);
         assert_eq!(out.len(), 1, "只应保留 roletype=3 的教师频道");
-        assert_eq!(out[0].get("className").and_then(Value::as_str), Some("教学班A"));
+        assert_eq!(
+            out[0].get("className").and_then(Value::as_str),
+            Some("教学班A")
+        );
         assert_eq!(out[0].get("roletype").and_then(Value::as_i64), Some(3));
     }
 
@@ -407,7 +422,10 @@ mod tests {
     fn analytics_dimensions_cover_six_core() {
         assert_eq!(ANALYTICS_DIMENSIONS.len(), 6);
         for dimension in ["worknum", "examnum", "sign", "score", "pv", "monitor"] {
-            assert!(ANALYTICS_DIMENSIONS.contains(&dimension), "缺少维度 {dimension}");
+            assert!(
+                ANALYTICS_DIMENSIONS.contains(&dimension),
+                "缺少维度 {dimension}"
+            );
         }
     }
 }

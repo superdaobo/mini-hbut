@@ -98,9 +98,7 @@ pub(crate) async fn fetch_schedule_lists_with(
     assert!(readonly::is_teacher_readonly_path(
         readonly::PATH_CLASS_LIST
     ));
-    assert!(readonly::is_teacher_readonly_path(
-        readonly::PATH_ROOM_LIST
-    ));
+    assert!(readonly::is_teacher_readonly_path(readonly::PATH_ROOM_LIST));
 
     let semester = semester
         .map(|value| value.trim().to_string())
@@ -119,8 +117,7 @@ pub(crate) async fn fetch_schedule_lists_with(
         ("page.size", class_size.as_str()),
     ];
     // 教室列表不支持服务端过滤，这里只带分页参数（搜索由前端本地做）
-    let room_params: Vec<(&str, &str)> =
-        vec![("page.pn", "1"), ("page.size", room_size.as_str())];
+    let room_params: Vec<(&str, &str)> = vec![("page.pn", "1"), ("page.size", room_size.as_str())];
 
     let keyword_owned = keyword
         .map(|value| value.trim().to_string())
@@ -185,7 +182,8 @@ pub(crate) async fn fetch_schedule_lists_with(
                 .unwrap_or("")
                 .to_string();
             if !encode.is_empty() && !class_no.is_empty() && !campus.is_empty() {
-                let url = build_class_schedule_url(jwxt_base,
+                let url = build_class_schedule_url(
+                    jwxt_base,
                     &encode,
                     &class_semester,
                     &class_no,
@@ -254,7 +252,10 @@ mod tests {
             "currentUserName": "张三"
         });
         let out = normalize_class(&record);
-        assert_eq!(out.get("classNo").and_then(Value::as_str), Some("25建筑学2"));
+        assert_eq!(
+            out.get("classNo").and_then(Value::as_str),
+            Some("25建筑学2")
+        );
         assert_eq!(out.get("studentCount").and_then(Value::as_f64), Some(61.0));
         assert_eq!(out.get("encodeId").and_then(Value::as_str), Some("ENC123"));
         assert!(out.get("currentUserName").is_none());

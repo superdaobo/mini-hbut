@@ -89,10 +89,8 @@ pub(crate) async fn fetch_grade_entry_with(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let referer = format!("{}/admin/", client.jwxt_base_url());
-    let progress_path = readonly::PATH_GRADE_ENTRY_PROGRESS.replace(
-        "{index}",
-        DEFAULT_PROGRESS_INDEX,
-    );
+    let progress_path =
+        readonly::PATH_GRADE_ENTRY_PROGRESS.replace("{index}", DEFAULT_PROGRESS_INDEX);
     // 实例化后的路径必须仍在 allowlist 内（前缀匹配兜底）。
     assert!(readonly::is_teacher_readonly_path(&progress_path));
 
@@ -141,8 +139,14 @@ mod tests {
         });
         let out = normalize_progress(&record);
         assert_eq!(out.get("classNo").and_then(Value::as_str), Some("01"));
-        assert_eq!(out.get("className").and_then(Value::as_str), Some("25建筑学2班"));
-        assert_eq!(out.get("entryEndAt").and_then(Value::as_str), Some("2026-11-20 23:59"));
+        assert_eq!(
+            out.get("className").and_then(Value::as_str),
+            Some("25建筑学2班")
+        );
+        assert_eq!(
+            out.get("entryEndAt").and_then(Value::as_str),
+            Some("2026-11-20 23:59")
+        );
         assert!(out.get("currentUserName").is_none());
     }
 
@@ -157,7 +161,10 @@ mod tests {
             "jxbzc": "2-13:2"
         });
         let out = normalize_teaching_class(&record);
-        assert_eq!(out.get("courseName").and_then(Value::as_str), Some("计算机制图与表达-1"));
+        assert_eq!(
+            out.get("courseName").and_then(Value::as_str),
+            Some("计算机制图与表达-1")
+        );
         assert_eq!(out.get("studentCount").and_then(Value::as_f64), Some(61.0));
         assert_eq!(out.get("credits").and_then(Value::as_f64), Some(3.0));
         assert_eq!(out.get("publishStatus").and_then(Value::as_str), Some("1"));

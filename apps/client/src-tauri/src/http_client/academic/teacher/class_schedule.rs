@@ -157,7 +157,10 @@ pub(crate) fn merge_consecutive(entries: Vec<Value>) -> Vec<Value> {
         // 周次取并集写回 weeks / weekText，教室与教学班都进数组。
         let key = format!(
             "{}|{}",
-            entry.get("courseName").and_then(Value::as_str).unwrap_or(""),
+            entry
+                .get("courseName")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
             entry.get("weekday").and_then(Value::as_f64).unwrap_or(0.0) as i64,
         );
         groups.entry(key).or_default().push(entry);
@@ -365,8 +368,8 @@ async fn fetch_schedule_common(
     if trimmed.trim_start().starts_with('<') {
         return Err(format!("{label}课表返回 HTML（会话可能已过期）"));
     }
-    let payload: Value = serde_json::from_str(trimmed)
-        .map_err(|e| format!("{label}课表响应解析失败: {e}"))?;
+    let payload: Value =
+        serde_json::from_str(trimmed).map_err(|e| format!("{label}课表响应解析失败: {e}"))?;
 
     let entries = parse_class_schedule(&payload);
     crate::hbut_debug!(
@@ -430,7 +433,10 @@ mod tests {
             "jxlmc": "2号"
         });
         let out = normalize_class_schedule(&record);
-        assert_eq!(out.get("courseName").and_then(Value::as_str), Some("建筑设计基础"));
+        assert_eq!(
+            out.get("courseName").and_then(Value::as_str),
+            Some("建筑设计基础")
+        );
         assert_eq!(out.get("teacherName").and_then(Value::as_str), Some("蔡睿"));
         assert_eq!(out.get("roomName").and_then(Value::as_str), Some("2-412"));
         assert_eq!(out.get("weekday").and_then(Value::as_f64), Some(1.0));
@@ -462,8 +468,14 @@ mod tests {
         ]);
         let out = parse_class_schedule(&payload);
         assert_eq!(out.len(), 1, "两节应合并成一条");
-        assert_eq!(out[0].get("startSection").and_then(Value::as_f64), Some(3.0));
-        assert_eq!(out[0].get("spanSections").and_then(Value::as_f64), Some(2.0));
+        assert_eq!(
+            out[0].get("startSection").and_then(Value::as_f64),
+            Some(3.0)
+        );
+        assert_eq!(
+            out[0].get("spanSections").and_then(Value::as_f64),
+            Some(2.0)
+        );
         assert_eq!(out[0].get("rowCount").and_then(Value::as_i64), Some(2));
     }
 
@@ -484,8 +496,14 @@ mod tests {
             .cloned()
             .unwrap_or_default();
         assert_eq!(rooms.len(), 2, "两个教室应去重成 2 项: {rooms:?}");
-        assert_eq!(out[0].get("startSection").and_then(Value::as_f64), Some(5.0));
-        assert_eq!(out[0].get("spanSections").and_then(Value::as_f64), Some(2.0));
+        assert_eq!(
+            out[0].get("startSection").and_then(Value::as_f64),
+            Some(5.0)
+        );
+        assert_eq!(
+            out[0].get("spanSections").and_then(Value::as_f64),
+            Some(2.0)
+        );
     }
 
     #[test]
@@ -513,8 +531,14 @@ mod tests {
             .cloned()
             .unwrap_or_default();
         assert_eq!(class_nos.len(), 2, "两个教学班号都应保留");
-        assert_eq!(out[0].get("startSection").and_then(Value::as_f64), Some(5.0));
-        assert_eq!(out[0].get("spanSections").and_then(Value::as_f64), Some(2.0));
+        assert_eq!(
+            out[0].get("startSection").and_then(Value::as_f64),
+            Some(5.0)
+        );
+        assert_eq!(
+            out[0].get("spanSections").and_then(Value::as_f64),
+            Some(2.0)
+        );
     }
 
     #[test]

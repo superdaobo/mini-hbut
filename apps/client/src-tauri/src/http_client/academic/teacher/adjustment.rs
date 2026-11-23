@@ -106,7 +106,10 @@ mod tests {
             "currentUserName": "张三"
         });
         let out = normalize_applicable_course(&record);
-        assert_eq!(out.get("courseName").and_then(Value::as_str), Some("计算机制图与表达-1"));
+        assert_eq!(
+            out.get("courseName").and_then(Value::as_str),
+            Some("计算机制图与表达-1")
+        );
         assert_eq!(out.get("classNo").and_then(Value::as_str), Some("01"));
         assert_eq!(out.get("weeklyHours").and_then(Value::as_f64), Some(2.0));
         assert_eq!(out.get("totalHours").and_then(Value::as_f64), Some(32.0));

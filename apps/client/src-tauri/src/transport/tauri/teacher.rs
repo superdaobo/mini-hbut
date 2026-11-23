@@ -81,7 +81,10 @@ pub(crate) async fn teacher_attendance_fetch(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    service(&state).fetch_attendance(semester).await.map_err(map_error)
+    service(&state)
+        .fetch_attendance(semester)
+        .await
+        .map_err(map_error)
 }
 
 /// 教师端工作量（`/twork` 微服务）。
@@ -90,7 +93,10 @@ pub(crate) async fn teacher_workload_fetch(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    service(&state).fetch_workload(semester).await.map_err(map_error)
+    service(&state)
+        .fetch_workload(semester)
+        .await
+        .map_err(map_error)
 }
 
 /// 只读工作流：申请 / 经办 / 待办。
@@ -99,7 +105,10 @@ pub(crate) async fn teacher_workflow_fetch(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    service(&state).fetch_workflow(semester).await.map_err(map_error)
+    service(&state)
+        .fetch_workflow(semester)
+        .await
+        .map_err(map_error)
 }
 
 /// 考试事务：缓考 / 剩余试卷 / 评教。
@@ -108,7 +117,10 @@ pub(crate) async fn teacher_exam_affairs_fetch(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    service(&state).fetch_exam_affairs(semester).await.map_err(map_error)
+    service(&state)
+        .fetch_exam_affairs(semester)
+        .await
+        .map_err(map_error)
 }
 
 /// 学分统计。
@@ -117,7 +129,10 @@ pub(crate) async fn teacher_credits_fetch(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    service(&state).fetch_credits(semester).await.map_err(map_error)
+    service(&state)
+        .fetch_credits(semester)
+        .await
+        .map_err(map_error)
 }
 
 /// 调停补申请（只读）。
@@ -126,7 +141,10 @@ pub(crate) async fn teacher_adjustment_fetch(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    service(&state).fetch_adjustment(semester).await.map_err(map_error)
+    service(&state)
+        .fetch_adjustment(semester)
+        .await
+        .map_err(map_error)
 }
 
 /// 学生名册（`bjid` 必填；缺失会被后端直接拒绝且不发请求）。
@@ -150,7 +168,10 @@ pub(crate) async fn teacher_grade_entry_fetch(
     state: State<'_, AppState>,
     semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    service(&state).fetch_grade_entry(semester).await.map_err(map_error)
+    service(&state)
+        .fetch_grade_entry(semester)
+        .await
+        .map_err(map_error)
 }
 
 /// 课表扩展：班级列表 + 教室列表 + 课表页 URL。
@@ -171,7 +192,10 @@ pub(crate) async fn teacher_schedule_lists_fetch(
 pub(crate) async fn teacher_portal_cards_fetch(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    service(&state).fetch_portal_cards().await.map_err(map_error)
+    service(&state)
+        .fetch_portal_cards()
+        .await
+        .map_err(map_error)
 }
 
 /// 学习通教师侧：课程与教学班频道。

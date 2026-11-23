@@ -33,7 +33,9 @@ pub(crate) const ROSTER_MAX_PAGE_SIZE: u32 = 20;
 #[allow(dead_code)] // 本模块已禁用，解析工具保留供将来接入可用接口时复用
 pub(crate) fn clamp_paging(page: Option<u32>, page_size: Option<u32>) -> (u32, u32) {
     let page = page.unwrap_or(1).max(1);
-    let size = page_size.unwrap_or(ROSTER_MAX_PAGE_SIZE).clamp(1, ROSTER_MAX_PAGE_SIZE);
+    let size = page_size
+        .unwrap_or(ROSTER_MAX_PAGE_SIZE)
+        .clamp(1, ROSTER_MAX_PAGE_SIZE);
     (page, size)
 }
 
@@ -292,8 +294,14 @@ mod tests {
             "currentUserName": "张三"
         });
         let out = normalize_student(&record);
-        assert_eq!(out.get("studentId").and_then(Value::as_str), Some("2025001"));
-        assert_eq!(out.get("className").and_then(Value::as_str), Some("25建筑学2班"));
+        assert_eq!(
+            out.get("studentId").and_then(Value::as_str),
+            Some("2025001")
+        );
+        assert_eq!(
+            out.get("className").and_then(Value::as_str),
+            Some("25建筑学2班")
+        );
         assert_eq!(out.get("grade").and_then(Value::as_str), Some("2025"));
         // 不需要的字段与身份字段都不应出现
         assert!(out.get("mzdm").is_none());

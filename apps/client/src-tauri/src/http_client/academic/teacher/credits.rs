@@ -36,7 +36,11 @@ pub(crate) fn flatten_wide_row(record: &Value) -> Vec<Value> {
     };
     let mut pairs: Vec<(i64, Value)> = map
         .iter()
-        .filter_map(|(key, value)| key.parse::<i64>().ok().map(|number| (number, value.clone())))
+        .filter_map(|(key, value)| {
+            key.parse::<i64>()
+                .ok()
+                .map(|number| (number, value.clone()))
+        })
         .collect();
     pairs.sort_by_key(|(number, _)| *number);
     pairs
@@ -179,7 +183,10 @@ mod tests {
         assert_eq!(cells.len(), 2, "非数字键应被过滤");
         assert_eq!(cells[0].get("key").and_then(Value::as_str), Some("11"));
         assert_eq!(cells[1].get("key").and_then(Value::as_str), Some("31"));
-        assert_eq!(cells[0].get("value").and_then(Value::as_str), Some("12.0/16.0"));
+        assert_eq!(
+            cells[0].get("value").and_then(Value::as_str),
+            Some("12.0/16.0")
+        );
     }
 
     #[test]

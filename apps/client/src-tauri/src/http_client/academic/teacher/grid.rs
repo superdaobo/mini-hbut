@@ -222,14 +222,18 @@ mod tests {
 
     #[test]
     fn interpret_rejects_401_and_html_page() {
-        assert!(interpret_grid_response(401, "https://jwxt.hbut.edu.cn/admin/x", "")
-            .unwrap_err()
-            .contains("401"));
         assert!(
-            interpret_grid_response(200, "https://jwxt.hbut.edu.cn/admin/x", "<html>报错啦</html>")
+            interpret_grid_response(401, "https://jwxt.hbut.edu.cn/admin/x", "")
                 .unwrap_err()
-                .contains("异常页面")
+                .contains("401")
         );
+        assert!(interpret_grid_response(
+            200,
+            "https://jwxt.hbut.edu.cn/admin/x",
+            "<html>报错啦</html>"
+        )
+        .unwrap_err()
+        .contains("异常页面"));
     }
 
     #[test]
@@ -245,9 +249,12 @@ mod tests {
 
     #[test]
     fn interpret_accepts_valid_payload_with_bom() {
-        let payload =
-            interpret_grid_response(200, "https://jwxt.hbut.edu.cn/admin/x", "\u{feff}{\"ret\":0,\"results\":[]}")
-                .expect("应解析成功");
+        let payload = interpret_grid_response(
+            200,
+            "https://jwxt.hbut.edu.cn/admin/x",
+            "\u{feff}{\"ret\":0,\"results\":[]}",
+        )
+        .expect("应解析成功");
         assert_eq!(payload.get("ret").and_then(Value::as_i64), Some(0));
     }
 
