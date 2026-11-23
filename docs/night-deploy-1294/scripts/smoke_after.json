@@ -1,0 +1,80 @@
+[
+  {
+    "method": "GET",
+    "path": "/health",
+    "status": 200,
+    "snippet": "{\"ok\":true,\"service\":\"ocr-service\",\"version\":\"1.4.1\",\"uptime_seconds\":104,\"started_at\":\"2026-11-15T01:42:47.870317+08:00\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/health/deps",
+    "status": 200,
+    "snippet": "{\"ok\":true,\"checked_at\":\"2026-11-15T01:44:35.800543+08:00\",\"status\":\"ok\",\"service\":{\"version\":\"1.4.1\",\"started_at\":\"2026-11-15T01:42:47.870317+08:00\",\"uptime_se"
+  },
+  {
+    "method": "GET",
+    "path": "/api/cloud-sync/ping?secret_ref=kv1-main",
+    "status": 200,
+    "snippet": "{\"success\":true,\"service\":\"mini-hbut-cloud-sync-pg\",\"time\":\"2026-11-15T01:44:36.010652\",\"budget\":{\"day\":\"2026-11-15\",\"reads\":0,\"writes\":0,\"read_limit\":120000,\"w"
+  },
+  {
+    "method": "GET",
+    "path": "/api/game-rank/ping",
+    "status": 200,
+    "snippet": "{\"success\":true,\"service\":\"mini-hbut-game-rank-pg\",\"time\":\"2026-11-15T01:44:36\",\"db_ready\":true,\"storage\":{\"ref\":\"sqlpub-main\",\"host\":\"fdl-postgres\",\"port\":5432"
+  },
+  {
+    "method": "GET",
+    "path": "/api/grade-distribution/health",
+    "status": 200,
+    "snippet": "{\"status\":\"ok\",\"host\":\"fdl-postgres\",\"port\":5432,\"db\":\"minihbut\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/game-platform/v1/meta",
+    "status": 200,
+    "snippet": "{\"success\":true,\"protocol_version\":{\"min\":1,\"max\":1},\"server_version\":\"2026.09.1\",\"features\":{\"run_v2\":true,\"settlement\":true,\"economy\":true,\"wallet\":true,\"dail"
+  },
+  {
+    "method": "GET",
+    "path": "/api/forum/categories",
+    "status": 200,
+    "snippet": "{\"items\":[{\"id\":1,\"slug\":\"campus\",\"name\":\"校园广场\",\"description\":\"校园日常、资讯和闲聊\",\"created_at\":\"2026-05-22T08:25:13\"},{\"id\":2,\"slug\":\"study\",\"name\":\"学习互助\",\"description"
+  },
+  {
+    "method": "GET",
+    "path": "/api/forum/threads?limit=2",
+    "status": 200,
+    "snippet": "{\"items\":[{\"id\":9,\"category_id\":1,\"author_student_id\":\"2510231106\",\"title\":\"HF 部署后验证帖 20260523-230626\",\"content_md\":\"这条帖子由部署后验证脚本创建，用于确认线上发帖、回帖、收藏和投票链路。\",\"attac"
+  },
+  {
+    "method": "GET",
+    "path": "/api/usage-stats/ping?secret_ref=kv1-main",
+    "status": 200,
+    "snippet": "{\"success\":true,\"challenge\":\"dTarqz5d16GS_Mg8z91GY7zerM5-WrtX\",\"challenge_expires_in\":90}"
+  },
+  {
+    "method": "GET",
+    "path": "/openapi.json",
+    "status": 200,
+    "snippet": "{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"Mini-HBUT OCR Service\",\"version\":\"1.4.1\"},\"paths\":{\"/forum/admin\":{\"get\":{\"summary\":\"Admin Page\",\"operationId\":\"admin_page_f"
+  },
+  {
+    "method": "POST",
+    "path": "/identity/device/verify",
+    "status": 404,
+    "snippet": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/identity/bootstrap",
+    "status": 404,
+    "snippet": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/identity/jwks.json",
+    "status": 404,
+    "snippet": "{\"detail\":\"Not Found\"}"
+  }
+]
