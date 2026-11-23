@@ -119,6 +119,7 @@ pub(crate) fn router() -> Router<HttpState> {
         .route("/v2/teacher/credits", post(teacher_credits))
         .route("/v2/teacher/adjustment", post(teacher_adjustment))
         .route("/v2/teacher/roster", post(teacher_roster))
+        .route("/v2/teacher/roster-by-class", post(teacher_roster_by_class))
         .route("/v2/teacher/grade-entry", post(teacher_grade_entry))
         .route("/v2/teacher/schedule-lists", post(teacher_schedule_lists))
         .route("/v2/teacher/class-schedule", post(teacher_class_schedule))
@@ -336,4 +337,28 @@ async fn teacher_room_schedule(
         .await
         .map(ok)
         .map_err(map_error)
+}
+
+/// 按教学班列学生（goal-22）。
+async fn teacher_roster_by_class(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(request): Json<TeacherRosterByClassRequest>,
+) -> Result<
+    Json<ApiResponse<serde_json::Value>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    service(&state)
+        .fetch_roster_by_class(request.jxbid, request.page, request.page_size)
+        .await
+        .map(ok)
+        .map_err(map_error)
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct TeacherRosterByClassRequest {
+    jxbid: Option<String>,
+    page: Option<u32>,
+    page_size: Option<u32>,
 }

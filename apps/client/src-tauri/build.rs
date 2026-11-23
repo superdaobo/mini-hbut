@@ -264,6 +264,7 @@ fn main() {
         "teacher_portal_cards_fetch",
         "teacher_profile_fetch",
         "teacher_room_schedule_fetch",
+        "teacher_roster_by_class_fetch",
         "teacher_roster_fetch",
         "teacher_schedule_lists_fetch",
         "teacher_teaching_fetch",

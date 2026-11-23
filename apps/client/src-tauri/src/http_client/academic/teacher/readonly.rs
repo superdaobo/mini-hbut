@@ -138,6 +138,19 @@ pub const PATH_ADJUSTMENT_APPLICABLE: &str = "/admin/jsd/ttbgl/queryJsPkxx";
 /// ⚠️ **实测无 `bjid` 时返回全校 56957 条**，`yxdm` 院系过滤不生效。
 /// 调用方必须先确定班级再查询，本模块对缺失 `bjid` 直接拒绝、不发请求。
 pub const PATH_ROSTER_STUDENTS: &str = "/admin/xjgl/xsjbxx/xsxxcxListCustom";
+/// 按**教学班**列学生（goal-22 实测：这是唯一能按班列学生的接口）。
+///
+/// ```text
+/// GET /admin/jsd/xskq/xswdxskqListCustom?jxbid=<教学班ID>&gridtype=jqgrid&page=1&rows=N
+/// → total=49（计算机制图与表达-2 的 49 个学生）
+/// ```
+///
+/// 字段：`xh`(学号) / `xm`(姓名) / `kcmc` / `bjmc` / `zymc` / `yxmc` / `sznj` /
+/// `cqzt1..cqzt20`（20 周考勤状态）。
+///
+/// 发现路径：`/admin/jsd/xskq` 主页面只有课程列表，学生明细在
+/// `/admin/jsd/xskq/xswdxskq?id=<jxbid>` 子页面的 AJAX 里。
+pub const PATH_ROSTER_BY_CLASS: &str = "/admin/jsd/xskq/xswdxskqListCustom";
 /// 成绩录入进度（`{index}` 为学期序号，实测 `/1` 返回 8 条）。
 pub const PATH_GRADE_ENTRY_PROGRESS: &str = "/admin/jsd/jsdcjlr/queryCjlrsz/{index}";
 // 成绩教学班状态复用已有的 [`PATH_TEACHING_CLASSES`]（同一条路径，不重复登记）。
@@ -358,6 +371,11 @@ pub const TEACHER_READONLY_PATHS: &[TeacherReadonlyPath] = &[
     TeacherReadonlyPath {
         path: PATH_ADJUSTMENT_APPLICABLE,
         purpose: "可申请调停补的课程（goal-21 调停补页）",
+        post_ok: false,
+    },
+    TeacherReadonlyPath {
+        path: PATH_ROSTER_BY_CLASS,
+        purpose: "按教学班列学生（goal-22：唯一能按班列学生的接口）",
         post_ok: false,
     },
     TeacherReadonlyPath {

@@ -604,3 +604,35 @@ export const fetchTeacherRoomSchedule = (
     },
     options
   )
+
+/**
+ * 按**教学班**列学生（`teacher_roster_by_class_fetch` / `/v2/teacher/roster-by-class`）。
+ *
+ * goal-22：这是唯一能按班列学生的接口（`xsxxcxListCustom` 对教师只支持按姓名查）。
+ * `jxbid` 来自 `fetchTeacherGradeEntry` 返回的 `teachingClasses[].classId`。
+ *
+ * 返回的每个学生含 `weeks`（20 周考勤状态数组）与 `recordedWeeks`（已录入周数）。
+ */
+export const fetchTeacherRosterByClass = (
+  params: { jxbid: string; page?: number; pageSize?: number },
+  options: TeacherFetchOptions = {}
+): Promise<TeacherLoadState<TeacherRawPayload>> =>
+  runTeacherFetch<TeacherRawPayload>(
+    {
+      command: 'teacher_roster_by_class_fetch',
+      tauriArgs: {
+        jxbid: params.jxbid,
+        page: params.page ?? null,
+        pageSize: params.pageSize ?? null
+      },
+      bridgePath: '/v2/teacher/roster-by-class',
+      bridgePayload: {
+        jxbid: params.jxbid,
+        page: params.page ?? null,
+        page_size: params.pageSize ?? null
+      },
+      normalize: (raw) => raw as TeacherRawPayload,
+      isEmpty: emptyWhenNoKeys
+    },
+    options
+  )

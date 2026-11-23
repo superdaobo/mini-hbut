@@ -318,3 +318,57 @@ html:is(.dark, [data-theme='graphite_night']) .tch-ro .tch-ro-semester-menu {
 html:is(.dark, [data-theme='graphite_night']) .tch-ro .tch-ro-semester-option:active {
   background: #1f2937;
 }
+
+/* goal-22：教学班选择（按班列学生） */
+.tch-ro-jxbid {
+  margin: 8px 0 4px;
+}
+.tch-ro-jxbid__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(71, 85, 105);
+  margin-bottom: 6px;
+}
+.tch-ro-jxbid__hint {
+  font-size: 12px;
+  color: rgb(148, 163, 184);
+  padding: 6px 0;
+}
+.tch-ro-jxbid__chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.tch-ro-jxbid__chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(71, 85, 105);
+  background: rgba(226, 232, 240, 0.6);
+}
+.tch-ro-jxbid__chip--active {
+  color: #ffffff;
+  background: rgb(37, 99, 235);
+}
+.tch-ro-jxbid__count {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ro-jxbid__title {
+  color: rgb(148, 163, 184);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ro-jxbid__chip {
+  color: rgb(148, 163, 184);
+  background: rgba(51, 65, 85, 0.6);
+}
+html:is(.dark, [data-theme='graphite_night']) .tch-ro-jxbid__chip--active {
+  color: #ffffff;
+  background: rgb(37, 99, 235);
+}

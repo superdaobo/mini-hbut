@@ -17,7 +17,7 @@
 
 import { computed, ref } from 'vue'
 
-import { fetchTeacherRoster, fetchTeacherScheduleLists } from '../api/teacherApi'
+import { fetchTeacherRoster, fetchTeacherScheduleLists , fetchTeacherRosterByClass, fetchTeacherGradeEntry } from '../api/teacherApi'
 import type { TeacherDataError, TeacherDataErrorKind, TeacherLoadState } from '../types'
 import { deriveSemesterByDate, readStoredSemester } from '../../schedule/utils/semester'
 import {
@@ -263,6 +263,77 @@ export const useTeacherRoster = (options: UseTeacherRosterOptions = {}) => {
   /** 当前选中的班级标识（== bjid）；空串 = 未选，**不发任何名册请求**。 */
   const selectedClassId = ref('')
   const keyword = ref('')
+
+  // goal-22：按教学班列学生（唯一能按班列学生的接口）
+  const teachingClasses = ref<Array<{ classId: string; courseName: string; studentCount: number | null }>>([])
+  const teachingClassesLoading = ref(false)
+  const selectedJxbid = ref('')
+
+  /** 加载教师的教学班列表（复用成绩录入的接口）。 */
+  const loadTeachingClasses = async (): Promise<void> => {
+    teachingClassesLoading.value = true
+    try {
+      const state = await fetchTeacherGradeEntry(semester.value || undefined)
+      const payload = (state.data || {}) as Record<string, unknown>
+      const list = Array.isArray(payload.teachingClasses)
+        ? (payload.teachingClasses as Array<Record<string, unknown>>)
+        : []
+      teachingClasses.value = list
+        .map((item) => ({
+          classId: String(item.classId || '').trim(),
+          courseName: String(item.courseName || '').trim(),
+          studentCount: typeof item.studentCount === 'number' ? item.studentCount : null
+        }))
+        .filter((item) => item.classId)
+    } catch {
+      teachingClasses.value = []
+    } finally {
+      teachingClassesLoading.value = false
+    }
+  }
+
+  /** 选中教学班 → 拉该班学生（含 20 周考勤）。 */
+  const selectTeachingClass = async (jxbid: string): Promise<void> => {
+    const next = jxbid.trim()
+    selectedJxbid.value = next
+    if (!next) {
+      rosterState.value = { status: 'ready', data: [], error: null }
+      total.value = 0
+      return
+    }
+    rosterState.value = { status: 'loading', data: [], error: null }
+    try {
+      const state = await fetchTeacherRosterByClass({ jxbid: next, page: 1, pageSize: ROSTER_PAGE_SIZE })
+      const payload = (state.data || {}) as Record<string, unknown>
+      const students = Array.isArray(payload.students)
+        ? (payload.students as Array<Record<string, unknown>>)
+        : []
+      rosterState.value = {
+        status: 'ready',
+        error: null,
+        data: students.map((item, index) => ({
+          key: String(item.studentId || index),
+          studentId: String(item.studentId || ''),
+          name: String(item.name || ''),
+          classId: String(item.classId || ''),
+          className: String(item.className || ''),
+          majorName: String(item.majorName || ''),
+          departmentId: String(item.departmentName || ''),
+          grade: String(item.grade || ''),
+          courseName: String(item.courseName || ''),
+          weeks: Array.isArray(item.weeks) ? (item.weeks as string[]) : [],
+          recordedWeeks: typeof item.recordedWeeks === 'number' ? item.recordedWeeks : 0
+        }))
+      }
+      total.value = typeof payload.total === 'number' ? payload.total : students.length
+    } catch (err) {
+      rosterState.value = {
+        status: 'error',
+        data: [],
+        error: { kind: 'unknown', message: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  }
   /** 后端回显的总数（该班级总学生数）；-1 = 尚未拉到。 */
   const total = ref(-1)
   /** 是否还有下一页（students.length < total）。 */
@@ -568,6 +639,11 @@ export const useTeacherRoster = (options: UseTeacherRosterOptions = {}) => {
     retryRoster,
     retryClasses,
     setSemester,
-    clearRoster
+    clearRoster,
+    teachingClasses,
+    teachingClassesLoading,
+    selectedJxbid,
+    loadTeachingClasses,
+    selectTeachingClass
   }
 }

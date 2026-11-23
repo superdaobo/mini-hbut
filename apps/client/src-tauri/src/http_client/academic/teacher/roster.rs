@@ -174,6 +174,117 @@ pub(crate) async fn fetch_roster_with(
     Ok(result)
 }
 
+/// 归一化「按教学班列学生」的一条记录（含 20 周考勤）。
+///
+/// 上游字段：`xh`(学号) / `xm`(姓名) / `bjmc` / `zymc` / `yxmc` / `sznj` /
+/// `cqzt1..cqzt20`（"0"=未录入，其它值=已录入）。
+///
+/// 隐私：只保留 7 个字段 + 考勤状态，**不传** `sfzjh`/`zzmmdm` 等。
+pub(crate) fn normalize_class_student(record: &Value) -> Value {
+    let mut weeks: Vec<String> = Vec::with_capacity(20);
+    let mut recorded = 0_i64;
+    for index in 1..=20 {
+        let key = format!("cqzt{index}");
+        let value = record
+            .get(&key)
+            .map(|v| match v {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+        if !value.is_empty() && value != "0" {
+            recorded += 1;
+        }
+        weeks.push(value);
+    }
+    json!({
+        "studentId": grid::text_field(record, "xh"),
+        "name": grid::text_field(record, "xm"),
+        "classId": grid::text_field(record, "bjdm"),
+        "className": grid::text_field(record, "bjmc"),
+        "majorName": grid::text_field(record, "zymc"),
+        "departmentName": grid::text_field(record, "yxmc"),
+        "grade": grid::text_field(record, "sznj"),
+        "courseName": grid::text_field(record, "kcmc"),
+        "weeks": weeks,
+        "recordedWeeks": recorded,
+    })
+}
+
+/// 解析「按教学班列学生」响应。
+pub(crate) fn parse_class_roster(payload: &Value) -> Value {
+    let rows = grid::parse_grid_list(payload);
+    let students: Vec<Value> = rows.iter().map(normalize_class_student).collect();
+    let total = payload
+        .get("total")
+        .and_then(Value::as_i64)
+        .unwrap_or(students.len() as i64);
+    json!({ "students": students, "total": total })
+}
+
+/// 按**教学班**列学生（goal-22：这是唯一能按班列学生的接口）。
+///
+/// `jxbid` 来自 `jsdQueryJxbList`（成绩录入的教学班列表，已实现）。
+pub(crate) async fn fetch_roster_by_class_with(
+    client: &HbutClient,
+    jxbid: Option<String>,
+    page: Option<u32>,
+    page_size: Option<u32>,
+) -> Result<Value, String> {
+    assert!(readonly::is_teacher_readonly_path(
+        readonly::PATH_ROSTER_BY_CLASS
+    ));
+
+    let jxbid = jxbid
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "缺少教学班参数 jxbid（来自成绩录入的教学班列表）".to_string())?;
+
+    let (page, size) = clamp_paging(page, page_size);
+    let referer = format!(
+        "{}/admin/jsd/xskq/xswdxskq?id={}",
+        client.jwxt_base_url(),
+        jxbid
+    );
+
+    let page_text = page.to_string();
+    let size_text = size.to_string();
+    let extra: Vec<(&str, &str)> = vec![
+        ("page.pn", page_text.as_str()),
+        ("page.size", size_text.as_str()),
+        ("jxbid", jxbid.as_str()),
+    ];
+
+    let payload = grid::fetch_grid_with_params(
+        client,
+        readonly::PATH_ROSTER_BY_CLASS,
+        None,
+        &referer,
+        &extra,
+    )
+    .await?;
+
+    let mut result = parse_class_roster(&payload);
+    if let Some(object) = result.as_object_mut() {
+        object.insert("page".to_string(), json!(page));
+        object.insert("pageSize".to_string(), json!(size));
+        object.insert("jxbid".to_string(), json!(jxbid));
+    }
+    crate::hbut_debug!(
+        "[TeacherRoster] 教学班 {} 第 {} 页，返回 {} 条 / 总计 {}",
+        &jxbid[..jxbid.len().min(12)],
+        page,
+        result
+            .get("students")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0),
+        result.get("total").and_then(Value::as_i64).unwrap_or(0)
+    );
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

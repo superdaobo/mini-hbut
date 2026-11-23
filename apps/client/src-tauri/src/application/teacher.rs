@@ -210,6 +210,21 @@ impl TeacherService {
             .map_err(ApplicationError::internal)
     }
 
+    /// 按教学班列学生（goal-22：唯一能按班列学生的接口，含 20 周考勤）。
+    pub async fn fetch_roster_by_class(
+        &self,
+        jxbid: Option<String>,
+        page: Option<u32>,
+        page_size: Option<u32>,
+    ) -> Result<Value, ApplicationError> {
+        self.ensure_teacher_session().await?;
+        let client = self.context.client_snapshot().await;
+        Self::ensure_registered_path(readonly::PATH_ROSTER_BY_CLASS)?;
+        roster::fetch_roster_by_class_with(&client, jxbid, page, page_size)
+            .await
+            .map_err(ApplicationError::internal)
+    }
+
     /// 成绩录入进度 + 教学班发布状态。
     pub async fn fetch_grade_entry(
         &self,

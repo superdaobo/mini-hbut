@@ -254,3 +254,17 @@ pub(crate) async fn teacher_room_schedule_fetch(
         .await
         .map_err(map_error)
 }
+
+/// 按教学班列学生（goal-22：含 20 周考勤状态）。
+#[tauri::command]
+pub(crate) async fn teacher_roster_by_class_fetch(
+    state: State<'_, AppState>,
+    jxbid: Option<String>,
+    page: Option<u32>,
+    page_size: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    service(&state)
+        .fetch_roster_by_class(jxbid, page, page_size)
+        .await
+        .map_err(map_error)
+}

@@ -57,6 +57,12 @@ const {
   loadMore,
   retryRoster,
   retryClasses,
+  // goal-22：按教学班列学生
+  teachingClasses,
+  teachingClassesLoading,
+  selectedJxbid,
+  loadTeachingClasses,
+  selectTeachingClass,
   setSemester,
   clearRoster
 } = useTeacherRoster({ accountId: () => resolveTeacherAccountId(auth.studentId) })
@@ -127,6 +133,7 @@ const loadedFooterText = computed(() =>
 )
 
 onMounted(() => {
+  void loadTeachingClasses()
   void load()
   sentinelObserver = new IntersectionObserver((entries) => {
     if (entries.some((entry) => entry.isIntersecting)) void loadMore()
@@ -194,7 +201,29 @@ onBeforeUnmount(() => {
             :aria-label="t('teacher.roster.search.clear')" @click="clearKeyword">
             <span class="material-symbols-outlined text-[14px]">close</span>
           </button>
+        </div>      <!-- goal-22：教学班（按班列学生，唯一可用入口） -->
+      <section class="tch-ro-jxbid">
+        <p class="tch-ro-jxbid__title">按教学班查看</p>
+        <div v-if="teachingClassesLoading" class="tch-ro-jxbid__hint">正在加载教学班…</div>
+        <div v-else-if="!teachingClasses.length" class="tch-ro-jxbid__hint">
+          暂无教学班（本学期未排课）
         </div>
+        <div v-else class="tch-ro-jxbid__chips">
+          <button
+            v-for="item in teachingClasses"
+            :key="item.classId"
+            type="button"
+            class="tch-ro-jxbid__chip"
+            :class="{ 'tch-ro-jxbid__chip--active': selectedJxbid === item.classId }"
+            @click="selectTeachingClass(item.classId)"
+          >
+            <span class="truncate max-w-[140px]">{{ item.courseName || '未命名课程' }}</span>
+            <span v-if="item.studentCount !== null" class="tch-ro-jxbid__count">{{ item.studentCount }}人</span>
+          </button>
+        </div>
+      </section>
+
+
 
         <!-- 班级胶囊横滑（rosterId 为空的禁用） -->
         <div class="tch-ro-classes" role="listbox" :aria-label="t('teacher.roster.classes.aria')">
