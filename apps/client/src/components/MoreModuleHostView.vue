@@ -1,7 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
-import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, isLocalModuleContentOrigin, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
+import { canUseLocalModuleBridgePreview, isDevLoopbackModuleUrl, isLocalModuleBridgePreviewUrl, isLocalModuleContentOrigin, isTrustedRemoteModuleUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
+// Epic #1243（G2-02 / mini-hbut#1251）：远端 iframe 沙箱决策抽成纯函数（可穷举测试）
+import { decideFrameSandbox, isRemoteSandboxEnforced } from '../utils/more_modules/frame_sandbox'
 import {
   computeGrantedCapabilities,
   readModuleGrant,
@@ -265,20 +267,34 @@ const frameSrc = computed(() =>
 /**
  * #1165 T04：只有**本机模块内容**（我们自己的内容服务 origin）加 sandbox。
  *
- * 远端游戏 iframe 暂不加：它们依赖 fullscreen / 输入聚焦等能力，且与宿主本就跨源；
- * 远端模块的收紧由 T07 的显式来源与能力握手处理（不在 T04 里顺手改，避免打断 11 个游戏）。
+ * Epic #1243（G2-02 / mini-hbut#1251）：决策已抽到 `frame_sandbox.ts` 的纯函数里，
+ * 让「哪些源给什么能力」可被穷举测试。默认行为**逐字不变**（远端仍不加 sandbox）——
+ * 远端收紧由 `VITE_ENFORCE_REMOTE_MODULE_SANDBOX=1` 灰度开启；开启后：
+ *   - 白名单 CDN（https + 固定 host + 无 userinfo）→ 与本机同一套受控能力；
+ *   - 其它远端源 → **空沙箱**（连脚本都不给），而不是无沙箱。
+ * 本机无法验证 11 个游戏的运行时回归，故默认关（见 PR 的 BLOCKED）。
  */
 const frameSandbox = computed(() => {
   const src = safeText(frameSrc.value)
-  if (!src) return undefined
+  let origin = ''
   try {
-    return isLocalModuleContentOrigin(new URL(src).origin)
-      ? // 只给「跑脚本 + 保留自身 origin + 表单/弹窗/指针锁/下载」；导航类与弹模态类能力一律不给
-        'allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock allow-downloads'
-      : undefined
+    origin = src ? new URL(src).origin : ''
   } catch {
-    return undefined
+    origin = ''
   }
+  let devBuild = false
+  try {
+    devBuild = Boolean(import.meta?.env?.DEV)
+  } catch {
+    devBuild = false
+  }
+  return decideFrameSandbox({
+    src,
+    isLocalModuleOrigin: origin ? isLocalModuleContentOrigin(origin) : false,
+    isTrustedRemote: isTrustedRemoteModuleUrl(src),
+    isDevLoopback: devBuild && isDevLoopbackModuleUrl(src),
+    enforceRemoteSandbox: isRemoteSandboxEnforced()
+  }).sandbox
 })
 
 const hasEmbeddedFrameHeight = computed(() => frameContentHeight.value > 0)
