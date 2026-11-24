@@ -67,7 +67,10 @@ jobs:
   analyze-rust:
     name: Analyze (rust)
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    # ⚠️ 必须钉 24.04，不要用 ubuntu-latest（同 #1329）：ubuntu-latest 已滚到 26.04，
+    # 系统 PipeWire 1.6.2 让 libspa-sys 0.8.0 的 bindgen 生成空 spa_pod_builder → libspa E0609。
+    # 解除条件：#1331（xcap 升到 0.9.x）。
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
