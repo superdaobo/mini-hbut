@@ -132,3 +132,54 @@
 | G6 | 两家新学校接口无协议输入（R8） | T08 后续接入 | 不猜测、不预开放任意 host |
 | G7 | `capabilities` 与命令面未逐条对账（238 个已注册 handler vs 前端 210 个唯一命令名，两者集合关系未核对） | T04 | T04 开工第一步做精确对账 |
 | G8 | `HBUT_BRIDGE_TOKEN` 是进程级万能钥匙（环境变量一旦设置，任何本机进程可读该变量） | T02/T06 | 保留（CLI 需要），在契约中登记为已知边界 |
+
+## 11. Epic #1243 基线更新（2026-11-13 · G0-01 / Issue #1244）
+
+> 本节由 Epic [#1243](https://github.com/superdaobo/mini-hbut/issues/1243) 的 G0-01（[#1244](https://github.com/superdaobo/mini-hbut/issues/1244)）追加。
+> **本文 §1–§10 是 Epic #1161 时代（2026-11-01）的事实快照，仍然有效但已部分过时**；与 Epic #1243 冲突的条目已在 §11.4 登记。
+> 接口契约以 [`epic-1243-contracts.md`](./epic-1243-contracts.md) 为准。
+
+### 11.1 三仓基线（`已核实`，2026-11-13）
+
+| 仓库 | 本地分支 | 本地 HEAD | `origin/main` | 脏文件数 | 说明 |
+|---|---|---|---|---|---|
+| `superdaobo/mini-hbut` | `feat/exam-timeline-overlay` | `4f66ef4c` | `ee3d2549`（2026-11-13，Merge PR #1242） | 62（未跟踪为主） | 本 Epic 全部工作从 `origin/main` 建工作树 |
+| `superdaobo/OCR-services`（私有） | `docs/identity-resource-server` | `f9c07b9` | `5be5121`（2026-11-13，Merge PR #49 `fix/check8-pg-store`） | 3 | **本地分支落后 `origin/main` 26 个提交 / 约 2.57 万行**，禁止从本地分支切工作树 |
+| `superdaobo/mini-hbut-student-auth`（私有） | 本机未克隆 | — | `9d54108b`（2026-11-13，Merge PR #22 `fix/check8-device-proxy`） | — | 需要时 clone 到 `D:\Documents\C_learn\成绩查询\mini-hbut-student-auth` |
+
+### 11.2 OCR-services `origin/main` 的关键增量（本 Epic 必须复用，不得重写）
+
+| 增量 | 证据 | 对 Epic #1243 的影响 |
+|---|---|---|
+| **设备/主体存储生产接线 PG** | `identity_auth/store_factory.py`（`MINI_HBUT_IDENTITY_STORE=memory\|pg` + `MINI_HBUT_IDENTITY_PG_DSN`，启动期校验必需表、连不上即启动失败） | G3-01 的「PG 化」**已有工厂模式可复用**，只需扩展到 consent（契约 §4.2） |
+| **设备表 / 换机 / rebind** | `identity_auth/devices.py`、`pg_device_store.py`、`rebind.py`、`deploy/identity/migrations/0001–0004` | G1-02 多设备登记需在此基础上改「不再要求旧设备批准」（契约 §11 #C1） |
+| **数据授权只看白名单** | `identity_auth/data_whitelist.py`、`modules/identity_data_authz/routes.py`（`/identity/consents*` 已删除 → 404） | G3-01/G3-02 **不是「接线」而是「重新引入用户同意层」**（契约 §4.1、§11 #C4） |
+| **清单仓库模型 + 白名单生成器** | `manifest/apps.json`、`scripts/manifest/gen_data_whitelist.py`（PR #48） | G2-01 只能**增量**扩字段，格式已冻结（契约 §7.1） |
+| **CORS 收口 / health 拆分 / 镜像 CI→ACR** | PR #46/#47 | G5-02 的 CORS 收紧需与现状对齐，不得回退 |
+
+### 11.3 旧 Issue / 旧 PR 的交付状态（`已核实`，2026-11-13）
+
+| 编号 | 状态 | 合并 PR / merge sha | 已交付要点 | 与本 Epic 的关系 |
+|---|---|---|---|---|
+| [#1165](https://github.com/superdaobo/mini-hbut/issues/1165)（T04 模块/宿主原生权限隔离） | **OPEN** | #1183 `f731e08d`、#1184 `63b0c969`、#1196 `b6e1ffd8` | 模块内容独立 origin（4398）+ iframe sandbox + 桥 origin 白名单 + 签名覆盖 15 字段 + Tauri 259 命令 ACL 收窄到 main 窗口 | **复用**；剩余「跨平台负向实测 + 11 游戏回归」并入 G2-02 (#1251) |
+| [#1208](https://github.com/superdaobo/mini-hbut/issues/1208)（Casdoor 授权码 + PKCE） | **OPEN** | #1232 `a788ba9a` | OIDC 授权码+PKCE、`minihbut://` 深链回调 + loopback 回退、ring RS256 验签、会话写 keyring | **必须复用**：G1-04 无感会话建在其上，不重建换票 |
+| [#1209](https://github.com/superdaobo/mini-hbut/issues/1209)（refresh token / 退役设备换票） | **OPEN** | #1233 `bccdb52c` | refresh token 为默认刷新路径；设备换票降为显式开关的过渡回退；登出/切号三清 | **必须复用**：G1-04 的刷新与切号隔离 |
+| [#1216](https://github.com/superdaobo/mini-hbut/issues/1216)（Casdoor 5 项待实测） | **OPEN** | #1238 `daae57a1`（docs/ADR） | ADR §7.1 F1–F13 事实表 + 5 项结论矩阵 + 配置开关；**JWKS 仅 1 把 RSA/RS256**；`claims_supported` 无 `groups`/`hbut_student_id`（claim 名可配）；无自定义 scope | **硬约束**：G1-03 联调按此结论走；2 项仍被 FDL admin 凭据阻塞 |
+| [#1220](https://github.com/superdaobo/mini-hbut/issues/1220)（本地桥信任边界 + iframe sandbox） | **OPEN** | 无独立 PR（实质修复在 #1184 `63b0c969`；IPC 侧由 #1196 覆盖） | 桥不再信任任意 `127.0.0.1:<port>`（显式拒绝模块内容端口 4398） | **部分完成**：远端 iframe sandbox + 游戏回归并入 G2-02 |
+| [#1241](https://github.com/superdaobo/mini-hbut/pull/1241)（P4-4 退役自建注册表） | **MERGED** | `14400ae1` | 自建注册表/审核/门户写入口 → 410 + 权威源变更 + 门户只读 | **约束**：权威源 = `manifest/apps.json` + PR；**禁止复活**（契约 §11 #C7） |
+| [#1242](https://github.com/superdaobo/mini-hbut/pull/1242)（课表时间轴叠加考试卡） | **MERGED** | `ee3d2549` | 课表时间轴考试卡 + 只读详情 | 与本 Epic 无功能耦合，仅作基线 |
+| [OCR #3](https://github.com/superdaobo/OCR-services/issues/3)（T11 数据授权与撤销） | **OPEN** | #8 `0cfcc24b`、#10 `fe85e016`、#12 `7ba8702a` | 14 条判定矩阵（默认拒绝）+ 首期 5 数据域 + 三域 provider 接线；**当时**含 consent 查看/撤销 | **部分失效**：其中 consent 模型已被 `P3-2 / OCR#29` **整体退役**（见下）；判定矩阵与域注册表可复用，同意层需按契约 §4 重建 |
+
+> **⚠️ 关于 OCR #3 的关键更正（避免误读）**：T11 交付的「consent 四态 + 撤销 API」**已不在 `origin/main` 上**——`P3-2 / OCR#29` 删除了 `ConsentGrant`、内存/PG 同意存储与 `/identity/consents*` 路由（现 404），放行只看 `client_id → 数据域` 白名单（`identity_auth/data_whitelist.py:1-30`）。因此 G3-01/G3-02 **不是「给已有 consent 接 PG」**，而是按 Epic #1243 口径**重新引入用户逐域同意层**（契约 §4.1、§11 #C4）。任何按 T11 旧代码「已实现撤销」来判断进度都会得出错误结论。
+
+**结论**：29 条子 Issue 中**没有一条可直接标 DONE**。必须复用：#1232 OIDC 基座、#1233 refresh 链路、#1183/#1184/#1196 隔离机制、OCR T11 的判定矩阵与域注册表。必须改：#1165/#1220 剩余项并入 G2-02；#1216 两项待凭据回填；OCR 同意层重建。禁止复活：#1241 的自建注册表写入口、设备签名+自报学号作身份依据、已作废的 `app_attestation` 上线单。
+
+### 11.4 本文与 Epic #1243 冲突的条目（已登记，勿误读）
+
+| 本文条目 | 旧口径 | Epic #1243 口径 | 处置 |
+|---|---|---|---|
+| §4 C2 | 「V1 无 refresh token」 | #1209 已加 refresh rotation | 以新事实为准 |
+| §5 | 「学校数据默认留在设备，云端同步是独立功能」 | 核心云同步**常开**；「不上云」改为「不直给第三方」 | 变更，见契约 §11 #C5 |
+| §8「用户同意」行 | 「不存在（无数据域/同意/撤销模型）」 | 逐域同意 + 逐项撤销 + 撤销即时生效 | 变更，见契约 §4 |
+| §8「业务资源授权」行 | 「现有后端 scope 校验可被空 scope 绕过」 | 改为 `client_id` 白名单 ∩ 用户同意 ∩ 字段白名单 | 变更，见契约 §4.1 |
+| §6 Casdoor 待实测清单 | 8 项待实测 | 未变，但 Epic #1243 追加「后台无 UI 授权」「建号幂等」「学生组」 | 追加，见契约 §13 B2 |
